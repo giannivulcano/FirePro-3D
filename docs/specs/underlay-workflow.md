@@ -1016,8 +1016,8 @@ Missing-file rows show the ⚠ marker with all controls enabled (state persists,
 No change to rendering architecture from the prior design:
 
 - `_build_batched_underlay_group`: each layer's stroke item gets its pen from `underlay_layer_pen(record, layer) -> QPen` (colour + hint width, always cosmetic); text items use NoPen + colour brush.
-- **Screen hint:** no effective weight → `UNDERLAY_LINE_WIDTH_PX`. Named weight → `px = width_mm * UNDERLAY_MM_TO_PX_HINT` (6.0, `constants.py`). Always cosmetic — never zoom-scales (§3.4 invariant).
-- **Fast-stroker constraint (2026-08-30, perf-critical):** Qt's fast cosmetic stroker only handles widths ≤ 1.0 px; wider cosmetic pens use the generic stroke pipeline, measured **~20× slower** over a dense underlay (22 ms vs 1 ms on a 94k-point reference). `UNDERLAY_LINE_WIDTH_PX` is therefore **1.0** and hint widths ≤ `UNDERLAY_FAST_PATH_SNAP_PX` (1.25) snap down to 1.0; heavier user-chosen named weights keep their true hint width (and its cost). Never raise the default above 1.0.
+- **Screen hint:** no effective weight → `UNDERLAY_LINE_WIDTH_PX`. Named weight → `px = width_mm * UNDERLAY_MM_TO_PX_HINT` (6.0, `constants.py`). Always cosmetic — never zoom-scales (§3.4 invariant). *(Superseded 2026-10-06 by `linetypes.md` "MW" MW-3 / MW-8: named weight → `paper_display.canvas_px_for_weight` (the row's Model px, else round-half-up(mm × the System factor), min 1); `UNDERLAY_MM_TO_PX_HINT` and `UNDERLAY_FAST_PATH_SNAP_PX` are retired; horizontal / vertical strokes draw crisp (MW-7).)*
+- **Fast-stroker constraint (2026-08-30, perf-critical):** Qt's fast cosmetic stroker only handles widths ≤ 1.0 px; wider cosmetic pens use the generic stroke pipeline, measured **~20× slower** over a dense underlay (22 ms vs 1 ms on a 94k-point reference). `UNDERLAY_LINE_WIDTH_PX` is therefore **1.0** and hint widths ≤ `UNDERLAY_FAST_PATH_SNAP_PX` (1.25) snap down to 1.0; heavier user-chosen named weights keep their true hint width (and its cost). Never raise the default above 1.0. *(2026-10-06 "MW": the snap is retired — weights are whole px (`linetypes.md` MW-3), so a raw PDF 0.25 mm stroke is now 2 px; the cost is gated by the MW-13 ≤ 1.25× pan/zoom bench. Unweighted layers stay 1.0.)*
 - **Live re-application:** `Model_Space.repen_underlay(record)` swaps pens/brushes in place (no group rebuild, no `scene.clear()`), O(2 × layer count). Called by the Manager on every edit. Guards deleted C++ objects (`RuntimeError` → skip).
 - **Cache untouched:** overrides at pen level only; `cache_key()` unchanged.
 - **Effective layer appearance:** `layer_overrides[layer]` → fall back to `record.colour` / `record.line_weight_name`. Two tiers only; state lives on the record in the project file.
@@ -1106,7 +1106,7 @@ cache hits until any re-extraction silently rebuilt the wrong sheet).
 **17.3 PDF vector line-width preservation.** `pdf_import_worker._extract_path`
 now carries each path's **stroke width**; `_build_batched_underlay_group`
 sub-batches stroke geometry **by width** (one cosmetic pen per width bucket,
-`pt→mm→px` via `UNDERLAY_MM_TO_PX_HINT`, floored at `UNDERLAY_LINE_WIDTH_PX`), so
+`pt→mm→px` via `UNDERLAY_MM_TO_PX_HINT` — *since "MW" MW-8 `paper_display.canvas_weight_px(mm)`, whole px* — floored at `UNDERLAY_LINE_WIDTH_PX`), so
 the source line-weight hierarchy is preserved. A DM **per-file Line-Weight
 override wins** (flattens to one pen); `repen_underlay` preserves each child's
 source width (item `data(7)`) on live DM colour/opacity edits. Source **colour**

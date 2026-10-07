@@ -601,7 +601,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
   "Annotation & Geometry", a Line Weight column (`_COL_LW`, reset column moves
   to `_COL_RESET` 9) editable only there, tooltip'd. The live value is cached
   as `paper_display.model_blocks_weight()` (factory
-  `MODEL_BLOCKS_FACTORY_WEIGHT` "Light"), stored **canonical** (a raw escape
+  `MODEL_BLOCKS_FACTORY_WEIGHT` "Light" — *superseded 2026-10-06 by "MW"
+  MW-5: `model_blocks_factory_weight()`, the live row nearest 0.18 mm*),
+  stored **canonical** (a raw escape
   `canonical=False` exists only for the Cancel replay), persisted as
   `display_settings["Blocks"]` + QSettings `display/Blocks/line_weight`
   (`default_line_weight` for Set as Default). Precedence: Open = user default →
@@ -1339,7 +1341,9 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   it paints 2D geometry, a follow-up today). **Sheet viewports on screen and
   PDF/print stay true paper mm** (the sheet is the WYSIWYG print preview).
 - **LTS-3 Size on screen** (Q4). On-screen length = printed mm ×
-  `UNDERLAY_MM_TO_PX_HINT` (the D-L14 weight mapping, 6 px/mm). Drafting:
+  `UNDERLAY_MM_TO_PX_HINT` (the D-L14 weight mapping, 6 px/mm; *since "MW"
+  MW-10 its own `FIXED_LINETYPE_PX_PER_MM` 6.0, decoupled from the weight
+  factor*). Drafting:
   the authored printed mm; Model: real mm ÷ the project drawing scale (its
   printed size). E.g. Dash 6 · Gap 3 = 36 px + 18 px at any zoom, in the same
   proportion to the weight as on paper.
@@ -1407,7 +1411,8 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   paper_scale, role)`** = Fixed **and** no paper scale **and** role in
   (`plan`, `block_editor`) **and** not `paper_pass_active()` — the LTS-2
   scope test; its Fixed branch returns printed mm ×
-  `UNDERLAY_MM_TO_PX_HINT` ÷ the paint's device scale (Model: ÷ the drawing
+  `UNDERLAY_MM_TO_PX_HINT` (*now `FIXED_LINETYPE_PX_PER_MM`, "MW" H-MW-d*)
+  ÷ the paint's device scale (Model: ÷ the drawing
   scale first).
 - **H-LTS-c Paint.** Raw primitives pass `hatch_render._device_scale(painter)`
   (under `lt_frame`) and `fixed=` to `paint_stroke`. `BlockInstance.paint`
