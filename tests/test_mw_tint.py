@@ -13,7 +13,8 @@ from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 from firepro3d.scale_manager import ScaleManager
-from tests.mw_support import blend_spread, boundary_y, column_profile, dist, grab, rows
+from tests.mw_support import (blend_spread, boundary_x, boundary_y, column_profile,
+                              dist, grab, row_profile, rows)
 
 _X = 60.0          # probe column, clear of the Y axis
 
@@ -63,15 +64,33 @@ def test_tint_color_reads_state_and_exclusions(be):
     assert ctl.tint_color(ln) is None
 
 
+@pytest.fixture(params=["dark", "light"])
+def themed(request, monkeypatch):
+    t = th.DARK if request.param == "dark" else th.LIGHT
+    monkeypatch.setattr(th, "detect", lambda: t)
+    return t
+
+
 @pytest.mark.parametrize("half", [0.0, 0.5])
 @pytest.mark.parametrize("weight,n", [("Thinnest", 1), ("Thinner", 2), ("Thick", 4)])
-def test_g8_tint_width_equals_untinted_width(be, half, weight, n):
+def test_g8_tint_width_equals_untinted_width(be, themed, half, weight, n):
     v, sc = be
     y = boundary_y(v, 40.0) + half
     _line(sc, (-150, y), (150, y), weight)
     img, dpr = grab(v)
     prof, bg = _profile(v, img, dpr, _X, y)
-    assert rows(prof, th.detect().color("constraint_free"), bg) == (n, 0)
+    assert rows(prof, themed.color("constraint_free"), bg) == (n, 0)
+
+
+def test_g8_tint_width_vertical(be, themed):
+    v, sc = be
+    x = boundary_x(v, _X) + 0.5
+    _line(sc, (x, -150), (x, 150), "Thinner")
+    img, dpr = grab(v)
+    dev = v.viewportTransform().map(QPointF(x, 40.0))   # clear of the X axis
+    bg = img.pixelColor(int((dev.x() + 60) * dpr), int(dev.y() * dpr))
+    prof = row_profile(img, dpr, dev.x(), int(dev.y()))
+    assert rows(prof, themed.color("constraint_free"), bg) == (2, 0)
 
 
 @pytest.mark.parametrize("theme_name", ["dark", "light"])
@@ -124,13 +143,18 @@ def test_g8_short_fixed_stroke_tints_solid(be):
     v, sc = be
     d = make_linetype(dashes=((0.0, 30.0),), length=45.0, screen="fixed")
     sc.register_block_definition(d)
-    ln = _line(sc, (55, 80), (65, 80))          # shorter than one Fixed period
+    # 250 px at 1 px / mm: most of one Fixed period (45 mm x 6 px/mm = 270 px,
+    # 180 dash + 90 gap), so a dashed draw WOULD show a gap; LTS-7 paints it
+    # solid -- and the tint must follow the solid fallback.
+    ln = _line(sc, (20, 80), (270, 80))
     ln.style["linetype"] = d.id
     img, dpr = grab(v)
-    a = v.mapFromScene(QPointF(56, 80)); b = v.mapFromScene(QPointF(64, 80))
+    a = v.mapFromScene(QPointF(22, 80)); b = v.mapFromScene(QPointF(268, 80))
     free = th.detect().color("constraint_free")
-    assert all(any(dist(img.pixelColor(int(x * dpr), int((a.y() + dy) * dpr)), free) <= 60
-                   for dy in (-1, 0, 1)) for x in range(a.x(), b.x()))
+    unlit = [x for x in range(a.x(), b.x())
+             if not any(dist(img.pixelColor(int(x * dpr), int((a.y() + dy) * dpr)), free) <= 60
+                        for dy in (-1, 0, 1))]
+    assert not unlit, (len(unlit), unlit[:5])
 
 
 def test_g8_missing_linetype_tints_continuous(be):
@@ -168,7 +192,7 @@ def test_g8_tint_never_leaks_into_the_item(be):
 
 
 @pytest.mark.parametrize("half", [0.0, 0.5])
-def test_g8_nested_block_ops_tint_per_op(be, half):
+def test_g8_block_ops_tint_per_op(be, half):
     from firepro3d.block_definition import BlockDefinition
     v, sc = be
     a = LineItem(QPointF(-100, 0), QPointF(100, 0)); a.style["weight"] = "Thick"
@@ -180,3 +204,103 @@ def test_g8_nested_block_ops_tint_per_op(be, half):
     img, dpr = grab(v)
     prof, bg = _profile(v, img, dpr, _X, y)
     assert rows(prof, th.detect().color("constraint_free"), bg) == (4, 0)
+
+
+def test_g8_truly_nested_block_op_tints_at_its_own_width(be):
+    """A block whose definition holds an instance of another block: the inner
+    block's stroke op tints at its own width (MW-12 nested instances)."""
+    from firepro3d.block_definition import BlockDefinition
+    v, sc = be
+    a = LineItem(QPointF(-100, 0), QPointF(100, 0)); a.style["weight"] = "Thick"
+    inner = BlockDefinition.new(name="C", library="L", series="S",
+                                primitives=[a.to_dict()], origin=(0.0, 0.0))
+    outer = BlockDefinition.new(
+        name="B", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[{"type": "block_instance", "block_id": inner.id,
+                     "pos": [0.0, 0.0], "rotation": 0.0}])
+    sc.register_block_definition(inner)
+    sc.register_block_definition(outer)
+    y = boundary_y(v, 40.0) + 0.5
+    sc.place_block_instance(outer.id, (0.0, y))
+    ops = sc._block_instances[-1].render_ops()      # inner line reached via nesting
+    assert len(sc._block_instances) == 1 and ops
+    img, dpr = grab(v)
+    prof, bg = _profile(v, img, dpr, _X, y)
+    assert rows(prof, th.detect().color("constraint_free"), bg) == (4, 0)
+
+
+@pytest.mark.parametrize("screen", ["scale"])
+def test_g8_linetyped_block_op_tints_dashes_and_keeps_gaps(be, screen):
+    """The routed (linetyped) stroke-op loop of BlockInstance.paint."""
+    from firepro3d.block_definition import BlockDefinition
+    from tests.lt3_support import make_linetype
+    v, sc = be
+    d = make_linetype(dashes=((0.0, 30.0),), length=45.0, screen=screen)
+    sc.register_block_definition(d)
+    a = LineItem(QPointF(-150, 0), QPointF(150, 0)); a.style["linetype"] = d.id
+    blk = BlockDefinition.new(name="B", library="L", series="S",
+                              primitives=[a.to_dict()], origin=(0.0, 0.0))
+    sc.register_block_definition(blk)
+    sc.place_block_instance(blk.id, (0.0, 80.0))
+    img, dpr = grab(v)
+    a = v.mapFromScene(QPointF(-140, 80)); b = v.mapFromScene(QPointF(140, 80))
+    free = th.detect().color("constraint_free")
+    bg = img.pixelColor(int(a.x() * dpr), int((a.y() + 40) * dpr))
+    tinted = gap = 0
+    for x in range(a.x(), b.x()):
+        cols = [img.pixelColor(int(x * dpr), int((a.y() + dy) * dpr)) for dy in (-1, 0, 1)]
+        if any(dist(c, free) <= 60 for c in cols):
+            tinted += 1
+        elif all(dist(c, bg) <= 30 for c in cols):
+            gap += 1
+    span = b.x() - a.x()
+    assert tinted > 0.3 * span and gap > 0.15 * span, (tinted, gap, span)
+
+
+def test_g8_memo_updates_items_whose_state_changed(be, monkeypatch):
+    """Delta 5: a newly observed diagnostics result update()s exactly the
+    items whose state changed (no full-viewport repaint needed)."""
+    from firepro3d.geometry_2d import LineItem as _L
+    v, sc = be
+    held = _line(sc, (-200, 100), (-50, 140))
+    other = _line(sc, (50, -100), (200, -100))
+    ctl = sc.constraint_ctl
+    grab(v)                                       # seed the memo (both free)
+    assert ctl.tint_color(held) == th.detect().color("constraint_free")
+    monkeypatch.setattr(ctl, "_repaint", lambda: None)
+    ctl.add("horizontal", [{"uid": held._uid, "h": "edge"}])
+    ctl.add("vertical", [{"uid": held._uid, "h": "edge"}])     # red -> conflict
+    calls = []
+    real = _L.update
+    monkeypatch.setattr(_L, "update", lambda self, *a: (calls.append(self), real(self, *a)))
+    assert ctl.tint_color(other) == th.detect().color("constraint_free")   # a paint read
+    assert any(c is held for c in calls), calls
+    assert not any(c is other for c in calls)
+    assert ctl.tint_color(held) == th.detect().color("danger")
+
+
+def test_ghost_polyline_is_never_tinted(be):
+    """User ruling 2026-10-06: previews keep their own colour; only
+    committed geometry shows constraint state."""
+    from tests._snap_polish_helpers import click, move
+    v, sc = be
+    sc.set_mode("polyline"); QApplication.processEvents()
+    for p in (QPointF(20, 80), QPointF(300, 80)):
+        move(v, p); click(v, p)
+    pl = sc._polyline_active
+    assert pl is not None and pl._ghost_pen and pl in sc._polylines
+    assert pl._uid in sc.constraint_ctl.diagnostics().item_dof   # would tint
+    p0, p1 = pl._points[0], pl._points[1]
+    move(v, QPointF(330, 250))     # rubber band + tracking overlays off the segment
+    img, dpr = grab(v)
+    ghost, free = pl.pen().color(), th.detect().color("constraint_free")
+    a = v.mapFromScene(QPointF(p0.x() + 10, p0.y()))
+    b = v.mapFromScene(QPointF(p1.x() - 10, p1.y()))
+    bg = img.pixelColor(int(a.x() * dpr), int((a.y() + 40) * dpr))
+    lit = [img.pixelColor(int(x * dpr), int((a.y() + dy) * dpr))
+           for x in range(a.x(), b.x()) for dy in (-1, 0, 1)]
+    lit = [c for c in lit if dist(c, bg) > 30]
+    assert lit
+    assert all((blend_spread(c, bg, ghost) or 0) <= 0.12 for c in lit)
+    assert not any((blend_spread(c, bg, free) or 9) <= 0.12 for c in lit)
+    sc.set_mode("select"); QApplication.processEvents()

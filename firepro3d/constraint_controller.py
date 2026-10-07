@@ -914,10 +914,13 @@ class ConstraintController:
 
         None unless this is the Block Editor with Constraint Status on, the
         item participates (uid known to the diagnostics), is not selected,
-        text or a spline, and no paper pass is live. The caller paints it on
-        a painter-local pen COPY (never ``setPen``, delta 2).
+        text, a spline or a ghost (an in-progress / placement preview keeps
+        its own colour -- user, 2026-10-06), and no paper pass is live. The
+        caller paints it on a painter-local pen COPY (never ``setPen``,
+        delta 2).
         """
-        if not (self.enabled and self.show_status) or item.isSelected():
+        if (not (self.enabled and self.show_status) or item.isSelected()
+                or getattr(item, "_ghost_pen", False)):
             return None
         from .geometry_2d import SplineItem
         from .text_item import TextItem
