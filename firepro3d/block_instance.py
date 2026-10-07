@@ -673,7 +673,7 @@ class BlockInstance(QGraphicsObject):
             return None
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Type":         {"type": "label",     "value": "Block"},
             "Level":        {"type": "level_ref", "value": self.level},
             "Level Offset": {"type": "dimension", "value": self._fmt(self._level_offset_mm),
@@ -682,6 +682,22 @@ class BlockInstance(QGraphicsObject):
             # RegularPolygonItem / EllipseItem Rotation convention).
             "Rotation":     {"type": "string",    "value": f"{self._pose_rot:.1f}"},
         }
+        # WM2 Q4: placement Linetype / Weight overrides; Q12: locked inside a
+        # pattern-tile / linetype-unit Block Editor (strokes draw Continuous
+        # at the pattern's own pen there).
+        from .geometry_2d import _LOCKED_PLACEMENT_TIP, stroke_rows
+        from .hatch_patterns import picker_exclude
+        sc = self.scene()
+        reg = getattr(sc, "block_registry", None) if sc is not None else None
+        locked = sc is not None and (getattr(sc, "block_tile", None) is not None
+                                     or getattr(sc, "block_repeat", None) is not None)
+        rows = stroke_rows(self.overrides, reg, picker_exclude(sc), placement=True)
+        if locked:
+            for k in ("Linetype", "Weight"):
+                rows[k]["disabled"] = True
+                rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
+        props.update(rows)
+        return props
 
     def set_property(self, key: str, value) -> None:
         if key == "Level":
@@ -695,6 +711,60 @@ class BlockInstance(QGraphicsObject):
                 self.set_block_rotation(float(value))
             except (TypeError, ValueError):
                 pass
+        elif key in ("Weight", "Linetype"):
+            self._set_override_from_panel(key, str(value))
+
+    def _set_override_from_panel(self, key: str, value: str) -> None:
+        """Apply a panel pick to the placement override (WM2 Q4/Q5).
+
+        A value outside this row's option set (a primitive's "By Linetype
+        (...)", an unknown name, "Missing (<id>)") changes nothing. A
+        Linetypes-folder pick is loaded into the project first (its load is
+        the undo step); any other change requests one undo step.
+        """
+        from . import stroke_style as ss
+        from .paper_display import weight_names
+        from .linetype_choices import (ensure_linetype_available,
+                                       is_missing_label,
+                                       linetype_ref_from_value)
+        from .hatch_patterns import picker_exclude
+        new = dict(self.overrides)
+        if key == "Weight":
+            if value == ss.AS_AUTHORED_LABEL:
+                new["weight"] = ss.AS_AUTHORED
+            elif value.startswith(ss.BY_CATEGORY_LABEL):
+                new["weight"] = ss.BY_CATEGORY
+            elif value in weight_names():
+                new["weight"] = value
+            else:
+                return
+        else:
+            if value == ss.AS_AUTHORED_LABEL:
+                new["linetype"] = ss.AS_AUTHORED
+            elif is_missing_label(value):
+                return                       # LT3-10: never rewrite a missing ref
+            else:
+                sc = self.scene()
+                reg = getattr(sc, "block_registry", None) if sc is not None else None
+                ref = linetype_ref_from_value(value, reg, picker_exclude(sc))
+                if ref is None:
+                    return
+                if ss.is_linetype_ref(ref) and reg is not None and reg.get(ref) is None:
+                    # Set before the load so its one undo snapshot carries the
+                    # new ref; a failed load restores the old override.
+                    old = self.overrides
+                    self.set_overrides({**new, "linetype": ref})
+                    if not ensure_linetype_available(ref, sc):
+                        self.set_overrides(old)
+                    return
+                new["linetype"] = ref
+        if ss.normalize_overrides(new) == self.overrides:
+            return                                   # no-op commit: no step
+        self.set_overrides(new)
+        sc = self.scene()
+        req = getattr(sc, "request_undo_push", None) if sc is not None else None
+        if callable(req):
+            req()
 
     # ── Serialization ────────────────────────────────────────────────────
     def to_dict(self) -> dict:
