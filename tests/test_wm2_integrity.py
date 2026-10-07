@@ -46,9 +46,15 @@ def test_weight_rename_follows_placement_and_record(qapp):
                             primitives=[nested_record(s.id, {"weight": "Thick"})],
                             origin=(0.0, 0.0))
     ms, inst = scene_with([s, h], h.id, {"weight": "Thick"})
+    # A second, un-overridden placement shows the record's own override
+    # (the first placement's override would hide it); compile it pre-rename.
+    inst2 = ms.place_block_instance(h.id, (0.0, 0.0), level=ms.active_level)
+    assert {op.weight for op in inst2.render_ops() if op.kind == "stroke"} == {"Thick"}
     dm = DisplayManager(ms)
     assert dm._line_weight_in_use("Thick")
     dm._propagate_lw_rename("Thick", "Bold")
     assert inst.overrides["weight"] == "Bold"
     rec = ms.get_block_definition(h.id).primitives[0]
     assert rec["overrides"]["weight"] == "Bold"
+    # Observable: the host recompiled, so the placement now strokes "Bold".
+    assert {op.weight for op in inst2.render_ops() if op.kind == "stroke"} == {"Bold"}
