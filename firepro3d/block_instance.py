@@ -689,10 +689,8 @@ class BlockInstance(QGraphicsObject):
         from .hatch_patterns import picker_exclude
         sc = self.scene()
         reg = getattr(sc, "block_registry", None) if sc is not None else None
-        locked = sc is not None and (getattr(sc, "block_tile", None) is not None
-                                     or getattr(sc, "block_repeat", None) is not None)
         rows = stroke_rows(self.overrides, reg, picker_exclude(sc), placement=True)
-        if locked:
+        if self._overrides_locked():
             for k in ("Linetype", "Weight"):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
@@ -712,7 +710,17 @@ class BlockInstance(QGraphicsObject):
             except (TypeError, ValueError):
                 pass
         elif key in ("Weight", "Linetype"):
+            if self._overrides_locked():
+                return                  # Q12: a mixed selection can't bypass the lock
             self._set_override_from_panel(key, str(value))
+
+    def _overrides_locked(self) -> bool:
+        """True inside a pattern-tile / linetype-unit Block Editor (WM2 Q12),
+        where strokes draw Continuous at the pattern's own pen, so the
+        placement Linetype / Weight rows are locked."""
+        sc = self.scene()
+        return sc is not None and (getattr(sc, "block_tile", None) is not None
+                                   or getattr(sc, "block_repeat", None) is not None)
 
     def _set_override_from_panel(self, key: str, value: str) -> None:
         """Apply a panel pick to the placement override (WM2 Q4/Q5).
