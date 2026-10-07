@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
                          QPolygonF, QTransform)
+from . import crisp_stroke as _cs
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
 from .linetype_render import badge_pad_px
@@ -254,22 +255,23 @@ class Geometry2DMixin:
         unrotated item frame, since its ``stroke_pieces()`` carry the
         rotation); None keeps the painter's. Returns True when dashed.
         """
+        pen = QPen(self.pen())          # painter-local stroke pen (MW-7 / MW-12)
         if rs is None or (rs.lt is None and not rs.missing_id
                           and self._lt_tip_id is None):
             self._lt_missing = None      # Continuous fast path (LT3-11)
             dashed = False
         elif lt_frame is None:
-            dashed = self._paint_linetyped(painter, rs)
+            dashed = self._paint_linetyped(painter, rs, pen)
         else:
             painter.save()
             try:
                 painter.setWorldTransform(lt_frame)
-                dashed = self._paint_linetyped(painter, rs)
+                dashed = self._paint_linetyped(painter, rs, pen)
             finally:
                 painter.restore()
         if dashed:
             return True
-        super().paint(painter, option, widget)
+        self._paint_base_stroke(painter, option, widget, pen)
         if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
@@ -277,10 +279,43 @@ class Geometry2DMixin:
             draw_highlight(painter)
         return False
 
-    def _paint_linetyped(self, painter, rs) -> bool:
+    def _crisp_base_path(self) -> QPainterPath:
+        """The Qt base item's own stroke geometry, item-local (MW-7)."""
+        if isinstance(self, QGraphicsLineItem):
+            ln = self.line()
+            p = QPainterPath(ln.p1())
+            p.lineTo(ln.p2())
+            return p
+        p = QPainterPath()
+        if isinstance(self, QGraphicsRectItem):
+            p.addRect(self.rect())
+            return p
+        if isinstance(self, QGraphicsEllipseItem):
+            p.addEllipse(self.rect())
+            return p
+        return QPainterPath(self.path())
+
+    def _paint_base_stroke(self, painter, option, widget, pen) -> None:
+        """Continuous stroke: cosmetic pens through the crisp split (cached
+        per item, H-MW-f); non-cosmetic (paper) via the unchanged Qt paint."""
+        if not pen.isCosmetic():
+            super().paint(painter, option, widget)
+            return
+        cache = getattr(self, "_mw_split_cache", None)
+        if cache is None:
+            cache = self._mw_split_cache = _cs.SplitCache()
+        path = self._crisp_base_path()
+        painter.save()
+        try:
+            _cs.stroke(painter, path, pen, cache.get(path, painter.worldTransform()))
+        finally:
+            painter.restore()
+
+    def _paint_linetyped(self, painter, rs, pen=None) -> bool:
         """Draw the stroke (+ selection highlight) through the linetype renderer.
 
         *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
+        *pen* is the painter-local stroke pen (None = ``self.pen()``).
         Returns False when the caller must draw its unchanged plain stroke
         (Continuous / unresolved / malformed / LOD / ghost).
         Records ``_lt_missing`` for the badge and names it in the item's
@@ -303,7 +338,8 @@ class Geometry2DMixin:
         fixed = fixed_on_canvas(rs.lt, paper_scale=a["paper_scale"], role=a["role"])
         o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
         anchor = (o.x(), o.y())
-        if not paint_stroke(painter, pieces, rs.lt, self.pen(),
+        pen = pen if pen is not None else self.pen()
+        if not paint_stroke(painter, pieces, rs.lt, pen,
                             factor=factor, anchor=anchor, fixed=fixed):
             return False
         if self.isSelected() and not _manip_wraps(self):

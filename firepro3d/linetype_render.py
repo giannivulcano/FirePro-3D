@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainterPath, QPen
 
+from . import crisp_stroke as _cs
 from . import hatch_render as _hr
 from . import paper_display as _pd
 from . import path_walk as pw
@@ -113,6 +114,23 @@ class LinetypeDef:
 
 
 _EXPAND: OrderedDict = OrderedDict()
+_DASH_SPLITS: dict = {}     # id(dash) -> (dash, xf_key, split) -- MW-7
+
+
+def _dash_split(dash, xf):
+    """The crisp split of an ``expand`` dash path under *xf* (MW-7).
+
+    Expansions are cached (``_EXPAND``), so a dash path is a stable object
+    across paints; its split is computed once per (path, rotation) -- never
+    per paint, never on zoom (H-MW-f delta 3).
+    """
+    key = _cs.xf_key(xf)
+    ent = _DASH_SPLITS.get(id(dash))
+    if ent is None or ent[0] is not dash or ent[1] != key:
+        if len(_DASH_SPLITS) >= LINETYPE_CACHE_MAX:
+            _DASH_SPLITS.clear()
+        ent = _DASH_SPLITS[id(dash)] = (dash, key, _cs.split_axis(dash, xf))
+    return ent[2]
 
 
 def view_window(painter):
@@ -326,9 +344,9 @@ def draw_expansion(painter, dash: QPainterPath, dot: QPainterPath,
     ``save`` / ``restore`` -- and sets *pen*'s cap style (pass a copy).
     """
     pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawPath(dash)
+    # Canvas (cosmetic) dashes draw crisp on the axis (MW-7 / H-MW-f).
+    _cs.stroke(painter, dash, pen, _dash_split(dash, painter.worldTransform())
+               if pen.isCosmetic() else None)
     if not dot.isEmpty():
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)

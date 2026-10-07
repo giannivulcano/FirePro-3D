@@ -191,6 +191,7 @@ from PyQt6.QtWidgets import (                                      # noqa: E402
     QApplication, QGraphicsItem, QGraphicsTextItem, QMenu,
 )
 
+from . import crisp_stroke as _cs                                   # noqa: E402
 from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
@@ -628,9 +629,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 painter.setPen(pen)
                 painter.drawLine(cr.topLeft(), cr.bottomLeft())
         if self._data.border:
-            painter.setPen(self._frame_pen())
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self._frame_path())
+            # Canvas (cosmetic) frame edges draw crisp on the axis (MW-7).
+            pen = self._frame_pen()
+            path = self._frame_path()
+            cache = getattr(self, "_mw_split_cache", None)
+            if cache is None:
+                cache = self._mw_split_cache = _cs.SplitCache()
+            _cs.stroke(painter, path, pen,
+                       cache.get(path, painter.worldTransform()) if pen.isCosmetic() else None)
         if self._editing and self.is_device_independent():
             # Paper keeps its dashed EDITING frame; the model surface shows the
             # normal selection frame only (spec § Inline edit — no edit frame).

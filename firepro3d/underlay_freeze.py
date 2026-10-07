@@ -39,7 +39,23 @@ class _UnderlayPathItem(QGraphicsPathItem):
         ctrl = getattr(scene, "_underlay_freeze", None)
         if ctrl is not None and ctrl.frozen:
             return
-        super().paint(painter, option, widget)
+        pen = self.pen()
+        if (pen.style() == Qt.PenStyle.NoPen or not pen.isCosmetic()
+                or self.brush().style() != Qt.BrushStyle.NoBrush):
+            super().paint(painter, option, widget)      # text fills / paper
+            return
+        # Canvas stroke: axis runs crisp (MW-7, H-MW-f delta 1). The split is
+        # cached per item by path value + rotation -- never per paint / zoom.
+        from .crisp_stroke import SplitCache, stroke
+        cache = getattr(self, "_mw_split_cache", None)
+        if cache is None:
+            cache = self._mw_split_cache = SplitCache()
+        path = self.path()
+        painter.save()
+        try:
+            stroke(painter, path, pen, cache.get(path, painter.worldTransform()))
+        finally:
+            painter.restore()
 
 
 class UnderlayFreezeController:

@@ -21,6 +21,7 @@ from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
+from . import crisp_stroke as _cs
 from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
@@ -67,6 +68,7 @@ class BlockInstance(QGraphicsObject):
         self._is_ghost: bool = False
         self._lt_ref_cache = None   # (ops list, frozenset of stroke linetype ids)
         self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion, window)})
+        self._crisp_ops = None      # (ops list, {op index: SplitCache}) -- MW-7
         # Missing id named in the tooltip (linetype_render.sync_missing_tooltip);
         # set here so paint reads a plain attribute (no getattr miss).
         self._lt_tip_id: Optional[str] = None
@@ -351,8 +353,8 @@ class BlockInstance(QGraphicsObject):
                         finally:
                             painter.restore()
                         continue
-                painter.setPen(p)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
+                self._stroke_op(painter, ops, i, op, pose, p)
+                continue
             painter.drawPath(pose.map(op.path))
         if routed and (missing or self._lt_tip_id):
             _lr.sync_missing_tooltip(self, missing)     # names the id (LT3-10)
@@ -369,7 +371,7 @@ class BlockInstance(QGraphicsObject):
         """
         on_paper = self._paper_pen_width is not None
         last_w, last_px = None, None
-        for op in ops:
+        for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
                 self._paint_fill_op(painter, pose, op)
                 continue
@@ -405,9 +407,35 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
-                painter.setPen(p)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
+                self._stroke_op(painter, ops, i, op, pose, p)
+                continue
             painter.drawPath(pose.map(op.path))
+
+    def _stroke_op(self, painter, ops, i, op, pose, pen) -> None:
+        """Stroke op *i* of *ops* with *pen* (MW-7 / H-MW-f).
+
+        Canvas (cosmetic) pens draw crisp: the op's definition-local path
+        under the pose, its split cached per (ops list, op index, pose 2x2)
+        -- never per paint, never on zoom. Paper (non-cosmetic) pens keep the
+        exact pre-MW call. *pen* is the painter-local copy (MW-12 tints it).
+        """
+        if not pen.isCosmetic():
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(pose.map(op.path))
+            return
+        c = self._crisp_ops
+        if c is None or c[0] is not ops:
+            c = self._crisp_ops = (ops, {})
+        cache = c[1].get(i)
+        if cache is None:
+            cache = c[1][i] = _cs.SplitCache()
+        painter.save()
+        try:
+            painter.setWorldTransform(pose, True)
+            _cs.stroke(painter, op.path, pen, cache.get(op.path, painter.worldTransform()))
+        finally:
+            painter.restore()
 
     def _resolve_op_stroke(self, op, routed, registry, on_paper) -> list:
         """``[rs, width, lt, factor, None, fixed]`` for a stroke op -- once per distinct
