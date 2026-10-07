@@ -4,6 +4,7 @@ from firepro3d.block_definition import BlockDefinition
 from firepro3d.block_explode import explode_instances
 from firepro3d.model_space import Model_Space
 from firepro3d.stroke_style import canvas_px
+from tests.lt3_support import make_linetype
 from tests.test_lt1_block_paper import _render_model
 from tests.test_lt2_canvas_paper import _run_near
 from tests.wm2_support import (COL, ROWS, nested_record, scene_with,
@@ -68,15 +69,57 @@ def _editor_scene(defs):
 
 
 def test_g8_explode_flat_bakes_and_looks_unchanged(qapp):
-    pd.set_model_blocks_weight(None)
-    s = sprinkler_def()
-    w, ms = _editor_scene([s])
+    # "Thick" is neither an authored Sprinkler weight nor the factory Blocks
+    # weight, so only a bake of the live Blocks weight passes.
+    pd.set_model_blocks_weight("Thick")
+    try:
+        s = sprinkler_def()
+        w, ms = _editor_scene([s])
+        inst = ms.place_block_instance(s.id, (0.0, 0.0), level=ms.active_level,
+                                       overrides={"weight": "by_category"})
+        before = _runs(ms)
+        assert set(before.values()) == {round(canvas_px("Thick"))}
+        created = explode_instances(ms, [inst], flatten=False)
+        assert {it.style["weight"] for it in created} == {"Thick"}
+        assert _runs(ms) == before
+    finally:
+        pd.set_model_blocks_weight(None)
+
+
+def _diff_pixels(a, b):
+    """Every pixel compared (VC2): count of positions that differ."""
+    assert (a.width(), a.height()) == (b.width(), b.height())
+    return sum(1 for x in range(a.width()) for y in range(a.height())
+               if a.pixel(x, y) != b.pixel(x, y))
+
+
+def _model_lt():
+    return make_linetype(length=900.0, dashes=((0.0, 600.0),),
+                         weight="Thickest", size="model")
+
+
+def test_g8_explode_bakes_linetype_and_is_pixel_identical(qapp):
+    lt = _model_lt()
+    s = sprinkler_def(weights={"cross": "by_linetype"})
+    w, ms = _editor_scene([lt, s])
     inst = ms.place_block_instance(s.id, (0.0, 0.0), level=ms.active_level,
-                                   overrides={"weight": "by_category"})
-    before = _runs(ms)
+                                   overrides={"linetype": lt.id})
+    before = _render_model(ms)
     created = explode_instances(ms, [inst], flatten=False)
-    assert {it.style["weight"] for it in created} == {pd.model_blocks_weight()}
-    assert _runs(ms) == before
+    assert len(created) == 3
+    assert {it.style["linetype"] for it in created} == {lt.id}
+    assert _diff_pixels(before, _render_model(ms)) == 0
+
+
+def test_g6_nested_record_linetype_compiles_onto_every_stroke(qapp):
+    from firepro3d.render_op import STROKE
+    lt = _model_lt()
+    s = sprinkler_def()
+    h = _host(s, {"linetype": lt.id})
+    ms, _ = scene_with([lt, s, h], h.id)
+    strokes = [op for op in h.render_ops() if op.kind == STROKE]
+    assert len(strokes) >= 3
+    assert {op.linetype for op in strokes} == {lt.id}
 
 
 def test_g8_explode_composes_nested_per_axis(qapp):

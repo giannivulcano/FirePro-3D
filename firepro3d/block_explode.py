@@ -8,6 +8,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF
 
 from .block_definition import is_scaffold
+from .stroke_style import compose_overrides
 
 _NESTED_TYPE = "block_instance"
 
@@ -104,7 +105,6 @@ def explode_instances(scene, instances, flatten: bool) -> list:
         for rec in d.primitives:
             if rec.get("type") == _NESTED_TYPE:
                 pos, r = _compose(inst, rec, ox, oy)
-                from .stroke_style import compose_overrides
                 child = scene.place_block_instance(
                     rec["block_id"], pos, rotation=r,
                     overrides=compose_overrides(inst.overrides,
