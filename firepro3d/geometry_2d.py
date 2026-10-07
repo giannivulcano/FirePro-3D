@@ -57,6 +57,17 @@ def _manip_wraps(item) -> bool:
     return manip.wraps(item)
 
 
+def _constraint_tint(item):
+    """D39 tint colour from the scene's constraint controller (H-MW-g), or
+    None; getattr-guarded (fake controllers in tests, non-editor scenes)."""
+    sc = item.scene()
+    ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
+    fn = getattr(ctl, "tint_color", None)
+    if not callable(fn) or not getattr(ctl, "enabled", False):
+        return None
+    return fn(item)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Geometry2DMixin
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,6 +269,9 @@ class Geometry2DMixin:
         rotation); None keeps the painter's. Returns True when dashed.
         """
         pen = QPen(self.pen())          # painter-local stroke pen (MW-7 / MW-12)
+        tint = _constraint_tint(self)
+        if tint is not None:
+            pen.setColor(tint)          # pen COPY: never setPen (delta 2)
         if rs is None or (rs.lt is None and not rs.missing_id
                           and self._lt_tip_id is None):
             self._lt_missing = None      # Continuous fast path (LT3-11)

@@ -57,3 +57,15 @@ def row_profile(img, dpr, x_dev: float, y_dev: int, span: int = 8):
     c = int(math.floor(x_dev))
     return [(k, img.pixelColor(int(k * dpr), int(y_dev * dpr)))
             for k in range(c - span, c + span + 1)]
+
+
+def blend_spread(c: QColor, bg: QColor, ink: QColor, min_sep: int = 40):
+    """How far *c* is from a pure ``bg + a (ink - bg)`` blend: the spread of
+    the per-channel alphas (channels where ink and bg differ by > *min_sep*),
+    or None when no channel separates them. ~0 = only ink and background on
+    the pixel (an anti-aliased fringe of the ink colour); large = another
+    colour (e.g. the item's own) shows through."""
+    ch = [(c.red(), bg.red(), ink.red()), (c.green(), bg.green(), ink.green()),
+          (c.blue(), bg.blue(), ink.blue())]
+    alphas = [(cv - b) / (f - b) for cv, b, f in ch if abs(f - b) > min_sep]
+    return (max(alphas) - min(alphas)) if alphas else None

@@ -27,6 +27,7 @@ from . import linetype_render as _lr
 from . import paper_display as _pd
 from .block_definition import BlockDefinition
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
+from .geometry_2d import _constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
                            linetype_block, resolve_stroke)
@@ -283,11 +284,12 @@ class BlockInstance(QGraphicsObject):
                 painter.drawPath(self._posed_path())
             return
         override = self._display_pen_color()   # display-manager / pre-highlight hook
+        tint = _constraint_tint(self)          # D39: stroke ops only (H-MW-g)
         selected = self.isSelected()
         lc = self._lt_ref_cache               # inline hit of _linetype_ids
         if not (lc[1] if lc is not None and lc[0] is ops else self._linetype_ids(ops)):
             # No linetype refs: the pre-LT3 path, zero LT3 bookkeeping (LT3-11).
-            self._paint_plain_ops(painter, pose, ops, override, selected)
+            self._paint_plain_ops(painter, pose, ops, override, selected, tint)
             if self._lt_tip_id is not None and not self._is_ghost:
                 _lr.sync_missing_tooltip(self, None)   # refs edited away
             return
@@ -345,6 +347,8 @@ class BlockInstance(QGraphicsObject):
                         p.setWidthF(width)
                 if override is not None:
                     p.setColor(override)
+                if tint is not None:
+                    p.setColor(tint)              # pen COPY (MW-12)
                 if selected and not on_paper:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
@@ -401,7 +405,8 @@ class BlockInstance(QGraphicsObject):
             if not _pd.paper_pass_active():
                 _lr.paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
 
-    def _paint_plain_ops(self, painter, pose, ops, override, selected) -> None:
+    def _paint_plain_ops(self, painter, pose, ops, override, selected,
+                         tint=None) -> None:
         """Paint *ops* of a block with no linetype refs (every stroke solid).
 
         The pre-LT3 loop: no cascade, memo, device-scale or paper-pass read.
@@ -444,6 +449,8 @@ class BlockInstance(QGraphicsObject):
                         p.setWidthF(last_px)
                 if override is not None:
                     p.setColor(override)
+                if tint is not None:
+                    p.setColor(tint)              # pen COPY (MW-12)
                 if selected and not on_paper:
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:

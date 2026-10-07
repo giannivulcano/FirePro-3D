@@ -400,63 +400,6 @@ def _paint_axes(painter, view, t) -> None:
     painter.drawLine(QPointF(o.x() + 0.5, vp.top()), QPointF(o.x() + 0.5, vp.bottom() + 1))
 
 
-_TINT_TOKEN = {"free": "constraint_free", "defined": "ink", "conflict": "danger"}
-
-
-def _item_width(it, view) -> float:
-    """The item's own stroke width in viewport px (min 1, CS2 gate)."""
-    pen_fn = getattr(it, "pen", None)
-    if not callable(pen_fn):
-        return 1.0
-    p = pen_fn()
-    w = p.widthF()
-    if not p.isCosmetic():
-        w *= abs(view.transform().m11())
-    return max(1.0, w)
-
-
-def _tint_pen(it, view, color) -> QPen:
-    """The D39 tint pen: the item's width + ``CONSTRAINT_TINT_EXTRA_PX`` (an
-    anti-aliased stroke straddles two pixel rows, so a same-width overlay only
-    half-covers the item's own fringe). A dashed item (reference line) keeps
-    its dash pattern at the same px lengths -- Qt dash lengths are in units of
-    pen width, so the pattern is scaled by item / tint width (user,
-    2026-10-02: reference lines stay looking like reference lines)."""
-    wi = _item_width(it, view)
-    wt = wi + M.CONSTRAINT_TINT_EXTRA_PX
-    pen = QPen(color, wt)
-    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-    pen_fn = getattr(it, "pen", None)
-    ip = pen_fn() if callable(pen_fn) else None
-    if ip is not None and ip.style() not in (Qt.PenStyle.SolidLine, Qt.PenStyle.NoPen):
-        k = wi / wt
-        pen.setDashPattern([d * k for d in ip.dashPattern()])
-        pen.setDashOffset(ip.dashOffset() * k)
-    return pen
-
-
-def _paint_tint(painter, view, ctl, t) -> None:
-    """D39: re-stroke every participating, unselected item's drawn geometry
-    (its HALO trace) in its state colour. Text is not tinted (CS2 gate,
-    option b: the overlay cannot recolour QGraphicsTextItem glyphs)."""
-    if not getattr(ctl, "show_status", False):
-        return
-    from .halo import halo_scene_path
-    from .text_item import TextItem
-    d = ctl.diagnostics()
-    vt = view.viewportTransform()
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    for it in ctl.items():
-        if isinstance(it, TextItem) or it.isSelected() or not it.isVisible():
-            continue
-        u = getattr(it, "_uid", None)
-        if u is None:
-            continue
-        painter.setPen(_tint_pen(it, view, t.color(_TINT_TOKEN[d.state(u)])))
-        painter.drawPath(vt.map(halo_scene_path(it)))
-
-
 def paint(painter: QPainter, view, ctl) -> None:
     """Axes, hover/selected target glow, glyphs, then pick markers (one pass)."""
     if not ctl.enabled:
@@ -470,7 +413,6 @@ def paint(painter: QPainter, view, ctl) -> None:
     try:
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        _paint_tint(painter, view, ctl, t)
         _paint_axes(painter, view, t)
         # Target glow: selected first, hover on top (D11).
         for cid, tok in _glow_ids(ctl):
