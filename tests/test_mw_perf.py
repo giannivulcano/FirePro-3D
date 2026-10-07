@@ -88,6 +88,51 @@ def test_g9_two_thousand_mixed_primitives(qapp):
     sc.cleanup()
 
 
+def test_g9_two_thousand_mixed_split_path_items(qapp):
+    """Second primitive shape (memory: bench both shapes): items that go
+    through the cached crisp split, not the LineItem fast path -- rectangles,
+    mixed axis/diagonal polylines, and Scale-linetyped lines."""
+    from firepro3d.geometry_2d import PolylineItem, RectangleItem
+    from tests.lt3_support import make_linetype
+    random.seed(11)
+    sc = Model_Space()
+    lt = make_linetype(dashes=((0.0, 30.0),), length=45.0)
+    sc.register_block_definition(lt)
+    rects = polys = dashed = 0
+    for i in range(2000):
+        x, y = random.uniform(-5000, 5000), random.uniform(-5000, 5000)
+        k = i % 3
+        if k == 0:
+            it = RectangleItem(QPointF(x, y), QPointF(x + 300, y + 200))
+            sc.addItem(it)
+            sc._draw_rects.append(it)
+            rects += 1
+        elif k == 1:
+            it = PolylineItem(QPointF(x, y))
+            it.append_point(QPointF(x + 300, y))          # axis
+            it.append_point(QPointF(x + 450, y + 200))    # diagonal
+            it.append_point(QPointF(x + 450, y + 400))    # axis
+            sc.addItem(it)
+            sc._polylines.append(it)
+            polys += 1
+        else:
+            it = LineItem(QPointF(x, y), QPointF(x + 600, y))
+            it.style["linetype"] = lt.id
+            sc.addItem(it)
+            sc._draw_lines.append(it)
+            dashed += 1
+        it.style["weight"] = _NAMES[i % 5]
+    assert (rects, polys, dashed) == (667, 667, 666)                   # composition
+    v = _view(sc)
+    v.fitInView(sc.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+    first = _paint_ms(v)
+    ms = _frames_ms(v)
+    print(f"\nG9 split-path first paint {first:.1f} ms")
+    _check("split-path", "MW_BASE_MS_SPLIT", ms)
+    v.close()
+    sc.cleanup()
+
+
 def test_g9_heavy_pdf_underlay(qapp):
     path = os.environ.get("MW_PDF")
     if not path:
