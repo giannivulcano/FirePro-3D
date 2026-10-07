@@ -37,3 +37,17 @@ def rows(profile, ink: QColor, bg: QColor):
     partial = sum(1 for _r, c in profile
                   if dist(c, ink) > 30 and dist(c, bg) > 30)
     return full, partial
+
+
+def boundary_x(v, x_near: float) -> float:
+    """A scene x near *x_near* that maps exactly onto a device pixel boundary."""
+    dx = v.viewportTransform().map(QPointF(x_near, 0.0)).x()
+    s = v.viewportTransform().m11()
+    return x_near - (dx - math.floor(dx)) / s
+
+
+def row_profile(img, dpr, x_dev: float, y_dev: int, span: int = 8):
+    """[(col, QColor)] for device columns around *x_dev* at row *y_dev*."""
+    c = int(math.floor(x_dev))
+    return [(k, img.pixelColor(int(k * dpr), int(y_dev * dpr)))
+            for k in range(c - span, c + span + 1)]

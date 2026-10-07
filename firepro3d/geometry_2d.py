@@ -301,6 +301,16 @@ class Geometry2DMixin:
         if not pen.isCosmetic():
             super().paint(painter, option, widget)
             return
+        if self._ghost_pen or self.style is None:
+            # Not weight-mapped (placement ghosts; unstyled reference lines):
+            # outside MW-7's scope, so unsplit -- but still the pen copy, so
+            # a painter-local tint reaches them (MW-12).
+            painter.save()
+            try:
+                _cs.stroke(painter, self._crisp_base_path(), pen, None)
+            finally:
+                painter.restore()
+            return
         cache = getattr(self, "_mw_split_cache", None)
         if cache is None:
             cache = self._mw_split_cache = _cs.SplitCache()

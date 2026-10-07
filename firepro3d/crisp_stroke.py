@@ -113,21 +113,27 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
     run = None                # open run in this subpath: True axis / False other
     runs = 0                  # runs started in this subpath
     first_tgt = None
+    first_run = None          # class of this subpath's first run
 
-    def _close_if_single():
-        # A one-run closed subpath keeps its closing join (a rectangle).
-        if runs == 1 and abs(cx - sx) < 1e-9 and abs(cy - sy) < 1e-9:
+    def _end_subpath():
+        if runs == 0 or abs(cx - sx) >= 1e-9 or abs(cy - sy) >= 1e-9:
+            return            # empty or open subpath
+        if runs == 1:
+            # A one-run closed subpath keeps its closing join (a rectangle).
             first_tgt.closeSubpath()
+        elif run is not first_run:
+            # Closed: the last run meets the first at the start vertex.
+            joints.append(QPointF(sx, sy))
 
     i = 0
     while i < n:
         c = cls[i]
         x, y = xs[i], ys[i]
         if c is None:            # MoveTo
-            _close_if_single()
+            _end_subpath()
             cx = sx = x
             cy = sy = y
-            run, runs, first_tgt = None, 0, None
+            run, runs, first_tgt, first_run = None, 0, None, None
             i += 1
             continue
         is_axis = c == 1
@@ -139,7 +145,7 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
             run = is_axis
             runs += 1
             if first_tgt is None:
-                first_tgt = tgt
+                first_tgt, first_run = tgt, is_axis
         if c != 2:
             tgt.lineTo(x, y)
             cx, cy = x, y
@@ -148,7 +154,7 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
         cx, cy = xs[i + 2], ys[i + 2]
         other.cubicTo(x, y, xs[i + 1], ys[i + 1], cx, cy)
         i += 3
-    _close_if_single()
+    _end_subpath()
     return CrispSplit(axis, other, tuple(joints), False, QPolygonF(joints))
 
 

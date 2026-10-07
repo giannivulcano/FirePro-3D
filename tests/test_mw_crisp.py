@@ -54,15 +54,49 @@ def test_cache_ignores_zoom_but_not_rotation(qapp):
     assert c.get(p, QTransform().rotate(30)) is not a
 
 
-def test_dashed_pen_mixed_path_draws_unsplit(qapp):
-    img = QImage(60, 60, QImage.Format.Format_ARGB32); img.fill(QColor(0, 0, 0))
+def _dash_render(path, w, *, split):
+    """*path* stroked by a cosmetic DashLine pen on an AA painter: through
+    ``cs.stroke`` (split=True) or a plain ``drawPath`` (split=False)."""
+    img = QImage(80, 80, QImage.Format.Format_ARGB32)
+    img.fill(QColor(0, 0, 0))
     painter = QPainter(img)
-    pen = QPen(QColor(255, 255, 255), 1, Qt.PenStyle.DashLine); pen.setCosmetic(True)
-    p = QPainterPath(QPointF(5, 5)); p.lineTo(50, 5); p.lineTo(50, 50); p.lineTo(5, 30)
-    s = cs.split_axis(p, QTransform())
-    cs.stroke(painter, p, pen, s)              # must not raise; draws whole path
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor(255, 255, 255), w, Qt.PenStyle.DashLine)
+    pen.setCosmetic(True)
+    if split:
+        cs.stroke(painter, path, pen, cs.split_axis(path, painter.worldTransform()))
+    else:
+        painter.setPen(pen)
+        painter.drawPath(path)
     painter.end()
-    assert any(img.pixelColor(x, 5).red() for x in range(5, 50))
+    return img
+
+
+@pytest.mark.parametrize("w", [1, 2])
+def test_d4_dashed_pen_mixed_path_draws_exactly_unsplit(qapp, w):
+    # Delta 4: Qt restarts the dash pattern per subpath, so a dashed pen on a
+    # mixed (axis + diagonal) path must draw byte-identical to a plain stroke.
+    p = QPainterPath(QPointF(5, 5.3)); p.lineTo(60, 5.3); p.lineTo(60, 60); p.lineTo(5, 35)
+    assert _dash_render(p, w, split=True) == _dash_render(p, w, split=False)
+
+
+def test_d4_dashed_pen_all_axis_path_does_split(qapp):
+    # ... and an all-axis dashed path IS split: aliased, so a 2 px dash at
+    # y = 20.5 is two full rows where the plain AA stroke smears into three.
+    p = QPainterPath(QPointF(5, 20.5)); p.lineTo(75, 20.5)
+    col = lambda img: [img.pixelColor(x, r).red() for r in range(40)
+                       for x in (6,) if img.pixelColor(x, r).red()]
+    assert col(_dash_render(p, 2, split=False)) == [127, 255, 127]
+    assert col(_dash_render(p, 2, split=True)) == [255, 255]
+
+
+def test_closed_mixed_subpath_records_closing_joint(qapp):
+    # Closed triangle with one axis edge: the axis run meets the diagonal run
+    # at BOTH ends -- the closing vertex is a joint too.
+    p = QPainterPath(QPointF(0, 0)); p.lineTo(10, 0); p.lineTo(5, 8); p.closeSubpath()
+    s = cs.split_axis(p, QTransform())
+    assert sorted((q.x(), q.y()) for q in s.joints) == [(0.0, 0.0), (10.0, 0.0)]
+    assert s.joint_points.count() == 2
 
 
 # ---------------------------------------------------------------- B2 views
@@ -242,3 +276,90 @@ def test_g6_underlay_axis_stroke_is_n_full_rows(qapp):
         assert (full, partial) == (2, 0)
     finally:
         sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
+
+
+# ------------------------------------------------- review round: more views
+from tests.mw_support import boundary_x, row_profile
+
+
+@pytest.mark.parametrize("half", [0.0, 0.5])
+def test_g2_vertical_line_is_n_full_columns(be, half):
+    v, sc = be
+    x = boundary_x(v, 60.0) + half
+    ln = LineItem(QPointF(x, -150), QPointF(x, -20))      # clear of y = 0 axis
+    ln.style["weight"] = "Thinner"; ln.style["colour"] = "#ffffff"
+    sc.addItem(ln); sc._draw_lines.append(ln)
+    img, dpr = grab(v)
+    dev = v.viewportTransform().map(QPointF(x, -80.0))
+    bg = img.pixelColor(int((dev.x() + 60) * dpr), int(dev.y() * dpr))
+    assert rows(row_profile(img, dpr, dev.x(), int(dev.y())), QColor("#ffffff"), bg) == (2, 0)
+
+
+def test_g2_rotated_rect_edge_classified_in_rotated_frame(be):
+    from firepro3d.geometry_2d import RectangleItem
+    v, sc = be
+
+    def make(dy):
+        r = RectangleItem(QPointF(30, 30 + dy), QPointF(90, 60 + dy))
+        r.style["weight"] = "Thick"; r.style["colour"] = "#ffffff"
+        r.set_angle(90)                      # data rotation (bake-at-rest)
+        rc = r.rect()                        # mapToScene applies the rotation
+        pts = [r.mapToScene(q) for q in (rc.topLeft(), rc.topRight(),
+                                          rc.bottomRight(), rc.bottomLeft())]
+        return r, pts
+
+    # The local VERTICAL sides become the scene-horizontal edges; land the
+    # top one half a pixel off a device boundary (a 4 px AA smear position).
+    _r, pts = make(0.0)
+    top = min(q.y() for q in pts)
+    r, pts = make(boundary_y(v, top) + 0.5 - top)
+    sc.addItem(r); sc._draw_rects.append(r)
+    top = min(q.y() for q in pts)
+    xs = [q.x() for q in pts if abs(q.y() - top) < 1e-6]
+    assert len(xs) == 2 and abs(xs[0] - xs[1]) > 20      # a real horizontal edge
+    img, dpr = grab(v)
+    dev = v.viewportTransform().map(QPointF(sum(xs) / 2.0, top))
+    bg = img.pixelColor(int(dev.x() * dpr), int((dev.y() - 30) * dpr))
+    assert rows(column_profile(img, dpr, int(dev.x()), dev.y(), span=4),
+                QColor("#ffffff"), bg) == (4, 0)
+
+
+def test_g2_rotated_rect_30_edges_stay_antialiased(be):
+    # Local edges are axis-aligned in the item frame; at 30 deg they are
+    # diagonals in the painter's world frame and must stay AA (classification
+    # reads the rotated world transform, not the local rect).
+    from firepro3d.geometry_2d import RectangleItem
+    v, sc = be
+    r = RectangleItem(QPointF(30, 30), QPointF(130, 90))
+    r.style["weight"] = "Thinnest"; r.style["colour"] = "#ffffff"
+    r.set_angle(30)
+    sc.addItem(r); sc._draw_rects.append(r)
+    rc = r.rect()
+    a, b = r.mapToScene(rc.topLeft()), r.mapToScene(rc.topRight())
+    img, dpr = grab(v)
+    partial = 0
+    for k in range(2, 19):
+        q = a + (b - a) * (k / 20.0)
+        dev = v.viewportTransform().map(q)
+        bg = img.pixelColor(int(dev.x() * dpr), int((dev.y() + 80) * dpr))
+        partial += rows(column_profile(img, dpr, int(dev.x()), dev.y(), span=3),
+                        QColor("#ffffff"), bg)[1]
+    assert partial >= 5
+
+
+def test_unstyled_reference_line_stays_unsplit(be):
+    # MW-7 scope: only weight-mapped strokes go crisp. A reference line
+    # (unstyled, fixed 1 px dashed) half-covering two rows keeps its AA.
+    from firepro3d.geometry_2d import ReferenceLineItem
+    v, sc = be
+    y = boundary_y(v, 40.0) + 0.3
+    ln = ReferenceLineItem(QPointF(20, y), QPointF(150, y))
+    sc.addItem(ln)
+    img, dpr = grab(v)
+    partial = 0
+    for sx in range(25, 145, 3):          # dashes + gaps: sum over columns
+        dev = v.viewportTransform().map(QPointF(float(sx), y))
+        bg = img.pixelColor(int(dev.x() * dpr), int((dev.y() + 60) * dpr))
+        partial += rows(column_profile(img, dpr, int(dev.x()), dev.y(), span=3),
+                        QColor("#ffffff"), bg)[1]
+    assert partial >= 10
