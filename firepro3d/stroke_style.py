@@ -159,8 +159,8 @@ def canvas_weight_name(weight: str) -> str:
 
 
 def canvas_px(weight: str) -> float:
-    """Cosmetic canvas width for a style weight (LT1-7 mapping)."""
-    return _pd.canvas_weight_px(_pd.resolve_line_weight_mm(canvas_weight_name(weight)))
+    """Cosmetic canvas width for a style weight (MW H-MW-c mapping)."""
+    return _pd.canvas_px_for_weight(canvas_weight_name(weight))
 
 
 class ResolvedStroke(NamedTuple):

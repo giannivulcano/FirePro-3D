@@ -38,8 +38,8 @@ def test_template_pick_drives_drawn_line_and_panel_stays(win_with_editor, qapp):
     sc, view = ed.editor_scene, ed.view
     sc.set_mode("draw_line"); qapp.processEvents()
     combo = w.prop_manager._prop_widgets["Weight"]
-    combo.setCurrentText("Heavy"); qapp.processEvents()
-    assert ss.current_style()["weight"] == "Heavy"
+    combo.setCurrentText("Thin"); qapp.processEvents()
+    assert ss.current_style()["weight"] == "Thin"
     n = len(sc._draw_lines)
     _click(view, view.mapFromScene(QPointF(-100, -150)))
     # Mid-placement (tool armed): the panel still shows the template.
@@ -48,36 +48,36 @@ def test_template_pick_drives_drawn_line_and_panel_stays(win_with_editor, qapp):
     _click(view, view.mapFromScene(QPointF(100, -150)))
     assert len(sc._draw_lines) == n + 1
     line = sc._draw_lines[-1]
-    assert line.style["weight"] == "Heavy"
-    assert line.to_dict()["style"]["weight"] == "Heavy"   # what is saved
+    assert line.style["weight"] == "Thin"
+    assert line.to_dict()["style"]["weight"] == "Thin"   # what is saved
     # draw_line is single-placement: the tool disarms and the panel shows the
-    # placed line (existing behaviour), whose Weight row reads Heavy.
+    # placed line (existing behaviour), whose Weight row reads Thin.
     assert sc.mode == "select" and _target(w) is line
-    assert w.prop_manager._prop_widgets["Weight"].currentText() == "Heavy"
+    assert w.prop_manager._prop_widgets["Weight"].currentText() == "Thin"
 
 
 def test_selected_edit_does_not_move_current(win_with_editor, qapp):
     w = win_with_editor
     sc = w._test_editor.editor_scene
-    ss.set_current(weight="Heavy")
+    ss.set_current(weight="Thin")
     ln = LineItem(QPointF(0, -150), QPointF(100, -150))
     sc.addItem(ln); sc._draw_lines.append(ln); sc.push_undo_state()
     sc.set_mode("select"); sc.clearSelection(); ln.setSelected(True)
     qapp.processEvents()
     assert _target(w) is ln
-    w.prop_manager._prop_widgets["Weight"].setCurrentText("Light")
+    w.prop_manager._prop_widgets["Weight"].setCurrentText("Thinnest")
     qapp.processEvents()
-    assert ln.style["weight"] == "Light"
-    assert ss.current_style()["weight"] == "Heavy"
+    assert ln.style["weight"] == "Thinnest"
+    assert ss.current_style()["weight"] == "Thin"
 
 
 def test_current_persists_through_save_settings(win_with_editor):
     w = win_with_editor
-    ss.set_current(weight="Heavy")
+    ss.set_current(weight="Thin")
     w.save_settings()
     ss.reset_current()
     ss.current_from_settings(w.settings)   # module-scoped mw: its own store
-    assert ss.current_style()["weight"] == "Heavy"
+    assert ss.current_style()["weight"] == "Thin"
 
 
 def test_no_by_block_ui_strings():

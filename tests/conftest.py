@@ -101,18 +101,21 @@ def _preserve_grip_object_limit():
 
 @pytest.fixture(autouse=True)
 def _reset_project_line_weights():
-    """Reset the project weight table + Thin Lines flag (paper_display module
-    globals, linetypes.md LT1) so a table one test sets can't leak into the
-    next; the lazy re-seed reads that test's (isolated or patched) template."""
+    """Reset the project weight table + Thin Lines flag + Model weight factor
+    (paper_display module globals, linetypes.md LT1 / MW-2) so a table one
+    test sets can't leak into the next; the lazy re-seed reads that test's
+    (isolated or patched) template."""
     from firepro3d import paper_display as pd
     pd._PROJECT_LW = None
     pd._THIN_LINES = False
     pd._THIN_SUSPEND = 0
+    pd._MODEL_FACTOR = pd.MODEL_WEIGHT_FACTOR
     pd._clear_hatch_mm()
     yield
     pd._PROJECT_LW = None
     pd._THIN_LINES = False
     pd._THIN_SUSPEND = 0
+    pd._MODEL_FACTOR = pd.MODEL_WEIGHT_FACTOR
     pd._clear_hatch_mm()
 
 

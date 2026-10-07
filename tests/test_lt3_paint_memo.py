@@ -62,12 +62,12 @@ def _assert_reflected(before, after, fresh):
 
 
 def test_weight_width_edit_reaches_next_paint(qapp):
-    ms, _ = _build("Heavy")
+    ms, _ = _build("Thin")
     a = _render(ms)
-    pd.set_project_line_weights([pd.LineWeightDef(d.name, 1.0 if d.name == "Heavy"
+    pd.set_project_line_weights([pd.LineWeightDef(d.name, 1.0 if d.name == "Thin"
                                                   else d.width_mm)
                                  for d in pd.project_line_weights()])
-    _assert_reflected(a, _render(ms), _render(_build("Heavy")[0]))
+    _assert_reflected(a, _render(ms), _render(_build("Thin")[0]))
 
 
 def test_weight_rename_alias_reaches_next_paint(qapp):

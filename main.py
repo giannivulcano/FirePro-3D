@@ -611,6 +611,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _thin_on = self.settings.value("view/thin_lines", False, type=bool)
         set_thin_lines(_thin_on)
         self.footer.set_thin_on(_thin_on)
+        # Model weight factor (MW-2): a System setting, restored before any
+        # underlay is built so build-time pens bake the right width. Read
+        # untyped: set_model_weight_factor maps junk / out-of-range to factory.
+        from firepro3d.constants import MODEL_WEIGHT_FACTOR
+        from firepro3d.paper_display import set_model_weight_factor
+        set_model_weight_factor(self.settings.value(
+            "view/model_weight_factor", MODEL_WEIGHT_FACTOR))
 
         # Footer interactions → active scene / dialogs.
         self.footer.snap_pill.clicked.connect(

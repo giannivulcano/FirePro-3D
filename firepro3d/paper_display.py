@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, asdict
+import math
+from dataclasses import dataclass
 from enum import Enum
 
 from PyQt6.QtCore import QSettings
 
-from .constants import UNDERLAY_FAST_PATH_SNAP_PX, UNDERLAY_MM_TO_PX_HINT
+from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
+                        MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
+                        MODEL_BLOCKS_FACTORY_MM)
 
 _log = logging.getLogger(__name__)
 
@@ -26,42 +29,88 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class LineWeightDef:
-    """A named pen weight used in paper-space rendering."""
+    """A named pen weight: paper mm + optional canvas Model override (MW-2)."""
     name: str
     width_mm: float
+    model_px: int | None = None      # whole canvas px 1..20; None = Auto
+
+    def copy(self) -> "LineWeightDef":
+        """An independent copy carrying every field (H-MW-a)."""
+        return LineWeightDef(self.name, float(self.width_mm), self.model_px)
+
+    def to_dict(self) -> dict:
+        """Persisted form; ``model_px`` omitted when Auto (Δ6)."""
+        d = {"name": self.name, "width_mm": self.width_mm}
+        if self.model_px is not None:
+            d["model_px"] = int(self.model_px)
+        return d
 
 
+# MW-4: the user standard (2026-10-04).
 FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
+    LineWeightDef("Thinnest", 0.18),
+    LineWeightDef("Thinner",  0.25),
+    LineWeightDef("Thin",     0.35),
+    LineWeightDef("Thick",    0.50),
+    LineWeightDef("Thickest", 0.70),
+]
+# The pre-MW factory: an untouched template equal to it migrates (MW-4), and
+# its names resolve by their mm wherever a table lacks them (MW-6).
+LEGACY_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
     LineWeightDef("Very Light", 0.13),
     LineWeightDef("Light",      0.18),
     LineWeightDef("Medium",     0.25),
     LineWeightDef("Heavy",      0.35),
     LineWeightDef("Very Heavy", 0.50),
 ]
+_FACTORY_NAME_MM: dict[str, float] = {
+    d.name: d.width_mm for d in (*LEGACY_FACTORY_LINE_WEIGHTS, *FACTORY_LINE_WEIGHTS)}
+
+
+def validate_model_px(px) -> bool:
+    """True for a whole-px Model override in 1..MODEL_WEIGHT_PX_MAX (MW-11)."""
+    return (isinstance(px, int) and not isinstance(px, bool)
+            and 1 <= px <= MODEL_WEIGHT_PX_MAX)
+
+
+def _is_legacy_factory(defs: list[LineWeightDef]) -> bool:
+    """An untouched pre-MW factory template (names + mm, no overrides)."""
+    want = {(d.name, round(d.width_mm, 6)) for d in LEGACY_FACTORY_LINE_WEIGHTS}
+    return (len(defs) == len(want) and all(d.model_px is None for d in defs)
+            and {(d.name, round(d.width_mm, 6)) for d in defs} == want)
 
 
 def load_line_weights(settings: QSettings | None = None) -> list[LineWeightDef]:
-    """Load line weight definitions from QSettings, or return factory defaults."""
+    """The new-project template (QSettings), else factory defaults.
+
+    A stored template equal to the pre-MW factory is replaced by (and
+    rewritten as) the new factory; anything else is returned as stored (MW-4).
+    """
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
     raw = settings.value("paper/line_weights")
-    if raw is None:
-        return list(FACTORY_LINE_WEIGHTS)
-    try:
-        entries = json.loads(raw) if isinstance(raw, str) else raw
-        return [LineWeightDef(e["name"], float(e["width_mm"])) for e in entries]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return list(FACTORY_LINE_WEIGHTS)
+    defs = None
+    if raw is not None:
+        try:
+            defs = _parse_weight_list(json.loads(raw) if isinstance(raw, str) else raw)
+        except (json.JSONDecodeError, TypeError):
+            defs = None
+    if defs is None:
+        return [d.copy() for d in FACTORY_LINE_WEIGHTS]
+    if _is_legacy_factory(defs):
+        new = [d.copy() for d in FACTORY_LINE_WEIGHTS]
+        save_line_weights(new, settings)
+        return new
+    return defs
 
 
 def save_line_weights(defs: list[LineWeightDef],
                       settings: QSettings | None = None):
-    """Persist line weight definitions to QSettings."""
+    """Persist line weight definitions to QSettings (the template)."""
     _clear_hatch_mm()
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
-    data = json.dumps([asdict(d) for d in defs])
-    settings.setValue("paper/line_weights", data)
+    settings.setValue("paper/line_weights", json.dumps([d.to_dict() for d in defs]))
     settings.sync()
 
 
@@ -105,6 +154,26 @@ _THIN_LINES = False
 # >0 while a paper pass (apply_paper_overrides .. restore_model_display) is
 # live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
 _THIN_SUSPEND = 0
+# MW-2: System factor (QSettings view/model_weight_factor), cached so paint
+# never reads QSettings; MainWindow restores it at startup.
+_MODEL_FACTOR: float = MODEL_WEIGHT_FACTOR
+
+
+def model_weight_factor() -> float:
+    """Canvas px per paper mm for Auto weights (MW-2)."""
+    return _MODEL_FACTOR
+
+
+def set_model_weight_factor(factor) -> None:
+    """Set the factor; anything unparseable / out of 1..20 -> factory 8."""
+    global _MODEL_FACTOR
+    try:
+        f = float(factor)
+    except (TypeError, ValueError):
+        f = MODEL_WEIGHT_FACTOR
+    if not (MODEL_WEIGHT_FACTOR_MIN <= f <= MODEL_WEIGHT_FACTOR_MAX):
+        f = MODEL_WEIGHT_FACTOR
+    _MODEL_FACTOR = f
 
 # Rename aliases (linetypes.md LT2-8 / H-g): old name -> current name, so a
 # reference written before a rename (undo snapshot, clipboard, paper command,
@@ -115,12 +184,16 @@ _WEIGHT_ALIASES: dict[str, str] = {}
 # By Linetype strokes with no dash weight (WM-5). Cached here so paint never
 # reads QSettings.
 _MODEL_BLOCKS_WEIGHT: str | None = None
-MODEL_BLOCKS_FACTORY_WEIGHT = "Light"     # 0.18 mm -> exactly 1.0 canvas px
+
+
+def model_blocks_factory_weight() -> str:
+    """Factory Model "Blocks" weight: the row nearest 0.18 mm (MW-5)."""
+    return nearest_weight_name(MODEL_BLOCKS_FACTORY_MM)
 
 
 def model_blocks_weight() -> str:
-    """The Model-tab "Blocks" weight name (factory "Light")."""
-    return _MODEL_BLOCKS_WEIGHT or MODEL_BLOCKS_FACTORY_WEIGHT
+    """The Model-tab "Blocks" weight name (factory: nearest 0.18 mm)."""
+    return _MODEL_BLOCKS_WEIGHT or model_blocks_factory_weight()
 
 
 def set_model_blocks_weight(name: str | None, *, canonical: bool = True) -> None:
@@ -207,7 +280,7 @@ def set_project_line_weights(defs: list[LineWeightDef]) -> None:
     alias whose old name is now a table row is dropped (the name is live again).
     """
     global _PROJECT_LW, _WEIGHT_ALIASES
-    _PROJECT_LW = [LineWeightDef(d.name, float(d.width_mm)) for d in defs]
+    _PROJECT_LW = [d.copy() for d in defs]
     live = {d.name for d in _PROJECT_LW}
     _WEIGHT_ALIASES = {k: v for k, v in _WEIGHT_ALIASES.items()
                        if k not in live}
@@ -229,10 +302,12 @@ def weight_names() -> list[str]:
                                    key=lambda d: d.width_mm)]
 
 
-def merge_project_line_weights(weights: dict) -> list[str]:
+def merge_project_line_weights(weights: dict, model_px: dict | None = None) -> list[str]:
     """Add bundled ``{name: mm}`` weights the project lacks (project wins).
 
-    Returns the names added. Invalid widths are skipped.
+    *model_px* is the bundle's ``weight_model_px`` ``{name: px}`` (H-MW-a);
+    an added row takes its valid override. Returns the names added. Invalid
+    widths are skipped.
     """
     have = {d.name for d in project_line_weights()} | set(_WEIGHT_ALIASES)
     added = []
@@ -243,7 +318,9 @@ def merge_project_line_weights(weights: dict) -> list[str]:
             continue
         if name in have or not name or not validate_line_weight_width(mm):
             continue
-        added.append(LineWeightDef(str(name), mm))
+        px = (model_px or {}).get(name)
+        added.append(LineWeightDef(str(name), mm,
+                                   px if validate_model_px(px) else None))
         have.add(name)
     if added:
         set_project_line_weights([*project_line_weights(), *added])
@@ -287,19 +364,31 @@ def paper_pass_active() -> bool:
     return _THIN_SUSPEND > 0
 
 
-def canvas_weight_px(width_mm: float) -> float:
-    """Cosmetic canvas width for a named weight's mm value.
+def auto_model_px(width_mm: float) -> int:
+    """Auto canvas width (MW-3): round-half-up(mm x factor), min 1 -- the
+    value the Line Weights tab shows as "Auto (n)" (Thin Lines ignored)."""
+    return max(1, math.floor(width_mm * _MODEL_FACTOR + 0.5))
 
-    px = mm x ``UNDERLAY_MM_TO_PX_HINT``; <= ``UNDERLAY_FAST_PATH_SNAP_PX``
-    snaps to <= 1.0 (Qt's fast cosmetic stroker); Thin Lines -> 1.0
-    (except during a paper pass -- see ``thin_lines_active``).
+
+def canvas_weight_px(width_mm: float) -> float:
+    """Cosmetic canvas width for a raw paper mm (raw PDF widths, H-MW-c).
+
+    Thin Lines -> 1.0 (except during a paper pass -- see thin_lines_active).
     """
     if thin_lines_active():
         return 1.0
-    px = width_mm * UNDERLAY_MM_TO_PX_HINT
-    if px <= UNDERLAY_FAST_PATH_SNAP_PX:
-        px = min(px, 1.0)
-    return px
+    return float(auto_model_px(width_mm))
+
+
+def canvas_px_for_weight(name: str) -> float:
+    """Cosmetic canvas width for a named weight (H-MW-c): Thin Lines -> 1;
+    else the resolved row's Model override; else Auto of its mm."""
+    if thin_lines_active():
+        return 1.0
+    d = _resolve_def(name)
+    if d is not None and d.model_px is not None:
+        return float(d.model_px)
+    return float(auto_model_px(d.width_mm if d is not None else 0.25))
 
 
 def _parse_weight_list(raw) -> list[LineWeightDef] | None:
@@ -316,8 +405,9 @@ def _parse_weight_list(raw) -> list[LineWeightDef] | None:
                 continue
             if not name or name in seen or not validate_line_weight_width(mm):
                 continue
+            px = e.get("model_px") if isinstance(e, dict) else None
             seen.add(name)
-            out.append(LineWeightDef(name, mm))
+            out.append(LineWeightDef(name, mm, px if validate_model_px(px) else None))
     except TypeError:                      # raw not iterable
         return None
     return out or None
@@ -378,17 +468,16 @@ _HAS_SECTION = {"Wall", "Roof", "Floor"}
 # Manager disables every other cell and its colour-mode / reset loops skip them.
 _LW_ONLY = {"Hatch"}
 
-# Factory default line weight per category
-_FACTORY_LW = {
-    "Pipe": "Medium", "Sprinkler": "Medium", "Fitting": "Medium",
-    "Water Supply": "Medium", "Node": "Light", "Hydraulic Badge": "Very Light",
-    "Wall": "Heavy", "Roof": "Medium", "Room": "Very Light", "Floor": "Medium",
-    "Door": "Light", "Window": "Light", "Opening": "Light",
-    "Grid Line": "Medium", "Level Datum": "Very Light",
-    "Elevation Marker": "Very Light", "Detail Marker": "Light",
-    "Construction": "Light",
-    "Hatch": "Very Light",
-    "Blocks": "Light",          # paper-only, no fill/section (linetypes.md LT1-2)
+# Factory paper weight per category as an intended paper mm (MW-5: today's
+# printed widths; resolved to the nearest live row when materialised).
+_FACTORY_LW_MM = {
+    "Pipe": 0.25, "Sprinkler": 0.25, "Fitting": 0.25, "Water Supply": 0.25,
+    "Node": 0.18, "Hydraulic Badge": 0.13, "Wall": 0.35, "Roof": 0.25,
+    "Room": 0.13, "Floor": 0.25, "Door": 0.18, "Window": 0.18,
+    "Opening": 0.18, "Grid Line": 0.25, "Level Datum": 0.13,
+    "Elevation Marker": 0.13, "Detail Marker": 0.18, "Construction": 0.18,
+    "Hatch": 0.13,
+    "Blocks": 0.18,         # paper-only, no fill/section (linetypes.md LT1-2)
 }
 
 
@@ -398,7 +487,7 @@ def _make_factory_category(key: str) -> dict:
         "color": "#000000",
         "fill": "#ffffff" if key in _HAS_FILL else None,
         "section_color": "#000000" if key in _HAS_SECTION else None,
-        "line_weight": _FACTORY_LW[key],
+        "line_weight": nearest_weight_name(_FACTORY_LW_MM[key]),
         "opacity": 100,
         "visible": True,
     }
@@ -411,9 +500,10 @@ def _make_factory_category(key: str) -> dict:
     return cat
 
 
-FACTORY_PAPER_CATEGORIES: dict[str, dict] = {
-    k: _make_factory_category(k) for k in _CATEGORY_KEYS
-}
+def factory_paper_categories() -> dict[str, dict]:
+    """Factory paper categories against the LIVE project table (Δ6 -- was the
+    import-time FACTORY_PAPER_CATEGORIES dict)."""
+    return {k: _make_factory_category(k) for k in _CATEGORY_KEYS}
 
 
 def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
@@ -421,8 +511,9 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
     result: dict[str, dict] = {}
+    factory_all = factory_paper_categories()
     for key in _CATEGORY_KEYS:
-        factory = FACTORY_PAPER_CATEGORIES[key]
+        factory = factory_all[key]
         # Start with factory defaults so any new keys are backfilled automatically.
         entry: dict = dict(factory)
         for prop in ("color", "fill", "section_color", "line_weight",
@@ -462,8 +553,9 @@ def save_paper_categories(cats: dict[str, dict],
     _clear_hatch_mm()
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
+    factory_all = factory_paper_categories()
     for key in _CATEGORY_KEYS:
-        entry = cats.get(key, FACTORY_PAPER_CATEGORIES[key])
+        entry = cats.get(key, factory_all[key])
         for prop in ("color", "fill", "section_color", "line_weight",
                      "opacity", "visible"):
             val = entry.get(prop)
@@ -473,7 +565,7 @@ def save_paper_categories(cats: dict[str, dict],
             else:
                 settings.remove(f"paper/categories/{key}/{prop}")
         # Persist any category-specific numeric extras present in the factory.
-        factory = FACTORY_PAPER_CATEGORIES[key]
+        factory = factory_all[key]
         for prop in factory:
             if prop not in ("color", "fill", "section_color",
                             "line_weight", "opacity", "visible"):
@@ -494,7 +586,7 @@ def get_paper_display_for_save() -> dict:
     return {
         "color_mode": load_paper_color_mode().value,
         "categories": load_paper_categories(),
-        "line_weights": [asdict(d) for d in project_line_weights()],
+        "line_weights": [d.to_dict() for d in project_line_weights()],
         "line_weight_aliases": weight_aliases(),
     }
 
@@ -522,7 +614,7 @@ def apply_paper_display_from_project(data: dict | None):
     if not data:
         # No paper_display in project -- reset to factory
         save_paper_color_mode(PaperColorMode.BW)
-        save_paper_categories(FACTORY_PAPER_CATEGORIES)
+        save_paper_categories(factory_paper_categories())
         return
     # Color mode
     mode_str = data.get("color_mode", "bw")
@@ -534,8 +626,9 @@ def apply_paper_display_from_project(data: dict | None):
     # Categories -- merge project values over factory defaults
     proj_cats = data.get("categories", {})
     merged: dict[str, dict] = {}
+    factory_all = factory_paper_categories()
     for key in _CATEGORY_KEYS:
-        factory = FACTORY_PAPER_CATEGORIES[key]
+        factory = factory_all[key]
         proj = proj_cats.get(key, {})
         entry = dict(factory)
         entry.update({k: v for k, v in proj.items() if v is not None})
@@ -547,6 +640,38 @@ def apply_paper_display_from_project(data: dict | None):
 # Viewport rendering helpers
 # ---------------------------------------------------------------------------
 
+def _nearest_def(mm: float, defs) -> LineWeightDef | None:
+    """Exact-mm row, else the nearest (tie -> thinner) -- MW-5 / MW-6."""
+    defs = list(defs)
+    if not defs:
+        return None
+    for d in defs:
+        if abs(d.width_mm - mm) < 1e-9:
+            return d
+    return min(defs, key=lambda d: (abs(d.width_mm - mm), d.width_mm))
+
+
+def nearest_weight_name(mm: float) -> str:
+    """Live project row for an intended paper mm ("" for an empty table)."""
+    d = _nearest_def(mm, project_line_weights())
+    return d.name if d is not None else ""
+
+
+def _resolve_def(name: str, defs=None, canonical: bool = True) -> LineWeightDef | None:
+    """The row a weight reference draws with: exact (after aliases), else a
+    factory name -- old or new set -- via its factory mm to the nearest row
+    (MW-6), else None."""
+    if defs is None:
+        defs = project_line_weights()
+    if canonical:
+        name = canonical_weight_name(name)
+    for d in defs:
+        if d.name == name:
+            return d
+    mm = _FACTORY_NAME_MM.get(name)
+    return _nearest_def(mm, defs) if mm is not None else None
+
+
 def resolve_line_weight_mm(name: str,
                            settings: QSettings | None = None) -> float:
     """Resolve a line weight name to its mm width.  Falls back to 0.25mm.
@@ -555,14 +680,10 @@ def resolve_line_weight_mm(name: str,
     store instead (Display Manager / tests).
     """
     if settings is not None:
-        defs = load_line_weights(settings)
+        d = _resolve_def(name, load_line_weights(settings), canonical=False)
     else:
-        defs = project_line_weights()
-        name = canonical_weight_name(name)
-    for d in defs:
-        if d.name == name:
-            return d.width_mm
-    return 0.25
+        d = _resolve_def(name)
+    return d.width_mm if d is not None else 0.25
 
 
 _HATCH_MM: float | None = None

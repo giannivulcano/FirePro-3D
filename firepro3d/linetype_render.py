@@ -22,7 +22,7 @@ from . import stroke_style as _ss
 from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_DEF_CACHE_MAX, LINETYPE_DOT_MM, LINETYPE_LOD_MIN_PERIOD_PX,
                         LINETYPE_MAX_PERIODS, LINETYPE_WINDOW_MIN_PERIODS,
-                        UNDERLAY_MM_TO_PX_HINT)
+                        FIXED_LINETYPE_PX_PER_MM)
 
 
 def axis_role(p1, p2, length: float):
@@ -367,16 +367,17 @@ def length_factor(lt, *, paper_scale, role, drawing_scale,
     """Definition mm -> painter units for *lt* (LT3-5, LTS-3).
 
     A Fixed linetype on a model canvas (``fixed_on_canvas``) -> its printed
-    mm x ``UNDERLAY_MM_TO_PX_HINT`` px, divided by *device_scale* (device px
+    mm x ``FIXED_LINETYPE_PX_PER_MM`` px (MW-10, decoupled from the weight
+    factor), divided by *device_scale* (device px
     per painter unit -- the caller passes this paint's). Otherwise: Model
     size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan canvas
     (*role* ``"plan"``) -> the drawing scale; anything else (Block Editor, no
     scene) -> 1 (real size).
     """
     if fixed_on_canvas(lt, paper_scale=paper_scale, role=role):
-        # LTS-3: printed mm x the D-L14 mm->px hint, back into painter units.
+        # LTS-3 / MW-10: printed mm x 6 px/mm, back into painter units.
         printed = 1.0 if lt.size != "model" else 1.0 / (drawing_scale or 1.0)
-        return printed * UNDERLAY_MM_TO_PX_HINT / max(device_scale or 0.0, 1e-12)
+        return printed * FIXED_LINETYPE_PX_PER_MM / max(device_scale or 0.0, 1e-12)
     if lt.size == "model":
         return 1.0
     if paper_scale:

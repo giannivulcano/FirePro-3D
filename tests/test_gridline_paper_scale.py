@@ -14,7 +14,7 @@ import firepro3d.paper_display as pd
 from firepro3d.constants import GRIDLINE_BUBBLE_LABEL_EM_FRAC, TEXT_METRIC_REF_PX
 from firepro3d.gridline import GridlineItem, bubble_paper_geometry
 from firepro3d.paper_display import (
-    FACTORY_PAPER_CATEGORIES, load_paper_categories, save_paper_categories,
+    factory_paper_categories, load_paper_categories, save_paper_categories,
     get_paper_display_for_save, apply_paper_display_from_project)
 
 
@@ -61,9 +61,9 @@ def temp_settings(tmp_path):
 
 class TestGridLineCategoryModel:
     def test_factory_has_bubble_height_and_medium_weight(self):
-        cat = FACTORY_PAPER_CATEGORIES["Grid Line"]
+        cat = factory_paper_categories()["Grid Line"]
         assert cat["bubble_label_height_mm"] == 3.0
-        assert cat["line_weight"] == "Medium"
+        assert cat["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
 
     def test_fresh_settings_load_defaults(self, temp_settings):
         cats = load_paper_categories(temp_settings)
@@ -91,7 +91,7 @@ class TestGridLineCategoryModel:
         save_paper_categories(cats)
         # Act: capture a project snapshot, wipe settings back to factory, then restore.
         snapshot = get_paper_display_for_save()
-        save_paper_categories(FACTORY_PAPER_CATEGORIES)  # wipe
+        save_paper_categories(factory_paper_categories())  # wipe
         apply_paper_display_from_project(snapshot)
         # Assert: bubble height survived the round-trip.
         assert load_paper_categories()["Grid Line"]["bubble_label_height_mm"] == pytest.approx(4.5)
@@ -164,7 +164,7 @@ def paper_env(monkeypatch):
     the module attributes redirects all three to in-test state.
     """
     env = SimpleNamespace(
-        cats=copy.deepcopy(pd.FACTORY_PAPER_CATEGORIES),
+        cats=copy.deepcopy(pd.factory_paper_categories()),
         mode=pd.PaperColorMode.BW,
     )
     monkeypatch.setattr(pd, "load_paper_categories",

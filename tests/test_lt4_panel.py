@@ -313,8 +313,8 @@ def test_template_in_a_dots_only_linetype_shows_the_weight_a_draw_gets(qapp):
     assert w.toggle_capability("repeat")
     sc = w.editor_scene
     assert la.apply_pattern_rows(sc, [("dot", 0.0), ("gap", 3.0)])
-    ss.set_current(linetype=hid.id, weight="Light")
-    _assert_template_matches_draw(sc, "Light")
+    ss.set_current(linetype=hid.id, weight="Thinnest")
+    _assert_template_matches_draw(sc, "Thinnest")
 
 
 def test_template_outside_a_linetype_is_unaffected(qapp):

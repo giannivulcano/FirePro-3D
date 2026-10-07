@@ -1965,22 +1965,23 @@ class DisplayManager(QDialog):
             self._suppress = False
         self._apply_preview()
         # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
-        from .paper_display import MODEL_BLOCKS_FACTORY_WEIGHT
-        self._model_blocks_combo.setCurrentText(MODEL_BLOCKS_FACTORY_WEIGHT)
+        from .paper_display import model_blocks_factory_weight
+        self._model_blocks_combo.setCurrentText(model_blocks_factory_weight())
 
     def _reset_paper_space_tab(self):
         """Reset Paper Space tab to B&W factory defaults."""
         from .paper_display import (
-            FACTORY_PAPER_CATEGORIES, save_paper_categories,
+            factory_paper_categories, save_paper_categories,
             PaperColorMode, save_paper_color_mode, _HAS_FILL, _HAS_SECTION,
             _LW_ONLY,
         )
         save_paper_color_mode(PaperColorMode.BW, self._settings)
-        save_paper_categories(FACTORY_PAPER_CATEGORIES, self._settings)
+        cats = factory_paper_categories()
+        save_paper_categories(cats, self._settings)
         self._suppress = True
         self._color_mode_combo.setCurrentIndex(1)  # B&W
         for key, widgets in self._paper_cat_data.items():
-            factory = FACTORY_PAPER_CATEGORIES[key]
+            factory = cats[key]
             if key not in _LW_ONLY:
                 self._update_color_btn(widgets["color_btn"], factory["color"])
                 widgets["color_btn"].setProperty("_color", factory["color"])
@@ -2009,9 +2010,8 @@ class DisplayManager(QDialog):
 
         Never writes the template; "Set as Default" does that.
         """
-        from .paper_display import FACTORY_LINE_WEIGHTS, LineWeightDef
-        self._lw_defs = [LineWeightDef(d.name, d.width_mm)
-                         for d in FACTORY_LINE_WEIGHTS]
+        from .paper_display import FACTORY_LINE_WEIGHTS
+        self._lw_defs = [d.copy() for d in FACTORY_LINE_WEIGHTS]
         self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
@@ -2599,7 +2599,7 @@ class DisplayManager(QDialog):
 
     def _build_line_weights_tab(self) -> QWidget:
         """Build the Line Weights definition tab."""
-        from .paper_display import project_line_weights, LineWeightDef
+        from .paper_display import project_line_weights
         from PyQt6.QtWidgets import QTableWidget
 
         page = QWidget()
@@ -2620,10 +2620,8 @@ class DisplayManager(QDialog):
 
         # Edits the live PROJECT table (LT1-3); copies so the dialog never
         # mutates project_line_weights()'s result in place.
-        self._lw_defs = [LineWeightDef(d.name, d.width_mm)
-                         for d in project_line_weights()]
-        self._lw_snapshot = [LineWeightDef(d.name, d.width_mm)
-                             for d in self._lw_defs]
+        self._lw_defs = [d.copy() for d in project_line_weights()]
+        self._lw_snapshot = [d.copy() for d in self._lw_defs]
         # (old, new) renames in order -- reject() replays them backwards.
         self._lw_renames: list[tuple[str, str]] = []
         self._lw_edited = False            # set by _commit_lw_defs

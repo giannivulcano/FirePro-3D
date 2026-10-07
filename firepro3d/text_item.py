@@ -15,10 +15,17 @@ coexist and this module does not rewire them.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM
+
+
+def default_border_weight() -> str:
+    """Factory text-border weight: the live row nearest 0.25 mm (MW-5)."""
+    from .constants import TEXT_BORDER_DEFAULT_MM
+    from .paper_display import nearest_weight_name
+    return nearest_weight_name(TEXT_BORDER_DEFAULT_MM)
 
 
 @dataclass
@@ -89,7 +96,7 @@ class TextAnnotationData:
     fill_opacity: float = 100.0                   # fill alpha percentage 0-100
     cell_padding_mm: float = TEXT_BOX_MARGIN_MM   # inner padding text↔box edge (surface mm)
     border: bool = False                         # frame visibility
-    border_weight: str = "Medium"                # named line-weight (resolve_line_weight_mm)
+    border_weight: str = field(default_factory=default_border_weight)  # named weight; factory = row nearest 0.25 mm (MW-5)
     border_line_type: str = "solid"              # 'solid'|'dashed'|'dotted'|'dashdot'
     border_corner: str = "square"                # 'square'|'round'|'chamfer'
     border_corner_radius_mm: float = 0.0         # 0 = auto proportional (TEXT_FRAME_CORNER_FRAC)
@@ -137,7 +144,7 @@ class TextAnnotationData:
             fill_opacity=float(d.get("fill_opacity", 100.0)),
             cell_padding_mm=float(d.get("cell_padding_mm", TEXT_BOX_MARGIN_MM)),
             border=bool(d.get("border", False)),
-            border_weight=canonical_weight_name(d.get("border_weight", "Medium")),
+            border_weight=canonical_weight_name(d.get("border_weight") or default_border_weight()),
             border_line_type=d.get("border_line_type", "solid"),
             border_corner=d.get("border_corner", "square"),
             border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
@@ -449,7 +456,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         On the model / Block-Editor surface the pen is **cosmetic** (constant
         device width at all zooms) — the named paper line-weights are sub-pixel at
         editor zoom, so they map to device-px widths via
-        ``paper_display.canvas_weight_px`` (mm x hint; Thin Lines -> 1 px).
+        ``paper_display.canvas_px_for_weight`` (row Model px or Auto; Thin
+        Lines -> 1 px).
         On the paper surface the true named mm weight is used (divided by scale
         like the other paper pens) so the border still plots at its real width.
         """
@@ -463,10 +471,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             scale = self.scale() or 1.0
             pen.setWidthF(max(resolve_line_weight_mm(self._data.border_weight) / scale, 1e-4))
         else:
-            from .paper_display import resolve_line_weight_mm, canvas_weight_px
+            from .paper_display import canvas_px_for_weight
             pen.setCosmetic(True)
-            pen.setWidthF(canvas_weight_px(
-                resolve_line_weight_mm(self._data.border_weight)))
+            pen.setWidthF(canvas_px_for_weight(self._data.border_weight))
         return pen
 
     def boundingRect(self) -> QRectF:

@@ -9,8 +9,10 @@ from firepro3d.paper_display import LineWeightDef
 from firepro3d.text_item import TextAnnotationData, TextItem
 
 
-@pytest.mark.parametrize("mm,px", [(0.13, 0.78), (0.18, 1.0), (0.25, 1.5),
-                                   (0.35, 2.1), (0.50, 3.0)])
+# MW-3 (supersedes the LT1-7 mm x 6 hint + 1.25 snap): Auto = whole px,
+# round-half-up(mm x factory factor 8), min 1.
+@pytest.mark.parametrize("mm,px", [(0.13, 1.0), (0.18, 1.0), (0.25, 2.0),
+                                   (0.35, 3.0), (0.50, 4.0), (0.70, 6.0)])
 def test_mapping_table(mm, px):
     assert pd.canvas_weight_px(mm) == pytest.approx(px, abs=1e-6)
 

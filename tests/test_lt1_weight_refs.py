@@ -119,8 +119,8 @@ def test_rename_onto_referenced_ghost_name_refused(qapp):
     ms._sheets = [sheet]
     d = DisplayManager(ms, active_context="paper")
     assert "Ghost" not in pd.weight_names()
-    _rename(d, "Heavy", "Ghost")
-    assert "Heavy" in [x.name for x in d._lw_defs]
-    assert d._lw_table.item(_row(d, "Heavy"), 0).text() == "Heavy"
+    _rename(d, "Thin", "Ghost")             # MW-4 factory row (was "Heavy")
+    assert "Thin" in [x.name for x in d._lw_defs]
+    assert d._lw_table.item(_row(d, "Thin"), 0).text() == "Thin"
     assert "Ghost" not in [x.name for x in d._lw_defs]
     assert sheet.annotations[0].border_weight == "Ghost"

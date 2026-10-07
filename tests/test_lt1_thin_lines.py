@@ -44,7 +44,8 @@ def test_thin_pill_drives_mapping_and_persists(main_window):
     w.footer.thin_pill.click()
     assert pd.thin_lines() is False
     assert w.settings.value("view/thin_lines", True, type=bool) is False
-    assert underlay_layer_pen(rec, "0").widthF() == pytest.approx(3.0)
+    # MW-6/MW-8: old "Very Heavy" -> its 0.50 mm row -> Auto 4 px (was 3.0)
+    assert underlay_layer_pen(rec, "0").widthF() == pytest.approx(4.0)
 
 
 def test_thin_lines_restored_on_startup(qapp):
