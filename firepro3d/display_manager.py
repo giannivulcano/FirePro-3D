@@ -260,6 +260,14 @@ _COL_RESET   = 9
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
 _MODEL_BLOCKS_KEY = "Blocks"
 
+# Line Weights tab "Model (px)" column header + cell tooltip (MW-11).
+_MODEL_PX_TIP = (
+    "Canvas width of this weight in screen pixels (model views and the "
+    "Block Editor; paper always prints the mm width). Auto = paper mm x the "
+    "Model line weight scale (System Settings > UI), rounded, at least 1 px. "
+    "Type a whole number from 1 to 20 to override; clear the cell or type "
+    "'auto' to return to Auto.")
+
 
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
 
@@ -2611,13 +2619,18 @@ class DisplayManager(QDialog):
         layout = QVBoxLayout(page)
 
         self._lw_table = QTableWidget()
-        self._lw_table.setColumnCount(2)
-        self._lw_table.setHorizontalHeaderLabels(["Name", "Width (mm)"])
+        self._lw_table.setColumnCount(3)
+        self._lw_table.setHorizontalHeaderLabels(
+            ["Name", "Width (mm)", "Model (px)"])
         self._lw_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._lw_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Fixed)
         self._lw_table.setColumnWidth(1, 120)
+        self._lw_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Fixed)
+        self._lw_table.setColumnWidth(2, 120)
+        self._lw_table.horizontalHeaderItem(2).setToolTip(_MODEL_PX_TIP)
         self._lw_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self._lw_table.setSelectionMode(
@@ -2652,15 +2665,26 @@ class DisplayManager(QDialog):
         return page
 
     def _populate_lw_table(self):
+        from PyQt6.QtWidgets import QTableWidgetItem
+        from .paper_display import auto_model_px
         self._suppress = True
         self._lw_defs.sort(key=lambda d: d.width_mm)
         self._lw_table.setRowCount(len(self._lw_defs))
+        muted = th.detect().color("muted")
         for row, lw in enumerate(self._lw_defs):
-            from PyQt6.QtWidgets import QTableWidgetItem
             name_item = QTableWidgetItem(lw.name)
             width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
             self._lw_table.setItem(row, 0, name_item)
             self._lw_table.setItem(row, 1, width_item)
+            # Model (px) (MW-11): muted "Auto (n)" or the whole-px override.
+            if lw.model_px is None:
+                model_item = QTableWidgetItem(
+                    f"Auto ({auto_model_px(lw.width_mm)})")
+                model_item.setForeground(muted)
+            else:
+                model_item = QTableWidgetItem(str(lw.model_px))
+            model_item.setToolTip(_MODEL_PX_TIP)
+            self._lw_table.setItem(row, 2, model_item)
         self._suppress = False
 
     def _weight_refs(self):
@@ -2810,7 +2834,32 @@ class DisplayManager(QDialog):
             self._propagate_lw_rename(old_name, text)
             self._lw_renames.append((old_name, text))
             renamed = (old_name, text)
-        else:  # Width changed
+        elif col == 2:  # Model (px) override (MW-11)
+            from .paper_display import validate_model_px
+            low = text.lower()
+            if low in ("", "auto") or low.startswith("auto ("):
+                new_px = None
+            else:
+                bad = False
+                try:
+                    new_px = int(text)
+                except ValueError:
+                    new_px = None
+                    bad = True
+                else:
+                    bad = not validate_model_px(new_px)
+                if bad:
+                    # Non-modal refusal at the edited cell, then restore it.
+                    self._show_lw_refusal(row, (
+                        "Model width must be a whole number of pixels from "
+                        "1 to 20, or Auto"), col=2)
+                    self._populate_lw_table()
+                    return
+            if new_px == old_def.model_px:
+                self._populate_lw_table()     # normalise the cell text
+                return
+            old_def.model_px = new_px
+        elif col == 1:  # Width changed
             try:
                 new_width = float(text)
             except ValueError:
@@ -2834,11 +2883,12 @@ class DisplayManager(QDialog):
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
-    def _show_lw_refusal(self, row: int, text: str) -> None:
-        """Non-modal tooltip at the Name cell of *row* (headless-safe)."""
+    def _show_lw_refusal(self, row: int, text: str, col: int = 0) -> None:
+        """Non-modal tooltip at cell (*row*, *col*) -- the Name cell by
+        default (headless-safe)."""
         from PyQt6.QtWidgets import QToolTip
         tbl = self._lw_table
-        item = tbl.item(row, 0)
+        item = tbl.item(row, col)
         rect = tbl.visualItemRect(item) if item is not None else tbl.rect()
         pos = tbl.viewport().mapToGlobal(rect.bottomLeft())
         QToolTip.showText(pos, text, tbl.viewport(), rect)

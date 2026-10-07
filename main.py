@@ -2254,6 +2254,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             on_crosshair_changed=self._apply_crosshair,
             on_immersive_changed=self._apply_immersive,
             on_panel_width_changed=self._apply_prop_panel_width,
+            on_weight_factor_changed=self._apply_model_weight_factor,
             parent=self,
         )
         if isinstance(pane, str):
@@ -3751,6 +3752,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         never are)."""
         self._modified = True
         self._update_title()
+        self._refresh_weight_canvases()
+
+    def _apply_model_weight_factor(self, factor: float) -> None:
+        """System Settings > UI "Model line weight scale" applied (MW-2 /
+        MW-11): install the factor, then re-pen / repaint every weight
+        canvas. Not undoable (a viewing preference, never project data)."""
+        from firepro3d.paper_display import set_model_weight_factor
+        set_model_weight_factor(factor)
         self._refresh_weight_canvases()
 
     def _refresh_weight_canvases(self):

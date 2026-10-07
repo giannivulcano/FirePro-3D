@@ -23,6 +23,7 @@ from firepro3d.constants import (
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
     HALO_APERTURE_PX, HALO_PRIORITY_BAND_PX, GRIP_OBJECT_LIMIT,
+    MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN, MODEL_WEIGHT_FACTOR_MAX,
 )
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
@@ -1256,22 +1257,27 @@ class UIPane(SettingsPane):
     _IMMERSIVE_KEY = "ui/immersive"
     _PANEL_WIDTH_KEY = "ui/prop_panel_width"
     _PANEL_WIDTH_DEFAULT = M.PROP_DOCK_W
+    # Canvas px per paper mm for Auto line weights (linetypes.md MW-2 / MW-11).
+    _WEIGHT_FACTOR_KEY = "view/model_weight_factor"
     _CHOICES = [("System", "system"), ("Light", "light"), ("Dark", "dark")]
 
     def __init__(self, on_theme_changed: Callable[[], None] | None = None,
                  on_crosshair_changed: Callable[[bool], None] | None = None,
                  on_immersive_changed: Callable[[bool], None] | None = None,
                  on_panel_width_changed: Callable[[int], None] | None = None,
+                 on_weight_factor_changed: Callable[[float], None] | None = None,
                  parent=None):
         super().__init__("UI", parent)
         self._on_theme_changed = on_theme_changed
         self._on_crosshair_changed = on_crosshair_changed
         self._on_immersive_changed = on_immersive_changed
         self._on_panel_width_changed = on_panel_width_changed
+        self._on_weight_factor_changed = on_weight_factor_changed
         self._snapshot = "system"
         self._crosshair_snapshot = True
         self._immersive_snapshot = False
         self._panel_width_snapshot = self._PANEL_WIDTH_DEFAULT
+        self._weight_factor_snapshot = MODEL_WEIGHT_FACTOR
 
         form = QFormLayout(self)
         self._theme_combo = QComboBox()
@@ -1289,6 +1295,19 @@ class UIPane(SettingsPane):
         self._panel_width_spin.setRange(200, 640)
         self._panel_width_spin.setSuffix(" px")
         form.addRow("Properties panel width:", self._panel_width_spin)
+
+        self._weight_factor_spin = QDoubleSpinBox()
+        self._weight_factor_spin.setRange(MODEL_WEIGHT_FACTOR_MIN,
+                                          MODEL_WEIGHT_FACTOR_MAX)
+        self._weight_factor_spin.setSingleStep(0.5)
+        self._weight_factor_spin.setDecimals(1)
+        self._weight_factor_spin.setSuffix(" px / paper mm")
+        self._weight_factor_spin.setToolTip(
+            "How thick named line weights draw on screen: canvas pixels per "
+            "paper mm for every weight set to Auto (Line Weights tab). "
+            "Printed and PDF output is unaffected. Factory 8.0 draws the "
+            "factory weights at 1 / 2 / 3 / 4 / 6 px.")
+        form.addRow("Model line weight scale:", self._weight_factor_spin)
 
         hint = QLabel(
             "System follows your OS light/dark setting. Changes apply to the "
@@ -1312,6 +1331,16 @@ class UIPane(SettingsPane):
         pw = s.value(self._PANEL_WIDTH_KEY, self._PANEL_WIDTH_DEFAULT, type=int)
         self._panel_width_snapshot = pw
         self._panel_width_spin.setValue(pw)
+        # Untyped read + range check: junk / out-of-range shows the factory
+        # value, matching what set_model_weight_factor installed at startup.
+        try:
+            wf = float(s.value(self._WEIGHT_FACTOR_KEY, MODEL_WEIGHT_FACTOR))
+        except (TypeError, ValueError):
+            wf = MODEL_WEIGHT_FACTOR
+        if not MODEL_WEIGHT_FACTOR_MIN <= wf <= MODEL_WEIGHT_FACTOR_MAX:
+            wf = MODEL_WEIGHT_FACTOR
+        self._weight_factor_snapshot = wf
+        self._weight_factor_spin.setValue(wf)
 
     def apply(self):
         val = self._CHOICES[self._theme_combo.currentIndex()][1]
@@ -1347,6 +1376,14 @@ class UIPane(SettingsPane):
             self._on_panel_width_changed(pw)
         self._panel_width_snapshot = pw
 
+        wf = float(self._weight_factor_spin.value())
+        s.setValue(self._WEIGHT_FACTOR_KEY, wf)
+        s.sync()
+        if (wf != self._weight_factor_snapshot
+                and self._on_weight_factor_changed is not None):
+            self._on_weight_factor_changed(wf)
+        self._weight_factor_snapshot = wf
+
     def revert(self):
         idx = next(
             (i for i, (_, v) in enumerate(self._CHOICES) if v == self._snapshot), 0)
@@ -1354,6 +1391,7 @@ class UIPane(SettingsPane):
         self._crosshair_cb.setChecked(self._crosshair_snapshot)
         self._immersive_cb.setChecked(self._immersive_snapshot)
         self._panel_width_spin.setValue(self._panel_width_snapshot)
+        self._weight_factor_spin.setValue(self._weight_factor_snapshot)
 
 
 class ProjectInfoPane(SettingsPane):
