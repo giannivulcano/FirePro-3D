@@ -1533,7 +1533,10 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   Paper-tab categories are stored by name in global QSettings, so names must
   survive both directions) — resolves via its factory mm to the nearest row;
   any other unknown name keeps the 0.25 mm fallback. Names present in the
-  table (or LT2 aliases) are untouched.
+  table (or LT2 aliases) are untouched. The same rule covers the saved /
+  applied ribbon **current** weight (WM-10; user, 2026-10-06 Group A fix
+  round): a factory name maps to the nearest row's name, any other unknown
+  name → By Linetype (`paper_display.live_weight_name`).
 - **MW-7 Crisp strokes** (Q10, Q20). A horizontal / vertical **weight-mapped**
   stroke of N px renders as exactly N full-intensity rows / columns at any
   coordinate or zoom; diagonals and curves stay anti-aliased. Scope: 2D
