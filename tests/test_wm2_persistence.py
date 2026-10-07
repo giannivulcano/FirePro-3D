@@ -70,8 +70,8 @@ def test_every_restore_caller_passes_overrides():
     saved record (the five restore paths) passes overrides=."""
     root = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
     sites = {("scene_io.py", "bdict"), ("model_space.py", "bdict"),
-             ("model_space.py", "obj"), ("block_editor.py", "d")}
-    # Task 4 adds ("block_explode.py", "rec") to this set.
+             ("model_space.py", "obj"), ("block_editor.py", "d"),
+             ("block_explode.py", "rec")}
     found = set()
     for fname, var in sites:
         tree = ast.parse((root / fname).read_text(encoding="utf-8"))
