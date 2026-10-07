@@ -23,6 +23,8 @@ from .paper_display import paper_pass_active
 _AA = QPainter.RenderHint.Antialiasing
 _MOVE = QPainterPath.ElementType.MoveToElement
 _LINE = QPainterPath.ElementType.LineToElement
+_NO_BRUSH = Qt.BrushStyle.NoBrush
+_UNDASHED = (Qt.PenStyle.SolidLine, Qt.PenStyle.NoPen)
 _ORTHO_KEY = ("ortho",)       # every signed-permutation 2x2 splits identically
 
 
@@ -188,21 +190,47 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
 class SplitCache:
     """One owner's cached split, keyed by path value + ``xf_key`` (delta 3)."""
 
-    __slots__ = ("_path", "_key", "_split")
+    __slots__ = ("_path", "_key", "_raw", "_split")
 
     def __init__(self):
         self._path = None
         self._key = None
+        self._raw = None          # raw 2x2 of the last lookup (MW-13 fast hit)
         self._split = None
 
     def get(self, path: QPainterPath, xf: QTransform) -> CrispSplit:
-        """The split of *path* under *xf*, recomputed only on a value change."""
-        key = xf_key(xf)
+        """The split of *path* under *xf*, recomputed only on a value change.
+
+        Cheap transform key (MW-13): the raw 2x2 equal to the last lookup's
+        hits without normalising; an exact signed permutation (any pan /
+        uniform zoom of an unrotated item) maps straight to the orthogonal
+        key; only a rotated / sheared 2x2 that changed pays ``xf_key``.
+        """
+        raw = (xf.m11(), xf.m12(), xf.m21(), xf.m22())
+        if raw == self._raw and self._split is not None:
+            key = self._key
+        else:
+            m11, m12, m21, m22 = raw
+            if ((m12 == 0.0 and m21 == 0.0 and m11 != 0.0 and abs(m11) == abs(m22))
+                    or (m11 == 0.0 and m22 == 0.0 and m12 != 0.0
+                        and abs(m12) == abs(m21))):
+                key = _ORTHO_KEY
+            else:
+                key = xf_key(xf)
+            self._raw = raw
         if self._split is None or key != self._key or path != self._path:
             self._split = split_axis(path, xf)
             self._path = QPainterPath(path)
-            self._key = key
+        self._key = key
         return self._split
+
+    def seed(self, path: QPainterPath, split: CrispSplit) -> None:
+        """Pre-load the split of *path* under any orthogonal transform (its
+        identity-frame split), so the first canvas paint does no split."""
+        self._path = QPainterPath(path)
+        self._key = _ORTHO_KEY
+        self._raw = None
+        self._split = split
 
 
 def stroke(painter: QPainter, path: QPainterPath, pen: QPen,
@@ -224,11 +252,10 @@ def stroke(painter: QPainter, path: QPainterPath, pen: QPen,
         split: ``split_axis(path, painter.worldTransform())`` or None to draw
             unsplit.
     """
-    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setBrush(_NO_BRUSH)
     painter.setPen(pen)
-    dashed = pen.style() not in (Qt.PenStyle.SolidLine, Qt.PenStyle.NoPen)
     if (split is None or not pen.isCosmetic() or paper_pass_active()
-            or (dashed and not split.all_axis)):
+            or (not split.all_axis and pen.style() not in _UNDASHED)):
         painter.drawPath(path)
         return
     aa = painter.testRenderHint(_AA)

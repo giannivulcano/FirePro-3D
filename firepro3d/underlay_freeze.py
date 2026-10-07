@@ -40,6 +40,12 @@ class _UnderlayPathItem(QGraphicsPathItem):
         # The stroke's crisp axis-split, by value (MW-7, H-MW-f delta 1).
         self._mw_split_cache = SplitCache()
 
+    def seed_split(self, split) -> None:
+        """Pre-load the identity-frame crisp split of this item's path (built
+        alongside it by the batch builder, MW-13): any orthogonal view / group
+        transform hits it on the first paint; others split lazily."""
+        self._mw_split_cache.seed(self.path(), split)
+
     def paint(self, painter, option, widget=None):
         scene = self.scene()
         ctrl = getattr(scene, "_underlay_freeze", None)

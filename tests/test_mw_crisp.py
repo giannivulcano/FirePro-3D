@@ -478,9 +478,11 @@ def test_unstyled_reference_line_stays_unsplit(be):
 
 
 # --------------------------------------------- quality round: paper gate
-def test_paper_pass_never_populates_an_underlay_split(qapp):
+def test_paper_pass_never_populates_an_underlay_split(qapp, monkeypatch):
     # A sheet / PDF render before any model paint must not pay a first split
-    # it never uses: the gate runs BEFORE cache.get (stroke_cached).
+    # it never uses: the gate runs BEFORE cache.get (stroke_cached). The group
+    # is rotated 30 deg so the build-time seed (orthogonal key only, MW-13)
+    # can't answer -- a pre-gate lookup would have to split.
     from PyQt6.QtCore import QRectF
     from firepro3d.underlay import Underlay
     from firepro3d.underlay_freeze import _UnderlayPathItem
@@ -492,8 +494,13 @@ def test_paper_pass_never_populates_an_underlay_split(qapp):
              {"kind": "line", "x1": 150, "y1": 40, "x2": 200, "y2": 90, "layer": "A"}],
             rec)
         sc.underlays.append((rec, group))
+        group.setRotation(30.0)
         items = [it for it in group.childItems() if isinstance(it, _UnderlayPathItem)]
         assert items
+        calls = []
+        real = cs.split_axis
+        monkeypatch.setattr(cs, "split_axis",
+                            lambda *a, **k: calls.append(1) or real(*a, **k))
         crop = QRectF(-500, -500, 1000, 1000)
         saved = pd.apply_paper_overrides(sc, crop, paper_scale=1.0)
         try:
@@ -509,7 +516,7 @@ def test_paper_pass_never_populates_an_underlay_split(qapp):
             pd.restore_model_display(saved)
         assert any(img.pixelColor(x, y) != QColor(255, 255, 255)
                    for x in range(400) for y in range(400))     # the pass painted it
-        assert all(it._mw_split_cache._split is None for it in items)
+        assert calls == []
     finally:
         sc.cleanup()
 
@@ -523,3 +530,175 @@ def test_dash_split_lru_keeps_one_split_per_pose(qapp):
     b = lr._dash_split(dash, QTransform().rotate(30))
     assert lr._dash_split(dash, QTransform()) is a
     assert lr._dash_split(dash, QTransform().rotate(30)) is b
+
+
+# ------------------------------------------------- MW-13: seeded underlay splits
+_SEED_GEOMS = [
+    {"kind": "line", "x1": -150, "y1": 40, "x2": 150, "y2": 40, "layer": "A"},
+    {"kind": "line", "x1": -150, "y1": -40, "x2": 100, "y2": 60, "layer": "A"},
+    {"kind": "path_points", "points": [[-120, -100], [-20, -100], [30, -50], [30, 20]],
+     "layer": "A"},                                         # mixed, open
+    {"kind": "path_points", "points": [[60, -120], [140, -120], [140, -60], [60, -60]],
+     "closed": True, "layer": "A"},                         # all-axis, closed
+    {"kind": "path_points", "points": [[-140, 80], [-60, 80], [-100, 130]],
+     "closed": True, "layer": "A"},                         # mixed, closed
+    {"kind": "circle", "x": 80, "y": 80, "w": 50, "h": 50, "layer": "A"},
+    {"kind": "arc", "rx": -60, "ry": -160, "rw": 60, "rh": 60, "start": 0.0,
+     "span": 120.0, "layer": "A"},
+]
+
+
+def _seed_scene(rotation=0.0, weight=""):
+    from firepro3d.underlay import Underlay
+    from firepro3d.underlay_freeze import _UnderlayPathItem
+    sc = Model_Space()
+    v = Model_View(sc); v.resize(800, 600); v.show(); QTest.qWaitForWindowExposed(v)
+    v.resetTransform(); v.centerOn(0, 0); QApplication.processEvents()
+    rec = Underlay(type="dxf", path="x.dxf", line_weight_name=weight)
+    group, _ = sc._build_batched_underlay_group([dict(g) for g in _SEED_GEOMS], rec)
+    sc.underlays.append((rec, group))
+    group.setRotation(rotation)
+    items = [it for it in group.childItems() if isinstance(it, _UnderlayPathItem)]
+    return sc, v, items
+
+
+def _close(sc, v):
+    sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
+
+
+@pytest.mark.parametrize("weight", ["", "Thick"])          # by-width / override builds
+def test_seeded_underlay_first_paint_does_no_split(qapp, monkeypatch, weight):
+    # The batch builder seeds each stroke item's split: the first canvas
+    # paint (orthogonal view) never runs split_axis -- and the seeded split
+    # paints exactly what the lazy split of the item's own path paints.
+    sc, v, items = _seed_scene(weight=weight)
+    try:
+        assert items and all(it.pen().isCosmetic() for it in items)
+
+        # Count, don't raise: an exception inside a Qt paint() aborts the
+        # process (PyQt6 unhandled-exception-in-virtual).
+        calls = []
+        real = cs.split_axis
+        monkeypatch.setattr(cs, "split_axis",
+                            lambda *a, **k: calls.append(1) or real(*a, **k))
+        seeded, _dpr = grab(v)
+        assert calls == []
+        monkeypatch.setattr(cs, "split_axis", real)
+        for it in items:
+            it._mw_split_cache = cs.SplitCache()               # lazy, exact
+        lazy, _dpr = grab(v)
+        assert seeded == lazy
+    finally:
+        _close(sc, v)
+
+
+def test_rotated_underlay_group_splits_lazily_unchanged(qapp, monkeypatch):
+    # A 30 deg group rotation is not orthogonal: the seed can't answer, the
+    # item splits lazily on its first paint, and pixels equal a fresh cache.
+    sc, v, items = _seed_scene(rotation=30.0)
+    try:
+        calls = []
+        real = cs.split_axis
+        monkeypatch.setattr(cs, "split_axis",
+                            lambda *a, **k: calls.append(1) or real(*a, **k))
+        first, _dpr = grab(v)
+        assert len(calls) >= 1
+        for it in items:
+            it._mw_split_cache = cs.SplitCache()
+        fresh, _dpr = grab(v)
+        assert first == fresh
+    finally:
+        _close(sc, v)
+
+
+def test_seeded_underlay_axis_rows_stay_crisp(qapp):
+    # Pixel check on the seeded path: the axis line at a half-pixel offset is
+    # its full rows only (no AA smear), straight from the seed.
+    sc, v, items = _seed_scene(weight="Thinner")
+    try:
+        group = items[0].parentItem()
+        y0 = 40.0
+        y = boundary_y(v, y0) + 0.5
+        group.moveBy(0.0, y - y0)
+        QApplication.processEvents()
+        img, dpr = grab(v)
+        dev = v.viewportTransform().map(QPointF(-100.0, y))   # clear of the other geoms
+        bg = img.pixelColor(int(dev.x() * dpr), int((dev.y() + 30) * dpr))
+        ink = img.pixelColor(int(dev.x() * dpr), int(math.floor(dev.y()) * dpr))
+        assert rows(column_profile(img, dpr, int(dev.x()), dev.y(), span=4), ink, bg) == (2, 0)
+        assert all(it._mw_split_cache._key == cs._ORTHO_KEY for it in items)
+    finally:
+        _close(sc, v)
+
+
+def test_cache_rotated_zoom_hits_without_resplit(qapp, monkeypatch):
+    # MW-13 cheap key: pan / zoom of a rotated item changes the raw 2x2 but
+    # not its direction -- the cached split is reused, never re-split.
+    c = cs.SplitCache()
+    p = QPainterPath(QPointF(0, 0)); p.lineTo(10, 0); p.lineTo(20, 7)
+    a = c.get(p, QTransform().rotate(30).scale(2, 2))
+    monkeypatch.setattr(cs, "split_axis", lambda *a_, **k: pytest.fail("re-split"))
+    for s in (2.0, 3.5, 0.25, 2.0):
+        assert c.get(p, QTransform().rotate(30).scale(s, s)) is a
+
+
+def _subs(path):
+    from collections import Counter
+    return Counter(tuple((round(q.x(), 9), round(q.y(), 9)) for q in poly)
+                   for poly in path.toSubpathPolygons())
+
+
+def _pts(poly):
+    from collections import Counter
+    return Counter((round(poly.at(k).x(), 9), round(poly.at(k).y(), 9))
+                   for k in range(poly.count()))
+
+
+def test_seed_matches_exact_split_on_edge_geoms(qapp):
+    # The build-time seed equals split_axis of the item's own path, edge
+    # cases included: duplicate points (Qt drops them), a zero-length line,
+    # an open polyline drawn back to its start, a closed mixed ring, a
+    # fuzzy-coincident close (left to the exact split), curves.
+    from firepro3d.dwg_converter import append_geom_to_path
+    from firepro3d.underlay_controller import _CrispSeed
+    geoms = [
+        {"kind": "path_points", "points": [[0, 0], [10, 0], [10, 0], [20, 5], [20, 5], [20, 15]]},
+        {"kind": "line", "x1": 3, "y1": 3, "x2": 3, "y2": 3},
+        {"kind": "path_points", "points": [[0, 70], [10, 70], [10, 70], [20, 70], [20, 80]]},
+        {"kind": "line", "x1": 0, "y1": 30, "x2": 50, "y2": 30},
+        {"kind": "path_points", "points": [[0, 40], [30, 40], [15, 60], [0, 40]]},
+        {"kind": "path_points", "points": [[40, 40], [80, 40], [80, 70], [60, 90]],
+         "closed": True},
+        {"kind": "path_points", "points": [[100, 0], [140, 0], [140, 40], [100, 40.0000001]],
+         "closed": True},
+        {"kind": "path_points", "points": [[100, 60], [140, 60], [140, 90], [100, 90]],
+         "closed": True},
+        {"kind": "circle", "x": 0, "y": 100, "w": 20, "h": 20},
+        {"kind": "arc", "rx": 30, "ry": 100, "rw": 20, "rh": 20, "start": 10.0, "span": 90.0},
+    ]
+    item_path, seed = QPainterPath(), _CrispSeed()
+    for g in geoms:
+        append_geom_to_path(item_path, g)
+        seed.add(g, append_geom_to_path)
+    got, want = seed.split(), cs.split_axis(item_path, QTransform())
+    assert _subs(got.axis) == _subs(want.axis)
+    assert _subs(got.other) == _subs(want.other)
+    assert _pts(got.joint_points) == _pts(want.joint_points)
+    assert got.all_axis == want.all_axis
+
+
+def test_rotated_view_line_is_classified_in_the_painter_frame(be):
+    # The one-segment fast path classifies with the painter's 2x2: a scene-
+    # horizontal line in a view rotated 30 deg is a device diagonal -> AA.
+    v, sc = be
+    v.rotate(30)
+    QApplication.processEvents()
+    ln = _hline(sc, 40.0, "Thinnest")
+    img, dpr = grab(v)
+    partial = 0
+    for sx in (-60.0, -30.0, 10.0, 45.0, 90.0):
+        dev = v.viewportTransform().map(QPointF(sx, 40.0))
+        bg = img.pixelColor(int(dev.x() * dpr), int((dev.y() + 40) * dpr))
+        partial += rows(column_profile(img, dpr, int(dev.x()), dev.y(), span=3),
+                        QColor(INK), bg)[1]
+    assert partial >= 3

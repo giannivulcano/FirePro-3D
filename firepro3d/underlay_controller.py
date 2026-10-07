@@ -14,10 +14,12 @@ emission. The freeze controller is NOT owned here — it stays `scene._underlay_
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 from PyQt6.QtCore import Qt, QObject, QPointF, QRectF, QSize
-from PyQt6.QtGui import QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import (QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap,
+                         QPolygonF, QTransform)
 from PyQt6.QtWidgets import (
     QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
     QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
@@ -26,10 +28,158 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from PyQt6 import sip
 
-from .constants import Z_UNDERLAY, UNDERLAY_LINE_WIDTH_PX
+from .constants import (CRISP_AXIS_TOL as _AXIS_TOL, CRISP_CLOSE_TOL as _RING_TOL,
+                        Z_UNDERLAY, UNDERLAY_LINE_WIDTH_PX)
 from .dxf_import_worker import DxfImportWorker
 from .underlay import Underlay
 from .underlay_freeze import _UnderlayPathItem
+from . import crisp_stroke as _cs
+
+# A polyline whose last point is this close to its first (but not equal) is
+# left to the exact split: Qt's closeSubpath snaps a fuzzy-equal end instead
+# of adding a closing segment, which the geom-level classifier can't mirror.
+_CLOSE_EPS = 1e-3
+
+
+class _CrispSeed:
+    """Identity-frame crisp split of one batched underlay stroke path, built
+    alongside it at batch build (MW-13; H-MW-f delta 1).
+
+    Each stroke geom is classified from its own coordinates as it is added
+    -- ``split_axis``'s axis rule under the identity, i.e. exactly
+    what ``split_axis`` computes for that geom's subpath: lines and
+    polylines are split into maximal axis / other runs here (a closed mixed
+    polyline starting at its first class change, the wrap vertex a joint),
+    circles / arcs / ellipses are all curve (other), and anything the rule
+    can't mirror cheaply (splines, a fuzzy-coincident close) is split exactly
+    by ``split_axis`` once. Subpaths split independently, so the result is
+    the split of the item's path under any orthogonal transform -- seeded
+    into the item's ``SplitCache`` so the first canvas paint does no split.
+    """
+
+    __slots__ = ("axis", "other", "mixed", "joints", "_any_other")
+
+    def __init__(self):
+        self.axis = QPainterPath()
+        self.other = QPainterPath()
+        self.mixed = QPainterPath()
+        self.joints: list = []
+        self._any_other = False
+
+    def add(self, g: dict, append) -> None:
+        """Route stroke geom *g* (*append* = the item path builder)."""
+        kind = g.get("kind")
+        if kind == "line":
+            x1, y1, x2, y2 = g["x1"], g["y1"], g["x2"], g["y2"]
+            if _qt_same(x1, x2) and _qt_same(y1, y2):
+                return                     # Qt drops the lineTo: no segment
+            if _axis(x2 - x1, y2 - y1):
+                tgt = self.axis
+            else:
+                tgt = self.other
+                self._any_other = True
+            tgt.moveTo(x1, y1)
+            tgt.lineTo(x2, y2)
+        elif kind == "path_points":
+            self._add_polyline(g, append)
+        elif kind in ("circle", "arc", "ellipse_full"):
+            append(self.other, g)
+            self._any_other = True
+        else:                              # splines / unknown: exact split
+            append(self.mixed, g)
+
+    def _add_polyline(self, g: dict, append) -> None:
+        raw = g["points"]
+        n = len(raw)
+        if n < 2:
+            return
+        # Mirror QPainterPath.lineTo: a point fuzzy-equal to the last one
+        # adds no element (so no zero-length segment exists in the path).
+        pts = [raw[0]]
+        for q in raw[1:]:
+            last = pts[-1]
+            if not (_qt_same(q[0], last[0]) and _qt_same(q[1], last[1])):
+                pts.append(q)
+        if len(pts) < 2:
+            return                         # a bare moveTo: no segment
+        closed = bool(g.get("closed")) and n >= 3
+        if closed:
+            dx, dy = pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]
+            if dx != 0.0 or dy != 0.0:
+                if abs(dx) < _CLOSE_EPS and abs(dy) < _CLOSE_EPS:
+                    append(self.mixed, g)          # Qt snaps: exact split
+                    return
+                pts = list(pts) + [pts[0]]          # Qt's closing segment
+        kinds = [_axis(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:])]
+        # split_axis treats ANY subpath ending on its start as closed (an
+        # open polyline drawn back to its first point included).
+        closed = closed or (abs(pts[-1][0] - pts[0][0]) < _RING_TOL
+                            and abs(pts[-1][1] - pts[0][1]) < _RING_TOL)
+        if all(kinds) or not any(kinds):
+            if kinds[0]:
+                tgt = self.axis
+            else:
+                tgt = self.other
+                self._any_other = True
+            tgt.moveTo(pts[0][0], pts[0][1])
+            for q in pts[1:]:
+                tgt.lineTo(q[0], q[1])
+            if closed:
+                tgt.closeSubpath()
+            return
+        self._any_other = True
+        segs = list(range(len(kinds)))           # segment k: pts[k] -> pts[k+1]
+        if closed:
+            k0 = next(m for m in range(1, len(kinds)) if kinds[m] != kinds[m - 1])
+            segs = segs[k0:] + segs[:k0]
+        run = None
+        joints = self.joints
+        for k in segs:
+            ka = kinds[k]
+            a, b = pts[k], pts[k + 1]
+            tgt = self.axis if ka else self.other
+            if run is not ka:
+                if run is not None:
+                    joints.append(QPointF(a[0], a[1]))
+                tgt.moveTo(a[0], a[1])
+                run = ka
+            tgt.lineTo(b[0], b[1])
+        if closed:
+            last = pts[segs[-1] + 1]
+            joints.append(QPointF(last[0], last[1]))   # last run meets the first
+
+    def split(self) -> "_cs.CrispSplit":
+        """The merged identity-frame split."""
+        axis, other = self.axis, self.other
+        any_other = self._any_other
+        joints = self.joints
+        if not self.mixed.isEmpty():
+            ms = _cs.split_axis(self.mixed, QTransform())
+            axis.addPath(ms.axis)
+            if not ms.other.isEmpty():
+                other.addPath(ms.other)
+                any_other = True
+            jp = ms.joint_points
+            joints = joints + [jp.at(k) for k in range(jp.count())]
+        return _cs.CrispSplit(axis, other, (not any_other) and not axis.isEmpty(),
+                              QPolygonF(joints))
+
+
+
+
+def _qt_same(a: float, b: float) -> bool:
+    """Qt's QPointF coordinate fuzzy-equality (qFuzzyCompare / qFuzzyIsNull)."""
+    if a == 0.0 or b == 0.0:
+        return abs(a - b) <= 1e-12
+    return abs(a - b) * 1e12 <= min(abs(a), abs(b))
+
+
+def _axis(dx: float, dy: float) -> bool:
+    """``split_axis``'s axis rule under the identity (inlined: hot at build)."""
+    ax = dx if dx >= 0.0 else -dx
+    ay = dy if dy >= 0.0 else -dy
+    return (ax > 0.0 or ay > 0.0) and (ax if ax < ay else ay) <= _AXIS_TOL * math.hypot(dx, dy)
+
 
 log = logging.getLogger("FirePro3D")
 
@@ -321,21 +471,27 @@ class UnderlayController:
 
         items: list[QGraphicsItem] = []
 
+        append = self._append_geom_to_path
         for layer, geoms in by_layer.items():
             geom_path = QPainterPath()
             text_path = QPainterPath()
+            has_override = bool(record.effective_layer_weight(layer))
+            seed = _CrispSeed() if has_override else None
 
             for g in geoms:
                 if g.get("kind") == "text":
-                    self._append_geom_to_path(text_path, g)
-                else:
-                    self._append_geom_to_path(geom_path, g)
+                    append(text_path, g)
+                elif seed is not None:
+                    # Override layer: one stroke path (+ its crisp seed). The
+                    # no-override branch below builds per-width paths itself.
+                    append(geom_path, g)
+                    seed.add(g, append)
 
-            has_override = bool(record.effective_layer_weight(layer))
             if not geom_path.isEmpty() and has_override:
                 # Per-file/layer Line-Weight override wins: single pen, flat
                 # width for the whole layer (today's look).
                 item = _UnderlayPathItem(geom_path)
+                item.seed_split(seed.split())      # MW-13: no first-paint split
                 item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 item.setZValue(Z_UNDERLAY)
@@ -346,12 +502,16 @@ class UnderlayController:
                 # (one pen width) per distinct stroke width. DXF geoms carry no
                 # "width" -> all bucket at 0.0 -> UNDERLAY_LINE_WIDTH_PX (today).
                 by_width: dict[float, QPainterPath] = {}
+                seeds: dict[float, _CrispSeed] = {}
                 for g in geoms:
                     if g.get("kind") == "text":
                         continue
                     w = round(float(g.get("width", 0.0)), 2)
-                    self._append_geom_to_path(
-                        by_width.setdefault(w, QPainterPath()), g)
+                    append(by_width.setdefault(w, QPainterPath()), g)
+                    sd = seeds.get(w)
+                    if sd is None:
+                        sd = seeds[w] = _CrispSeed()
+                    sd.add(g, append)
                 colour = QColor(record.effective_layer_colour(layer))
                 for w, wpath in by_width.items():
                     if wpath.isEmpty():
@@ -359,6 +519,7 @@ class UnderlayController:
                     pen = QPen(colour, _pdf_width_to_px(w))
                     pen.setCosmetic(True)
                     item = _UnderlayPathItem(wpath)
+                    item.seed_split(seeds[w].split())   # MW-13: no first-paint split
                     item.setPen(pen)
                     item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                     item.setZValue(Z_UNDERLAY)
