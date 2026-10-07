@@ -139,11 +139,17 @@ class BlockInstance(QGraphicsObject):
         self._ov_cache = (base, a, out)
         return out
 
-    def set_overrides(self, ov) -> None:
-        """Replace the placement override (normalised); repaint."""
+    def set_overrides(self, ov, canonical: bool = True) -> None:
+        """Replace the placement override (normalised); repaint.
+
+        Args:
+            ov: The override dict.
+            canonical: False stores a named weight raw (not alias-mapped) --
+                the Display Manager Cancel replay of a weight rename.
+        """
         self.prepareGeometryChange()
-        self.overrides = normalize_overrides(ov)
-        a = override_args(self.overrides)
+        self.overrides = normalize_overrides(ov, canonical)
+        a = override_args(self.overrides, canonical)
         self._ov_args = None if a == (None, None) else a
         self._ov_cache = None
         self.update()

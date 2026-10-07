@@ -1814,6 +1814,30 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             out.append("the open Block Editor")
         return out
 
+    def _linetype_context_split(self, block_id: str) -> tuple[list, list]:
+        """``linetype_user_contexts`` split by user kind (WM2 H4).
+
+        Returns:
+            ``(line_ctx, block_ctx)`` -- the contexts holding live styled
+            primitives whose linetype is *block_id*, and those holding placed
+            blocks whose Linetype override is *block_id*; each in the
+            ``"the plan"``, ``"the open Block Editor"`` order.
+        """
+        from .block_registry import linetype_users_in
+        scenes = [("the plan", self)]
+        prov = self._editor_scenes_provider
+        if callable(prov):
+            scenes += [("the open Block Editor", sc)
+                       for sc in prov() if sc is not self]
+        line_ctx, block_ctx = [], []
+        for label, sc in scenes:
+            for item in linetype_users_in(sc, block_id):
+                kind = (block_ctx if isinstance(item, BlockInstance)
+                        else line_ctx)
+                if label not in kind:
+                    kind.append(label)
+        return line_ctx, block_ctx
+
     def block_users_message(self, block_id: str) -> str | None:
         """Delete-refusal text when other blocks nest *block_id* (D12) or live
         primitives use it as their linetype (LT3-2).
@@ -1831,7 +1855,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             both together (``… by lines inside: U, and by lines in the plan
             — …``); or None when nothing uses it. A linetype that a block
             also nests keeps the nesting wording ("explode or remove it
-            there").
+            there"). Linetype-override users (WM2 H4) read ``by blocks
+            inside: H`` (nested records) / ``by blocks in the plan`` (placed
+            blocks) with "change their linetype override first" (``…
+            linetype or linetype override first`` beside line users).
         """
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
@@ -1839,7 +1866,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         d = self.get_block_definition(block_id)
         if d.repeat:
-            msg = self._linetype_users_message(d, users, ctx)
+            msg = self._linetype_users_message(d, users)
             if msg is not None:
                 return msg
         lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
@@ -1852,7 +1879,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                if ctx else " — explode or remove it there first.")
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
 
-    def _linetype_users_message(self, d, users, ctx) -> str | None:
+    def _linetype_users_message(self, d, users) -> str | None:
         """LT4-11e / H4-g: the linetype refusal for *d*, or None.
 
         "by lines inside" names only the definitions whose own primitives
@@ -1861,16 +1888,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         through a chain of nesting users), those are named in a separate
         "inside" clause with "explode or remove it there" -- a block that
         both nests *d* and has lines using it appears in both clauses.
-        None when nothing uses *d* by its lines (the caller's nesting
-        wording applies) or nothing uses it at all.
+        The plan / open-editor clauses come from
+        :meth:`_linetype_context_split`: live lines read "by lines in …",
+        placed blocks with a Linetype override "by blocks in …" (WM2 H4);
+        nested records overriding *d* read "by blocks inside". None when
+        nothing uses *d* by its lines or a Linetype override (the caller's
+        nesting wording applies) or nothing uses it at all.
 
         Args:
             d: The linetype definition.
             users: ``users_of(d.id)`` (direct and indirect).
-            ctx: ``linetype_user_contexts(d.id)`` ("the plan", …).
         """
-        from .block_registry import nested_ids
-        line_users, nesters = [], []
+        from .block_registry import NESTED_TYPE, nested_ids
+        from .stroke_style import override_refs
+        line_users, nesters, ov_users = [], [], []
         for uid in users:
             u = self.get_block_definition(uid)
             if u is None:
@@ -1881,17 +1912,30 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                    and p["style"].get("linetype") == d.id
                    for p in u.primitives):
                 line_users.append(u.name)
-        if nesters and not line_users:
+            if any(p.get("type") == NESTED_TYPE
+                   and d.id in override_refs(p.get("overrides"))[1]
+                   for p in u.primitives):
+                ov_users.append(u.name)          # WM2 H4: record override
+        line_ctx, block_ctx = self._linetype_context_split(d.id)
+        if nesters and not line_users and not ov_users and not block_ctx:
             return None                          # pure nesting wording
         segs = ([f"by lines inside: {', '.join(sorted(line_users))}"]
                 if line_users else [])
-        if ctx:
-            segs.append("by lines " + " and ".join("in " + c for c in ctx))
+        if line_ctx:
+            segs.append("by lines " + " and ".join("in " + c for c in line_ctx))
+        has_lines = bool(segs)
+        if ov_users:
+            segs.append(f"by blocks inside: {', '.join(sorted(ov_users))}")
+        if block_ctx:
+            segs.append("by blocks " + " and ".join("in " + c for c in block_ctx))
         if not segs:
             return None
+        has_blocks = bool(ov_users or block_ctx)
+        what = ("linetype or linetype override" if has_lines and has_blocks
+                else "linetype override" if has_blocks else "linetype")
         if not nesters:
             return (f"“{d.name}” is used " + ", and ".join(segs)
-                    + " — change their linetype first.")
+                    + f" — change their {what} first.")
         # Mixed (H4-g): nesting users keep "explode or remove it there".
         nest_ids = set(nesters)
         for nid in nesters:
@@ -1901,8 +1945,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         segs.insert(0, f"inside: {', '.join(nest_names)}")
         return (f"“{d.name}” is used " + ", ".join(segs[:-1])
                 + f", and {segs[-1]}"
-                + " — explode or remove it there, and change their"
-                  " linetype first.")
+                + f" — explode or remove it there, and change their {what}"
+                  " first.")
 
     def _swap_block_definition(self, block_id: str, new_defn) -> None:
         """Replace the registry entry for *block_id* with *new_defn*, rebuild the

@@ -2798,7 +2798,10 @@ class DisplayManager(QDialog):
                 st["weight"] = new
                 touched_defs.add(bid)
             elif kind == "inst":
-                ref.set_overrides({**ref.overrides, "weight": new})
+                # Raw, like the Blocks weight: the Cancel replay writes a
+                # pre-rename (alias-key) name before the aliases are restored.
+                ref.set_overrides({**ref.overrides, "weight": new},
+                                  canonical=False)
             elif kind == "nrec":
                 bid, ov = ref
                 ov["weight"] = new

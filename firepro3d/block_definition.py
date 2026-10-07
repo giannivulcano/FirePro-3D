@@ -486,9 +486,12 @@ class BlockDefinition:
         from .render_op import apply_overrides
         from .stroke_style import override_args
         # WM2 H2: the record's override replaces what the child's own compile
-        # (and its records) resolved -- outermost wins (WM-6).
+        # (and its records) resolved -- outermost wins (WM-6). Raw names
+        # (load already canonicalised them): a compile inside the Display
+        # Manager Cancel replay must not bake the renamed-away alias target.
         return apply_overrides([op.mapped(t) for op in child_ops],
-                               *override_args(prim.get("overrides")))
+                               *override_args(prim.get("overrides"),
+                                              canonical=False))
 
     def _compile_reference(self) -> list[RenderOp]:
         """Batched compile: accumulate each layer's geometry into one path.

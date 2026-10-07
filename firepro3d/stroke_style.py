@@ -232,19 +232,24 @@ def weight_from_label(label) -> str:
 
 # -- WM2: placement / nested-record overrides ------------------------------
 
-def normalize_overrides(d) -> dict:
+def normalize_overrides(d, canonical: bool = True) -> dict:
     """A complete ``{"weight", "linetype"}`` override record (WM2 H1).
 
     Missing / blank / non-string / foreign keyword -> As Authored; a named weight is canonicalised through
     the rename aliases (legacy factory names keep resolving by mm at paint,
     MW-6); a linetype value is kept verbatim (``continuous`` or an id).
+
+    Args:
+        d: The raw override dict (anything else reads As Authored).
+        canonical: False keeps a named weight raw -- the Display Manager
+            Cancel replay writes a pre-rename name while its alias is live.
     """
     d = d if isinstance(d, dict) else {}
     w = d.get("weight")
     w = w.strip() if isinstance(w, str) else ""
     if not w or w in (BY_BLOCK, BY_LINETYPE, CONTINUOUS):
         w = AS_AUTHORED
-    elif w != AS_AUTHORED and w != BY_CATEGORY:
+    elif canonical and w != AS_AUTHORED and w != BY_CATEGORY:
         w = _pd.canonical_weight_name(w)
     lt = d.get("linetype")
     lt = lt.strip() if isinstance(lt, str) else ""
@@ -259,9 +264,10 @@ def is_as_authored(ov) -> bool:
     return ov["weight"] == AS_AUTHORED and ov["linetype"] == AS_AUTHORED
 
 
-def override_args(ov) -> tuple:
-    """``(weight | None, linetype | None)`` for ``render_op.apply_overrides``."""
-    ov = normalize_overrides(ov)
+def override_args(ov, canonical: bool = True) -> tuple:
+    """``(weight | None, linetype | None)`` for ``render_op.apply_overrides``
+    (*canonical* as in :func:`normalize_overrides`)."""
+    ov = normalize_overrides(ov, canonical)
     return (None if ov["weight"] == AS_AUTHORED else ov["weight"],
             None if ov["linetype"] == AS_AUTHORED else ov["linetype"])
 
