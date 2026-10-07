@@ -84,3 +84,31 @@ def test_every_restore_caller_passes_overrides():
                 assert any(k.arg == "overrides" for k in node.keywords), (fname, var)
                 found.add((fname, var))
     assert found == sites
+
+
+def test_fpdb_round_trip_keeps_record_overrides(qapp, tmp_path):
+    """G9: a host whose nested record overrides weight + linetype survives a
+    .fpdb save / load into a fresh project, bringing the linetype along."""
+    from firepro3d import block_library
+    from firepro3d.block_definition import BlockDefinition
+    from tests.lt3_support import make_linetype
+    lt = make_linetype()
+    s = sprinkler_def()
+    ov = {"weight": "Thick", "linetype": lt.id}
+    h = BlockDefinition.new(name="H", library="L", series="S",
+                            primitives=[nested_record(s.id, ov)],
+                            origin=(0.0, 0.0))
+    ms, _inst = scene_with([lt, s, h], h.id)
+    path = block_library.save_to_library(
+        h, root=str(tmp_path), bundled=ms.block_registry.bundle_for(h.id))
+    fresh = Model_Space()
+    summary = fresh.load_blocks_from_files([path])
+    assert summary["loaded"] and not summary["missing"]
+    assert {h.id, s.id, lt.id} <= set(fresh._block_definitions)
+    rec = fresh.get_block_definition(h.id).primitives[0]
+    assert rec["overrides"] == ov
+    # Observable: a placement in the fresh project strokes the override.
+    inst = fresh.place_block_instance(h.id, (0.0, 0.0), level=fresh.active_level)
+    strokes = [op for op in inst.render_ops() if op.kind == "stroke"]
+    assert strokes and {op.weight for op in strokes} == {"Thick"}
+    assert {op.linetype for op in strokes} == {lt.id}
