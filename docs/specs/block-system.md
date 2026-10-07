@@ -1,7 +1,7 @@
 ---
-status: partial           # + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
-last-verified: 2026-10-06  # LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: b9b1094   # LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+status: partial           # + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring + paper-space placement deferred
+last-verified: 2026-10-07  # WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: a65daf67   # WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -802,6 +802,23 @@ Built on `feat/lt4-repeat-authoring` (`b9b1094`). The authoring contract is owne
 - **Blocks browser** — the capability badge (pattern or linetype) and its tooltip now show on
   **library** rows as well as project rows, read from the `index.json` `tile` / `repeat` flags →
   `linetypes.md` LT4-10 / H4-g. The delete refusal's linetype wording → LT4-11e.
+
+### Placement Weight / Linetype overrides (WM2)
+
+Built on `feat/wm2-placement-overrides` (`a65daf67`). The override contract is owned by
+[`linetypes.md`](linetypes.md) "Weight model" + "WM2 — as built" — not restated here.
+Block-system touch points (each a pointer):
+
+- **Placement + nested-record slot** — `BlockInstance.overrides` / a nested record's optional
+  `"overrides"` key (omitted when As Authored); `place_block_instance(..., overrides=)` at every
+  restore site → WM2 H1 / H3.
+- **Compile** — `_nested_ops` applies a record's overrides to the child's mapped ops (outermost
+  wins); `_load_prim` normalises them → WM2 H2. Compiled definition ops stay the flyweight; a
+  placement's override is a per-instance derived list.
+- **Explode** — bakes the instance's override onto primitives and composes it onto nested
+  children → WM2 H6 (Q6 / Q7).
+- **Dependencies** — a nested record's linetype override is a ref in `prim_refs` (bundling,
+  cycle check, delete refusal "used by blocks inside") → WM2 H4.
 
 ### Deferred (v2.x)
 

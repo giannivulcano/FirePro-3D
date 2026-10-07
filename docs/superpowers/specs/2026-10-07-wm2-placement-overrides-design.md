@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: current   # BUILT 2026-10-07 (a65daf67); as-built home = linetypes.md "WM2 — as built"
 last-verified: 2026-10-07
-verified-commit: 7f97f687
+verified-commit: a65daf67
 applies-to:
   - firepro3d/stroke_style.py
   - firepro3d/render_op.py
