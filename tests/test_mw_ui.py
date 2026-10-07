@@ -263,3 +263,39 @@ def test_open_system_settings_passes_the_factor_callback(main_window, monkeypatc
     monkeypatch.setattr(ssd.SystemSettingsDialog, "exec", _fake_exec)
     main_window._open_system_settings()
     assert seen.get("done") and pd.model_weight_factor() == 6.5
+
+
+def test_uipane_load_snapshot_is_the_shown_value(qapp):
+    """A stored factor the spin rounds (7.25 -> 7.3) is not a user change:
+    apply without touching the spin must not fire the callback."""
+    from firepro3d.settings.panes import UIPane
+    QSettings("GV", "FirePro3D").setValue("view/model_weight_factor", 7.25)
+    fired = []
+    pane = UIPane(on_weight_factor_changed=fired.append)
+    pane.load()
+    pane.apply()
+    assert fired == []
+
+
+@pytest.mark.parametrize("stored", ["junk", 0.5, 25.0])
+def test_uipane_load_shows_what_startup_installed(qapp, stored):
+    from firepro3d.settings.panes import UIPane
+    QSettings("GV", "FirePro3D").setValue("view/model_weight_factor", stored)
+    pd.set_model_weight_factor(stored)
+    pane = UIPane()
+    pane.load()
+    assert pane._weight_factor_spin.value() == pd.model_weight_factor() == 8.0
+
+
+@pytest.mark.parametrize("bad", ["1_0", "\u0665"])   # underscore / Arabic-Indic 5
+def test_model_px_refuses_non_ascii_digit_ints(qapp, monkeypatch, bad):
+    from PyQt6.QtWidgets import QToolTip
+    calls = []
+    monkeypatch.setattr(QToolTip, "showText", lambda *a: calls.append(a))
+    pd.set_project_line_weights([LineWeightDef("Thin", 0.35, 4)])
+    d = _dlg()
+    d._lw_table.item(_row(d, "Thin"), 2).setText(bad)
+    assert calls and "1 to 20" in calls[-1][1]
+    assert _px()["Thin"] == 4
+    assert d._lw_table.item(_row(d, "Thin"), 2).text() == "4"
+    d.reject()

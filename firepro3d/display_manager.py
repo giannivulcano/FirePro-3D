@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
 from .hatch_patterns import BUILTIN_DIAGONAL
+from .constants import MODEL_WEIGHT_PX_MAX
 
 
 # ---------------------------------------------------------------------------
@@ -265,8 +266,8 @@ _MODEL_PX_TIP = (
     "Canvas width of this weight in screen pixels (model views and the "
     "Block Editor; paper always prints the mm width). Auto = paper mm x the "
     "Model line weight scale (System Settings > UI), rounded, at least 1 px. "
-    "Type a whole number from 1 to 20 to override; clear the cell or type "
-    "'auto' to return to Auto.")
+    f"Type a whole number from 1 to {MODEL_WEIGHT_PX_MAX} to override; clear "
+    "the cell or type 'auto' to return to Auto.")
 
 
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
@@ -2840,19 +2841,15 @@ class DisplayManager(QDialog):
             if low in ("", "auto") or low.startswith("auto ("):
                 new_px = None
             else:
-                bad = False
-                try:
-                    new_px = int(text)
-                except ValueError:
-                    new_px = None
-                    bad = True
-                else:
-                    bad = not validate_model_px(new_px)
-                if bad:
+                # ASCII digits only: int() would also take "1_0", "+5" or
+                # non-ASCII digits.
+                new_px = (int(text) if text.isascii() and text.isdigit()
+                          else None)
+                if new_px is None or not validate_model_px(new_px):
                     # Non-modal refusal at the edited cell, then restore it.
                     self._show_lw_refusal(row, (
                         "Model width must be a whole number of pixels from "
-                        "1 to 20, or Auto"), col=2)
+                        f"1 to {MODEL_WEIGHT_PX_MAX}, or Auto"), col=2)
                     self._populate_lw_table()
                     return
             if new_px == old_def.model_px:

@@ -164,16 +164,23 @@ def model_weight_factor() -> float:
     return _MODEL_FACTOR
 
 
-def set_model_weight_factor(factor) -> None:
-    """Set the factor; anything unparseable / out of 1..20 -> factory 8."""
-    global _MODEL_FACTOR
+def parse_model_weight_factor(value) -> float:
+    """A stored / typed factor as a float; anything unparseable or outside
+    MODEL_WEIGHT_FACTOR_MIN..MAX -> factory MODEL_WEIGHT_FACTOR (MW-2).
+    The one rule shared by startup restore and the System Settings pane."""
     try:
-        f = float(factor)
+        f = float(value)
     except (TypeError, ValueError):
-        f = MODEL_WEIGHT_FACTOR
+        return MODEL_WEIGHT_FACTOR
     if not (MODEL_WEIGHT_FACTOR_MIN <= f <= MODEL_WEIGHT_FACTOR_MAX):
-        f = MODEL_WEIGHT_FACTOR
-    _MODEL_FACTOR = f
+        return MODEL_WEIGHT_FACTOR
+    return f
+
+
+def set_model_weight_factor(factor) -> None:
+    """Set the factor via ``parse_model_weight_factor`` (junk -> factory)."""
+    global _MODEL_FACTOR
+    _MODEL_FACTOR = parse_model_weight_factor(factor)
 
 # Rename aliases (linetypes.md LT2-8 / H-g): old name -> current name, so a
 # reference written before a rename (undo snapshot, clipboard, paper command,

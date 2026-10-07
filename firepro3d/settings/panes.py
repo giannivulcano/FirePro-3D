@@ -1304,9 +1304,11 @@ class UIPane(SettingsPane):
         self._weight_factor_spin.setSuffix(" px / paper mm")
         self._weight_factor_spin.setToolTip(
             "How thick named line weights draw on screen: canvas pixels per "
-            "paper mm for every weight set to Auto (Line Weights tab). "
-            "Printed and PDF output is unaffected. Factory 8.0 draws the "
-            "factory weights at 1 / 2 / 3 / 4 / 6 px.")
+            "paper mm for every weight set to Auto (Line Weights tab), "
+            f"{MODEL_WEIGHT_FACTOR_MIN:.1f} to {MODEL_WEIGHT_FACTOR_MAX:.1f}. "
+            "Printed and PDF output is unaffected. Factory "
+            f"{MODEL_WEIGHT_FACTOR:.1f} draws the factory weights at "
+            "1 / 2 / 3 / 4 / 6 px.")
         form.addRow("Model line weight scale:", self._weight_factor_spin)
 
         hint = QLabel(
@@ -1331,16 +1333,13 @@ class UIPane(SettingsPane):
         pw = s.value(self._PANEL_WIDTH_KEY, self._PANEL_WIDTH_DEFAULT, type=int)
         self._panel_width_snapshot = pw
         self._panel_width_spin.setValue(pw)
-        # Untyped read + range check: junk / out-of-range shows the factory
-        # value, matching what set_model_weight_factor installed at startup.
-        try:
-            wf = float(s.value(self._WEIGHT_FACTOR_KEY, MODEL_WEIGHT_FACTOR))
-        except (TypeError, ValueError):
-            wf = MODEL_WEIGHT_FACTOR
-        if not MODEL_WEIGHT_FACTOR_MIN <= wf <= MODEL_WEIGHT_FACTOR_MAX:
-            wf = MODEL_WEIGHT_FACTOR
-        self._weight_factor_snapshot = wf
-        self._weight_factor_spin.setValue(wf)
+        # The startup restore's parse rule (junk / out-of-range -> factory);
+        # the snapshot is the SHOWN value (the spin rounds to 1 decimal), so
+        # an untouched OK never reads as a change.
+        from firepro3d.paper_display import parse_model_weight_factor
+        self._weight_factor_spin.setValue(parse_model_weight_factor(
+            s.value(self._WEIGHT_FACTOR_KEY, MODEL_WEIGHT_FACTOR)))
+        self._weight_factor_snapshot = self._weight_factor_spin.value()
 
     def apply(self):
         val = self._CHOICES[self._theme_combo.currentIndex()][1]
