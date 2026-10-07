@@ -34,6 +34,39 @@ from .stroke_style import (BY_BLOCK, BY_LINETYPE, canvas_px, is_linetype_ref,
 _PLACEHOLDER_MM = 200.0
 
 
+class _PoseXf:
+    """Per-paint world-transform toggle for ``BlockInstance`` ops (MW-7).
+
+    The posed transform (pose x item frame) is composed once per paint and
+    switched to / from with ``setWorldTransform`` -- no per-op painter
+    ``save`` / ``restore``. Crisp stroke ops draw under it; every other op
+    (fills, text, linetype expansions, paper strokes) calls ``unposed`` first.
+    """
+
+    __slots__ = ("_painter", "_base", "_pose", "_posed", "_on")
+
+    def __init__(self, painter, pose: QTransform):
+        self._painter = painter
+        self._base = painter.worldTransform()
+        self._pose = pose
+        self._posed = None
+        self._on = False
+
+    def posed(self) -> None:
+        """Switch the painter to the posed transform (composed once)."""
+        if not self._on:
+            if self._posed is None:
+                self._posed = self._pose * self._base
+            self._painter.setWorldTransform(self._posed)
+            self._on = True
+
+    def unposed(self) -> None:
+        """Switch the painter back to the item frame it had at paint start."""
+        if self._on:
+            self._painter.setWorldTransform(self._base)
+            self._on = False
+
+
 class BlockInstance(QGraphicsObject):
     """A placed instance of a BlockDefinition (flyweight consumer)."""
 
@@ -272,11 +305,14 @@ class BlockInstance(QGraphicsObject):
         dev_scale = None    # device px per local unit under the pose (lazy)
         win = False         # view_window key under the pose (LTS-8; lazy, Fixed only)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
+        xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
+                xf.unposed()
                 self._paint_fill_op(painter, pose, op)
                 continue
             if op.kind == TEXT:
+                xf.unposed()
                 # Text op: the fill carries the colour, so selection/override
                 # tint applies to the BRUSH.
                 b = QBrush(QColor(op.colour or "#ffffff"))
@@ -316,6 +352,7 @@ class BlockInstance(QGraphicsObject):
                 if lt is not None and op.pieces:
                     # Expand definition-local under the pose (H3-f): one
                     # cached expansion shared by every instance.
+                    xf.unposed()
                     if ok is None:              # LOD: once per entry per paint
                         if paper_pass is None:
                             paper_pass = _pd.paper_pass_active()
@@ -353,9 +390,10 @@ class BlockInstance(QGraphicsObject):
                         finally:
                             painter.restore()
                         continue
-                self._stroke_op(painter, ops, i, op, pose, p)
+                self._stroke_op(painter, ops, i, op, pose, p, xf)
                 continue
             painter.drawPath(pose.map(op.path))
+        xf.unposed()
         if routed and (missing or self._lt_tip_id):
             _lr.sync_missing_tooltip(self, missing)     # names the id (LT3-10)
         if missing:
@@ -371,11 +409,14 @@ class BlockInstance(QGraphicsObject):
         """
         on_paper = self._paper_pen_width is not None
         last_w, last_px = None, None
+        xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
+                xf.unposed()
                 self._paint_fill_op(painter, pose, op)
                 continue
             if op.kind == TEXT:
+                xf.unposed()
                 # Text op: the fill carries the colour, so selection/override
                 # tint applies to the BRUSH.
                 b = QBrush(QColor(op.colour or "#ffffff"))
@@ -407,19 +448,26 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
-                self._stroke_op(painter, ops, i, op, pose, p)
+                self._stroke_op(painter, ops, i, op, pose, p, xf)
                 continue
             painter.drawPath(pose.map(op.path))
+        xf.unposed()
 
-    def _stroke_op(self, painter, ops, i, op, pose, pen) -> None:
+    def _stroke_op(self, painter, ops, i, op, pose, pen, xf=None) -> None:
         """Stroke op *i* of *ops* with *pen* (MW-7 / H-MW-f).
 
         Canvas (cosmetic) pens draw crisp: the op's definition-local path
         under the pose, its split cached per (ops list, op index, pose 2x2)
-        -- never per paint, never on zoom. Paper (non-cosmetic) pens keep the
-        exact pre-MW call. *pen* is the painter-local copy (MW-12 tints it).
+        -- never per paint, never on zoom. Paper (non-cosmetic) pens and paper
+        passes keep the exact pre-MW call, gated before any split. *pen* is
+        the painter-local copy (MW-12 tints it). *xf* is the paint's
+        ``_PoseXf`` (None: a one-off posed transform for this op); the posed
+        transform is left on for the next stroke op -- the caller switches
+        back (``xf.unposed()``) before any other op and after its loop.
         """
-        if not pen.isCosmetic():
+        if not pen.isCosmetic() or _pd.paper_pass_active():
+            if xf is not None:
+                xf.unposed()
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(pose.map(op.path))
@@ -430,12 +478,16 @@ class BlockInstance(QGraphicsObject):
         cache = c[1].get(i)
         if cache is None:
             cache = c[1][i] = _cs.SplitCache()
-        painter.save()
+        own = xf is None
+        if own:
+            xf = _PoseXf(painter, pose)
+        xf.posed()
         try:
-            painter.setWorldTransform(pose, True)
-            _cs.stroke(painter, op.path, pen, cache.get(op.path, painter.worldTransform()))
+            _cs.stroke(painter, op.path, pen,
+                       cache.get(op.path, painter.worldTransform()))
         finally:
-            painter.restore()
+            if own:
+                xf.unposed()
 
     def _resolve_op_stroke(self, op, routed, registry, on_paper) -> list:
         """``[rs, width, lt, factor, None, fixed]`` for a stroke op -- once per distinct

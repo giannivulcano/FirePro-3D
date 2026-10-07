@@ -371,6 +371,9 @@ LINETYPE_WINDOW_MIN_PERIODS = 512  # longer Fixed pieces expand only near the vi
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
 LINETYPE_BADGE_PX = 12             # missing-linetype glyph (Task 1 mockup gate, option A)
+# Crisp H/V strokes (linetypes.md MW-7 / H-MW-f, crisp_stroke.py)
+CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise only (delta 3)
+CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = closed
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis
 PATTERN_PREVIEW_H_PX = 64          # LT4 panel preview swatch height (mockup gate)
 PATTERN_PREVIEW_PERIODS = 4.0      # periods across the swatch's straight sample

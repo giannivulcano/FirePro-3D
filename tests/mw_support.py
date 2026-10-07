@@ -1,15 +1,21 @@
 """Shared MW pixel helpers: a shown Block Editor view + row counting."""
 import math
 
+import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 
 
 def grab(v):
+    """Repaint + grab *v*'s viewport. Skips the calling test off DPR 1: the
+    exact (n full, 0 partial) row asserts need logical pixel boundaries to
+    be device pixel boundaries."""
     v.viewport().repaint()
     QApplication.processEvents()
     img = v.viewport().grab().toImage()
+    if img.devicePixelRatio() != 1.0:
+        pytest.skip(f"MW pixel guards are DPR-1 only (DPR {img.devicePixelRatio()})")
     return img, img.devicePixelRatio()
 
 

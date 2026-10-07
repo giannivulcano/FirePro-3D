@@ -25,6 +25,7 @@ from .constants import (
     UNDERLAY_FREEZE_PAD_FRACTION,
     UNDERLAY_FREEZE_SETTLE_MS,
 )
+from .crisp_stroke import SplitCache, stroke_cached
 
 
 class _UnderlayPathItem(QGraphicsPathItem):
@@ -33,6 +34,11 @@ class _UnderlayPathItem(QGraphicsPathItem):
     Everything else (visibility, pens, snap, serialization posture) is
     stock QGraphicsPathItem behavior.
     """
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        # The stroke's crisp axis-split, by value (MW-7, H-MW-f delta 1).
+        self._mw_split_cache = SplitCache()
 
     def paint(self, painter, option, widget=None):
         scene = self.scene()
@@ -45,15 +51,11 @@ class _UnderlayPathItem(QGraphicsPathItem):
             super().paint(painter, option, widget)      # text fills / paper
             return
         # Canvas stroke: axis runs crisp (MW-7, H-MW-f delta 1). The split is
-        # cached per item by path value + rotation -- never per paint / zoom.
-        from .crisp_stroke import SplitCache, stroke
-        cache = getattr(self, "_mw_split_cache", None)
-        if cache is None:
-            cache = self._mw_split_cache = SplitCache()
-        path = self.path()
+        # cached per item by path value + rotation -- never per paint / zoom,
+        # and never computed on a paper pass (stroke_cached gates first).
         painter.save()
         try:
-            stroke(painter, path, pen, cache.get(path, painter.worldTransform()))
+            stroke_cached(self._mw_split_cache, painter, self.path(), pen)
         finally:
             painter.restore()
 

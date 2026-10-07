@@ -287,6 +287,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # transient (None → follow the box centre at rest).
         self._angle: float = float(data.angle)
         self._pivot: QPointF | None = None
+        # The border frame's crisp axis-split (MW-7); its own name -- the
+        # Geometry2DMixin stroke cache is a separate base-class attr.
+        self._frame_split_cache = _cs.SplitCache()
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -630,13 +633,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 painter.drawLine(cr.topLeft(), cr.bottomLeft())
         if self._data.border:
             # Canvas (cosmetic) frame edges draw crisp on the axis (MW-7).
-            pen = self._frame_pen()
-            path = self._frame_path()
-            cache = getattr(self, "_mw_split_cache", None)
-            if cache is None:
-                cache = self._mw_split_cache = _cs.SplitCache()
-            _cs.stroke(painter, path, pen,
-                       cache.get(path, painter.worldTransform()) if pen.isCosmetic() else None)
+            _cs.stroke_cached(self._frame_split_cache, painter,
+                              self._frame_path(), self._frame_pen())
         if self._editing and self.is_device_independent():
             # Paper keeps its dashed EDITING frame; the model surface shows the
             # normal selection frame only (spec § Inline edit — no edit frame).

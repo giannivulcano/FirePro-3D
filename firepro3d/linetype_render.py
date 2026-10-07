@@ -114,7 +114,10 @@ class LinetypeDef:
 
 
 _EXPAND: OrderedDict = OrderedDict()
-_DASH_SPLITS: dict = {}     # id(dash) -> (dash, xf_key, split) -- MW-7
+# (id(dash), xf_key) -> (dash, split) LRU -- MW-7. Holding the dash keeps its
+# id from being recycled; the pose key lets a shared block expansion drawn by
+# instances at several rotations keep one split per rotation.
+_DASH_SPLITS: OrderedDict = OrderedDict()
 
 
 def _dash_split(dash, xf):
@@ -124,13 +127,17 @@ def _dash_split(dash, xf):
     across paints; its split is computed once per (path, rotation) -- never
     per paint, never on zoom (H-MW-f delta 3).
     """
-    key = _cs.xf_key(xf)
-    ent = _DASH_SPLITS.get(id(dash))
-    if ent is None or ent[0] is not dash or ent[1] != key:
-        if len(_DASH_SPLITS) >= LINETYPE_CACHE_MAX:
-            _DASH_SPLITS.clear()
-        ent = _DASH_SPLITS[id(dash)] = (dash, key, _cs.split_axis(dash, xf))
-    return ent[2]
+    key = (id(dash), _cs.xf_key(xf))
+    ent = _DASH_SPLITS.get(key)
+    if ent is not None and ent[0] is dash:
+        _DASH_SPLITS.move_to_end(key)
+        return ent[1]
+    split = _cs.split_axis(dash, xf)
+    _DASH_SPLITS[key] = (dash, split)
+    _DASH_SPLITS.move_to_end(key)
+    while len(_DASH_SPLITS) > LINETYPE_CACHE_MAX:
+        _DASH_SPLITS.popitem(last=False)
+    return split
 
 
 def view_window(painter):
@@ -344,9 +351,11 @@ def draw_expansion(painter, dash: QPainterPath, dot: QPainterPath,
     ``save`` / ``restore`` -- and sets *pen*'s cap style (pass a copy).
     """
     pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    # Canvas (cosmetic) dashes draw crisp on the axis (MW-7 / H-MW-f).
-    _cs.stroke(painter, dash, pen, _dash_split(dash, painter.worldTransform())
-               if pen.isCosmetic() else None)
+    # Canvas (cosmetic) dashes draw crisp on the axis (MW-7 / H-MW-f); paper
+    # passes and non-cosmetic pens draw unsplit, gated before any split.
+    canvas = pen.isCosmetic() and not _pd.paper_pass_active()
+    _cs.stroke(painter, dash, pen,
+               _dash_split(dash, painter.worldTransform()) if canvas else None)
     if not dot.isEmpty():
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
