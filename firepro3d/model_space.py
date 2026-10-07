@@ -2832,6 +2832,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     rotation=bdict.get("rotation", 0.0),
                     level=bdict.get("level", "Level 1"),
                     uid=bdict.get("uid"),
+                    overrides=bdict.get("overrides"),
                 )
                 inst._level_offset_mm = bdict.get("level_offset_mm", 0.0)
                 inst.attributes = dict(bdict.get("attributes", {}))
@@ -7949,6 +7950,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         (_p[0] + offset.x(), _p[1] + offset.y()),
                         rotation=obj.get("rotation", 0.0),
                         level=obj.get("level", self.active_level),
+                        overrides=obj.get("overrides"),
                     )
                     inst.attributes = dict(obj.get("attributes", {}))
                     inst.setSelected(True)

@@ -175,9 +175,12 @@ class BlockInstance(QGraphicsObject):
         Returns:
             A D2 ``block_instance`` primitive record (definition-local pose).
         """
-        return {"type": "block_instance", "block_id": self.block_id,
-                "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot,
-                "uid": self._uid}
+        d = {"type": "block_instance", "block_id": self.block_id,
+             "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot,
+             "uid": self._uid}
+        if not is_as_authored(self.overrides):
+            d["overrides"] = dict(self.overrides)
+        return d
 
     def set_block_rotation(self, deg: float) -> None:
         self.prepareGeometryChange()
@@ -706,6 +709,8 @@ class BlockInstance(QGraphicsObject):
         }
         if self._level_offset_mm != 0.0:
             d["level_offset_mm"] = self._level_offset_mm
+        if not is_as_authored(self.overrides):
+            d["overrides"] = dict(self.overrides)
         return d
 
     @classmethod
@@ -718,6 +723,7 @@ class BlockInstance(QGraphicsObject):
         inst._pose_x, inst._pose_y = float(pos[0]), float(pos[1])
         inst._pose_rot = float(data.get("rotation", 0.0))
         inst.attributes = dict(data.get("attributes", {}))
+        inst.set_overrides(data.get("overrides"))
         if data.get("uid"):
             inst._uid = str(data["uid"])
         return inst
