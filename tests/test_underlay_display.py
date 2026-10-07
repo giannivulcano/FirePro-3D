@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 
 from firepro3d import paper_display as pd
 from firepro3d.constants import UNDERLAY_LINE_WIDTH_PX
-from firepro3d.paper_display import auto_model_px
 from firepro3d.level_manager import LevelManager
 from firepro3d.model_space import Model_Space, underlay_layer_pen
 from firepro3d.paper_display import (apply_paper_overrides,
@@ -62,7 +61,7 @@ class TestUnderlayLayerPen:
         rec = _record(line_weight_name="Medium")
         pen = underlay_layer_pen(rec, "A-WALL")
         assert pen.isCosmetic()  # NEVER zoom-scales (spec §3.4 invariant)
-        assert pen.widthF() == pytest.approx(auto_model_px(0.25))
+        assert pen.widthF() == pytest.approx(2.0)      # 0.25 x 8 = 2 px
 
 
 class TestBuilderPerLayerPens:
@@ -550,7 +549,7 @@ class TestExportUnderlayParity:
         assert stroke.pen().isCosmetic()
         assert stroke.pen().color().name() == "#c0c0c0"
         assert stroke.pen().widthF() == pytest.approx(
-            auto_model_px(0.50))   # screen pen back (MW-8 Auto px)
+            4.0)   # screen pen back (MW-8 Auto: 0.50 x 8 = 4 px)
         assert text.brush().color().name() == "#c0c0c0"
 
     def test_export_weight_true_mm(self, qapp, tmp_path):

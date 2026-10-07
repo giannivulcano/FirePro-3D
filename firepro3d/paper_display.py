@@ -679,6 +679,16 @@ def live_weight_name(name: str) -> str | None:
     return d.name if d is not None else None
 
 
+def picker_weight_name(name):
+    """The name a weight picker shows as selected for a stored *name*: the
+    live row it draws as (MW-6), else *name* unchanged (unknown names and
+    keywords keep today's display). Display only -- never stored back."""
+    if not name:
+        return name
+    live = live_weight_name(name)
+    return live if live is not None else name
+
+
 def resolve_line_weight_mm(name: str,
                            settings: QSettings | None = None) -> float:
     """Resolve a line weight name to its mm width.  Falls back to 0.25mm.

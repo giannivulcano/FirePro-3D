@@ -1512,7 +1512,8 @@ class DisplayManager(QDialog):
         block linework whose weight is By Linetype on a Continuous line
         (linetypes.md WM-5 fallback). Not a _CATEGORIES entry -- block colours,
         visibility and opacity stay authored / per instance."""
-        from .paper_display import model_blocks_weight, weight_names
+        from .paper_display import (model_blocks_weight, picker_weight_name,
+                                    weight_names)
         parent = None
         for i in range(self._tree.topLevelItemCount()):
             grp = self._tree.topLevelItem(i)
@@ -1528,7 +1529,7 @@ class DisplayManager(QDialog):
                                   "visibility and opacity stay authored)")
         combo = QComboBox()
         combo.addItems(weight_names())
-        combo.setCurrentText(model_blocks_weight())
+        combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         combo.setToolTip("Canvas line weight of block linework whose weight is "
                          "By Linetype on a Continuous line (Thin Lines still "
                          "applies)")
@@ -1550,13 +1551,14 @@ class DisplayManager(QDialog):
         combo = getattr(self, "_model_blocks_combo", None)
         if combo is None:
             return
-        from .paper_display import model_blocks_weight, weight_names
+        from .paper_display import (model_blocks_weight, picker_weight_name,
+                                    weight_names)
         was = self._suppress
         self._suppress = True
         try:
             combo.clear()
             combo.addItems(weight_names())
-            combo.setCurrentText(model_blocks_weight())
+            combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         finally:
             self._suppress = was
 
@@ -2291,6 +2293,7 @@ class DisplayManager(QDialog):
         # Load data
         cats = load_paper_categories(self._settings)
         lw_names = weight_names()          # the PROJECT table (LT1-3)
+        from .paper_display import picker_weight_name
 
         self._paper_cat_data: dict[str, dict] = {}
 
@@ -2388,7 +2391,7 @@ class DisplayManager(QDialog):
                 # ── Line Weight combo ────────────────────────────────
                 lw_combo = QComboBox()
                 lw_combo.addItems(lw_names)
-                cur_lw = cat.get("line_weight", "Medium")
+                cur_lw = picker_weight_name(cat.get("line_weight", "Medium"))  # MW-6: the row it draws as
                 idx = lw_combo.findText(cur_lw)
                 if idx >= 0:
                     lw_combo.setCurrentIndex(idx)
@@ -2884,7 +2887,8 @@ class DisplayManager(QDialog):
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
-        from .paper_display import weight_names, load_paper_categories
+        from .paper_display import (weight_names, load_paper_categories,
+                                    picker_weight_name)
         lw_names = weight_names()          # the PROJECT table (LT1-3)
         cats = load_paper_categories(self._settings)
         self._suppress = True
@@ -2897,7 +2901,7 @@ class DisplayManager(QDialog):
             if idx >= 0:
                 combo.setCurrentIndex(idx)
             else:
-                cat_lw = cats[key].get("line_weight", "Medium")
+                cat_lw = picker_weight_name(cats[key].get("line_weight", "Medium"))  # MW-6: the row it draws as
                 idx = combo.findText(cat_lw)
                 combo.setCurrentIndex(max(0, idx))
         self._suppress = False

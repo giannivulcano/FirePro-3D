@@ -301,9 +301,9 @@ def test_template_in_a_linetype_shows_continuous_and_the_dash_weight(qapp):
     w = BlockEditorWidget(proj)
     assert w.toggle_capability("repeat")
     sc = w.editor_scene
-    la.set_pattern_weight(sc, "Heavy")
-    ss.set_current(linetype=hid.id, weight="Light")
-    _assert_template_matches_draw(sc, "Heavy")
+    la.set_pattern_weight(sc, "Thin")
+    ss.set_current(linetype=hid.id, weight="Thinnest")
+    _assert_template_matches_draw(sc, "Thin")
 
 
 def test_template_in_a_dots_only_linetype_shows_the_weight_a_draw_gets(qapp):
@@ -319,17 +319,17 @@ def test_template_in_a_dots_only_linetype_shows_the_weight_a_draw_gets(qapp):
 
 def test_template_outside_a_linetype_is_unaffected(qapp):
     proj, hid = _hidden_project()
-    ss.set_current(linetype=hid.id, weight="Light")
+    ss.set_current(linetype=hid.id, weight="Thinnest")
     props = proj._get_geometry_template().get_properties()
     assert props["Linetype"]["value"] == "Hidden"
     assert not props["Linetype"].get("disabled")
     assert not props["Weight"].get("disabled")
-    assert props["Weight"]["value"] == "Light"
+    assert props["Weight"]["value"] == "Thinnest"
     plain = BlockEditorWidget(proj).editor_scene        # editor, no repeat
     props = plain._get_geometry_template().get_properties()
     assert not props["Linetype"].get("disabled")
     assert not props["Weight"].get("disabled")
-    assert ss.current_style() == {"linetype": hid.id, "weight": "Light"}
+    assert ss.current_style() == {"linetype": hid.id, "weight": "Thinnest"}
 
 
 # ── review G5 R-N1: a dots-only pattern's Weight row is disabled ─────────

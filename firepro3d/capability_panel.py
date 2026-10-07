@@ -30,7 +30,7 @@ def _weight_rows(scene, rows_ok: bool) -> dict:
     if w is None:
         value = "< mixed >" if has_dash else by_cat
     else:
-        value = by_cat if w == ss.BY_LINETYPE else w
+        value = by_cat if w == ss.BY_LINETYPE else pd.picker_weight_name(w)
     options = [by_cat, *pd.weight_names()]
     if value not in options:
         options = [value] + options

@@ -3571,7 +3571,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> d
         locked: The primitive lives in a linetype Block Editor (LT4-4 / H4-f):
             the Linetype row is disabled with a "why" tooltip.
     """
-    from .paper_display import weight_names
+    from .paper_display import picker_weight_name, weight_names
     from .linetype_choices import linetype_choices, missing_label
     from .stroke_style import BY_LINETYPE, weight_label
     lt = style["linetype"]
@@ -3588,7 +3588,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False) -> d
         "Linetype": {"type": "enum", "options": options, "value": value,
                      "tooltip": _LINETYPE_TIP},
         "Weight": {"type": "enum", "options": [by_lt, *weight_names()],
-                   "value": by_lt if w == BY_LINETYPE else w,
+                   "value": by_lt if w == BY_LINETYPE else picker_weight_name(w),
                    "tooltip": _WEIGHT_TIP},
     }
     if locked:
