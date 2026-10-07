@@ -235,15 +235,21 @@ def weight_from_label(label) -> str:
 def normalize_overrides(d) -> dict:
     """A complete ``{"weight", "linetype"}`` override record (WM2 H1).
 
-    Missing / empty -> As Authored; a named weight is canonicalised through
+    Missing / blank / non-string / foreign keyword -> As Authored; a named weight is canonicalised through
     the rename aliases (legacy factory names keep resolving by mm at paint,
     MW-6); a linetype value is kept verbatim (``continuous`` or an id).
     """
     d = d if isinstance(d, dict) else {}
-    w = str(d.get("weight") or AS_AUTHORED)
-    if w not in (AS_AUTHORED, BY_CATEGORY):
+    w = d.get("weight")
+    w = w.strip() if isinstance(w, str) else ""
+    if not w or w in (BY_BLOCK, BY_LINETYPE, CONTINUOUS):
+        w = AS_AUTHORED
+    elif w != AS_AUTHORED and w != BY_CATEGORY:
         w = _pd.canonical_weight_name(w)
-    lt = str(d.get("linetype") or AS_AUTHORED)
+    lt = d.get("linetype")
+    lt = lt.strip() if isinstance(lt, str) else ""
+    if not lt or lt in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY):
+        lt = AS_AUTHORED
     return {"weight": w, "linetype": lt}
 
 

@@ -133,8 +133,9 @@ def validate_line_weight_name(name: str,
 
 def _reserved_weight_names() -> frozenset[str]:
     """Lower-cased names a weight row may never take."""
-    from .stroke_style import BY_BLOCK, BY_LINETYPE, CONTINUOUS
-    keys = (BY_BLOCK, BY_LINETYPE, CONTINUOUS)
+    from .stroke_style import (AS_AUTHORED, BY_BLOCK, BY_CATEGORY, BY_LINETYPE,
+                               CONTINUOUS)
+    keys = (BY_BLOCK, BY_LINETYPE, CONTINUOUS, AS_AUTHORED, BY_CATEGORY)
     return frozenset({*keys, *(k.replace("_", " ") for k in keys)})
 
 
