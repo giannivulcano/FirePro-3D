@@ -1,10 +1,10 @@
 ---
-status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW ratified 2026-10-06, unbuilt (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
-last-verified: 2026-10-06  # LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: 0b8bf68   # LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
-applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (planned)
-  - firepro3d/crisp_stroke.py        # MW (planned) — split_axis / draw_split, the crisp H/V axis-split (H-MW-f)
-  - firepro3d/settings/panes.py      # MW (planned): UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
+status: partial          # LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
+last-verified: 2026-10-07  # MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: 736cf5e3   # MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
+  - firepro3d/crisp_stroke.py        # MW — split_axis / SplitCache / stroke / stroke_cached, the crisp H/V axis-split (H-MW-f)
+  - firepro3d/settings/panes.py      # MW: UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
   - firepro3d/repeat_frame.py        # LT4 — RepeatFrame (repeat unit frame, Length grip, preview ring); shared frame base capability_frame.py is owned by hatch-and-fill.md
   - firepro3d/linetype_pattern.py    # LT4 — pure rows ⇄ reading (rows_from_reading, spans, content_end / axis_end, validate_rows, SEED_ROWS)
   - firepro3d/linetype_authoring.py  # LT4 — live rows ⇄ axis Lines (apply_pattern_rows), Weight row, Repeat field edits, begin_linetype, pre_capture hook, preview_painter; LTS — On screen field, Fixed seed
@@ -1486,8 +1486,13 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
 `tests/test_lt4_roundtrip.py` (seeded dicts),
 `tests/test_lt4_panel.py::test_rows_for_a_linetype` (roster gains On screen).
 
-## MW — Model weights, crisp strokes, exact constraint tint (ratified 2026-10-06; unbuilt)
+## MW — Model weights, crisp strokes, exact constraint tint (ratified 2026-10-06; BUILT 2026-10-07)
 
+> **BUILT 2026-10-07** on `feat/mw-model-weights` (base `8c3e3577`, verified
+> `736cf5e3`; user smoke passed). The as-built refinements, each ratified or
+> accepted in-run, are recorded under "MW — as built" below; where they differ
+> from H-MW-a–h, the as-built note wins.
+>
 > Consolidating contract for todo L561 (Model / Paper values per named
 > weight) + L523 (D39 tint 1 px heavier, hides linetype gaps). The *what*
 > (MW-1–MW-13) was settled in the 2026-10-06 Phase-2 grill (Q1–Q20); the *how*
@@ -1577,7 +1582,7 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   the user at bench time), (2) 2,000 drawn primitives of mixed weights. A
   miss stops for a user decision (no speculative perf fix).
 
-### How (H-MW-a–H-MW-h) — approved 2026-10-06, as-proposed until built
+### How (H-MW-a–H-MW-h) — approved 2026-10-06 (see "MW — as built" for refinements)
 
 - **H-MW-a Data.** `LineWeightDef` gains `model_px: int | None` (None = Auto),
   persisted as an optional `"model_px"` in every list form (`.fpd`
@@ -1663,7 +1668,75 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   existing surfaces — no new-widget mockup gate; the live smoke is the visual
   check.
 
-### MW guards (VC3) — planned
+### MW — as built (2026-10-07, verified `736cf5e3`)
+
+- **Names.** `paper_display`: `LineWeightDef(name, width_mm, model_px)` +
+  `.copy()` / `.to_dict()`, `validate_model_px`, `auto_model_px`,
+  `canvas_weight_px(mm)`, `canvas_px_for_weight(name)`,
+  `parse_model_weight_factor` / `set_model_weight_factor` /
+  `model_weight_factor`, `nearest_weight_name`, `live_weight_name`,
+  `picker_weight_name`, `factory_paper_categories()`,
+  `model_blocks_factory_weight()`, `paper_legacy_px` / `paper_legacy_pdf_px`;
+  `constants`: `MODEL_WEIGHT_FACTOR*`, `MODEL_WEIGHT_PX_MAX`,
+  `FIXED_LINETYPE_PX_PER_MM`, `DEFAULT_LINE_WEIGHT_MM`,
+  `TEXT_BORDER_DEFAULT_MM`, `MODEL_BLOCKS_FACTORY_MM`, `CRISP_AXIS_TOL`,
+  `CRISP_CLOSE_TOL`, `PAPER_LEGACY_PX_PER_MM` / `PAPER_LEGACY_SNAP_PX`.
+- **MW-6 reach** (user, in-run): the rule also covers the saved / applied
+  ribbon current weight (`stroke_style.current_from_settings` /
+  `apply_current` via `live_weight_name`) and every weight **picker** and
+  label (Display Manager combos, frame group, panel Weight / Border Weight
+  rows, capability rows, underlay weight cell, "By Linetype (…)" /
+  "By Category (…)" labels via `picker_weight_name`) — they show the row a
+  stored name draws as and never rewrite the stored name.
+- **Crisp (H-MW-f as built).** `crisp_stroke.stroke(painter, path, pen,
+  split)` + `stroke_cached(cache, painter, path, pen)` (gate before split: a
+  non-cosmetic pen or a paper pass draws unsplit without touching the cache)
+  — the spec's `draw_split` name was not used. `other` runs and joint dots
+  draw under the painter's **existing** AA hint (canvas views are AA-on;
+  `scene.render` onto a QImage runs AA-off). Joint dots only at pen width
+  ≥ 2 px (identical at 1 px). Closed mixed subpaths start at their first class
+  change (real joins, closing joint). `SplitCache` hits on an equal raw 2×2
+  first; `xf_key` canonicalises exact signed-permutation 2×2s.
+  `LineItem` draws through an analytic fast path (no path / cache). Placement
+  ghosts and unstyled items (reference lines) draw unsplit with the pen copy.
+  Linetype dashes use a pose-keyed LRU (`linetype_render._DASH_SPLITS`).
+  Block ops compose the pose once per paint (`BlockInstance._PoseXf`).
+  Underlays split inside `_UnderlayPathItem.paint`; the split is **seeded at
+  batch build** (`underlay_controller._CrispSeed`, equal to `split_axis` on
+  every item) for the canonical orthogonal key, so first paint does no split;
+  a non-orthogonal group rotation splits lazily.
+- **Paper parity (VC9 seam round).** Unweighted PDF-underlay strokes and
+  primitives with no paper category (Ellipse / RegularPolygon / Spline) keep a
+  cosmetic pen through a paper pass; they plot the frozen pre-MW mapping
+  (`paper_legacy_px` / `paper_legacy_pdf_px`), byte-identical to base and
+  independent of the factor / Model px / Thin Lines (true printed mm for them
+  is a filed design follow-up).
+- **Tint (H-MW-g as built).** `geometry_2d.constraint_tint(item)` (public,
+  getattr-guarded; a failing lookup returns None and logs once per
+  controller — an exception escaping a Python `paint()` aborts the process)
+  calls `ConstraintController.tint_color`; ghosts (`_ghost_pen` /
+  `_is_ghost`) are **never tinted** (user, in-run); the state map is memoised
+  on (commit gen, scene gen, constraint count, participating-list lengths)
+  with tint colours cached per theme.
+- **MW-13 result** (user PDF 23269_FS1.1, 93 items / 883k elements; three
+  interleaved base/HEAD pairs, app's `KeepAspectRatio` fit): LineItems
+  1.13×, split-path items 1.18×, PDF pan/zoom 0.87×, PDF first paint at
+  parity (3.2 s before the seeding fix) — all within 1.25×.
+
+### MW guards (VC3) — as built
+
+`tests/test_mw_weights.py` (G4/G5/G7 + mapping half of G1, MW-6 current),
+`tests/test_mw_pickers.py` (MW-6 pickers/labels), `tests/test_mw_crisp.py`
+(G1/G2/G6 + Δ1/Δ3/Δ4, seed, paper-pass, rotated, joints),
+`tests/test_mw_tint.py` (G8 incl. nested / linetyped block ops, memo update,
+ghost, failure isolation), `tests/test_mw_ui.py` (G3 + MW-11),
+`tests/test_mw_paper_parity.py` (paper / PDF factor-independence),
+`tests/test_mw_perf.py` (G9, three shapes, perf-marked). Each guard shown RED
+with its change reverted. Contract-retired rewrites: factory names / px pins
+(MW-3/4/5), `FACTORY_PAPER_CATEGORIES` → `factory_paper_categories()`,
+`test_tinted_reference_line_keeps_its_dashes` (MW-12).
+
+### MW guards (VC3) — as planned
 
 New `tests/test_mw_*.py`, shown views + pixel sampling unless noted:
 G1 factory weights paint 1/2/3/4/6 rows; an override changes the rows; Thin
