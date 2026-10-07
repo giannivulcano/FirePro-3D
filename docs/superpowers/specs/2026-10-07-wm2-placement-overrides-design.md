@@ -72,8 +72,10 @@ panel rows are its first UI (Q1).
   / duplicate / array / mirror / move / undo / make-block-from-selection
   preserve overrides.
 - **Q12** In a pattern-tile or linetype (repeat) Block Editor, a nested
-  record's Linetype row is locked with a "why" tooltip; Weight stays live if
-  tile strokes honour weight (probed in the plan).
+  record's Linetype row is locked with a "why" tooltip. *P4 probe
+  (2026-10-07): a pattern tile's strokes are unioned into one lattice path
+  under one pen (`hatch_render._lattice`), so tile strokes ignore op weight —
+  in a tile editor the Weight row is locked too.*
 
 ## Architecture & Constraints
 
