@@ -137,22 +137,28 @@ def test_e10_block_editor_pick_is_one_editor_step(win_with_editor, qapp, tmp_pat
     ed = w._test_editor
     sc = ed.editor_scene
     e = _folder_end(tmp_path, name="Tick")
-    ln = LineItem(QPointF(0.0, 0.0), QPointF(30.0, 0.0))
-    ed._add_primitive(ln)
-    sc.push_undo_state()
-    _select(sc, ln, qapp)
-    assert w.prop_manager._targets == [ln]
-    pos0 = sc._undo_pos
-    w.prop_manager._prop_widgets["Start End"].setCurrentText("Tick")
-    qapp.processEvents()
-    assert w.scene.get_block_definition(e.id) is not None   # project load
-    assert ln.style["start"]["end"] == e.id
-    assert sc._undo_pos == pos0 + 1
-    sc.undo()
-    qapp.processEvents()
-    assert sc._draw_lines[-1].style["start"]["end"] == ss.BY_LINETYPE
-    w.scene.undo()                                   # drop the project load
-    w._modified = False
+    proj_pos0 = w.scene._undo_pos
+    try:
+        ln = LineItem(QPointF(0.0, 0.0), QPointF(30.0, 0.0))
+        ed._add_primitive(ln)
+        sc.push_undo_state()
+        _select(sc, ln, qapp)
+        assert w.prop_manager._targets == [ln]
+        pos0 = sc._undo_pos
+        w.prop_manager._prop_widgets["Start End"].setCurrentText("Tick")
+        qapp.processEvents()
+        assert w.scene.get_block_definition(e.id) is not None   # project load
+        assert ln.style["start"]["end"] == e.id
+        assert sc._undo_pos == pos0 + 1
+        sc.undo()
+        qapp.processEvents()
+        assert sc._draw_lines[-1].style["start"]["end"] == ss.BY_LINETYPE
+    finally:
+        sc.clearSelection()
+        while w.scene._undo_pos > proj_pos0:         # drop the project load
+            w.scene.undo()
+        w._modified = False
+        qapp.processEvents()
 
 
 def test_e10_ribbon_end_type_button_toggles_and_follows_undo(mw, qapp):
