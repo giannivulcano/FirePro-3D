@@ -428,8 +428,9 @@ class BlockEditorWidget(QWidget):
         # (parametric-constraint-system §6.5, §8).
         self.editor_scene.constraint_ctl.load(defn.constraints)
         # The capability joins the baseline too (hatch D-A32 / LT4-12).
-        cap = (("tile", defn.tile) if defn.tile
-               else ("repeat", defn.repeat) if defn.repeat else None)
+        from .capabilities import kind_of
+        k = kind_of(defn)
+        cap = (k, getattr(defn, k)) if k else None
         self.editor_scene.set_block_capability(cap, push_undo=False)
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
@@ -463,33 +464,40 @@ class BlockEditorWidget(QWidget):
         self.fit_view_to_block()
 
     def toggle_capability(self, kind: str) -> bool:
-        """Ribbon / panel "Pattern tile" / "Linetype" toggle (D-A32, LT4).
+        """Ribbon / panel "Pattern tile" / "Linetype" / "End type" toggle
+        (D-A32, LT4, LT5 Q12).
 
-        On: refused while the block is placed as a symbol or while the other
+        On: refused while the block is placed as a symbol or while another
         capability is on; a tile seeds from the content extents, a linetype
-        converts strokes to Continuous and seeds its unit (LT4-4 / LT4-6).
-        Off: a linetype is refused while lines use it (LT4-5). One undo step.
+        converts strokes to Continuous and seeds its unit (LT4-4 / LT4-6), an
+        end type (refused while nested blocks are present) converts strokes
+        to Continuous with plain ends and seeds Size Fixed / Trim 0 (LT5 Q8).
+        Off: a linetype or an end type is refused while lines use it (LT4-5,
+        LT5 Q12). One undo step.
 
         Args:
-            kind: ``"tile"`` or ``"repeat"``.
+            kind: ``"tile"``, ``"repeat"`` or ``"end"``.
 
         Returns:
             True if the capability changed.
 
         Raises:
-            ValueError: *kind* is not ``"tile"`` / ``"repeat"``.
+            ValueError: *kind* is not a ``capabilities.CAPABILITY_KINDS`` kind.
         """
-        from .capabilities import exclusive_message
-        if kind not in ("tile", "repeat"):       # LT5 D5 widens to CAPABILITY_KINDS
+        from .capabilities import CAPABILITY_KINDS, exclusive_message
+        if kind not in CAPABILITY_KINDS:
             raise ValueError(f"unknown capability kind: {kind!r}")
         sc = self.editor_scene
         cur = sc.block_capability
         if cur is not None and cur[0] == kind:
+            why = None
             if kind == "repeat":
                 why = self._project_scene.linetype_off_refusal(self._edit_block_id)
-                if why is not None:
-                    sc._show_status(why, 5000)
-                    return False
+            elif kind == "end":
+                why = self._project_scene.end_off_refusal(self._edit_block_id)
+            if why is not None:
+                sc._show_status(why, 5000)
+                return False
             sc.set_block_capability(None)
             return True
         if cur is not None:
@@ -503,6 +511,19 @@ class BlockEditorWidget(QWidget):
         if kind == "tile":
             from .tile_frame import seed_tile
             sc.set_block_capability(("tile", seed_tile(real)))
+            return True
+        if kind == "end":
+            if getattr(sc, "_block_instances", None):
+                # LT5 Q8: end content is strokes, fills and text -- no blocks.
+                sc._show_status("End types can't contain blocks — explode or "
+                                "remove them first", 5000)
+                return False
+            from .end_authoring import begin_end
+            n = begin_end(sc)
+            sc.push_undo_state()
+            if n:
+                sc._show_status(f"{n} line{'s' if n != 1 else ''} set to "
+                                f"Continuous with plain ends", 5000)
             return True
         from .linetype_authoring import begin_linetype
         from .linetype_pattern import content_end

@@ -516,6 +516,8 @@ def apply_current(item, scene) -> None:
         from .linetype_authoring import pattern_weight
         lt = CONTINUOUS
         w = pattern_weight(scene) or w
+    elif getattr(scene, "block_end", None) is not None:
+        lt = CONTINUOUS          # LT5 Q8: end content is Continuous (current kept)
     st["linetype"] = lt
     st["weight"] = w
     sync = getattr(item, "_sync_stroke_pen", None)

@@ -18,6 +18,7 @@ _BLOCK_ICONS = [
     "make_block_icon.svg", "insert_block_icon.svg", "block_manager_icon.svg",
     "pattern_tile_icon.svg",   # HF2 D-A32 Block Editor Pattern Tile toggle
     "linetype_icon.svg",   # LT4 Block Editor Linetype toggle
+    "end_type_icon.svg",   # LT5 Block Editor End Type toggle
 ]
 # 2D-geometry icons. The older line/rectangle/circle/arc/polyline icons are
 # LEGACY (40mm canvas) and are intentionally NOT listed here — a separate

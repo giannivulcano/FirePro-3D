@@ -388,6 +388,10 @@ CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = clos
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis
 PATTERN_PREVIEW_H_PX = 64          # LT4 panel preview swatch height (mockup gate)
 PATTERN_PREVIEW_PERIODS = 4.0      # periods across the swatch's straight sample
+END_GLYPH_HALF_PX = 8.0            # LT5 End type frame: accent crosshair half-size (mockup gate)
+END_GLYPH_ARM_PX = 28.0            # LT5 End type frame: +X arrow arm length (mockup gate)
+END_SAMPLE_MM = 18.0               # LT5 End type frame: faint sample line length (mockup gate)
+END_PREVIEW_PX_PER_MM = 4.0        # LT5 panel swatch: Fixed end mm -> swatch px
 # path_walk.Curve.from_path flattens at this scale-up: Qt's default flattening of a
 # cubic deviates > 0.1 mm from the drawn curve at mm scale; x64 keeps a ~50 mm
 # cubic within ~0.004 mm. Qt caps a single cubic at ~512 segments, so a very

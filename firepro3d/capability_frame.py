@@ -9,7 +9,7 @@ tracking list), snap targets (``snap_engine._NON_TARGET_TAGS``) and delete
 (``Model_Space.delete_items``); a Block Editor scene never reaches paper.
 The state lives on the scene (``Model_Space.block_capability``, in the undo
 snapshot); a frame only draws and edits it. Subclasses: ``tile_frame.TileFrame``,
-``repeat_frame.RepeatFrame``.
+``repeat_frame.RepeatFrame``, ``end_frame.EndFrame``.
 """
 from __future__ import annotations
 
@@ -31,13 +31,15 @@ def frame_for(scene, kind: str):
 
     Args:
         scene: The Block Editor ``Model_Space`` the frame draws.
-        kind: ``"tile"`` (hatch D-A32) or ``"repeat"`` (linetypes LT4).
+        kind: ``"tile"`` (hatch D-A32), ``"repeat"`` (linetypes LT4) or
+            ``"end"`` (LT5).
 
     Returns:
-        A new ``TileFrame`` / ``RepeatFrame`` (not yet added to *scene*).
+        A new ``TileFrame`` / ``RepeatFrame`` / ``EndFrame`` (not yet added
+        to *scene*).
 
     Raises:
-        ValueError: *kind* is neither ``"tile"`` nor ``"repeat"``.
+        ValueError: *kind* is not a ``capabilities.CAPABILITY_KINDS`` kind.
     """
     if kind == "repeat":
         from .repeat_frame import RepeatFrame
@@ -45,6 +47,9 @@ def frame_for(scene, kind: str):
     if kind == "tile":
         from .tile_frame import TileFrame
         return TileFrame(scene)
+    if kind == "end":
+        from .end_frame import EndFrame
+        return EndFrame(scene)
     raise ValueError(f"unknown capability kind: {kind!r}")
 
 

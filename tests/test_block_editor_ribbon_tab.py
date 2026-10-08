@@ -175,7 +175,8 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
     defn = _buttons(_group(page, "Definition"))
     assert set(defn) == {"Save", "Save As", "Import", "Edit Attributes",
                          "Pattern Tile",       # hatch D-A32 (HF2 Task 7)
-                         "Linetype"}           # linetypes LT4-11f
+                         "Linetype",           # linetypes LT4-11f
+                         "End Type"}           # LT5 Q12
     smalls = page.findChildren(RibbonSmallButton)
     larges = [b for b in page.findChildren(QToolButton)
               if not isinstance(b, RibbonSmallButton)]

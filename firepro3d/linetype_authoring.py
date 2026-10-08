@@ -198,6 +198,62 @@ def set_repeat_field(scene, key: str, value) -> None:
     scene.set_block_capability(("repeat", rep))
 
 
+def set_default_end(scene, which: str, ref) -> bool:
+    """Set / clear the linetype's default *which* end (LT5 Q11); one step.
+
+    The edit lives in the editor's capability slot; the project definition
+    takes it on the editor commit (``commit_block`` -> version bump), so By
+    Linetype lines follow on commit and never read a stale ``LinetypeDef``.
+
+    Args:
+        scene: The linetype Block Editor ``Model_Space``.
+        which: ``"start"`` / ``"finish"``.
+        ref: An end block id, or a keyword / None (= no default).
+
+    Returns:
+        True if ``repeat["ends"]`` changed.
+    """
+    from .stroke_style import is_end_ref
+    rep = scene.block_repeat
+    if rep is None or which not in ("start", "finish"):
+        return False
+    ends = dict(rep.get("ends") or {})
+    new = ref if is_end_ref(ref) else None
+    if ends.get(which) == new:
+        return False
+    if new is None:
+        ends.pop(which, None)
+    else:
+        ends[which] = new
+    if ends:
+        rep["ends"] = ends
+    else:
+        rep.pop("ends", None)
+    scene.set_block_capability(("repeat", rep))
+    return True
+
+
+def set_default_end_from_label(scene, which: str, label) -> bool:
+    """Panel pick for the linetype Start End / Finish End rows (LT5 Q11).
+
+    A folder end loads into the project first (its own project step); a
+    failed load changes nothing; the edit is one step on the editor.
+
+    Returns:
+        True if the default changed.
+    """
+    from . import stroke_style as ss
+    from .capabilities import end_ref_from_value, ensure_end_available
+    from .hatch_patterns import picker_exclude
+    reg = getattr(scene, "block_registry", None)
+    ref = end_ref_from_value(label, reg, picker_exclude(scene))
+    if ref is None or ref == ss.BY_LINETYPE:
+        return False
+    if ss.is_end_ref(ref) and not ensure_end_available(ref, scene):
+        return False
+    return set_default_end(scene, which, ref)
+
+
 def _non_continuous(scene):
     """Styled primitives whose linetype is not Continuous (LT4-4)."""
     from . import stroke_style as ss

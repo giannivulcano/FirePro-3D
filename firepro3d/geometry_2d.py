@@ -782,11 +782,12 @@ class Geometry2DMixin:
         if self.style is not None:
             from .hatch_patterns import picker_exclude
             sc = self.scene()
+            in_end = getattr(sc, "block_end", None) is not None
             props.update(stroke_rows(
                 self.style, self._tile_registry(), picker_exclude(sc),
-                locked=getattr(sc, "block_repeat", None) is not None,
-                ends=self._ends_open(),
-                ends_locked=getattr(sc, "block_end", None) is not None))
+                locked=in_end or getattr(sc, "block_repeat", None) is not None,
+                locked_tip=_LOCKED_END_LINETYPE_TIP if in_end else None,
+                ends=self._ends_open(), ends_locked=in_end))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3917,6 +3918,7 @@ _LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
 _WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
                "(shown in brackets); a named weight overrides it.")
 _LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
+_LOCKED_END_LINETYPE_TIP = "Lines inside an end type are always Continuous"
 _LOCKED_WEIGHT_TIP = ("New lines take the linetype's Weight "
                       "(set it in the Repeat section)")
 _PLACEMENT_LINETYPE_TIP = (
@@ -4070,6 +4072,8 @@ class GeometryTemplate:
         cur = ss.current_style()
         if getattr(self._scene_ref, "block_repeat", None) is not None:
             return self._linetype_unit_properties(cur)
+        if getattr(self._scene_ref, "block_end", None) is not None:
+            return self._end_unit_properties(cur)
         if (ss.is_linetype_ref(cur["linetype"])
                 and ss.linetype_block(cur["linetype"], self._registry()) is None):
             ss.set_current(linetype=ss.CONTINUOUS)       # WM1: not in this project
@@ -4101,6 +4105,20 @@ class GeometryTemplate:
                                  locked=True))
         props["Weight"]["disabled"] = True
         props["Weight"]["tooltip"] = _LOCKED_WEIGHT_TIP
+        return props
+
+    def _end_unit_properties(self, cur: dict) -> dict:
+        """Rows inside an end-type Block Editor (LT5 Q8): Linetype shows
+        Continuous, locked; Weight stays the current (end strokes draw at
+        the using line's weight, Q7). The stored current is never changed."""
+        from . import stroke_style as ss
+        shown = {"linetype": ss.CONTINUOUS, "weight": cur["weight"]}
+        props = {"Type": {"type": "label", "value": "Geometry"}}
+        props.update(stroke_rows(shown, self._registry(), self._exclude(),
+                                 locked=True, locked_tip=_LOCKED_END_LINETYPE_TIP))
+        props["Weight"]["tooltip"] = (
+            "Line weight for the next primitive you draw (kept between "
+            "sessions). End strokes draw at the using line's weight.")
         return props
 
     def set_property(self, key: str, value):

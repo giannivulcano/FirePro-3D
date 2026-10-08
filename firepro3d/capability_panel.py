@@ -1,4 +1,5 @@
-"""Block Editor capability panel rows (hatch D-A32 tile, linetypes LT4).
+"""Block Editor capability panel rows (hatch D-A32 tile, linetypes LT4,
+end types LT5 Q12).
 
 One home for the rows both the nothing-selected ``BlockPropertiesInfo`` and
 a selected capability frame show, and for their write-back.
@@ -10,6 +11,16 @@ _TILE_TIP = ("Make this block a hatch pattern: it repeats on a tile and fills "
 _LT_TIP = ("Make this block a linetype: it repeats along lines and is applied "
            "from a line's Linetype row instead of being placed as a symbol")
 _OVERLAP_NOTE = "Dashes overlap — edit on the canvas"
+_END_TIP = ("Make this block an end type: it draws on the free ends of open "
+            "lines (picked from a line's Start End / Finish End rows) instead "
+            "of being placed as a symbol")
+_TOGGLES = {"Pattern tile": "tile", "Linetype": "repeat", "End type": "end"}
+# LT5 mockup strings (R4).
+_END_SIZE_TIP = ("Fixed: 1 mm drawn = 1 mm printed (Drafting rule). "
+                 "Weight-relative: 1 mm drawn = 1 × the line's weight.")
+_END_TRIM_TIP = ("The line stops this far back from its endpoint, measured "
+                 "along the path. Same units as Size.")
+_END_PREVIEW_TIP = "This end on a sample line at a thin and a heavy weight."
 
 
 def _weight_rows(scene, rows_ok: bool) -> dict:
@@ -41,6 +52,30 @@ def _weight_rows(scene, rows_ok: bool) -> dict:
                        "tooltip": tip}}
 
 
+def _default_end_rows(scene) -> dict:
+    """Linetype Start End / Finish End rows (LT5 Q11): None | end types."""
+    from . import stroke_style as ss
+    from .capabilities import end_choices
+    from .hatch_patterns import picker_exclude
+    reg = getattr(scene, "block_registry", None)
+    choices = end_choices(reg, picker_exclude(scene))
+    ends = (scene.block_repeat or {}).get("ends") or {}
+    rows = {}
+    for which, key in (("start", "Start End"), ("finish", "Finish End")):
+        ref = ends.get(which)
+        options = [n for n, _ in choices]
+        value = (ss.END_NONE_LABEL if ref is None
+                 else next((n for n, r in choices if r == ref), None))
+        if value is None:
+            value = ss.end_label(ref, ss.CONTINUOUS, reg)
+            options = [value] + options
+        rows[key] = {"type": "enum", "options": options, "value": value,
+                     "tooltip": f"End type every By Linetype line using this "
+                                f"linetype draws at its {which}; None draws a "
+                                f"plain end"}
+    return rows
+
+
 def capability_rows(scene) -> dict:
     """Ordered panel rows for the editor's capability.
 
@@ -49,8 +84,9 @@ def capability_rows(scene) -> dict:
 
     Returns:
         Ordered property dict for ``PropertyManager``: the Repeat header and
-        the two capability toggles, then the tile rows or the linetype rows
-        (Length / Size / Weight, Pattern list, Preview swatch).
+        the three capability toggles, then the tile rows, the linetype rows
+        (Length / Size / Weight / Start End / Finish End, Pattern list,
+        Preview swatch) or the end-type rows (Size / Trim, Preview swatch).
     """
     from .tile_frame import tile_properties
     cap = scene.block_capability
@@ -59,7 +95,9 @@ def capability_rows(scene) -> dict:
              "Pattern tile": {"type": "bool", "value": kind == "tile",
                               "tooltip": _TILE_TIP},
              "Linetype": {"type": "bool", "value": kind == "repeat",
-                          "tooltip": _LT_TIP}}
+                          "tooltip": _LT_TIP},
+             "End type": {"type": "bool", "value": kind == "end",
+                          "tooltip": _END_TIP}}
     if kind == "tile":
         tp = tile_properties(scene)
         tp.pop("Pattern tile", None)
@@ -92,6 +130,7 @@ def capability_rows(scene) -> dict:
                        "zoom: dashes zoom with the drawing. Sheets and PDF "
                        "always print true size"}
         props.update(_weight_rows(scene, rows is not None))
+        props.update(_default_end_rows(scene))           # LT5 Q11
         props["Pattern"] = {"type": "header", "value": ""}
         props["Pattern rows"] = {"type": "pattern_list", "value": rows,
                                  "note": "" if rows is not None else _OVERLAP_NOTE,
@@ -103,6 +142,23 @@ def capability_rows(scene) -> dict:
                                    "height": PATTERN_PREVIEW_H_PX,
                                    "tooltip": "A sample line and an L-shaped "
                                               "polyline drawn with this linetype"}
+    elif kind == "end":
+        from .constants import PATTERN_PREVIEW_H_PX
+        from .end_authoring import SIZE_LABELS
+        from .end_authoring import preview_painter as end_preview
+        from .tile_frame import _fmt
+        end = scene.block_end
+        props["Size"] = {"type": "enum", "options": list(SIZE_LABELS.values()),
+                         "value": SIZE_LABELS.get(end["size"], "Fixed"),
+                         "tooltip": _END_SIZE_TIP}
+        props["Trim"] = {"type": "dimension", "value": _fmt(scene, end["trim"]),
+                         "value_mm": end["trim"], "minimum": -1e-6,
+                         "tooltip": _END_TRIM_TIP}
+        props["Preview"] = {"type": "header", "value": ""}
+        props["Preview swatch"] = {"type": "stroke_preview", "value": None,
+                                   "paint": end_preview(scene),
+                                   "height": PATTERN_PREVIEW_H_PX,
+                                   "tooltip": _END_PREVIEW_TIP}
     return props
 
 
@@ -124,8 +180,8 @@ def set_capability_property(scene, editor, key, value) -> None:
 
     cap = scene.block_capability
     kind = cap[0] if cap else None
-    if key in ("Pattern tile", "Linetype"):
-        want = "tile" if key == "Pattern tile" else "repeat"
+    if key in _TOGGLES:
+        want = _TOGGLES[key]
         if _on(value) != (kind == want):
             editor.toggle_capability(want)
         return
@@ -147,3 +203,14 @@ def set_capability_property(scene, editor, key, value) -> None:
                                   else v)
         elif key == "Pattern rows":
             la.apply_pattern_rows(scene, value)
+        elif key in ("Start End", "Finish End"):
+            la.set_default_end_from_label(
+                scene, "start" if key == "Start End" else "finish", str(value))
+    elif kind == "end":
+        from . import end_authoring as ea
+        if key == "Trim":
+            mm = _to_mm(scene, value)
+            if mm is not None:
+                ea.set_end_field(scene, "Trim", mm)
+        elif key == "Size":
+            ea.set_end_field(scene, "Size", value)
