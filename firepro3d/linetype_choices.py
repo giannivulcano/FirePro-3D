@@ -38,25 +38,9 @@ def linetype_choices(registry=None, exclude=()) -> list[tuple[str, str]]:
         exclude: Block ids to leave out (``hatch_patterns.picker_exclude``:
             the edited block and anything that would cycle).
     """
-    from .hatch_patterns import _unique
-    out = list(_FIXED)
-    used = {label for label, _ in out}
-    if registry is not None:
-        project = []
-        for bid in registry.ids():
-            if bid in exclude:
-                continue
-            d = registry.get(bid)
-            if d is not None and d.repeat:
-                project.append((d.name or bid, bid))
-        for name, bid in sorted(project, key=lambda x: x[0].lower()):
-            out.append((_unique(name, used, "project"), bid))
-    for name, bid, _path in _folder_linetypes():
-        if bid in exclude or (registry is not None
-                              and registry.get(bid) is not None):
-            continue
-        out.append((_unique(name or bid, used, "library"), bid))
-    return out
+    from .capabilities import capability_choices
+    return capability_choices("repeat", _folder_linetypes, registry, exclude,
+                              fixed=_FIXED)
 
 
 def missing_label(ref: str) -> str:
@@ -89,14 +73,6 @@ def ensure_linetype_available(ref: str | None, scene) -> bool:
         False only when *ref* is a folder linetype that failed to load (the
         caller must not keep it); True otherwise.
     """
-    if not ref or ref == CONTINUOUS or scene is None:
-        return True
-    project = getattr(scene, "_block_registry_owner", None) or scene
-    reg = getattr(project, "block_registry", None)
-    if reg is None or reg.get(ref) is not None:
-        return True
-    for name, bid, path in _folder_linetypes():
-        if bid == ref:
-            from .blocks_browser import ensure_block_loaded
-            return ensure_block_loaded(project, bid, path, name)
-    return True
+    from .capabilities import ensure_capability_available
+    return ensure_capability_available(ref, scene, _folder_linetypes,
+                                       keywords=(CONTINUOUS,))

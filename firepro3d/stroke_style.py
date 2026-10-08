@@ -330,6 +330,57 @@ def weight_from_label(label) -> str:
     return BY_LINETYPE if v.startswith(BY_LINETYPE_LABEL) else v
 
 
+# -- LT5: end labels (Start End / Finish End rows) --------------------------
+
+END_NONE_LABEL = "None"          # the explicit "no end type" pick (LT5 Q3)
+MISSING_END_PREFIX = "Missing: "  # unresolvable end ref label (LT5 Q13)
+
+
+def _end_name(ref, registry) -> str:
+    """An end ref's picker name, or ``Missing: <name|id>`` (non-end / gone)."""
+    e = end_block(ref, registry)
+    if e is not None:
+        return e.name or ref
+    d = registry.get(ref) if registry is not None else None
+    return MISSING_END_PREFIX + (getattr(d, "name", "") or str(ref))
+
+
+def end_label(end, linetype, registry, which: str = "start") -> str:
+    """Panel label for a stored end value (LT5 Q10).
+
+    ``"None"``; By Linetype shows what it resolves to through *linetype*'s
+    default for *which* end -- ``"By Linetype (Arrow)"`` / ``"By Linetype
+    (None)"``; an end id its block name, or ``"Missing: <name|id>"``.
+    UI paths only (reads the copying ``repeat`` property).
+
+    Args:
+        end: The stored end value (an id, ``none`` or ``by_linetype``).
+        linetype: The item's effective linetype value.
+        registry: The project block registry (or None).
+        which: ``"start"`` / ``"finish"`` -- the linetype default shown.
+    """
+    if end == NONE:
+        return END_NONE_LABEL
+    if not is_end_ref(end):
+        d = linetype_block(linetype, registry) if is_linetype_ref(linetype) else None
+        ends = ((d.repeat or {}).get("ends") or {}) if d is not None else {}
+        ref = ends.get(which)
+        shown = _end_name(ref, registry) if is_end_ref(ref) else END_NONE_LABEL
+        return f"{BY_LINETYPE_LABEL} ({shown})"
+    return _end_name(end, registry)
+
+
+def end_from_label(label) -> str | None:
+    """The keyword a fixed end label stands for (None / By Linetype), else None
+    (block names map through ``capabilities.end_ref_from_value``)."""
+    v = str(label)
+    if v == END_NONE_LABEL:
+        return NONE
+    if v == BY_LINETYPE_LABEL or v.startswith(BY_LINETYPE_LABEL + " ("):
+        return BY_LINETYPE
+    return None
+
+
 # -- WM2: placement / nested-record overrides ------------------------------
 
 def normalize_overrides(d, canonical: bool = True) -> dict:

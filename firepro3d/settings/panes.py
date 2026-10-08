@@ -29,6 +29,7 @@ from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
     TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, BLOCK_DIR_KEY as _BLOCK_DIR_KEY,
     HATCH_DIR_KEY as _HATCH_DIR_KEY, LINETYPE_DIR_KEY as _LINETYPE_DIR_KEY,
+    END_DIR_KEY as _END_DIR_KEY,
     migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
@@ -1083,6 +1084,31 @@ class GeneralPane(SettingsPane):
         lt_row.addWidget(lt_browse)
         lt_row.addWidget(lt_reset)
         dv.addLayout(lt_row)
+        # End Types folder (LT5 Q13) — the library source every Start End /
+        # Finish End picker lists; overrides ``<block library>/System/End Types``.
+        end_hint = QLabel(
+            "End types (optional): a folder of end type blocks offered in "
+            "every Start End / Finish End picker. Leave blank to use "
+            "<block library>/System/End Types.")
+        end_hint.setWordWrap(True)
+        dv.addWidget(end_hint)
+        end_row = QHBoxLayout()
+        self._end_dir_edit = QLineEdit()
+        self._end_dir_edit.setPlaceholderText("(block library)/System/End Types")
+        self._end_dir_edit.setToolTip(
+            "Folder of end type blocks offered in every Start End / Finish End "
+            "picker (default: <block library>/System/End Types)")
+        end_browse = QPushButton("Browse…")
+        end_browse.setToolTip("Choose the end types folder")
+        end_browse.clicked.connect(self._pick_end_dir)
+        end_reset = QPushButton("Reset")
+        end_reset.setToolTip(
+            "Use the default (<block library>/System/End Types)")
+        end_reset.clicked.connect(self._end_dir_edit.clear)
+        end_row.addWidget(self._end_dir_edit, 1)
+        end_row.addWidget(end_browse)
+        end_row.addWidget(end_reset)
+        dv.addLayout(end_row)
         outer.addWidget(data_group)
 
         outer.addStretch()
@@ -1127,6 +1153,15 @@ class GeneralPane(SettingsPane):
             self, "Choose linetypes folder", start)
         if chosen:
             self._lt_dir_edit.setText(chosen)
+
+    def _pick_end_dir(self) -> None:
+        start = (self._end_dir_edit.text().strip()
+                 or self._block_dir_edit.text().strip()
+                 or self._data_folder_edit.text().strip() or default_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose end types folder", start)
+        if chosen:
+            self._end_dir_edit.setText(chosen)
 
     def migrate_prompt_if_needed(self) -> None:
         """After Apply/OK: if the data root changed and the old root still holds
@@ -1195,6 +1230,9 @@ class GeneralPane(SettingsPane):
         lt = s.value(_LINETYPE_DIR_KEY, "", type=str) or ""
         self._lt_dir_snapshot = lt
         self._lt_dir_edit.setText(lt)
+        end = s.value(_END_DIR_KEY, "", type=str) or ""
+        self._end_dir_snapshot = end
+        self._end_dir_edit.setText(end)
 
     def apply(self) -> None:
         """Write checkbox states + the data-folder/title-block overrides.
@@ -1214,6 +1252,7 @@ class GeneralPane(SettingsPane):
         s.setValue(_BLOCK_DIR_KEY, self._block_dir_edit.text().strip())
         s.setValue(_HATCH_DIR_KEY, self._hatch_dir_edit.text().strip())
         s.setValue(_LINETYPE_DIR_KEY, self._lt_dir_edit.text().strip())
+        s.setValue(_END_DIR_KEY, self._end_dir_edit.text().strip())
 
     def revert(self) -> None:
         """Restore snapshot values to checkboxes + the path fields."""
@@ -1225,6 +1264,7 @@ class GeneralPane(SettingsPane):
         self._block_dir_edit.setText(getattr(self, "_block_dir_snapshot", ""))
         self._hatch_dir_edit.setText(getattr(self, "_hatch_dir_snapshot", ""))
         self._lt_dir_edit.setText(getattr(self, "_lt_dir_snapshot", ""))
+        self._end_dir_edit.setText(getattr(self, "_end_dir_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.

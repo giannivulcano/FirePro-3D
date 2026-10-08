@@ -14,6 +14,7 @@ TITLEBLOCK_DIR_KEY = "paths/titleblock_dir"   # dedicated title-block library di
 BLOCK_DIR_KEY = "paths/block_dir"             # dedicated block library dir
 HATCH_DIR_KEY = "paths/hatch_dir"             # hatch-pattern blocks folder (D-A37)
 LINETYPE_DIR_KEY = "paths/linetype_dir"       # linetype blocks folder (LT3-13)
+END_DIR_KEY = "paths/end_dir"                 # end-type blocks folder (LT5 Q13)
 
 # Known content under a data root, migrated together when the root changes (E3).
 _MIGRATABLE = ("titleblocks", "blocks", "sprinklers.json", "default.fpdt")
@@ -122,6 +123,20 @@ def linetypes_dir() -> str:
     """
     return (_configured_dir(LINETYPE_DIR_KEY)
             or os.path.join(block_library_dir(), "System", "Linetypes"))
+
+
+def end_types_dir() -> str:
+    """Folder of end-type blocks offered in every Start End / Finish End
+    picker (LT5 Q13).
+
+    Precedence: an explicit override (System Settings > General > Data folder >
+    *End types*) -> else ``<block_library_dir>/System/End Types``. The default
+    lives under the block library, so it follows the block-library override and
+    is carried by the ``blocks`` data-root migration; an explicit override is
+    never migrated (``_MIGRATABLE`` unchanged, as for Linetypes).
+    """
+    return (_configured_dir(END_DIR_KEY)
+            or os.path.join(block_library_dir(), "System", "End Types"))
 
 
 def migrate_data_root(old_root: str, new_root: str, *, move: bool = False) -> list[str]:

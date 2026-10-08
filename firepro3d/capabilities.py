@@ -93,3 +93,120 @@ def exclusive_message(current: str, wanted: str) -> str:
     a, b = sorted((current, wanted), key=CAPABILITY_KINDS.index)
     return (f"Turn {CAP_INFO[current].label} off first — a block is "
             f"{with_article(a)} or {with_article(b)}, not both")
+
+
+# ── picker source (hatch D-A36/D-A37, LT3-12, LT5 Q10) ──────────────────────
+
+def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
+                       fixed=(), valid=None, include_folder=True):
+    """``[(label, ref)]`` for a capability picker -- the one source behind
+    the pattern, linetype and end pickers.
+
+    *fixed* first, then the project's blocks carrying *flag* (and passing
+    *valid*) by name, then *folder_fn()*'s blocks not already in the project.
+    Labels are unique: a name colliding with an earlier label gets
+    `` (project)`` / `` (library)`` (then `` (project 2)`` ...), so every ref
+    is reachable by label. UI paths only -- never paint.
+
+    Args:
+        flag: ``"tile"`` / ``"repeat"`` / ``"end"`` (the definition attribute).
+        folder_fn: Zero-arg callable -> ``[(name, block_id, path)]`` (a
+            ``capability_folder.scan``), looked up by the caller at call time.
+        registry: Project block registry, or None (fixed + folder only).
+        exclude: Block ids to leave out (``hatch_patterns.picker_exclude``).
+        fixed: Leading ``(label, ref)`` pairs (Continuous / None).
+        valid: Optional extra predicate on a project definition.
+        include_folder: Append the folder blocks.
+
+    Returns:
+        The ``(label, ref)`` pairs in picker order.
+    """
+    from .hatch_patterns import _unique
+    out = list(fixed)
+    used = {label for label, _ in out}
+    if registry is not None:
+        project = []
+        for bid in registry.ids():
+            if bid in exclude:
+                continue
+            d = registry.get(bid)
+            if (d is not None and getattr(d, flag, None)
+                    and (valid is None or valid(d))):
+                project.append((d.name or bid, bid))
+        for name, bid in sorted(project, key=lambda x: x[0].lower()):
+            out.append((_unique(name, used, "project"), bid))
+    if include_folder:
+        for name, bid, _path in folder_fn():
+            if bid in exclude or (registry is not None
+                                  and registry.get(bid) is not None):
+                continue
+            out.append((_unique(name or bid, used, "library"), bid))
+    return out
+
+
+def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
+    """Load a folder block into the project before its id is stored.
+
+    A keyword, an id already in the project registry, or a ref no folder
+    holds needs nothing. The load targets the PROJECT scene (a Block Editor
+    scene's ``_block_registry_owner``) as one undoable batch via
+    ``blocks_browser.ensure_block_loaded``.
+
+    Args:
+        ref: The picked ref (a block id or a keyword).
+        scene: The scene the picked value lives in (plan or Block Editor).
+        folder_fn: Zero-arg callable -> ``[(name, block_id, path)]``.
+        keywords: Refs that are never block ids (nothing to load).
+
+    Returns:
+        False only when *ref* is a folder block that failed to load (the
+        caller must not keep it); True otherwise.
+    """
+    if not ref or ref in keywords or scene is None:
+        return True
+    project = getattr(scene, "_block_registry_owner", None) or scene
+    reg = getattr(project, "block_registry", None)
+    if reg is None or reg.get(ref) is not None:
+        return True
+    for name, bid, path in folder_fn():
+        if bid == ref:
+            from .blocks_browser import ensure_block_loaded
+            return ensure_block_loaded(project, bid, path, name)
+    return True
+
+
+def _folder_ends() -> list:
+    """``[(name, block_id, path)]`` -- the ``end`` blocks of the End Types
+    folder (``capability_folder.scan``: folder + two levels, mtime cache)."""
+    from .app_data import end_types_dir
+    from .capability_folder import scan
+    return scan(end_types_dir(), "end")
+
+
+def end_choices(registry=None, exclude=()) -> list:
+    """``[(label, ref)]`` for Start End / Finish End pickers (LT5 Q10):
+    None, the project's end types by name, then End Types folder ends not yet
+    loaded. The By Linetype row is the caller's (its label shows the
+    resolved default)."""
+    from .stroke_style import END_NONE_LABEL, NONE
+    return capability_choices("end", _folder_ends, registry, exclude,
+                              fixed=((END_NONE_LABEL, NONE),))
+
+
+def end_ref_from_value(value, registry=None, exclude=()) -> str | None:
+    """The stored end value a picked label stands for, or None (unknown /
+    ``Missing: ...`` labels change nothing, LT5 Q13)."""
+    from .stroke_style import end_from_label
+    kw = end_from_label(value)
+    if kw is not None:
+        return kw
+    v = str(value)
+    return next((r for label, r in end_choices(registry, exclude)
+                 if label == v), None)
+
+
+def ensure_end_available(ref, scene) -> bool:
+    """Load an End Types folder end into the project before its id is stored."""
+    from .stroke_style import END_KEYWORDS
+    return ensure_capability_available(ref, scene, _folder_ends,
+                                       keywords=END_KEYWORDS)
