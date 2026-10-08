@@ -23,6 +23,8 @@ AS_AUTHORED_LABEL = "As Authored"
 BY_CATEGORY_LABEL = "By Category"
 _KEYWORDS = (BY_BLOCK, BY_LINETYPE, AS_AUTHORED, BY_CATEGORY)
 ENDS = ("start", "finish")
+NONE = "none"                  # end keyword: no end block (LT5 Q3)
+END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 
 # Primitive types that carry a style record (LT2-1). Text keeps border_weight;
 # reference lines keep their fixed reference style; nested records get their
@@ -54,11 +56,17 @@ def _hex(colour) -> str:
 
 
 def _end(d) -> dict:
+    """A complete end record ``{"end", "visible"[, "mirrored"]}`` (LT5 Q9:
+    ``mirrored`` is written only when true, so default records and every
+    pre-LT5 golden stay byte-identical)."""
     d = d if isinstance(d, dict) else {}
     end = d.get("end") or BY_LINETYPE
     if end == BY_BLOCK:                          # WM-9 migration
         end = BY_LINETYPE
-    return {"end": str(end), "visible": bool(d.get("visible", True))}
+    out = {"end": str(end), "visible": bool(d.get("visible", True))}
+    if d.get("mirrored"):
+        out["mirrored"] = True
+    return out
 
 
 def normalize_style(d: dict | None) -> dict:
@@ -201,6 +209,66 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
     if weight == BY_LINETYPE and lt is not None and lt.dash_weight:
         weight = lt.dash_weight
     return ResolvedStroke(lt, weight, missing)
+
+
+# -- LT5: end types ---------------------------------------------------------
+
+class ResolvedEnd(NamedTuple):
+    """One stroke end after the LT5 cascade (design A)."""
+    defn: object | None        # the end BlockDefinition, or None (no end)
+    missing_id: str | None     # unresolvable / non-end id (badge, Q13)
+    mirrored: bool             # draw flipped across the stroke axis (Q9)
+
+
+NO_ENDS = (ResolvedEnd(None, None, False),) * 2
+
+
+def is_end_ref(e) -> bool:
+    """True for an end block-id reference (a non-empty string that is no end
+    keyword and not the legacy ``by_block``) -- the values an end slot
+    resolves through the registry (and that can go missing, Q13)."""
+    return (isinstance(e, str) and bool(e)
+            and e not in END_KEYWORDS and e != BY_BLOCK)
+
+
+def end_block(ref, registry):
+    """The registry block *ref* names when it has an ``end`` capability,
+    else None (absent, a linetype / pattern / plain block -> "missing")."""
+    d = registry.get(ref) if registry is not None and is_end_ref(ref) else None
+    return d if d is not None and getattr(d, "end", None) else None
+
+
+def _resolve_end(rec, default, registry) -> ResolvedEnd:
+    rec = rec if isinstance(rec, dict) else {}
+    m = bool(rec.get("mirrored"))
+    if not rec.get("visible", True):
+        return ResolvedEnd(None, None, m)          # Visible off = None (Q10)
+    ref = rec.get("end") or BY_LINETYPE
+    if ref in (BY_LINETYPE, BY_BLOCK):
+        ref = default                              # the linetype default (Q11)
+    if not is_end_ref(ref):
+        return ResolvedEnd(None, None, m)          # None / no default
+    d = end_block(ref, registry)
+    return ResolvedEnd(d, None, m) if d is not None else ResolvedEnd(None, ref, m)
+
+
+def resolve_ends(style: dict, lt, registry) -> tuple:
+    """``(start, finish)`` ``ResolvedEnd`` for *style* (LT5 design A).
+
+    Visible off -> no end; By Linetype -> *lt*'s ``start_end`` /
+    ``finish_end`` (None for no linetype / no default: today's stroke, Q3);
+    ``none`` -> no end; an id -> its end block, or ``missing_id`` when it
+    does not name an end block in *registry*. ``mirrored`` is carried as
+    stored. *lt* is a ``linetype_render.LinetypeDef`` or None.
+    """
+    st = style if isinstance(style, dict) else {}
+    return (_resolve_end(st.get("start"), getattr(lt, "start_end", None), registry),
+            _resolve_end(st.get("finish"), getattr(lt, "finish_end", None), registry))
+
+
+def has_ends(ends) -> bool:
+    """True when either resolved end draws something (a block or a badge)."""
+    return any(e.defn is not None or e.missing_id for e in ends)
 
 
 # -- WM1: resolved weight labels -------------------------------------------
