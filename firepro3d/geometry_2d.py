@@ -700,8 +700,8 @@ class Geometry2DMixin:
         pushes its own step (one per scene). Locked inside an end type (Q8).
         """
         sc = self.scene()
-        if getattr(sc, "block_end", None) is not None:
-            return                                 # Q8: end content is plain
+        if _ends_lock_tip(sc) is not None:
+            return                     # Q8 / I3: capability content is plain
         which, field = _END_ROW_KEYS[key]
         if field == "visible":
             on = value if isinstance(value, bool) else str(value) in (
@@ -804,7 +804,7 @@ class Geometry2DMixin:
                 self.style, self._tile_registry(), picker_exclude(sc),
                 locked=in_end or getattr(sc, "block_repeat", None) is not None,
                 locked_tip=_LOCKED_END_LINETYPE_TIP if in_end else None,
-                ends=self._ends_open(), ends_locked=in_end))
+                ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc)))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3963,10 +3963,36 @@ _END_TIP = ("End type drawn at this end of the line. By Linetype uses the "
 _END_VISIBLE_TIP = ("Show this end's end type. Off draws a plain end but "
                     "keeps the pick.")
 _LOCKED_END_TIP = "Lines inside an end type are always Continuous with plain ends"
+_LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends -- set the "
+                      "linetype's default ends in its Start End / Finish End rows")
+_LOCKED_TILE_END_TIP = "Lines inside a pattern tile draw plain ends"
 
 
-def _end_rows(style: dict, registry, exclude, locked: bool) -> dict:
-    """Start End / Finish End + Start / Finish Visible rows (LT5 Q10)."""
+def _ends_lock_tip(scene) -> str | None:
+    """Why the end rows are locked in *scene* (a capability Block Editor:
+    end type Q8, linetype / pattern tile seam I3), or None (unlocked)."""
+    if getattr(scene, "block_end", None) is not None:
+        return _LOCKED_END_TIP
+    if getattr(scene, "block_repeat", None) is not None:
+        return _LOCKED_LT_END_TIP
+    if getattr(scene, "block_tile", None) is not None:
+        return _LOCKED_TILE_END_TIP
+    return None
+
+
+def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
+    """Start End / Finish End + Start / Finish Visible rows (LT5 Q10).
+
+    Args:
+        style: The primitive's style record.
+        registry: Project block registry (or None).
+        exclude: Block ids the picker must not offer (``picker_exclude``).
+        locked_tip: Disable every row with this "why" tooltip (a capability
+            Block Editor, :func:`_ends_lock_tip`); None = editable.
+
+    Returns:
+        The four rows: the two pickers, then the two Visible checkboxes.
+    """
     from .capabilities import end_choices
     from .stroke_style import BY_LINETYPE, _end, end_label
     choices = end_choices(registry, exclude)
@@ -3988,10 +4014,10 @@ def _end_rows(style: dict, registry, exclude, locked: bool) -> dict:
         vis[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
                                    "tooltip": _END_VISIBLE_TIP}
     rows.update(vis)
-    if locked:
+    if locked_tip:
         for meta in rows.values():
             meta["disabled"] = True
-            meta["tooltip"] = _LOCKED_END_TIP
+            meta["tooltip"] = locked_tip
     return rows
 
 
@@ -4005,7 +4031,8 @@ def _is_block_only_weight_label(value) -> bool:
 
 def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
                 placement: bool = False, ends: bool = False,
-                ends_locked: bool = False, locked_tip: str | None = None) -> dict:
+                ends_locked_tip: str | None = None,
+                locked_tip: str | None = None) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -4020,7 +4047,8 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
             Authored + By Category instead of By Linetype.
         ends: Add the LT5 Start End / Finish End / Visible rows (open
             primitives only -- never the template or a placement).
-        ends_locked: Disable the end rows (an end-type Block Editor, Q8).
+        ends_locked_tip: Disable the end rows with this "why" tooltip (a
+            capability Block Editor: end type Q8, linetype / tile I3).
         locked_tip: The locked Linetype row's "why" tooltip (default: the
             linetype-unit one).
     """
@@ -4061,7 +4089,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
         rows["Linetype"]["disabled"] = True
         rows["Linetype"]["tooltip"] = locked_tip or _LOCKED_LINETYPE_TIP
     if ends:
-        rows.update(_end_rows(style, registry, exclude, ends_locked))
+        rows.update(_end_rows(style, registry, exclude, ends_locked_tip))
     return rows
 
 

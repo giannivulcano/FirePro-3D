@@ -254,21 +254,52 @@ def set_default_end_from_label(scene, which: str, label) -> bool:
     return set_default_end(scene, which, ref)
 
 
+def _styled_items(scene) -> list:
+    """The scene's styled geometry primitives."""
+    tools = getattr(scene, "_tools", None)
+    items = tools._all_geometry_items() if tools is not None else []
+    return [it for it in items if isinstance(getattr(it, "style", None), dict)]
+
+
 def _non_continuous(scene):
     """Styled primitives whose linetype is not Continuous (LT4-4)."""
     from . import stroke_style as ss
-    tools = getattr(scene, "_tools", None)
-    items = tools._all_geometry_items() if tools is not None else []
-    return [it for it in items
-            if isinstance(getattr(it, "style", None), dict)
-            and it.style.get("linetype") != ss.CONTINUOUS]
+    return [it for it in _styled_items(scene)
+            if it.style.get("linetype") != ss.CONTINUOUS]
 
 
-def _force_continuous(items) -> None:
+def locked_items(scene, *, continuous: bool = True) -> list:
+    """Styled primitives a capability editor's content lock must change.
+
+    The one lock rule for linetype units, end types (LT4-4, LT5 Q8) and
+    pattern tiles (LT5 seam I3): not Continuous (when *continuous*), or
+    naming an explicit end id -- an end inside a linetype, end type or tile
+    never draws where the block is used, yet would count as a use.
+
+    Args:
+        scene: The Block Editor ``Model_Space``.
+        continuous: Also lock the linetype to Continuous (False for tiles,
+            whose strokes keep their linetype).
+
+    Returns:
+        The primitives to pass to :func:`lock_strokes`.
+    """
+    from . import stroke_style as ss
+    return [it for it in _styled_items(scene)
+            if (continuous and it.style.get("linetype") != ss.CONTINUOUS)
+            or ss.has_explicit_ends(it.style)]
+
+
+def lock_strokes(items, *, continuous: bool = True) -> None:
+    """Apply the content lock: Continuous (when *continuous*) and explicit
+    end ids reset to By Linetype (plain on Continuous, Q3); ``visible`` /
+    ``mirrored`` kept. Never pushes."""
     from . import stroke_style as ss
     for it in items:
-        it.prepareGeometryChange()               # a missing badge may vanish
-        it.style["linetype"] = ss.CONTINUOUS
+        it.prepareGeometryChange()               # a badge / end may vanish
+        if continuous:
+            it.style["linetype"] = ss.CONTINUOUS
+        ss.clear_explicit_ends(it.style)
         it._sync_stroke_pen()
         it.update()
 
@@ -284,7 +315,7 @@ def begin_linetype(scene, seed_length: float) -> int:
         The number of primitives converted to Continuous.
     """
     bad = _non_continuous(scene)
-    _force_continuous(bad)
+    lock_strokes(locked_items(scene))         # + plain ends (LT5 I3)
     scene.set_block_capability(
         ("repeat", {"length": max(seed_length, 0.1), "size": "drafting",
                     "screen": "fixed"}),          # LTS-5: new linetypes are Fixed
@@ -305,7 +336,7 @@ def pre_capture(scene) -> None:
     rep = scene.block_repeat
     if rep is None:
         return
-    _force_continuous(_non_continuous(scene))
+    lock_strokes(locked_items(scene))
     end = _axis_end(_plain_lines(scene))
     if end > rep["length"] + _TOL:
         rep["length"] = end

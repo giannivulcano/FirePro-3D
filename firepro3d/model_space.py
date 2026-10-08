@@ -3037,6 +3037,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # LT5 Q8: the Continuous / plain-ends lock joins the snapshot.
             from .end_authoring import pre_capture as end_pre_capture
             end_pre_capture(self)
+        elif cap_kind == "tile" and self._undo_stack:
+            # LT5 seam I3: ends never draw inside a hatch fill, so explicit
+            # end ids on tile strokes are reset (they would count as uses).
+            # Tile strokes keep their linetype.
+            from .linetype_authoring import locked_items, lock_strokes
+            lock_strokes(locked_items(self, continuous=False), continuous=False)
         state = self._capture_network()
         # Discard redo history beyond current position
         self._undo_stack = self._undo_stack[:self._undo_pos + 1]

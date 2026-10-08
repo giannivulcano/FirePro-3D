@@ -11,34 +11,16 @@ SIZE_LABELS = {"fixed": "Fixed", "weight_relative": "Weight-relative"}
 
 
 def _needs_lock(scene) -> list:
-    """Styled primitives that are not Continuous or name an explicit end."""
-    from . import stroke_style as ss
-    tools = getattr(scene, "_tools", None)
-    items = tools._all_geometry_items() if tools is not None else []
-    out = []
-    for it in items:
-        st = getattr(it, "style", None)
-        if not isinstance(st, dict):
-            continue
-        if st.get("linetype") != ss.CONTINUOUS or any(
-                isinstance(st.get(w), dict) and ss.is_end_ref(st[w].get("end"))
-                for w in ss.ENDS):
-            out.append(it)
-    return out
+    """Styled primitives that are not Continuous or name an explicit end
+    (the shared capability content lock, ``linetype_authoring``)."""
+    from .linetype_authoring import locked_items
+    return locked_items(scene)
 
 
 def _force_plain(items) -> None:
     """Continuous + By Linetype ends (= plain on Continuous, Q3)."""
-    from . import stroke_style as ss
-    for it in items:
-        it.prepareGeometryChange()               # ends / badges may vanish
-        it.style["linetype"] = ss.CONTINUOUS
-        for w in ss.ENDS:
-            rec = it.style.get(w)
-            if isinstance(rec, dict) and ss.is_end_ref(rec.get("end")):
-                it.style[w] = {**rec, "end": ss.BY_LINETYPE}
-        it._sync_stroke_pen()
-        it.update()
+    from .linetype_authoring import lock_strokes
+    lock_strokes(items)
 
 
 def begin_end(scene) -> int:

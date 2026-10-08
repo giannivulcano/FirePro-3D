@@ -344,3 +344,53 @@ def test_linetype_swatch_shows_the_default_ends(qapp):
     diff = sum(1 for y in range(64) for x in range(240)
                if before.pixel(x, y) != after.pixel(x, y))
     assert diff > 0
+
+
+# ── seam I3: ends inside linetype units / pattern tiles ─────────────────────
+
+def _capability_editor_with_end_line(kind):
+    proj, w, _ = _w()
+    a = end_id(proj, name="Arrow")
+    lt = hidden(proj)
+    ln = LineItem(QPointF(0, 0), QPointF(6, 0))
+    w._add_primitive(ln)
+    w.editor_scene.push_undo_state()
+    assert w.toggle_capability(kind)
+    sc = w.editor_scene
+    (ln,) = sc._draw_lines
+    return proj, w, sc, ln, a, lt
+
+
+def test_linetype_unit_end_rows_locked_and_ends_stripped_on_commit(qapp):
+    proj, w, sc, ln, a, _lt = _capability_editor_with_end_line("repeat")
+    p = ln.get_properties()
+    for k in ("Start End", "Finish End", "Start Visible", "Finish Visible"):
+        assert p[k]["disabled"] is True, k
+        assert "plain ends" in p[k]["tooltip"], k
+    pos0 = sc._undo_pos
+    ln.set_property("Finish End", "Arrow")                   # refused
+    assert ln.style["finish"]["end"] == ss.BY_LINETYPE and sc._undo_pos == pos0
+    ln.style["finish"] = {"end": a, "visible": True, "mirrored": True}   # via data
+    sc.push_undo_state()                                     # the commit hook
+    assert ln.style["finish"] == {"end": ss.BY_LINETYPE, "visible": True,
+                                  "mirrored": True}
+    d = w.commit_block("Dashy", "L", "Linetypes")
+    assert d is not None
+    assert all(p.get("style", {}).get("finish", {}).get("end") != a
+               for p in d.primitives)
+    assert proj.delete_block_definition(a) is True           # not a use
+
+
+def test_pattern_tile_end_rows_locked_and_ends_stripped_keep_linetype(qapp):
+    proj, w, sc, ln, a, lt = _capability_editor_with_end_line("tile")
+    p = ln.get_properties()
+    assert p["Finish End"]["disabled"] is True
+    assert p["Finish End"]["tooltip"] == "Lines inside a pattern tile draw plain ends"
+    ln.style["linetype"] = lt
+    ln.style["start"] = {"end": a, "visible": False}
+    sc.push_undo_state()
+    assert ln.style["start"] == {"end": ss.BY_LINETYPE, "visible": False}
+    assert ln.style["linetype"] == lt                        # tiles keep linetypes
+    d = w.commit_block("Tiley", "L", "Patterns")
+    assert d is not None
+    assert proj.delete_block_definition(a) is True
