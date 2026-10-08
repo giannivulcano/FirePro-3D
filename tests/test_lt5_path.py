@@ -131,6 +131,11 @@ def test_end_frame_degenerate():
     assert pw.end_frame(pcs, "finish", 0.0)[1] == pytest.approx((1.0, 0.0))
 
 
+def test_end_frame_rejects_an_unknown_end():
+    with pytest.raises(ValueError):
+        pw.end_frame((pw.Seg(0, 0, 10, 0),), "end", 0.0)   # not "start"/"finish"
+
+
 def test_end_frame_coincident_open_polyline_falls_back_to_tangent():
     # Open square loop (end == start): the chord to a full-length trim point
     # is zero, so the end orients on its tangent instead.

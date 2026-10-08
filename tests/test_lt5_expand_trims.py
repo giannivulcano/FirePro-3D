@@ -32,6 +32,7 @@ CASES = {
     "arc_across_0deg": lambda: (pw.Arc(0, 0, 40, 300.0, 150.0),),
     "polyline_rev_leg": lambda: (pw.Seg(0, 0, 40, 0), pw.Seg(40, 0, 10, -30)),
     "spline": _spline,
+    "ellipse_arc": lambda: (pw.EllipseArc(0, 0, 40, 25, 30.0, 200.0, 250.0),),
 }
 
 
@@ -147,3 +148,22 @@ def test_trims_are_in_the_cache_key():
     b = lr.expand(pcs, lt, 1.0, (0.0, 0.0), trims=(10.0, 0.0))
     assert a is not b and a[0] != b[0]
     assert lr.expand(pcs, lt, 1.0, (0.0, 0.0), trims=(10.0, 0.0)) is b
+
+
+def test_window_and_trims_compose_on_a_long_segment():
+    """LTS-8 window + LT5 trims: a 20 m Seg (> LINETYPE_WINDOW_MIN_PERIODS
+    periods), windows at both far ends -- every windowed+trimmed dash lies
+    inside an unwindowed+trimmed one, and none crosses the trims."""
+    lt = lr.LinetypeDef.from_block(make_linetype())            # 9 mm period
+    L = 20000.0
+    pcs = (pw.Seg(0, 0, L, 0),)
+    assert L / lt.period > lr.LINETYPE_WINDOW_MIN_PERIODS      # really windowed
+    whole = _intervals(lr.expand(pcs, lt, 1.0, (0.0, 0.0), trims=(_T0, _T1))[0])
+    for win in ((-10.0, -10.0, 100.0, 10.0), (L - 100.0, -10.0, L + 10.0, 10.0)):
+        cut = _intervals(lr.expand(pcs, lt, 1.0, (0.0, 0.0), window=win,
+                                   trims=(_T0, _T1))[0])
+        assert cut, win
+        for a, b in cut:
+            assert any(wa - 1e-6 <= a and b <= wb + 1e-6 for wa, wb in whole), (a, b)
+        assert cut[0][0] >= _T0 - 1e-9
+        assert cut[-1][1] <= L - _T1 + 1e-9

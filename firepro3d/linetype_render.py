@@ -429,6 +429,22 @@ def fixed_on_canvas(lt, *, paper_scale, role) -> bool:
             and role in _FIXED_ROLES and not _pd.paper_pass_active())
 
 
+def printed_factor(*, paper_scale, role, drawing_scale) -> float:
+    """Definition mm -> painter units under the Drafting length rule (LT3-5).
+
+    A paper pass (*paper_scale* set) -> 1 / scale (true mm on the sheet);
+    the plan canvas (*role* ``"plan"``) -> the drawing scale; anything else
+    (Block Editor, no scene) -> 1 (real size). One rule, two callers:
+    Drafting linetypes (``length_factor``) and Fixed end types (LT5 Q4 --
+    never screen-constant, even beside an On-screen Fixed linetype).
+    """
+    if paper_scale:
+        return 1.0 / paper_scale
+    if role == "plan":
+        return float(drawing_scale) if drawing_scale is not None else 1.0
+    return 1.0
+
+
 def length_factor(lt, *, paper_scale, role, drawing_scale,
                   device_scale=None) -> float:
     """Definition mm -> painter units for *lt* (LT3-5, LTS-3).
@@ -447,11 +463,8 @@ def length_factor(lt, *, paper_scale, role, drawing_scale,
         return printed * FIXED_LINETYPE_PX_PER_MM / max(device_scale or 0.0, 1e-12)
     if lt.size == "model":
         return 1.0
-    if paper_scale:
-        return 1.0 / paper_scale
-    if role == "plan":
-        return float(drawing_scale) if drawing_scale is not None else 1.0
-    return 1.0
+    return printed_factor(paper_scale=paper_scale, role=role,
+                          drawing_scale=drawing_scale)
 
 
 def _lod_ok(painter, period: float) -> bool:

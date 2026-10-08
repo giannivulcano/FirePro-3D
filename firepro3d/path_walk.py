@@ -412,8 +412,14 @@ def end_frame(pieces, which: str, trim: float):
     Returns:
         ``(attach QPointF, (dx, dy))``, or None for no pieces / a zero-length
         stroke.
+
+    Raises:
+        ValueError: *which* is not one of ``stroke_style.ENDS``.
     """
-    live = [p for p in pieces if length(p) > _EPS]
+    from .stroke_style import ENDS      # local: path_walk stays a leaf module
+    if which not in ENDS:
+        raise ValueError(f"end_frame: which must be one of {ENDS}, got {which!r}")
+    live =[p for p in pieces if length(p) > _EPS]
     total = total_length(live)
     if not live or total <= _EPS:
         return None
