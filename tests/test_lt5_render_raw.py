@@ -243,11 +243,11 @@ def test_selection_highlight_covers_the_ends(qapp):
         # surfaces) -- Model_Space's own manipulator would suppress it.
         ms._manipulator = None
         ln.setSelected(selected)
-        return _render(ms, QRectF(0.0, -2.0, 40.0, 4.0), 400, 40), ln
+        return _render(ms, QRectF(0.0, -2.0, 40.0, 4.0), 400, 40), ln, ms
 
     inside = (345, 20)                       # x = 34.5 mm, on the axis, inside the arrow
-    img0, ln0 = render(False)
-    img1, ln1 = render(True)
+    img0, ln0, _ms0 = render(False)      # keep each scene alive: it owns ln
+    img1, ln1, _ms1 = render(True)
     c0, c1 = QColor(img0.pixel(*inside)), QColor(img1.pixel(*inside))
     assert c0.getRgb()[:3] == ln0.pen().color().getRgb()[:3]
     assert c1.getRgb()[:3] == ln1.pen().color().lighter(150).getRgb()[:3]
