@@ -25,11 +25,13 @@ from . import crisp_stroke as _cs
 from .constants import CRISP_AXIS_TOL
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
-from .linetype_render import badge_pad_px
+from . import end_render as _er
+from .linetype_render import badge_pad_px, printed_factor
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
 from .scale_manager import ScaleManager
-from .stroke_style import (canvas_px, canvas_weight_name, is_linetype_ref,
-                           linetype_block, resolve_stroke, toggle_mirrored)
+from .stroke_style import (BY_LINETYPE, NO_ENDS, canvas_px, canvas_weight_name,
+                           has_ends, is_linetype_ref, linetype_block, open_stroke,
+                           resolve_ends, resolve_stroke, toggle_mirrored)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -174,6 +176,11 @@ class Geometry2DMixin:
         # the id the item's tooltip currently names (sync_missing_tooltip).
         self._lt_missing: str | None = None
         self._lt_tip_id: str | None = None
+        # LT5: ((trims, pieces), path) of the Continuous stroke trimmed for
+        # its ends, and that path's crisp split (lazy) -- an untrimmed stroke
+        # never touches either (the base path keeps _mw_split_cache).
+        self._end_trim_cache = None
+        self._end_split_cache = None
 
     # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
     _STYLED = True
@@ -206,10 +213,15 @@ class Geometry2DMixin:
         ``super().boundingRect()`` and so inherit the pad. Stroked Qt bases
         only: ``TextItem`` (a ``QGraphicsTextItem``, no pen) measures its
         content via ``super().boundingRect()`` and must get the raw base.
+        LT5: drawn ends (``_ends_rect``) grow the base first, so the pen pad
+        covers their strokes too.
         """
         base = super().boundingRect()
         if not isinstance(self, (QAbstractGraphicsShapeItem, QGraphicsLineItem)):
             return base
+        ends_r = self._ends_rect()          # LT5: None for every end-less stroke
+        if ends_r is not None:
+            base = base.united(ends_r)
         pen = self.pen()
         if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
             return base
@@ -309,6 +321,10 @@ class Geometry2DMixin:
         tint = constraint_tint(self)
         if tint is not None:
             pen.setColor(tint)          # pen COPY: never setPen (delta 2)
+        ends = self._item_ends(rs)      # LT5: NO_ENDS = today's path, unchanged
+        if ends is not NO_ENDS and has_ends(ends):
+            return self._paint_stroke_with_ends(painter, option, widget, rs,
+                                                ends, pen, draw_highlight)
         if rs is None or (rs.lt is None and not rs.missing_id
                           and self._lt_tip_id is None):
             self._lt_missing = None      # Continuous fast path (LT3-11)
@@ -331,6 +347,131 @@ class Geometry2DMixin:
             painter.setPen(highlight)
             draw_highlight(painter)
         return False
+
+    # ── LT5 ends ─────────────────────────────────────────────────────────────
+
+    def _ends_open(self) -> bool:
+        """True when this primitive has free ends (LT5 Q2) -- the one open /
+        closed rule, ``stroke_style.open_stroke``."""
+        return open_stroke(self)
+
+    def _item_ends(self, rs=None):
+        """This stroke's resolved ``(start, finish)`` ends (LT5).
+
+        ``stroke_style.NO_ENDS`` -- the pre-LT5 path, no registry work --
+        for unstyled items, placement ghosts (LT3-6: the continuous base),
+        By Linetype ends on a stroke whose linetype carries no default
+        (every legacy drawing) and closed shapes. *rs* is this paint's
+        ``ResolvedStroke`` when the caller has one.
+        """
+        st = self.style
+        if st is None or self._ghost_pen:
+            return NO_ENDS
+        s, f = st.get("start"), st.get("finish")
+        reg = None
+        if ((s.get("end") if s else BY_LINETYPE) == BY_LINETYPE
+                and (f.get("end") if f else BY_LINETYPE) == BY_LINETYPE):
+            ref = st.get("linetype")
+            if not is_linetype_ref(ref):
+                return NO_ENDS
+            reg = self._tile_registry()
+            if not _er.linetype_has_default_end(ref, reg):
+                return NO_ENDS
+        if not self._ends_open():
+            return NO_ENDS
+        if reg is None:
+            reg = self._tile_registry()
+        if rs is None:
+            rs = resolve_stroke(st, reg)
+        return resolve_ends(st, rs.lt, reg)
+
+    def _ends_rect(self) -> QRectF | None:
+        """Item-local bounds of the ends this item draws (LT5), or None.
+
+        Fixed ends: their exact extent at this surface's printed factor;
+        weight-relative ones at the pen width converted at the current view
+        zoom (the cosmetic-pad convention); a missing end: the badge pad
+        around its attach point. Non-cosmetic (paper) pens add half their
+        width here (the Qt base only pads its own path).
+        """
+        ends = self._item_ends()
+        if ends is NO_ENDS or not has_ends(ends):
+            return None
+        pen = self.pen()
+        w = pen.widthF()
+        cos = pen.isCosmetic()
+        bp = badge_pad_px()
+        r = _er.ends_rect(self.stroke_pieces(), ends,
+                          fixed_factor=printed_factor(**self._lt_args()),
+                          weight_factor=scene_hit_width(self, w, w) if cos else w,
+                          badge=scene_hit_width(self, bp, bp))
+        if r is not None and not cos:
+            r = r.adjusted(-w / 2.0, -w / 2.0, w / 2.0, w / 2.0)
+        return r
+
+    def _paint_stroke_with_ends(self, painter, option, widget, rs, ends, pen,
+                                draw_highlight) -> bool:
+        """LT5: the stroke trimmed for the resolved *ends*, then the ends.
+
+        ``_paint_routed_stroke``'s contract (returns True when dashed). The
+        stroke stops ``end_trims`` short of each end: dashes keep their
+        untrimmed phase (``expand(trims=)``, D-L9 / E12); a Continuous (or
+        LOD / LTS-7 short) stroke draws its cached trimmed path, a zero trim
+        the unchanged base stroke. Ends draw on every surface with the
+        line's painter-local pen (never LOD-dropped); the selection
+        highlight covers them. Paper passes use the true-mm printed factor.
+        """
+        from .hatch_render import _device_scale
+        pieces = self.stroke_pieces()
+        w = pen.widthF()
+        wf = w / _device_scale(painter) if pen.isCosmetic() else w
+        ff = printed_factor(**self._lt_args())
+        trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+        miss = tuple(e.missing_id for e in ends if e.missing_id)
+        dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
+        hl = None
+        if self.isSelected() and not _manip_wraps(self):
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+        untrimmed = trims == _er.NO_TRIMS
+        if not dashed:
+            if untrimmed:
+                self._paint_base_stroke(painter, option, widget, pen)
+            else:
+                self._paint_trimmed_stroke(painter, pieces, trims, pen)
+            if hl is not None:
+                if untrimmed:
+                    painter.setPen(hl)
+                    draw_highlight(painter)
+                else:
+                    self._paint_trimmed_stroke(painter, pieces, trims, hl)
+        sc = self.scene()
+        _er.paint_ends(painter, pieces, ends, pen, fixed_factor=ff,
+                       weight_factor=wf, scene=sc)
+        if hl is not None:
+            _er.paint_ends(painter, pieces, ends, hl, fixed_factor=ff,
+                           weight_factor=wf, scene=sc, badges=False)
+        return dashed
+
+    def _paint_trimmed_stroke(self, painter, pieces, trims, pen) -> None:
+        """Stroke *pieces* cut by *trims* (LT5): the path cached per item on
+        (trims, pieces); its crisp split in ``_end_split_cache`` (cosmetic
+        canvas pens only -- paper / non-cosmetic draw unsplit). An
+        over-trimmed stroke draws nothing (its ends still draw, Q5)."""
+        key = (trims, pieces)
+        c = self._end_trim_cache
+        if c is None or c[0] != key:
+            c = self._end_trim_cache = (key, _er.trimmed_path(pieces, *trims))
+        path = c[1]
+        if path.isEmpty():
+            return
+        painter.save()
+        try:
+            if self._end_split_cache is None:
+                self._end_split_cache = _cs.SplitCache()
+            _cs.stroke_cached(self._end_split_cache, painter, path, pen)
+        finally:
+            painter.restore()
 
     # True on single-segment items (LineItem): ``_paint_base_stroke`` takes
     # its analytic one-segment fast path (MW-13).
@@ -394,11 +535,14 @@ class Geometry2DMixin:
         finally:
             painter.restore()
 
-    def _paint_linetyped(self, painter, rs, pen=None) -> bool:
+    def _paint_linetyped(self, painter, rs, pen=None, trims=(0.0, 0.0),
+                         end_ids=()) -> bool:
         """Draw the stroke (+ selection highlight) through the linetype renderer.
 
         *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
         *pen* is the painter-local stroke pen (None = ``self.pen()``).
+        *trims* (LT5) drop the dashes within the end trims, phase untouched;
+        *end_ids* are this paint's missing end ids for the tooltip.
         Returns False when the caller must draw its unchanged plain stroke
         (Continuous / unresolved / malformed / LOD / ghost).
         Records ``_lt_missing`` for the badge and names it in the item's
@@ -407,9 +551,9 @@ class Geometry2DMixin:
         # Ghost previews stay on the continuous base, no badge (LT3-6).
         self._lt_missing = (rs.missing_id if rs is not None and not self._ghost_pen
                             else None)
-        if rs is not None and (self._lt_missing or self._lt_tip_id):
+        if rs is not None and (self._lt_missing or self._lt_tip_id or end_ids):
             from .linetype_render import sync_missing_tooltip
-            sync_missing_tooltip(self, self._lt_missing)
+            sync_missing_tooltip(self, self._lt_missing, end_ids=end_ids)
         if rs is None or rs.lt is None or self._ghost_pen:
             return False
         from .linetype_render import paint_stroke
@@ -423,13 +567,14 @@ class Geometry2DMixin:
         anchor = (o.x(), o.y())
         pen = pen if pen is not None else self.pen()
         if not paint_stroke(painter, pieces, rs.lt, pen,
-                            factor=factor, anchor=anchor, fixed=fixed):
+                            factor=factor, anchor=anchor, fixed=fixed,
+                            trims=trims):
             return False
         if self.isSelected() and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
-                         fixed=fixed)
+                         fixed=fixed, trims=trims)
         return True
 
     def _paint_lt_badge(self, painter) -> None:

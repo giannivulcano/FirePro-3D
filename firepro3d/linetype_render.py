@@ -506,19 +506,27 @@ def badge_pad_px() -> float:
     return _BADGE_REACH * _badge_unit() + _BADGE_AA_PX
 
 
-def sync_missing_tooltip(item, missing_id) -> None:
-    """Name *missing_id* in *item*'s own tooltip (LT3-10); restore the
-    previous tooltip once it resolves again. Only writes on a change."""
+def sync_missing_tooltip(item, missing_id, end_ids=()) -> None:
+    """Name *missing_id* (a linetype) and *end_ids* (LT5 end types) in
+    *item*'s own tooltip (LT3-10); restore the previous tooltip once all
+    resolve again. Only writes on a change. ``item._lt_tip_id`` holds the
+    key: the linetype id alone (pre-LT5 value), or ``(missing_id, end_ids)``
+    while an end is missing."""
+    key = (missing_id, tuple(end_ids)) if end_ids else missing_id
     cur = getattr(item, "_lt_tip_id", None)
-    if cur == missing_id:
+    if cur == key:
         return
-    if missing_id:
+    if key:
         if cur is None:
             item._lt_tip_prev = item.toolTip()
-        item.setToolTip(f"Missing linetype: {missing_id} — drawn Continuous")
+        lines = []
+        if missing_id:
+            lines.append(f"Missing linetype: {missing_id} — drawn Continuous")
+        lines += [f"Missing end type: {e} — drawn None" for e in end_ids]
+        item.setToolTip("\n".join(lines))
     else:
         item.setToolTip(getattr(item, "_lt_tip_prev", ""))
-    item._lt_tip_id = missing_id
+    item._lt_tip_id = key
 
 
 def paint_missing_badge(painter, at: QPointF) -> None:
