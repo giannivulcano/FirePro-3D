@@ -135,6 +135,13 @@ def test_ends_vs_end_less(qapp, shape):
     without, _, lines_n = _SHAPES[shape](False)
     _assert_composition("block" if shape == "block" else "raw",
                         with_e, without, crop, lines_e, lines_n)
+    if shape != "block":                     # VC2: every drawn end, its size mode
+        from firepro3d.end_render import FIXED, WEIGHT_RELATIVE, EndDef
+        want = WEIGHT_RELATIVE if shape == "raw-wr" else FIXED
+        arrows = [EndDef.from_block(ln._item_ends()[0].defn) for ln in lines_e
+                  if ln._item_ends()[0].defn is not None]
+        assert len(arrows) == _N // _EVERY
+        assert {ed.size for ed in arrows} == {want}
     t_e, t_n = _paired(with_e, without, _crops(crop))
     print(f"\nLT5 {shape}: ends {t_e:.1f} / end-less {t_n:.1f} ms "
           f"({t_e / t_n:.2f}x, target 1.3x)")

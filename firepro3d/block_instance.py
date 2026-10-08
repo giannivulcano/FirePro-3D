@@ -614,12 +614,13 @@ class BlockInstance(QGraphicsObject):
                          tint=None, end_ops=frozenset()) -> tuple:
         """Paint *ops* of a block with no linetype refs (every stroke solid).
 
-        The pre-LT3 loop: no cascade, memo, device-scale or paper-pass read.
-        The canvas width is reused while consecutive ops share a weight.
-        LT5: stroke ops in *end_ops* (``_end_ref_ops``: an explicit end id)
-        resolve their ends -- registry, printed factor and device scale read
-        once, lazily -- and draw trimmed + their ends; with *end_ops* empty
-        (every legacy block) the loop is unchanged.
+        The pre-LT3 loop: no linetype cascade, expansion memo or paper-pass
+        read. The canvas width is reused while consecutive ops share a
+        weight. LT5: stroke ops in *end_ops* (``_end_ref_ops``: an explicit
+        end id) resolve their ends -- the registry, printed factor and posed
+        device scale are read once per paint, lazily, only when such an op
+        is met -- and draw trimmed + their ends; with *end_ops* empty (every
+        legacy block) none of that is read and the loop is the pre-LT5 one.
 
         Returns:
             The missing end ids met, in op order (``()`` when none).

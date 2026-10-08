@@ -225,3 +225,94 @@ def test_e9_explode_keeps_ends_and_look(qapp):
     assert item.style["start"] == {"end": "none", "visible": True}
     assert item.style["finish"] == {"end": h.id, "visible": True, "mirrored": True}
     assert _diff_pixels(before, _render_model(ms)) == 0
+
+
+def test_op_ends_gate_is_only_ever_a_shortcut(qapp):
+    """Block twin of ``test_item_ends_fast_path_is_only_ever_a_shortcut``:
+    over slot x visible x mirrored x linetype, ``BlockInstance._op_ends`` on
+    the COMPILED op returns NO_ENDS only where the real cascade (on the
+    authored style) draws nothing, else exactly its answer; and every op
+    that draws is reachable by the paint gate (an explicit-end op in
+    ``_end_ref_ops`` or a linetype with a default end)."""
+    from firepro3d.stroke_style import NO_ENDS, has_ends, resolve_ends, resolve_stroke
+    a = arrow()
+    plain_lt = make_linetype()
+    lt = make_linetype(name="WithEnd")
+    lt.set_repeat({**lt.repeat, "ends": {"start": a.id, "finish": a.id}})
+    slots = [None]
+    for end in ("by_linetype", "none", a.id, "deadbeef"):
+        for vis in (True, False):
+            for mir in (False, True):
+                rec = {"end": end, "visible": vis}
+                if mir:
+                    rec["mirrored"] = True
+                slots.append(rec)
+    n_short = n_draw = 0
+    for ref in ("continuous", plain_lt.id, lt.id):
+        lines = []
+        for r0 in slots:
+            for r1 in slots:
+                ln = LineItem(QPointF(0.0, 0.0), QPointF(10.0, 0.0))
+                ln.style["weight"] = "Thinnest"
+                ln.style["linetype"] = ref
+                for k, r in (("start", r0), ("finish", r1)):
+                    if r is not None:
+                        ln.style[k] = dict(r)
+                lines.append(ln)
+        d = BlockDefinition.new(name=f"T{ref}", library="L", series="S",
+                                primitives=[ln.to_dict() for ln in lines],
+                                origin=(0.0, 0.0))
+        ms, inst = scene_with([a, plain_lt, lt, d], d.id)
+        reg = ms.block_registry
+        ops = [op for op in inst.render_ops() if op.kind == "stroke"]
+        assert len(ops) == len(lines)
+        eo = inst._end_ref_ops(inst.render_ops())
+        idx = [i for i, op in enumerate(inst.render_ops()) if op.kind == "stroke"]
+        for i, op, ln in zip(idx, ops, lines):
+            rs = resolve_stroke({"linetype": op.linetype,
+                                 "weight": op.weight or "by_linetype"}, reg)
+            truth = resolve_ends(ln.style, resolve_stroke(ln.style, reg).lt, reg)
+            got = inst._op_ends(op, rs.lt, reg)
+            if got is NO_ENDS:
+                n_short += 1
+                assert not has_ends(truth), (ref, ln.style["start"], ln.style["finish"])
+            else:
+                n_draw += 1
+                assert got == truth, (ref, ln.style["start"], ln.style["finish"])
+            if has_ends(truth):              # the paint gate reaches it
+                assert i in eo or (rs.lt is not None
+                                   and (rs.lt.start_end or rs.lt.finish_end)), (
+                    ref, ln.style["start"], ln.style["finish"])
+    assert n_short > 100 and n_draw > 100                # both branches exercised
+
+
+def test_linetype_paint_and_bounds_stay_copy_free(qapp, monkeypatch):
+    """I2: after warm-up, painting + bounding a linetyped placed block and a
+    linetyped raw line never reads ``BlockDefinition.repeat`` (a deep copy);
+    ``is_linetype`` agrees with ``bool(repeat)``."""
+    from firepro3d.block_definition import BlockDefinition as BD
+    from tests.test_lt5_render_raw import _add
+    lt = make_linetype(length=9.0, dashes=((0.0, 6.0),))
+    d = _line_block(linetype=lt.id, weight="Thinnest")
+    ms, inst = scene_with([lt, d], d.id)
+    ln = _add(ms, LineItem(QPointF(-1500.0, 500.0), QPointF(1500.0, 500.0)))
+    ln.style["linetype"] = lt.id
+    ln._sync_stroke_pen()
+    plain = BlockDefinition.new(name="P", library="L", series="S",
+                                primitives=[], origin=(0.0, 0.0))
+    bad = make_linetype(name="Bad")
+    bad._repeat = {"length": -1.0, "size": "drafting"}       # malformed, still a record
+    for x in (lt, plain, bad):
+        assert x.is_linetype == bool(x.repeat)
+    assert (lt.is_linetype, plain.is_linetype, bad.is_linetype) == (True, False, True)
+    _render(ms, _PLAN, 400, 400)                      # warm-up (cache misses read it)
+    inst.boundingRect(), ln.boundingRect()
+    reads = []
+    real = BD.repeat
+    monkeypatch.setattr(BD, "repeat", property(
+        lambda self: (reads.append(self.id), real.fget(self))[1]))
+    img = _render(ms, _PLAN, 400, 400)
+    inst.boundingRect(), ln.boundingRect()
+    lit = lambda y: sum(QColor(img.pixel(x, y)).lightness() > 128 for x in range(400))
+    assert lit(200) > 50 and lit(250) > 50            # block + raw line really drew
+    assert reads == []
