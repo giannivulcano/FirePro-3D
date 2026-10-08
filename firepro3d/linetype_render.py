@@ -212,16 +212,21 @@ def visible_spans(p, window, min_span: float) -> list:
 
 
 def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
-           window=None):
+           window=None, trims=(0.0, 0.0)):
     """``(dash_path, dot_path)`` for *pieces* in *lt* scaled by *factor*.
 
-    Cached on (pieces, the *lt* reading itself, factor, anchor, window) --
-    keyed on the frozen reading's value, so a re-read that differs (e.g. a
-    moved origin without a version bump) never hits a stale expansion.
-    Returns the same tuple object on a hit: the paths are shared cached
-    objects and must be treated as read-only. *window* is a ``view_window``
-    key: pieces longer than ``LINETYPE_WINDOW_MIN_PERIODS`` periods expand
-    only inside it (LTS-8); when no piece qualifies it leaves the cache key.
+    Cached on (pieces, the *lt* reading itself, factor, anchor, window,
+    trims) -- keyed on the frozen reading's value, so a re-read that differs
+    (e.g. a moved origin without a version bump) never hits a stale
+    expansion. Returns the same tuple object on a hit: the paths are shared
+    cached objects and must be treated as read-only. *window* is a
+    ``view_window`` key: pieces longer than ``LINETYPE_WINDOW_MIN_PERIODS``
+    periods expand only inside it (LTS-8); when no piece qualifies it leaves
+    the cache key. *trims* ``(s0, s1)`` (LT5, painter units along the path)
+    keep only output inside ``[s0, L - s1]``: the walk is still over the
+    UNTRIMMED pieces, so every surviving dash / dot is exactly where the
+    untrimmed expansion puts it (D-L9 / LTS-4 phase, E12); zero trims are
+    today's expansion, arithmetic for arithmetic.
     """
     if not period_ok(lt, factor):
         return QPainterPath(), QPainterPath()   # never walk a bad period
@@ -229,8 +234,11 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
     if window is not None and not any(
             pw.length(q) / period > LINETYPE_WINDOW_MIN_PERIODS for q in pieces):
         window = None                         # nothing windowed: one key per pan
+    t0, t1 = max(float(trims[0]), 0.0), max(float(trims[1]), 0.0)
+    trimmed = t0 > 0.0 or t1 > 0.0
     key = (tuple(pieces), lt, round(factor, 9),
-           (round(anchor[0], 6), round(anchor[1], 6)), window)
+           (round(anchor[0], 6), round(anchor[1], 6)), window,
+           (round(t0, 9), round(t1, 9)) if trimmed else None)
     hit = _EXPAND.get(key)
     if hit is not None:
         _EXPAND.move_to_end(key)
@@ -238,46 +246,67 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
     dashes = [(s * factor, n * factor) for s, n in lt.dashes]
     dots = [d * factor for d in lt.dots]
     dash_path, dot_path = QPainterPath(), QPainterPath()
-    # Canonical pieces, arcs / ellipse arcs broken at 0° (rhythm restarts there).
-    for p in (q for raw in pieces for q in pw.split_at_zero(raw)):
-        L = pw.length(p)
-        if L <= 1e-9:
-            continue
-        if window is not None and L / period > LINETYPE_WINDOW_MIN_PERIODS:
-            spans = visible_spans(p, window,
-                                  max(window[2] - window[0], window[3] - window[1]))
-        else:
-            spans = ((0.0, L),)
-        ph = pw.phase0(p, anchor)
-        seg = isinstance(p, pw.Seg)
-        k_done = None                         # never re-draw a unit across spans
-        for s_lo, s_hi in spans:
-            if (s_hi - s_lo) / period > LINETYPE_MAX_PERIODS:
-                pw.append(dash_path, p if (s_lo, s_hi) == (0.0, L)
-                          else pw.split(p, s_lo, s_hi))   # safety cap: continuous
+    keep_hi = pw.total_length(pieces) - t1 if trimmed else 0.0
+    off = 0.0                                 # path s at this raw piece's start
+    for raw in pieces:
+        if trimmed:
+            l_raw = pw.length(raw)
+            lo, hi = max(t0 - off, 0.0), min(keep_hi - off, l_raw)
+            off += l_raw
+            if hi - lo <= 1e-9:
+                continue                      # wholly trimmed away
+            if pw.canonical(raw) is not raw:  # walked reversed: mirror the span
+                lo, hi = l_raw - hi, l_raw - lo
+        sub = 0.0                             # canonical s at this sub-piece
+        # Canonical pieces, arcs / ellipse arcs broken at 0° (rhythm restarts there).
+        for p in pw.split_at_zero(raw):
+            L = pw.length(p)
+            p_off, sub = sub, sub + L
+            if L <= 1e-9:
                 continue
-            k = math.floor((ph + s_lo) / period)
-            if k_done is not None:
-                k = max(k, k_done)
-            if seg:
-                k = _walk_seg(p, L, ph, period, k, s_hi, dashes, dots,
-                              dash_path, dot_path)
+            k_lo, k_hi = 0.0, L               # the kept stretch of this piece
+            if trimmed:
+                k_lo, k_hi = max(lo - p_off, 0.0), min(hi - p_off, L)
+                if k_hi - k_lo <= 1e-9:
+                    continue
+            if window is not None and L / period > LINETYPE_WINDOW_MIN_PERIODS:
+                spans = visible_spans(p, window,
+                                      max(window[2] - window[0], window[3] - window[1]))
+            else:
+                spans = ((0.0, L),)
+            if trimmed:
+                spans = [(max(a, k_lo), min(b, k_hi)) for a, b in spans
+                         if min(b, k_hi) - max(a, k_lo) > 1e-9]
+            ph = pw.phase0(p, anchor)
+            seg = isinstance(p, pw.Seg)
+            k_done = None                     # never re-draw a unit across spans
+            for s_lo, s_hi in spans:
+                if (s_hi - s_lo) / period > LINETYPE_MAX_PERIODS:
+                    pw.append(dash_path, p if (s_lo, s_hi) == (0.0, L)
+                              else pw.split(p, s_lo, s_hi))   # safety cap: continuous
+                    continue
+                k = math.floor((ph + s_lo) / period)
+                if k_done is not None:
+                    k = max(k, k_done)
+                if seg:
+                    k = _walk_seg(p, L, ph, period, k, s_hi, dashes, dots,
+                                  dash_path, dot_path, k_lo, k_hi)
+                    k_done = k
+                    continue
+                while k * period - ph < s_hi:
+                    base = k * period - ph               # s of this unit's start
+                    for st, ln in dashes:
+                        a, b = max(base + st, k_lo), min(base + st + ln, k_hi)
+                        if b - a > 1e-9:
+                            pw.append(dash_path, pw.split(p, a, b))
+                    for d in dots:
+                        s = base + d
+                        if k_lo - 1e-9 <= s <= k_hi + 1e-9:
+                            q = pw.point_at(p, min(max(s, k_lo), k_hi))
+                            dot_path.moveTo(q)
+                            dot_path.lineTo(q.x() + LINETYPE_DOT_MM, q.y())
+                    k += 1
                 k_done = k
-                continue
-            while k * period - ph < s_hi:
-                base = k * period - ph                   # s of this unit's start
-                for st, ln in dashes:
-                    a, b = max(base + st, 0.0), min(base + st + ln, L)
-                    if b - a > 1e-9:
-                        pw.append(dash_path, pw.split(p, a, b))
-                for d in dots:
-                    s = base + d
-                    if -1e-9 <= s <= L + 1e-9:
-                        q = pw.point_at(p, min(max(s, 0.0), L))
-                        dot_path.moveTo(q)
-                        dot_path.lineTo(q.x() + LINETYPE_DOT_MM, q.y())
-                k += 1
-            k_done = k
     res = (dash_path, dot_path)
     _EXPAND[key] = res
     while len(_EXPAND) > LINETYPE_CACHE_MAX:
@@ -285,28 +314,32 @@ def expand(pieces, lt: LinetypeDef, factor: float, anchor: tuple,
     return res
 
 
-def _walk_seg(p, L, ph, period, k, s_hi, dashes, dots, dash_path, dot_path):
+def _walk_seg(p, L, ph, period, k, s_hi, dashes, dots, dash_path, dot_path,
+              k_lo=0.0, k_hi=None):
     """The unit walk of ``expand`` for a straight piece (LTS-8 perf).
 
     Same dashes / dots as the generic walk (``pw.split`` / ``pw.point_at`` on
     a Seg are linear interpolation), computed inline -- no per-dash piece
-    objects or type dispatch. Returns the next unit index.
+    objects or type dispatch. Output is kept to ``[k_lo, k_hi]`` (default
+    the whole piece; LT5 trims). Returns the next unit index.
     """
+    if k_hi is None:
+        k_hi = L
     x0, y0 = p.x0, p.y0
     dx, dy = p.x1 - x0, p.y1 - y0
     move, line = dash_path.moveTo, dash_path.lineTo
     while k * period - ph < s_hi:
         base = k * period - ph                   # s of this unit's start
         for st, ln in dashes:
-            a, b = max(base + st, 0.0), min(base + st + ln, L)
+            a, b = max(base + st, k_lo), min(base + st + ln, k_hi)
             if b - a > 1e-9:
                 fa, fb = a / L, b / L
                 move(x0 + dx * fa, y0 + dy * fa)
                 line(x0 + dx * fb, y0 + dy * fb)
         for d in dots:
             s = base + d
-            if -1e-9 <= s <= L + 1e-9:
-                f = min(max(s, 0.0), L) / L
+            if k_lo - 1e-9 <= s <= k_hi + 1e-9:
+                f = min(max(s, k_lo), k_hi) / L
                 qx, qy = x0 + dx * f, y0 + dy * f
                 dot_path.moveTo(qx, qy)
                 dot_path.lineTo(qx + LINETYPE_DOT_MM, qy)
@@ -315,7 +348,8 @@ def _walk_seg(p, L, ph, period, k, s_hi, dashes, dots, dash_path, dot_path):
 
 
 def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
-                 anchor: tuple, fixed: bool = False) -> bool:
+                 anchor: tuple, fixed: bool = False,
+                 trims=(0.0, 0.0)) -> bool:
     """Draw *pieces* dashed in *lt* with *pen* (LT3 one paint entry).
 
     Returns False -- nothing drawn -- when there is no linetype, no pieces, a
@@ -323,7 +357,9 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
     ``LINETYPE_LOD_MIN_PERIOD_PX``; the caller then draws its unchanged plain
     stroke. Paper passes always expand. *fixed* is True for a Fixed linetype
     on a model canvas (``fixed_on_canvas``): a stroke shorter than one period
-    then also returns False, so it draws solid (LTS-7).
+    then also returns False, so it draws solid (LTS-7). *trims* passes
+    through to ``expand`` (LT5 end trims; the LTS-7 / LTS-8 length tests
+    stay on the untrimmed stroke).
     """
     if lt is None or not pieces or not period_ok(lt, factor):
         return False
@@ -336,7 +372,7 @@ def paint_stroke(painter, pieces, lt, pen: QPen, *, factor: float,
             return False                  # LTS-7: shorter than one period -> solid
         if n > LINETYPE_WINDOW_MIN_PERIODS:
             win = view_window(painter)    # LTS-8 delta 1: expand near the view only
-    dash, dot = expand(pieces, lt, factor, anchor, window=win)
+    dash, dot = expand(pieces, lt, factor, anchor, window=win, trims=trims)
     painter.save()
     try:
         draw_expansion(painter, dash, dot, QPen(pen))
