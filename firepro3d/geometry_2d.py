@@ -662,6 +662,55 @@ class Geometry2DMixin:
             return
         self._dim_edit(lambda r: self._set_style_field("Linetype", r), ref)
 
+    def _set_end_field(self, which: str, field: str, value) -> None:
+        """Write one end-record field (LT5 Q10), keeping the others
+        (``mirrored`` included), then repaint (bounds cover the ends)."""
+        self.prepareGeometryChange()
+        rec = dict(self.style[which])
+        rec[field] = value
+        self.style[which] = rec
+        self._sync_stroke_pen()
+        self.update()
+
+    def _set_end_from_panel(self, key: str, value) -> None:
+        """Apply a Start End / Finish End / Visible panel edit (LT5 Q10).
+
+        One undo step via ``_dim_edit``. A ``"Missing: ..."`` or unknown
+        label changes nothing. An End Types folder end is loaded into the
+        project first: the ref is set BEFORE the load so the load's one
+        snapshot carries it; a failed load restores the old ref. In a Block
+        Editor the load's step lives in the project scene, so the editor
+        pushes its own step (one per scene). Locked inside an end type (Q8).
+        """
+        sc = self.scene()
+        if getattr(sc, "block_end", None) is not None:
+            return                                 # Q8: end content is plain
+        which, field = _END_ROW_KEYS[key]
+        if field == "visible":
+            on = value if isinstance(value, bool) else str(value) in (
+                "True", "true", "1")
+            self._dim_edit(lambda v: self._set_end_field(which, "visible", v),
+                           bool(on))
+            return
+        from .capabilities import end_ref_from_value, ensure_end_available
+        from .hatch_patterns import picker_exclude
+        from .stroke_style import is_end_ref
+        reg = self._tile_registry()
+        ref = end_ref_from_value(value, reg, picker_exclude(sc))
+        if ref is None:
+            return
+        if is_end_ref(ref) and reg is not None and reg.get(ref) is None:
+            old = self.style[which]["end"]
+            self._set_end_field(which, "end", ref)
+            if not ensure_end_available(ref, sc):
+                self._set_end_field(which, "end", old)
+                return
+            owner = getattr(sc, "_block_registry_owner", None)
+            if owner is not None and owner is not sc:
+                self._push_undo()                  # the editor's own step
+            return
+        self._dim_edit(lambda r: self._set_end_field(which, "end", r), ref)
+
     def is_fillable(self) -> bool:
         """True if this item has a closed path (rectangle, circle, closed polyline)."""
         gcp = getattr(self, "get_closed_path", None)
@@ -732,9 +781,12 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .hatch_patterns import picker_exclude
+            sc = self.scene()
             props.update(stroke_rows(
-                self.style, self._tile_registry(), picker_exclude(self.scene()),
-                locked=getattr(self.scene(), "block_repeat", None) is not None))
+                self.style, self._tile_registry(), picker_exclude(sc),
+                locked=getattr(sc, "block_repeat", None) is not None,
+                ends=self._ends_open(),
+                ends_locked=getattr(sc, "block_end", None) is not None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -768,6 +820,9 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
+        if self.style is not None and key in _END_ROW_KEYS:
+            self._set_end_from_panel(key, value)
+            return True
         if self.style is not None and key == "Linetype":
             self._set_linetype_from_panel(str(value))
             return True
@@ -3875,6 +3930,48 @@ _LOCKED_PLACEMENT_TIP = (
     "Strokes in a pattern tile or linetype unit draw Continuous at the "
     "pattern's own pen, so a nested block can't override them here.")
 
+# LT5 Q10 panel rows -> (end, record field).
+_END_ROW_KEYS = {"Start End": ("start", "end"), "Finish End": ("finish", "end"),
+                 "Start Visible": ("start", "visible"),
+                 "Finish Visible": ("finish", "visible")}
+_END_TIP = ("End type drawn at this end of the line. By Linetype uses the "
+            "linetype's default (shown in brackets); None draws a plain end. "
+            "End types from the End Types folder load into the project when "
+            "picked.")
+_END_VISIBLE_TIP = ("Show this end's end type. Off draws a plain end but "
+                    "keeps the pick.")
+_LOCKED_END_TIP = "Lines inside an end type are always Continuous with plain ends"
+
+
+def _end_rows(style: dict, registry, exclude, locked: bool) -> dict:
+    """Start End / Finish End + Start / Finish Visible rows (LT5 Q10)."""
+    from .capabilities import end_choices
+    from .stroke_style import BY_LINETYPE, _end, end_label
+    choices = end_choices(registry, exclude)
+    rows, vis = {}, {}
+    for which, title in (("start", "Start"), ("finish", "Finish")):
+        rec = _end(style.get(which))
+        ref = rec["end"]
+        head = end_label(BY_LINETYPE, style["linetype"], registry, which=which)
+        options = [head, *(n for n, _ in choices)]
+        value = (head if ref == BY_LINETYPE
+                 else next((n for n, r in choices if r == ref), None))
+        if value is None:
+            # Q13: an unresolvable / non-end id shows as missing (kept until
+            # re-picked).
+            value = end_label(ref, style["linetype"], registry, which=which)
+            options = [value] + options
+        rows[f"{title} End"] = {"type": "enum", "options": options,
+                                "value": value, "tooltip": _END_TIP}
+        vis[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
+                                   "tooltip": _END_VISIBLE_TIP}
+    rows.update(vis)
+    if locked:
+        for meta in rows.values():
+            meta["disabled"] = True
+            meta["tooltip"] = _LOCKED_END_TIP
+    return rows
+
 
 def _is_block_only_weight_label(value) -> bool:
     """True for a placement-only Weight label (WM2 Q5): "As Authored" or
@@ -3885,7 +3982,8 @@ def _is_block_only_weight_label(value) -> bool:
 
 
 def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
-                placement: bool = False) -> dict:
+                placement: bool = False, ends: bool = False,
+                ends_locked: bool = False, locked_tip: str | None = None) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -3898,6 +3996,11 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
             the Linetype row is disabled with a "why" tooltip.
         placement: Rows for a placed block / nested record (WM2 Q4): As
             Authored + By Category instead of By Linetype.
+        ends: Add the LT5 Start End / Finish End / Visible rows (open
+            primitives only -- never the template or a placement).
+        ends_locked: Disable the end rows (an end-type Block Editor, Q8).
+        locked_tip: The locked Linetype row's "why" tooltip (default: the
+            linetype-unit one).
     """
     from .paper_display import model_blocks_weight as _pd_blocks
     from .paper_display import picker_weight_name, weight_names
@@ -3934,7 +4037,9 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
     }
     if locked:
         rows["Linetype"]["disabled"] = True
-        rows["Linetype"]["tooltip"] = _LOCKED_LINETYPE_TIP
+        rows["Linetype"]["tooltip"] = locked_tip or _LOCKED_LINETYPE_TIP
+    if ends:
+        rows.update(_end_rows(style, registry, exclude, ends_locked))
     return rows
 
 
