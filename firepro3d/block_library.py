@@ -2,7 +2,7 @@
 
 Layout: ``<root>/<Library>/<Series>/<name>.fpdb`` (a BlockDefinition.to_dict())
 plus a per-Series ``index.json`` mapping filename -> {id, name, version,
-thumbnail, tile}. Mirrors titleblock_template's atomic-write + tolerant-load + version
+thumbnail, tile, repeat, end}. Mirrors titleblock_template's atomic-write + tolerant-load + version
 divergence, over a folder tree with human-readable filenames. Thumbnails are
 reserved (S4). See docs/specs/block-system.md.
 """
@@ -24,6 +24,8 @@ LOOP_REASON = "a block can't contain itself"
 PATTERN_REASON = "Pattern blocks fill regions — they can't be placed"
 # Place / drag refusal for a linetype (repeat) block (linetypes.md LT3-2).
 LINETYPE_REASON = "Linetype blocks style lines — they can't be placed"
+# Place / drag refusal for an end-type block (linetypes.md D-L12, LT5 Q12).
+END_REASON = "End type blocks finish lines — they can't be placed"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 
@@ -260,13 +262,15 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
             rec["weight_model_px"] = model
     _atomic_write_json(path, rec)
     index = _read_index(series_dir)
-    # ``tile`` / ``repeat`` flag capability blocks (hatch D-A37, linetypes
-    # LT3 H3-g) so the pattern / linetype picker scans needn't parse every
-    # file; readers tolerate older entries without them.
+    # ``tile`` / ``repeat`` / ``end`` flag capability blocks (hatch D-A37,
+    # linetypes LT3 H3-g, LT5 Q13) so the pattern / linetype / end picker
+    # scans needn't parse every file; readers tolerate older entries without
+    # them (capability_folder.scan parses the file instead).
     index[filename] = {"id": definition.id, "name": definition.name,
                        "version": definition.version, "thumbnail": None,
                        "tile": bool(definition.tile),
-                       "repeat": bool(definition.repeat)}
+                       "repeat": bool(definition.repeat),
+                       "end": bool(definition.end)}
     _atomic_write_json(os.path.join(series_dir, _INDEX), index)
     _notify_changed()
     return path

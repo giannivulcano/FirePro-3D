@@ -68,3 +68,36 @@ def set_ends(item, start=None, finish=None, mirrored=False):
             if mirrored:
                 rec["mirrored"] = True
             item.style[key] = rec
+
+
+# ── Group D helpers (R2: one LT5 helper module) ─────────────────────────────
+
+def v_end(name="Arrow", size="fixed", trim=0.0, length=3.0, half=1.0,
+          library="L", series="End Types"):
+    """An end block: an open V arrowhead pointing +X with its tip on the
+    origin (two Lines (0,0)->(-length, +-half)); *size* / *trim* set the
+    ``end`` record (LT5 Q5: origin = attach point, +X = outward)."""
+    prims = [LineItem(QPointF(0.0, 0.0), QPointF(-length, -half)).to_dict(),
+             LineItem(QPointF(0.0, 0.0), QPointF(-length, half)).to_dict()]
+    return BlockDefinition.new(name=name, library=library, series=series,
+                               primitives=prims, origin=(0.0, 0.0),
+                               end={"size": size, "trim": trim})
+
+
+def end_id(ms, **kw):
+    """Register a :func:`v_end` block on *ms*; return its id."""
+    d = v_end(**kw)
+    ms.register_block_definition(d)
+    return d.id
+
+
+def scene_line(ms, p1=(0.0, 0.0), p2=(30.0, 0.0), **style):
+    """A LineItem in *ms*'s undo-snapshot draw list (+ a baseline step);
+    *style* keys overwrite the style record (e.g. ``finish={...}``)."""
+    ln = LineItem(QPointF(*p1), QPointF(*p2))
+    for k, v in style.items():
+        ln.style[k] = v
+    ms.addItem(ln)
+    ms._draw_lines.append(ln)
+    ms.push_undo_state()
+    return ln

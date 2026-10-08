@@ -1167,14 +1167,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # commit_rotate / commit_scale).
             return
         if mode == "place_block" and isinstance(template, str):
-            defn = self.get_block_definition(template)
-            if defn is not None and (defn.tile or defn.repeat):
-                # hatch D-A34 / linetypes LT3-2: a pattern block fills regions
-                # and a linetype block styles lines - never a symbol. Refused
-                # at the shared entry every ribbon / browser / drag path hits.
-                from . import block_library
-                reason = (block_library.PATTERN_REASON if defn.tile
-                          else block_library.LINETYPE_REASON)
+            from .capabilities import capability_place_reason
+            reason = capability_place_reason(self.get_block_definition(template))
+            if reason is not None:
+                # hatch D-A34 / LT3-2 / LT5 Q12: a pattern fills regions, a
+                # linetype styles lines, an end type finishes them - never a
+                # symbol. Refused at the shared entry every ribbon / browser /
+                # drag path hits.
                 self._show_status(reason, 5000)
                 return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
@@ -1641,6 +1640,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         c = self.block_capability
         return dict(c[1]) if c and c[0] == "repeat" else None
 
+    @property
+    def block_end(self) -> dict | None:
+        """The end-type record (a copy), or None (LT5 Q12)."""
+        c = self.block_capability
+        return dict(c[1]) if c and c[0] == "end" else None
+
     def capability_frame_item(self):
         """The Block Editor capability frame, or None."""
         return self._cap_frame
@@ -1659,13 +1664,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Set / clear the edited block's capability and sync the frame (H4-a).
 
         Args:
-            cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"``, or None.
+            cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"`` /
+                ``"end"``, or None.
             push_undo: Push one undo step (False inside a grip drag, an undo
                 restore or a composite edit -- the caller owns the step).
 
         Raises:
-            ValueError: *cap*'s kind is not ``"tile"`` / ``"repeat"`` (the
-                slot and frame are left unchanged).
+            ValueError: *cap*'s kind is not a ``capabilities.CAPABILITY_KINDS``
+                kind (the slot and frame are left unchanged).
         """
         from PyQt6 import sip
         from .capability_frame import frame_for
@@ -1676,6 +1682,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .block_definition import _norm_repeat
             rep = _norm_repeat(new[1])
             new = ("repeat", rep) if rep is not None else None
+        elif new is not None and new[0] == "end":
+            # Same seam for the end record (LT5): readers index ["size"] /
+            # ["trim"] (bad size -> fixed, bad / negative trim -> 0).
+            from .block_definition import _norm_end
+            rec = _norm_end(new[1])
+            new = ("end", rec) if rec is not None else None
         f = self._cap_frame
         if f is not None and (sip.isdeleted(f) or f.scene() is not self):
             self._cap_frame = f = None       # swept out of the scene elsewhere
@@ -1737,7 +1749,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Args:
             block_id: The definition id (None = never saved -> no use).
-            kind: ``"tile"`` or ``"repeat"`` -- picks the message noun.
+            kind: a ``capabilities.CAPABILITY_KINDS`` kind -- picks the
+                message noun.
 
         Returns:
             The status message, or None when the block is unused as a symbol.
@@ -1753,9 +1766,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         parts = ([f"{placed} placed"] if placed else []) + (
             [f"{nested} nested in other blocks"] if nested else [])
-        what = "a linetype" if kind == "repeat" else "a pattern"
+        from .capabilities import with_article
         return (f"Used as a symbol ({', '.join(parts)}) — remove those "
-                f"before making it {what}")
+                f"before making it {with_article(kind)}")
 
     def linetype_off_refusal(self, block_id) -> "str | None":
         """Why a linetype can't stop being one (LT4-5): lines use it.
@@ -2325,7 +2338,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 (``ConstraintController.to_records``) stored on the
                 definition (parametric-constraint-system.md §6.3); None -> [].
             capability: ``(kind, dict)`` or None -- tile (D-A32) / repeat
-                (LT4). A repeat (or tile) is never placed; dropping a
+                (LT4) / end (LT5). A capability block is never placed; dropping a
                 linetype's repeat is refused while lines use it (LT4-5).
 
         Returns:
@@ -2337,6 +2350,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         kind, data = capability if capability else (None, None)
         tile = data if kind == "tile" else None
         repeat = data if kind == "repeat" else None
+        end = data if kind == "end" else None
         pattern_saved_msg = None
         if kind is not None:
             # D-A34 / LT4-11a at save time (the toggle's check can go stale).
@@ -2348,7 +2362,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # User ruling 2026-10-02 (LT4-11d): a new pattern / linetype
                 # is registered but never placed; a Create-Block-from-selection
                 # source stays untouched.
-                noun = "linetype" if kind == "repeat" else "pattern"
+                from .capabilities import CAP_INFO
+                noun = CAP_INFO[kind].noun
                 pattern_saved_msg = (f"Saved {noun} ‘{name}’ — {noun}s "
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
@@ -2364,7 +2379,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
                                        constraints=list(constraints or []),
-                                       tile=tile, repeat=repeat)
+                                       tile=tile, repeat=repeat, end=end)
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
@@ -2383,6 +2398,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.constraints = list(constraints or [])
             defn.set_tile(tile, notify=False)
             defn.set_repeat(repeat, notify=False)
+            defn.set_end(end, notify=False)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -6397,14 +6413,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""
         if self._place_block_id is None:
             return
-        defn = self.get_block_definition(self._place_block_id)
-        if defn is not None and (defn.tile or defn.repeat):
-            # hatch D-A34 / linetypes LT3-2: the block became a pattern or a
-            # linetype (Block Editor save, library reload) while this mode was
+        from .capabilities import capability_place_reason
+        reason = capability_place_reason(
+            self.get_block_definition(self._place_block_id))
+        if reason is not None:
+            # hatch D-A34 / LT3-2 / LT5 Q12: the block became a capability
+            # block (Block Editor save, library reload) while this mode was
             # armed — refuse at the click and leave the mode.
-            from . import block_library
-            reason = (block_library.PATTERN_REASON if defn.tile
-                      else block_library.LINETYPE_REASON)
             self._show_status(reason, 5000)
             self.set_mode(None)
             return
@@ -7889,7 +7904,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 constraints = payload.get("constraints")
         new_items = []
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
-        pattern_skipped = 0   # hatch D-A34 / LT3-2: tile + repeat blocks never re-placed
+        pattern_skipped = 0   # hatch D-A34 / LT3-2 / LT5: capability blocks never re-placed
         skip_reason = None    # footer text for the last skipped tile / repeat block
         for obj in data:
             if not self._paste_accepts(obj):
@@ -7982,12 +7997,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
-                if _d is not None and (_d.tile or _d.repeat):
-                    # became a pattern / linetype since the copy
+                from .capabilities import capability_place_reason
+                _why = capability_place_reason(_d)
+                if _why is not None:
+                    # became a pattern / linetype / end type since the copy
                     pattern_skipped += 1
-                    from . import block_library
-                    skip_reason = (block_library.PATTERN_REASON if _d.tile
-                                   else block_library.LINETYPE_REASON)
+                    skip_reason = _why
                 elif _d is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],

@@ -462,11 +462,6 @@ class BlockEditorWidget(QWidget):
         self._rebaseline_undo()
         self.fit_view_to_block()
 
-    _EXCLUSIVE = {"repeat": "Turn Pattern tile off first — a block is a "
-                            "pattern or a linetype, not both",
-                  "tile": "Turn Linetype off first — a block is a pattern "
-                          "or a linetype, not both"}
-
     def toggle_capability(self, kind: str) -> bool:
         """Ribbon / panel "Pattern tile" / "Linetype" toggle (D-A32, LT4).
 
@@ -484,7 +479,8 @@ class BlockEditorWidget(QWidget):
         Raises:
             ValueError: *kind* is not ``"tile"`` / ``"repeat"``.
         """
-        if kind not in self._EXCLUSIVE:
+        from .capabilities import exclusive_message
+        if kind not in ("tile", "repeat"):       # LT5 D5 widens to CAPABILITY_KINDS
             raise ValueError(f"unknown capability kind: {kind!r}")
         sc = self.editor_scene
         cur = sc.block_capability
@@ -497,7 +493,7 @@ class BlockEditorWidget(QWidget):
             sc.set_block_capability(None)
             return True
         if cur is not None:
-            sc._show_status(self._EXCLUSIVE[kind], 5000)
+            sc._show_status(exclusive_message(cur[0], kind), 5000)
             return False
         why = self._project_scene.symbol_use_refusal(self._edit_block_id, kind)
         if why is not None:
