@@ -133,6 +133,22 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
         sync()
 
 
+def toggle_mirrored(style) -> None:
+    """Flip both ends' ``mirrored`` flag in place (LT5 Q9: a reflection
+    mirrors asymmetric ends). Written only when true -- toggling off drops
+    the key. No-op for an unstyled item (``style`` None)."""
+    if not isinstance(style, dict):
+        return
+    for end in ENDS:
+        rec = style.get(end)
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("mirrored"):
+            rec.pop("mirrored", None)
+        else:
+            rec["mirrored"] = True
+
+
 def is_named_weight(w) -> bool:
     """True for a by-name weight reference (a non-empty string that is no
     keyword) -- the refs a rename must follow (LT2-8, WM2)."""

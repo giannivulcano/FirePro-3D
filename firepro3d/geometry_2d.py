@@ -29,7 +29,7 @@ from .linetype_render import badge_pad_px
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
 from .scale_manager import ScaleManager
 from .stroke_style import (canvas_px, canvas_weight_name, is_linetype_ref,
-                           linetype_block, resolve_stroke)
+                           linetype_block, resolve_stroke, toggle_mirrored)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -942,6 +942,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         from .cad_math import CAD_Math
         self._points = [CAD_Math.mirror_point(p, p1, p2) for p in self._points]
         self._rebuild_path()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale of every vertex about ``base`` (DD1).
@@ -1226,6 +1227,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         self._pt1 = CAD_Math.mirror_point(self._pt1, p1, p2)
         self._pt2 = CAD_Math.mirror_point(self._pt2, p1, p2)
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+        toggle_mirrored(self.style)          # LT5 Q9 (no-op unstyled)
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale of both endpoints about ``base`` (DD1).
@@ -1863,6 +1865,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         self.prepareGeometryChange()
         self.setRect(new)
         self.set_angle(ang, None if self._pivot is None else new_o)
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): a uniform scale commutes
@@ -2027,6 +2030,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, radius ×
@@ -2370,6 +2374,12 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._start_deg = _norm360(2.0 * theta
                                    - (self._start_deg + self._span_deg))
         self._rebuild_path()
+        # LT5 Q9 / E5: the old END is the new START -- swap the end records
+        # so each stays on its physical end, then mirror both.
+        st = self.style
+        if st is not None:
+            st["start"], st["finish"] = st["finish"], st["start"]
+        toggle_mirrored(st)
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, radius ×
@@ -2683,6 +2693,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
         self._regenerate()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, the
@@ -2921,6 +2932,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
         self._regenerate()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, rx / ry ×
@@ -3374,6 +3386,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._control_points = [CAD_Math.mirror_point(p, p1, p2)
                                 for p in self._control_points]
         self._regenerate()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale of the control points about ``base`` (DD1);
