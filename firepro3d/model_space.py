@@ -1822,12 +1822,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         from .block_registry import linetype_users_in
         out = []
-        if linetype_users_in(self, block_id):
-            out.append("the plan")
-        prov = self._editor_scenes_provider
-        if callable(prov) and any(linetype_users_in(sc, block_id)
-                                  for sc in prov() if sc is not self):
-            out.append("the open Block Editor")
+        for label, sc in self._user_scenes():
+            if label not in out and linetype_users_in(sc, block_id):
+                out.append(label)
         return out
 
     def _linetype_context_split(self, block_id: str) -> tuple[list, list]:
@@ -1840,13 +1837,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ``"the plan"``, ``"the open Block Editor"`` order.
         """
         from .block_registry import linetype_users_in
-        scenes = [("the plan", self)]
-        prov = self._editor_scenes_provider
-        if callable(prov):
-            scenes += [("the open Block Editor", sc)
-                       for sc in prov() if sc is not self]
         line_ctx, block_ctx = [], []
-        for label, sc in scenes:
+        for label, sc in self._user_scenes():
             for item in linetype_users_in(sc, block_id):
                 kind = (block_ctx if isinstance(item, BlockInstance)
                         else line_ctx)
@@ -1889,8 +1881,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         1 linetype — change their ends first.``
 
         Lines = live primitives naming *d* (*live*) plus definition
-        primitives naming it explicitly, counted per end slot (a line naming
-        *d* at both ends counts 2); linetypes = definitions whose
+        primitives naming it explicitly, counted per line (a line naming *d*
+        at both ends counts 1, live or inside a definition); linetypes = definitions whose
         ``repeat["ends"]`` hold it. None when a definition nests *d* (the
         nesting wording applies -- an end can't become a symbol, so this is
         legacy data only) or nothing uses it by an end slot.
@@ -1911,10 +1903,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return None
             for p in u.primitives:
                 st = p.get("style")
-                if isinstance(st, dict):
-                    lines += sum(1 for w in ENDS
-                                 if isinstance(st.get(w), dict)
-                                 and st[w].get("end") == d.id)
+                if isinstance(st, dict) and any(
+                        isinstance(st.get(w), dict)
+                        and st[w].get("end") == d.id for w in ENDS):
+                    lines += 1                    # per line, not per end slot
             if d.id in ((u.repeat or {}).get("ends") or {}).values():
                 linetypes += 1
         if not (lines or linetypes):
@@ -1952,14 +1944,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
         d = self.get_block_definition(block_id)
-        live_end = (self._live_end_users(block_id)
-                    if d is not None and d.end else 0)
+        # Any kind: a block reloaded as a non-end keeps its live / stored
+        # end users (delete refuses them -- the message must say why).
+        live_end = self._live_end_users(block_id) if d is not None else 0
         if not users and not ctx and not live_end:
             return None
-        if d.end:
-            msg = self._end_users_message(d, users, live_end)
-            if msg is not None:
-                return msg
+        msg = self._end_users_message(d, users, live_end)
+        if msg is not None:
+            return msg
         if d.repeat:
             msg = self._linetype_users_message(d, users)
             if msg is not None:
@@ -2474,7 +2466,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return None
             # Defence in depth (D8): refuse a save that would nest A in itself.
             from .block_registry import prim_refs
-            nested = prim_refs(primitives)
+            from .stroke_style import is_end_ref
+            # LT5: a linetype's saved default ends are dependencies too.
+            nested = prim_refs(primitives) | {
+                v for v in ((repeat or {}).get("ends") or {}).values()
+                if is_end_ref(v)}
             if any(self._block_registry.would_cycle(block_id, n) for n in nested):
                 from . import block_library
                 why = block_library.LOOP_REASON

@@ -88,7 +88,18 @@ def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
     With *via_linetype* also the By Linetype users of a linetype whose
     default end is *block_id*, and placed blocks overriding to such a
     linetype -- the users whose drawn ends follow an edit of *block_id*
-    (``BlockRegistry.invalidate``). Empty for a scene without geometry tools.
+    (``BlockRegistry.invalidate``).
+
+    Args:
+        scene: A ``Model_Space`` (plan or Block Editor).
+        block_id: The end-type definition id.
+        via_linetype: Also include the By Linetype users of linetypes whose
+            default end is *block_id* (and placed blocks overriding to one).
+
+    Returns:
+        The matching geometry items (and, with *via_linetype*, placed
+        ``BlockInstance``s), each once; empty for a scene without geometry
+        tools.
     """
     tools = getattr(scene, "_tools", None)
     if tools is None:

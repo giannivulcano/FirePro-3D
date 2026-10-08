@@ -6,8 +6,8 @@ import math
 import fitz
 import numpy as np
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QColor, QImage
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QImage, QPainter
 from PyQt6.QtWidgets import QGraphicsView
 
 from firepro3d import paper_display as pd
@@ -307,6 +307,18 @@ def _item_ink_bbox(img, bg):
     return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
 
 
+def _view_image(v):
+    """The view's viewport rendered off-screen through its own transform
+    (``QGraphicsView.render``: background + items, as painted on screen)."""
+    vp = v.viewport().rect()
+    img = QImage(vp.size(), QImage.Format.Format_RGB32)
+    img.fill(QColor("black"))
+    p = QPainter(img)
+    v.render(p, QRectF(img.rect()), vp)
+    p.end()
+    return img
+
+
 @pytest.mark.parametrize("zoom", [0.15, 0.06])
 def test_bounds_cover_fixed_and_weight_relative_ends(qapp, zoom):
     a, r = arrow(), round_end()
@@ -318,17 +330,21 @@ def test_bounds_cover_fixed_and_weight_relative_ends(qapp, zoom):
     set_ends(ln, start=r.id, finish=a.id)
     v = QGraphicsView(ms)
     try:
+        # Off-screen + non-interactive: no real cursor hover / window
+        # exposure can change the ink (flake hardening); the images are
+        # rendered through the view's own transform, not grabbed.
+        v.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        v.setInteractive(False)
         v.resize(400, 400)
         v.setTransform(v.transform().fromScale(zoom, zoom))
-        v.centerOn(0, 0)
         v.show()
+        v.centerOn(0, 0)
         qapp.processEvents()
-        img = v.viewport().grab().toImage()
+        img = _view_image(v)
         assert ln.pen().widthF() >= 4.0                        # a real heavy pen
         br = v.mapFromScene(ln.sceneTransform().mapRect(ln.boundingRect())).boundingRect()
         ms.removeItem(ln)                                      # the scene's own ink
-        qapp.processEvents()                                   # (origin marker) stays
-        x0, y0, x1, y1 = _item_ink_bbox(img, v.viewport().grab().toImage())
+        x0, y0, x1, y1 = _item_ink_bbox(img, _view_image(v))   # (origin marker) stays
         assert y1 - y0 >= ln.pen().widthF() + 4                # composition: the ends drew
         over = max(br.left() - x0, br.top() - y0, x1 - br.right(), y1 - br.bottom())
         assert over <= 1, (zoom, (x0, y0, x1, y1), br, over)

@@ -141,7 +141,8 @@ def test_browser_badges_end_blocks_on_project_and_library_rows(qapp, tmp_path):
     assert a != c
 
 
-def test_library_index_flags_end_and_folder_scan_finds_it(qapp, tmp_path):
+def test_library_index_flags_end_and_folder_scan_finds_it(qapp, tmp_path,
+                                                          monkeypatch):
     e = v_end("Arrow")
     block_library.save_to_library(e, root=str(tmp_path))
     block_library.save_to_library(make_linetype("Hidden"), root=str(tmp_path))
@@ -157,8 +158,18 @@ def test_library_index_flags_end_and_folder_scan_finds_it(qapp, tmp_path):
     for meta in idx.values():
         meta.pop("end")
     idx_path.write_text(json.dumps(idx))
+    # Drop the scan memo (an index rewrite inside the mtime granularity would
+    # hit it) and spy the parse, so the fallback is what answers.
+    capability_folder._SCAN_CACHE.clear()
+    capability_folder._PARSE_CACHE.clear()
+    parsed = []
+    real_parse = capability_folder._parse_fpdb
+    monkeypatch.setattr(capability_folder, "_parse_fpdb",
+                        lambda path, *a: (parsed.append(path),
+                                          real_parse(path, *a))[1])
     assert [b for _n, b, _p in capability_folder.scan(str(tmp_path), "end")] \
         == [e.id]
+    assert [p.endswith("Arrow.fpdb") for p in parsed] == [True]
 
 
 def test_new_end_type_is_registered_not_placed(qapp):

@@ -74,7 +74,14 @@ def capability_place_reason(defn) -> str | None:
 
 
 def with_article(kind: str) -> str:
-    """``"a pattern"`` / ``"a linetype"`` / ``"an end type"``."""
+    """The kind's message noun with its indefinite article.
+
+    Args:
+        kind: A :data:`CAPABILITY_KINDS` kind.
+
+    Returns:
+        ``"a pattern"`` / ``"a linetype"`` / ``"an end type"``.
+    """
     noun = CAP_INFO[kind].noun
     return ("an " if noun[:1] in "aeiou" else "a ") + noun
 
@@ -184,18 +191,36 @@ def _folder_ends() -> list:
 
 
 def end_choices(registry=None, exclude=()) -> list:
-    """``[(label, ref)]`` for Start End / Finish End pickers (LT5 Q10):
+    """The Start End / Finish End picker rows (LT5 Q10).
+
     None, the project's end types by name, then End Types folder ends not yet
     loaded. The By Linetype row is the caller's (its label shows the
-    resolved default)."""
+    resolved default).
+
+    Args:
+        registry: Project block registry, or None (None + folder only).
+        exclude: Block ids to leave out (``hatch_patterns.picker_exclude``).
+
+    Returns:
+        ``[(label, ref)]`` with unique labels (see :func:`capability_choices`).
+    """
     from .stroke_style import END_NONE_LABEL, NONE
     return capability_choices("end", _folder_ends, registry, exclude,
                               fixed=((END_NONE_LABEL, NONE),))
 
 
 def end_ref_from_value(value, registry=None, exclude=()) -> str | None:
-    """The stored end value a picked label stands for, or None (unknown /
-    ``Missing: ...`` labels change nothing, LT5 Q13)."""
+    """The stored end value a picked label stands for (LT5 Q10 / Q13).
+
+    Args:
+        value: The picked label ("None", "By Linetype (...)", a block name).
+        registry: Project block registry, or None.
+        exclude: Block ids the picker left out.
+
+    Returns:
+        ``none`` / ``by_linetype`` / an end block id, or None for an unknown
+        or ``Missing: ...`` label (the caller then changes nothing).
+    """
     from .stroke_style import end_from_label
     kw = end_from_label(value)
     if kw is not None:
@@ -206,7 +231,16 @@ def end_ref_from_value(value, registry=None, exclude=()) -> str | None:
 
 
 def ensure_end_available(ref, scene) -> bool:
-    """Load an End Types folder end into the project before its id is stored."""
+    """Load an End Types folder end into the project before its id is stored.
+
+    Args:
+        ref: The picked end value (an id or an end keyword).
+        scene: The scene the picked line lives in (plan or Block Editor).
+
+    Returns:
+        False only when *ref* is a folder end that failed to load (the
+        caller must not keep it); True otherwise.
+    """
     from .stroke_style import END_KEYWORDS
     return ensure_capability_available(ref, scene, _folder_ends,
                                        keywords=END_KEYWORDS)

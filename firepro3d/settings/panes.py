@@ -1155,6 +1155,11 @@ class GeneralPane(SettingsPane):
             self._lt_dir_edit.setText(chosen)
 
     def _pick_end_dir(self) -> None:
+        """Browse for the End Types folder (LT5 Q13) into the field.
+
+        Starts at the current field, else the block library / data folder /
+        default root; a cancelled dialog leaves the field unchanged.
+        """
         start = (self._end_dir_edit.text().strip()
                  or self._block_dir_edit.text().strip()
                  or self._data_folder_edit.text().strip() or default_root())

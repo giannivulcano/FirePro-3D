@@ -222,3 +222,91 @@ def test_i1_end_edit_repaints_and_regrows_the_host_block(qapp):
     after = inst.boundingRect()
     assert after.contains(before)
     assert after.height() > before.height() + 10.0
+
+
+def _reload_as_plain(ms, e):
+    """Library reload replacing end *e* by a non-end of the same id."""
+    data = e.to_dict()
+    data["end"] = None
+    data["version"] = e.version + 1
+    ms.register_block_definition(BlockDefinition.from_dict(data))
+
+
+def test_reloaded_non_end_with_a_live_user_explains_the_refusal(qapp, monkeypatch):
+    """Review I-1: a block reloaded as a non-end while a plan line still
+    names it as an end -- delete is refused AND the Block Manager says why
+    (never a silent no-op), in end wording."""
+    import firepro3d.themed_message as tm
+    from firepro3d.block_manager import BlockManagerDialog
+    ms = Model_Space()
+    e = _arrow(ms)
+    scene_line(ms, finish={"end": e.id, "visible": True})
+    _reload_as_plain(ms, e)
+    assert ms.get_block_definition(e.id).end is None
+    shown = []
+    monkeypatch.setattr(tm, "themed_info", lambda *a, **k: shown.append(a))
+
+    class _MW:
+        settings = None
+    dlg = BlockManagerDialog(ms, _MW(), apply_stylesheet=False)
+    try:
+        row = dlg.model.row_for_id(e.id)
+        dlg.view.setCurrentIndex(dlg.proxy.mapFromSource(dlg.model.index(row, 0)))
+        dlg._delete()
+    finally:
+        dlg.close()
+    assert e.id in ms._block_definitions
+    assert shown and shown[-1][2] == (
+        "“Arrow” is used by 1 line — change their ends first.")
+    assert ms.delete_block_definition(e.id) is False
+
+
+def test_stale_end_ref_inside_a_definition_gets_end_wording(qapp):
+    """Review I-1: a definition's line naming a (now plain) block as its end
+    is not a nesting -- no "explode or remove it there" advice."""
+    ms = Model_Space()
+    e = _arrow(ms)
+    _host(ms, _rec(e.id))
+    _reload_as_plain(ms, e)
+    assert ms.delete_block_definition(e.id) is False
+    assert ms.block_users_message(e.id) == (
+        "“Arrow” is used by 1 line — change their ends first.")
+
+
+def test_a_line_with_the_end_at_both_ends_counts_once(qapp):
+    """Review M-1: counted per line, live or inside a definition."""
+    ms = Model_Space()
+    e = _arrow(ms)
+    both = {"start": {"end": e.id, "visible": True},
+            "finish": {"end": e.id, "visible": True}}
+    scene_line(ms, **both)
+    assert ms.block_users_message(e.id) == (
+        "“Arrow” is used by 1 line — change their ends first.")
+    ln = LineItem(QPointF(0, 0), QPointF(30, 0))
+    ln.style.update(both)
+    _host(ms, ln.to_dict())
+    assert ms.block_users_message(e.id) == (
+        "“Arrow” is used by 2 lines — change their ends first.")
+
+
+def test_saving_a_linetype_default_end_that_uses_it_is_a_cycle(qapp):
+    """Review M-2: end E strokes in linetype L; saving L with a default
+    start end E would make L -> E -> L -- refused with the loop wording."""
+    ms = Model_Space()
+    shown = []
+    ms._show_status = lambda m, t=5000: shown.append(m)
+    lt = make_linetype("Hidden")
+    ms.register_block_definition(lt)
+    e = BlockDefinition.new(name="Arrow", library="L", series="End Types",
+                            primitives=[_rec(linetype=lt.id)], origin=(0.0, 0.0),
+                            end={"size": "fixed", "trim": 0.0})
+    ms.register_block_definition(e)
+    rep = lt.repeat
+    rep["ends"] = {"start": e.id}
+    out = ms.commit_block_definition(
+        block_id=lt.id, name="Hidden", library=lt.library, series=lt.series,
+        primitives=list(lt.primitives), origin=lt.origin,
+        place_instance=False, capability=("repeat", rep))
+    assert out is None
+    assert not (ms.get_block_definition(lt.id).repeat or {}).get("ends")
+    assert shown == ["A block can't contain itself"]
