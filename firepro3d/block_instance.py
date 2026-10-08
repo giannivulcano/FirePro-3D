@@ -22,6 +22,7 @@ from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from . import crisp_stroke as _cs
+from . import end_render as _er
 from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
@@ -29,9 +30,11 @@ from .block_definition import BlockDefinition
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
-from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, canvas_px,
-                           is_as_authored, is_linetype_ref, linetype_block,
-                           normalize_overrides, override_args, resolve_stroke)
+from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
+                           canvas_px, has_ends, is_as_authored, is_end_ref,
+                           is_linetype_ref, linetype_block,
+                           normalize_overrides, override_args, resolve_ends,
+                           resolve_stroke)
 
 _PLACEHOLDER_MM = 200.0
 
@@ -108,8 +111,10 @@ class BlockInstance(QGraphicsObject):
         # on the continuous base geometry, no missing badge (LT3-6).
         self._is_ghost: bool = False
         self._lt_ref_cache = None   # (ops list, frozenset of stroke linetype ids)
-        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion, window)})
+        self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion, window, trims)})
         self._crisp_ops = None      # (ops list, {op index: SplitCache}) -- MW-7
+        self._end_ops_cache = None  # (ops list, frozenset of explicit-end op indices) -- LT5
+        self._end_trim_ops = None   # (ops list, {op index: (trims, trimmed path)}) -- LT5
         # Missing id named in the tooltip (linetype_render.sync_missing_tooltip);
         # set here so paint reads a plain attribute (no getattr miss).
         self._lt_tip_id: Optional[str] = None
@@ -275,7 +280,73 @@ class BlockInstance(QGraphicsObject):
             h = scene_hit_width(self, px, px)
             c = self.pose_transform().map(QPointF(0.0, 0.0))
             r = r.united(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h))
+        ec = self._end_ops_cache              # inline hit of _end_ref_ops
+        eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
+        if eo or ids:
+            pad = self._ends_pad(ops, eo, ids)   # LT5: 0.0 when nothing draws
+            if pad > 0.0:
+                r = r.adjusted(-pad, -pad, pad, pad)
         return r
+
+    def _end_ref_ops(self, ops) -> frozenset:
+        """Indices of *ops*' stroke ops naming an explicit, visible end id
+        (LT5), memoised on the compiled op list's identity (the
+        ``_lt_ref_cache`` idiom). Empty for every legacy block -- its paint
+        and bounds keep the pre-LT5 path."""
+        c = self._end_ops_cache
+        if c is None or c[0] is not ops:
+            idx = frozenset(
+                i for i, op in enumerate(ops)
+                if op.ends is not None and any(
+                    is_end_ref(r.get("end")) and r.get("visible", True)
+                    for r in op.ends))
+            c = self._end_ops_cache = (ops, idx)
+        return c[1]
+
+    def _ends_pad(self, ops, end_ops, lt_ids) -> float:
+        """Scene-mm radius covering every end these ops draw (LT5 bounds).
+
+        Candidates: the explicit-end ops plus -- only when one of *lt_ids*
+        carries a default end -- the ops on such a linetype. Each drawn end
+        is bounded by its reach x its scale here (Fixed: the printed factor;
+        weight-relative: the op's canvas px at the current view zoom, or its
+        paper width); a missing end by the badge pad. Radial around the
+        posed rect (ends attach at path endpoints inside it). 0.0 when
+        nothing draws.
+        """
+        if self._is_ghost:
+            return 0.0
+        sc = self.scene()
+        reg = getattr(sc, "block_registry", None) if sc is not None else None
+        dflt = (frozenset(i for i in lt_ids if _er.linetype_has_default_end(i, reg))
+                if lt_ids else frozenset())
+        if not end_ops and not dflt:
+            return 0.0
+        from .view_scale import scene_hit_width
+        ff = _lr.printed_factor(**self._lt_args())
+        on_paper = self._paper_pen_width is not None
+        bp = _lr.badge_pad_px()
+        badge = scene_hit_width(self, bp, bp)
+        pad = 0.0
+        for i in (range(len(ops)) if dflt else end_ops):
+            op = ops[i]
+            if op.ends is None or (i not in end_ops and op.linetype not in dflt):
+                continue
+            rs = (resolve_stroke({"linetype": op.linetype,
+                                  "weight": op.weight or BY_LINETYPE}, reg)
+                  if is_linetype_ref(op.linetype) else None)
+            ends = self._op_ends(op, rs.lt if rs is not None else None, reg)
+            if not has_ends(ends):
+                continue
+            weight = rs.weight if rs is not None else op.weight
+            if on_paper:
+                wf = self._paper_op_width(weight)
+            else:
+                px = canvas_px(weight) if weight is not None else op.pen.widthF()
+                wf = scene_hit_width(self, px, px)
+            pad = max(pad, _er.ends_reach(ends, fixed_factor=ff,
+                                          weight_factor=wf, badge=badge))
+        return pad
 
     def _linetype_ids(self, ops) -> frozenset:
         """The distinct linetype ids *ops*' stroke ops name, memoised on the
@@ -326,10 +397,14 @@ class BlockInstance(QGraphicsObject):
         selected = self.isSelected()
         lc = self._lt_ref_cache               # inline hit of _linetype_ids
         if not (lc[1] if lc is not None and lc[0] is ops else self._linetype_ids(ops)):
-            # No linetype refs: the pre-LT3 path, zero LT3 bookkeeping (LT3-11).
-            self._paint_plain_ops(painter, pose, ops, override, selected, tint)
-            if self._lt_tip_id is not None and not self._is_ghost:
-                _lr.sync_missing_tooltip(self, None)   # refs edited away
+            # No linetype refs: the pre-LT3 path, zero LT3 bookkeeping (LT3-11);
+            # LT5: only ops naming an explicit end id resolve ends there.
+            ec = self._end_ops_cache          # inline hit of _end_ref_ops
+            eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
+            miss = self._paint_plain_ops(painter, pose, ops, override, selected,
+                                         tint, eo)
+            if (miss or self._lt_tip_id is not None) and not self._is_ghost:
+                _lr.sync_missing_tooltip(self, None, end_ids=miss)  # refs edited away
             return
         sc = self.scene()
         registry = getattr(sc, "block_registry", None) if sc is not None else None
@@ -345,6 +420,8 @@ class BlockInstance(QGraphicsObject):
         dev_scale = None    # device px per local unit under the pose (lazy)
         win = False         # view_window key under the pose (LTS-8; lazy, Fixed only)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
+        ff = None           # LT5 printed factor of Fixed ends (lazy)
+        miss_e = []         # LT5 missing end ids, in op order
         xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
@@ -391,6 +468,20 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
+                # LT5: this op's resolved ends and the trims they cut.
+                ends = (self._op_ends(op, rs.lt if rs is not None else None,
+                                      registry)
+                        if routed and op.ends is not None else NO_ENDS)
+                trims = _er.NO_TRIMS
+                if ends is not NO_ENDS and has_ends(ends):
+                    if dev_scale is None:
+                        dev_scale = self._posed_device_scale(painter, pose, xf)
+                    if ff is None:
+                        ff = _lr.printed_factor(**self._lt_args())
+                    wf = p.widthF() / dev_scale if p.isCosmetic() else p.widthF()
+                    trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+                else:
+                    ends = None
                 if lt is not None and op.pieces:
                     # Expand definition-local under the pose (H3-f): one
                     # cached expansion shared by every instance.
@@ -424,35 +515,53 @@ class BlockInstance(QGraphicsObject):
                                 win = _lr.view_window(painter)
                                 painter.restore()
                             w = win
-                        dash, dot = self._op_expansion(ops, i, op, lt, factor, w)
+                        dash, dot = self._op_expansion(ops, i, op, lt, factor, w,
+                                                       trims)
                         painter.save()
                         try:
                             painter.setWorldTransform(pose, True)
                             _lr.draw_expansion(painter, dash, dot, p)
                         finally:
                             painter.restore()
+                        if ends is not None:
+                            self._draw_op_ends(painter, op, ends, p, xf, ff, wf,
+                                               miss_e)
                         continue
-                self._stroke_op(painter, ops, i, op, pose, p, xf)
+                self._stroke_op(painter, ops, i, op, pose, p, xf,
+                                path=(None if trims == _er.NO_TRIMS else
+                                      self._trimmed_op_path(ops, i, op, trims)))
+                if ends is not None:
+                    self._draw_op_ends(painter, op, ends, p, xf, ff, wf, miss_e)
                 continue
             painter.drawPath(pose.map(op.path))
         xf.unposed()
-        if routed and (missing or self._lt_tip_id):
-            _lr.sync_missing_tooltip(self, missing)     # names the id (LT3-10)
+        miss_e = tuple(dict.fromkeys(miss_e))
+        if routed and (missing or self._lt_tip_id or miss_e):
+            _lr.sync_missing_tooltip(self, missing, end_ids=miss_e)  # names the ids (LT3-10)
         if missing:
             # Canvas-only glyph, once at the insertion point (LT3-10).
             if not _pd.paper_pass_active():
                 _lr.paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
 
     def _paint_plain_ops(self, painter, pose, ops, override, selected,
-                         tint=None) -> None:
+                         tint=None, end_ops=frozenset()) -> tuple:
         """Paint *ops* of a block with no linetype refs (every stroke solid).
 
         The pre-LT3 loop: no cascade, memo, device-scale or paper-pass read.
         The canvas width is reused while consecutive ops share a weight.
+        LT5: stroke ops in *end_ops* (``_end_ref_ops``: an explicit end id)
+        resolve their ends -- registry, printed factor and device scale read
+        once, lazily -- and draw trimmed + their ends; with *end_ops* empty
+        (every legacy block) the loop is unchanged.
+
+        Returns:
+            The missing end ids met, in op order (``()`` when none).
         """
         on_paper = self._paper_pen_width is not None
         last_w, last_px = None, None
         xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
+        miss = []
+        ff = reg = dev = None         # LT5 lazies (ff None = not read yet)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
                 xf.unposed()
@@ -493,12 +602,30 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
+                if end_ops and i in end_ops and not self._is_ghost:
+                    if ff is None:
+                        sc = self.scene()
+                        reg = (getattr(sc, "block_registry", None)
+                               if sc is not None else None)
+                        ff = _lr.printed_factor(**self._lt_args())
+                        dev = self._posed_device_scale(painter, pose, xf)
+                    ends = self._op_ends(op, None, reg)
+                    if has_ends(ends):
+                        wf = p.widthF() / dev if p.isCosmetic() else p.widthF()
+                        trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+                        self._stroke_op(painter, ops, i, op, pose, p, xf,
+                                        path=(None if trims == _er.NO_TRIMS else
+                                              self._trimmed_op_path(ops, i, op, trims)))
+                        self._draw_op_ends(painter, op, ends, p, xf, ff, wf, miss)
+                        continue
                 self._stroke_op(painter, ops, i, op, pose, p, xf)
                 continue
             painter.drawPath(pose.map(op.path))
         xf.unposed()
+        return tuple(dict.fromkeys(miss))
 
-    def _stroke_op(self, painter, ops, i, op, pose, pen, xf=None) -> None:
+    def _stroke_op(self, painter, ops, i, op, pose, pen, xf=None,
+                   path=None) -> None:
         """Stroke op *i* of *ops* with *pen* (MW-7 / H-MW-f).
 
         Canvas (cosmetic) pens draw crisp: the op's definition-local path
@@ -509,30 +636,95 @@ class BlockInstance(QGraphicsObject):
         ``_PoseXf`` (None: a one-off posed transform for this op); the posed
         transform is left on for the next stroke op -- the caller switches
         back (``xf.unposed()``) before any other op and after its loop.
+        *path* (LT5) replaces the op's own path -- its stroke trimmed for
+        its ends -- with a split cache slot of its own; an empty one (over-
+        trimmed) draws nothing.
         """
+        if path is None:
+            path, slot = op.path, i
+        else:
+            if path.isEmpty():
+                return
+            slot = -1 - i
         if not pen.isCosmetic() or _pd.paper_pass_active():
             if xf is not None:
                 xf.unposed()
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(pose.map(op.path))
+            painter.drawPath(pose.map(path))
             return
         c = self._crisp_ops
         if c is None or c[0] is not ops:
             c = self._crisp_ops = (ops, {})
-        cache = c[1].get(i)
+        cache = c[1].get(slot)
         if cache is None:
-            cache = c[1][i] = _cs.SplitCache()
+            cache = c[1][slot] = _cs.SplitCache()
         own = xf is None
         if own:
             xf = _PoseXf(painter, pose)
         xf.posed()
         try:
-            _cs.stroke(painter, op.path, pen,
-                       cache.get(op.path, painter.worldTransform()))
+            _cs.stroke(painter, path, pen,
+                       cache.get(path, painter.worldTransform()))
         finally:
             if own:
                 xf.unposed()
+
+    @staticmethod
+    def _posed_device_scale(painter, pose, xf) -> float:
+        """Device px per definition-local unit under *pose* (LT5; read once
+        per paint). Switches *xf* back first so the pose is not applied
+        twice."""
+        xf.unposed()
+        painter.save()
+        try:
+            painter.setWorldTransform(pose, True)
+            return _hr._device_scale(painter)
+        finally:
+            painter.restore()
+
+    def _op_ends(self, op, lt, registry):
+        """Op *op*'s resolved ends (LT5) -- ``NO_ENDS`` for closed / unstyled
+        ops (``op.ends`` None), ops without pieces, and -- with no visible
+        explicit end id -- both slots None, or a linetype *lt* (the op's
+        ``LinetypeDef``, None = Continuous) with no default (the cheap
+        common case; the ``Geometry2DMixin._item_ends`` gate)."""
+        e = op.ends
+        if e is None or not op.pieces:
+            return NO_ENDS
+        s, f = e
+        es, ef = s.get("end"), f.get("end")
+        if not ((is_end_ref(es) and s.get("visible", True))
+                or (is_end_ref(ef) and f.get("visible", True))):
+            if es == NONE and ef == NONE:
+                return NO_ENDS
+            if lt is None or not (lt.start_end or lt.finish_end):
+                return NO_ENDS
+        return resolve_ends({"start": s, "finish": f}, lt, registry)
+
+    def _draw_op_ends(self, painter, op, ends, pen, xf, ff, wf, missing) -> None:
+        """Draw stroke op *op*'s resolved *ends* under the pose (LT5) with its
+        painter-local *pen* -- every surface, never LOD-dropped; a missing
+        end's canvas badge sits at that end -- and append its missing ids to
+        *missing*. Leaves the posed transform on (the ``_stroke_op`` rule)."""
+        xf.posed()
+        _er.paint_ends(painter, op.pieces, ends, pen, fixed_factor=ff,
+                       weight_factor=wf, scene=self.scene())
+        missing.extend(e.missing_id for e in ends if e.missing_id)
+
+    def _trimmed_op_path(self, ops, i, op, trims) -> QPainterPath:
+        """Op *i*'s stroke with *trims* cut from its ends (LT5), held across
+        paints on (compiled op list identity, op index, trims) -- the
+        ``_op_expansion`` idiom."""
+        c = self._end_trim_ops
+        if c is None or c[0] is not ops:
+            c = self._end_trim_ops = (ops, {})
+        hit = c[1].get(i)
+        if hit is not None and hit[0] == trims:
+            return hit[1]
+        path = _er.trimmed_path(op.pieces, *trims)
+        c[1][i] = (trims, path)
+        return path
 
     def _resolve_op_stroke(self, op, routed, registry, on_paper) -> list:
         """``[rs, width, lt, factor, None, fixed]`` for a stroke op -- once per distinct
@@ -570,26 +762,29 @@ class BlockInstance(QGraphicsObject):
                     lt = None
         return [rs, width, lt, factor, None, fixed]
 
-    def _op_expansion(self, ops, i, op, lt, factor, window=None):
+    def _op_expansion(self, ops, i, op, lt, factor, window=None,
+                      trims=(0.0, 0.0)):
         """``linetype_render.expand`` for op *i* of *ops*, held across paints.
 
         Keyed on the compiled op list (held, so its identity can't be
         recycled -- the ``_posed_cache`` idiom; a new list on every content
         change), the op index, the linetype reading itself (a new object on
         a definition edit / version bump), the exact length factor and the
-        visible window (LTS-8) -- every input of ``expand``, so a hit returns
-        what ``expand`` would.
+        visible window (LTS-8) and the LT5 end *trims* (dashes outside them
+        dropped, phase untouched) -- every input of ``expand``, so a hit
+        returns what ``expand`` would.
         """
         c = self._lt_exp_cache
         if c is None or c[0] is not ops:
             c = self._lt_exp_cache = (ops, {})
         hit = c[1].get(i)
         if (hit is not None and hit[0] is lt and hit[1] == factor
-                and hit[3] == window):
+                and hit[3] == window and hit[4] == trims):
             return hit[2]
         a = op.origin or QPointF(0.0, 0.0)
-        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()), window=window)
-        c[1][i] = (lt, factor, res, window)
+        res = _lr.expand(op.pieces, lt, factor, (a.x(), a.y()), window=window,
+                         trims=trims)
+        c[1][i] = (lt, factor, res, window, trims)
         return res
 
     def _lt_args(self) -> dict:
