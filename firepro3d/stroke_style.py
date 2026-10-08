@@ -160,7 +160,10 @@ def linetype_block(ref, registry):
     record, malformed or not), else None -- the LT3-10 "missing" test shared
     by ``resolve_stroke`` and the badge bounds (``linetype_ref_missing``)."""
     d = registry.get(ref) if registry is not None else None
-    return d if d is not None and getattr(d, "repeat", None) else None
+    if d is None:
+        return None
+    lt = getattr(d, "is_linetype", None)      # copy-free (hot: paint / bounds)
+    return d if (lt if lt is not None else getattr(d, "repeat", None)) else None
 
 
 def linetype_ref_missing(ref, registry) -> bool:

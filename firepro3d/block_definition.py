@@ -388,6 +388,14 @@ class BlockDefinition:
         (LT5 Q11) -- the paint fast-path gate; no copy of the record."""
         return bool(self._repeat and self._repeat.get("ends"))
 
+    @property
+    def is_linetype(self) -> bool:
+        """True when this block carries a linetype repeat record (malformed
+        or not) -- ``bool(repeat)`` without the deep copy, for the paint /
+        boundingRect paths (``stroke_style.linetype_block``,
+        ``LinetypeDef.from_block``)."""
+        return bool(self._repeat)
+
     def set_repeat(self, repeat, *, notify: bool = True) -> None:
         """Replace the repeat record, bump the version (linetype caches key on it).
 

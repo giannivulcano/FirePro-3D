@@ -74,8 +74,8 @@ class LinetypeDef:
     @classmethod
     def from_block(cls, defn) -> "LinetypeDef | None":
         """Read *defn*'s unit; None when it is not a well-formed linetype."""
-        rep = getattr(defn, "repeat", None)
-        if not rep:
+        lt = getattr(defn, "is_linetype", None)   # copy-free gate (hot path)
+        if not (lt if lt is not None else getattr(defn, "repeat", None)):
             return None
         ox, oy = defn.origin
         key = (defn.id, defn.version, (ox, oy))
@@ -83,6 +83,9 @@ class LinetypeDef:
         if hit is not None and hit[0] is defn.primitives:
             cls._CACHE.move_to_end(key)
             return hit[1]
+        rep = defn.repeat                         # the record (a copy): miss only
+        if not rep:
+            return None
         length = float(rep["length"])
         dashes, dots, weights = [], [], []
         for prim in defn.primitives:
