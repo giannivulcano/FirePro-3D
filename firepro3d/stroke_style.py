@@ -271,6 +271,19 @@ def has_ends(ends) -> bool:
     return any(e.defn is not None or e.missing_id for e in ends)
 
 
+def open_stroke(item) -> bool:
+    """True when *item* is a styled stroke with two free ends (LT5 Q2).
+
+    The item's own closed predicate decides: open Line, Polyline (closed
+    flag off -- a coincident-but-open one too), Arc (span < 360) and Spline;
+    Rect / Circle / Ellipse / Polygon (no ``is_closed`` -> closed) never.
+    """
+    if getattr(item, "style", None) is None:
+        return False
+    f = getattr(item, "is_closed", None)
+    return callable(f) and not f()
+
+
 # -- WM1: resolved weight labels -------------------------------------------
 
 BY_LINETYPE_LABEL = "By Linetype"
