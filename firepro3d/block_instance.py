@@ -481,6 +481,8 @@ class BlockInstance(QGraphicsObject):
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
         ff = None           # LT5 printed factor of Fixed ends (lazy)
         miss_e = []         # LT5 missing end ids, in op order
+        ec = self._end_ops_cache            # LT5 explicit-end ops (inline hit)
+        eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
         xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
@@ -527,10 +529,16 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
-                # LT5: this op's resolved ends and the trims they cut.
-                ends = (self._op_ends(op, rs.lt if rs is not None else None,
-                                      registry)
-                        if routed and op.ends is not None else NO_ENDS)
+                # LT5: this op's resolved ends and the trims they cut. Inline
+                # gate (the _item_ends idiom): only an explicit-end op or one
+                # on a linetype with a default end resolves; every other op
+                # pays one frozenset test + two attribute reads.
+                ends = NO_ENDS
+                if routed and op.ends is not None:
+                    rlt = rs.lt if rs is not None else None
+                    if i in eo or (rlt is not None
+                                   and (rlt.start_end or rlt.finish_end)):
+                        ends = self._op_ends(op, rlt, registry)
                 trims = _er.NO_TRIMS
                 if ends is not NO_ENDS and has_ends(ends):
                     if dev_scale is None:
