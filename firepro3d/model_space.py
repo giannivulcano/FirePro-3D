@@ -260,8 +260,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The definition id a Block Editor scene is editing (the cycle-check
         # host); None on the plan scene and in an unsaved editor.
         self._editing_block_id = None
-        # Block Editor capability (hatch D-A32 tile / linetypes LT4 repeat):
-        # ("tile", {...}) | ("repeat", {...}) | None -- one slot (H4-a).
+        # Block Editor capability (hatch D-A32 tile / linetypes LT4 repeat /
+        # LT5 end): ("tile", {...}) | ("repeat", {...}) | ("end", {...})
+        # | None -- one slot (H4-a).
         # In the undo snapshot; the frame item mirrors it.
         self.block_capability: tuple | None = None
         self._cap_frame = None           # CapabilityFrameItem while set

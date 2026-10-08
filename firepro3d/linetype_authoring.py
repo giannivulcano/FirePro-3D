@@ -213,9 +213,9 @@ def set_default_end(scene, which: str, ref) -> bool:
     Returns:
         True if ``repeat["ends"]`` changed.
     """
-    from .stroke_style import is_end_ref
+    from .stroke_style import ENDS, is_end_ref
     rep = scene.block_repeat
-    if rep is None or which not in ("start", "finish"):
+    if rep is None or which not in ENDS:
         return False
     ends = dict(rep.get("ends") or {})
     new = ref if is_end_ref(ref) else None

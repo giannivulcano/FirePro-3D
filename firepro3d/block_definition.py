@@ -18,6 +18,8 @@ from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .end_render import FIXED as _er_FIXED
+from .end_render import WEIGHT_RELATIVE as _er_WEIGHT_RELATIVE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
@@ -168,14 +170,14 @@ def _norm_repeat(repeat) -> dict | None:
         # LT5 Q11: the linetype's default end ids; a key only for an id (a
         # keyword / blank is "no default"), the record only when non-empty,
         # so linetypes without defaults stay byte-identical.
-        from .stroke_style import is_end_ref
-        kept = {k: ends[k] for k in ("start", "finish") if is_end_ref(ends.get(k))}
+        from .stroke_style import ENDS, is_end_ref
+        kept = {k: ends[k] for k in ENDS if is_end_ref(ends.get(k))}
         if kept:
             out["ends"] = kept
     return out
 
 
-_END_SIZES = ("fixed", "weight_relative")
+_END_SIZES = (_er_FIXED, _er_WEIGHT_RELATIVE)   # one home: end_render
 
 
 def _norm_end(end) -> dict | None:
@@ -194,7 +196,7 @@ def _norm_end(end) -> dict | None:
         trim = 0.0
     if not math.isfinite(trim) or trim < 0.0:
         trim = 0.0
-    return {"size": size if size in _END_SIZES else "fixed", "trim": trim}
+    return {"size": size if size in _END_SIZES else _er_FIXED, "trim": trim}
 
 
 def _load_prim(p):
@@ -410,6 +412,13 @@ class BlockDefinition:
     def end(self) -> dict | None:
         """The end-type record ``{size, trim}``; None = not an end type."""
         return dict(self._end) if self._end else None
+
+    @property
+    def is_end(self) -> bool:
+        """True when this block is an end type -- ``bool(end)`` without the
+        copy, for the paint / boundingRect paths (``stroke_style.end_block``,
+        ``end_render.EndDef.from_block``)."""
+        return bool(self._end)
 
     def set_end(self, end, *, notify: bool = True) -> None:
         """Replace the end-type record, bump the version (end caches key on it).

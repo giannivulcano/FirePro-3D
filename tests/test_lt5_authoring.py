@@ -394,3 +394,70 @@ def test_pattern_tile_end_rows_locked_and_ends_stripped_keep_linetype(qapp):
     d = w.commit_block("Tiley", "L", "Patterns")
     assert d is not None
     assert proj.delete_block_definition(a) is True
+
+
+# ── fix round minors ───────────────────────────────────────────────────────
+
+def test_weight_relative_trim_is_a_plain_multiple_not_a_length(qapp):
+    from firepro3d.property_manager import PropertyManager
+    from firepro3d.block_properties_info import BlockPropertiesInfo
+    _, w, sc, _ = _end_editor()
+    from firepro3d.scale_manager import DisplayUnit
+    sc.scale_manager.display_unit = DisplayUnit.IMPERIAL    # a feet-inch project
+    assert "'" in capability_rows(sc)["Trim"]["value"] or '"' in capability_rows(sc)["Trim"]["value"]
+    r = capability_rows(sc)
+    assert r["Trim"]["type"] == "dimension"                   # Fixed: a length
+    set_capability_property(sc, w, "Size", "Weight-relative")
+    r = capability_rows(sc)
+    assert r["Trim"]["type"] == "string" and r["Trim"]["value"] == "0"
+    assert r["Trim"]["suffix"] == "× line weight"
+    assert "× line weight" in r["Trim"]["tooltip"]
+    pos0 = sc._undo_pos
+    set_capability_property(sc, w, "Trim", "1.5")
+    assert sc.block_end["trim"] == 1.5 and sc._undo_pos == pos0 + 1
+    assert capability_rows(sc)["Trim"]["value"] == "1.5"
+    set_capability_property(sc, w, "Trim", "abc")                 # refused
+    assert sc.block_end["trim"] == 1.5 and sc._undo_pos == pos0 + 1
+    pm = PropertyManager()
+    pm.show_properties(BlockPropertiesInfo(sc, "Arrow", w))
+    qapp.processEvents()
+    assert "Trim" in pm._prop_widgets
+
+
+def test_keyword_named_end_blocks_stay_pickable(qapp):
+    proj = Model_Space()
+    n = end_id(proj, name="None")
+    b = end_id(proj, name="By Linetype")
+    ln = scene_line(proj)
+    opts = ln.get_properties()["Finish End"]["options"]
+    assert "None" in opts and "None (block)" in opts and "By Linetype (block)" in opts
+    ln.set_property("Finish End", "None (block)")
+    assert ln.style["finish"]["end"] == n
+    ln.set_property("Start End", "By Linetype (block)")
+    assert ln.style["start"]["end"] == b
+    ln.set_property("Finish End", "None")
+    assert ln.style["finish"]["end"] == ss.NONE
+    ln.set_property("Start End", "By Linetype (None)")
+    assert ln.style["start"]["end"] == ss.BY_LINETYPE
+
+
+def test_end_record_is_never_copied_on_paint(qapp, monkeypatch):
+    """M5 copy-free rule: a warm paint of a line with ends never reads the
+    copying ``BlockDefinition.end`` property."""
+    proj = Model_Space()
+    a = end_id(proj, name="Arrow")
+    scene_line(proj, finish={"end": a, "visible": True})
+    img = QImage(200, 40, QImage.Format.Format_ARGB32)
+
+    def paint():
+        p = QPainter(img)
+        proj.render(p, QRectF(0, 0, 200, 40), QRectF(-5.0, -5.0, 40.0, 10.0))
+        p.end()
+
+    paint()                                                   # warm the caches
+    reads = []
+    orig = BlockDefinition.end
+    monkeypatch.setattr(BlockDefinition, "end", property(
+        lambda self: (reads.append(1), orig.fget(self))[1]))
+    paint()
+    assert reads == []

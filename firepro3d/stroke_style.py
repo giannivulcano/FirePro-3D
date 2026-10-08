@@ -286,7 +286,10 @@ def end_block(ref, registry):
     """The registry block *ref* names when it has an ``end`` capability,
     else None (absent, a linetype / pattern / plain block -> "missing")."""
     d = registry.get(ref) if registry is not None and is_end_ref(ref) else None
-    return d if d is not None and getattr(d, "end", None) else None
+    if d is None:
+        return None
+    e = getattr(d, "is_end", None)            # copy-free (hot: paint / bounds)
+    return d if (e if e is not None else getattr(d, "end", None)) else None
 
 
 def _resolve_end(rec, default, registry) -> ResolvedEnd:

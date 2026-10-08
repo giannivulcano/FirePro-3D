@@ -16,13 +16,22 @@ from PyQt6.QtWidgets import QGraphicsItem
 from .capability_frame import (_HIT_PX, CAPABILITY_FRAME_TAG, FRAME_PEN_PX,
                                PREVIEW_OPACITY, CapabilityFrameItem)
 from .constants import END_GLYPH_ARM_PX, END_GLYPH_HALF_PX, END_SAMPLE_MM
+from .end_render import FIXED
 
 _TRIM_GRIP = 0
 _HEAD_PX, _HEAD_HALF_PX = 6.0, 3.0        # arrowhead on the +X arm (px)
 
 
 class _AttachGlyph(QGraphicsItem):
-    """Screen-constant crosshair + +X arrow (child, ignores transforms)."""
+    """Screen-constant attach glyph: accent crosshair + +X arrow (mockup gate).
+
+    A child of the frame at the origin that ignores view transforms, so it
+    keeps its pixel size at any zoom; not selectable, takes no mouse and is
+    tagged as frame chrome (never a snap target).
+
+    Args:
+        parent: The owning :class:`EndFrame`.
+    """
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -32,10 +41,12 @@ class _AttachGlyph(QGraphicsItem):
         self.setData(0, CAPABILITY_FRAME_TAG)     # never a snap target
 
     def boundingRect(self) -> QRectF:
+        """Crosshair + arrow arm in device px, 1 px pad."""
         h = END_GLYPH_HALF_PX + 1.0
         return QRectF(-h, -h, h + END_GLYPH_ARM_PX + 1.0, 2.0 * h)
 
     def paint(self, painter, option, widget=None):
+        """Accent crosshair (+-8 px), then the +X arm and filled head."""
         from . import theme as th
         col = QColor(th.detect().accent_primary)
         pen = QPen(col, FRAME_PEN_PX)
@@ -96,19 +107,24 @@ class EndFrame(CapabilityFrameItem):
         return trim_pieces(pieces, s0, s1)
 
     def _rect(self) -> QRectF:
+        """The sample line's extent (-(trim + 18 mm) .. 0), 1 mm tall --
+        the manipulator box and the bounds base (no drawn frame)."""
         t = self._trim()
         return QRectF(-(t + END_SAMPLE_MM), -0.5, t + END_SAMPLE_MM, 1.0)
 
     def _ring_rect(self) -> QRectF:
+        """No preview ring: the bounds are the sample line's rect."""
         return self._rect()
 
     def _paint_ring(self, painter, pen, col) -> None:
         """Unused: no ring (``paint`` is overridden)."""
 
     def _circular_grips(self) -> set:
+        """The trim grip draws circular (LT4-style)."""
         return {_TRIM_GRIP}
 
     def _axis_path(self) -> QPainterPath:
+        """The untrimmed sample axis, -(trim + 18 mm) to the attach point."""
         p = QPainterPath()
         p.moveTo(-(self._trim() + END_SAMPLE_MM), 0.0)
         p.lineTo(0.0, 0.0)
@@ -122,6 +138,7 @@ class EndFrame(CapabilityFrameItem):
         return s.createStroke(self._axis_path())
 
     def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """HALO = the sample axis (there is no frame outline)."""
         return self._axis_path()
 
     def paint(self, painter, option, widget=None):
@@ -148,10 +165,12 @@ class EndFrame(CapabilityFrameItem):
         return [QPointF(-self._trim(), 0.0)] if self._cap() else []
 
     def apply_grip(self, index: int, pos: QPointF) -> None:
-        """X-only trim grip, clamped at the origin (trim >= 0)."""
+        """X-only trim grip; dragging past the origin clamps trim at 0 in the
+        capability slot (``set_block_capability`` -> ``_norm_end``, the one
+        home of the trim >= 0 rule)."""
         c = self._cap()
         if c is None or index != _TRIM_GRIP:
             return
-        c["trim"] = max(-pos.x(), 0.0)
-        c.setdefault("size", "fixed")
+        c["trim"] = -pos.x()     # clamped at 0 by the slot (_norm_end)
+        c.setdefault("size", FIXED)
         self._sc.set_block_capability(("end", c), push_undo=False)

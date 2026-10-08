@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import math
 
-SEED = {"size": "fixed", "trim": 0.0}
-SIZE_LABELS = {"fixed": "Fixed", "weight_relative": "Weight-relative"}
+from .end_render import FIXED, WEIGHT_RELATIVE
+
+SEED = {"size": FIXED, "trim": 0.0}
+SIZE_LABELS = {FIXED: "Fixed", WEIGHT_RELATIVE: "Weight-relative"}
 
 
 def _needs_lock(scene) -> list:
@@ -56,8 +58,8 @@ def set_end_field(scene, key: str, value) -> bool:
     if cap is None:
         return False
     if key == "Size":
-        size = ("weight_relative" if str(value) == SIZE_LABELS["weight_relative"]
-                else "fixed")
+        size = (WEIGHT_RELATIVE if str(value) == SIZE_LABELS[WEIGHT_RELATIVE]
+                else FIXED)
         if size == cap.get("size"):
             return False
         cap["size"] = size

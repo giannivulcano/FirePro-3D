@@ -11,7 +11,7 @@ _TILE_TIP = ("Make this block a hatch pattern: it repeats on a tile and fills "
 _LT_TIP = ("Make this block a linetype: it repeats along lines and is applied "
            "from a line's Linetype row instead of being placed as a symbol")
 _OVERLAP_NOTE = "Dashes overlap — edit on the canvas"
-_END_TIP = ("Make this block an end type: it draws on the free ends of open "
+_END_TOGGLE_TIP = ("Make this block an end type: it draws on the free ends of open "
             "lines (picked from a line's Start End / Finish End rows) instead "
             "of being placed as a symbol")
 _TOGGLES = {"Pattern tile": "tile", "Linetype": "repeat", "End type": "end"}
@@ -21,6 +21,19 @@ _END_SIZE_TIP = ("Fixed: 1 mm drawn = 1 mm printed (Drafting rule). "
 _END_TRIM_TIP = ("The line stops this far back from its endpoint, measured "
                  "along the path. Same units as Size.")
 _END_PREVIEW_TIP = "This end on a sample line at a thin and a heavy weight."
+_WR_SUFFIX = "× line weight"
+_END_TRIM_WR_TIP = (_END_TRIM_TIP + " Weight-relative: a plain number "
+                    "× line weight (e.g. 1.5).")
+
+
+def _wr_multiple(value) -> float | None:
+    """A Weight-relative Trim entry -> its plain multiple of the weight
+    (``"1.5"`` / ``"1.5 × line weight"``), or None if unreadable."""
+    s = str(value).replace(_WR_SUFFIX, "").replace("×", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
 
 
 def _weight_rows(scene, rows_ok: bool) -> dict:
@@ -61,7 +74,7 @@ def _default_end_rows(scene) -> dict:
     choices = end_choices(reg, picker_exclude(scene))
     ends = (scene.block_repeat or {}).get("ends") or {}
     rows = {}
-    for which, key in (("start", "Start End"), ("finish", "Finish End")):
+    for which, key in zip(ss.ENDS, ("Start End", "Finish End")):
         ref = ends.get(which)
         options = [n for n, _ in choices]
         value = (ss.END_NONE_LABEL if ref is None
@@ -97,7 +110,7 @@ def capability_rows(scene) -> dict:
              "Linetype": {"type": "bool", "value": kind == "repeat",
                           "tooltip": _LT_TIP},
              "End type": {"type": "bool", "value": kind == "end",
-                          "tooltip": _END_TIP}}
+                          "tooltip": _END_TOGGLE_TIP}}
     if kind == "tile":
         tp = tile_properties(scene)
         tp.pop("Pattern tile", None)
@@ -146,14 +159,22 @@ def capability_rows(scene) -> dict:
         from .constants import PATTERN_PREVIEW_H_PX
         from .end_authoring import SIZE_LABELS
         from .end_authoring import preview_painter as end_preview
+        from .end_render import WEIGHT_RELATIVE
         from .tile_frame import _fmt
         end = scene.block_end
         props["Size"] = {"type": "enum", "options": list(SIZE_LABELS.values()),
                          "value": SIZE_LABELS.get(end["size"], "Fixed"),
                          "tooltip": _END_SIZE_TIP}
-        props["Trim"] = {"type": "dimension", "value": _fmt(scene, end["trim"]),
-                         "value_mm": end["trim"], "minimum": -1e-6,
-                         "tooltip": _END_TRIM_TIP}
+        if end["size"] == WEIGHT_RELATIVE:
+            # A plain multiple of the line's weight -- never a project length
+            # (no feet-inches formatting / parsing).
+            props["Trim"] = {"type": "string", "value": f"{end['trim']:g}",
+                             "suffix": _WR_SUFFIX, "tooltip": _END_TRIM_WR_TIP}
+        else:
+            props["Trim"] = {"type": "dimension",
+                             "value": _fmt(scene, end["trim"]),
+                             "value_mm": end["trim"], "minimum": -1e-6,
+                             "tooltip": _END_TRIM_TIP}
         props["Preview"] = {"type": "header", "value": ""}
         props["Preview swatch"] = {"type": "stroke_preview", "value": None,
                                    "paint": end_preview(scene),
@@ -209,7 +230,11 @@ def set_capability_property(scene, editor, key, value) -> None:
     elif kind == "end":
         from . import end_authoring as ea
         if key == "Trim":
-            mm = _to_mm(scene, value)
+            from .end_render import WEIGHT_RELATIVE
+            if (scene.block_end or {}).get("size") == WEIGHT_RELATIVE:
+                mm = _wr_multiple(value)          # x line weight, plain decimal
+            else:
+                mm = _to_mm(scene, value)
             if mm is not None:
                 ea.set_end_field(scene, "Trim", mm)
         elif key == "Size":

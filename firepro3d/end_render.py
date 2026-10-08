@@ -73,8 +73,10 @@ class EndDef:
     @classmethod
     def from_block(cls, defn) -> "EndDef | None":
         """Read *defn*; None when it is not an end type (no ``end``)."""
-        cap = getattr(defn, "end", None) if defn is not None else None
-        if not cap:
+        if defn is None:
+            return None
+        e = getattr(defn, "is_end", None)        # copy-free gate (paint path)
+        if not (e if e is not None else getattr(defn, "end", None)):
             return None
         ops = defn.render_ops()
         key = (defn.id, defn.version)
@@ -82,6 +84,7 @@ class EndDef:
         if hit is not None and hit[0] is ops:
             _CACHE.move_to_end(key)
             return hit[1]
+        cap = defn.end or {}                     # the one copy, on a miss only
         xs, ys = [], []
         for op in ops:
             if op.path.isEmpty():

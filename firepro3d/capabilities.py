@@ -105,7 +105,8 @@ def exclusive_message(current: str, wanted: str) -> str:
 # ── picker source (hatch D-A36/D-A37, LT3-12, LT5 Q10) ──────────────────────
 
 def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
-                       fixed=(), valid=None, include_folder=True):
+                       fixed=(), valid=None, include_folder=True,
+                       reserved=None):
     """``[(label, ref)]`` for a capability picker -- the one source behind
     the pattern, linetype and end pickers.
 
@@ -124,6 +125,10 @@ def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
         fixed: Leading ``(label, ref)`` pairs (Continuous / None).
         valid: Optional extra predicate on a project definition.
         include_folder: Append the folder blocks.
+        reserved: Optional predicate on a block's label: True when it reads
+            as a keyword label of this picker (``"None"``, ``"By Linetype
+            (...)"``); such a block is offered as ``"<name> (block)"`` so it
+            stays pickable.
 
     Returns:
         The ``(label, ref)`` pairs in picker order.
@@ -131,6 +136,9 @@ def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
     from .hatch_patterns import _unique
     out = list(fixed)
     used = {label for label, _ in out}
+
+    def _name(name):
+        return f"{name} (block)" if reserved is not None and reserved(name) else name
     if registry is not None:
         project = []
         for bid in registry.ids():
@@ -141,13 +149,13 @@ def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
                     and (valid is None or valid(d))):
                 project.append((d.name or bid, bid))
         for name, bid in sorted(project, key=lambda x: x[0].lower()):
-            out.append((_unique(name, used, "project"), bid))
+            out.append((_unique(_name(name), used, "project"), bid))
     if include_folder:
         for name, bid, _path in folder_fn():
             if bid in exclude or (registry is not None
                                   and registry.get(bid) is not None):
                 continue
-            out.append((_unique(name or bid, used, "library"), bid))
+            out.append((_unique(_name(name or bid), used, "library"), bid))
     return out
 
 
@@ -204,9 +212,13 @@ def end_choices(registry=None, exclude=()) -> list:
     Returns:
         ``[(label, ref)]`` with unique labels (see :func:`capability_choices`).
     """
-    from .stroke_style import END_NONE_LABEL, NONE
-    return capability_choices("end", _folder_ends, registry, exclude,
-                              fixed=((END_NONE_LABEL, NONE),))
+    from .stroke_style import (END_NONE_LABEL, MISSING_END_PREFIX, NONE,
+                               end_from_label)
+    return capability_choices(
+        "end", _folder_ends, registry, exclude,
+        fixed=((END_NONE_LABEL, NONE),),
+        reserved=lambda v: (end_from_label(v) is not None
+                            or v.startswith(MISSING_END_PREFIX)))
 
 
 def end_ref_from_value(value, registry=None, exclude=()) -> str | None:
@@ -222,12 +234,12 @@ def end_ref_from_value(value, registry=None, exclude=()) -> str | None:
         or ``Missing: ...`` label (the caller then changes nothing).
     """
     from .stroke_style import end_from_label
-    kw = end_from_label(value)
-    if kw is not None:
-        return kw
     v = str(value)
-    return next((r for label, r in end_choices(registry, exclude)
-                 if label == v), None)
+    # Picker labels first (None + blocks; a keyword-like block name is
+    # suffixed there), then the By Linetype head.
+    ref = next((r for label, r in end_choices(registry, exclude)
+                if label == v), None)
+    return ref if ref is not None else end_from_label(v)
 
 
 def ensure_end_available(ref, scene) -> bool:
