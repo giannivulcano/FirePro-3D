@@ -1789,7 +1789,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Refused (returns False) while any instance references it, any other
         definition nests it, directly or indirectly (D12), or any live styled
         primitive in the plan or an open Block Editor uses it as its linetype
-        (LT3-2) -- see :meth:`block_users_message`. On success the definition
+        (LT3-2) or names it as a start / finish end (LT5) -- see
+        :meth:`block_users_message`. On success the definition
         is popped, an undo state is pushed (``_capture_network`` already
         serializes definitions), and ``blockDefinitionsChanged`` is emitted.
         """
@@ -1799,6 +1800,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False
         if self.linetype_user_contexts(block_id):
             return False
+        if self._live_end_users(block_id):
+            return False                      # LT5 Q13: a live line's end
         if block_id not in self._block_definitions:
             return False
         del self._block_definitions[block_id]
@@ -1851,6 +1854,77 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     kind.append(label)
         return line_ctx, block_ctx
 
+    def _user_scenes(self) -> list:
+        """``[(label, scene)]``: this scene as ``"the plan"`` plus every open
+        Block Editor scene (``_editor_scenes_provider``)."""
+        scenes = [("the plan", self)]
+        prov = self._editor_scenes_provider
+        if callable(prov):
+            scenes += [("the open Block Editor", sc)
+                       for sc in prov() if sc is not self]
+        return scenes
+
+    def _live_end_users(self, block_id: str) -> int:
+        """Live primitives (plan + open editors) naming *block_id* as an
+        explicit end (LT5 Q13); By Linetype users count via their linetype."""
+        from .block_registry import end_users_in
+        return sum(len(end_users_in(sc, block_id))
+                   for _label, sc in self._user_scenes())
+
+    def end_off_refusal(self, block_id) -> "str | None":
+        """Why an end type can't stop being one (LT5 Q12): lines use it.
+
+        Args:
+            block_id: The definition id (None = never saved -> no use).
+
+        Returns:
+            The delete-refusal text (:meth:`block_users_message`), or None.
+        """
+        if block_id is None:
+            return None
+        return self.block_users_message(block_id)
+
+    def _end_users_message(self, d, users, live: int) -> "str | None":
+        """LT5 Q13 refusal for end type *d*: ``“Arrow” is used by 2 lines and
+        1 linetype — change their ends first.``
+
+        Lines = live primitives naming *d* (*live*) plus definition
+        primitives naming it explicitly, counted per end slot (a line naming
+        *d* at both ends counts 2); linetypes = definitions whose
+        ``repeat["ends"]`` hold it. None when a definition nests *d* (the
+        nesting wording applies -- an end can't become a symbol, so this is
+        legacy data only) or nothing uses it by an end slot.
+
+        Args:
+            d: The end-type definition.
+            users: ``users_of(d.id)`` (direct and indirect).
+            live: :meth:`_live_end_users` for *d*.
+        """
+        from .block_registry import nested_ids
+        from .stroke_style import ENDS
+        lines, linetypes = live, 0
+        for uid in users:
+            u = self.get_block_definition(uid)
+            if u is None:
+                continue
+            if d.id in nested_ids(u):
+                return None
+            for p in u.primitives:
+                st = p.get("style")
+                if isinstance(st, dict):
+                    lines += sum(1 for w in ENDS
+                                 if isinstance(st.get(w), dict)
+                                 and st[w].get("end") == d.id)
+            if d.id in ((u.repeat or {}).get("ends") or {}).values():
+                linetypes += 1
+        if not (lines or linetypes):
+            return None
+        parts = ([f"{lines} line{'s' if lines != 1 else ''}"] if lines else []) + (
+            [f"{linetypes} linetype{'s' if linetypes != 1 else ''}"]
+            if linetypes else [])
+        return (f"“{d.name}” is used by {' and '.join(parts)}"
+                " — change their ends first.")
+
     def block_users_message(self, block_id: str) -> str | None:
         """Delete-refusal text when other blocks nest *block_id* (D12) or live
         primitives use it as their linetype (LT3-2).
@@ -1871,13 +1945,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             there"). Linetype-override users (WM2 H4) read ``by blocks
             inside: H`` (nested records) / ``by blocks in the plan`` (placed
             blocks) with "change their linetype override first" (``…
-            linetype or linetype override first`` beside line users).
+            linetype or linetype override first`` beside line users). An end
+            type reads ``“Arrow” is used by 2 lines and 1 linetype — change
+            their ends first.`` (LT5 Q13).
         """
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
-        if not users and not ctx:
-            return None
         d = self.get_block_definition(block_id)
+        live_end = (self._live_end_users(block_id)
+                    if d is not None and d.end else 0)
+        if not users and not ctx and not live_end:
+            return None
+        if d.end:
+            msg = self._end_users_message(d, users, live_end)
+            if msg is not None:
+                return msg
         if d.repeat:
             msg = self._linetype_users_message(d, users)
             if msg is not None:
@@ -2371,6 +2453,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         old = self._block_definitions.get(block_id) if block_id else None
         if old is not None and old.repeat and repeat is None:
             why = self.linetype_off_refusal(block_id)       # LT4-5 save re-check
+            if why is not None:
+                self._show_status(why, 5000)
+                return None
+        if old is not None and old.end and end is None:
+            why = self.end_off_refusal(block_id)            # LT5 save re-check
             if why is not None:
                 self._show_status(why, 5000)
                 return None

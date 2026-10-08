@@ -133,8 +133,10 @@ def test_block_bounds_cover_a_fixed_end(qapp):
 
 def test_block_bounds_follow_end_edits_registration_and_linetype_defaults(qapp):
     """The bounds memo (``_end_pad_rows``) re-resolves whenever what it read
-    changes. (1) / (2) keep the host's op list object (only the memo's
-    registry dependency check sees them); (3) recompiles the host."""
+    changes. Since LT5 D3 (orchestrator I1) an explicit end is a registry
+    dependency of its host (``prim_refs``), so (1) / (2) also recompile the
+    host through ``registry.invalidate`` -- the host instance must get
+    ``prepareGeometryChange``; (3) recompiles the host."""
     from tests.lt5_support import _poly
     big = QRectF(1500.0, -500.0, 500.0, 1000.0)   # 5 x 10 mm past the tip at 1:100
     # (1) an end definition edited in place
@@ -155,7 +157,7 @@ def test_block_bounds_follow_end_edits_registration_and_linetype_defaults(qapp):
     assert not inst2.boundingRect().contains(tip)
     ms2.register_block_definition(b)
     assert inst2.boundingRect().contains(tip)
-    assert inst2.render_ops() is ops2              # same host ops: the dep check saw it
+    assert inst2.render_ops() is not ops2          # D3: the host is a user of B
     # (3) a linetype default end edited away
     dt = dot(radius=4.0)                          # 400 mm reach at 1:100
     lt = make_linetype(length=9.0, dashes=((0.0, 6.0),))
@@ -171,7 +173,7 @@ def test_block_bounds_follow_end_edits_registration_and_linetype_defaults(qapp):
     lt.set_repeat(rep)
     ms3.block_registry.invalidate(lt.id)
     assert not inst3.boundingRect().contains(ring)
-    assert inst.render_ops() is ops                # (1) never recompiled the host
+    assert inst.render_ops() is not ops            # (1) D3: the end edit recompiled the host
 
 
 def test_end_less_block_keeps_the_plain_fast_path(qapp, monkeypatch):

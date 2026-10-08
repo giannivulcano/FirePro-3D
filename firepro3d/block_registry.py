@@ -11,7 +11,8 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 from __future__ import annotations
 
 from .hatch_patterns import canonical_ref
-from .stroke_style import is_linetype_ref, override_refs
+from .stroke_style import (BY_BLOCK, BY_LINETYPE, ENDS, is_end_ref,
+                           is_linetype_ref, override_refs)
 
 NESTED_TYPE = "block_instance"
 
@@ -31,13 +32,15 @@ def nested_ids(defn) -> set[str]:
 
 def prim_refs(primitives) -> set[str]:
     """Block ids a primitive list depends on: nested records + pattern refs +
-    linetype refs (LT3-2) + nested-record Linetype overrides (WM2 H4).
+    linetype refs (LT3-2) + explicit end ids (LT5) + nested-record Linetype
+    overrides (WM2 H4).
 
     Every pattern ref is a real dependency (hatch D-A39 — the shipped patterns
     are ordinary blocks): bundled with the host, cycle-checked, counted as a
     user. Legacy names are mapped to their frozen ids. A styled primitive's
     ``style.linetype`` block id is one too (linetypes.md H3-h); the
-    ``continuous`` / ``by_block`` keywords are not.
+    ``continuous`` / ``by_block`` keywords are not. A start / finish end id
+    is one as well (LT5 Q13); the ``none`` / ``by_linetype`` keywords are not.
     """
     out = set()
     for p in primitives:
@@ -50,8 +53,13 @@ def prim_refs(primitives) -> set[str]:
             if ref:
                 out.add(ref)
         st = p.get("style")
-        if isinstance(st, dict) and is_linetype_ref(st.get("linetype")):
-            out.add(st["linetype"])
+        if isinstance(st, dict):
+            if is_linetype_ref(st.get("linetype")):
+                out.add(st["linetype"])
+            for which in ENDS:                    # LT5 Q13: explicit end ids
+                e = st.get(which)
+                if isinstance(e, dict) and is_end_ref(e.get("end")):
+                    out.add(e["end"])
     return out
 
 
@@ -73,9 +81,61 @@ def linetype_users_in(scene, block_id: str) -> list:
     return out
 
 
+def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
+    """The scene's live styled primitives whose start / finish ``end`` is
+    *block_id* (LT5 Q13: delete / off refusal counts these).
+
+    With *via_linetype* also the By Linetype users of a linetype whose
+    default end is *block_id*, and placed blocks overriding to such a
+    linetype -- the users whose drawn ends follow an edit of *block_id*
+    (``BlockRegistry.invalidate``). Empty for a scene without geometry tools.
+    """
+    tools = getattr(scene, "_tools", None)
+    if tools is None:
+        return []
+    lt_ids = set()
+    reg = getattr(scene, "block_registry", None) if via_linetype else None
+    if reg is not None:
+        for i in reg.ids():
+            d = reg.get(i)
+            if block_id in _default_end_ids(d):
+                lt_ids.add(i)
+    out = []
+    for item in tools._all_geometry_items():
+        st = getattr(item, "style", None)
+        if not isinstance(st, dict):
+            continue
+        # An absent record / end reads By Linetype (stroke_style._resolve_end).
+        refs = [(st[w].get("end") if isinstance(st.get(w), dict) else None)
+                or BY_LINETYPE for w in ENDS]
+        if block_id in refs:
+            out.append(item)
+        elif (st.get("linetype") in lt_ids
+              and any(r in (BY_LINETYPE, BY_BLOCK) for r in refs)):
+            out.append(item)
+    if lt_ids:
+        for inst in getattr(scene, "_block_instances", []) or []:
+            if override_refs(getattr(inst, "overrides", None))[1] & lt_ids:
+                out.append(inst)
+    return out
+
+
+def _default_end_ids(defn) -> set[str]:
+    """A linetype's default end ids (``repeat["ends"]``, LT5 Q11); copy-free
+    gate (``has_default_ends``) so plain blocks never deep-copy ``repeat``."""
+    if defn is None or not getattr(defn, "has_default_ends", False):
+        return set()
+    ends = (defn.repeat or {}).get("ends")
+    if not isinstance(ends, dict):
+        return set()
+    return {v for v in ends.values() if is_end_ref(v)}
+
+
 def referenced_ids(defn) -> set[str]:
-    """Every block id *defn* depends on (nested + pattern + linetype; hatch HD4a, LT LD5, LT3-2)."""
-    return prim_refs(defn.primitives)
+    """Every block id *defn* depends on (nested + pattern + linetype + end;
+    hatch HD4a, LT LD5, LT3-2, LT5 Q13): its primitives' refs plus a
+    linetype's default end ids (``repeat["ends"]``)."""
+    return prim_refs(defn.primitives) | _default_end_ids(defn)
 
 
 class BlockRegistry:
@@ -117,9 +177,11 @@ class BlockRegistry:
         self._store[defn.id] = defn
         defn._resolve = self.get
         # A replaced linetype may become a non-linetype (missing for its raw
-        # users): capture the OLD repeat before it is gone (LT3-10).
+        # users): capture the OLD repeat before it is gone (LT3-10). Same for
+        # an end type (LT5): its raw users' trims / bounds flip.
         self.invalidate(defn.id,
-                        was_linetype=bool(getattr(old, "repeat", None)))
+                        was_linetype=bool(getattr(old, "repeat", None)),
+                        was_end=bool(getattr(old, "end", None)))
 
     def ids(self) -> list[str]:
         """Every definition id in the store."""
@@ -279,7 +341,7 @@ class BlockRegistry:
 
     # ── invalidation ─────────────────────────────────────────────────────
     def invalidate(self, block_id: str, *, already=(),
-                   was_linetype: bool = False) -> None:
+                   was_linetype: bool = False, was_end: bool = False) -> None:
         """Drop compile caches of *block_id* + its users; repaint their instances.
 
         Args:
@@ -289,6 +351,8 @@ class BlockRegistry:
                 so each live instance repaints exactly once.
             was_linetype: The definition *block_id* replaced was a linetype
                 (``add``), so raw users may flip even if the new one is not.
+            was_end: The definition *block_id* replaced was an end type
+                (``add``), so raw end users may flip (LT5).
         """
         skip = {id(i) for i in already}
         affected = {block_id} | self.users_of(block_id)
@@ -302,6 +366,8 @@ class BlockRegistry:
         d0 = self._store.get(block_id)
         lt_scan = (was_linetype or d0 is None
                    or bool(getattr(d0, "repeat", None)))
+        end_scan = (was_end or d0 is None
+                    or bool(getattr(d0, "end", None)))
         for sc in list(self._scenes):
             if sip.isdeleted(sc):
                 self._scenes.remove(sc)
@@ -312,5 +378,12 @@ class BlockRegistry:
             # Raw primitives styled with *block_id* as their linetype: their
             # missing-glyph bounds pad may flip with this change (LT3-10).
             for item in (linetype_users_in(sc, block_id) if lt_scan else ()):
+                item.prepareGeometryChange()
+                item.update()
+            # Raw lines drawing *block_id* as an end (explicit, or By
+            # Linetype through a linetype default): trims + bounds follow
+            # the end record (LT5 Q5 / Q14).
+            for item in (end_users_in(sc, block_id, via_linetype=True)
+                         if end_scan else ()):
                 item.prepareGeometryChange()
                 item.update()
