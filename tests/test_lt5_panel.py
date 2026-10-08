@@ -192,3 +192,27 @@ def test_template_and_placement_rows_carry_no_end_rows(qapp):
     ms.register_block_definition(d)
     inst = ms.place_block_instance(d.id, (0.0, 0.0))
     assert not any(k in inst.get_properties() for k in _KEYS)
+
+
+def test_multi_target_folder_pick_is_one_undo_step(end_dir):
+    """Two selected lines + a not-yet-loaded folder end through the real
+    panel: ONE step that both re-points the lines and loads the end."""
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.property_manager import PropertyManager
+    ms = Model_Space()
+    good = v_end(name="Tick")
+    block_library.save_to_library(good, root=str(end_dir))
+    a = scene_line(ms)
+    b = scene_line(ms, p1=(0.0, 10.0), p2=(30.0, 10.0))
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    QApplication.processEvents()
+    pos0 = ms._undo_pos
+    pm._prop_widgets["Finish End"].setCurrentText("Tick")
+    QApplication.processEvents()
+    assert [ln.style["finish"]["end"] for ln in (a, b)] == [good.id] * 2
+    assert ms.get_block_definition(good.id) is not None
+    assert ms._undo_pos == pos0 + 1
+    ms.undo()
+    assert [ln.style["finish"]["end"] for ln in ms._draw_lines] == [ss.BY_LINETYPE] * 2
+    assert ms.get_block_definition(good.id) is None

@@ -2139,7 +2139,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             changed = True
         summary["missing"] = sorted(self._block_registry.missing_nested())
         if changed:
-            self.push_undo_state()
+            # One step -- coalesced into a multi-target panel commit's step
+            # when inside ``deferred_undo_push`` (a folder pick applied to N
+            # selected lines is ONE undo step, load included).
+            self.request_undo_push()
             self.blockDefinitionsChanged.emit()
         return summary
 
