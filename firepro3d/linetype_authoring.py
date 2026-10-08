@@ -348,9 +348,24 @@ def preview_painter(scene):
         pen = QPen(QColor(th.detect().ink),
                    ss.canvas_px(lt.dash_weight or ss.BY_LINETYPE))
         pen.setCosmetic(True)
+        # LT5 Q11: the swatch shows the linetype's default ends -- each
+        # sample (the straight line, the L) trimmed and capped through the
+        # real end renderer (as end_authoring.preview_painter).
+        ends = ss.resolve_ends(ss.default_style(), lt,
+                               getattr(scene, "block_registry", None))
         painter.save()
         try:
-            draw_expansion(painter, dash, dot, pen)
+            if not ss.has_ends(ends):
+                draw_expansion(painter, dash, dot, pen)
+                return
+            from .end_render import end_trims, paint_ends
+            kw = {"fixed_factor": s, "weight_factor": pen.widthF()}
+            trims = end_trims(ends, **kw)
+            for stroke in (pieces[:1], pieces[1:]):
+                dash, dot = expand(stroke, lt, s, (rect.left(), rect.top()),
+                                   trims=trims)
+                draw_expansion(painter, dash, dot, pen)
+                paint_ends(painter, stroke, ends, pen, **kw)
         finally:
             painter.restore()
     return paint

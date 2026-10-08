@@ -319,3 +319,28 @@ def test_linetype_default_end_commit_redraws_placed_by_linetype_lines(qapp):
                for x in range(400) if before.pixel(x, y) != after.pixel(x, y))
     assert diff > 0                            # the arrow's arms draw
     assert d is lt and lt.version > v0 and lt.repeat["ends"] == {"finish": a}
+
+
+def _swatch(sc):
+    paint = capability_rows(sc)["Preview swatch"]["paint"]
+    img = QImage(240, 64, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    paint(p, QRectF(0, 0, 240, 64))
+    p.end()
+    return img
+
+
+def test_linetype_swatch_shows_the_default_ends(qapp):
+    """Q11: the linetype panel swatch draws its default ends through the
+    real end renderer (pixels change when Finish End = Arrow)."""
+    proj, w, _ = _w()
+    end_id(proj, name="Arrow", length=3.0, half=1.5)
+    assert w.toggle_capability("repeat")
+    sc = w.editor_scene
+    before = _swatch(sc)
+    set_capability_property(sc, w, "Finish End", "Arrow")
+    after = _swatch(sc)
+    diff = sum(1 for y in range(64) for x in range(240)
+               if before.pixel(x, y) != after.pixel(x, y))
+    assert diff > 0
