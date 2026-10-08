@@ -16,13 +16,15 @@ _END_TOGGLE_TIP = ("Make this block an end type: it draws on the free ends of op
             "of being placed as a symbol")
 _TOGGLES = {"Pattern tile": "tile", "Linetype": "repeat", "End type": "end"}
 # LT5 mockup strings (R4).
-_END_SIZE_TIP = ("Fixed: 1 mm drawn = 1 mm printed (Drafting rule). "
-                 "Weight-relative: 1 mm drawn = 1 × the line's weight.")
+_END_SIZE_TIP = ("Fixed: 1 mm drawn = 1 mm printed (Drafting rule) -- it zooms "
+                 "with the drawing. Line weight: scales with the line's weight, "
+                 "1 mm drawn = 1 × its drawn width -- on screen that's constant "
+                 "pixels like the line itself; on paper, printed mm.")
 _END_TRIM_TIP = ("The line stops this far back from its endpoint, measured "
                  "along the path. Same units as Size.")
 _END_PREVIEW_TIP = "This end on a sample line at a thin and a heavy weight."
 _WR_SUFFIX = "× line weight"
-_END_TRIM_WR_TIP = (_END_TRIM_TIP + " Weight-relative: a plain number "
+_END_TRIM_WR_TIP = (_END_TRIM_TIP + " Line weight: a plain number "
                     "× line weight (e.g. 1.5).")
 
 

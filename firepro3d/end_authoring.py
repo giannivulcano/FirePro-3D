@@ -9,7 +9,7 @@ import math
 from .end_render import FIXED, WEIGHT_RELATIVE
 
 SEED = {"size": FIXED, "trim": 0.0}
-SIZE_LABELS = {FIXED: "Fixed", WEIGHT_RELATIVE: "Weight-relative"}
+SIZE_LABELS = {FIXED: "Fixed", WEIGHT_RELATIVE: "Line weight"}
 
 
 def _needs_lock(scene) -> list:
@@ -48,7 +48,7 @@ def pre_capture(scene) -> None:
 
 
 def set_end_field(scene, key: str, value) -> bool:
-    """Size (``"Fixed"`` / ``"Weight-relative"``) or Trim (mm >= 0) edit;
+    """Size (``"Fixed"`` / ``"Line weight"``) or Trim (mm >= 0) edit;
     one undo step.
 
     Returns:

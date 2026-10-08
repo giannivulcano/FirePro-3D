@@ -232,15 +232,15 @@ def test_end_panel_rows_and_edits_are_one_step(qapp):
               "Preview", "Preview swatch"):
         assert k in r, k
     assert r["End type"]["value"] is True
-    assert r["Size"]["options"] == ["Fixed", "Weight-relative"]
+    assert r["Size"]["options"] == ["Fixed", "Line weight"]
     assert r["Size"]["value"] == "Fixed" and r["Trim"]["value_mm"] == 0.0
     for k, m in r.items():
         if m["type"] != "header":
             assert m.get("tooltip"), k
     pos0 = sc._undo_pos
-    set_capability_property(sc, w, "Size", "Weight-relative")
+    set_capability_property(sc, w, "Size", "Line weight")
     assert sc.block_end["size"] == "weight_relative" and sc._undo_pos == pos0 + 1
-    set_capability_property(sc, w, "Size", "Weight-relative")      # no-op
+    set_capability_property(sc, w, "Size", "Line weight")      # no-op
     set_capability_property(sc, w, "Trim", 2.5)
     assert sc.block_end["trim"] == 2.5 and sc._undo_pos == pos0 + 2
     set_capability_property(sc, w, "Trim", -1.0)                   # refused
@@ -407,7 +407,7 @@ def test_weight_relative_trim_is_a_plain_multiple_not_a_length(qapp):
     assert "'" in capability_rows(sc)["Trim"]["value"] or '"' in capability_rows(sc)["Trim"]["value"]
     r = capability_rows(sc)
     assert r["Trim"]["type"] == "dimension"                   # Fixed: a length
-    set_capability_property(sc, w, "Size", "Weight-relative")
+    set_capability_property(sc, w, "Size", "Line weight")
     r = capability_rows(sc)
     assert r["Trim"]["type"] == "string" and r["Trim"]["value"] == "0"
     assert r["Trim"]["suffix"] == "× line weight"
