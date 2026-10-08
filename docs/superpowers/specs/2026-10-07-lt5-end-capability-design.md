@@ -1,7 +1,7 @@
 ---
-status: proposal   # designed 2026-10-07 (Phase 2 Q1–Q15 + design groups A–D user-approved); unbuilt
-last-verified: 2026-10-07
-verified-commit: cbe41a15
+status: current   # BUILT 2026-10-08 (220b5b55); as-built home = linetypes.md "LT5" (build rulings: closing clears ends, ends locked in linetype units / tiles, "Line weight" label, paint_ends -> None + end_trims, perf residual to LT8)
+last-verified: 2026-10-08
+verified-commit: 220b5b55
 applies-to:
   - firepro3d/stroke_style.py
   - firepro3d/render_op.py

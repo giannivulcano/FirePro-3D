@@ -1,7 +1,7 @@
 ---
-status: partial          # WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT5–LT8, WM2, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
-last-verified: 2026-10-07  # WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: a65daf67   # WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+status: partial          # LT5 BUILT 2026-10-08 (end capability: end types as blocks, per-line + linetype-default ends, Fixed / Line weight sizing, trim, mirror, closing clears ends, End type mode, End Types folder, integrity); WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT6–LT8, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
+last-verified: 2026-10-08  # LT5 Account (LT5 section as built: LT5-1..15, how, guards; D-L7 / D-L8b / D-L23e / LTS-9f amendment pointers; applies-to LT5 seams); prior WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: 220b5b55   # LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
   - firepro3d/crisp_stroke.py        # MW — split_axis / SplitCache / stroke / stroke_cached, the crisp H/V axis-split (H-MW-f)
   - firepro3d/settings/panes.py      # MW: UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
@@ -30,6 +30,13 @@ applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams 
   - firepro3d/block_explode.py      # WM2: _bake (placement override onto exploded primitives) + compose_overrides onto nested children only (rest owned by block-system.md)
   - firepro3d/block_library.py      # WM2: used_weight_names counts nested-record override weights only (rest owned by block-system.md)
   - firepro3d/scene_io.py           # WM2: file-open block loop passes overrides= only
+  - firepro3d/end_render.py         # LT5 — EndDef, end_trims / paint_ends / ends_rect, end-frame memo
+  - firepro3d/end_authoring.py      # LT5 — End type seed, Size / Trim fields, preview painter
+  - firepro3d/end_frame.py          # LT5 — EndFrame (attach glyph, sample line, trim grip)
+  - firepro3d/capabilities.py       # LT5 — capability kind table, place refusal, one picker source (tile / repeat / end)
+  - firepro3d/app_data.py           # LT5: end_types_dir / END_DIR_KEY only
+  - firepro3d/model_view.py         # LT5: block drag gate via capability_place_reason only
+  - firepro3d/hatch_patterns.py     # LT5: tile_choices / ensure_pattern_available as capabilities thin callers only
 source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-dot spacing + configuration, lineweight at definition vs host level (2026-10-02)"]
 ---
 
@@ -142,11 +149,14 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 
 - **D-L7 Ownership.** The linetype sets default start/finish end types; each
   line overrides per end (By Linetype | explicit). Closed shapes draw no ends.
+  *(Amended 2026-10-08 by LT5-3: any open line, Continuous included, may carry
+  explicit ends; keyword None; see "LT5".)*
 - **D-L8 Catalog.** Every end type is a block — caps (Flat, Round, Square)
   included; System set + user-drawn.
 - **D-L8b Sizing.** Per end block: **Fixed** (printed mm) | **Weight-relative**
   (units of line weight). System caps ship weight-relative; arrows, ticks, dots
-  ship Fixed.
+  ship Fixed. *(LT5-4: UI label "Line weight"; on canvas it is screen-constant
+  with the line's cosmetic width; Fixed follows the Drafting rule.)*
 - **D-L10 End data.** End blocks may hold `@[key]` attribute text (System
   Blocks F3) resolved from the placement that owns the line; Fixed sizing;
   `keep_upright`; missing source → `?`. Repeat units stay static.
@@ -206,7 +216,8 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   Linetype/Weight/ends — new free ends from break/trim get By Linetype ends;
   (c) mirror flips end blocks, text stays upright; (d) closed shapes never
   draw ends; (e) a missing linetype/end block draws Continuous/Flat plus a
-  visible warning badge, never nothing.
+  visible warning badge, never nothing. *(Amended 2026-10-08 by LT5-13: a
+  missing end draws None — today's stroke — not Flat.)*
 
 ## Weight model — By Block moves from the primitive to the placement (ratified 2026-10-05)
 
@@ -1485,7 +1496,7 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   (LT3-6); (d) each detail view uses its own zoom; (e) linetyped lines inside
   placed blocks follow the linetype's On screen like raw lines; (f) LT6
   symbols in a Fixed unit scale with the pattern (the whole unit is in px);
-  LT5 end blocks keep their own sizing — an open question for LT5's grill;
+  LT5 end blocks keep their own sizing (answered by LT5-4: never screen-constant);
   (g) `.fpdb` bundles and library files carry the property.
 
 ### How (H-LTS-a–f) — as built
@@ -1847,11 +1858,127 @@ Fixed gaps kept, short Fixed solid, missing linetype continuous,
 guard RED with the fix reverted · G9 `perf`-marked A/B bench (MW-13), run
 standalone (Test-harness Invariant 8).
 
+## LT5 — End capability (ratified 2026-10-07; BUILT 2026-10-08)
+
+> Feature run on `feat/lt5-end-capability` (base `cbe41a15`). *What* =
+> Phase-2 grill Q1–Q15 (every row user-ratified 2026-10-07) + build rulings
+> below; *how* + rejected options =
+> `docs/superpowers/specs/2026-10-07-lt5-end-capability-design.md` (groups
+> A–D, mockup gate). **Amends** D-L7 (Continuous lines may carry explicit
+> ends), D-L8b (UI label "Line weight"), D-L23e (missing end → None, not
+> Flat) and answers LTS-9f (ends keep their own sizing).
+
+### What (Q1–Q15 + build rulings)
+
+- **LT5-1 Consumer** (Q1). Gridline (line + leaders + bubble ends) is the
+  north star; drafting arrows / ticks / dots near term; pipes out.
+- **LT5-2 Which strokes** (Q2). Ends draw only where `stroke_style.open_stroke`
+  says open: Line, Polyline with the closed flag off (coincident ends still
+  open), Arc span < 360°, open Spline. Closed shapes never draw ends
+  (D-L23d); interior vertices never.
+- **LT5-3 None** (Q3). Keyword `"none"`. By Linetype on Continuous or on a
+  linetype without a default, None, Visible off and a missing end all draw
+  **today's stroke unchanged** (legacy canvas + PDF identical, guard E1).
+  Any open line — Continuous included — may carry explicit ends.
+- **LT5-4 Sizing** (Q4/Q5, D-L8b). Origin = attach point, +X = outward.
+  **Fixed**: 1 authored mm = 1 printed mm under the Drafting length rule
+  (`linetype_render.printed_factor`: paper 1/scale, plan × drawing scale,
+  Block Editor 1) — never screen-constant, even on an On screen = Fixed
+  linetype (LTS-9f). **Line weight** (stored `"weight_relative"`): 1 authored
+  mm = 1 × the line's drawn width — on canvas that is the cosmetic px width,
+  so the end is screen-constant like the line itself (smoke ruling
+  2026-10-08: kept, labelled "Line weight" with a canvas-vs-paper tooltip);
+  on paper, printed mm. Trim ≥ 0 in the same units, along the path; trims ≥
+  the length → no stroke, both ends draw.
+- **LT5-5 Orientation** (Q6). −X points from the endpoint to the trim point
+  (chord); trim 0 → endpoint tangent.
+- **LT5-6 Look** (Q7). All end content draws in the using line's pen colour
+  (authored component colours wait for HF1's By Line token); end strokes at
+  the line's resolved width (placement Weight override included, WM-11).
+- **LT5-7 Content lock** (Q8; extended at build). End types, linetype units
+  and pattern tiles hold Continuous strokes with **plain ends** (explicit end
+  ids reset to By Linetype at toggle-on, every commit and new draws; end rows
+  disabled there) — ends never recurse and never sit in a unit that can't
+  render them. End types also refuse nested blocks. Text in an end is static
+  until LT6.
+- **LT5-8 Mirror** (Q9). Each end stays on its physical end (Arc reflect
+  swaps the start/finish records); a per-end `mirrored` flag (written only
+  when true) flips asymmetric ends; cut ends keep it.
+- **LT5-9 Panel** (Q10). Open primitives get Start End / Finish End (By
+  Linetype (<resolved>) | None | project ends | End Types folder, keyword-like
+  block names suffixed " (block)") + Start / Finish Visible; Visible off keeps
+  the pick; one undo step per edit, a multi-target folder pick included; no
+  rows on closed items, the Geometry template or placements.
+- **LT5-10 Closing clears ends** (user ruling 2026-10-08). A stroke that
+  becomes closed (Polyline close, an arc solved to 360°, a spline that closes)
+  resets explicit end ids to By Linetype in the same undo step — no hidden
+  uses remain.
+- **LT5-11 Linetype defaults** (Q11, D-L7). `repeat.ends = {start, finish}`
+  (end ids only; omitted when empty) via Start End / Finish End rows on the
+  Linetype capability panel; the panel swatch shows them; By Linetype lines
+  follow on commit.
+- **LT5-12 Authoring** (Q12; mockup gate passed). Ribbon **End Type** toggle,
+  three-way exclusive with Pattern Tile / Linetype; attach glyph (accent
+  crosshair ±8 px + +X arm 28 px), no frame box, 18 mm sample at 35 % from −X
+  to the trim point, circular X-only trim grip (one undo step); rows End type
+  · Size (Fixed | Line weight) · Trim (project length, or a plain "× line
+  weight" multiple) · Preview (Thin + Heavy); off refused while used; not
+  placeable as a symbol; browser badge.
+- **LT5-13 Missing / integrity** (Q13). Missing end → None + red badge at that
+  end (canvas only) + "Missing: <name>"; explicit ends and `repeat.ends` are
+  graph edges (`prim_refs` / `referenced_ids`): delete refused ("used by N
+  lines / M linetypes", a line counted once), `.fpdb` bundles them, cycles
+  refused (incl. a linetype default end that uses the linetype), an end edit
+  repaints host blocks; **End Types** library folder (`paths/end_dir`, General
+  settings row).
+- **LT5-14 Interactions** (Q14). Trims never re-phase dashes (E12); an LTS
+  short line drawn Continuous still draws its ends; never LOD-dropped;
+  placements use the effective weight and never swap ends; Explode keeps
+  ends verbatim; snap / HALO / `shape()` stay on the base line; bounds and
+  the selection highlight include ends; placement ghosts draw none.
+- **LT5-15 Perf** (Q15, user rulings 2026-10-08). Report-only bench
+  `tests/test_lt5_perf.py`. End-less strokes ≤ 1.1× base on the MW / LT3 /
+  WM2 benches (met). With ends, after the two cheap fixes: raw 1.65×, block
+  2.34×, raw line-weight 1.69× vs the 1.3× target — residual + per-placement
+  fill batching handed to LT8 (1.3× is unreachable for blocks with per-end
+  vector fills).
+
+### How — as built
+
+`stroke_style` (`NONE`, `ResolvedEnd`, `resolve_ends`, `has_ends`,
+`open_stroke`, `toggle_mirrored`, `clear_explicit_ends`, `end_block`,
+`end_label` / `end_from_label`); `BlockDefinition.end` / `set_end` /
+`_norm_end`, shared `_set_capability`, copy-free `is_end` / `is_linetype` /
+`has_default_ends`; `RenderOp.ends` (open strokes, captured at `_compile`);
+`path_walk.end_frame` / `trim_pieces` / `tangent_at`;
+`linetype_render.expand(trims=)` (walks the untrimmed pieces) +
+`printed_factor`; `end_render.py` (`EndDef`, `end_trims`, `paint_ends`,
+`ends_rect`, memoised end frames); `Geometry2DMixin._item_ends` /
+`_paint_stroke_with_ends` and `BlockInstance._op_ends` / `_draw_op_ends`
+(inline gates — end-less strokes take the pre-LT5 path);
+`capabilities.py` (kind table, `capability_place_reason`, one picker source
+`capability_choices` / `ensure_capability_available`); `end_frame.py`,
+`end_authoring.py`; `block_registry.end_users_in` / `invalidate(was_end=)`.
+
+### LT5 guards (VC3) — as built
+
+`tests/test_lt5_parity.py` (E1 golden at base), `test_lt5_p4.py`,
+`test_lt5_style.py`, `test_lt5_capability_data.py`, `test_lt5_render_op.py`,
+`test_lt5_path.py` (E4), `test_lt5_expand_trims.py` (E12),
+`test_lt5_mirror.py` (E5), `test_lt5_end_render.py`, `test_lt5_render_raw.py`
+(E2, E3, E8, E12 canvas), `test_lt5_render_block.py` (E6, E7, E9 Explode),
+`test_lt5_capability_ui.py`, `test_lt5_picker.py`, `test_lt5_integrity.py`
+(E9 integrity, host repaint), `test_lt5_panel.py`, `test_lt5_authoring.py`
+(E11), `test_lt5_closing.py`, `test_lt5_guards.py` (E9 paste, Q14 shape, Q8
+text / hatch), `test_lt5_mainwindow.py` (E10), `test_lt5_perf.py` (report-only).
+Known gaps (filed): Q4 beside a Fixed-on-screen linetype, Q6/Q9 not driven
+reflect → paint → PDF end to end.
+
 ## Acceptance Criteria
 
 - [x] Collinear lines sharing a linetype are indistinguishable from one line (D-L9) — LT3 G1 (`tests/test_lt3_primitive_paint.py`), 2026-10-05.
 - [ ] Every row of the cascade (Weight model WM-2..WM-12; D-L4/5/6/17 superseded) resolves to the stated weight/linetype/colour on canvas and PDF.
-- [ ] Ends obey D-L7/8/8b; symbols obey D-L15; end attributes obey D-L10.
+- [ ] Ends obey D-L7/8/8b *(ends half met 2026-10-08 — LT5 guards E1–E12)*; symbols obey D-L15; end attributes obey D-L10.
 - [ ] Weights travel with `.fpd`/`.fpdb` (D-L13); legacy files migrate (D-L17a).
 - [ ] D-L21 bar met on the confirmed bench.
 - [ ] Guards G1–G11 in the concept doc pass.
@@ -1873,6 +2000,11 @@ standalone (Test-harness Invariant 8).
 - `view-relationships.md` §7.4 — catalog rows 2 and 4 point here.
 - `units-and-formatting.md` — line-weight display convention (named weight + mm).
 - `feature-system.md` — pipe as a Feature (D-L22).
+- **LT5 (applied 2026-10-08, LT5 Account):** `block-system.md` — "End
+  capability (LT5)" pointer (`end` key, `capabilities.py` kind table,
+  `capability_place_reason`, end refs in the graph); `2d-geometry.md` — end
+  rows, closing clears explicit ends, reflect toggles `mirrored` (Arc swaps);
+  `property-panel.md` — Start/Finish End + Visible rows; `SPEC-INDEX.md` row.
 - **LT4 (applied 2026-10-06, LT4 Account, `b9b1094`):** `hatch-and-fill.md` §2
   — the frame is now `TileFrame` on the shared `capability_frame` base (that
   file's home) and the nothing-selected rows come from `capability_panel`;
