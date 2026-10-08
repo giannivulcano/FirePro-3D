@@ -131,6 +131,49 @@ def test_block_bounds_cover_a_fixed_end(qapp):
     assert inst2.boundingRect().height() < 10.0       # end-less: today's 2 mm margin
 
 
+def test_block_bounds_follow_end_edits_registration_and_linetype_defaults(qapp):
+    """The bounds memo (``_end_pad_rows``) re-resolves whenever what it read
+    changes. (1) / (2) keep the host's op list object (only the memo's
+    registry dependency check sees them); (3) recompiles the host."""
+    from tests.lt5_support import _poly
+    big = QRectF(1500.0, -500.0, 500.0, 1000.0)   # 5 x 10 mm past the tip at 1:100
+    # (1) an end definition edited in place
+    a = arrow()
+    d = _line_block(finish=a.id, weight="Thinnest")
+    ms, inst = scene_with([a, d], d.id)
+    ops = inst.render_ops()
+    assert not inst.boundingRect().contains(big)
+    a.set_primitives([_poly([(0.0, 0.0), (5.0, -5.0), (5.0, 5.0)])])   # forward-pointing
+    ms.block_registry.invalidate(a.id)
+    assert inst.boundingRect().contains(big)
+    # (2) a missing end registered later (badge pad -> the arrow's reach)
+    b = arrow(name="B")
+    d2 = _line_block(finish=b.id, weight="Thinnest", name="D2")
+    ms2, inst2 = scene_with([d2], d2.id)
+    ops2 = inst2.render_ops()
+    tip = QRectF(1200.0, -75.0, 300.0, 150.0)
+    assert not inst2.boundingRect().contains(tip)
+    ms2.register_block_definition(b)
+    assert inst2.boundingRect().contains(tip)
+    assert inst2.render_ops() is ops2              # same host ops: the dep check saw it
+    # (3) a linetype default end edited away
+    dt = dot(radius=4.0)                          # 400 mm reach at 1:100
+    lt = make_linetype(length=9.0, dashes=((0.0, 6.0),))
+    rep = lt.repeat
+    rep["ends"] = {"finish": dt.id}
+    lt.set_repeat(rep)
+    d3 = _line_block(linetype=lt.id, weight="Thinnest", name="D3")
+    ms3, inst3 = scene_with([dt, lt, d3], d3.id)
+    ring = QRectF(1500.0, -350.0, 350.0, 700.0)
+    assert inst3.boundingRect().contains(ring)
+    rep = lt.repeat
+    rep.pop("ends")
+    lt.set_repeat(rep)
+    ms3.block_registry.invalidate(lt.id)
+    assert not inst3.boundingRect().contains(ring)
+    assert inst.render_ops() is ops                # (1) never recompiled the host
+
+
 def test_end_less_block_keeps_the_plain_fast_path(qapp, monkeypatch):
     d = sprinkler_def()                               # legacy: Continuous, By Linetype ends
     ms, inst = scene_with([d], d.id)

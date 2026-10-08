@@ -15,6 +15,7 @@ assumes ``transform()`` carries no pose).
 
 from __future__ import annotations
 
+import math
 import uuid
 from typing import Callable, Optional
 from PyQt6.QtCore import QRectF, QPointF, Qt
@@ -115,6 +116,7 @@ class BlockInstance(QGraphicsObject):
         self._crisp_ops = None      # (ops list, {op index: SplitCache}) -- MW-7
         self._end_ops_cache = None  # (ops list, frozenset of explicit-end op indices) -- LT5
         self._end_trim_ops = None   # (ops list, {op index: (trims, trimmed path)}) -- LT5
+        self._end_pad_cache = None  # (ops, registry, deps, rows) -- LT5 bounds (_end_pad_rows)
         # Missing id named in the tooltip (linetype_render.sync_missing_tooltip);
         # set here so paint reads a plain attribute (no getattr miss).
         self._lt_tip_id: Optional[str] = None
@@ -306,47 +308,104 @@ class BlockInstance(QGraphicsObject):
     def _ends_pad(self, ops, end_ops, lt_ids) -> float:
         """Scene-mm radius covering every end these ops draw (LT5 bounds).
 
-        Candidates: the explicit-end ops plus -- only when one of *lt_ids*
-        carries a default end -- the ops on such a linetype. Each drawn end
-        is bounded by its reach x its scale here (Fixed: the printed factor;
-        weight-relative: the op's canvas px at the current view zoom, or its
-        paper width); a missing end by the badge pad. Radial around the
-        posed rect (ends attach at path endpoints inside it). 0.0 when
-        nothing draws.
+        Each drawn end (``_end_pad_rows``) is bounded by its reach x its
+        scale here (Fixed: the printed factor; weight-relative: the op's
+        canvas px at the current view zoom, or its paper width); a missing
+        end by the badge pad. Radial around the posed rect (ends attach at
+        path endpoints inside it). 0.0 when nothing draws.
         """
         if self._is_ghost:
             return 0.0
         sc = self.scene()
         reg = getattr(sc, "block_registry", None) if sc is not None else None
-        dflt = (frozenset(i for i in lt_ids if _er.linetype_has_default_end(i, reg))
-                if lt_ids else frozenset())
-        if not end_ops and not dflt:
+        rows = self._end_pad_rows(ops, end_ops, lt_ids, reg)
+        if not rows:
             return 0.0
         from .view_scale import scene_hit_width
-        ff = _lr.printed_factor(**self._lt_args())
+        unit = scene_hit_width(self, 1.0, 1.0)      # scene mm per device px (linear)
         on_paper = self._paper_pen_width is not None
-        bp = _lr.badge_pad_px()
-        badge = scene_hit_width(self, bp, bp)
+        ff = None
         pad = 0.0
-        for i in (range(len(ops)) if dflt else end_ops):
-            op = ops[i]
-            if op.ends is None or (i not in end_ops and op.linetype not in dflt):
-                continue
-            rs = (resolve_stroke({"linetype": op.linetype,
-                                  "weight": op.weight or BY_LINETYPE}, reg)
-                  if is_linetype_ref(op.linetype) else None)
-            ends = self._op_ends(op, rs.lt if rs is not None else None, reg)
-            if not has_ends(ends):
-                continue
-            weight = rs.weight if rs is not None else op.weight
-            if on_paper:
-                wf = self._paper_op_width(weight)
-            else:
-                px = canvas_px(weight) if weight is not None else op.pen.widthF()
-                wf = scene_hit_width(self, px, px)
-            pad = max(pad, _er.ends_reach(ends, fixed_factor=ff,
-                                          weight_factor=wf, badge=badge))
+        for weight, px0, fixed, wr, miss in rows:
+            if fixed > 0.0:
+                if ff is None:
+                    ff = _lr.printed_factor(**self._lt_args())
+                if ff > 0.0 and math.isfinite(ff):
+                    pad = max(pad, fixed * ff)
+            if wr > 0.0:
+                if on_paper:
+                    wf = self._paper_op_width(weight)
+                else:
+                    wf = (canvas_px(weight) if weight is not None else px0) * unit
+                if wf is not None and wf > 0.0 and math.isfinite(wf):
+                    pad = max(pad, wr * wf)
+            if miss:
+                pad = max(pad, _lr.badge_pad_px() * unit)
         return pad
+
+    def _end_pad_rows(self, ops, end_ops, lt_ids, reg) -> tuple:
+        """``(weight, pen px, Fixed reach, weight-relative reach, missing)``
+        of every op of *ops* that draws an end (LT5 bounds): the reaches
+        unscaled (``end_render.ends_reach`` at unit factors), so
+        ``_ends_pad`` only scales them per call.
+
+        Candidates: the explicit-end ops (*end_ops*) plus -- only when one
+        of *lt_ids* carries a default end -- the ops on such a linetype.
+        boundingRect runs several times a frame, so the cascade is memoised
+        on (compiled op list identity, *reg*) and the registry entries it
+        read: each consulted id's definition object, version and compiled
+        op list -- an end / linetype edit, add or removal re-resolves; a
+        valid hit costs one registry get per consulted id.
+        """
+        c = self._end_pad_cache
+        if c is not None and c[0] is ops and c[1] is reg:
+            for i, d, v, o in c[2]:
+                g = reg.get(i) if reg is not None else None
+                if g is not d or (d is not None and (d.version != v
+                                                     or d.render_ops() is not o)):
+                    break
+            else:
+                return c[3]
+        seen = {}
+
+        def dep(i):
+            if i and i not in seen:
+                d = reg.get(i) if reg is not None else None
+                seen[i] = (i, d, d.version if d is not None else None,
+                           d.render_ops() if d is not None else None)
+
+        for i in lt_ids:
+            dep(i)
+        dflt = (frozenset(i for i in lt_ids if _er.linetype_has_default_end(i, reg))
+                if lt_ids else frozenset())
+        rows = []
+        if end_ops or dflt:
+            for i in (range(len(ops)) if dflt else sorted(end_ops)):
+                op = ops[i]
+                if op.ends is None or (i not in end_ops and op.linetype not in dflt):
+                    continue
+                for r in op.ends:
+                    if is_end_ref(r.get("end")):
+                        dep(r.get("end"))
+                rs = (resolve_stroke({"linetype": op.linetype,
+                                      "weight": op.weight or BY_LINETYPE}, reg)
+                      if is_linetype_ref(op.linetype) else None)
+                lt = rs.lt if rs is not None else None
+                if lt is not None:
+                    dep(lt.start_end)
+                    dep(lt.finish_end)
+                ends = self._op_ends(op, lt, reg)
+                if has_ends(ends):
+                    rows.append((rs.weight if rs is not None else op.weight,
+                                 op.pen.widthF() if op.pen is not None else 0.0,
+                                 _er.ends_reach(ends, fixed_factor=1.0,
+                                                weight_factor=0.0),
+                                 _er.ends_reach(ends, fixed_factor=0.0,
+                                                weight_factor=1.0),
+                                 any(e.missing_id for e in ends)))
+        rows = tuple(rows)
+        self._end_pad_cache = (ops, reg, tuple(seen.values()), rows)
+        return rows
 
     def _linetype_ids(self, ops) -> frozenset:
         """The distinct linetype ids *ops*' stroke ops name, memoised on the
