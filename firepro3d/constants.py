@@ -380,6 +380,7 @@ LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
 LINETYPE_BADGE_PX = 12             # missing-linetype glyph (Task 1 mockup gate, option A)
 # End types (linetypes.md "Ends", LT5 / end_render.py)
 END_DEF_CACHE_MAX = 512            # EndDef reading LRU entries
+END_XF_CACHE_MAX = 4096            # end frame transform / ends_rect memo entries (cleared when full)
 END_JOIN_TOL_MM = 1e-6             # abutting trimmed pieces within this stay one subpath (joins kept)
 # Crisp H/V strokes (linetypes.md MW-7 / H-MW-f, crisp_stroke.py)
 CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise only (delta 3)

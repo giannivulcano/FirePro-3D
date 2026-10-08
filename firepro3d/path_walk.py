@@ -22,6 +22,10 @@ from functools import lru_cache
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QPainterPath, QTransform
 
+# Import-safe at module level: stroke_style pulls in only constants and
+# paper_display, neither of which imports path_walk (no cycle).
+from .stroke_style import ENDS
+
 _EPS = 1e-9
 _ELLIPSE_SAMPLES = 512
 
@@ -416,7 +420,6 @@ def end_frame(pieces, which: str, trim: float):
     Raises:
         ValueError: *which* is not one of ``stroke_style.ENDS``.
     """
-    from .stroke_style import ENDS      # local: path_walk stays a leaf module
     if which not in ENDS:
         raise ValueError(f"end_frame: which must be one of {ENDS}, got {which!r}")
     live = [p for p in pieces if length(p) > _EPS]

@@ -23,19 +23,26 @@ from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
 from . import path_walk as pw
-from .constants import END_DEF_CACHE_MAX, END_JOIN_TOL_MM
+from .constants import END_DEF_CACHE_MAX, END_JOIN_TOL_MM, END_XF_CACHE_MAX
 from .render_op import FILL, PATTERN, STROKE, TEXT
 from .stroke_style import ENDS
 
 FIXED = "fixed"
 WEIGHT_RELATIVE = "weight_relative"
 NO_TRIMS = (0.0, 0.0)
+_NO_BRUSH = Qt.BrushStyle.NoBrush
 
 # (id, version) -> (compiled ops list, EndDef); LRU, END_DEF_CACHE_MAX.
 # A hit only when the held list *is* the definition's current one: an origin
 # move recompiles without a version bump (the LinetypeDef idiom); holding the
 # list keeps its identity from being recycled.
 _CACHE: OrderedDict = OrderedDict()
+
+# Value-keyed paint memos (END_XF_CACHE_MAX, cleared when full): pieces are
+# frozen dataclasses hashing by value, so equal geometry hits and an edited
+# stroke (new pieces) misses -- no invalidation needed.
+_XF: dict = {}       # (pieces, which, trim, k, mirrored) -> QTransform | None
+_RECT: dict = {}     # (pieces, ((EndDef | missing id, mirrored), ...), ff, wf, badge) -> QRectF | None
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,8 @@ class EndDef:
         ops: The block's compiled ops -- origin-relative = attach-relative.
         bounds: ``(x0, y0, x1, y1)`` over every op path, unscaled.
         reach: Farthest ``bounds`` corner from the attach point, unscaled.
+        has_stroke: True when any op is a stroke (``_draw_end`` builds its
+            scaled pen copy only then).
     """
     block_id: str
     version: int
@@ -59,6 +68,7 @@ class EndDef:
     ops: tuple
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)
     reach: float = 0.0
+    has_stroke: bool = False
 
     @classmethod
     def from_block(cls, defn) -> "EndDef | None":
@@ -83,7 +93,8 @@ class EndDef:
         reach = max(math.hypot(x, y) for x in (b[0], b[2]) for y in (b[1], b[3]))
         res = cls(defn.id, defn.version,
                   WEIGHT_RELATIVE if cap.get("size") == WEIGHT_RELATIVE else FIXED,
-                  float(cap.get("trim", 0.0)), tuple(ops), b, reach)
+                  float(cap.get("trim", 0.0)), tuple(ops), b, reach,
+                  any(op.kind == STROKE for op in ops))
         _CACHE[key] = (ops, res)
         _CACHE.move_to_end(key)
         while len(_CACHE) > END_DEF_CACHE_MAX:
@@ -125,6 +136,22 @@ def _frame_xf(at, outward, k: float, mirrored: bool) -> QTransform:
     return t
 
 
+def _end_xf(pieces, which: str, trim: float, k: float,
+            mirrored: bool) -> QTransform | None:
+    """The end frame transform of one end (``_frame_xf`` at
+    ``path_walk.end_frame``), memoised on its inputs; None when the stroke
+    has no frame (no / zero-length pieces)."""
+    key = (pieces, which, trim, k, mirrored)
+    t = _XF.get(key, False)
+    if t is False:
+        fr = pw.end_frame(pieces, which, trim)
+        t = _frame_xf(fr[0], fr[1], k, mirrored) if fr is not None else None
+        if len(_XF) >= END_XF_CACHE_MAX:
+            _XF.clear()
+        _XF[key] = t
+    return t
+
+
 def _alpha(col: QColor, alpha: int) -> QColor:
     c = QColor(col)
     c.setAlphaF(col.alphaF() * alpha / 255.0)
@@ -133,23 +160,32 @@ def _alpha(col: QColor, alpha: int) -> QColor:
 
 def _draw_end(painter, ed: EndDef, t: QTransform, k: float, pen: QPen,
               scene) -> None:
-    """Draw *ed*'s ops under end frame *t* with the using line's *pen*."""
-    sp = QPen(pen)
-    if not sp.isCosmetic():
-        sp.setWidthF(pen.widthF() / k)    # the frame's scale(k) must not widen it
-    col = QColor(pen.color())
+    """Draw *ed*'s ops under end frame *t* with the using line's *pen*.
+
+    Lean (LT5 perf): the scaled pen copy only for an end with a stroke op;
+    an opaque fill paints the pen colour straight (no alpha copy / brush).
+    """
+    sp = None
+    if ed.has_stroke:
+        sp = pen
+        if not pen.isCosmetic():
+            sp = QPen(pen)
+            sp.setWidthF(pen.widthF() / k)  # the frame's scale(k) must not widen it
+    col = pen.color()
     painter.save()
     try:
         painter.setWorldTransform(t, True)
         for op in ed.ops:
-            if op.kind == STROKE:
+            kind = op.kind
+            if kind == FILL:
+                painter.fillPath(op.path, col if op.alpha == 255
+                                 else QBrush(_alpha(col, op.alpha)))
+            elif kind == STROKE:
                 painter.setPen(sp)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setBrush(_NO_BRUSH)
                 painter.drawPath(op.path)
-            elif op.kind == TEXT:
-                painter.fillPath(op.path, QBrush(col))
-            elif op.kind == FILL:
-                painter.fillPath(op.path, QBrush(_alpha(col, op.alpha)))
+            elif kind == TEXT:
+                painter.fillPath(op.path, col)
             elif op.kind == PATTERN:
                 _hr.paint_fill(painter, op.path, scene=scene,
                                tile_ref=op.tile_ref, colour=_alpha(col, op.alpha),
@@ -183,16 +219,34 @@ def paint_ends(painter, pieces, ends, pen, *, fixed_factor: float,
         k = end_scales(ed, fixed_factor=fixed_factor, weight_factor=weight_factor)
         if not _ok(k):
             continue
-        fr = pw.end_frame(pieces, which, ed.trim * k)
-        if fr is None:
+        t = _end_xf(pieces, which, ed.trim * k, k, e.mirrored)
+        if t is None:
             continue
-        _draw_end(painter, ed, _frame_xf(fr[0], fr[1], k, e.mirrored), k, pen, scene)
+        _draw_end(painter, ed, t, k, pen, scene)
 
 
 def ends_rect(pieces, ends, *, fixed_factor: float, weight_factor: float,
               badge: float = 0.0) -> QRectF | None:
     """Painter-local bounds of the ends drawn on *pieces* (exact frame-mapped
-    op bounds; a missing end: +-*badge* around its attach point), or None."""
+    op bounds; a missing end: +-*badge* around its attach point), or None.
+
+    Memoised on (pieces, each end's ``EndDef`` / missing id + mirrored,
+    factors, badge) -- every input -- returning a copy (callers may adjust
+    it)."""
+    key = (pieces, tuple((EndDef.from_block(e.defn) if e.defn is not None
+                          else e.missing_id, e.mirrored) for e in ends),
+           fixed_factor, weight_factor, badge)
+    r = _RECT.get(key, False)
+    if r is False:
+        r = _ends_rect(pieces, ends, fixed_factor, weight_factor, badge)
+        if len(_RECT) >= END_XF_CACHE_MAX:
+            _RECT.clear()
+        _RECT[key] = r
+    return QRectF(r) if r is not None else None
+
+
+def _ends_rect(pieces, ends, fixed_factor, weight_factor, badge) -> QRectF | None:
+    """``ends_rect``'s uncached body."""
     r = None
     for which, e in zip(ENDS, ends):
         q = None
@@ -207,11 +261,10 @@ def ends_rect(pieces, ends, *, fixed_factor: float, weight_factor: float,
             if ed is not None:
                 k = end_scales(ed, fixed_factor=fixed_factor,
                                weight_factor=weight_factor)
-                fr = pw.end_frame(pieces, which, ed.trim * k) if _ok(k) else None
-                if fr is not None:
+                t = _end_xf(pieces, which, ed.trim * k, k, e.mirrored) if _ok(k) else None
+                if t is not None:
                     x0, y0, x1, y1 = ed.bounds
-                    q = _frame_xf(fr[0], fr[1], k, e.mirrored).mapRect(
-                        QRectF(x0, y0, x1 - x0, y1 - y0))
+                    q = t.mapRect(QRectF(x0, y0, x1 - x0, y1 - y0))
         if q is not None:
             r = q if r is None else r.united(q)
     return r
