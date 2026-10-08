@@ -60,6 +60,8 @@ class LinetypeDef:
     dash_weight: str | None
     size: str              # "drafting" | "model"
     screen: str = "scale"  # "fixed" | "scale" (LTS-1)
+    start_end: str | None = None    # default start end id (LT5 Q11)
+    finish_end: str | None = None   # default finish end id (LT5 Q11)
 
     # (id, version, origin) -> (primitives list, LinetypeDef | None); LRU,
     # LINETYPE_DEF_CACHE_MAX. Origin is in the key: the origin setter moves
@@ -103,9 +105,11 @@ class LinetypeDef:
             dash_weight = None
             if weights:
                 dash_weight = max(weights, key=_pd.resolve_line_weight_mm)
+            ends = rep.get("ends") or {}
             res = cls(defn.id, defn.version, length, tuple(sorted(dashes)),
                       tuple(sorted(dots)), dash_weight, rep["size"],
-                      rep.get("screen", "scale"))
+                      rep.get("screen", "scale"),
+                      start_end=ends.get("start"), finish_end=ends.get("finish"))
         cls._CACHE[key] = (defn.primitives, res)
         cls._CACHE.move_to_end(key)
         while len(cls._CACHE) > LINETYPE_DEF_CACHE_MAX:
