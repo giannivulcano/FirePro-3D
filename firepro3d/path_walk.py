@@ -352,3 +352,106 @@ def point_at_total(pieces, s: float) -> QPointF | None:
     if last is not None:
         return point_at(last, length(last))
     return point_at(pieces[0], 0.0)
+
+
+# ── LT5: stroke ends ──────────────────────────────────────────────────────
+
+def tangent_at(p, s: float) -> tuple[float, float]:
+    """Unit direction of travel of *p* at arc length *s* (piece frame).
+
+    Follows ``point_at``'s parametrisation: a Seg runs (x0, y0) -> (x1, y1)
+    as given (never canonicalised); an Arc / EllipseArc runs from ``a0`` /
+    ``t0`` by +s -- on Qt's Y-down circle the point at angle ``a`` is
+    ``(cx + r cos a, cy - r sin a)``, so its s-derivative is
+    ``(-sin a, -cos a)``; a Curve takes the flattened segment at *s*
+    (zero-length segments skipped, looking forward first). ``(0.0, 0.0)``
+    for a degenerate piece.
+    """
+    if isinstance(p, Seg):
+        dx, dy = p.x1 - p.x0, p.y1 - p.y0
+    elif isinstance(p, Arc):
+        if p.r <= _EPS:
+            return (0.0, 0.0)
+        a = math.radians(p.a0) + s / p.r
+        dx, dy = -math.sin(a), -math.cos(a)
+    elif isinstance(p, EllipseArc):
+        if _ellipse_table(p.rx, p.ry)[-1] <= _EPS:
+            return (0.0, 0.0)
+        t = math.radians(_ellipse_t_of_s(
+            p.rx, p.ry, _ellipse_s_of_t(p.rx, p.ry, p.t0) + s))
+        f = _ellipse_frame(p)
+        o = f.map(QPointF(0.0, 0.0))
+        v = f.map(QPointF(-p.rx * math.sin(t), -p.ry * math.cos(t)))
+        dx, dy = v.x() - o.x(), v.y() - o.y()
+    else:
+        pts = p.pts
+        if len(pts) < 2:
+            return (0.0, 0.0)
+        cum = _curve_cum(p)
+        i = max(0, min(bisect.bisect_right(cum, s) - 1, len(cum) - 2))
+        dx = dy = 0.0
+        for j in [*range(i, len(pts) - 1), *range(i - 1, -1, -1)]:
+            (x0, y0), (x1, y1) = pts[j], pts[j + 1]
+            if math.hypot(x1 - x0, y1 - y0) > _EPS:
+                dx, dy = x1 - x0, y1 - y0
+                break
+    n = math.hypot(dx, dy)
+    return (dx / n, dy / n) if n > _EPS else (0.0, 0.0)
+
+
+def end_frame(pieces, which: str, trim: float):
+    """Attach point + outward unit vector of one stroke end (LT5 Q5 / Q6).
+
+    *which* is ``"start"`` (s = 0 of the first live piece) or ``"finish"``
+    (the end of the last). +X of the end block is *outward*: with *trim* > 0
+    -X runs from the endpoint to the point *trim* along the path (clamped to
+    the length) -- the chord; with *trim* == 0, or a zero chord (an open
+    path whose trim point lands back on its end), the endpoint tangent
+    pointing off the stroke. Zero-length pieces are skipped.
+
+    Returns:
+        ``(attach QPointF, (dx, dy))``, or None for no pieces / a zero-length
+        stroke.
+    """
+    live = [p for p in pieces if length(p) > _EPS]
+    total = total_length(live)
+    if not live or total <= _EPS:
+        return None
+    start = which == "start"
+    at = point_at(live[0], 0.0) if start else point_at(live[-1], length(live[-1]))
+    t = min(max(float(trim), 0.0), total)
+    if t > _EPS:
+        q = point_at_total(live, t if start else total - t)
+        dx, dy = at.x() - q.x(), at.y() - q.y()
+        n = math.hypot(dx, dy)
+        if n > _EPS:
+            return at, (dx / n, dy / n)
+    if start:
+        tx, ty = tangent_at(live[0], 0.0)
+        return at, (-tx, -ty)
+    return at, tangent_at(live[-1], length(live[-1]))
+
+
+def trim_pieces(pieces, s0: float, s1: float) -> tuple:
+    """*pieces* with *s0* cut from the start and *s1* from the end (LT5).
+
+    Cross-piece on ``split``. A piece kept whole is returned as the same
+    object (caches keyed on pieces still hit); zero-length pieces drop out
+    once trimming. Negative trims read 0; both <= 0 returns *pieces*
+    unchanged (as a tuple); ``s0 + s1`` >= the total length returns ``()``.
+    """
+    s0, s1 = max(float(s0), 0.0), max(float(s1), 0.0)
+    if s0 <= 0.0 and s1 <= 0.0:
+        return tuple(pieces)
+    hi_total = total_length(pieces) - s1
+    if s0 >= hi_total - _EPS:
+        return ()
+    out, off = [], 0.0
+    for p in pieces:
+        L = length(p)
+        a, b = max(s0 - off, 0.0), min(hi_total - off, L)
+        off += L
+        if b - a <= _EPS:
+            continue
+        out.append(p if (a <= 0.0 and b >= L) else split(p, a, b))
+    return tuple(out)
