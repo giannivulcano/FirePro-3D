@@ -250,6 +250,38 @@ def is_end_ref(e) -> bool:
             and e not in END_KEYWORDS and e != BY_BLOCK)
 
 
+def clear_explicit_ends(style) -> bool:
+    """Reset *style*'s explicit end ids to By Linetype, in place (LT5).
+
+    ``visible`` and ``mirrored`` are kept; ``none`` / By Linetype are left
+    alone. Used where an end can never draw: a stroke that became closed
+    (user ruling 2026-10-08) and the content of an end type, linetype unit
+    or pattern tile (Q8 / seam I3), so the id stops counting as a use.
+
+    Args:
+        style: A style record (anything else is a no-op).
+
+    Returns:
+        True if any end changed.
+    """
+    if not isinstance(style, dict):
+        return False
+    changed = False
+    for w in ENDS:
+        rec = style.get(w)
+        if isinstance(rec, dict) and is_end_ref(rec.get("end")):
+            style[w] = {**rec, "end": BY_LINETYPE}
+            changed = True
+    return changed
+
+
+def has_explicit_ends(style) -> bool:
+    """True when *style* names an end block id at either end (LT5)."""
+    return isinstance(style, dict) and any(
+        isinstance(style.get(w), dict) and is_end_ref(style[w].get("end"))
+        for w in ENDS)
+
+
 def end_block(ref, registry):
     """The registry block *ref* names when it has an ``end`` capability,
     else None (absent, a linetype / pattern / plain block -> "missing")."""

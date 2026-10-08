@@ -363,6 +363,23 @@ class Geometry2DMixin:
         closed rule, ``stroke_style.open_stroke``."""
         return open_stroke(self)
 
+    def _closed_clears_ends(self) -> None:
+        """A stroke that is now closed drops its explicit end ids (user
+        ruling 2026-10-08): they could never draw, yet would count as uses.
+
+        Called from the open -> closed chokepoints (``PolylineItem.close``,
+        ``ArcItem._rebuild_path``, ``SplineItem._regenerate``) before the
+        path is set, so the change rides the same undo step as the close.
+        ``visible`` / ``mirrored`` are kept.
+        """
+        from .stroke_style import clear_explicit_ends, has_explicit_ends
+        st = getattr(self, "style", None)
+        f = getattr(self, "is_closed", None)
+        if not (has_explicit_ends(st) and callable(f) and f()):
+            return
+        self.prepareGeometryChange()            # the ends leave the bounds
+        clear_explicit_ends(st)
+
     def _item_ends(self, rs=None):
         """This stroke's resolved ``(start, finish)`` ends (LT5).
 
@@ -1191,6 +1208,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """Flag the polyline closed (needs ≥3 vertices).  Idempotent."""
         if len(self._points) >= 3:
             self._closed = True
+            self._closed_clears_ends()            # LT5: closed -> no ends
             self._rebuild_path()
 
     def stroke_pieces(self) -> tuple:
@@ -2382,6 +2400,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._rebuild_path()
 
     def _rebuild_path(self):
+        self._closed_clears_ends()                # LT5: a 360 deg arc is closed
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         path = QPainterPath()
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
@@ -3535,6 +3554,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._regenerate()
 
     def _regenerate(self):
+        self._closed_clears_ends()            # LT5: a spline that closes
         self._stroke_pieces_cache = None      # stroke_pieces() memo (LT3 H3-b)
         self.setPath(_bspline_path(self._control_points, self._degree,
                                    self._knots, self._weights,
