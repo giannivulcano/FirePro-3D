@@ -172,3 +172,89 @@ def test_missing_end_badge_is_canvas_only(qapp, monkeypatch):
     assert amber > 10
     monkeypatch.setattr(pdm, "_THIN_SUSPEND", 1)        # a live paper pass
     assert _paint(ends, _pen()) == _blank()
+
+
+def test_item_ends_fast_path_is_only_ever_a_shortcut(qapp):
+    """``_item_ends`` returns NO_ENDS (both the paint gate and the
+    boundingRect gate) only where the resolver draws nothing; otherwise it
+    IS the resolver's answer -- over every slot shape x linetype."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    from firepro3d.stroke_style import NO_ENDS, has_ends, resolve_ends, resolve_stroke
+    a = arrow()
+    plain_lt = make_linetype()
+    lt = make_linetype(name="WithEnd")
+    lt.set_repeat({**lt.repeat, "ends": {"start": a.id, "finish": a.id}})
+    ms = Model_Space(scene_role="block_editor")
+    for d in (a, plain_lt, lt):
+        ms.register_block_definition(d)
+    reg = ms.block_registry
+    recs = [None, "junk", {}, {"end": None}, {"end": ""}, {"end": "by_linetype"},
+            {"end": "by_block"}, {"end": "none"}, {"end": a.id},
+            {"end": "deadbeef"}, {"end": a.id, "visible": False},
+            {"end": "by_linetype", "visible": False}, {"end": 7}]
+    n_short = n_draw = 0
+    for ref in ("continuous", plain_lt.id, lt.id, "gone-lt"):
+        for r0 in recs:
+            for r1 in (None, {"end": "none"}, {"end": a.id}, {"end": "by_linetype"}):
+                ln = LineItem(QPointF(0.0, 0.0), QPointF(10.0, 0.0))
+                ms.addItem(ln)
+                ln.style["linetype"] = ref
+                ln.style["start"], ln.style["finish"] = r0, r1
+                truth = resolve_ends(ln.style, resolve_stroke(ln.style, reg).lt, reg)
+                for got in (ln._item_ends(ln._resolved_stroke()), ln._item_ends()):
+                    if got is NO_ENDS:
+                        n_short += 1
+                        assert not has_ends(truth), (ref, r0, r1, truth)
+                    else:
+                        n_draw += 1
+                        assert got == truth, (ref, r0, r1)
+                ms.removeItem(ln)
+    assert n_short > 50 and n_draw > 50                  # both branches exercised
+
+
+def test_has_default_ends_gate_without_copies(qapp):
+    a = arrow()
+    plain_lt = make_linetype()
+    lt = make_linetype(name="WithEnd")
+    lt.set_repeat({**lt.repeat, "ends": {"finish": a.id}})
+    reg = {d.id: d for d in (a, plain_lt, lt)}
+    assert (plain_lt.has_default_ends, lt.has_default_ends, a.has_default_ends) == (
+        False, True, False)
+    assert er.linetype_has_default_end(lt.id, reg)
+    assert not er.linetype_has_default_end(plain_lt.id, reg)
+    assert not er.linetype_has_default_end(a.id, reg)        # not a linetype
+    assert not er.linetype_has_default_end("deadbeef", reg)
+    assert not er.linetype_has_default_end(lt.id, None)
+
+
+def test_item_ends_paint_and_bounds_gates_agree(qapp):
+    """The paint gate (rs.lt defaults) and the boundingRect gate (registry)
+    return the same ends for every slot / linetype combination."""
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    from firepro3d.stroke_style import NO_ENDS
+    from PyQt6.QtCore import QPointF
+    from tests.lt5_support import set_ends
+    a = arrow()
+    plain_lt = make_linetype()
+    lt = make_linetype(name="WithEnd")
+    lt.set_repeat({**lt.repeat, "ends": {"start": a.id}})
+    ms = Model_Space(scene_role="block_editor")
+    for d in (a, plain_lt, lt):
+        ms.register_block_definition(d)
+    for ref in ("continuous", plain_lt.id, lt.id, "deadbeef"):
+        for start, finish in ((None, None), ("none", "none"), (a.id, None),
+                              (None, "gone"), ("by_linetype", "none")):
+            ln = LineItem(QPointF(0.0, 0.0), QPointF(10.0, 0.0))
+            ln.style["linetype"] = ref
+            set_ends(ln, start=start, finish=finish)
+            ms.addItem(ln)
+            via_rs = ln._item_ends(ln._resolved_stroke())
+            via_reg = ln._item_ends()
+            assert via_rs == via_reg, (ref, start, finish)
+            if ref == lt.id and start in (None, "by_linetype"):
+                assert via_rs[0].defn is a                   # the default drew
+            if start in (None, "none", "by_linetype") and finish in (None, "none")                     and ref != lt.id:
+                assert via_rs is NO_ENDS

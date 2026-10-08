@@ -29,12 +29,16 @@ from . import end_render as _er
 from .linetype_render import badge_pad_px, printed_factor
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
 from .scale_manager import ScaleManager
-from .stroke_style import (BY_LINETYPE, NO_ENDS, canvas_px, canvas_weight_name,
-                           has_ends, is_linetype_ref, linetype_block, open_stroke,
+from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
+                           canvas_weight_name, has_ends,
+                           is_linetype_ref, linetype_block, open_stroke,
                            resolve_ends, resolve_stroke, toggle_mirrored)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
+# End-slot values that are never an end-block id (stroke_style.is_end_ref):
+# the LT5 _item_ends fast-path gate.
+_NON_ID_ENDS = frozenset((*END_KEYWORDS, BY_BLOCK, ""))
 _AA = QPainter.RenderHint.Antialiasing
 _log = logging.getLogger(__name__)
 # Controllers whose tint lookup already failed and was logged (log once each).
@@ -175,7 +179,9 @@ class Geometry2DMixin:
         # Unresolvable linetype id seen at the last paint (badge, LT3-10) and
         # the id the item's tooltip currently names (sync_missing_tooltip).
         self._lt_missing: str | None = None
-        self._lt_tip_id: str | None = None
+        # str (a linetype id) or, while an end type is missing (LT5),
+        # ``(missing_id, end_ids)`` -- linetype_render.sync_missing_tooltip.
+        self._lt_tip_id: str | tuple | None = None
         # LT5: ((trims, pieces), path) of the Continuous stroke trimmed for
         # its ends, and that path's crisp split (lazy) -- an untrimmed stroke
         # never touches either (the base path keeps _mw_split_cache).
@@ -219,9 +225,11 @@ class Geometry2DMixin:
         base = super().boundingRect()
         if not isinstance(self, (QAbstractGraphicsShapeItem, QGraphicsLineItem)):
             return base
-        ends_r = self._ends_rect()          # LT5: None for every end-less stroke
-        if ends_r is not None:
-            base = base.united(ends_r)
+        ends = self._item_ends()            # LT5: NO_ENDS for every end-less stroke
+        if ends is not NO_ENDS:
+            ends_r = self._ends_rect(ends)
+            if ends_r is not None:
+                base = base.united(ends_r)
         pen = self.pen()
         if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
             return base
@@ -367,16 +375,32 @@ class Geometry2DMixin:
         st = self.style
         if st is None or self._ghost_pen:
             return NO_ENDS
+        # Hot (every paint + boundingRect): inline, no helper calls. A slot
+        # names an end only via a visible end-block id (is_end_ref); without
+        # one, only a linetype default can draw -- and never when both slots
+        # are "none". Returning NO_ENDS is only ever a shortcut for "the
+        # resolver draws nothing"; anything else goes through resolve_ends.
         s, f = st.get("start"), st.get("finish")
+        es = s.get("end") if s.__class__ is dict else None
+        ef = f.get("end") if f.__class__ is dict else None
         reg = None
-        if ((s.get("end") if s else BY_LINETYPE) == BY_LINETYPE
-                and (f.get("end") if f else BY_LINETYPE) == BY_LINETYPE):
-            ref = st.get("linetype")
-            if not is_linetype_ref(ref):
-                return NO_ENDS
-            reg = self._tile_registry()
-            if not _er.linetype_has_default_end(ref, reg):
-                return NO_ENDS
+        if not ((es.__class__ is str and es not in _NON_ID_ENDS
+                 and s.get("visible", True))
+                or (ef.__class__ is str and ef not in _NON_ID_ENDS
+                    and f.get("visible", True))):
+            if es == NONE and ef == NONE:
+                return NO_ENDS                   # both None: no lookup
+            if rs is not None:                   # paint: the resolved reading
+                lt = rs.lt
+                if lt is None or not (lt.start_end or lt.finish_end):
+                    return NO_ENDS
+            else:                                # boundingRect: registry gate
+                ref = st.get("linetype")
+                if not is_linetype_ref(ref):
+                    return NO_ENDS
+                reg = self._tile_registry()
+                if not _er.linetype_has_default_end(ref, reg):
+                    return NO_ENDS
         if not self._ends_open():
             return NO_ENDS
         if reg is None:
@@ -385,16 +409,18 @@ class Geometry2DMixin:
             rs = resolve_stroke(st, reg)
         return resolve_ends(st, rs.lt, reg)
 
-    def _ends_rect(self) -> QRectF | None:
+    def _ends_rect(self, ends=None) -> QRectF | None:
         """Item-local bounds of the ends this item draws (LT5), or None.
 
         Fixed ends: their exact extent at this surface's printed factor;
         weight-relative ones at the pen width converted at the current view
         zoom (the cosmetic-pad convention); a missing end: the badge pad
         around its attach point. Non-cosmetic (paper) pens add half their
-        width here (the Qt base only pads its own path).
+        width here (the Qt base only pads its own path). *ends* is the
+        caller's ``_item_ends()`` when it has one.
         """
-        ends = self._item_ends()
+        if ends is None:
+            ends = self._item_ends()
         if ends is NO_ENDS or not has_ends(ends):
             return None
         pen = self.pen()

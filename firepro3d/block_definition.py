@@ -382,6 +382,12 @@ class BlockDefinition:
         not a linetype. A deep copy (``ends`` is a nested dict)."""
         return copy.deepcopy(self._repeat) if self._repeat else None
 
+    @property
+    def has_default_ends(self) -> bool:
+        """True when this is a linetype whose repeat names a default end
+        (LT5 Q11) -- the paint fast-path gate; no copy of the record."""
+        return bool(self._repeat and self._repeat.get("ends"))
+
     def set_repeat(self, repeat, *, notify: bool = True) -> None:
         """Replace the repeat record, bump the version (linetype caches key on it).
 

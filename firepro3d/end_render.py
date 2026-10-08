@@ -25,7 +25,7 @@ from . import paper_display as _pd
 from . import path_walk as pw
 from .constants import END_DEF_CACHE_MAX, END_JOIN_TOL_MM
 from .render_op import FILL, PATTERN, STROKE, TEXT
-from .stroke_style import ENDS, linetype_block
+from .stroke_style import ENDS
 
 FIXED = "fixed"
 WEIGHT_RELATIVE = "weight_relative"
@@ -259,6 +259,7 @@ def trimmed_path(pieces, s0: float, s1: float) -> QPainterPath:
 def linetype_has_default_end(ref, registry) -> bool:
     """True when linetype *ref* resolves to a linetype block whose repeat
     record names a default end -- the LT5 fast-path gate (False for every
-    pre-LT5 linetype)."""
-    d = linetype_block(ref, registry)
-    return d is not None and bool((d.repeat or {}).get("ends"))
+    pre-LT5 linetype). Hot (every paint / boundingRect of a linetyped
+    end-less line): one registry get, no repeat-record copy."""
+    d = registry.get(ref) if registry is not None else None
+    return d is not None and bool(getattr(d, "has_default_ends", False))
