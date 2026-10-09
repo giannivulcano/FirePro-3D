@@ -455,15 +455,23 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene._sheets = [Sheet.create_default()]
         self.sheet_mgr = SheetManager(self.scene._sheets)
         self._sheet = self.sheet_mgr.sheets[0]
+        # One render scene per placed schematic (schematics.md D-S10, SV2);
+        # outlives every PaperScene, incl. export temp scenes.
+        from firepro3d.schematic_scene import SchematicSceneManager
+        self.schematic_scenes = SchematicSceneManager(self.scene)
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
             level_manager=self.level_mgr,
+            schematic_scenes=self.schematic_scenes,
         )
         self.paper_space_widget = PaperSpaceWidget(
             self._sheet, self._view_resolver)
         self.paper_space_widget.navigate_to_view.connect(
             self._navigate_to_source_view)
+        # Schematic viewports follow definition edits / rename / undo (SV2).
+        self.scene.blockDefinitionsChanged.connect(
+            self._refresh_schematic_viewports)
 
         # Sheet-text template (pipe/sprinkler pattern) + paper selection wiring
         self.current_text_template = TextItem(TextAnnotationData())
@@ -1077,6 +1085,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.detail_manager.open_detail(view_name)
         elif view_type == "elevation":
             self.elevation_manager.open_elevation(view_name.lower())
+        elif view_type == "schematic":
+            # D-S10: non-navigable into the model — open its editor tab.
+            self._open_schematic(view_name)
 
     def _activate_plan_view(self, level_name: str):
         """Open or switch to a Plan: <level> tab.
@@ -4002,10 +4013,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._activate_plan_view(active)
         # Restore sheet from loaded project, resolver first so rebuilt
         # viewports capture it (resolver-rebind fix).
+        self.schematic_scenes.dispose_all()     # previous project's renders
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
             level_manager=self.level_mgr,
+            schematic_scenes=self.schematic_scenes,
         )
         # scene.load_from_file replaced scene._sheets with a NEW list —
         # rebind the manager over it (empty list → manager seeds a default
@@ -4242,6 +4255,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Reset the paper sheet to a blank default and rebuild the paper scene
         # (same swap mechanism as _load_project). update_from_sheet() clears the
         # paper-space undo stack, so the fresh sheet starts with no history.
+        self.schematic_scenes.dispose_all()
         self.scene._sheets = [Sheet.create_default()]
         self.sheet_mgr = SheetManager(self.scene._sheets)
         self._sheet = self.sheet_mgr.sheets[0]
@@ -5308,6 +5322,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.project_browser.refresh_schematics(rows)
         self.block_editor_manager.retitle_schematics()
 
+    def _refresh_schematic_viewports(self):
+        """Re-resolve the active sheet's schematic viewports (SV2 delta)."""
+        self.paper_space_widget.paper_scene.refresh_schematic_viewports()
+
     def _new_schematic(self):
         """Browser root ▸ New Schematic…: a blank Schematic editor tab."""
         self._commit_text_edits()
@@ -5537,6 +5555,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         self.save_settings()
         self._cleanup_autosave()
+        self.schematic_scenes.dispose_all()
         # Child widgets don't receive closeEvent; release the 3D view's VTK
         # render window explicitly so its GL context doesn't leak past teardown.
         if hasattr(self, "view_3d"):
