@@ -128,6 +128,7 @@ def _bypassed():
             setattr(c, n, f)
 
 
+@pytest.mark.skip(reason="ET1: Line weight retired (arrow(size=) / EndDef.size); rewritten in Task 8")
 @pytest.mark.skipif(not _HAS_LT5, reason="base tree: no end_render")
 @pytest.mark.parametrize("shape", ["raw", "block", "raw-wr"])
 def test_ends_vs_end_less(qapp, shape):

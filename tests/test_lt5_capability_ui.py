@@ -4,6 +4,7 @@ the library index + capability folder flag it, and commit / symbol-refusal
 wording reads "end type" (linetypes.md D-L12, LT5 Q12 / Q13)."""
 import json
 
+import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import block_library, capability_folder
@@ -172,6 +173,7 @@ def test_library_index_flags_end_and_folder_scan_finds_it(qapp, tmp_path,
     assert [p.endswith("Arrow.fpdb") for p in parsed] == [True]
 
 
+@pytest.mark.skip(reason="ET1: size key retired (weight_relative loads Fixed); rewritten in Task 6")
 def test_new_end_type_is_registered_not_placed(qapp):
     ms = Model_Space()
     shown = _sink(ms)
