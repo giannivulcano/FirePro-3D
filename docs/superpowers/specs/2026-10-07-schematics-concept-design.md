@@ -173,13 +173,21 @@ the NTS box" clash; the deferred rebuild; `definition.name` always painted).
   `blockDefinitionsChanged` handler or synchronously inside `resolve()`
   (reconnect / drop / export — never mid-paint), so PDF export always sees the
   current definition and no deferred-rebuild machinery exists. Paint-time
-  `_effective_crop` reads the cached extent (`ViewResolver.schematic_extent`).
+  `_effective_crop` reads the extent captured at the last reconnect (the
+  detail precedent).
 - **Extent** = `geometry_import.geometric_bounds` over the materialized
   primitives minus scaffolding (the editor-fit bound: no origin cross, no pen
-  slop); empty → the 1000×1000 default rect.
-- **Rename repaint.** On `blockDefinitionsChanged` the manager `update()`s
-  every live render scene (viewports repaint the live title) and disposes
-  scenes whose id vanished or is no longer a schematic.
+  slop), padded 2 % per side (min 1 mm) so edge strokes are not half-clipped,
+  degenerate axes grown to the pad; empty → the 1000×1000 default rect.
+  Recomputed on every `resolve()` (cheap), so a nested block's edit re-fits too.
+- **Viewport refresh (rename, re-fit, undo placeholder).** `MainWindow`
+  connects `blockDefinitionsChanged` → `PaperScene.refresh_schematic_viewports()`,
+  which re-runs `_reconnect_source()` on every schematic viewport (fresh
+  extent, scaled-box re-fit via `_recompute_size_from_scale`, placeholder when
+  the id vanished, restore on redo) and repaints (live title). The manager's
+  own handler disposes scenes whose id vanished or is no longer a schematic.
+  (Plan-time refinement 2026-10-08 of the ratified delta — same behaviour,
+  simpler mechanism.)
 - **Materializer home.** `schematic_scene.py` owns `_CLS_TO_LIST` (moved from
   `block_editor`, re-imported there), `add_primitive(scene, item)` and
   `materialize_primitives(scene, dicts)`; `BlockEditorWidget._add_primitive` /
