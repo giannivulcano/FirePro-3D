@@ -87,6 +87,7 @@ def test_scene_for_materializes_and_is_reused(qapp):
     assert mgr.scene_for(sch.id) is sc
     assert sch.id in mgr.live_ids()
     assert sc in proj.block_registry._scenes        # nested repaint path
+    assert sym._instances == []                     # render scenes add no backrefs
 
 
 def test_extent_is_pen_free_bounds_padded(qapp):
@@ -156,3 +157,24 @@ def test_plain_block_and_unknown_id_resolve_to_none(qapp):
     assert mgr.scene_for("nope") is None
     assert mgr.display_name(sch.id) == "Riser"
     assert mgr.display_name(sym.id) is None
+
+
+def test_cache_holds_definition_object_across_undo_redo(qapp):
+    proj, sym, sch, mgr = _mgr()
+    mgr.scene_for(sch.id)
+    assert mgr._keys[sch.id][0] is proj.get_block_definition(sch.id)
+    proj.undo()
+    proj.redo()
+    mgr.scene_for(sch.id)
+    new = proj.get_block_definition(sch.id)
+    assert new is not sch
+    assert mgr._keys[sch.id][0] is new
+
+
+def test_kind_change_disposes_render_scene(qapp):
+    proj, sym, sch, mgr = _mgr()
+    mgr.scene_for(sch.id)
+    sch.kind = "block"
+    proj.blockDefinitionsChanged.emit()
+    assert sch.id not in mgr.live_ids()
+    assert mgr.scene_for(sch.id) is None

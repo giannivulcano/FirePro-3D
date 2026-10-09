@@ -16,11 +16,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
 
 from .model_space import Model_Space
 from .model_view import Model_View
-from .geometry_2d import (
-    LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-    RegularPolygonItem, EllipseItem, SplineItem,
-)
-from .text_item import TextItem
+from .geometry_2d import ReferenceLineItem
 from .block_definition import is_scaffold
 from . import geometry_import
 from .house_dialog import HouseDialog

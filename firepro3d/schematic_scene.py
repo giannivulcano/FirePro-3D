@@ -98,8 +98,8 @@ class SchematicSceneManager:
 
     Each scene is a ``Model_Space(scene_role="block_editor")`` borrowing the
     project registry, materialized from the definition and rebuilt **in
-    place** when the definition changes (cache key ``(id(defn), version)`` --
-    project undo restores new definition objects). Rebuilds happen only in
+    place** when the definition changes (cache key: the definition object
+    (identity) + version -- project undo restores new definition objects). Rebuilds happen only in
     :meth:`scene_for` (called from ``ViewResolver.resolve``, never mid-paint).
     Render scenes outlive every ``PaperScene``, including export temp scenes.
 
@@ -142,16 +142,16 @@ class SchematicSceneManager:
         if sc is None:
             from .model_space import Model_Space
             sc = Model_Space(scene_role="block_editor")
-            sc._hatch_paper_scale = None           # declared slot (PaperScene precedent)
+            sc._hatch_paper_scale = None           # explicit: the paper override pass sets/clears it per viewport render
             sc._suppress_preview_node = True
             sc.borrow_block_registry(self._project.block_registry,
                                      owner=self._project)
             self._scenes[block_id] = sc
-        key = (id(d), d.version)
-        if self._keys.get(block_id) != key:
+        cached = self._keys.get(block_id)
+        if cached is None or cached[0] is not d or cached[1] != d.version:
             clear_materialized(sc)
             materialize_primitives(sc, d.primitives)
-            self._keys[block_id] = key
+            self._keys[block_id] = (d, d.version)
         return sc
 
     def extent(self, block_id) -> "QRectF | None":
