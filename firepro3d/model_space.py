@@ -1735,6 +1735,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Number of placed BlockInstances referencing *block_id*."""
         return sum(1 for i in self._block_instances if i.block_id == block_id)
 
+    def schematic_sheet_users(self, block_id: str) -> list[str]:
+        """Sheet numbers holding a viewport of schematic *block_id*, in sheet
+        order (schematics.md D-S11a). Reads ``self._sheets`` — the list
+        ``SheetManager`` wraps."""
+        return [s.number for s in self._sheets
+                if any(sv.source_view_type == "schematic"
+                       and sv.source_view_name == block_id
+                       for sv in s.sheet_views)]
+
     def pattern_use_refusal(self, block_id) -> "str | None":
         """HF2 name of :meth:`symbol_use_refusal` for a tile."""
         return self.symbol_use_refusal(block_id, "tile")
@@ -1787,7 +1796,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def delete_block_definition(self, block_id: str) -> bool:
         """Remove a definition from the project registry.
 
-        Refused (returns False) while any instance references it, any other
+        Refused (returns False) while any instance references it, any sheet
+        holds a viewport of it (schematics, D-S11a), any other
         definition nests it, directly or indirectly (D12), or any live styled
         primitive in the plan or an open Block Editor uses it as its linetype
         (LT3-2) or names it as a start / finish end (LT5) -- see
@@ -1797,6 +1807,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self.instance_count(block_id) > 0:
             return False
+        if self.schematic_sheet_users(block_id):
+            return False                      # D-S11a: placed on a sheet
         if self._block_registry.users_of(block_id):
             return False
         if self.linetype_user_contexts(block_id):
@@ -1940,8 +1952,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             blocks) with "change their linetype override first" (``…
             linetype or linetype override first`` beside line users). An end
             type reads ``“Arrow” is used by 2 lines and 1 linetype — change
-            their ends first.`` (LT5 Q13).
+            their ends first.`` (LT5 Q13). A placed schematic reads
+            ``“Riser” is used on sheets FP-2.0, FP-5.0 — remove its
+            viewports first.`` (D-S11a).
         """
+        sheets = self.schematic_sheet_users(block_id)
+        if sheets:
+            d = self.get_block_definition(block_id)
+            name = d.name if d is not None else block_id
+            return (f"“{name}” is used on sheets {', '.join(sheets)}"
+                    " — remove its viewports first.")
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
         d = self.get_block_definition(block_id)
