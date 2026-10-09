@@ -1168,8 +1168,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # commit_rotate / commit_scale).
             return
         if mode == "place_block" and isinstance(template, str):
-            from .capabilities import capability_place_reason
-            reason = capability_place_reason(self.get_block_definition(template))
+            from .capabilities import place_refusal
+            reason = place_refusal(self.get_block_definition(template))
             if reason is not None:
                 # hatch D-A34 / LT3-2 / LT5 Q12: a pattern fills regions, a
                 # linetype styles lines, an end type finishes them - never a
@@ -2235,19 +2235,32 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         triple must be unique across the registry excluding this definition. On
         success mutates in place (``id``/``version`` untouched), pushes an undo
         state, and emits ``blockDefinitionsChanged``. Returns False on any
-        validation failure (caller reverts the field).
+        validation failure (caller reverts the field). A schematic
+        (schematics.md D-S15) needs only a name; library is stored "" and the
+        name is unique among schematics in its series.
         """
         defn = self._block_definitions.get(block_id)
         if defn is None:
             return False
         name, library, series = name.strip(), library.strip(), series.strip()
-        if not (name and library and series):
-            return False
-        for other in self._block_definitions.values():
-            if other.id == block_id:
-                continue
-            if (other.library, other.series, other.name) == (library, series, name):
+        if defn.kind == "schematic":
+            # D-S15: name required, Series optional, no Library tier; unique
+            # among schematics within the Series.
+            library = ""
+            if not name:
                 return False
+            for other in self._block_definitions.values():
+                if (other.id != block_id and other.kind == "schematic"
+                        and (other.series, other.name) == (series, name)):
+                    return False
+        else:
+            if not (name and library and series):
+                return False
+            for other in self._block_definitions.values():
+                if other.id == block_id:
+                    continue
+                if (other.library, other.series, other.name) == (library, series, name):
+                    return False
         defn.name, defn.library, defn.series = name, library, series
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -2382,7 +2395,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None, capability=None):
+                                constraints=None, capability=None, kind=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -2418,6 +2431,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             capability: ``(kind, dict)`` or None -- tile (D-A32) / repeat
                 (LT4) / end (LT5). A capability block is never placed; dropping a
                 linetype's repeat is refused while lines use it (LT4-5).
+            kind: ``"block"`` or ``"schematic"`` (schematics.md SD1); ``None``
+                = "block" for a new definition / keep the existing kind on
+                edit. A schematic carries no capability and is never placed.
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -2425,14 +2441,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_definition import BlockDefinition
         if not primitives:
             return None
-        kind, data = capability if capability else (None, None)
-        tile = data if kind == "tile" else None
-        repeat = data if kind == "repeat" else None
-        end = data if kind == "end" else None
+        old = self._block_definitions.get(block_id) if block_id else None
+        if old is not None and kind is not None and kind != old.kind:
+            # schematics.md D-S3: a placed/nested block must never silently
+            # become a schematic, nor a schematic a block.
+            return None
+        def_kind = kind or (old.kind if old is not None else "block")
+        if def_kind == "schematic":
+            capability = None                     # D-S14: no capability slot
+            library = ""                          # D-S15: no Library tier
+            place_instance, source_items = False, None   # D-S3: never placed
+        cap_kind, data = capability if capability else (None, None)
+        tile = data if cap_kind == "tile" else None
+        repeat = data if cap_kind == "repeat" else None
+        end = data if cap_kind == "end" else None
         pattern_saved_msg = None
-        if kind is not None:
+        if cap_kind is not None:
             # D-A34 / LT4-11a at save time (the toggle's check can go stale).
-            why = self.symbol_use_refusal(block_id, kind)
+            why = self.symbol_use_refusal(block_id, cap_kind)
             if why is not None:
                 self._show_status(why, 5000)
                 return None
@@ -2441,12 +2467,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # is registered but never placed; a Create-Block-from-selection
                 # source stays untouched.
                 from .capabilities import CAP_INFO
-                noun = CAP_INFO[kind].noun
+                noun = CAP_INFO[cap_kind].noun
                 pattern_saved_msg = (f"Saved {noun} ‘{name}’ — {noun}s "
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
             place_instance, source_items = False, None
-        old = self._block_definitions.get(block_id) if block_id else None
         if old is not None and old.repeat and repeat is None:
             why = self.linetype_off_refusal(block_id)       # LT4-5 save re-check
             if why is not None:
@@ -2462,10 +2487,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
                                        constraints=list(constraints or []),
-                                       tile=tile, repeat=repeat, end=end)
+                                       tile=tile, repeat=repeat, end=end,
+                                       kind=def_kind)
             self.register_block_definition(defn)
         else:
-            defn = self._block_definitions.get(block_id)
+            defn = old
             if defn is None:
                 return None
             # Defence in depth (D8): refuse a save that would nest A in itself.
@@ -2481,6 +2507,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._show_status(why[:1].upper() + why[1:], 5000)
                 return None
             defn.name, defn.library, defn.series = name, library, series
+            defn.kind = def_kind
             defn.origin = (ox, oy)
             defn.constraints = list(constraints or [])
             defn.set_tile(tile, notify=False)
@@ -6510,8 +6537,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""
         if self._place_block_id is None:
             return
-        from .capabilities import capability_place_reason
-        reason = capability_place_reason(
+        from .capabilities import place_refusal
+        reason = place_refusal(
             self.get_block_definition(self._place_block_id))
         if reason is not None:
             # hatch D-A34 / LT3-2 / LT5 Q12: the block became a capability
@@ -8094,10 +8121,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
-                from .capabilities import capability_place_reason
-                _why = capability_place_reason(_d)
+                from .capabilities import place_refusal
+                _why = place_refusal(_d)
                 if _why is not None:
-                    # became a pattern / linetype / end type since the copy
+                    # became a pattern / linetype / end type / schematic since the copy
                     pattern_skipped += 1
                     skip_reason = _why
                 elif _d is not None:

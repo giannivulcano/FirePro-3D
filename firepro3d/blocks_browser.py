@@ -316,6 +316,8 @@ class BlocksBrowser(QWidget):
             for ser in series:
                 node.setdefault(ser, [])
         for b in registry.values():
+            if b.kind == "schematic":
+                continue          # Project Browser only (schematics.md D-S4)
             tree.setdefault(b.library, {}).setdefault(b.series, []).append(
                 (b.name, b.id, None))
         for lib, ser, name, block_id, path in library_only_entries(

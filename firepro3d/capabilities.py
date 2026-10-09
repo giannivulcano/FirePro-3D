@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from .block_library import END_REASON, LINETYPE_REASON, PATTERN_REASON
+from .block_library import END_REASON, LINETYPE_REASON, PATTERN_REASON, SCHEMATIC_REASON
 
 
 class Cap(NamedTuple):
@@ -71,6 +71,22 @@ def capability_place_reason(defn) -> str | None:
     """Why *defn* can't be placed as a symbol, or None (D-A34 / LT3-2 / LT5 Q12)."""
     kind = kind_of(defn)
     return CAP_INFO[kind].place_reason if kind else None
+
+
+#: Refusal for a capability toggle in a Schematic editor (schematics.md D-S14).
+SCHEMATIC_CAP_REASON = "Schematics can't be patterns, linetypes or end types"
+
+
+def place_refusal(defn) -> str | None:
+    """Why *defn* can't be placed or nested as a symbol, or None.
+
+    The one placement gate (schematics.md SD1): a schematic is never
+    instanced (D-S3); otherwise the capability refusal (D-A34 / LT3-2 /
+    LT5 Q12) applies.
+    """
+    if getattr(defn, "kind", "block") == "schematic":
+        return SCHEMATIC_REASON
+    return capability_place_reason(defn)
 
 
 def with_article(kind: str) -> str:

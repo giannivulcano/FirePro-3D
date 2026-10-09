@@ -688,3 +688,103 @@ def test_nested_drag_save_renders_in_plan_and_follows_B_saves(qapp, tmp_path):
             if w is not None:
                 w.editor_scene.cleanup()
         v.close(); proj.cleanup(); QApplication.processEvents()
+
+
+# -- SV1 G2: a schematic is refused by the real drop path (schematics D-S3) ----
+def _schematic_def(name="Riser"):
+    return BlockDefinition.new(
+        name=name, library="", series="",
+        primitives=[LineItem(QPointF(0, 0), QPointF(100, 0)).to_dict()],
+        origin=(0.0, 0.0), kind="schematic")
+
+
+def _block_mime(block_id):
+    """The Blocks browser's payload shape (pinned by
+    test_block_leaf_mime_carries_id). The browser hides schematics (D-S4),
+    so the payload is built directly -- the only way a schematic id could
+    reach a canvas is a stale or foreign drag."""
+    from PyQt6.QtCore import QMimeData
+    from firepro3d.mime_types import MIME_BLOCK
+    m = QMimeData()
+    m.setData(MIME_BLOCK, json.dumps({"id": block_id, "path": None}).encode())
+    return m
+
+
+def test_g2_schematic_drag_refused_on_plan_view(qapp):
+    from firepro3d.block_library import SCHEMATIC_REASON
+    sc = Model_Space()
+    s = _schematic_def()
+    p = _line_def("P")
+    sc.register_block_definition(s)
+    sc.register_block_definition(p)
+    v = _shown(sc)
+    msgs = []
+    sc.instructionChanged.connect(msgs.append)
+    mode_before = sc.mode
+    try:
+        assert not _drag(v, _block_mime(s.id), [QPointF(10, 10), QPointF(40, 40)])
+        assert SCHEMATIC_REASON in msgs
+        assert sc.instance_count(s.id) == 0 and sc._block_instances == []
+        assert sc._place_block_ghost is None and sc.mode == mode_before
+        # plain control: the same path accepts and places a block
+        assert _drag(v, _block_mime(p.id), [QPointF(10, 10)])
+        assert [i.block_id for i in sc._block_instances] == [p.id]
+    finally:
+        sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
+
+
+def test_g2_schematic_drag_refused_on_block_editor_view(qapp):
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.block_editor import BlockEditorManager
+    from firepro3d.block_library import SCHEMATIC_REASON
+    proj = Model_Space()
+    s = _schematic_def()
+    p = _line_def("P")
+    proj.register_block_definition(s)
+    proj.register_block_definition(p)
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, proj)
+    w = mgr.open_new()
+    tabs.resize(900, 700); tabs.show(); QTest.qWaitForWindowExposed(tabs)
+    v = w.view
+    v.resetTransform(); v.centerOn(0, 0); QApplication.processEvents()
+    es = w.editor_scene
+    msgs = []
+    es.instructionChanged.connect(msgs.append)
+    try:
+        assert not _drag(v, _block_mime(s.id), [QPointF(10, 10)])
+        assert SCHEMATIC_REASON in msgs
+        assert es._block_instances == [] and proj.instance_count(s.id) == 0
+        # plain control: nests into the editor
+        assert _drag(v, _block_mime(p.id), [QPointF(10, 10)])
+        assert [i.block_id for i in es._block_instances] == [p.id]
+    finally:
+        mgr.close(w); tabs.close(); tabs.deleteLater(); proj.cleanup()
+        QApplication.processEvents()
+
+
+def test_g2_editor_scene_paste_skips_schematic_instances(qapp):
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.block_editor import BlockEditorManager
+    from firepro3d.block_library import SCHEMATIC_REASON
+    proj = Model_Space()
+    s = _schematic_def()
+    p = _line_def("P")
+    proj.register_block_definition(s)
+    proj.register_block_definition(p)
+    tabs = QTabWidget()
+    mgr = BlockEditorManager(tabs, proj)
+    w = mgr.open_new()
+    es = w.editor_scene
+    shown = []
+    es._show_status = lambda msg, timeout=5000: shown.append(msg)
+    rec = {"type": "block_instance", "pos": [0, 0], "rotation": 0.0,
+           "level": es.active_level}
+    try:
+        new = es.paste_items(QPointF(0, 0), data=[{**rec, "block_id": s.id},
+                                                  {**rec, "block_id": p.id}])
+        assert [i.block_id for i in new] == [p.id]
+        assert [i.block_id for i in es._block_instances] == [p.id]
+        assert shown == [SCHEMATIC_REASON]
+    finally:
+        mgr.close(w); tabs.deleteLater(); proj.cleanup(); QApplication.processEvents()

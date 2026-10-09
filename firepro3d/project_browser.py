@@ -15,7 +15,7 @@ Tree structure
           South
           East
           West
-      ▶ Schematics     (future: separate drawing canvas)
+      ▶ Schematics     (schematic definitions; Series ▸ leaf — schematics.md D-S16)
       ▶ Details        (future)
       ▶ Schedules      (future: tabular data)
   ▼ Paper Space
@@ -31,6 +31,10 @@ sheetSelected(number)          — single-click selection → sheet props panel
 createPaperSheet()             — instant create request; MainWindow owns the dialog
 deletePaperSheet(number)       — delete request; MainWindow owns the confirm
 sheetOrderChanged(list[str])   — post-drop reorder; numbers in new document order
+createSchematic()              — Schematics root "New Schematic…"
+activateSchematic(id)          — schematic leaf opened (definition id)
+renameSchematic(id)            — rename request; MainWindow prompts
+deleteSchematic(id)            — delete request; MainWindow confirms
 
 The tree never self-mutates from its own gestures (pure-push contract,
 spec §"Multi-sheet design deltas").  Gestures emit signals; MainWindow
@@ -55,7 +59,7 @@ from .mime_types import MIME_SHEET, MIME_VIEW
 # Tree item role constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-_ROLE_TYPE  = Qt.ItemDataRole.UserRole         # "view3d" | "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation"
+_ROLE_TYPE  = Qt.ItemDataRole.UserRole         # "view3d" | "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation" | "schematic_root" | "schematic_series" | "schematic"
 _ROLE_NAME  = Qt.ItemDataRole.UserRole + 1     # str name for sheets / levels / elevations
 _ROLE_VIEW  = Qt.ItemDataRole.UserRole + 2
 
@@ -153,9 +157,13 @@ class ProjectBrowser(QWidget):
     deletePaperSheet = pyqtSignal(str)     # sheet number; MainWindow confirms
     sheetSelected = pyqtSignal(str)        # single-click → sheet props panel
     sheetOrderChanged = pyqtSignal(list)   # numbers in new document-set order
+    createSchematic = pyqtSignal()         # root "New Schematic…" (D-S16)
+    activateSchematic = pyqtSignal(str)    # leaf open -- definition id
+    renameSchematic = pyqtSignal(str)      # definition id; MainWindow prompts
+    deleteSchematic = pyqtSignal(str)      # definition id; MainWindow confirms
 
     # Stub categories under 2D Model (Plans and Elevations are live)
-    _MS_STUBS = ["Schematics", "Schedules"]
+    _MS_STUBS = ["Schedules"]
 
     # Pre-defined elevation view names
     _ELEVATIONS = ["North", "South", "East", "West"]
@@ -290,6 +298,44 @@ class ProjectBrowser(QWidget):
                 item.setFont(0, italic_font)
         self._details_root.setExpanded(True)
 
+    def refresh_schematics(self, rows: "list[tuple[str, str, str]]"):
+        """Rebuild the Schematics sub-tree (pure push from MainWindow).
+
+        Series rows first (sorted), then ungrouped leaves; leaves sorted by
+        name. Leaves are not draggable until SV2 (schematic viewports).
+
+        Args:
+            rows: ``[(definition_id, name, series), …]``; ``series == ""``
+                puts the leaf directly under the root (D-S15).
+        """
+        root = self._schem_root
+        self._tree.blockSignals(True)
+        try:
+            root.takeChildren()
+            by_series: dict[str, list] = {}
+            for bid, name, series in rows:
+                by_series.setdefault(series or "", []).append((name, bid))
+
+            def _leaves(parent, entries):
+                for name, bid in sorted(entries, key=lambda e: e[0].lower()):
+                    it = QTreeWidgetItem(parent, [name])
+                    it.setData(0, _ROLE_TYPE, "schematic")
+                    it.setData(0, _ROLE_NAME, bid)
+                    it.setToolTip(0, f"Schematic — {name}")
+                    it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+
+            for series in sorted((s for s in by_series if s), key=str.lower):
+                s_item = QTreeWidgetItem(root, [series])
+                s_item.setData(0, _ROLE_TYPE, "schematic_series")
+                s_item.setData(0, _ROLE_NAME, series)
+                s_item.setFlags(s_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+                _leaves(s_item, by_series[series])
+                s_item.setExpanded(True)
+            _leaves(root, by_series.get("", []))
+        finally:
+            self._tree.blockSignals(False)
+        root.setExpanded(True)
+
     # ── Private ───────────────────────────────────────────────────────────────
 
     def _build_tree(self):
@@ -345,6 +391,15 @@ class ProjectBrowser(QWidget):
         details_root.setFont(0, f_bold)
         self._details_root = details_root
 
+        # ── Schematics (schematics.md D-S4/D-S16; MainWindow pushes rows) ───
+        schem_root = QTreeWidgetItem(ms_root, ["Schematics"])
+        schem_root.setData(0, _ROLE_TYPE, "schematic_root")
+        schem_root.setData(0, _ROLE_NAME, "Schematics")
+        schem_root.setFont(0, f_bold)
+        schem_root.setToolTip(0, "Schematics — right-click to create one")
+        schem_root.setFlags(schem_root.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+        self._schem_root = schem_root
+
         # ── Future stubs ─────────────────────────────────────────────────────
         for stub_name in self._MS_STUBS:
             stub = QTreeWidgetItem(ms_root, [stub_name])
@@ -374,6 +429,10 @@ class ProjectBrowser(QWidget):
             self.activateDetailView.emit(name)
         elif role == "view3d":
             self.activate3DView.emit()
+        elif role == "schematic":
+            self.activateSchematic.emit(item.data(0, _ROLE_NAME))
+        elif role in ("schematic_root", "schematic_series"):
+            pass                        # folders: Qt toggles expansion only
         elif role in ("model_root", "ms_stub"):
             self.activateModelSpace.emit()
         elif role == "sheet":
@@ -428,6 +487,17 @@ class ProjectBrowser(QWidget):
         elif role == "view3d":
             act_open = menu.addAction("Open")
             act_open.triggered.connect(self.activate3DView.emit)
+        elif role == "schematic_root":
+            act_new = menu.addAction("New Schematic…")
+            act_new.triggered.connect(self.createSchematic.emit)
+        elif role == "schematic":
+            bid = item.data(0, _ROLE_NAME)
+            act_open = menu.addAction("Open")
+            act_open.triggered.connect(lambda: self.activateSchematic.emit(bid))
+            act_ren = menu.addAction("Rename…")
+            act_ren.triggered.connect(lambda: self.renameSchematic.emit(bid))
+            act_del = menu.addAction("Delete")
+            act_del.triggered.connect(lambda: self.deleteSchematic.emit(bid))
         else:
             return
         menu.exec(self._tree.viewport().mapToGlobal(pos))

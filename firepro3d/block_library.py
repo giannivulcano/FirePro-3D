@@ -26,6 +26,8 @@ PATTERN_REASON = "Pattern blocks fill regions — they can't be placed"
 LINETYPE_REASON = "Linetype blocks style lines — they can't be placed"
 # Place / drag refusal for an end-type block (linetypes.md D-L12, LT5 Q12).
 END_REASON = "End type blocks finish lines — they can't be placed"
+# Place / drag refusal for a schematic (schematics.md D-S3).
+SCHEMATIC_REASON = "Schematics go on sheets as views — they can't be placed"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 

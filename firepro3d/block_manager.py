@@ -82,7 +82,10 @@ class BlockTableModel(QAbstractTableModel):
                 sig.connect(self._on_changed)
 
     def _rebuild(self):
-        self._defs = list(self._scene._block_definitions.values())
+        # Schematics are hidden until SV4's Kind column (D-S4): the Manager's
+        # Save / Reload-from-Library verbs would write one into the block library.
+        self._defs = [d for d in self._scene._block_definitions.values()
+                      if d.kind != "schematic"]
         self._counts = {}
         for inst in self._scene._block_instances:
             self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
@@ -639,7 +642,9 @@ class BlockManagerDialog(HouseDialog):
     def _sync_ui(self) -> None:
         defn = self._current_def()
         n_shown = self.proxy.rowCount()
-        n_total = len(self.scene._block_definitions)
+        # What the model lists — schematics are hidden (D-S4), so they must
+        # not inflate "N of M".
+        n_total = self.model.rowCount()
         n_inst = len(self.scene._block_instances)
         self.count_label.setText(
             f"{n_shown} of {n_total} blocks · {n_inst} instances")

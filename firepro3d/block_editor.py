@@ -45,6 +45,21 @@ def _is_scaffold_item(item) -> bool:
 
 _SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice
 
+#: Editor tab title prefixes, by definition kind (schematics.md D-S14).
+TAB_PREFIXES = ("Block: ", "Schematic: ")
+_NO_SERIES = "(none)"   # Save Schematic's blank-Series choice (D-S15)
+
+
+def tab_title(kind: str, name: str) -> str:
+    """``"Block: <name>"`` or ``"Schematic: <name>"`` for an editor tab."""
+    return f"{'Schematic' if kind == 'schematic' else 'Block'}: {name}"
+
+
+def schematic_series_for(project_scene) -> list[str]:
+    """The non-blank Series already used by the project's schematics."""
+    return sorted({d.series for d in project_scene._block_definitions.values()
+                   if d.kind == "schematic" and d.series}, key=str.lower)
+
 
 def library_tree_for(project_scene, root: str | None = None) -> dict[str, list[str]]:
     """The Save dialog's Library → Series choices: on-disk folders UNION the
@@ -52,6 +67,8 @@ def library_tree_for(project_scene, root: str | None = None) -> dict[str, list[s
     from . import block_library
     tree = {lib: list(ser) for lib, ser in block_library.list_folders(root).items()}
     for d in project_scene._block_definitions.values():
+        if d.kind == "schematic":
+            continue          # schematics have no Library tier (D-S4)
         series = tree.setdefault(d.library, [])
         if d.series not in series:
             series.append(d.series)
@@ -82,18 +99,24 @@ class BlockSaveDialog(HouseDialog):
         instance_count: For "edit" context, number of placed instances.
         initial: (name, library, series) to pre-fill.
         validator: Optional callable(name, library, series) -> str|None.
+        kind: "block" or "schematic" -- a schematic shows Name + Series only
+            (no Library, no library toggle; schematics.md D-S14).
+        schematic_series: Series choices for a schematic.
     """
 
     def __init__(self, parent=None, *, theme=None, library_tree=None, root=None,
                  collision_id=None, context="new", instance_count=0,
-                 initial=("", "", ""), validator=None):
-        super().__init__(parent, title="Save Block", icon="insert_block_icon.svg",
-                         min_width=420, theme=theme)
+                 initial=("", "", ""), validator=None, kind="block",
+                 schematic_series=None):
+        is_schematic = kind == "schematic"
+        super().__init__(parent, title="Save Schematic" if is_schematic else "Save Block",
+                         icon="insert_block_icon.svg", min_width=420, theme=theme)
         from PyQt6.QtCore import QSettings
         from .ui_kit import CreatableSelector, ToggleSwitch
         self.setObjectName("BlockSaveDialog")
         self._validator = validator
         self._context = context
+        self._kind = kind
         self._lib_root = root
         self._collision_id = collision_id
         self._overwrite = False
@@ -108,30 +131,44 @@ class BlockSaveDialog(HouseDialog):
         form.setVerticalSpacing(14)
         form.setHorizontalSpacing(14)
         self.name_edit = QLineEdit(initial[0])
-        self.name_edit.setToolTip("Block name (also its file name in the library)")
         self.library_sel = CreatableSelector(add_tooltip="New library folder")
-        self.library_sel.selector.setToolTip("Library (top-level folder)")
         self.series_sel = CreatableSelector(add_tooltip="New series folder in this library")
-        self.series_sel.selector.setToolTip("Series (folder inside the library)")
         self.library_combo = self.library_sel.selector
         self.series_combo = self.series_sel.selector
-        self.library_combo.currentTextChanged.connect(self._refresh_series)
-        self.library_sel.createRequested.connect(self._create_library)
-        self.series_sel.createRequested.connect(self._create_series)
-        self._pending_series = initial[2]
-        self.library_sel.set_items(sorted(self._tree), current=initial[1] or None)
-        form.addRow("Name", self.name_edit)
-        form.addRow("Library", self.library_sel)
-        form.addRow("Series", self.series_sel)
+        self._pending_series = ""
+        if is_schematic:
+            self.name_edit.setToolTip("Schematic name")
+            self.series_sel.selector.setToolTip("Series (optional grouping)")
+            items = [_NO_SERIES] + list(schematic_series or [])
+            if initial[2] and initial[2] not in items:
+                items.append(initial[2])
+            self.series_sel.set_items(items, current=initial[2] or _NO_SERIES)
+            self.series_sel.createRequested.connect(self._add_schematic_series)
+            form.addRow("Name", self.name_edit)
+            form.addRow("Series", self.series_sel)
+            self.library_sel.hide()
+        else:
+            self.name_edit.setToolTip("Block name (also its file name in the library)")
+            self.library_sel.selector.setToolTip("Library (top-level folder)")
+            self.series_sel.selector.setToolTip("Series (folder inside the library)")
+            self.library_combo.currentTextChanged.connect(self._refresh_series)
+            self.library_sel.createRequested.connect(self._create_library)
+            self.series_sel.createRequested.connect(self._create_series)
+            self._pending_series = initial[2]
+            self.library_sel.set_items(sorted(self._tree), current=initial[1] or None)
+            form.addRow("Name", self.name_edit)
+            form.addRow("Library", self.library_sel)
+            form.addRow("Series", self.series_sel)
 
         remembered = QSettings("GV", "FirePro3D").value(_SAVE_TO_LIB_KEY, True)
         if isinstance(remembered, str):
             remembered = remembered.lower() not in ("false", "0")
         self.save_to_library_cb = ToggleSwitch("Also save to library",
-                                               checked=bool(remembered))
+                                               checked=bool(remembered) and not is_schematic)
         self.save_to_library_cb.setToolTip(
             "Also write this block to the on-disk library folder above")
-        form.addRow("", self.save_to_library_cb)
+        if not is_schematic:   # SV3 adds "Also save as Template" here
+            form.addRow("", self.save_to_library_cb)
         self.replace_source_cb = ToggleSwitch(
             "Replace selected geometry with an instance", checked=True)
         self.replace_source_cb.setToolTip(
@@ -168,6 +205,18 @@ class BlockSaveDialog(HouseDialog):
         self._tree.setdefault(lib, [])
         self.library_sel.set_items(sorted(self._tree), current=lib)
 
+    def _add_schematic_series(self, name: str) -> None:
+        """Schematic "+": add a Series choice (project-only in SV1 -- the
+        schematics folder arrives with SV3, D-S5)."""
+        name = name.strip()
+        if not name:
+            return
+        items = [self.series_combo.itemText(i)
+                 for i in range(self.series_combo.count())]
+        if name not in items:
+            items.append(name)
+        self.series_sel.set_items(items, current=name)
+
     def _create_series(self, name: str) -> None:
         from . import block_library
         from .themed_message import themed_info
@@ -190,6 +239,12 @@ class BlockSaveDialog(HouseDialog):
     # -- values / validation -----------------------------------------------
     def values(self) -> dict:
         """Return the current field values as a dict."""
+        if self._kind == "schematic":
+            ser = self.series_combo.currentText().strip()
+            return {"name": self.name_edit.text().strip(), "library": "",
+                    "series": "" if ser == _NO_SERIES else ser,
+                    "save_to_library": False, "replace_source": False,
+                    "overwrite": False}
         return {
             "name": self.name_edit.text().strip(),
             "library": self.library_combo.currentText().strip(),
@@ -202,7 +257,10 @@ class BlockSaveDialog(HouseDialog):
     def validation_error(self) -> str | None:
         """Return an error string if the form is invalid, else None."""
         v = self.values()
-        if not (v["name"] and v["library"] and v["series"]):
+        if self._kind == "schematic":
+            if not v["name"]:
+                return "Name is required."
+        elif not (v["name"] and v["library"] and v["series"]):
             return "Name, Library and Series are all required."
         if self._validator is not None:
             return self._validator(v["name"], v["library"], v["series"])
@@ -214,8 +272,9 @@ class BlockSaveDialog(HouseDialog):
 
     def _on_save(self):
         from PyQt6.QtCore import QSettings
-        QSettings("GV", "FirePro3D").setValue(
-            _SAVE_TO_LIB_KEY, self.save_to_library_cb.isChecked())
+        if self._kind != "schematic":
+            QSettings("GV", "FirePro3D").setValue(
+                _SAVE_TO_LIB_KEY, self.save_to_library_cb.isChecked())
         err = self.validation_error()
         if err:
             self._show_error(err)
@@ -258,6 +317,8 @@ class BlockEditorWidget(QWidget):
         project_scene: the real project ``Model_Space`` (commit target; used by
             later sub-tasks for Save). The editor draws on its OWN scene.
         block_id: the definition id when editing in place; None for new/blank.
+        kind: "schematic" makes this a Schematic editor (title, Save Schematic
+            dialog, no capability slot).
 
     Signals:
         saved(BlockEditorWidget, BlockDefinition): emitted after every
@@ -266,8 +327,10 @@ class BlockEditorWidget(QWidget):
 
     saved = pyqtSignal(object, object)
 
-    def __init__(self, project_scene, *, block_id: str | None = None, parent=None):
+    def __init__(self, project_scene, *, block_id: str | None = None,
+                 kind: str = "block", parent=None):
         super().__init__(parent)
+        self.kind = kind     # "block" | "schematic" (schematics.md D-S14)
         self._project_scene = project_scene
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
@@ -484,6 +547,10 @@ class BlockEditorWidget(QWidget):
         Raises:
             ValueError: *kind* is not a ``capabilities.CAPABILITY_KINDS`` kind.
         """
+        if self.kind == "schematic":
+            from .capabilities import SCHEMATIC_CAP_REASON
+            self.editor_scene._show_status(SCHEMATIC_CAP_REASON, 5000)
+            return False
         from .capabilities import CAPABILITY_KINDS, exclusive_message
         if kind not in CAPABILITY_KINDS:
             raise ValueError(f"unknown capability kind: {kind!r}")
@@ -599,7 +666,8 @@ class BlockEditorWidget(QWidget):
             source_items=self._seed_source_items if do_replace else None,
             place_at=(base.x(), base.y()) if base is not None else None,
             constraints=self.editor_scene.constraint_ctl.to_records(),
-            capability=self.editor_scene.block_capability)
+            capability=self.editor_scene.block_capability,
+            kind=self.kind)
         if defn is None:
             return None
         self._edit_block_id = defn.id
@@ -640,7 +708,7 @@ class BlockEditorWidget(QWidget):
         defn = self.commit_block(cur.name, cur.library, cur.series)
         if defn is None:
             return None
-        if block_library.source_status(defn) != "project-only":
+        if self.kind != "schematic" and block_library.source_status(defn) != "project-only":
             self._save_to_library(defn, parent or self)
         n = self._project_scene.instance_count(defn.id)
         m = len(self._project_scene.block_registry.users_of(defn.id))
@@ -649,8 +717,9 @@ class BlockEditorWidget(QWidget):
             parts.append(f"{n} placed instance(s)")
         if m:
             parts.append(f"{m} block(s) that use it")
+        noun = "schematic" if self.kind == "schematic" else "block"
         self.editor_scene._show_status(
-            f"Saved block \u201c{defn.name}\u201d"
+            f"Saved {noun} \u201c{defn.name}\u201d"
             + (f" \u2014 updated {' and '.join(parts)}" if parts else ""),
             timeout=5000)
         return defn
@@ -678,7 +747,9 @@ class BlockEditorWidget(QWidget):
         if any(not _is_scaffold_item(it) for it in self.gather_primitives()):
             return True   # scaffolding alone is not geometry (D23)
         from .themed_message import themed_info
-        themed_info(parent or self, "Save Block", "Draw or import geometry first.")
+        themed_info(parent or self,
+                    "Save Schematic" if self.kind == "schematic" else "Save Block",
+                    "Draw or import geometry first.")
         return False
 
     def _save_via_dialog(self, parent, *, save_as: bool):
@@ -712,18 +783,32 @@ class BlockEditorWidget(QWidget):
         # The id this save writes as: a Save As writes a brand-new block.
         writes_as = None if save_as else self._edit_block_id
 
-        def _validator(name, library, series):
-            for o in proj._block_definitions.values():
-                if o.id == writes_as:
-                    continue
-                if (o.library, o.series, o.name) == (library, series, name):
-                    return f"A block '{name}' already exists in {library} / {series}."
-            return None
-
-        dlg = BlockSaveDialog(parent or self, library_tree=library_tree_for(proj),
-                              collision_id=writes_as,
-                              context=context, instance_count=icount,
-                              initial=initial, validator=_validator)
+        if self.kind == "schematic":
+            def _validator(name, library, series):
+                for o in proj._block_definitions.values():
+                    if o.id == writes_as or o.kind != "schematic":
+                        continue
+                    if (o.series, o.name) == (series, name):
+                        where = f" in {series}" if series else ""
+                        return f"A schematic '{name}' already exists{where}."
+                return None
+            dlg = BlockSaveDialog(parent or self, kind="schematic",
+                                  schematic_series=schematic_series_for(proj),
+                                  collision_id=writes_as, context=context,
+                                  instance_count=0, initial=initial,
+                                  validator=_validator)
+        else:
+            def _validator(name, library, series):
+                for o in proj._block_definitions.values():
+                    if o.id == writes_as:
+                        continue
+                    if (o.library, o.series, o.name) == (library, series, name):
+                        return f"A block '{name}' already exists in {library} / {series}."
+                return None
+            dlg = BlockSaveDialog(parent or self, library_tree=library_tree_for(proj),
+                                  collision_id=writes_as,
+                                  context=context, instance_count=icount,
+                                  initial=initial, validator=_validator)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         v = dlg.values()
@@ -901,14 +986,19 @@ class BlockEditorManager:
             w.seed_from_definition(defn)
         return w
 
-    def open_new(self, *, title: str = "New") -> BlockEditorWidget:
-        """Open a fresh, independent editor tab (new/blank/clone)."""
-        w = BlockEditorWidget(self._project_scene)
+    def open_new(self, *, title: str = "New", kind: str = "block") -> BlockEditorWidget:
+        """Open a fresh, independent editor tab (new/blank/clone).
+
+        Args:
+            title: Tab title suffix.
+            kind: ``"schematic"`` opens a Schematic editor (D-S9).
+        """
+        w = BlockEditorWidget(self._project_scene, kind=kind)
         key = ("new", self._new_counter)
         self._new_counter += 1
         w._editor_key = key
         self._open[key] = w
-        idx = self._tabs.addTab(w, f"Block: {title}")
+        idx = self._tabs.addTab(w, tab_title(kind, title))
         self._tabs.setCurrentIndex(idx)
         return self._created(w)
 
@@ -920,10 +1010,11 @@ class BlockEditorManager:
             return existing
         defn = self._project_scene.get_block_definition(block_id)
         title = defn.name if defn is not None else block_id
-        w = BlockEditorWidget(self._project_scene, block_id=block_id)
+        kind = getattr(defn, "kind", "block")
+        w = BlockEditorWidget(self._project_scene, block_id=block_id, kind=kind)
         w._editor_key = block_id
         self._open[block_id] = w
-        idx = self._tabs.addTab(w, f"Block: {title}")
+        idx = self._tabs.addTab(w, tab_title(kind, title))
         self._tabs.setCurrentIndex(idx)
         return self._created(w)
 
@@ -941,7 +1032,22 @@ class BlockEditorManager:
             self._open[defn.id] = w
         idx = self._tabs.indexOf(w)
         if idx != -1:
-            self._tabs.setTabText(idx, f"Block: {defn.name}")
+            self._tabs.setTabText(idx, tab_title(w.kind, defn.name))
+
+    def editor_for(self, block_id: str) -> BlockEditorWidget | None:
+        """The open editor bound to *block_id*, or None."""
+        return self._open.get(block_id)
+
+    def retitle_schematics(self) -> None:
+        """Re-title open Schematic tabs from the registry names (browser
+        Rename and its undo, D-S16/D-S17)."""
+        for key, w in self._open.items():
+            if w.kind != "schematic" or isinstance(key, tuple):
+                continue
+            defn = self._project_scene.get_block_definition(key)
+            idx = self._tabs.indexOf(w)
+            if defn is not None and idx != -1:
+                self._tabs.setTabText(idx, tab_title("schematic", defn.name))
 
     def close(self, widget: BlockEditorWidget) -> None:
         """Remove and dispose an editor tab."""

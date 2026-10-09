@@ -1,15 +1,15 @@
 ---
-status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); unbuilt — slices SV1–SV4
-last-verified: 2026-10-07
-verified-commit: 7f97f687
-applies-to:               # seams this contract governs once built; today every file is owned by the spec named in parentheses
-  - firepro3d/block_definition.py     # `kind` key + `never_placed` accessor only (rest: block-system.md)
+status: partial           # SV1 built 2026-10-08 (kind + editor + browser); SV2–SV4 unbuilt. Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
+last-verified: 2026-10-08  # SV1 Account: the "SV1 — as built" section + acceptance ticks verified against the code; SV2–SV4 content is still as-intended
+verified-commit: b851b1aa   # prior 7f97f687 (proposal)
+applies-to:               # seams this contract governs (SV1 seams built 2026-10-08; SV2–SV4 seams as-intended); the rest of each file is owned by the spec named in parentheses
+  - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog only (rest: block-system.md)
   - firepro3d/block_library.py        # `root=` reuse + one-tier series dir only (rest: block-system.md)
   - firepro3d/app_data.py             # `schematics_dir()` + `SCHEMATIC_DIR_KEY` + migration entry
   - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs, drag payload (rest: project-browser.md)
   - firepro3d/paper_space.py          # `ViewResolver` schematic branch, drop default, crop rule (rest: paper-space.md)
-  - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `never_placed` (rest: model-space-architecture.md)
+  - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal` (rest: model-space-architecture.md)
   - main.py                           # browser signal wiring, stale-tab prefix, Go-to-view branch
   # new: schematic_scene.py (SchematicSceneManager + materializer home)
 source-tasks: ["Schematic views concept — block-like definition authored in a Schematic Editor, stored project or system, placed on sheets only as a viewport; SV1…SVn series (2026-10-07)"]
@@ -93,7 +93,9 @@ one mechanism by which block content reaches paper.
   (2D Model › Schematics). They are hidden from the Blocks browser, Insert
   Block and the Block Open picker's block roots. The Block Manager lists them
   behind a **Kind** column / filter so rename, delete and Used-in housekeeping
-  still work there.
+  still work there — from SV4; until then the Manager hides schematics (its
+  Save / Reload-from-Library verbs would write one into the block library,
+  breaking D-S5; SV1 delta, ratified 2026-10-08).
 
 ### Storage & templates
 
@@ -110,6 +112,9 @@ one mechanism by which block content reaches paper.
   leaf`; ungrouped leaves sit under the root. On disk
   `<schematics>/<Series>/<name>.fpdb` + per-folder `index.json` (folder wins
   over a stored series, as the open block bug ratifies).
+  **Identity** (SV1 delta, ratified 2026-10-08): name required, Series
+  optional, Library stored as `""`; a name is unique among schematics within
+  its Series. Block identity rules are unchanged.
 - **D-S11c Templates bundle.** Save as Template bundles the nested block
   definitions (the shipped schema-2 `bundled` field) so a template opens on a
   fresh project with its symbols; loading adopts them with the existing same-id
@@ -132,8 +137,9 @@ one mechanism by which block content reaches paper.
   definition into the project (project undo, one step). The editor's **Save as
   Template** writes it to the schematics folder (D-S6).
 - **D-S14 Editor delta.** Identical to the Block Editor except: (a) the
-  capability slot (hatch tile / linetype repeat) is unavailable — both toggles
-  disabled with a tooltip; (b) the tab is titled `Schematic: <name>` and the
+  capability slot (pattern tile / linetype / end type) is unavailable — the
+  three ribbon toggles are disabled with a tooltip and the property panel omits
+  its capability section (SV1 delta, ratified 2026-10-08); (b) the tab is titled `Schematic: <name>` and the
   Save dialog is "Save Schematic" with **Series** (no Library tier) and an
   "Also save as Template" toggle in place of "Also save to library". The
   shared permanent Block Editor ribbon page serves both; its Block group verbs
@@ -191,7 +197,9 @@ one mechanism by which block content reaches paper.
 ## Input / Output (schema deltas — additive, no version bump)
 
 - `BlockDefinition.to_dict` / `.fpdb` / `.fpd` `block_definitions[]`: `"kind":
-  "block" | "schematic"` (missing → `"block"`).
+  "schematic"` written for schematics only; the key is omitted for plain
+  blocks (missing → `"block"`), so plain blocks serialize byte-identically
+  (the LT5 `end` precedent; SV1 delta, ratified 2026-10-08).
 - `index.json` entry: `"kind"` next to `tile` / `repeat`.
 - `SheetViewData.source_view_type`: new value `"schematic"`;
   `source_view_name` holds the **definition id** (rename-stable); the display
@@ -215,16 +223,65 @@ one mechanism by which block content reaches paper.
   the **saved** definition; unsaved editor work is invisible on paper until
   Save (editor = scratchpad).
 - **Project close / new file:** schematic editor tabs are swept with the other
-  stale view tabs; render scenes are disposed.
+  stale view tabs; render scenes are disposed. A dirty Schematic tab prompts
+  **Discard / Cancel** before New / Open (user-ratified 2026-10-08).
+
+## SV1 — as built (2026-10-08)
+
+Built on `feat/sv1-schematic-kind` (`b851b1aa`). Decisions below are **built**;
+everything not listed (SV2 viewport / resolver / render scene / drag / "used on
+sheets"; SV3 template folder, Save as Template, New-from-template; SV4 Block
+Manager Kind column, Duplicate, `available_views` group) is still as-intended.
+This section names code homes only — the decisions stay owned above (Rule A).
+
+- **Kind flag (D-S15, Input / Output).** `BlockDefinition.kind`
+  (`"block"` | `"schematic"`); `to_dict` writes `"kind"` for schematics only,
+  `from_dict` defaults to `"block"`, so `.fpd` `block_definitions`, `.fpdb` and
+  the undo snapshot all carry it.
+- **Never instanced (D-S3).** `capabilities.place_refusal(defn)` is the single
+  placement / nesting gate (schematic -> `block_library.SCHEMATIC_REASON`, else
+  `capability_place_reason`), called from `Model_Space.set_mode` (place_block),
+  `Model_Space._press_place_block`, the `paste_items` block_instance branch and
+  `Model_View._resolve_block_drag`. `capabilities.SCHEMATIC_CAP_REASON` is the
+  capability-toggle refusal text.
+- **Identity & commit (D-S15).** `Model_Space.commit_block_definition(kind=None)`
+  (None = `"block"` for a new definition, keep on edit; a differing kind on edit
+  is refused; a schematic gets no capability, is never placed, library `""`);
+  `set_block_metadata` is kind-aware (name required, Series optional, unique
+  within its Series).
+- **Editor (D-S14, D-S9 blank).** `block_editor.tab_title` / `TAB_PREFIXES`
+  (`Schematic: ` tabs), `BlockSaveDialog(kind="schematic")` (Name + Series; no
+  Library, no library toggle — the Template toggle arrives with SV3), the three
+  capability toggles refused and their ribbon buttons disabled with a tooltip,
+  property panel without capability rows, silent re-save never writes the block
+  library. `BlockEditorManager.open_new(kind=)`, `editor_for`,
+  `retitle_schematics`. New Schematic is **blank only**; Save writes the
+  project copy.
+- **Listing filters (D-S4).** Schematics are excluded from the Blocks browser,
+  the Block Open picker, the Save Block library tree and the Block Manager (hidden
+  until SV4; its count label counts the listed rows only).
+- **Project Browser (D-S16).** Schematics root (role `schematic_root`, no longer
+  a stub), Series rows (`schematic_series`), leaves (`schematic`, data =
+  definition id); verbs **New Schematic** (root), **Open / Rename / Delete**
+  (leaf); `refresh_schematics(rows)`. Leaves are **not draggable** until SV2.
+  `MainWindow` handlers: `_new_schematic`, `_open_schematic`, `_rename_schematic`,
+  `_delete_schematic`, `_refresh_schematic_browser` (on `blockDefinitionsChanged`
+  and new file); `_close_stale_view_tabs` also closes Schematic editor tabs.
+- **Dirty Schematic tab guard (user-ratified 2026-10-08).** New / Open /
+  Open Recent prompt **Discard / Cancel** when a Schematic tab is dirty
+  (`MainWindow._confirm_discard_dirty_schematics`); tab-close and delete
+  confirmations use schematic wording. Recorded under Edge Cases.
 
 ## Acceptance Criteria
 
 - [ ] D-S2: `PaperScene` never holds a `BlockInstance`; the P1 task is moved to
       todo_closed as superseded.
-- [ ] D-S3: every placement / nesting site refuses a schematic with
-      `SCHEMATIC_REASON` (G2).
+- [x] D-S3: every placement / nesting site refuses a schematic with
+      `SCHEMATIC_REASON` (G2). (SV1)
 - [ ] D-S4/D-S16: Schematics root + Series + leaves with the six verbs; hidden
-      from the Blocks browser / Insert / Open block roots (G6).
+      from the Blocks browser / Insert / Open block roots (G6). *SV1: root,
+      Series, leaves, New / Open / Rename / Delete, hidden (Manager too); SV3:
+      Save as Template; SV4: Duplicate, Manager Kind column.*
 - [ ] D-S6/D-S9/D-S11c/d: New (blank | template), Save, Save as Template with
       bundling and collision dialog (G4).
 - [ ] D-S7/D-S10: drop → NTS viewport sized to content; edit → every viewport
@@ -233,7 +290,7 @@ one mechanism by which block content reaches paper.
 - [ ] D-S17: one project undo step per definition op; paper stack for viewports
       (G1 asserts both).
 - [ ] Round trip `.fpd` save / reopen keeps the schematic, its viewport and its
-      contents (G1).
+      contents (G1). *SV1: definition + contents; SV2: viewport.*
 
 ## Verification Checklist
 
@@ -253,7 +310,7 @@ one mechanism by which block content reaches paper.
   P1 "Paper-space block placement" superseded.
 - `block-system.md` — "paper-placement rules pending — a known gap" → resolved
   by pointer to D-S2/D-S3; `kind` key in the `.fpdb` schema section; Block
-  Editor contract gains the D-S14 delta pointer; `never_placed` accessor joins
+  Editor contract gains the D-S14 delta pointer; `capabilities.place_refusal` joins
   the capability-refusal paragraph.
 - `paper-space.md` — §3.2 "sheet views are consumers of named views" gains the
   schematic source; §4.3 catalog note; §5.2 `source_view_type` enum + id-in-name
