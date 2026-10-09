@@ -468,7 +468,9 @@ def reload_from_library(definition: BlockDefinition,
 
 def delete_from_library(library: str, series: str, filename: str,
                         root: str | None = None) -> None:
-    """Remove a .fpdb + its index entry (no-op when absent)."""
+    """Remove a .fpdb + its index entry (no-op when absent). An index left
+    empty is removed with it, so deleting the last ungrouped template leaves
+    no ``{}`` root ``index.json`` behind (SV3 seam minor (b), SV4)."""
     series_dir = _series_dir(root, library, series)
     path = os.path.join(series_dir, filename)
     if os.path.isfile(path):
@@ -476,5 +478,12 @@ def delete_from_library(library: str, series: str, filename: str,
     index = _read_index(series_dir)
     if filename in index:
         del index[filename]
-        _atomic_write_json(os.path.join(series_dir, _INDEX), index)
+        index_path = os.path.join(series_dir, _INDEX)
+        if index:
+            _atomic_write_json(index_path, index)
+        else:
+            try:
+                os.remove(index_path)
+            except OSError:
+                _log.debug("could not remove empty index %s", index_path, exc_info=True)
     _notify_changed()

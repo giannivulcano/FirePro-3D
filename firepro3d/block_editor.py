@@ -422,6 +422,7 @@ class BlockEditorWidget(QWidget):
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
         self._edit_block_id = block_id       # mirrored onto the scene (drop cycle host)
+        self._dialog_template_path = None    # template the last Save dialog wrote (SV4)
         # The tile frame's preview / panel reach the editor's primitives and
         # its toggle through the scene (hatch D-A32).
         self.editor_scene._tile_editor = self
@@ -821,10 +822,15 @@ class BlockEditorWidget(QWidget):
         """
         if self.kind != "schematic":
             return None
+        self._dialog_template_path = None
         defn = self.save(parent)
         if defn is None:
             return None
-        path = save_schematic_template(self._project_scene, defn, parent or self)
+        # A first save whose dialog toggle already wrote the template is done:
+        # one file write, not two (SV3 seam minor (a), SV4).
+        path = self._dialog_template_path or save_schematic_template(
+            self._project_scene, defn, parent or self)
+        self._dialog_template_path = None
         if path:
             self.editor_scene._show_status(
                 f"Saved template “{defn.name}”", timeout=5000)
@@ -914,9 +920,11 @@ class BlockEditorWidget(QWidget):
                                   overwrite=v.get("overwrite", False))
         elif v.get("save_template"):
             from .app_data import schematics_dir
-            self._save_to_library(defn, parent or self,
-                                  overwrite=v.get("overwrite", False),
-                                  root=schematics_dir())
+            # Remembered so a ribbon Save as Template that opened this dialog
+            # does not write the same file twice (SV3 seam minor, SV4).
+            self._dialog_template_path = self._save_to_library(
+                defn, parent or self, overwrite=v.get("overwrite", False),
+                root=schematics_dir())
         return defn
 
     # ── Import (BE4) ────────────────────────────────────────────────────────
@@ -1015,20 +1023,24 @@ class BlockEditorWidget(QWidget):
             parent: Qt parent widget for confirmation dialogs.
             overwrite: Clobber a different definition holding the same file.
             root: Library root; None = the block library.
+
+        Returns:
+            The written ``.fpdb`` path, or None when the overwrite was declined.
         """
         from . import block_library
         from .themed_message import themed_confirm
         noun = "template" if root is not None else "block"
         bundled = self._project_scene.block_registry.bundle_for(defn.id)
         try:
-            block_library.save_to_library(defn, root=root, overwrite=overwrite,
-                                          bundled=bundled)
+            return block_library.save_to_library(defn, root=root, overwrite=overwrite,
+                                                 bundled=bundled)
         except block_library.BlockNameCollision as e:
             if themed_confirm(parent, f"Overwrite {noun}?",
                               f"A different {noun} '{e.existing_name}' occupies that "
                               f"file. Overwrite it?"):
-                block_library.save_to_library(defn, root=root, overwrite=True,
-                                              bundled=bundled)
+                return block_library.save_to_library(defn, root=root, overwrite=True,
+                                                     bundled=bundled)
+        return None
 
 
 class BlockEditorManager:

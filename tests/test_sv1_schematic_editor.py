@@ -236,35 +236,15 @@ def test_block_open_dialog_hides_schematics(qapp):
     dlg.deleteLater()
 
 
-def test_block_manager_hides_schematics_until_sv4(qapp):
+def test_block_manager_lists_schematics_behind_the_kind_column(qapp, tmp_path):
+    # D-S4: hidden until SV4; listed behind a Kind column since SV4 (the
+    # Manager's library verbs are gated per row -- tests/test_sv4_polish.py).
     from firepro3d.block_manager import BlockManagerDialog
     ms = Model_Space()
     s, b = _two_defs(ms)
-    dlg = BlockManagerDialog(ms, None)
+    dlg = BlockManagerDialog(ms, None, root=str(tmp_path / "lib"),
+                             templates_root=str(tmp_path / "tpl"))
     ids = [d.id for d in dlg.model._defs]
-    assert b.id in ids and s.id not in ids
+    assert b.id in ids and s.id in ids
+    assert dlg.count_label.text().startswith("2 of 2 definitions")
     dlg.deleteLater()
-
-
-def test_block_manager_count_ignores_hidden_schematics(qapp):
-    from firepro3d.block_manager import BlockManagerDialog
-
-    def _label(with_schematic):
-        ms = Model_Space()
-        if with_schematic:
-            _two_defs(ms)                    # schematic + "Sym"
-        else:
-            _s, b = _two_defs(Model_Space())
-            ms.register_block_definition(b)
-        ms.register_block_definition(BlockDefinition.new(
-            name="Other", library="L", series="S",
-            primitives=[_line_item().to_dict()], origin=(0.0, 0.0)))
-        dlg = BlockManagerDialog(ms, None)
-        try:
-            return dlg.count_label.text()
-        finally:
-            dlg.deleteLater()
-
-    plain = _label(False)
-    assert plain.startswith("2 of 2 blocks")
-    assert _label(True) == plain

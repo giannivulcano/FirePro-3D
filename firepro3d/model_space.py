@@ -2295,6 +2295,41 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
+    def duplicate_block_definition(self, block_id: str):
+        """Register a copy of *block_id* as a NEW definition (one undo step).
+
+        The copy keeps the source's kind, Library / Series, origin, primitives
+        and constraint records (deep-copied; primitive uids stay
+        definition-local, as the editor's Save As clone does) and is named
+        ``"<name> copy"`` — ``"<name> copy 2"``, ``"<name> copy 3"``… when that
+        name is already used by a definition of the same kind in the same
+        Library / Series (the ``set_block_metadata`` uniqueness rule). Nothing
+        is placed; a capability (tile / repeat / end) is carried over. Browser
+        Duplicate for a schematic (schematics.md D-S16 / D-S17, SV4).
+
+        Returns:
+            The new ``BlockDefinition``, or None when *block_id* is unknown.
+        """
+        import copy
+        from .capabilities import kind_of
+        src = self._block_definitions.get(block_id)
+        if src is None:
+            return None
+        taken = {o.name for o in self._block_definitions.values()
+                 if o.kind == src.kind
+                 and (o.library, o.series) == (src.library, src.series)}
+        base = f"{src.name} copy"
+        name, n = base, 2
+        while name in taken:
+            name, n = f"{base} {n}", n + 1
+        cap_kind = kind_of(src)
+        capability = (cap_kind, copy.deepcopy(getattr(src, cap_kind))) if cap_kind else None
+        return self.commit_block_definition(
+            block_id=None, name=name, library=src.library, series=src.series,
+            primitives=copy.deepcopy(src.primitives), origin=src.origin,
+            place_instance=False, constraints=copy.deepcopy(src.constraints),
+            capability=capability, kind=src.kind)
+
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None):

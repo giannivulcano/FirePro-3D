@@ -54,10 +54,15 @@ class Col(IntEnum):
     COUNT = 3
     STATUS = 4
     USED_IN = 5      # appended LAST: saved header state keys on section numbers
+    KIND = 6         # SV4 (schematics.md D-S4): appended after USED_IN, same reason
 
 
 _HEADERS = {Col.NAME: "Name", Col.LIBRARY: "Library", Col.SERIES: "Series",
-            Col.COUNT: "Instances", Col.STATUS: "Source", Col.USED_IN: "Used in"}
+            Col.COUNT: "Instances", Col.STATUS: "Source", Col.USED_IN: "Used in",
+            Col.KIND: "Kind"}
+_KIND_LABELS = {"block": "Block", "schematic": "Schematic"}
+_SCHEMATIC_VERB_TIP = ("Schematics are saved as templates from the Project "
+                       "Browser or their editor (Save as Template)")
 
 BlockDefRole = Qt.ItemDataRole.UserRole + 1   # any cell -> its row's BlockDefinition
 SortRole = Qt.ItemDataRole.UserRole + 2       # per-column sort key (numeric for COUNT)
@@ -66,12 +71,17 @@ SortRole = Qt.ItemDataRole.UserRole + 2       # per-column sort key (numeric for
 class BlockTableModel(QAbstractTableModel):
     """Flat table over ``scene._block_definitions``. Live: resets on both
     ``blockDefinitionsChanged`` and ``blockInstancesChanged``. ``root`` overrides
-    the library root for ``source_status`` (tests inject a temp dir)."""
+    the library root for ``source_status`` (tests inject a temp dir);
+    ``templates_root`` does the same for a schematic row, whose Source is read
+    against the schematics templates folder (schematics.md D-S4/D-S5, SV4;
+    None = ``app_data.schematics_dir()``)."""
 
-    def __init__(self, scene, root: str | None = None, parent=None):
+    def __init__(self, scene, root: str | None = None, parent=None,
+                 templates_root: str | None = None):
         super().__init__(parent)
         self._scene = scene
         self._root = root
+        self._templates_root = templates_root
         self._defs = []
         self._counts = {}
         self._used = {}
@@ -81,11 +91,21 @@ class BlockTableModel(QAbstractTableModel):
             if sig is not None:
                 sig.connect(self._on_changed)
 
+    def status_root(self, d) -> str | None:
+        """The folder a definition's Source status is read against: the
+        block library, or the templates folder for a schematic (D-S5)."""
+        if d.kind != "schematic":
+            return self._root
+        if self._templates_root is not None:
+            return self._templates_root
+        from .app_data import schematics_dir
+        return schematics_dir()
+
     def _rebuild(self):
-        # Schematics are hidden until SV4's Kind column (D-S4): the Manager's
-        # Save / Reload-from-Library verbs would write one into the block library.
-        self._defs = [d for d in self._scene._block_definitions.values()
-                      if d.kind != "schematic"]
+        # Schematics are listed behind the Kind column (D-S4, SV4); the dialog
+        # gates the library verbs on them so none is ever written into the
+        # block library.
+        self._defs = list(self._scene._block_definitions.values())
         self._counts = {}
         for inst in self._scene._block_instances:
             self._counts[inst.block_id] = self._counts.get(inst.block_id, 0) + 1
@@ -140,9 +160,11 @@ class BlockTableModel(QAbstractTableModel):
         if col == Col.COUNT:
             return str(self._counts.get(d.id, 0))
         if col == Col.STATUS:
-            return block_library.source_status(d, root=self._root)
+            return block_library.source_status(d, root=self.status_root(d))
         if col == Col.USED_IN:
             return str(self._used.get(d.id, 0))
+        if col == Col.KIND:
+            return _KIND_LABELS.get(d.kind, d.kind)
         return ""
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -448,7 +470,8 @@ class BlockManagerDialog(HouseDialog):
     """Modeless Block Manager — instant apply, no OK/Apply. Open with ``.show()``."""
 
     def __init__(self, scene, main_window, theme=None, parent=None,
-                 apply_stylesheet: bool = True, root: str | None = None):
+                 apply_stylesheet: bool = True, root: str | None = None,
+                 templates_root: str | None = None):
         theme = theme or detect()
         super().__init__(parent, title="Block Manager",
                          icon="block_manager_icon.svg",
@@ -469,7 +492,8 @@ class BlockManagerDialog(HouseDialog):
         self.resize(980, 520)
         self.setModal(False)
 
-        self.model = BlockTableModel(scene, root=self._lib_root, parent=self)
+        self.model = BlockTableModel(scene, root=self._lib_root, parent=self,
+                                     templates_root=templates_root)
         self.proxy = BlockFilterProxy(self)
         self.proxy.setSourceModel(self.model)
         self._build_ui()
@@ -517,7 +541,7 @@ class BlockManagerDialog(HouseDialog):
             Col.STATUS, SourceStatusDelegate(self.t, self.view))
         for col, width in ((Col.NAME, 200), (Col.LIBRARY, 130),
                            (Col.SERIES, 130), (Col.COUNT, 80), (Col.STATUS, 120),
-                           (Col.USED_IN, 70)):
+                           (Col.USED_IN, 70), (Col.KIND, 90)):
             self.view.setColumnWidth(col, width)
         body.addWidget(self.view, 1)
 
@@ -556,11 +580,13 @@ class BlockManagerDialog(HouseDialog):
         # Read-only display. Metadata (name/library/series) is edited in the
         # Block Editor (v2), never inline here — the Manager is view-only.
         self.lbl_name = QLabel()
+        self.lbl_kind = QLabel()
         self.lbl_library = QLabel()
         self.lbl_series = QLabel()
         self.lbl_status = QLabel()
         self.lbl_count = QLabel()
         form.addRow("Name", self.lbl_name)
+        form.addRow("Kind", self.lbl_kind)
         form.addRow("Library", self.lbl_library)
         form.addRow("Series", self.lbl_series)
         form.addRow("Source", self.lbl_status)
@@ -642,15 +668,15 @@ class BlockManagerDialog(HouseDialog):
     def _sync_ui(self) -> None:
         defn = self._current_def()
         n_shown = self.proxy.rowCount()
-        # What the model lists — schematics are hidden (D-S4), so they must
-        # not inflate "N of M".
+        # What the model lists — blocks and schematics alike (D-S4, SV4).
         n_total = self.model.rowCount()
         n_inst = len(self.scene._block_instances)
         self.count_label.setText(
-            f"{n_shown} of {n_total} blocks · {n_inst} instances")
+            f"{n_shown} of {n_total} definitions · {n_inst} instances")
         has = defn is not None
         if not has:
             self.lbl_name.clear()
+            self.lbl_kind.clear()
             self.lbl_library.clear()
             self.lbl_series.clear()
             self.lbl_status.clear()
@@ -658,19 +684,29 @@ class BlockManagerDialog(HouseDialog):
             for b in (self.btn_save, self.btn_reload, self.btn_delete,
                       self.btn_editor, self.btn_new_from):
                 b.setEnabled(False)
+            self.btn_save.setToolTip("")
+            self.btn_reload.setToolTip("")
             return
         self.lbl_name.setText(defn.name)
+        self.lbl_kind.setText(_KIND_LABELS.get(defn.kind, defn.kind))
         self.lbl_library.setText(defn.library)
         self.lbl_series.setText(defn.series)
-        status = block_library.source_status(defn, root=self._lib_root)
+        status = block_library.source_status(defn, root=self.model.status_root(defn))
         count = self.scene.instance_count(defn.id)
         self.lbl_status.setText(status)
         self.lbl_count.setText(str(count))
         self.btn_delete.setEnabled(True)
         self.btn_editor.setEnabled(True)
         self.btn_new_from.setEnabled(True)
-        self.btn_save.setEnabled(status in ("project-only", "modified"))
-        self.btn_reload.setEnabled(status == "modified")
+        # A schematic is never written into the block library (D-S5): its
+        # templates are pushed from the browser / editor verbs (D-S6).
+        is_schematic = defn.kind == "schematic"
+        self.btn_save.setEnabled(
+            not is_schematic and status in ("project-only", "modified"))
+        self.btn_reload.setEnabled(not is_schematic and status == "modified")
+        tip = _SCHEMATIC_VERB_TIP if is_schematic else ""
+        self.btn_save.setToolTip(tip)
+        self.btn_reload.setToolTip(tip)
 
     # ------------------------------------------------------- filter popup
     def _open_filter_popup(self, col: int) -> None:
@@ -790,5 +826,5 @@ class BlockManagerDialog(HouseDialog):
         mgr = getattr(self.main_window, "block_editor_manager", None)
         if defn is None or mgr is None:
             return
-        w = mgr.open_new()                       # NEW id (clone), not edit-in-place
+        w = mgr.open_new(kind=defn.kind)         # NEW id (clone), not edit-in-place
         w.seed_from_definition(defn)             # inherit geometry

@@ -23,7 +23,10 @@ def _defn(name, library, series, kind="block"):
 
 
 def _index(folder):
-    with open(os.path.join(folder, "index.json"), encoding="utf-8") as fh:
+    path = os.path.join(folder, "index.json")
+    if not os.path.isfile(path):
+        return {}            # an emptied index is removed (SV4 seam minor (b))
+    with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
 

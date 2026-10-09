@@ -785,6 +785,12 @@ class ViewResolver:
             result["Details"] = detail_names
         directions = ["North", "South", "East", "West"]
         result["Elevations"] = directions
+        if self._schematics is not None:
+            # schematics.md D-S4 (SV4): the project's schematics by display
+            # name; ``resolve`` takes the definition id (Input / Output).
+            names = self._schematics.schematic_names()
+            if names:
+                result["Schematics"] = names
         return result
 
 

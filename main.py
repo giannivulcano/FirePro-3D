@@ -447,6 +447,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.project_browser.createSchematic.connect(self._new_schematic)
         self.project_browser.activateSchematic.connect(self._open_schematic)
         self.project_browser.renameSchematic.connect(self._rename_schematic)
+        self.project_browser.duplicateSchematic.connect(self._duplicate_schematic)
         self.project_browser.deleteSchematic.connect(self._delete_schematic)
         self.project_browser.saveSchematicTemplate.connect(self._save_schematic_template)
         self.scene.blockDefinitionsChanged.connect(self._refresh_schematic_browser)
@@ -5386,6 +5387,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             tm.themed_info(self, "Rename Schematic",
                            f"A schematic named “{name}” already exists{where}."
                            if name else "A schematic needs a name.")
+
+    def _duplicate_schematic(self, block_id: str):
+        """Browser leaf Duplicate: a new project schematic "<name> copy" in
+        the same Series, one project undo step (D-S16 / D-S17; user-ratified
+        2026-10-09: the copy appears at once, no editor opens)."""
+        defn = self.scene.get_block_definition(block_id)
+        if defn is None or defn.kind != "schematic":
+            return
+        self._commit_text_edits()
+        copy = self.scene.duplicate_block_definition(block_id)
+        if copy is not None:
+            self.scene._show_status(f"Duplicated as “{copy.name}”", 5000)
 
     def _delete_schematic(self, block_id: str):
         """Browser leaf Delete: confirm, delete (one undo step), close its tab."""

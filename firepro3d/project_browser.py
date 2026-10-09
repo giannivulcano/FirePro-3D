@@ -162,6 +162,7 @@ class ProjectBrowser(QWidget):
     createSchematic = pyqtSignal()         # root "New Schematic…" (D-S16)
     activateSchematic = pyqtSignal(str)    # leaf open -- definition id
     renameSchematic = pyqtSignal(str)      # definition id; MainWindow prompts
+    duplicateSchematic = pyqtSignal(str)   # definition id; MainWindow copies (D-S16, SV4)
     deleteSchematic = pyqtSignal(str)      # definition id; MainWindow confirms
     saveSchematicTemplate = pyqtSignal(str)   # definition id; MainWindow writes (D-S6)
 
@@ -513,6 +514,8 @@ class ProjectBrowser(QWidget):
             act_open.triggered.connect(lambda: self.activateSchematic.emit(bid))
             act_ren = menu.addAction("Rename…")
             act_ren.triggered.connect(lambda: self.renameSchematic.emit(bid))
+            act_dup = menu.addAction("Duplicate")
+            act_dup.triggered.connect(lambda: self.duplicateSchematic.emit(bid))
             act_tpl = menu.addAction("Save as Template…")
             act_tpl.triggered.connect(lambda: self.saveSchematicTemplate.emit(bid))
             act_del = menu.addAction("Delete")

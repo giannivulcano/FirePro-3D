@@ -127,6 +127,12 @@ class SchematicSceneManager:
         """Ids that currently own a render scene."""
         return set(self._scenes)
 
+    def schematic_names(self) -> list:
+        """Display names of every schematic in the project, sorted
+        case-insensitively (``ViewResolver.available_views`` "Schematics")."""
+        return sorted((d.name for d in self._project._block_definitions.values()
+                       if d.kind == "schematic"), key=str.lower)
+
     def scene_for(self, block_id):
         """The render scene for *block_id*, built / rebuilt as needed.
 
