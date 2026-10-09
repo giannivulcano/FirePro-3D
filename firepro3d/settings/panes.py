@@ -29,7 +29,7 @@ from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
     TITLEBLOCK_DIR_KEY as _TB_DIR_KEY, BLOCK_DIR_KEY as _BLOCK_DIR_KEY,
     HATCH_DIR_KEY as _HATCH_DIR_KEY, LINETYPE_DIR_KEY as _LINETYPE_DIR_KEY,
-    END_DIR_KEY as _END_DIR_KEY,
+    END_DIR_KEY as _END_DIR_KEY, SCHEMATIC_DIR_KEY as _SCHEM_DIR_KEY,
     migrate_data_root, data_root_has_content,
 )
 from firepro3d.ui_kit import ToggleSwitch
@@ -1109,6 +1109,32 @@ class GeneralPane(SettingsPane):
         end_row.addWidget(end_browse)
         end_row.addWidget(end_reset)
         dv.addLayout(end_row)
+
+        # Schematics folder (schematics.md D-S5) — the templates root that
+        # New Schematic lists and Save as Template writes; overrides
+        # ``<data folder>/schematics`` (carried by the data-root migration).
+        schem_hint = QLabel(
+            "Schematics (optional): a folder of schematic templates offered by "
+            "New Schematic and written by Save as Template. Leave blank to use "
+            "<data folder>/schematics.")
+        schem_hint.setWordWrap(True)
+        dv.addWidget(schem_hint)
+        schem_row = QHBoxLayout()
+        self._schem_dir_edit = QLineEdit()
+        self._schem_dir_edit.setPlaceholderText("(data folder)/schematics")
+        self._schem_dir_edit.setToolTip(
+            "Folder of schematic templates offered by New Schematic "
+            "(default: <data folder>/schematics)")
+        schem_browse = QPushButton("Browse…")
+        schem_browse.setToolTip("Choose the schematics folder")
+        schem_browse.clicked.connect(self._pick_schem_dir)
+        schem_reset = QPushButton("Reset")
+        schem_reset.setToolTip("Use the default (<data folder>/schematics)")
+        schem_reset.clicked.connect(self._schem_dir_edit.clear)
+        schem_row.addWidget(self._schem_dir_edit, 1)
+        schem_row.addWidget(schem_browse)
+        schem_row.addWidget(schem_reset)
+        dv.addLayout(schem_row)
         outer.addWidget(data_group)
 
         outer.addStretch()
@@ -1167,6 +1193,19 @@ class GeneralPane(SettingsPane):
             self, "Choose end types folder", start)
         if chosen:
             self._end_dir_edit.setText(chosen)
+
+    def _pick_schem_dir(self) -> None:
+        """Browse for the Schematics templates folder (schematics.md D-S5).
+
+        Starts at the current field, else the data folder / default root; a
+        cancelled dialog leaves the field unchanged.
+        """
+        start = (self._schem_dir_edit.text().strip()
+                 or self._data_folder_edit.text().strip() or default_root())
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Choose schematics folder", start)
+        if chosen:
+            self._schem_dir_edit.setText(chosen)
 
     def migrate_prompt_if_needed(self) -> None:
         """After Apply/OK: if the data root changed and the old root still holds
@@ -1238,6 +1277,9 @@ class GeneralPane(SettingsPane):
         end = s.value(_END_DIR_KEY, "", type=str) or ""
         self._end_dir_snapshot = end
         self._end_dir_edit.setText(end)
+        schem = s.value(_SCHEM_DIR_KEY, "", type=str) or ""
+        self._schem_dir_snapshot = schem
+        self._schem_dir_edit.setText(schem)
 
     def apply(self) -> None:
         """Write checkbox states + the data-folder/title-block overrides.
@@ -1258,6 +1300,7 @@ class GeneralPane(SettingsPane):
         s.setValue(_HATCH_DIR_KEY, self._hatch_dir_edit.text().strip())
         s.setValue(_LINETYPE_DIR_KEY, self._lt_dir_edit.text().strip())
         s.setValue(_END_DIR_KEY, self._end_dir_edit.text().strip())
+        s.setValue(_SCHEM_DIR_KEY, self._schem_dir_edit.text().strip())
 
     def revert(self) -> None:
         """Restore snapshot values to checkboxes + the path fields."""
@@ -1270,6 +1313,7 @@ class GeneralPane(SettingsPane):
         self._hatch_dir_edit.setText(getattr(self, "_hatch_dir_snapshot", ""))
         self._lt_dir_edit.setText(getattr(self, "_lt_dir_snapshot", ""))
         self._end_dir_edit.setText(getattr(self, "_end_dir_snapshot", ""))
+        self._schem_dir_edit.setText(getattr(self, "_schem_dir_snapshot", ""))
 
 
 # Ordered list of (label, dict-key) for the standard project-info fields.
