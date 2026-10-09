@@ -815,17 +815,20 @@ def _category_for_item(item) -> str | None:
         from .geometry_2d import (
             PolylineItem, LineItem, ReferenceLineItem,
             RectangleItem, CircleItem, ArcItem,
+            EllipseItem, SplineItem, RegularPolygonItem,
         )
         if isinstance(item, ReferenceLineItem):   # subclass — check before LineItem
             return "Reference Lines"
         if isinstance(item, (PolylineItem, LineItem,
-                             RectangleItem, CircleItem, ArcItem)):
+                             RectangleItem, CircleItem, ArcItem,
+                             EllipseItem, SplineItem, RegularPolygonItem)):
             return "Construction"
     except ImportError:  # pragma: no cover - defensive fallback
         if cls_name == "ReferenceLineItem":
             return "Reference Lines"
         if cls_name in ("PolylineItem", "LineItem",
-                        "RectangleItem", "CircleItem", "ArcItem"):
+                        "RectangleItem", "CircleItem", "ArcItem",
+                        "EllipseItem", "SplineItem", "RegularPolygonItem"):
             return "Construction"
     return None
 
@@ -1064,7 +1067,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     """
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QBrush, QColor, QPen
-    from PyQt6.QtWidgets import QGraphicsPathItem
+    from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
     from .display_manager import _set_svg_tint
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
@@ -1098,7 +1101,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                               "visible": item.isVisible()})
                 item.setVisible(False)
                 continue
-            if item.data(0) == "origin":
+            # QGraphicsItem.data(item, 0), not item.data(0): TextItem shadows
+            # ``data`` with its TextAnnotationData (schematic viewports hold
+            # text — SV2; the snap_engine / property_manager precedent).
+            if QGraphicsItem.data(item, 0) == "origin":
                 # Model origin cross — authoring aid, never plots (§9.9.1).
                 saved.append({"item": item, "cat_key": None,
                               "visible": item.isVisible()})
