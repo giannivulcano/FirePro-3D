@@ -168,3 +168,12 @@ def test_block_rename_rules_unchanged(qapp):
     p = _plain(ms)
     assert ms.set_block_metadata(p.id, "X", "", "S") is False
     assert ms.set_block_metadata(p.id, "X", "L", "") is False
+
+
+def test_commit_edit_without_kind_keeps_schematic(qapp):
+    ms = Model_Space()
+    s = _schematic(ms)
+    d = ms.commit_block_definition(block_id=s.id, name="R3", library="", series="",
+                                   primitives=[_line()], origin=(0.0, 0.0),
+                                   place_instance=True)
+    assert d.kind == "schematic" and ms.instance_count(s.id) == 0

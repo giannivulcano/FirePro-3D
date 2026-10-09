@@ -2395,7 +2395,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None, capability=None, kind="block"):
+                                constraints=None, capability=None, kind=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -2431,8 +2431,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             capability: ``(kind, dict)`` or None -- tile (D-A32) / repeat
                 (LT4) / end (LT5). A capability block is never placed; dropping a
                 linetype's repeat is refused while lines use it (LT4-5).
-            kind: ``"block"`` or ``"schematic"`` (schematics.md SD1). A
-                schematic carries no capability and is never placed.
+            kind: ``"block"`` or ``"schematic"`` (schematics.md SD1); ``None``
+                = "block" for a new definition / keep the existing kind on
+                edit. A schematic carries no capability and is never placed.
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -2440,7 +2441,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .block_definition import BlockDefinition
         if not primitives:
             return None
-        def_kind = kind    # `kind` is rebound below to the capability kind
+        old = self._block_definitions.get(block_id) if block_id else None
+        # `kind` is rebound below to the capability kind; keep the definition kind.
+        def_kind = kind or (old.kind if old is not None else "block")
         if def_kind == "schematic":
             capability = None                     # D-S14: no capability slot
             place_instance, source_items = False, None   # D-S3: never placed
@@ -2465,7 +2468,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
             place_instance, source_items = False, None
-        old = self._block_definitions.get(block_id) if block_id else None
         if old is not None and old.repeat and repeat is None:
             why = self.linetype_off_refusal(block_id)       # LT4-5 save re-check
             if why is not None:
