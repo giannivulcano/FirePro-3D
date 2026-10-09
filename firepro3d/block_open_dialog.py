@@ -97,7 +97,8 @@ class BlockOpenDialog(HouseDialog):
         f_bold = QFont()
         f_bold.setBold(True)
 
-        project = sorted(self._scene._block_definitions.values(),
+        project = sorted((d for d in self._scene._block_definitions.values()
+                          if d.kind != "schematic"),      # D-S4
                          key=lambda d: d.name.lower())
         if project:
             root = QTreeWidgetItem(self._tree, ["Project"])

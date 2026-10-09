@@ -158,3 +158,66 @@ def test_retitle_schematics_follows_registry_name(env):
     d.name = "Riser Z"
     mgr.retitle_schematics()
     assert tabs.tabText(tabs.indexOf(w)) == "Schematic: Riser Z"
+
+
+# -- Task 3: listing filters (D-S4) -------------------------------------------
+
+def _two_defs(ms):
+    s = BlockDefinition.new(name="Riser A", library="", series="",
+                            primitives=[_line_item().to_dict()],
+                            origin=(0.0, 0.0), kind="schematic")
+    b = BlockDefinition.new(name="Sym", library="L", series="S",
+                            primitives=[_line_item().to_dict()], origin=(0.0, 0.0))
+    ms.register_block_definition(s)
+    ms.register_block_definition(b)
+    return s, b
+
+
+def _tree_texts(tree):
+    out = []
+
+    def walk(it):
+        out.append(it.text(0))
+        for i in range(it.childCount()):
+            walk(it.child(i))
+    for i in range(tree.topLevelItemCount()):
+        walk(tree.topLevelItem(i))
+    return out
+
+
+def test_library_tree_for_excludes_schematics(qapp):
+    ms = Model_Space()
+    _two_defs(ms)
+    tree = library_tree_for(ms)
+    assert "" not in tree and tree.get("L") == ["S"]
+
+
+def test_blocks_browser_hides_schematics(qapp):
+    from firepro3d.blocks_browser import BlocksBrowser
+    ms = Model_Space()
+    _two_defs(ms)
+    bb = BlocksBrowser(ms)
+    bb.refresh()
+    texts = _tree_texts(bb._tree)
+    assert "Sym" in texts and "Riser A" not in texts
+    bb.deleteLater()
+
+
+def test_block_open_dialog_hides_schematics(qapp):
+    from firepro3d.block_open_dialog import BlockOpenDialog
+    ms = Model_Space()
+    _two_defs(ms)
+    dlg = BlockOpenDialog(ms)
+    texts = _tree_texts(dlg._tree)
+    assert "Sym" in texts and "Riser A" not in texts
+    dlg.deleteLater()
+
+
+def test_block_manager_hides_schematics_until_sv4(qapp):
+    from firepro3d.block_manager import BlockManagerDialog
+    ms = Model_Space()
+    s, b = _two_defs(ms)
+    dlg = BlockManagerDialog(ms, None)
+    ids = [d.id for d in dlg.model._defs]
+    assert b.id in ids and s.id not in ids
+    dlg.deleteLater()
