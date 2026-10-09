@@ -56,7 +56,7 @@ root, a project-vs-template save destination, and browser verbs.
 | `block_library.*` | REUSE AS-IS | every function takes `root=` |
 | `BlockRegistry.users_of` / `referenced_ids` / `bundle_for` | REUSE AS-IS | nested-usage delete refusal (D-S11b) and template bundling (D-S11c) already exist |
 | `ViewResolver.resolve` / `available_views` | GENERALIZE | schematic branch; the elevation kind is the non-model-scene precedent |
-| `BlockDefinition` | GENERALIZE | additive `kind`; `never_placed` accessor replaces four `tile or repeat` checks |
+| `BlockDefinition` | GENERALIZE | additive `kind` (refusal: `capabilities.place_refusal` wraps the LT5 `capability_place_reason` — SD1) |
 | `BlockSaveDialog`, `BlockOpenDialog`, `library_tree_for` | GENERALIZE | kind-aware title / tiers / root |
 | Project Browser roles, `_MS_STUBS`, `mimeData`, `set_placed_views`, `_on_item_activated` | GENERALIZE | real `schematic` role |
 | `main.py` `isinstance(BlockEditorWidget)` branches, `_close_stale_view_tabs`, `_navigate_to_source_view` | GENERALIZE | schematic prefix / branch |
@@ -79,22 +79,34 @@ objects (project-browser.md); both serialization paths carry every new field
 ### SD1 — Kind flag (D-S3, D-S4)
 
 - `BlockDefinition.kind: str = "block"`; `"schematic"` for schematics.
-  `to_dict` writes it; `from_dict` defaults it. Carried by `.fpd`
-  `block_definitions`, `.fpdb`, `index.json` and the `_capture_network` undo
-  path (both serialization paths).
-- `BlockDefinition.never_placed` (property): `bool(tile) or bool(repeat) or
-  kind == "schematic"`. The four placement refusal sites (`Model_Space.set_mode`,
-  `_press_place_block`, paste `block_instance` branch,
-  `Model_View._resolve_block_drag`) and the nesting entry points (editor drop,
-  editor paste) call it; `block_library.SCHEMATIC_REASON` joins
-  `PATTERN_REASON` / `LINETYPE_REASON` and a `refusal_reason(defn)` helper picks
-  the string (one def, N callers).
+  `to_dict` writes `"kind"` **only when not `"block"`** (the LT5 `end`
+  byte-identical precedent); `from_dict` defaults it. `to_dict`/`from_dict` is
+  the one serializer behind `.fpd` `block_definitions`, `.fpdb` and the
+  `_capture_network` undo path, so both serialization paths carry it;
+  `index.json` gains it in SV3.
+- **Refusal home (SV1 delta, ratified 2026-10-08 — supersedes the
+  `never_placed` property).** LT5 already made
+  `capabilities.capability_place_reason(defn)` the one "can't be placed"
+  function, called by all four placement sites (`Model_Space.set_mode`,
+  `_press_place_block`, the paste `block_instance` branch,
+  `Model_View._resolve_block_drag`); the editor's drop and paste nesting reach
+  the same functions. SV1 adds `capabilities.place_refusal(defn)` →
+  `block_library.SCHEMATIC_REASON` when `kind == "schematic"`, else
+  `capability_place_reason(defn)`; the four sites switch to it.
+  `capability_place_reason` keeps its capability-only meaning.
 - `commit_block_definition(..., kind=)` stores it; Save As keeps it (the
   capability precedent). `symbol_use_refusal` logic is untouched — a schematic
   simply never reaches a placement.
-- Listing filters: Blocks browser (`_grouped`), Insert, `BlockOpenDialog` block
-  roots, `library_only_entries` exclude `kind == "schematic"`; Block Manager
-  gains a **Kind** column + filter (SV4).
+- **Identity (D-S15):** a schematic's `library` is `""`, `series` optional,
+  name unique among schematics within its series. `set_block_metadata` and the
+  Save validator apply this rule when `kind == "schematic"`; block rules are
+  unchanged.
+- Listing filters: Blocks browser (`_grouped`, which Insert focuses),
+  `BlockOpenDialog` project root, the Save Block dialog's `library_tree_for`,
+  and `library_only_entries` (SV3, once templates exist) exclude
+  `kind == "schematic"`. The Block Manager **hides** schematics until SV4 adds
+  its **Kind** column + filter (with the library verbs disabled for schematic
+  rows).
 
 ### SD2 — Render source: materialized render scene (D-S10, D-S12)
 
@@ -158,7 +170,9 @@ exists only while the tab is open, PDF export needs (1) regardless.
   `duplicateSchematic(id)`, `deleteSchematic(id)`, `saveSchematicTemplate(id)`.
   `MainWindow` owns every dialog / confirm and pushes state back (pure push).
 - `mimeData`: role `"schematic"` → `MIME_VIEW` `{"view_type": "schematic",
-  "view_name": id}`.
+  "view_name": id}` — **SV2** (with the resolver; SV1 leaves are not
+  draggable, so a drop can never make a "View not found" viewport — SV1
+  delta, ratified 2026-10-08). Placed italics are SV2 likewise.
 - `MainWindow` pushes `refresh_schematics` on load, new file,
   `blockDefinitionsChanged`, and after each verb; `_recompute_placed_views`
   scans `source_view_type == "schematic"`.
@@ -169,8 +183,14 @@ exists only while the tab is open, PDF export needs (1) regardless.
   the kind; the widget stores `self.kind`. Tab title prefix `"Schematic: "`;
   `_close_stale_view_tabs` sweeps that prefix too (today Block Editor tabs are
   not swept — a schematic tab bound to a project definition must be).
-- Capability toggles: `toggle_capability` refuses with a tooltip reason when
-  `kind == "schematic"`; `_sync_capability_buttons` disables both buttons.
+- Capability toggles (three since LT5: pattern tile / linetype / end type):
+  `_sync_capability_buttons` disables the three ribbon buttons with a tooltip
+  in a Schematic tab, `capability_rows` omits the capability section from the
+  property panel, and `toggle_capability` refuses as the backstop.
+- Silent re-save of a schematic never calls `_save_to_library` (the block
+  library is never its home, D-S5).
+- Delete from the browser closes that schematic's open editor tab (one
+  confirm covers both); Rename re-titles it.
 - `BlockSaveDialog(kind=)`: title "Save Schematic", Series selector only
   (`library_tree_for(root=schematics_dir(), tiers=1)`), "Also save as Template"
   toggle (QSettings `BlockEditor/save_schematic_template`). Save → project
@@ -234,8 +254,8 @@ placement" task and SB7's host note are amended at SV1's filing.
 
 | Slice | Content | Guards | Depends |
 |---|---|---|---|
-| **SV1** | SD1 kind flag + `never_placed` + `SCHEMATIC_REASON` at all sites; SD5 editor (kind, title, capability lock, Save Schematic → project); SD4 browser root / role / leaves / verbs Open / Rename / Delete / New (blank only); `.fpd` + undo persistence; listing filters; `_close_stale_view_tabs` prefix | G1 (project half), G2, G6 | — |
-| **SV2** | SD2 `SchematicSceneManager` + promoted materializer; SD3 resolver branch, drop NTS default, live crop, title bubble name lookup, Go-to-view, placed italics; SD8 "used on sheets" refusal; PDF | G1 (sheet half), G3, G5 | SV1 |
+| **SV1** | SD1 kind flag + `place_refusal` + `SCHEMATIC_REASON` at all sites; SD5 editor (kind, title, capability lock, Save Schematic → project); SD4 browser root / role / leaves / verbs Open / Rename / Delete / New (blank only), leaves not draggable; `.fpd` + undo persistence; listing filters (Block Manager hidden); `_close_stale_view_tabs` prefix | G1 (project half), G2, G6 (SV1 half) | — |
+| **SV2** | SD2 `SchematicSceneManager` + promoted materializer; SD3 resolver branch, drop NTS default, live crop, title bubble name lookup, Go-to-view, placed italics; SD4 leaf drag (`mimeData`); SD8 "used on sheets" refusal; PDF | G1 (sheet half), G3, G5, G6 (SV2 half) | SV1 |
 | **SV3** | SD7 `schematics_dir` + settings row + migration + one-tier `_series_dir` (P4 probe first); SD5 Save as Template (bundling, collision) + browser verb; SD6 New-from-template dialog (**mockup gate**) | G4 | SV1 (editor), SV2 for the placed-template smoke |
 | **SV4** | Block Manager Kind column / filter + Used-in; Duplicate verb; `available_views` Schematics group; spec Account (`schematics.md` → partial/current, reconciliation pointers, SPEC-INDEX) | keep-green only | SV2 |
 
@@ -247,7 +267,7 @@ SV1 → SV2 → SV3 sequential; SV4 after SV2 (∥ SV3).
 - [ ] One render path serves on-screen sheet preview and PDF export (SD2).
 - [ ] No duplicated materializer: the editor and the render scene share one
       helper (SD2).
-- [ ] No fifth ad-hoc refusal check: `never_placed` is the single accessor
+- [ ] No fifth ad-hoc refusal check: `capabilities.place_refusal` is the single function
       (SD1).
 
 ## Verification Checklist (guards — VC3: real path, observable ground truth)
@@ -276,10 +296,13 @@ SV1 → SV2 → SV3 sequential; SV4 after SV2 (∥ SV3).
 - **G5 Delete** — delete a placed schematic → refused, message names the sheet
   numbers; after removing the viewports → allowed, render scene disposed;
   delete a block nested in a schematic → refused naming the schematic.
-- **G6 Browser** — Schematics root has its own role (double-click no longer
-  activates the plan); leaf drag emits `MIME_VIEW` `{schematic, id}`; placed
-  italics follow sheet placement; hidden from the Blocks browser / Insert /
-  Open block roots; Rename re-titles the open editor tab and the viewport title.
+- **G6 Browser** — *SV1 half:* Schematics root has its own role (double-click
+  no longer activates the plan); double-click a leaf opens its seeded
+  `Schematic:` tab; a leaf's `mimeData` is empty; hidden from the Blocks browser
+  / Insert / Open block roots / Save Block library tree / Block Manager; Rename
+  re-titles the open editor tab (one undo); Delete removes the leaf and closes
+  the tab. *SV2 half:* leaf drag emits `MIME_VIEW` `{schematic, id}`; placed
+  italics follow sheet placement; Rename re-titles the viewport title.
 
 **Keep-green (registry / enumerator tests, from the 1b sweep):**
 `test_project_browser_3d`, `test_project_browser_sheets` (roles, `mimeData`,
