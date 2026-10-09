@@ -2074,7 +2074,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         carries that the project lacks (the project copy wins, D11), swaps it
         in (backref rebuild + repaint), pushes an undo state, and emits
         ``blockDefinitionsChanged``. Returns False when the block is not in the
-        library, is unreadable, or the reload would form a nesting cycle.
+        library, is unreadable, the reload would form a nesting cycle, or the
+        library copy is of the other ``kind`` (schematics.md D-S3).
         ``root`` overrides the library root.
         """
         import os
@@ -2093,6 +2094,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         lib_def, bundled = loaded
         if self._load_would_cycle(bundled, lib_def):
             return False
+        if lib_def.kind != current.kind:
+            return False                 # schematics.md D-S3 (SV4): kind is frozen
         self._add_bundled(bundled, lib_def)              # project copy wins
         self._merge_bundled_weights(path)
         self._swap_block_definition(block_id, lib_def)
@@ -2136,6 +2139,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 continue
             existing = self._block_definitions.get(defn.id)
             if existing is not None:
+                if existing.kind != defn.kind:
+                    # schematics.md D-S3 (SV4): a same-id file of the other
+                    # kind is refused whole -- not even its bundled deps land.
+                    summary["refused"].append(
+                        f"{defn.name} ({block_library.KIND_REASON})")
+                    continue
                 self._merge_bundled_weights(path)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 if existing.version == defn.version:

@@ -30,6 +30,10 @@ LINETYPE_REASON = "Linetype blocks style lines — they can't be placed"
 END_REASON = "End type blocks finish lines — they can't be placed"
 # Place / drag refusal for a schematic (schematics.md D-S3).
 SCHEMATIC_REASON = "Schematics go on sheets as views — they can't be placed"
+# Load-summary refusal reason for a same-id file of the other kind: a placed
+# block must never silently become a schematic, nor a schematic a block
+# (schematics.md D-S3; SV4). ``commit_block_definition`` refuses the same on edit.
+KIND_REASON = "a block and a schematic can't replace each other"
 _listeners: list = []     # weak refs to zero-arg callables (library changed)
 
 
@@ -399,6 +403,8 @@ def load_failure_message(name: str, summary: dict, *, noun: str = "block") -> st
     refused = summary.get("refused") or []
     if any(LOOP_REASON in r for r in refused):
         why = LOOP_REASON
+    elif any(KIND_REASON in r for r in refused):
+        why = KIND_REASON
     elif refused:
         why = f"a different {noun} already uses this name in the project"
     else:
