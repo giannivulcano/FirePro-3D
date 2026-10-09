@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Schematics -- SV1 kind + editor + browser -- 2026-10-08
+
+- [x] [type:feature] SV1 — Schematic kind + editor + browser: `BlockDefinition.kind` (both serialization paths, `.fpdb`, `index.json`), `capabilities.place_refusal` + `SCHEMATIC_REASON` at every placement/nesting site, `Schematic:` editor tab (capability toggles locked, "Save Schematic" dialog → project), Project Browser Schematics root/role/Series/leaves with New (blank) / Open / Rename / Delete, listing filters (Blocks browser, Insert, Open roots, Save Block library tree; Block Manager hidden until SV4), leaves not draggable (drag = SV2), stale-tab sweep [P1] [subject:Architecture] [done:2026-10-08]
+  - Details: concept SD1, SD4 (minus Duplicate / Save as Template), SD5 (minus template toggle). Guards G1 (project half), G2, G6. Tier Large. Mockup gate N/A (no new widget — reconfigured existing dialog/tab). ref: schematics.md D-S3/D-S4/D-S9/D-S14/D-S16/D-S17.
+  - Built 2026-10-08 on `feat/sv1-schematic-kind` (feature/Large, chain 1 → 1b → 2 → 3 → 4 → 5 → 6, FP3 + FP6; 1b found LT5's `capability_place_reason` already centralized the refusal, so `never_placed` became `capabilities.place_refusal`; 6 ratified deltas in `effe8cdb` -- refusal home, `kind` omitted for plain blocks, schematic identity, three-toggle capability lock, Block Manager hidden until SV4, leaf drag/italics → SV2). Implementers: T1 model, T2+T3 editor + filters (FP6), T4 browser, T5 MainWindow; two-stage reviews + VC9 seam review (fix round: Discard / Cancel prompt before New / Open sweeps dirty Schematic tabs -- user-ratified; G2 via the real drop path + editor paste; Block Manager count; schematic wording). Guards G1 (project half), G2, G6 (SV1 half), cap-lock: tests/test_sv1_schematic_kind.py, test_sv1_schematic_editor.py, test_project_browser_schematics.py, test_sv1_schematics_mainwindow.py, test_block_drag_drop.py -- each RED with its file reverted (scratch worktree). VC6 chunked full suite green bar the pre-existing `test_flip_mirror_keys_drive_the_block_editor_scene` (proven at base `effe8cdb`, already filed). User smoke passed.
+
 ## Linetypes -- LT5 end capability -- 2026-10-08
 
 - [x] [type:feature] LT5 — `end` capability (Fixed / Weight-relative, trim, attach point +X) + end rendering + per-end override + per-end Visible [P2] [subject:CAD] [done:2026-10-08]
