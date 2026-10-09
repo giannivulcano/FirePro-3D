@@ -8,6 +8,7 @@ consumed by every BlockInstance. See docs/specs/block-system.md.
 from __future__ import annotations
 
 import copy
+import math
 import uuid
 
 from PyQt6.QtCore import QPointF
@@ -17,6 +18,8 @@ from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .end_render import FIXED as _er_FIXED
+from .end_render import WEIGHT_RELATIVE as _er_WEIGHT_RELATIVE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
@@ -162,7 +165,38 @@ def _norm_repeat(repeat) -> dict | None:
            "size": "model" if repeat.get("size") == "model" else "drafting"}
     if repeat.get("screen") == "fixed":
         out["screen"] = "fixed"
+    ends = repeat.get("ends")
+    if isinstance(ends, dict):
+        # LT5 Q11: the linetype's default end ids; a key only for an id (a
+        # keyword / blank is "no default"), the record only when non-empty,
+        # so linetypes without defaults stay byte-identical.
+        from .stroke_style import ENDS, is_end_ref
+        kept = {k: ends[k] for k in ENDS if is_end_ref(ends.get(k))}
+        if kept:
+            out["ends"] = kept
     return out
+
+
+_END_SIZES = (_er_FIXED, _er_WEIGHT_RELATIVE)   # one home: end_render
+
+
+def _norm_end(end) -> dict | None:
+    """Normalised end-type record, or None (LT5 design A).
+
+    ``{"size": "fixed" | "weight_relative", "trim": mm >= 0}``: a non-dict
+    is no capability; a bad size reads Fixed; a non-numeric, non-finite or
+    negative trim reads 0.
+    """
+    if not isinstance(end, dict):
+        return None
+    size = end.get("size")
+    try:
+        trim = float(end.get("trim", 0.0))
+    except (TypeError, ValueError):
+        trim = 0.0
+    if not math.isfinite(trim) or trim < 0.0:
+        trim = 0.0
+    return {"size": size if size in _END_SIZES else _er_FIXED, "trim": trim}
 
 
 def _load_prim(p):
@@ -207,7 +241,7 @@ class BlockDefinition:
                  attributes: list, primitives: list[dict],
                  render_mode: str = "default", geoms: list[dict] | None = None,
                  constraints: list | None = None, tile: dict | None = None,
-                 repeat: dict | None = None):
+                 repeat: dict | None = None, end: dict | None = None):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -227,6 +261,9 @@ class BlockDefinition:
         # Linetype capability (linetypes.md LT3 H3-g): {"length","size"} or
         # None. Additive key — absent => None (no schema bump).
         self._repeat: dict | None = _norm_repeat(repeat)
+        # End-type capability (LT5): {"size","trim"} or None. Additive key --
+        # absent => None (no schema bump).
+        self._end: dict | None = _norm_end(end)
         # Reference definitions (render_mode="reference") own the curve-preserving,
         # layer-tagged import geom-dict list. This is the geometry data model for
         # imported references — rendered by the batched underlay builder (which
@@ -252,12 +289,13 @@ class BlockDefinition:
             render_mode: str = "default",
             constraints: list | None = None,
             tile: dict | None = None,
-            repeat: dict | None = None) -> "BlockDefinition":
+            repeat: dict | None = None,
+            end: dict | None = None) -> "BlockDefinition":
         """Create a fresh definition with a new uuid and version 1."""
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
                    attributes=[], primitives=primitives, render_mode=render_mode,
-                   constraints=constraints, tile=tile, repeat=repeat)
+                   constraints=constraints, tile=tile, repeat=repeat, end=end)
 
     @classmethod
     def reference_from_geoms(cls, geoms: list[dict], *, name: str = "",
@@ -326,7 +364,14 @@ class BlockDefinition:
                 the caller follows with ``set_primitives``, which does both
                 (one edit = one version bump).
         """
-        self._tile = _norm_tile(tile)
+        self._set_capability("_tile", _norm_tile(tile), notify)
+
+    def _set_capability(self, attr: str, value, notify: bool) -> None:
+        """The one capability setter body (``set_tile`` / ``set_repeat`` /
+        ``set_end``): store the normalised record, drop the compiled caches
+        and -- with *notify* -- bump the version (capability caches key on
+        it) and repaint backref instances."""
+        setattr(self, attr, value)
         self.invalidate_cache()
         if notify:
             self.version += 1
@@ -335,8 +380,23 @@ class BlockDefinition:
 
     @property
     def repeat(self) -> dict | None:
-        """The linetype repeat ``{length, size}``; None = not a linetype."""
-        return dict(self._repeat) if self._repeat else None
+        """The linetype repeat ``{length, size[, screen][, ends]}``; None =
+        not a linetype. A deep copy (``ends`` is a nested dict)."""
+        return copy.deepcopy(self._repeat) if self._repeat else None
+
+    @property
+    def has_default_ends(self) -> bool:
+        """True when this is a linetype whose repeat names a default end
+        (LT5 Q11) -- the paint fast-path gate; no copy of the record."""
+        return bool(self._repeat and self._repeat.get("ends"))
+
+    @property
+    def is_linetype(self) -> bool:
+        """True when this block carries a linetype repeat record (malformed
+        or not) -- ``bool(repeat)`` without the deep copy, for the paint /
+        boundingRect paths (``stroke_style.linetype_block``,
+        ``LinetypeDef.from_block``)."""
+        return bool(self._repeat)
 
     def set_repeat(self, repeat, *, notify: bool = True) -> None:
         """Replace the repeat record, bump the version (linetype caches key on it).
@@ -346,12 +406,29 @@ class BlockDefinition:
             notify: Bump the version and repaint backref instances (as
                 ``set_tile``).
         """
-        self._repeat = _norm_repeat(repeat)
-        self.invalidate_cache()
-        if notify:
-            self.version += 1
-            for inst in list(self._instances):
-                inst.on_definition_changed()
+        self._set_capability("_repeat", _norm_repeat(repeat), notify)
+
+    @property
+    def end(self) -> dict | None:
+        """The end-type record ``{size, trim}``; None = not an end type."""
+        return dict(self._end) if self._end else None
+
+    @property
+    def is_end(self) -> bool:
+        """True when this block is an end type -- ``bool(end)`` without the
+        copy, for the paint / boundingRect paths (``stroke_style.end_block``,
+        ``end_render.EndDef.from_block``)."""
+        return bool(self._end)
+
+    def set_end(self, end, *, notify: bool = True) -> None:
+        """Replace the end-type record, bump the version (end caches key on it).
+
+        Args:
+            end: New end dict or None.
+            notify: Bump the version and repaint backref instances (as
+                ``set_tile``).
+        """
+        self._set_capability("_end", _norm_end(end), notify)
 
     def render_ops(self) -> list[RenderOp]:
         """Return the cached, shared ``RenderOp`` list.
@@ -441,7 +518,7 @@ class BlockDefinition:
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
             st = getattr(item, "style", None)
-            pieces, lt = (), None
+            pieces, lt, ends = (), None, None
             if st is not None and hasattr(item, "stroke_pieces"):
                 # Same map as the path: mapToParent (Qt transform, then pos --
                 # row-vector order) then the origin shift. Rect data rotation
@@ -452,11 +529,15 @@ class BlockDefinition:
                     item.pos().x() - ox, item.pos().y() - oy)
                 pieces = tuple(map_piece(p, t) for p in item.stroke_pieces())
                 lt = st["linetype"]
+                from .stroke_style import open_stroke
+                if open_stroke(item):          # LT5 Q2: free ends only
+                    ends = (dict(st["start"]), dict(st["finish"]))
             ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
                                 weight=st["weight"] if st else None,
                                 pieces=pieces, linetype=lt,
                                 # phase anchor: this definition's origin
-                                origin=QPointF(0.0, 0.0) if pieces else None))
+                                origin=QPointF(0.0, 0.0) if pieces else None,
+                                ends=ends))
         return ops
 
     def _resolve_nested(self, prim):
@@ -544,7 +625,7 @@ class BlockDefinition:
                 yield cls.from_dict(prim), prim.get("layer", "")
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "schema": 1,
             "id": self.id,
             "version": self.version,
@@ -558,8 +639,11 @@ class BlockDefinition:
             "render_mode": self.render_mode,
             "constraints": [dict(c) for c in self.constraints],
             "tile": dict(self._tile) if self._tile else None,
-            "repeat": dict(self._repeat) if self._repeat else None,
+            "repeat": copy.deepcopy(self._repeat) if self._repeat else None,
         }
+        if self._end:
+            d["end"] = dict(self._end)      # omitted when None (byte-identical)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "BlockDefinition":
@@ -576,4 +660,5 @@ class BlockDefinition:
             constraints=data.get("constraints", []),
             tile=data.get("tile"),
             repeat=data.get("repeat"),
+            end=data.get("end"),
         )

@@ -378,12 +378,20 @@ LINETYPE_WINDOW_MIN_PERIODS = 512  # longer Fixed pieces expand only near the vi
 LINETYPE_DOT_MM = 1e-3             # dot = 1 µm round-cap segment (P4 2026-10-04)
 LINETYPE_AXIS_TOL_MM = 1e-3        # unit Line counts as on-axis within this
 LINETYPE_BADGE_PX = 12             # missing-linetype glyph (Task 1 mockup gate, option A)
+# End types (linetypes.md "Ends", LT5 / end_render.py)
+END_DEF_CACHE_MAX = 512            # EndDef reading LRU entries
+END_XF_CACHE_MAX = 4096            # end frame transform / ends_rect memo entries (cleared when full)
+END_JOIN_TOL_MM = 1e-6             # abutting trimmed pieces within this stay one subpath (joins kept)
 # Crisp H/V strokes (linetypes.md MW-7 / H-MW-f, crisp_stroke.py)
 CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise only (delta 3)
 CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = closed
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis
 PATTERN_PREVIEW_H_PX = 64          # LT4 panel preview swatch height (mockup gate)
 PATTERN_PREVIEW_PERIODS = 4.0      # periods across the swatch's straight sample
+END_GLYPH_HALF_PX = 8.0            # LT5 End type frame: accent crosshair half-size (mockup gate)
+END_GLYPH_ARM_PX = 28.0            # LT5 End type frame: +X arrow arm length (mockup gate)
+END_SAMPLE_MM = 18.0               # LT5 End type frame: faint sample line length (mockup gate)
+END_PREVIEW_PX_PER_MM = 4.0        # LT5 panel swatch: Fixed end mm -> swatch px
 # path_walk.Curve.from_path flattens at this scale-up: Qt's default flattening of a
 # cubic deviates > 0.1 mm from the drawn curve at mm scale; x64 keeps a ~50 mm
 # cubic within ~0.004 mm. Qt caps a single cubic at ~512 segments, so a very

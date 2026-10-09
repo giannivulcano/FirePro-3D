@@ -40,6 +40,11 @@ class RenderOp:
             placeholder ops (stroke only, LT3). ``origin`` doubles as a
             stroke's phase anchor -- its defining definition's origin, so a
             nested block keeps its own phase after ``mapped``.
+        ends: ``(start, finish)`` normalised end records
+            (``{"end", "visible"[, "mirrored"]}``) of an OPEN styled stroke
+            (``stroke_style.open_stroke``); None for closed / unstyled /
+            reference / placeholder ops (stroke only, LT5). Resolved at
+            paint, never compiled into ops (flyweight compile).
 
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
@@ -56,6 +61,7 @@ class RenderOp:
     weight: str | None = None
     pieces: tuple = ()
     linetype: str | None = None
+    ends: tuple | None = None
 
     def mapped(self, t: QTransform) -> "RenderOp":
         """This op with ``path`` / ``origin`` / ``pieces`` mapped through *t*."""

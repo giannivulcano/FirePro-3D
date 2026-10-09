@@ -260,8 +260,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The definition id a Block Editor scene is editing (the cycle-check
         # host); None on the plan scene and in an unsaved editor.
         self._editing_block_id = None
-        # Block Editor capability (hatch D-A32 tile / linetypes LT4 repeat):
-        # ("tile", {...}) | ("repeat", {...}) | None -- one slot (H4-a).
+        # Block Editor capability (hatch D-A32 tile / linetypes LT4 repeat /
+        # LT5 end): ("tile", {...}) | ("repeat", {...}) | ("end", {...})
+        # | None -- one slot (H4-a).
         # In the undo snapshot; the frame item mirrors it.
         self.block_capability: tuple | None = None
         self._cap_frame = None           # CapabilityFrameItem while set
@@ -1167,14 +1168,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # commit_rotate / commit_scale).
             return
         if mode == "place_block" and isinstance(template, str):
-            defn = self.get_block_definition(template)
-            if defn is not None and (defn.tile or defn.repeat):
-                # hatch D-A34 / linetypes LT3-2: a pattern block fills regions
-                # and a linetype block styles lines - never a symbol. Refused
-                # at the shared entry every ribbon / browser / drag path hits.
-                from . import block_library
-                reason = (block_library.PATTERN_REASON if defn.tile
-                          else block_library.LINETYPE_REASON)
+            from .capabilities import capability_place_reason
+            reason = capability_place_reason(self.get_block_definition(template))
+            if reason is not None:
+                # hatch D-A34 / LT3-2 / LT5 Q12: a pattern fills regions, a
+                # linetype styles lines, an end type finishes them - never a
+                # symbol. Refused at the shared entry every ribbon / browser /
+                # drag path hits.
                 self._show_status(reason, 5000)
                 return
         # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
@@ -1641,6 +1641,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         c = self.block_capability
         return dict(c[1]) if c and c[0] == "repeat" else None
 
+    @property
+    def block_end(self) -> dict | None:
+        """The end-type record (a copy), or None (LT5 Q12)."""
+        c = self.block_capability
+        return dict(c[1]) if c and c[0] == "end" else None
+
     def capability_frame_item(self):
         """The Block Editor capability frame, or None."""
         return self._cap_frame
@@ -1659,13 +1665,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Set / clear the edited block's capability and sync the frame (H4-a).
 
         Args:
-            cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"``, or None.
+            cap: ``(kind, dict)`` with kind ``"tile"`` / ``"repeat"`` /
+                ``"end"``, or None.
             push_undo: Push one undo step (False inside a grip drag, an undo
                 restore or a composite edit -- the caller owns the step).
 
         Raises:
-            ValueError: *cap*'s kind is not ``"tile"`` / ``"repeat"`` (the
-                slot and frame are left unchanged).
+            ValueError: *cap*'s kind is not a ``capabilities.CAPABILITY_KINDS``
+                kind (the slot and frame are left unchanged).
         """
         from PyQt6 import sip
         from .capability_frame import frame_for
@@ -1676,6 +1683,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .block_definition import _norm_repeat
             rep = _norm_repeat(new[1])
             new = ("repeat", rep) if rep is not None else None
+        elif new is not None and new[0] == "end":
+            # Same seam for the end record (LT5): readers index ["size"] /
+            # ["trim"] (bad size -> fixed, bad / negative trim -> 0).
+            from .block_definition import _norm_end
+            rec = _norm_end(new[1])
+            new = ("end", rec) if rec is not None else None
         f = self._cap_frame
         if f is not None and (sip.isdeleted(f) or f.scene() is not self):
             self._cap_frame = f = None       # swept out of the scene elsewhere
@@ -1737,7 +1750,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Args:
             block_id: The definition id (None = never saved -> no use).
-            kind: ``"tile"`` or ``"repeat"`` -- picks the message noun.
+            kind: a ``capabilities.CAPABILITY_KINDS`` kind -- picks the
+                message noun.
 
         Returns:
             The status message, or None when the block is unused as a symbol.
@@ -1753,9 +1767,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         parts = ([f"{placed} placed"] if placed else []) + (
             [f"{nested} nested in other blocks"] if nested else [])
-        what = "a linetype" if kind == "repeat" else "a pattern"
+        from .capabilities import with_article
         return (f"Used as a symbol ({', '.join(parts)}) — remove those "
-                f"before making it {what}")
+                f"before making it {with_article(kind)}")
 
     def linetype_off_refusal(self, block_id) -> "str | None":
         """Why a linetype can't stop being one (LT4-5): lines use it.
@@ -1776,7 +1790,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Refused (returns False) while any instance references it, any other
         definition nests it, directly or indirectly (D12), or any live styled
         primitive in the plan or an open Block Editor uses it as its linetype
-        (LT3-2) -- see :meth:`block_users_message`. On success the definition
+        (LT3-2) or names it as a start / finish end (LT5) -- see
+        :meth:`block_users_message`. On success the definition
         is popped, an undo state is pushed (``_capture_network`` already
         serializes definitions), and ``blockDefinitionsChanged`` is emitted.
         """
@@ -1786,6 +1801,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False
         if self.linetype_user_contexts(block_id):
             return False
+        if self._live_end_users(block_id):
+            return False                      # LT5 Q13: a live line's end
         if block_id not in self._block_definitions:
             return False
         del self._block_definitions[block_id]
@@ -1806,12 +1823,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         from .block_registry import linetype_users_in
         out = []
-        if linetype_users_in(self, block_id):
-            out.append("the plan")
-        prov = self._editor_scenes_provider
-        if callable(prov) and any(linetype_users_in(sc, block_id)
-                                  for sc in prov() if sc is not self):
-            out.append("the open Block Editor")
+        for label, sc in self._user_scenes():
+            if label not in out and linetype_users_in(sc, block_id):
+                out.append(label)
         return out
 
     def _linetype_context_split(self, block_id: str) -> tuple[list, list]:
@@ -1824,19 +1838,85 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ``"the plan"``, ``"the open Block Editor"`` order.
         """
         from .block_registry import linetype_users_in
-        scenes = [("the plan", self)]
-        prov = self._editor_scenes_provider
-        if callable(prov):
-            scenes += [("the open Block Editor", sc)
-                       for sc in prov() if sc is not self]
         line_ctx, block_ctx = [], []
-        for label, sc in scenes:
+        for label, sc in self._user_scenes():
             for item in linetype_users_in(sc, block_id):
                 kind = (block_ctx if isinstance(item, BlockInstance)
                         else line_ctx)
                 if label not in kind:
                     kind.append(label)
         return line_ctx, block_ctx
+
+    def _user_scenes(self) -> list:
+        """``[(label, scene)]``: this scene as ``"the plan"`` plus every open
+        Block Editor scene (``_editor_scenes_provider``)."""
+        scenes = [("the plan", self)]
+        prov = self._editor_scenes_provider
+        if callable(prov):
+            scenes += [("the open Block Editor", sc)
+                       for sc in prov() if sc is not self]
+        return scenes
+
+    def _live_end_users(self, block_id: str) -> int:
+        """Live primitives (plan + open editors) naming *block_id* as an
+        explicit end (LT5 Q13); By Linetype users count via their linetype."""
+        from .block_registry import end_users_in
+        return sum(len(end_users_in(sc, block_id))
+                   for _label, sc in self._user_scenes())
+
+    def end_off_refusal(self, block_id) -> "str | None":
+        """Why an end type can't stop being one (LT5 Q12): lines use it.
+
+        Args:
+            block_id: The definition id (None = never saved -> no use).
+
+        Returns:
+            The delete-refusal text (:meth:`block_users_message`), or None.
+        """
+        if block_id is None:
+            return None
+        return self.block_users_message(block_id)
+
+    def _end_users_message(self, d, users, live: int) -> "str | None":
+        """LT5 Q13 refusal for end type *d*: ``“Arrow” is used by 2 lines and
+        1 linetype — change their ends first.``
+
+        Lines = live primitives naming *d* (*live*) plus definition
+        primitives naming it explicitly, counted per line (a line naming *d*
+        at both ends counts 1, live or inside a definition); linetypes = definitions whose
+        ``repeat["ends"]`` hold it. None when a definition nests *d* (the
+        nesting wording applies -- an end can't become a symbol, so this is
+        legacy data only) or nothing uses it by an end slot.
+
+        Args:
+            d: The end-type definition.
+            users: ``users_of(d.id)`` (direct and indirect).
+            live: :meth:`_live_end_users` for *d*.
+        """
+        from .block_registry import nested_ids
+        from .stroke_style import ENDS
+        lines, linetypes = live, 0
+        for uid in users:
+            u = self.get_block_definition(uid)
+            if u is None:
+                continue
+            if d.id in nested_ids(u):
+                return None
+            for p in u.primitives:
+                st = p.get("style")
+                if isinstance(st, dict) and any(
+                        isinstance(st.get(w), dict)
+                        and st[w].get("end") == d.id for w in ENDS):
+                    lines += 1                    # per line, not per end slot
+            if d.id in ((u.repeat or {}).get("ends") or {}).values():
+                linetypes += 1
+        if not (lines or linetypes):
+            return None
+        parts = ([f"{lines} line{'s' if lines != 1 else ''}"] if lines else []) + (
+            [f"{linetypes} linetype{'s' if linetypes != 1 else ''}"]
+            if linetypes else [])
+        return (f"“{d.name}” is used by {' and '.join(parts)}"
+                " — change their ends first.")
 
     def block_users_message(self, block_id: str) -> str | None:
         """Delete-refusal text when other blocks nest *block_id* (D12) or live
@@ -1858,13 +1938,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             there"). Linetype-override users (WM2 H4) read ``by blocks
             inside: H`` (nested records) / ``by blocks in the plan`` (placed
             blocks) with "change their linetype override first" (``…
-            linetype or linetype override first`` beside line users).
+            linetype or linetype override first`` beside line users). An end
+            type reads ``“Arrow” is used by 2 lines and 1 linetype — change
+            their ends first.`` (LT5 Q13).
         """
         users = self._block_registry.users_of(block_id)
         ctx = self.linetype_user_contexts(block_id)
-        if not users and not ctx:
-            return None
         d = self.get_block_definition(block_id)
+        # Any kind: a block reloaded as a non-end keeps its live / stored
+        # end users (delete refuses them -- the message must say why).
+        live_end = self._live_end_users(block_id) if d is not None else 0
+        if not users and not ctx and not live_end:
+            return None
+        msg = self._end_users_message(d, users, live_end)
+        if msg is not None:
+            return msg
         if d.repeat:
             msg = self._linetype_users_message(d, users)
             if msg is not None:
@@ -2052,7 +2140,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             changed = True
         summary["missing"] = sorted(self._block_registry.missing_nested())
         if changed:
-            self.push_undo_state()
+            # One step -- coalesced into a multi-target panel commit's step
+            # when inside ``deferred_undo_push`` (a folder pick applied to N
+            # selected lines is ONE undo step, load included).
+            self.request_undo_push()
             self.blockDefinitionsChanged.emit()
         return summary
 
@@ -2325,7 +2416,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 (``ConstraintController.to_records``) stored on the
                 definition (parametric-constraint-system.md §6.3); None -> [].
             capability: ``(kind, dict)`` or None -- tile (D-A32) / repeat
-                (LT4). A repeat (or tile) is never placed; dropping a
+                (LT4) / end (LT5). A capability block is never placed; dropping a
                 linetype's repeat is refused while lines use it (LT4-5).
 
         Returns:
@@ -2337,6 +2428,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         kind, data = capability if capability else (None, None)
         tile = data if kind == "tile" else None
         repeat = data if kind == "repeat" else None
+        end = data if kind == "end" else None
         pattern_saved_msg = None
         if kind is not None:
             # D-A34 / LT4-11a at save time (the toggle's check can go stale).
@@ -2348,7 +2440,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # User ruling 2026-10-02 (LT4-11d): a new pattern / linetype
                 # is registered but never placed; a Create-Block-from-selection
                 # source stays untouched.
-                noun = "linetype" if kind == "repeat" else "pattern"
+                from .capabilities import CAP_INFO
+                noun = CAP_INFO[kind].noun
                 pattern_saved_msg = (f"Saved {noun} ‘{name}’ — {noun}s "
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
@@ -2359,12 +2452,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if why is not None:
                 self._show_status(why, 5000)
                 return None
+        if old is not None and old.end and end is None:
+            why = self.end_off_refusal(block_id)            # LT5 save re-check
+            if why is not None:
+                self._show_status(why, 5000)
+                return None
         ox, oy = float(origin[0]), float(origin[1])
         if block_id is None:
             defn = BlockDefinition.new(name=name, library=library, series=series,
                                        primitives=list(primitives), origin=(ox, oy),
                                        constraints=list(constraints or []),
-                                       tile=tile, repeat=repeat)
+                                       tile=tile, repeat=repeat, end=end)
             self.register_block_definition(defn)
         else:
             defn = self._block_definitions.get(block_id)
@@ -2372,7 +2470,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return None
             # Defence in depth (D8): refuse a save that would nest A in itself.
             from .block_registry import prim_refs
-            nested = prim_refs(primitives)
+            from .stroke_style import is_end_ref
+            # LT5: a linetype's saved default ends are dependencies too.
+            nested = prim_refs(primitives) | {
+                v for v in ((repeat or {}).get("ends") or {}).values()
+                if is_end_ref(v)}
             if any(self._block_registry.would_cycle(block_id, n) for n in nested):
                 from . import block_library
                 why = block_library.LOOP_REASON
@@ -2383,6 +2485,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.constraints = list(constraints or [])
             defn.set_tile(tile, notify=False)
             defn.set_repeat(repeat, notify=False)
+            defn.set_end(end, notify=False)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -2927,13 +3030,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
-        if (self.block_capability is not None
-                and self.block_capability[0] == "repeat" and self._undo_stack):
+        cap_kind = self.block_capability[0] if self.block_capability else None
+        if cap_kind == "repeat" and self._undo_stack:
             # LT4: Continuous lock + grow-to-fit join this commit's snapshot.
             # Skipped on a re-baseline push (empty stack): reopening a
             # linetype never mutates it.
             from .linetype_authoring import pre_capture
             pre_capture(self)
+        elif cap_kind == "end" and self._undo_stack:
+            # LT5 Q8: the Continuous / plain-ends lock joins the snapshot.
+            from .end_authoring import pre_capture as end_pre_capture
+            end_pre_capture(self)
+        elif cap_kind == "tile" and self._undo_stack:
+            # LT5 seam I3: ends never draw inside a hatch fill, so explicit
+            # end ids on tile strokes are reset (they would count as uses).
+            # Tile strokes keep their linetype.
+            from .linetype_authoring import locked_items, lock_strokes
+            lock_strokes(locked_items(self, continuous=False), continuous=False)
         state = self._capture_network()
         # Discard redo history beyond current position
         self._undo_stack = self._undo_stack[:self._undo_pos + 1]
@@ -6397,14 +6510,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""
         if self._place_block_id is None:
             return
-        defn = self.get_block_definition(self._place_block_id)
-        if defn is not None and (defn.tile or defn.repeat):
-            # hatch D-A34 / linetypes LT3-2: the block became a pattern or a
-            # linetype (Block Editor save, library reload) while this mode was
+        from .capabilities import capability_place_reason
+        reason = capability_place_reason(
+            self.get_block_definition(self._place_block_id))
+        if reason is not None:
+            # hatch D-A34 / LT3-2 / LT5 Q12: the block became a capability
+            # block (Block Editor save, library reload) while this mode was
             # armed — refuse at the click and leave the mode.
-            from . import block_library
-            reason = (block_library.PATTERN_REASON if defn.tile
-                      else block_library.LINETYPE_REASON)
             self._show_status(reason, 5000)
             self.set_mode(None)
             return
@@ -7889,7 +8001,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 constraints = payload.get("constraints")
         new_items = []
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
-        pattern_skipped = 0   # hatch D-A34 / LT3-2: tile + repeat blocks never re-placed
+        pattern_skipped = 0   # hatch D-A34 / LT3-2 / LT5: capability blocks never re-placed
         skip_reason = None    # footer text for the last skipped tile / repeat block
         for obj in data:
             if not self._paste_accepts(obj):
@@ -7982,12 +8094,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "block_instance":
                 _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
-                if _d is not None and (_d.tile or _d.repeat):
-                    # became a pattern / linetype since the copy
+                from .capabilities import capability_place_reason
+                _why = capability_place_reason(_d)
+                if _why is not None:
+                    # became a pattern / linetype / end type since the copy
                     pattern_skipped += 1
-                    from . import block_library
-                    skip_reason = (block_library.PATTERN_REASON if _d.tile
-                                   else block_library.LINETYPE_REASON)
+                    skip_reason = _why
                 elif _d is not None:
                     inst = self.place_block_instance(
                         obj["block_id"],

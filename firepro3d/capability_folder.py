@@ -1,4 +1,4 @@
-"""Capability-folder scan shared by the Hatch patterns and Linetypes folders.
+"""Capability-folder scan shared by the Hatch patterns, Linetypes and End Types folders.
 
 hatch-and-fill.md D-A37 (``tile``) and linetypes.md LT3-13 / H3-i
 (``repeat``): a capability folder is any folder of ``.fpdb`` blocks (a Series,
@@ -13,7 +13,7 @@ import logging
 import os
 
 #: The capability flags a scan can select on (Series ``index.json`` keys).
-FLAGS = ("tile", "repeat")
+FLAGS = ("tile", "repeat", "end")
 
 _log = logging.getLogger(__name__)
 _SCAN_CACHE: dict = {}       # (abs folder, flag) -> (stamp, [(name, id, path)])
@@ -93,8 +93,8 @@ def scan(folder: str, flag: str) -> list[tuple[str, str, str]]:
 
     Args:
         folder: Folder to scan.
-        flag: The capability flag — ``"tile"`` (hatch patterns) or
-            ``"repeat"`` (linetypes).
+        flag: The capability flag — ``"tile"`` (hatch patterns),
+            ``"repeat"`` (linetypes) or ``"end"`` (end types).
 
     Returns:
         ``[(name, block_id, .fpdb path)]`` sorted by name; first id wins.

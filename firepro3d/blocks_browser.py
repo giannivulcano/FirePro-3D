@@ -31,6 +31,8 @@ _BADGE_CACHE: dict = {}                      # (kind, muted colour, dpr) -> QIco
 _PAT_LEAF_TIP = "Pattern block — used by hatch fills; it can't be placed"
 _LT_LEAF_TIP = ("Linetype — apply it from a line's Linetype row; "
                 "it can't be placed")
+_END_LEAF_TIP = ("End type — apply it from a line's Start End / Finish End "
+                 "rows; it can't be placed")
 
 
 def _pattern_badge(dpr: float = 1.0):
@@ -107,13 +109,61 @@ def _linetype_badge(dpr: float = 1.0):
     return icon
 
 
+def _end_badge(dpr: float = 1.0):
+    """Small line + filled arrowhead glyph for end-type blocks (LT5 Q12).
+
+    Shares :data:`_BADGE_CACHE` with the other badges (keyed by kind).
+
+    Args:
+        dpr: The browser widget's ``devicePixelRatioF()`` (crisp on HiDPI).
+
+    Returns:
+        The badge ``QIcon``.
+    """
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QIcon, QPainter, QPen, QPixmap, QPolygonF
+    from . import theme as th
+    muted = th.detect().muted
+    key = ("end", muted, float(dpr))
+    icon = _BADGE_CACHE.get(key)
+    if icon is not None:
+        return icon
+    side = max(1, round(_BADGE_PX * dpr))
+    pix = QPixmap(side, side)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor(muted), max(1.0, 1.5 * dpr))
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    p.setPen(pen)
+    y = side / 2.0
+    p.drawLine(QPointF(0.5, y), QPointF(side * 0.55, y))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(muted))
+    p.drawPolygon(QPolygonF([QPointF(side * 0.95, y),
+                             QPointF(side * 0.5, y - side * 0.3),
+                             QPointF(side * 0.5, y + side * 0.3)]))
+    p.end()
+    pix.setDevicePixelRatio(dpr)
+    icon = QIcon(pix)
+    _BADGE_CACHE[key] = icon
+    return icon
+
+
+_BADGES = {"pattern": (_pattern_badge, _PAT_LEAF_TIP),
+           "linetype": (_linetype_badge, _LT_LEAF_TIP),
+           "end": (_end_badge, _END_LEAF_TIP)}
+
+
 def _capability_badge(kind, dpr: float):
-    """``(icon, tooltip)`` for a ``"tile"`` / ``"repeat"`` leaf, else None."""
-    if kind == "tile":
-        return _pattern_badge(dpr), _PAT_LEAF_TIP
-    if kind == "repeat":
-        return _linetype_badge(dpr), _LT_LEAF_TIP
-    return None
+    """``(icon, tooltip)`` for a capability leaf (``capabilities.CAP_INFO``
+    kind: tile / repeat / end), else None."""
+    from .capabilities import CAP_INFO
+    cap = CAP_INFO.get(kind)
+    if cap is None:
+        return None
+    make, tip = _BADGES[cap.badge_name]
+    return make(dpr), tip
 
 
 def library_only_entries(scene, root: str | None = None, *,
@@ -300,10 +350,10 @@ class BlocksBrowser(QWidget):
         dim = QBrush(QColor(th.detect().muted))
         entries = block_library.list_library(self._lib_root)   # read once
         grouped = self._grouped(entries)
-        # Library rows read the index ``tile`` / ``repeat`` flags (LT4-10).
-        lib_caps = {e.get("id"): ("tile" if e.get("tile")
-                                  else "repeat" if e.get("repeat") else None)
-                    for e in entries}
+        # Library rows read the index ``tile`` / ``repeat`` / ``end`` flags
+        # (LT4-10, LT5 Q12).
+        from .capabilities import kind_of
+        lib_caps = {e.get("id"): kind_of(e) for e in entries}
         dpr = self.devicePixelRatioF()
         for library in sorted(grouped):
             lib_item = QTreeWidgetItem(self._tree, [library])
@@ -317,8 +367,7 @@ class BlocksBrowser(QWidget):
                     leaf.setData(0, _ROLE_ID, block_id)
                     if path is None:
                         d = self._scene.get_block_definition(block_id)
-                        kind = (None if d is None else "tile" if d.tile
-                                else "repeat" if d.repeat else None)
+                        kind = kind_of(d)
                         tip = ("Drag onto a canvas or double-click "
                                "to place")
                     else:

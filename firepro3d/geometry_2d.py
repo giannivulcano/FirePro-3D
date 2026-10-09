@@ -25,14 +25,20 @@ from . import crisp_stroke as _cs
 from .constants import CRISP_AXIS_TOL
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import DEFAULT_TILE_REF
-from .linetype_render import badge_pad_px
+from . import end_render as _er
+from .linetype_render import badge_pad_px, printed_factor
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
 from .scale_manager import ScaleManager
-from .stroke_style import (canvas_px, canvas_weight_name, is_linetype_ref,
-                           linetype_block, resolve_stroke)
+from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
+                           canvas_weight_name, has_ends,
+                           is_linetype_ref, linetype_block, open_stroke,
+                           resolve_ends, resolve_stroke, toggle_mirrored)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
+# End-slot values that are never an end-block id (stroke_style.is_end_ref):
+# the LT5 _item_ends fast-path gate.
+_NON_ID_ENDS = frozenset((*END_KEYWORDS, BY_BLOCK, ""))
 _AA = QPainter.RenderHint.Antialiasing
 _log = logging.getLogger(__name__)
 # Controllers whose tint lookup already failed and was logged (log once each).
@@ -173,7 +179,14 @@ class Geometry2DMixin:
         # Unresolvable linetype id seen at the last paint (badge, LT3-10) and
         # the id the item's tooltip currently names (sync_missing_tooltip).
         self._lt_missing: str | None = None
-        self._lt_tip_id: str | None = None
+        # str (a linetype id) or, while an end type is missing (LT5),
+        # ``(missing_id, end_ids)`` -- linetype_render.sync_missing_tooltip.
+        self._lt_tip_id: str | tuple | None = None
+        # LT5: ((trims, pieces), path) of the Continuous stroke trimmed for
+        # its ends, and that path's crisp split (lazy) -- an untrimmed stroke
+        # never touches either (the base path keeps _mw_split_cache).
+        self._end_trim_cache = None
+        self._end_split_cache = None
 
     # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
     _STYLED = True
@@ -206,10 +219,17 @@ class Geometry2DMixin:
         ``super().boundingRect()`` and so inherit the pad. Stroked Qt bases
         only: ``TextItem`` (a ``QGraphicsTextItem``, no pen) measures its
         content via ``super().boundingRect()`` and must get the raw base.
+        LT5: drawn ends (``_ends_rect``) grow the base first, so the pen pad
+        covers their strokes too.
         """
         base = super().boundingRect()
         if not isinstance(self, (QAbstractGraphicsShapeItem, QGraphicsLineItem)):
             return base
+        ends = self._item_ends()            # LT5: NO_ENDS for every end-less stroke
+        if ends is not NO_ENDS:
+            ends_r = self._ends_rect(ends)
+            if ends_r is not None:
+                base = base.united(ends_r)
         pen = self.pen()
         if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
             return base
@@ -309,6 +329,10 @@ class Geometry2DMixin:
         tint = constraint_tint(self)
         if tint is not None:
             pen.setColor(tint)          # pen COPY: never setPen (delta 2)
+        ends = self._item_ends(rs)      # LT5: NO_ENDS = today's path, unchanged
+        if ends is not NO_ENDS and has_ends(ends):
+            return self._paint_stroke_with_ends(painter, option, widget, rs,
+                                                ends, pen, draw_highlight)
         if rs is None or (rs.lt is None and not rs.missing_id
                           and self._lt_tip_id is None):
             self._lt_missing = None      # Continuous fast path (LT3-11)
@@ -331,6 +355,166 @@ class Geometry2DMixin:
             painter.setPen(highlight)
             draw_highlight(painter)
         return False
+
+    # ── LT5 ends ─────────────────────────────────────────────────────────────
+
+    def _ends_open(self) -> bool:
+        """True when this primitive has free ends (LT5 Q2) -- the one open /
+        closed rule, ``stroke_style.open_stroke``."""
+        return open_stroke(self)
+
+    def _closed_clears_ends(self) -> None:
+        """A stroke that is now closed drops its explicit end ids (user
+        ruling 2026-10-08): they could never draw, yet would count as uses.
+
+        Called from the open -> closed chokepoints (``PolylineItem.close``,
+        ``ArcItem._rebuild_path``, ``SplineItem._regenerate``) before the
+        path is set, so the change rides the same undo step as the close.
+        ``visible`` / ``mirrored`` are kept.
+        """
+        from .stroke_style import clear_explicit_ends, has_explicit_ends
+        st = getattr(self, "style", None)
+        f = getattr(self, "is_closed", None)
+        if not (has_explicit_ends(st) and callable(f) and f()):
+            return
+        self.prepareGeometryChange()            # the ends leave the bounds
+        clear_explicit_ends(st)
+
+    def _item_ends(self, rs=None):
+        """This stroke's resolved ``(start, finish)`` ends (LT5).
+
+        ``stroke_style.NO_ENDS`` -- the pre-LT5 path, no registry work --
+        for unstyled items, placement ghosts (LT3-6: the continuous base),
+        By Linetype ends on a stroke whose linetype carries no default
+        (every legacy drawing) and closed shapes. *rs* is this paint's
+        ``ResolvedStroke`` when the caller has one.
+        """
+        st = self.style
+        if st is None or self._ghost_pen:
+            return NO_ENDS
+        # Hot (every paint + boundingRect): inline, no helper calls. A slot
+        # names an end only via a visible end-block id (is_end_ref); without
+        # one, only a linetype default can draw -- and never when both slots
+        # are "none". Returning NO_ENDS is only ever a shortcut for "the
+        # resolver draws nothing"; anything else goes through resolve_ends.
+        s, f = st.get("start"), st.get("finish")
+        es = s.get("end") if s.__class__ is dict else None
+        ef = f.get("end") if f.__class__ is dict else None
+        reg = None
+        if not ((es.__class__ is str and es not in _NON_ID_ENDS
+                 and s.get("visible", True))
+                or (ef.__class__ is str and ef not in _NON_ID_ENDS
+                    and f.get("visible", True))):
+            if es == NONE and ef == NONE:
+                return NO_ENDS                   # both None: no lookup
+            if rs is not None:                   # paint: the resolved reading
+                lt = rs.lt
+                if lt is None or not (lt.start_end or lt.finish_end):
+                    return NO_ENDS
+            else:                                # boundingRect: registry gate
+                ref = st.get("linetype")
+                if not is_linetype_ref(ref):
+                    return NO_ENDS
+                reg = self._tile_registry()
+                if not _er.linetype_has_default_end(ref, reg):
+                    return NO_ENDS
+        if not self._ends_open():
+            return NO_ENDS
+        if reg is None:
+            reg = self._tile_registry()
+        if rs is None:
+            rs = resolve_stroke(st, reg)
+        return resolve_ends(st, rs.lt, reg)
+
+    def _ends_rect(self, ends=None) -> QRectF | None:
+        """Item-local bounds of the ends this item draws (LT5), or None.
+
+        Fixed ends: their exact extent at this surface's printed factor;
+        weight-relative ones at the pen width converted at the current view
+        zoom (the cosmetic-pad convention); a missing end: the badge pad
+        around its attach point. Non-cosmetic (paper) pens add half their
+        width here (the Qt base only pads its own path). *ends* is the
+        caller's ``_item_ends()`` when it has one.
+        """
+        if ends is None:
+            ends = self._item_ends()
+        if ends is NO_ENDS or not has_ends(ends):
+            return None
+        pen = self.pen()
+        w = pen.widthF()
+        cos = pen.isCosmetic()
+        bp = badge_pad_px()
+        r = _er.ends_rect(self.stroke_pieces(), ends,
+                          fixed_factor=printed_factor(**self._lt_args()),
+                          weight_factor=scene_hit_width(self, w, w) if cos else w,
+                          badge=scene_hit_width(self, bp, bp))
+        if r is not None and not cos:
+            r = r.adjusted(-w / 2.0, -w / 2.0, w / 2.0, w / 2.0)
+        return r
+
+    def _paint_stroke_with_ends(self, painter, option, widget, rs, ends, pen,
+                                draw_highlight) -> bool:
+        """LT5: the stroke trimmed for the resolved *ends*, then the ends.
+
+        ``_paint_routed_stroke``'s contract (returns True when dashed). The
+        stroke stops ``end_trims`` short of each end: dashes keep their
+        untrimmed phase (``expand(trims=)``, D-L9 / E12); a Continuous (or
+        LOD / LTS-7 short) stroke draws its cached trimmed path, a zero trim
+        the unchanged base stroke. Ends draw on every surface with the
+        line's painter-local pen (never LOD-dropped); the selection
+        highlight covers them. Paper passes use the true-mm printed factor.
+        """
+        from .hatch_render import _device_scale
+        pieces = self.stroke_pieces()
+        w = pen.widthF()
+        wf = w / _device_scale(painter) if pen.isCosmetic() else w
+        ff = printed_factor(**self._lt_args())
+        trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+        miss = tuple(e.missing_id for e in ends if e.missing_id)
+        dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
+        hl = None
+        if self.isSelected() and not _manip_wraps(self):
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+        untrimmed = trims == _er.NO_TRIMS
+        if not dashed:
+            if untrimmed:
+                self._paint_base_stroke(painter, option, widget, pen)
+            else:
+                self._paint_trimmed_stroke(painter, pieces, trims, pen)
+            if hl is not None:
+                if untrimmed:
+                    painter.setPen(hl)
+                    draw_highlight(painter)
+                else:
+                    self._paint_trimmed_stroke(painter, pieces, trims, hl)
+        sc = self.scene()
+        _er.paint_ends(painter, pieces, ends, pen, fixed_factor=ff,
+                       weight_factor=wf, scene=sc)
+        if hl is not None:
+            _er.paint_ends(painter, pieces, ends, hl, fixed_factor=ff,
+                           weight_factor=wf, scene=sc, badges=False)
+        return dashed
+
+    def _paint_trimmed_stroke(self, painter, pieces, trims, pen) -> None:
+        """Stroke *pieces* cut by *trims* (LT5): the path cached per item on
+        (trims, pieces); its crisp split in ``_end_split_cache`` (cosmetic
+        canvas pens only -- paper / non-cosmetic draw unsplit). An
+        over-trimmed stroke draws nothing (its ends still draw, Q5)."""
+        key = (trims, pieces)
+        c = self._end_trim_cache
+        if c is None or c[0] != key:
+            c = self._end_trim_cache = (key, _er.trimmed_path(pieces, *trims))
+        path = c[1]
+        if path.isEmpty():
+            return
+        painter.save()
+        try:
+            if self._end_split_cache is None:
+                self._end_split_cache = _cs.SplitCache()
+            _cs.stroke_cached(self._end_split_cache, painter, path, pen)
+        finally:
+            painter.restore()
 
     # True on single-segment items (LineItem): ``_paint_base_stroke`` takes
     # its analytic one-segment fast path (MW-13).
@@ -394,11 +578,14 @@ class Geometry2DMixin:
         finally:
             painter.restore()
 
-    def _paint_linetyped(self, painter, rs, pen=None) -> bool:
+    def _paint_linetyped(self, painter, rs, pen=None, trims=(0.0, 0.0),
+                         end_ids=()) -> bool:
         """Draw the stroke (+ selection highlight) through the linetype renderer.
 
         *rs* is this paint's ``ResolvedStroke`` (from ``_sync_stroke_pen``).
         *pen* is the painter-local stroke pen (None = ``self.pen()``).
+        *trims* (LT5) drop the dashes within the end trims, phase untouched;
+        *end_ids* are this paint's missing end ids for the tooltip.
         Returns False when the caller must draw its unchanged plain stroke
         (Continuous / unresolved / malformed / LOD / ghost).
         Records ``_lt_missing`` for the badge and names it in the item's
@@ -407,9 +594,9 @@ class Geometry2DMixin:
         # Ghost previews stay on the continuous base, no badge (LT3-6).
         self._lt_missing = (rs.missing_id if rs is not None and not self._ghost_pen
                             else None)
-        if rs is not None and (self._lt_missing or self._lt_tip_id):
+        if rs is not None and (self._lt_missing or self._lt_tip_id or end_ids):
             from .linetype_render import sync_missing_tooltip
-            sync_missing_tooltip(self, self._lt_missing)
+            sync_missing_tooltip(self, self._lt_missing, end_ids=end_ids)
         if rs is None or rs.lt is None or self._ghost_pen:
             return False
         from .linetype_render import paint_stroke
@@ -423,13 +610,14 @@ class Geometry2DMixin:
         anchor = (o.x(), o.y())
         pen = pen if pen is not None else self.pen()
         if not paint_stroke(painter, pieces, rs.lt, pen,
-                            factor=factor, anchor=anchor, fixed=fixed):
+                            factor=factor, anchor=anchor, fixed=fixed,
+                            trims=trims):
             return False
         if self.isSelected() and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
-                         fixed=fixed)
+                         fixed=fixed, trims=trims)
         return True
 
     def _paint_lt_badge(self, painter) -> None:
@@ -490,6 +678,55 @@ class Geometry2DMixin:
                 self._set_style_field("Linetype", old)
             return
         self._dim_edit(lambda r: self._set_style_field("Linetype", r), ref)
+
+    def _set_end_field(self, which: str, field: str, value) -> None:
+        """Write one end-record field (LT5 Q10), keeping the others
+        (``mirrored`` included), then repaint (bounds cover the ends)."""
+        self.prepareGeometryChange()
+        rec = dict(self.style[which])
+        rec[field] = value
+        self.style[which] = rec
+        self._sync_stroke_pen()
+        self.update()
+
+    def _set_end_from_panel(self, key: str, value) -> None:
+        """Apply a Start End / Finish End / Visible panel edit (LT5 Q10).
+
+        One undo step via ``_dim_edit``. A ``"Missing: ..."`` or unknown
+        label changes nothing. An End Types folder end is loaded into the
+        project first: the ref is set BEFORE the load so the load's one
+        snapshot carries it; a failed load restores the old ref. In a Block
+        Editor the load's step lives in the project scene, so the editor
+        pushes its own step (one per scene). Locked inside an end type (Q8).
+        """
+        sc = self.scene()
+        if _ends_lock_tip(sc) is not None:
+            return                     # Q8 / I3: capability content is plain
+        which, field = _END_ROW_KEYS[key]
+        if field == "visible":
+            on = value if isinstance(value, bool) else str(value) in (
+                "True", "true", "1")
+            self._dim_edit(lambda v: self._set_end_field(which, "visible", v),
+                           bool(on))
+            return
+        from .capabilities import end_ref_from_value, ensure_end_available
+        from .hatch_patterns import picker_exclude
+        from .stroke_style import is_end_ref
+        reg = self._tile_registry()
+        ref = end_ref_from_value(value, reg, picker_exclude(sc))
+        if ref is None:
+            return
+        if is_end_ref(ref) and reg is not None and reg.get(ref) is None:
+            old = self.style[which]["end"]
+            self._set_end_field(which, "end", ref)
+            if not ensure_end_available(ref, sc):
+                self._set_end_field(which, "end", old)
+                return
+            owner = getattr(sc, "_block_registry_owner", None)
+            if owner is not None and owner is not sc:
+                self._push_undo()                  # the editor's own step
+            return
+        self._dim_edit(lambda r: self._set_end_field(which, "end", r), ref)
 
     def is_fillable(self) -> bool:
         """True if this item has a closed path (rectangle, circle, closed polyline)."""
@@ -561,9 +798,13 @@ class Geometry2DMixin:
         props: dict = {}
         if self.style is not None:
             from .hatch_patterns import picker_exclude
+            sc = self.scene()
+            in_end = getattr(sc, "block_end", None) is not None
             props.update(stroke_rows(
-                self.style, self._tile_registry(), picker_exclude(self.scene()),
-                locked=getattr(self.scene(), "block_repeat", None) is not None))
+                self.style, self._tile_registry(), picker_exclude(sc),
+                locked=in_end or getattr(sc, "block_repeat", None) is not None,
+                locked_tip=_LOCKED_END_LINETYPE_TIP if in_end else None,
+                ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc)))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -597,6 +838,9 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
+        if self.style is not None and key in _END_ROW_KEYS:
+            self._set_end_from_panel(key, value)
+            return True
         if self.style is not None and key == "Linetype":
             self._set_linetype_from_panel(str(value))
             return True
@@ -942,6 +1186,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         from .cad_math import CAD_Math
         self._points = [CAD_Math.mirror_point(p, p1, p2) for p in self._points]
         self._rebuild_path()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale of every vertex about ``base`` (DD1).
@@ -963,6 +1208,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         """Flag the polyline closed (needs ≥3 vertices).  Idempotent."""
         if len(self._points) >= 3:
             self._closed = True
+            self._closed_clears_ends()            # LT5: closed -> no ends
             self._rebuild_path()
 
     def stroke_pieces(self) -> tuple:
@@ -1226,6 +1472,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         self._pt1 = CAD_Math.mirror_point(self._pt1, p1, p2)
         self._pt2 = CAD_Math.mirror_point(self._pt2, p1, p2)
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+        toggle_mirrored(self.style)          # LT5 Q9 (no-op unstyled)
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale of both endpoints about ``base`` (DD1).
@@ -1863,6 +2110,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         self.prepareGeometryChange()
         self.setRect(new)
         self.set_angle(ang, None if self._pivot is None else new_o)
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): a uniform scale commutes
@@ -2027,6 +2275,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, radius ×
@@ -2151,6 +2400,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._rebuild_path()
 
     def _rebuild_path(self):
+        self._closed_clears_ends()                # LT5: a 360 deg arc is closed
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         path = QPainterPath()
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
@@ -2370,6 +2620,12 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._start_deg = _norm360(2.0 * theta
                                    - (self._start_deg + self._span_deg))
         self._rebuild_path()
+        # LT5 Q9 / E5: the old END is the new START -- swap the end records
+        # so each stays on its physical end, then mirror both.
+        st = self.style
+        if st is not None:
+            st["start"], st["finish"] = st["finish"], st["start"]
+        toggle_mirrored(st)
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, radius ×
@@ -2683,6 +2939,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
         self._regenerate()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, the
@@ -2921,6 +3178,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._center = CAD_Math.mirror_point(self._center, p1, p2)
         self._rotation_deg = _norm360(2.0 * theta - self._rotation_deg)
         self._regenerate()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about ``base`` (DD1): centre scaled, rx / ry ×
@@ -3296,6 +3554,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._regenerate()
 
     def _regenerate(self):
+        self._closed_clears_ends()            # LT5: a spline that closes
         self._stroke_pieces_cache = None      # stroke_pieces() memo (LT3 H3-b)
         self.setPath(_bspline_path(self._control_points, self._degree,
                                    self._knots, self._weights,
@@ -3374,6 +3633,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._control_points = [CAD_Math.mirror_point(p, p1, p2)
                                 for p in self._control_points]
         self._regenerate()
+        toggle_mirrored(self.style)          # LT5 Q9
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale of the control points about ``base`` (DD1);
@@ -3678,6 +3938,7 @@ _LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
 _WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
                "(shown in brackets); a named weight overrides it.")
 _LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
+_LOCKED_END_LINETYPE_TIP = "Lines inside an end type are always Continuous"
 _LOCKED_WEIGHT_TIP = ("New lines take the linetype's Weight "
                       "(set it in the Repeat section)")
 _PLACEMENT_LINETYPE_TIP = (
@@ -3691,6 +3952,74 @@ _LOCKED_PLACEMENT_TIP = (
     "Strokes in a pattern tile or linetype unit draw Continuous at the "
     "pattern's own pen, so a nested block can't override them here.")
 
+# LT5 Q10 panel rows -> (end, record field).
+_END_ROW_KEYS = {"Start End": ("start", "end"), "Finish End": ("finish", "end"),
+                 "Start Visible": ("start", "visible"),
+                 "Finish Visible": ("finish", "visible")}
+_END_TIP = ("End type drawn at this end of the line. By Linetype uses the "
+            "linetype's default (shown in brackets); None draws a plain end. "
+            "End types from the End Types folder load into the project when "
+            "picked.")
+_END_VISIBLE_TIP = ("Show this end's end type. Off draws a plain end but "
+                    "keeps the pick.")
+_LOCKED_END_TIP = "Lines inside an end type are always Continuous with plain ends"
+_LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends -- set the "
+                      "linetype's default ends in its Start End / Finish End rows")
+_LOCKED_TILE_END_TIP = "Lines inside a pattern tile draw plain ends"
+
+
+def _ends_lock_tip(scene) -> str | None:
+    """Why the end rows are locked in *scene* (a capability Block Editor:
+    end type Q8, linetype / pattern tile seam I3), or None (unlocked)."""
+    if getattr(scene, "block_end", None) is not None:
+        return _LOCKED_END_TIP
+    if getattr(scene, "block_repeat", None) is not None:
+        return _LOCKED_LT_END_TIP
+    if getattr(scene, "block_tile", None) is not None:
+        return _LOCKED_TILE_END_TIP
+    return None
+
+
+def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
+    """Start End / Finish End + Start / Finish Visible rows (LT5 Q10).
+
+    Args:
+        style: The primitive's style record.
+        registry: Project block registry (or None).
+        exclude: Block ids the picker must not offer (``picker_exclude``).
+        locked_tip: Disable every row with this "why" tooltip (a capability
+            Block Editor, :func:`_ends_lock_tip`); None = editable.
+
+    Returns:
+        The four rows: the two pickers, then the two Visible checkboxes.
+    """
+    from .capabilities import end_choices
+    from .stroke_style import BY_LINETYPE, _end, end_label
+    choices = end_choices(registry, exclude)
+    rows, vis = {}, {}
+    for which, title in (("start", "Start"), ("finish", "Finish")):
+        rec = _end(style.get(which))
+        ref = rec["end"]
+        head = end_label(BY_LINETYPE, style["linetype"], registry, which=which)
+        options = [head, *(n for n, _ in choices)]
+        value = (head if ref == BY_LINETYPE
+                 else next((n for n, r in choices if r == ref), None))
+        if value is None:
+            # Q13: an unresolvable / non-end id shows as missing (kept until
+            # re-picked).
+            value = end_label(ref, style["linetype"], registry, which=which)
+            options = [value] + options
+        rows[f"{title} End"] = {"type": "enum", "options": options,
+                                "value": value, "tooltip": _END_TIP}
+        vis[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
+                                   "tooltip": _END_VISIBLE_TIP}
+    rows.update(vis)
+    if locked_tip:
+        for meta in rows.values():
+            meta["disabled"] = True
+            meta["tooltip"] = locked_tip
+    return rows
+
 
 def _is_block_only_weight_label(value) -> bool:
     """True for a placement-only Weight label (WM2 Q5): "As Authored" or
@@ -3701,7 +4030,9 @@ def _is_block_only_weight_label(value) -> bool:
 
 
 def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
-                placement: bool = False) -> dict:
+                placement: bool = False, ends: bool = False,
+                ends_locked_tip: str | None = None,
+                locked_tip: str | None = None) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -3714,6 +4045,12 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
             the Linetype row is disabled with a "why" tooltip.
         placement: Rows for a placed block / nested record (WM2 Q4): As
             Authored + By Category instead of By Linetype.
+        ends: Add the LT5 Start End / Finish End / Visible rows (open
+            primitives only -- never the template or a placement).
+        ends_locked_tip: Disable the end rows with this "why" tooltip (a
+            capability Block Editor: end type Q8, linetype / tile I3).
+        locked_tip: The locked Linetype row's "why" tooltip (default: the
+            linetype-unit one).
     """
     from .paper_display import model_blocks_weight as _pd_blocks
     from .paper_display import picker_weight_name, weight_names
@@ -3750,7 +4087,9 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
     }
     if locked:
         rows["Linetype"]["disabled"] = True
-        rows["Linetype"]["tooltip"] = _LOCKED_LINETYPE_TIP
+        rows["Linetype"]["tooltip"] = locked_tip or _LOCKED_LINETYPE_TIP
+    if ends:
+        rows.update(_end_rows(style, registry, exclude, ends_locked_tip))
     return rows
 
 
@@ -3781,6 +4120,8 @@ class GeometryTemplate:
         cur = ss.current_style()
         if getattr(self._scene_ref, "block_repeat", None) is not None:
             return self._linetype_unit_properties(cur)
+        if getattr(self._scene_ref, "block_end", None) is not None:
+            return self._end_unit_properties(cur)
         if (ss.is_linetype_ref(cur["linetype"])
                 and ss.linetype_block(cur["linetype"], self._registry()) is None):
             ss.set_current(linetype=ss.CONTINUOUS)       # WM1: not in this project
@@ -3812,6 +4153,20 @@ class GeometryTemplate:
                                  locked=True))
         props["Weight"]["disabled"] = True
         props["Weight"]["tooltip"] = _LOCKED_WEIGHT_TIP
+        return props
+
+    def _end_unit_properties(self, cur: dict) -> dict:
+        """Rows inside an end-type Block Editor (LT5 Q8): Linetype shows
+        Continuous, locked; Weight stays the current (end strokes draw at
+        the using line's weight, Q7). The stored current is never changed."""
+        from . import stroke_style as ss
+        shown = {"linetype": ss.CONTINUOUS, "weight": cur["weight"]}
+        props = {"Type": {"type": "label", "value": "Geometry"}}
+        props.update(stroke_rows(shown, self._registry(), self._exclude(),
+                                 locked=True, locked_tip=_LOCKED_END_LINETYPE_TIP))
+        props["Weight"]["tooltip"] = (
+            "Line weight for the next primitive you draw (kept between "
+            "sessions). End strokes draw at the using line's weight.")
         return props
 
     def set_property(self, key: str, value):

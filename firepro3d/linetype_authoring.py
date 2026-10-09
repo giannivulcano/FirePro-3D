@@ -198,21 +198,108 @@ def set_repeat_field(scene, key: str, value) -> None:
     scene.set_block_capability(("repeat", rep))
 
 
+def set_default_end(scene, which: str, ref) -> bool:
+    """Set / clear the linetype's default *which* end (LT5 Q11); one step.
+
+    The edit lives in the editor's capability slot; the project definition
+    takes it on the editor commit (``commit_block`` -> version bump), so By
+    Linetype lines follow on commit and never read a stale ``LinetypeDef``.
+
+    Args:
+        scene: The linetype Block Editor ``Model_Space``.
+        which: ``"start"`` / ``"finish"``.
+        ref: An end block id, or a keyword / None (= no default).
+
+    Returns:
+        True if ``repeat["ends"]`` changed.
+    """
+    from .stroke_style import ENDS, is_end_ref
+    rep = scene.block_repeat
+    if rep is None or which not in ENDS:
+        return False
+    ends = dict(rep.get("ends") or {})
+    new = ref if is_end_ref(ref) else None
+    if ends.get(which) == new:
+        return False
+    if new is None:
+        ends.pop(which, None)
+    else:
+        ends[which] = new
+    if ends:
+        rep["ends"] = ends
+    else:
+        rep.pop("ends", None)
+    scene.set_block_capability(("repeat", rep))
+    return True
+
+
+def set_default_end_from_label(scene, which: str, label) -> bool:
+    """Panel pick for the linetype Start End / Finish End rows (LT5 Q11).
+
+    A folder end loads into the project first (its own project step); a
+    failed load changes nothing; the edit is one step on the editor.
+
+    Returns:
+        True if the default changed.
+    """
+    from . import stroke_style as ss
+    from .capabilities import end_ref_from_value, ensure_end_available
+    from .hatch_patterns import picker_exclude
+    reg = getattr(scene, "block_registry", None)
+    ref = end_ref_from_value(label, reg, picker_exclude(scene))
+    if ref is None or ref == ss.BY_LINETYPE:
+        return False
+    if ss.is_end_ref(ref) and not ensure_end_available(ref, scene):
+        return False
+    return set_default_end(scene, which, ref)
+
+
+def _styled_items(scene) -> list:
+    """The scene's styled geometry primitives."""
+    tools = getattr(scene, "_tools", None)
+    items = tools._all_geometry_items() if tools is not None else []
+    return [it for it in items if isinstance(getattr(it, "style", None), dict)]
+
+
 def _non_continuous(scene):
     """Styled primitives whose linetype is not Continuous (LT4-4)."""
     from . import stroke_style as ss
-    tools = getattr(scene, "_tools", None)
-    items = tools._all_geometry_items() if tools is not None else []
-    return [it for it in items
-            if isinstance(getattr(it, "style", None), dict)
-            and it.style.get("linetype") != ss.CONTINUOUS]
+    return [it for it in _styled_items(scene)
+            if it.style.get("linetype") != ss.CONTINUOUS]
 
 
-def _force_continuous(items) -> None:
+def locked_items(scene, *, continuous: bool = True) -> list:
+    """Styled primitives a capability editor's content lock must change.
+
+    The one lock rule for linetype units, end types (LT4-4, LT5 Q8) and
+    pattern tiles (LT5 seam I3): not Continuous (when *continuous*), or
+    naming an explicit end id -- an end inside a linetype, end type or tile
+    never draws where the block is used, yet would count as a use.
+
+    Args:
+        scene: The Block Editor ``Model_Space``.
+        continuous: Also lock the linetype to Continuous (False for tiles,
+            whose strokes keep their linetype).
+
+    Returns:
+        The primitives to pass to :func:`lock_strokes`.
+    """
+    from . import stroke_style as ss
+    return [it for it in _styled_items(scene)
+            if (continuous and it.style.get("linetype") != ss.CONTINUOUS)
+            or ss.has_explicit_ends(it.style)]
+
+
+def lock_strokes(items, *, continuous: bool = True) -> None:
+    """Apply the content lock: Continuous (when *continuous*) and explicit
+    end ids reset to By Linetype (plain on Continuous, Q3); ``visible`` /
+    ``mirrored`` kept. Never pushes."""
     from . import stroke_style as ss
     for it in items:
-        it.prepareGeometryChange()               # a missing badge may vanish
-        it.style["linetype"] = ss.CONTINUOUS
+        it.prepareGeometryChange()               # a badge / end may vanish
+        if continuous:
+            it.style["linetype"] = ss.CONTINUOUS
+        ss.clear_explicit_ends(it.style)
         it._sync_stroke_pen()
         it.update()
 
@@ -228,7 +315,7 @@ def begin_linetype(scene, seed_length: float) -> int:
         The number of primitives converted to Continuous.
     """
     bad = _non_continuous(scene)
-    _force_continuous(bad)
+    lock_strokes(locked_items(scene))         # + plain ends (LT5 I3)
     scene.set_block_capability(
         ("repeat", {"length": max(seed_length, 0.1), "size": "drafting",
                     "screen": "fixed"}),          # LTS-5: new linetypes are Fixed
@@ -249,7 +336,7 @@ def pre_capture(scene) -> None:
     rep = scene.block_repeat
     if rep is None:
         return
-    _force_continuous(_non_continuous(scene))
+    lock_strokes(locked_items(scene))
     end = _axis_end(_plain_lines(scene))
     if end > rep["length"] + _TOL:
         rep["length"] = end
@@ -292,9 +379,24 @@ def preview_painter(scene):
         pen = QPen(QColor(th.detect().ink),
                    ss.canvas_px(lt.dash_weight or ss.BY_LINETYPE))
         pen.setCosmetic(True)
+        # LT5 Q11: the swatch shows the linetype's default ends -- each
+        # sample (the straight line, the L) trimmed and capped through the
+        # real end renderer (as end_authoring.preview_painter).
+        ends = ss.resolve_ends(ss.default_style(), lt,
+                               getattr(scene, "block_registry", None))
         painter.save()
         try:
-            draw_expansion(painter, dash, dot, pen)
+            if not ss.has_ends(ends):
+                draw_expansion(painter, dash, dot, pen)
+                return
+            from .end_render import end_trims, paint_ends
+            kw = {"fixed_factor": s, "weight_factor": pen.widthF()}
+            trims = end_trims(ends, **kw)
+            for stroke in (pieces[:1], pieces[1:]):
+                dash, dot = expand(stroke, lt, s, (rect.left(), rect.top()),
+                                   trims=trims)
+                draw_expansion(painter, dash, dot, pen)
+                paint_ends(painter, stroke, ends, pen, **kw)
         finally:
             painter.restore()
     return paint

@@ -23,6 +23,8 @@ AS_AUTHORED_LABEL = "As Authored"
 BY_CATEGORY_LABEL = "By Category"
 _KEYWORDS = (BY_BLOCK, BY_LINETYPE, AS_AUTHORED, BY_CATEGORY)
 ENDS = ("start", "finish")
+NONE = "none"                  # end keyword: no end block (LT5 Q3)
+END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 
 # Primitive types that carry a style record (LT2-1). Text keeps border_weight;
 # reference lines keep their fixed reference style; nested records get their
@@ -54,11 +56,17 @@ def _hex(colour) -> str:
 
 
 def _end(d) -> dict:
+    """A complete end record ``{"end", "visible"[, "mirrored"]}`` (LT5 Q9:
+    ``mirrored`` is written only when true, so default records and every
+    pre-LT5 golden stay byte-identical)."""
     d = d if isinstance(d, dict) else {}
     end = d.get("end") or BY_LINETYPE
     if end == BY_BLOCK:                          # WM-9 migration
         end = BY_LINETYPE
-    return {"end": str(end), "visible": bool(d.get("visible", True))}
+    out = {"end": str(end), "visible": bool(d.get("visible", True))}
+    if d.get("mirrored"):
+        out["mirrored"] = True
+    return out
 
 
 def normalize_style(d: dict | None) -> dict:
@@ -125,6 +133,22 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
         sync()
 
 
+def toggle_mirrored(style) -> None:
+    """Flip both ends' ``mirrored`` flag in place (LT5 Q9: a reflection
+    mirrors asymmetric ends). Written only when true -- toggling off drops
+    the key. No-op for an unstyled item (``style`` None)."""
+    if not isinstance(style, dict):
+        return
+    for end in ENDS:
+        rec = style.get(end)
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("mirrored"):
+            rec.pop("mirrored", None)
+        else:
+            rec["mirrored"] = True
+
+
 def is_named_weight(w) -> bool:
     """True for a by-name weight reference (a non-empty string that is no
     keyword) -- the refs a rename must follow (LT2-8, WM2)."""
@@ -136,7 +160,10 @@ def linetype_block(ref, registry):
     record, malformed or not), else None -- the LT3-10 "missing" test shared
     by ``resolve_stroke`` and the badge bounds (``linetype_ref_missing``)."""
     d = registry.get(ref) if registry is not None else None
-    return d if d is not None and getattr(d, "repeat", None) else None
+    if d is None:
+        return None
+    lt = getattr(d, "is_linetype", None)      # copy-free (hot: paint / bounds)
+    return d if (lt if lt is not None else getattr(d, "repeat", None)) else None
 
 
 def linetype_ref_missing(ref, registry) -> bool:
@@ -203,6 +230,114 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
     return ResolvedStroke(lt, weight, missing)
 
 
+# -- LT5: end types ---------------------------------------------------------
+
+class ResolvedEnd(NamedTuple):
+    """One stroke end after the LT5 cascade (design A)."""
+    defn: object | None        # the end BlockDefinition, or None (no end)
+    missing_id: str | None     # unresolvable / non-end id (badge, Q13)
+    mirrored: bool             # draw flipped across the stroke axis (Q9)
+
+
+NO_ENDS = (ResolvedEnd(None, None, False),) * 2
+
+
+def is_end_ref(e) -> bool:
+    """True for an end block-id reference (a non-empty string that is no end
+    keyword and not the legacy ``by_block``) -- the values an end slot
+    resolves through the registry (and that can go missing, Q13)."""
+    return (isinstance(e, str) and bool(e)
+            and e not in END_KEYWORDS and e != BY_BLOCK)
+
+
+def clear_explicit_ends(style) -> bool:
+    """Reset *style*'s explicit end ids to By Linetype, in place (LT5).
+
+    ``visible`` and ``mirrored`` are kept; ``none`` / By Linetype are left
+    alone. Used where an end can never draw: a stroke that became closed
+    (user ruling 2026-10-08) and the content of an end type, linetype unit
+    or pattern tile (Q8 / seam I3), so the id stops counting as a use.
+
+    Args:
+        style: A style record (anything else is a no-op).
+
+    Returns:
+        True if any end changed.
+    """
+    if not isinstance(style, dict):
+        return False
+    changed = False
+    for w in ENDS:
+        rec = style.get(w)
+        if isinstance(rec, dict) and is_end_ref(rec.get("end")):
+            style[w] = {**rec, "end": BY_LINETYPE}
+            changed = True
+    return changed
+
+
+def has_explicit_ends(style) -> bool:
+    """True when *style* names an end block id at either end (LT5)."""
+    return isinstance(style, dict) and any(
+        isinstance(style.get(w), dict) and is_end_ref(style[w].get("end"))
+        for w in ENDS)
+
+
+def end_block(ref, registry):
+    """The registry block *ref* names when it has an ``end`` capability,
+    else None (absent, a linetype / pattern / plain block -> "missing")."""
+    d = registry.get(ref) if registry is not None and is_end_ref(ref) else None
+    if d is None:
+        return None
+    e = getattr(d, "is_end", None)            # copy-free (hot: paint / bounds)
+    return d if (e if e is not None else getattr(d, "end", None)) else None
+
+
+def _resolve_end(rec, default, registry) -> ResolvedEnd:
+    rec = rec if isinstance(rec, dict) else {}
+    m = bool(rec.get("mirrored"))
+    if not rec.get("visible", True):
+        return ResolvedEnd(None, None, m)          # Visible off = None (Q10)
+    ref = rec.get("end") or BY_LINETYPE
+    if ref in (BY_LINETYPE, BY_BLOCK):
+        ref = default                              # the linetype default (Q11)
+    if not is_end_ref(ref):
+        return ResolvedEnd(None, None, m)          # None / no default
+    d = end_block(ref, registry)
+    return ResolvedEnd(d, None, m) if d is not None else ResolvedEnd(None, ref, m)
+
+
+def resolve_ends(style: dict, lt, registry) -> tuple:
+    """``(start, finish)`` ``ResolvedEnd`` for *style* (LT5 design A).
+
+    Visible off -> no end; By Linetype -> *lt*'s ``start_end`` /
+    ``finish_end`` (None for no linetype / no default: today's stroke, Q3);
+    ``none`` -> no end; an id -> its end block, or ``missing_id`` when it
+    does not name an end block in *registry*. ``mirrored`` is carried as
+    stored. *lt* is a ``linetype_render.LinetypeDef`` or None.
+    """
+    st = style if isinstance(style, dict) else {}
+    return (_resolve_end(st.get("start"), getattr(lt, "start_end", None), registry),
+            _resolve_end(st.get("finish"), getattr(lt, "finish_end", None), registry))
+
+
+def has_ends(ends) -> bool:
+    """True when either resolved end draws something (a block or a badge)."""
+    return any(e.defn is not None or e.missing_id for e in ends)
+
+
+def open_stroke(item) -> bool:
+    """True when *item* is a styled stroke with two free ends (LT5 Q2).
+
+    The item's own closed predicate decides: open Line, Polyline (closed
+    flag off -- a coincident-but-open one too), Arc (span < 360) and Spline;
+    Rect / Circle / Ellipse / Polygon (no ``is_closed`` -> closed) never.
+    """
+    if getattr(item, "style", None) is None:
+        return False
+    f = getattr(item, "is_closed", None)
+    return callable(f) and not f()
+
+
 # -- WM1: resolved weight labels -------------------------------------------
 
 BY_LINETYPE_LABEL = "By Linetype"
@@ -228,6 +363,57 @@ def weight_from_label(label) -> str:
     """The style weight a panel label stands for (inverse of ``weight_label``)."""
     v = str(label)
     return BY_LINETYPE if v.startswith(BY_LINETYPE_LABEL) else v
+
+
+# -- LT5: end labels (Start End / Finish End rows) --------------------------
+
+END_NONE_LABEL = "None"          # the explicit "no end type" pick (LT5 Q3)
+MISSING_END_PREFIX = "Missing: "  # unresolvable end ref label (LT5 Q13)
+
+
+def _end_name(ref, registry) -> str:
+    """An end ref's picker name, or ``Missing: <name|id>`` (non-end / gone)."""
+    e = end_block(ref, registry)
+    if e is not None:
+        return e.name or ref
+    d = registry.get(ref) if registry is not None else None
+    return MISSING_END_PREFIX + (getattr(d, "name", "") or str(ref))
+
+
+def end_label(end, linetype, registry, which: str = "start") -> str:
+    """Panel label for a stored end value (LT5 Q10).
+
+    ``"None"``; By Linetype shows what it resolves to through *linetype*'s
+    default for *which* end -- ``"By Linetype (Arrow)"`` / ``"By Linetype
+    (None)"``; an end id its block name, or ``"Missing: <name|id>"``.
+    UI paths only (reads the copying ``repeat`` property).
+
+    Args:
+        end: The stored end value (an id, ``none`` or ``by_linetype``).
+        linetype: The item's effective linetype value.
+        registry: The project block registry (or None).
+        which: ``"start"`` / ``"finish"`` -- the linetype default shown.
+    """
+    if end == NONE:
+        return END_NONE_LABEL
+    if not is_end_ref(end):
+        d = linetype_block(linetype, registry) if is_linetype_ref(linetype) else None
+        ends = ((d.repeat or {}).get("ends") or {}) if d is not None else {}
+        ref = ends.get(which)
+        shown = _end_name(ref, registry) if is_end_ref(ref) else END_NONE_LABEL
+        return f"{BY_LINETYPE_LABEL} ({shown})"
+    return _end_name(end, registry)
+
+
+def end_from_label(label) -> str | None:
+    """The keyword a fixed end label stands for (None / By Linetype), else None
+    (block names map through ``capabilities.end_ref_from_value``)."""
+    v = str(label)
+    if v == END_NONE_LABEL:
+        return NONE
+    if v == BY_LINETYPE_LABEL or v.startswith(BY_LINETYPE_LABEL + " ("):
+        return BY_LINETYPE
+    return None
 
 
 # -- WM2: placement / nested-record overrides ------------------------------
@@ -365,6 +551,8 @@ def apply_current(item, scene) -> None:
         from .linetype_authoring import pattern_weight
         lt = CONTINUOUS
         w = pattern_weight(scene) or w
+    elif getattr(scene, "block_end", None) is not None:
+        lt = CONTINUOUS          # LT5 Q8: end content is Continuous (current kept)
     st["linetype"] = lt
     st["weight"] = w
     sync = getattr(item, "_sync_stroke_pen", None)

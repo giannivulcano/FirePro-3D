@@ -4818,8 +4818,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # re-show it while nothing is selected.
         sc.constraint_ctl.panel_fallback = self._get_active_view_info
         sc.sceneModified.connect(self._refresh_block_view)
-        # Pattern Tile / Linetype buttons follow panel toggles and undo/redo
-        # (hatch D-A32, linetypes LT4-11f).
+        # Pattern Tile / Linetype / End Type buttons follow panel toggles and
+        # undo/redo (hatch D-A32, linetypes LT4-11f, LT5 Q12).
         sc.sceneModified.connect(self._sync_capability_buttons)
         # Footer readouts: per-step/variant instruction (corner/centre,
         # polygon sides, "pick opposite corner", …), live coordinates, warnings.
@@ -4937,6 +4937,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                 self._be_toggle_linetype, checkable=True),
             "Linetype — make this block a linetype (repeats along lines, "
             "applied from a line's Linetype row, can't be placed as a symbol)")
+        self._be_end_btn = _editor_only(
+            gd.add_small_button("End Type", _I("end_type_icon.svg"),
+                                self._be_toggle_end, checkable=True),
+            "End type: make this block an end type (arrow, cap, tick, bubble) "
+            "drawn at the free ends of lines. Origin = attach point, "
+            "+X = outward.")
 
         # --- 2D Geometry (editor-only) ---
         g = page.add_group("2D Geometry")
@@ -5261,13 +5267,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Ribbon "Linetype" (``toggled``) — linetypes LT4-11f."""
         self._be_toggle_capability("repeat", checked)
 
+    def _be_toggle_end(self, checked: bool = True):
+        """Ribbon "End Type" (``toggled``) — LT5 Q12."""
+        self._be_toggle_capability("end", checked)
+
     def _be_toggle_capability(self, kind: str, checked: bool) -> None:
         """Set the active block's *kind* capability on/off from the ribbon.
 
-        A refused toggle (D-A34 / LT4-5 / LT4-11a-b) snaps the check back.
+        A refused toggle (D-A34 / LT4-5 / LT4-11a-b / LT5 Q12) snaps the
+        check back.
 
         Args:
-            kind: ``"tile"`` or ``"repeat"``.
+            kind: a ``capabilities.CAPABILITY_KINDS`` kind.
             checked: the button's new check state.
         """
         w = self._active_editor_widget()
@@ -5278,11 +5289,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._sync_capability_buttons()
 
     def _sync_capability_buttons(self) -> None:
-        """Check Pattern Tile / Linetype iff the active editor's block is one."""
+        """Check Pattern Tile / Linetype / End Type iff the active editor's
+        block is one."""
         from PyQt6 import sip
         w = self._active_editor_widget()
         cap = w.editor_scene.block_capability if w is not None else None
-        for attr, kind in (("_be_tile_btn", "tile"), ("_be_linetype_btn", "repeat")):
+        for attr, kind in (("_be_tile_btn", "tile"), ("_be_linetype_btn", "repeat"),
+                           ("_be_end_btn", "end")):
             btn = getattr(self, attr, None)
             if btn is None or sip.isdeleted(btn):
                 continue

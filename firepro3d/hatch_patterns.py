@@ -343,25 +343,10 @@ def tile_choices(registry=None, exclude=(),
         include_library: Append the folder patterns (picking one loads it into
             the project — ``ensure_pattern_available``).
     """
-    out: list[tuple[str, str]] = []
-    used: set = set()
-    if registry is not None:
-        project = []
-        for bid in registry.ids():
-            if bid in exclude:
-                continue
-            d = registry.get(bid)
-            if d is not None and d.tile and tile_is_valid(d):
-                project.append((d.name or bid, bid))
-        for name, bid in sorted(project, key=lambda x: x[0].lower()):
-            out.append((_unique(name, used, "project"), bid))
-    if include_library:
-        for name, bid, _path in library_patterns():
-            if bid in exclude or (registry is not None
-                                  and registry.get(bid) is not None):
-                continue
-            out.append((_unique(name, used, "library"), bid))
-    return out
+    from .capabilities import capability_choices
+    return capability_choices("tile", library_patterns, registry, exclude,
+                              valid=tile_is_valid,
+                              include_folder=include_library)
 
 
 def ensure_pattern_available(ref: str | None, scene) -> bool:
@@ -382,17 +367,8 @@ def ensure_pattern_available(ref: str | None, scene) -> bool:
         caller must not store it); True otherwise.
     """
     ref = canonical_ref(ref)
-    if not ref or scene is None:
-        return True
-    project = getattr(scene, "_block_registry_owner", None) or scene
-    reg = getattr(project, "block_registry", None)
-    if reg is None or reg.get(ref) is not None:
-        return True
-    for name, bid, path in library_patterns():
-        if bid == ref:
-            from .blocks_browser import ensure_block_loaded
-            return ensure_block_loaded(project, bid, path, name)
-    return True
+    from .capabilities import ensure_capability_available
+    return ensure_capability_available(ref, scene, library_patterns)
 
 
 def _fill_ref(primitive) -> str | None:
