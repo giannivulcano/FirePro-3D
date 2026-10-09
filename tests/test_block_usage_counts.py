@@ -195,7 +195,10 @@ def test_used_in_counts_direct_and_indirect(qapp):
     assert m.data(m.index(m.row_for_id(a.id), Col.USED_IN),
                   Qt.ItemDataRole.DisplayRole) == "0"
     assert m.headerData(Col.USED_IN, Qt.Orientation.Horizontal) == "Used in"
-    assert Col.USED_IN == m.columnCount() - 1 and Col.STATUS == 4     # new LAST column
+    # Columns are appended, never inserted (saved header states key on section
+    # numbers): USED_IN kept 5 when SV4 appended KIND last.
+    assert Col.STATUS == 4 and Col.USED_IN == 5
+    assert Col.KIND == m.columnCount() - 1
 
 
 def test_delete_refused_while_nested_names_users(qapp):
