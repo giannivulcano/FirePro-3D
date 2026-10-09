@@ -15,9 +15,11 @@ BLOCK_DIR_KEY = "paths/block_dir"             # dedicated block library dir
 HATCH_DIR_KEY = "paths/hatch_dir"             # hatch-pattern blocks folder (D-A37)
 LINETYPE_DIR_KEY = "paths/linetype_dir"       # linetype blocks folder (LT3-13)
 END_DIR_KEY = "paths/end_dir"                 # end-type blocks folder (LT5 Q13)
+SCHEMATIC_DIR_KEY = "paths/schematic_dir"     # schematic templates folder (schematics.md D-S5)
 
 # Known content under a data root, migrated together when the root changes (E3).
-_MIGRATABLE = ("titleblocks", "blocks", "sprinklers.json", "default.fpdt")
+# ``schematics`` = the schematic templates folder (schematics.md D-S5).
+_MIGRATABLE = ("titleblocks", "blocks", "schematics", "sprinklers.json", "default.fpdt")
 
 
 def default_root() -> str:
@@ -139,11 +141,24 @@ def end_types_dir() -> str:
             or os.path.join(block_library_dir(), "System", "End Types"))
 
 
+def schematics_dir() -> str:
+    """Folder of schematic templates (schematics.md D-S5; concept SD7).
+
+    Precedence mirrors :func:`block_library_dir`: an explicit override
+    (System Settings > General > Data folder > *Schematics*) -> else
+    ``<user_data_root>/schematics``. The default lives directly under the
+    data root (not under the block library), so it is carried by the
+    ``schematics`` entry of ``_MIGRATABLE``; an explicit override is never
+    migrated. Writers create the folder on demand.
+    """
+    return _configured_dir(SCHEMATIC_DIR_KEY) or app_data_dir("schematics")
+
+
 def migrate_data_root(old_root: str, new_root: str, *, move: bool = False) -> list[str]:
     """Copy (or move) known data content from *old_root* to *new_root* (E3).
 
-    Copies each of ``_MIGRATABLE`` (titleblocks/, blocks/, sprinklers.json,
-    default.fpdt) that exists under *old_root* and is **absent** under
+    Copies each of ``_MIGRATABLE`` (titleblocks/, blocks/, schematics/,
+    sprinklers.json, default.fpdt) that exists under *old_root* and is **absent** under
     *new_root* — never clobbers content already at the destination. With
     ``move=True`` the source is removed after a successful copy.
 

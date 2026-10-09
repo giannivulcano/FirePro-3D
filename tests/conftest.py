@@ -146,11 +146,15 @@ def _isolate_block_library(_isolate_qsettings, tmp_path_factory):
     else the REAL ``%APPDATA%/FirePro3D/blocks``; the Blocks browser reads it
     at construction and the Save flows write it. Setting the override in the
     already-isolated QSettings store keeps every test off the user's library.
+    Also points ``paths/schematic_dir`` at a fresh temp dir (SV3).
     """
-    from firepro3d.app_data import BLOCK_DIR_KEY
+    from firepro3d.app_data import BLOCK_DIR_KEY, SCHEMATIC_DIR_KEY
     from PyQt6.QtCore import QSettings
-    QSettings("GV", "FirePro3D").setValue(
-        BLOCK_DIR_KEY, str(tmp_path_factory.mktemp("block_library")))
+    s = QSettings("GV", "FirePro3D")
+    s.setValue(BLOCK_DIR_KEY, str(tmp_path_factory.mktemp("block_library")))
+    # The schematic templates folder (schematics.md D-S5) is a SECOND root the
+    # Save-as-Template / New Schematic flows write and read; isolate it too.
+    s.setValue(SCHEMATIC_DIR_KEY, str(tmp_path_factory.mktemp("schematics")))
     yield
 
 
