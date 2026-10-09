@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-09  # SV2 Account: schematic leaf drag + placed italics verified against project_browser.py; prior 2026-10-08  # SV1 Account: Schematics root / roles / 4 signals / refresh_schematics verified against project_browser.py + main.py; prior 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
-verified-commit: 7dd64383   # prior b851b1aa; prior f1d8151; prior 2330ae8
+last-verified: 2026-10-09  # SV4 Account: duplicateSchematic + saveSchematicTemplate (SV3, missed then) rows + the leaf verb list verified against project_browser.py + main.py; prior SV2 Account same day: schematic leaf drag + placed italics verified against project_browser.py; prior 2026-10-08  # SV1 Account: Schematics root / roles / 4 signals / refresh_schematics verified against project_browser.py + main.py; prior 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
+verified-commit: f2a059d6   # SV4 Account; prior 7dd64383; prior b851b1aa; prior f1d8151; prior 2330ae8
 applies-to:
   - firepro3d/project_browser.py
   - main.py (ProjectBrowser wiring in MainWindow.__init__)
@@ -76,6 +76,8 @@ Re-verified against `main.py` at `f1d8151` (every row: connect site + handler).
 | `createSchematic` | — | root context-"New Schematic…" | `_new_schematic` |
 | `activateSchematic` | definition id | activating / context-"Open" on a schematic leaf | `_open_schematic` |
 | `renameSchematic` | definition id | context-"Rename…" on a leaf | `_rename_schematic` |
+| `duplicateSchematic` | definition id | context-"Duplicate" on a leaf (SV4) | `_duplicate_schematic` (immediate copy, one undo — schematics.md D-S16/D-S17) |
+| `saveSchematicTemplate` | definition id | context-"Save as Template…" on a leaf (SV3) | `_save_schematic_template` (writes the saved project copy — schematics.md D-S6) |
 | `deleteSchematic` | definition id | context-"Delete" on a leaf | `_delete_schematic` |
 | `sheetOrderChanged` | numbers, new order | internal sheet drag-drop (`sheetDropped` → order computation) | `_reorder_sheets` (reorder + reconcile push) |
 
@@ -94,7 +96,7 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 - `paper_root` / `sheet` → **New Drawing** (emits parameterless `createPaperSheet` — instant create, no dialog, no local append; D2). `sheet` adds **Open** (`activatePaperSheet(number)`) and **Delete** (`deletePaperSheet(number)`).
 - `detail` → **Open** / **Delete**.
 - `view3d` → **Open** (`activate3DView`).
-- `schematic_root` → **New Schematic…**; `schematic` → **Open / Rename… / Delete** (see "Schematics root (SV1)").
+- `schematic_root` → **New Schematic…**; `schematic` → **Open / Rename… / Duplicate / Save as Template… / Delete** (see "Schematics root (SV1)"; Save as Template SV3, Duplicate SV4 — verbs owned by schematics.md D-S16).
 - All other roles → no menu.
 
 ### Schematics root (SV1)

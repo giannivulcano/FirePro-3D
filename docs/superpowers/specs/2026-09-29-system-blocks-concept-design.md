@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-09-29
-verified-commit: c60baa2
+last-verified: 2026-10-09   # SV4 Account: Q2 paper-tag host + build-order phase 7 now point at schematics.md D-S2 (pointers only); prior 2026-09-29
+verified-commit: f2a059d6   # SV4 Account (pointers only); prior c60baa2
 applies-to:
   # Nothing is built yet. These are the modules the phased build will touch.
   - firepro3d/block_definition.py     # split static/bound compile, attribute schema, annotative scale_mode
@@ -88,8 +88,11 @@ Both are drawn by System (or user-duplicated) blocks and authored in the one Blo
   *host-bound annotation → model*. Free notes, keynotes, legends and north arrows
   stay on paper. C1/C9 are amended, not reversed.
 - **Paper, sheet-scoped:** a sheet tag hosts **(viewport, element)**. If its
-  viewport is deleted, the tag behaves as if its host were deleted. This depends
-  on the P1 paper-space block placement task.
+  viewport is deleted, the tag behaves as if its host were deleted. *(Amended
+  2026-10-07 by `schematics.md` D-S2: the P1 paper-space block placement task
+  is superseded — sheets hold viewports, the title block and sheet text only,
+  so the host is (viewport, element) and nothing else; the viewport pipeline
+  this rides on shipped with SV2.)*
 - **The upgrade path to view-scoped tags stays open.** Revit-style per-view tags
   would be a third view pattern (`view-relationships.md §5.3`). They are not in
   scope, and nothing here forecloses them.
@@ -239,7 +242,7 @@ override, and a placeholder for an empty or `None` value.
 | 4 | the remaining intrinsic conversions, **one follow-up each**, each user-designed and visually gated (Q13): pipe label, grid bubble, elevation bubble + datum, elevation-marker head, detail-callout bubble, hydraulic badge, viewport title, sprinkler/water-supply/riser symbols | 3 (+ passing the checkpoint) |
 | 5 | hosting foundation: F7 uids + index + `HostedDependents` | 2 |
 | 6 | placed tags: the Tag tool, the Q3 lifecycle, Q12 leaders; wall and door tags | 4, 5 |
-| 7 | paper, sheet-scoped tags (host = viewport + element) | 6 + the P1 paper-space block placement task |
+| 7 | paper, sheet-scoped tags (host = viewport + element) | 6 (the P1 paper-space block placement task is superseded by `schematics.md` D-S2; the viewport pipeline is SV2, built 2026-10-09) |
 
 **Reassessment checkpoint (after phase 3).** Stop or redesign before phase 4 if
 any of these happen:

@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-09-30   # nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: 345f1b7    # feat/nested-blocks; prior bf332b2
+last-verified: 2026-10-09   # SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: f2a059d6   # SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -66,7 +66,9 @@ text live in **Paper Space**. Model = the model; paper = the deliverable.
 - A **Block** is a reusable **2D graphic definition** authored in the Block
   Editor. It has two roles: (a) **placeable standalone** in Model Space *and*
   Paper Space, and (b) the **2D-representation slot inside a Feature**
-  (plan Block + per-elevation Blocks).
+  (plan Block + per-elevation Blocks). *(Paper half amended 2026-10-07 by
+  `schematics.md` D-S2/D-S3: block content reaches a sheet only through a
+  schematic viewport; no Block instance is ever placed on paper.)*
 - A **Feature** is a modeled building element =
   `{ plan Block + elevation Block(s) + 3D geometry + parameters + host strategy }`.
   A Feature **composes Blocks** for its 2D representations.
@@ -86,7 +88,9 @@ text live in **Paper Space**. Model = the model; paper = the deliverable.
 - A **Model-placed Block instance is level-scoped**: it carries a level + a Z /
   elevation offset and is filtered by the active level / view-range exactly like
   any placed model entity (see `view-relationships.md §7.1`).
-- A **Paper-placed Block instance is sheet-scoped** (no level).
+- ~~A **Paper-placed Block instance is sheet-scoped** (no level).~~ *Retired
+  by `schematics.md` D-S2 (2026-10-07): a sheet holds viewports, the title
+  block and sheet text only; the sheet-scoped unit is the viewport.*
 - **Nested Blocks (landed 2026-09-30):** a Block definition may reference other
   Block definitions — **live nested instances, acyclic** (no definition contains
   itself, directly or transitively). A nested reference lives inside the
@@ -180,7 +184,10 @@ The line between "allowed in the model" and "paper-space only":
   legends, keynotes, drawing tags.
 - **The test:** *"Does it have a meaningful position in the building model?"* →
   model. *"Is it a note about the drawing?"* → paper. (Consequence: a north
-  arrow / legend is a **paper** Block, not a model object.)
+  arrow / legend is **paper** content, not a model object — re-read by
+  `schematics.md` D-S1/D-S2: a legend is the placed-table feature, sheet
+  furniture is a paper schematic or title-block content, decided at SB4f; never
+  a paper Block.)
 
 > **Ratified amendment, not yet built (2026-09-29).** The System Blocks
 > concept grill (Q2) adds a third class, **host-bound annotation → model**: tags and

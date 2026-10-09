@@ -1,18 +1,19 @@
 ---
-status: partial           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 unbuilt. Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-10-09  # SV3 Account: the "SV3 — as built" section + acceptance ticks + ratified deltas (D-S9 / D-S15 notes) verified against the code; prior SV2 Account same day; SV4 content is still as-intended
-verified-commit: 3f31e0af   # SV3 (feat/sv3-schematics-library); prior 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
-applies-to:               # seams this contract governs (SV1–SV3 seams built; SV4 seams as-intended); the rest of each file is owned by the spec named in parentheses
+status: current           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 built 2026-10-09 (Manager Kind column + gating, Duplicate, available_views group, kind frozen on load / reload). Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
+last-verified: 2026-10-09  # SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
+verified-commit: f2a059d6   # SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
+applies-to:               # seams this contract governs (SV1–SV4 seams built); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog + template toggle / save_schematic_template / save_as_template only (rest: block-system.md)
-  - firepro3d/block_library.py        # `root=` reuse + one-tier root (empty tiers, root/Series index walk, index `kind`) only (rest: block-system.md)
+  - firepro3d/block_library.py        # `root=` reuse + one-tier root (empty tiers, root/Series index walk, index `kind`) + `KIND_REASON` + emptied-index removal (SV4) only (rest: block-system.md)
+  - firepro3d/block_manager.py        # Kind column, per-row library-verb gating, templates-root Source, kind-keeping New From Selected (SV4) only (rest: block-system.md)
   - firepro3d/app_data.py             # `schematics_dir()` + `SCHEMATIC_DIR_KEY` + migration entry
   - firepro3d/schematic_new_dialog.py # New Schematic dialog (SV3)
   - firepro3d/settings/panes.py       # Schematics folder row only (rest: settings-dialog.md)
   - firepro3d/blocks_browser.py       # `library_only_entries` skips schematic index entries only (rest: block-system.md)
-  - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs, drag payload (rest: project-browser.md)
-  - firepro3d/paper_space.py          # `ViewResolver` schematic branch, drop default, crop rule (rest: paper-space.md)
-  - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal` (rest: model-space-architecture.md)
+  - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs (incl. Duplicate, SV4), drag payload (rest: project-browser.md)
+  - firepro3d/paper_space.py          # `ViewResolver` schematic branch + `available_views` Schematics group (SV4), drop default, crop rule (rest: paper-space.md)
+  - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal`, kind frozen on load / reload + `duplicate_block_definition` (SV4) (rest: model-space-architecture.md)
   - main.py                           # browser signal wiring, stale-tab prefix, Go-to-view branch, render-scene ownership
   - firepro3d/schematic_scene.py      # SchematicSceneManager + the one primitive materializer (SV2)
   - firepro3d/paper_display.py        # raw-primitive / text categories inside a viewport render only (rest: paper-space.md)
@@ -25,8 +26,9 @@ source-tasks: ["Schematic views concept — block-like definition authored in a 
 > 2026-10-07 grill (Q1–Q18). The *how* (SD1–SD11) and the build slices SV1–SV4
 > live in [`docs/superpowers/specs/2026-10-07-schematics-concept-design.md`](../superpowers/specs/2026-10-07-schematics-concept-design.md).
 > Specs this contract amends link here (see "Cross-spec reconciliation"); they
-> never restate a D-S decision. Nothing below is built — every clause is
-> as-intended until a slice's Account stamps it.
+> never restate a D-S decision. SV1–SV4 are built (2026-10-08/09): the
+> "as built" sections below name the code homes; each decision keeps its
+> ratified deltas inline.
 
 ## Goal
 
@@ -93,13 +95,20 @@ one mechanism by which block content reaches paper.
   task is superseded; SB7's paper-tag host becomes (viewport, element) only.
 - **D-S3 Never instanced.** A schematic appears only as a sheet viewport.
   Refused at every placement and nesting site with `SCHEMATIC_REASON`.
+  *(SV4 delta, 2026-10-09: the kind is frozen — an edit, a load of a same-id
+  `.fpdb` or a reload-from-library never changes it; a file of the other kind
+  is refused whole with `KIND_REASON`, as `commit_block_definition` already
+  refused on edit.)*
 - **D-S4 Visibility.** Schematics are listed **only** in the Project Browser
   (2D Model › Schematics). They are hidden from the Blocks browser, Insert
   Block and the Block Open picker's block roots. The Block Manager lists them
   behind a **Kind** column / filter so rename, delete and Used-in housekeeping
   still work there — from SV4; until then the Manager hides schematics (its
   Save / Reload-from-Library verbs would write one into the block library,
-  breaking D-S5; SV1 delta, ratified 2026-10-08).
+  breaking D-S5; SV1 delta, ratified 2026-10-08). *(SV4, 2026-10-09: listed;
+  on a schematic row Save / Reload-from-Library are disabled with a tooltip,
+  Source is read against the templates folder, New From Selected opens a
+  Schematic editor, and the footer counts "definitions".)*
 
 ### Storage & templates
 
@@ -159,11 +168,18 @@ one mechanism by which block content reaches paper.
   "Also save as Template" toggle in place of "Also save to library". The
   shared permanent Block Editor ribbon page serves both; its Block group verbs
   act on whichever tab is current. The origin marker stays (harmless, keeps
-  parity).
+  parity). *(SV4 delta, ratified 2026-10-09: the Save Schematic dialog's
+  Series "+" adds a choice only — the Series folder appears in the templates
+  folder at the first template save, unlike the block dialog's
+  create-on-"+"; a project-only Series never litters the templates folder.)*
 - **D-S16 Entry point.** Project Browser only: the Schematics root context
   menu offers **New Schematic…**; a leaf offers **Open / Rename / Duplicate /
   Delete / Save as Template**. (Rename and Duplicate exist for no other view
-  today — they are introduced for schematics only.)
+  today — they are introduced for schematics only.) *(SV4 delta, ratified
+  2026-10-09: Duplicate creates the project copy at once — named
+  `<name> copy`, then `<name> copy 2`… when taken within the Series — and
+  opens no editor; the copy keeps the source's Series, primitives and
+  constraints and is never placed.)*
 - **D-S17 Undo scope.** New / Save / Rename / Duplicate / Delete / load-from-
   template of a schematic = one **project** undo snapshot each
   (`commit_block_definition` parity). Drop / move / resize / delete of a
@@ -370,16 +386,55 @@ under D-S9 and D-S15.
   (two-tier parity included), `test_sv3_save_template.py`,
   `test_sv3_new_schematic.py` (G4).
 
+## SV4 — as built (2026-10-09)
+
+Built on `main` (`4a7452e5` kind-swap refusal, `f2a059d6` polish; a Small
+run, no branch). Code homes only — the decisions stay owned above (Rule A).
+
+- **Kind frozen on load / reload (D-S3).** `block_library.KIND_REASON`;
+  `Model_Space.load_blocks_from_files` refuses a same-id file of the other
+  kind before any bundled definition lands (`summary["refused"]`,
+  `load_failure_message` names the reason); `reload_block_definition` returns
+  False. `_swap_block_definition` itself stays a pure registry mutation.
+- **Block Manager (D-S4, D-S5, D-S11b).** `block_manager.Col.KIND` (appended
+  after `USED_IN` so saved header states keep their section numbers),
+  `_KIND_LABELS`, `BlockTableModel(templates_root=)` + `status_root(d)` (a
+  schematic's Source reads `app_data.schematics_dir()`), `_rebuild` lists every
+  definition, `BlockManagerDialog._sync_ui` gates Save / Reload with
+  `_SCHEMATIC_VERB_TIP`, `_create_new_from_selected` passes the row's kind, the
+  details panel shows Kind, the footer reads "N of M definitions". Used-in
+  needed no change: `BlockRegistry.users_map` already counts a schematic that
+  nests the block (guarded).
+- **`available_views` (D-S4).** `ViewResolver.available_views` adds a
+  `"Schematics"` group of display names from
+  `SchematicSceneManager.schematic_names()` when a manager is attached
+  (`resolve` still takes the definition id).
+- **Duplicate (D-S16, D-S17).** `ProjectBrowser.duplicateSchematic` + leaf
+  menu entry; `MainWindow._duplicate_schematic` (schematic ids only) →
+  `Model_Space.duplicate_block_definition` (deep-copied primitives and
+  constraints, same Library / Series, capability carried, name uniquified by the
+  `set_block_metadata` rule, one undo through `commit_block_definition`).
+- **SV3 seam minors.** (a) `BlockEditorWidget._dialog_template_path`: a
+  ribbon Save as Template whose Save dialog toggle already wrote the template
+  writes once (`_save_to_library` returns the path). (b)
+  `block_library.delete_from_library` removes an index it emptied, so the last
+  ungrouped template leaves no `{}` root `index.json`. (c) recorded under
+  D-S14, no code change.
+- **Guards.** `tests/test_sv4_kind_swap.py` (3), `tests/test_sv4_polish.py`
+  (10, incl. the MainWindow Duplicate path); SV1's "Manager hides schematics"
+  tests rewritten to the D-S4 SV4 wording.
+
 ## Acceptance Criteria
 
-- [ ] D-S2: `PaperScene` never holds a `BlockInstance`; the P1 task is moved to
-      todo_closed as superseded.
+- [x] D-S2: `PaperScene` never holds a `BlockInstance`; the P1 task is moved to
+      todo_closed as superseded. *(SV4 Account: `paper_space.py` has no
+      `BlockInstance` code path; the task was moved at the concept filing.)*
 - [x] D-S3: every placement / nesting site refuses a schematic with
       `SCHEMATIC_REASON` (G2). (SV1)
-- [ ] D-S4/D-S16: Schematics root + Series + leaves with the six verbs; hidden
+- [x] D-S4/D-S16: Schematics root + Series + leaves with the six verbs; hidden
       from the Blocks browser / Insert / Open block roots (G6). *SV1: root,
       Series, leaves, New / Open / Rename / Delete, hidden (Manager too); SV3:
-      Save as Template (built); SV4: Duplicate, Manager Kind column.*
+      Save as Template; SV4: Duplicate, Manager Kind column (built).*
 - [x] D-S6/D-S9/D-S11c/d: New (blank | template), Save, Save as Template with
       bundling and collision dialog (G4). (SV3)
 - [x] D-S7/D-S10: drop → NTS viewport sized to content; edit → every viewport
@@ -393,12 +448,14 @@ under D-S9 and D-S15.
 
 ## Verification Checklist
 
-- [ ] Guards G1–G6 (concept doc) RED with each slice's change reverted, GREEN
-      with it.
+- [x] Guards G1–G6 (concept doc) RED with each slice's change reverted, GREEN
+      with it. *(Per-slice records SV1–SV3; SV4 guards RED at `4a7452e5`.)*
 - [ ] Full suite green; registry-enumerating tests updated (concept doc
       keep-green list).
-- [ ] Cross-spec reconciliation below applied as each slice lands; this spec's
-      `status` moves `proposal → partial → current` per slice.
+- [x] Cross-spec reconciliation below applied as each slice lands; this spec's
+      `status` moves `proposal → partial → current` per slice. *(SV4 Account:
+      containment C2/C3/C9 + System Blocks Q2/phase 7 pointers added; the
+      other five were pointed at SV1–SV3.)*
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
