@@ -1,12 +1,15 @@
 ---
-status: partial           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3–SV4 unbuilt. Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-10-09  # SV2 Account: the "SV2 — as built" section + acceptance ticks verified against the code; SV3–SV4 content is still as-intended
-verified-commit: 7dd64383   # prior b851b1aa (SV1), 7f97f687 (proposal)
-applies-to:               # seams this contract governs (SV1/SV2 seams built; SV3–SV4 seams as-intended); the rest of each file is owned by the spec named in parentheses
+status: partial           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 unbuilt. Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
+last-verified: 2026-10-09  # SV3 Account: the "SV3 — as built" section + acceptance ticks + ratified deltas (D-S9 / D-S15 notes) verified against the code; prior SV2 Account same day; SV4 content is still as-intended
+verified-commit: 3f31e0af   # SV3 (feat/sv3-schematics-library); prior 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
+applies-to:               # seams this contract governs (SV1–SV3 seams built; SV4 seams as-intended); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
-  - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog only (rest: block-system.md)
-  - firepro3d/block_library.py        # `root=` reuse + one-tier series dir only (rest: block-system.md)
+  - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog + template toggle / save_schematic_template / save_as_template only (rest: block-system.md)
+  - firepro3d/block_library.py        # `root=` reuse + one-tier root (empty tiers, root/Series index walk, index `kind`) only (rest: block-system.md)
   - firepro3d/app_data.py             # `schematics_dir()` + `SCHEMATIC_DIR_KEY` + migration entry
+  - firepro3d/schematic_new_dialog.py # New Schematic dialog (SV3)
+  - firepro3d/settings/panes.py       # Schematics folder row only (rest: settings-dialog.md)
+  - firepro3d/blocks_browser.py       # `library_only_entries` skips schematic index entries only (rest: block-system.md)
   - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs, drag payload (rest: project-browser.md)
   - firepro3d/paper_space.py          # `ViewResolver` schematic branch, drop default, crop rule (rest: paper-space.md)
   - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal` (rest: model-space-architecture.md)
@@ -116,6 +119,9 @@ one mechanism by which block content reaches paper.
   **Identity** (SV1 delta, ratified 2026-10-08): name required, Series
   optional, Library stored as `""`; a name is unique among schematics within
   its Series. Block identity rules are unchanged.
+  *(SV3 delta, ratified 2026-10-09: an ungrouped template lives at the folder
+  root — `<schematics>/<name>.fpdb` + a root `index.json`; empty tiers are
+  skipped, never a `_` folder.)*
 - **D-S11c Templates bundle.** Save as Template bundles the nested block
   definitions (the shipped schema-2 `bundled` field) so a template opens on a
   fresh project with its symbols; loading adopts them with the existing same-id
@@ -137,6 +143,14 @@ one mechanism by which block content reaches paper.
   folder). Either opens a `Schematic:` editor tab. **Save** writes the
   definition into the project (project undo, one step). The editor's **Save as
   Template** writes it to the schematics folder (D-S6).
+  *(SV3 deltas, ratified 2026-10-09: the dialog is one tree — "Blank
+  schematic" first and pre-selected, then Templates ▸ ungrouped leaves ▸
+  Series; with no template on disk a blank editor opens directly. The editor
+  verb is a Definition-group ribbon button, enabled only on Schematic tabs,
+  that saves the project copy first. The Save dialog's "Also save as
+  Template" toggle defaults off and remembers the last choice. A template
+  whose (Series, name) clashes with a different project schematic is refused
+  with a message.)*
 - **D-S14 Editor delta.** Identical to the Block Editor except: (a) the
   capability slot (pattern tile / linetype / end type) is unavailable — the
   three ribbon toggles are disabled with a tooltip and the property panel omits
@@ -326,6 +340,36 @@ decisions stay owned above (Rule A); the mechanism is the concept doc's
   `test_sv2_schematic_scene.py`, `test_sv2_delete_refusal.py`,
   `test_sv2_paper_primitives.py`.
 
+## SV3 — as built (2026-10-09)
+
+Built on `feat/sv3-schematics-library` (`3f31e0af`). Code homes only — the
+decisions stay owned above (Rule A); the ratified SV3 deltas are recorded
+under D-S9 and D-S15.
+
+- **Folder (D-S5).** `app_data.SCHEMATIC_DIR_KEY` / `schematics_dir()`
+  (override → else `<user_data_root>/schematics`); `_MIGRATABLE` carries
+  `schematics`; GeneralPane row (settings-dialog.md §4.5b).
+- **One-tier root (D-S15).** `block_library._segments` / `_series_dir` skip
+  empty tiers; `_iter_index_entries` walks root / Series / Library-Series (a
+  folder holding `index.json` is a leaf folder); index entries carry `kind` for
+  non-block definitions; `blocks_browser.library_only_entries` skips schematic
+  entries; `load_failure_message(noun=)`.
+- **Save as Template (D-S6, D-S11c, D-S11d).** `block_editor.save_schematic_template`
+  (bundle, Overwrite / Rename / Cancel, rename via `set_block_metadata` + retry);
+  `BlockEditorWidget.save_as_template`; `MainWindow._be_save_template` button
+  (`_BE_TEMPLATE_BLOCK_TIP` on Block tabs, synced in `_sync_capability_buttons`);
+  `BlockSaveDialog` "Also save as Template" (`_SAVE_TEMPLATE_KEY`) probing the
+  templates root, written through `_save_to_library(root=)`;
+  `ProjectBrowser.saveSchematicTemplate` → `MainWindow._save_schematic_template`
+  (writes the saved copy; the editor is a scratchpad).
+- **New Schematic (D-S9).** `schematic_new_dialog.NewSchematicDialog`
+  (`has_templates`, `choice()`); `MainWindow._new_schematic` loads through
+  `load_blocks_from_files` (one undo, bundled blocks adopted) and refuses a
+  clash with `load_failure_message(noun="schematic")`.
+- **Guards.** `tests/test_sv3_app_data.py`, `test_sv3_library_tier.py`
+  (two-tier parity included), `test_sv3_save_template.py`,
+  `test_sv3_new_schematic.py` (G4).
+
 ## Acceptance Criteria
 
 - [ ] D-S2: `PaperScene` never holds a `BlockInstance`; the P1 task is moved to
@@ -335,9 +379,9 @@ decisions stay owned above (Rule A); the mechanism is the concept doc's
 - [ ] D-S4/D-S16: Schematics root + Series + leaves with the six verbs; hidden
       from the Blocks browser / Insert / Open block roots (G6). *SV1: root,
       Series, leaves, New / Open / Rename / Delete, hidden (Manager too); SV3:
-      Save as Template; SV4: Duplicate, Manager Kind column.*
-- [ ] D-S6/D-S9/D-S11c/d: New (blank | template), Save, Save as Template with
-      bundling and collision dialog (G4).
+      Save as Template (built); SV4: Duplicate, Manager Kind column.*
+- [x] D-S6/D-S9/D-S11c/d: New (blank | template), Save, Save as Template with
+      bundling and collision dialog (G4). (SV3)
 - [x] D-S7/D-S10: drop → NTS viewport sized to content; edit → every viewport
       re-fits; title bubble reads NTS; PDF contains the strokes (G3). (SV2)
 - [x] D-S11a/b: delete refusals (G5). (SV2)

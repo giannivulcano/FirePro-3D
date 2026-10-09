@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-10-01  # scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
-verified-commit: c8ff4f4   # scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-10-09  # SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: 3f31e0af   # SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -26,7 +26,9 @@ SEH bug #371).
 - **`_isolate_qsettings`** (autouse) + **`_IsolatedQSettings`** (module-level class
   install) — QSettings isolation (#312). See Invariant 1.
 - **`_isolate_block_library`** (autouse, layered on `_isolate_qsettings`) — points
-  `paths/block_dir` at a fresh per-test temp dir. See Invariant 7.
+  `paths/block_dir` (and, since SV3, `paths/schematic_dir` — the schematic templates
+  folder is a second on-disk root the Save-as-Template / New Schematic flows write)
+  at a fresh per-test temp dir. See Invariant 7.
 - **`real_qsettings`** — yields the unpatched `QSettings` class so a test can read
   the REAL registry (only the isolation guard test needs this).
 - *(retired 2026-09-26: `tmp_settings` and the per-file `isolated_settings` /

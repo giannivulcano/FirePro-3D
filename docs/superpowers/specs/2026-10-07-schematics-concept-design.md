@@ -1,7 +1,7 @@
 ---
-status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); SV1 built 2026-10-08; SV2 built 2026-10-09; SV3–SV4 unbuilt
-last-verified: 2026-10-09  # SV2 Account (SD2/SD3/SD4 SV2 half/SD8 + SV2 delta match the code)
-verified-commit: 7dd64383   # prior b851b1aa, 7f97f687
+status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); SV1 built 2026-10-08; SV2 built 2026-10-09; SV3 built 2026-10-09; SV4 unbuilt
+last-verified: 2026-10-09  # SV3 Account (SD5 / SD6 / SD7 SV3 deltas match the code); prior SV2 Account same day
+verified-commit: 3f31e0af   # SV3; prior 7dd64383, b851b1aa, 7f97f687
 applies-to:
   - firepro3d/block_definition.py
   - firepro3d/block_editor.py
@@ -251,6 +251,13 @@ the NTS box" clash; the deferred rebuild; `definition.name` always painted).
 - Rename / Duplicate from the browser reuse `set_block_metadata` (rename) and
   the Block Manager's clone path (duplicate → new id, `kind` kept), each one
   project undo step.
+- **SV3 delta (ratified 2026-10-09):** the editor verb is a Definition-group
+  ribbon button ("Save as Template", enabled on Schematic tabs only) that
+  saves the project copy first; the dialog toggle defaults off and is
+  remembered; the Series selector unions project Series with the folders on
+  disk (`schematic_series_for(root=)`, no `tiers=` flag needed — the
+  one-tier walk is layout-detected). One module function,
+  `save_schematic_template`, serves the ribbon and browser verbs.
 
 ### SD6 — New Schematic dialog (D-S9)
 
@@ -261,6 +268,11 @@ the NTS box" clash; the deferred rebuild; `definition.name` always painted).
 - This is a new dialog surface: **mockup gate** (live render under the app QSS
   + font, Qt constraints named) before the SV3 build; "reconfigured
   `BlockOpenDialog`" is option 1 of that gate.
+- **Built as Option A (mockup gate 2026-10-09):** its own module
+  `schematic_new_dialog.NewSchematicDialog` sharing the picker's shape (not a
+  subclass — the Block Open picker's loader semantics differ); skipped when
+  no template exists (blank editor opens directly, ratified by plan
+  approval).
 
 ### SD7 — Library root & migration (D-S5, D-S15)
 
@@ -276,6 +288,12 @@ the NTS box" clash; the deferred rebuild; `definition.name` always painted).
 - `index.json` entries carry `kind`; `capability_folder.FLAGS` is untouched
   (schematics are not capabilities; the schematics folder is never scanned by
   the pattern / linetype pickers).
+- **SV3 delta (2026-10-09; P4 probe found `sanitize("")` → `"_"`):** empty
+  tiers are skipped (no `_` folder); ungrouped templates sit at the root with
+  a root `index.json`; the walker treats any folder holding `index.json` as a
+  leaf folder (depth 0 → `("", "")`, depth 1 → `("", Series)`, else
+  Library/Series), so both roots share one walk. `kind` is written to the
+  index only when not `"block"` (the `.fpdb` precedent).
 
 ### SD8 — Delete refusals (D-S11a, D-S11b)
 
@@ -307,7 +325,7 @@ placement" task and SB7's host note are amended at SV1's filing.
 |---|---|---|---|
 | **SV1** (built 2026-10-08) | SD1 kind flag + `place_refusal` + `SCHEMATIC_REASON` at all sites; SD5 editor (kind, title, capability lock, Save Schematic → project); SD4 browser root / role / leaves / verbs Open / Rename / Delete / New (blank only), leaves not draggable; `.fpd` + undo persistence; listing filters (Block Manager hidden); `_close_stale_view_tabs` prefix | G1 (project half), G2, G6 (SV1 half) | — |
 | **SV2** (built 2026-10-09) | SD2 `SchematicSceneManager` + promoted materializer; SD3 resolver branch, drop NTS default, live crop, title bubble name lookup, Go-to-view, placed italics; SD4 leaf drag (`mimeData`); SD8 "used on sheets" refusal; PDF | G1 (sheet half), G3, G5, G6 (SV2 half) | SV1 |
-| **SV3** | SD7 `schematics_dir` + settings row + migration + one-tier `_series_dir` (P4 probe first); SD5 Save as Template (bundling, collision) + browser verb; SD6 New-from-template dialog (**mockup gate**) | G4 | SV1 (editor), SV2 for the placed-template smoke |
+| **SV3** (built 2026-10-09) | SD7 `schematics_dir` + settings row + migration + one-tier `_series_dir` (P4 probe first); SD5 Save as Template (bundling, collision) + browser verb; SD6 New-from-template dialog (**mockup gate**) | G4 | SV1 (editor), SV2 for the placed-template smoke |
 | **SV4** | Block Manager Kind column / filter + Used-in; Duplicate verb; `available_views` Schematics group; spec Account (`schematics.md` → partial/current, reconciliation pointers, SPEC-INDEX) | keep-green only | SV2 |
 
 SV1 → SV2 → SV3 sequential; SV4 after SV2 (∥ SV3).
