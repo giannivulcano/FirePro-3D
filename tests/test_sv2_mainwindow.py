@@ -116,7 +116,7 @@ def test_g6_rename_retitles_viewport(mw, monkeypatch):
     ps = mw.paper_space_widget.paper_scene
     # Qt only processes dirty regions for a visible view: show the sheet.
     mw.show()
-    QTest.qWaitForWindowExposed(mw)
+    assert QTest.qWaitForWindowExposed(mw)
     mw._activate_paper_sheet()                         # real sheet tab
     assert mw.paper_space_widget.view.isVisible()
     QApplication.processEvents()                       # flush drop repaints
