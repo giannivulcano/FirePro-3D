@@ -72,6 +72,67 @@ def library_tree_for(project_scene, root: str | None = None) -> dict[str, list[s
     return {lib: sorted(ser) for lib, ser in sorted(tree.items())}
 
 
+def save_schematic_template(project_scene, defn, parent, *, root: str | None = None,
+                            overwrite: bool = False) -> str | None:
+    """Write *defn* (a saved project schematic) to the templates folder
+    (schematics.md D-S6 / D-S11c / D-S11d). The one writer behind the editor
+    verb and the Project Browser verb; the Save dialog's toggle resolves its
+    collision in the dialog and writes through ``_save_to_library`` instead.
+
+    Nested definitions are bundled (``BlockRegistry.bundle_for``). A different
+    template already holding ``<name>.fpdb`` in the same Series offers
+    Overwrite / Rename / Cancel: Rename asks for a new name, applies it to the
+    project copy via ``set_block_metadata`` (one project undo step) and
+    retries. A file write is never undoable (D-S17).
+
+    Args:
+        project_scene: The project ``Model_Space``.
+        defn: The schematic ``BlockDefinition`` (its project copy).
+        parent: Qt parent for the prompts.
+        root: Templates root; None = ``app_data.schematics_dir()``.
+        overwrite: Skip the collision prompt (clobber).
+
+    Returns:
+        The written ``.fpdb`` path, or None when cancelled / refused / failed.
+    """
+    from . import block_library
+    from .app_data import schematics_dir
+    from .themed_message import themed_choice, themed_info, themed_input_text
+    root = root if root is not None else schematics_dir()
+    bundled = project_scene.block_registry.bundle_for(defn.id)
+    while True:
+        try:
+            return block_library.save_to_library(defn, root=root, overwrite=overwrite,
+                                                 bundled=bundled)
+        except block_library.BlockNameCollision as exc:
+            where = f"{defn.series} / {defn.name}" if defn.series else defn.name
+            choice = themed_choice(
+                parent, "Save as Template",
+                f"A different schematic “{exc.existing_name}” is already "
+                f"saved as {where}.",
+                [("Cancel", "cancel", None), ("Rename", "rename", None),
+                 ("Overwrite", "overwrite", "danger")], kind="warn")
+            if choice == "overwrite":
+                overwrite = True
+                continue
+            if choice != "rename":
+                return None
+            new_name, ok = themed_input_text(parent, "Rename Schematic", "New name:",
+                                             initial=defn.name)
+            new_name = (new_name or "").strip()
+            if not ok or not new_name or new_name == defn.name:
+                return None
+            if not project_scene.set_block_metadata(defn.id, new_name, "", defn.series):
+                in_series = f" in {defn.series}" if defn.series else ""
+                themed_info(parent, "Rename Schematic",
+                            f"A schematic named “{new_name}” already exists{in_series}.")
+                return None
+            # ``set_block_metadata`` renamed the project copy in place: retry.
+        except OSError as exc:
+            themed_info(parent, "Save as Template", f"Could not save:\n{exc}")
+            return None
+
+
 class BlockSaveDialog(HouseDialog):
     """Collect block identity + save options at Save time.
 
@@ -743,6 +804,31 @@ class BlockEditorWidget(QWidget):
         if self._saved_definition() is None:
             return self._save_via_dialog(parent, save_as=False)
         return self._save_via_dialog(parent, save_as=True)
+
+    def save_as_template(self, parent=None):
+        """Save as Template (ribbon, Schematic tabs only — schematics.md D-S6).
+
+        Saves the project copy first (:meth:`save`: a never-saved schematic
+        gets the Save dialog, one project undo step) so the template matches
+        what the editor shows, then writes it to the templates folder via
+        :func:`save_schematic_template`.
+
+        Args:
+            parent: Optional Qt parent for dialogs (falls back to self).
+
+        Returns:
+            The written ``.fpdb`` path, or None if cancelled / refused.
+        """
+        if self.kind != "schematic":
+            return None
+        defn = self.save(parent)
+        if defn is None:
+            return None
+        path = save_schematic_template(self._project_scene, defn, parent or self)
+        if path:
+            self.editor_scene._show_status(
+                f"Saved template “{defn.name}”", timeout=5000)
+        return path
 
     def _has_geometry(self, parent) -> bool:
         if any(not _is_scaffold_item(it) for it in self.gather_primitives()):

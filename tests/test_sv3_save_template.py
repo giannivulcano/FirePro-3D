@@ -179,3 +179,70 @@ def test_silent_resave_never_writes_the_template(env, monkeypatch):
     again = w.save(None)
     assert again is not None and again.id == defn.id
     assert not os.path.exists(os.path.join(app_data.schematics_dir(), "Riser B.fpdb"))
+
+
+# -- Task 5: editor verb + collision loop --------------------------------------
+
+def test_save_as_template_saves_project_then_writes(env, monkeypatch):
+    ms, _tabs, _mgr = env
+    w, plain = _open_schematic_with_nested(env)
+    monkeypatch.setattr(BlockSaveDialog, "exec", _fake_exec("Riser C"))
+    path = w.save_as_template(None)                 # never saved: Save dialog runs first
+    assert path == os.path.join(app_data.schematics_dir(), "Riser C.fpdb")
+    defn = ms.get_block_definition(w._edit_block_id)
+    assert defn.kind == "schematic" and not w.is_dirty()
+    assert plain.id in _read(path)["bundled"]
+    # Dirty edits are saved to the project before the template is written.
+    w._add_primitive(LineItem(QPointF(0, 0), QPointF(0, 70)))
+    w.editor_scene.push_undo_state()
+    assert w.is_dirty()
+    assert w.save_as_template(None) == path
+    assert not w.is_dirty()
+    assert len(_read(path)["primitives"]) == len(ms.get_block_definition(defn.id).primitives)
+
+
+def test_save_as_template_cancelled_first_save_writes_nothing(env, monkeypatch):
+    w, _plain = _open_schematic_with_nested(env)
+    monkeypatch.setattr(BlockSaveDialog, "exec", lambda dlg: 0)
+    assert w.save_as_template(None) is None
+    assert not os.path.exists(os.path.join(app_data.schematics_dir(), "index.json"))
+
+
+def test_save_schematic_template_collision_rename_retries(env, monkeypatch):
+    from firepro3d import themed_message
+    from firepro3d.block_editor import save_schematic_template
+    ms, _tabs, _mgr = env
+    other = BlockDefinition.new(name="Riser D", library="", series="", origin=(0.0, 0.0),
+                                primitives=[_line().to_dict()], kind="schematic")
+    bl.save_to_library(other, root=app_data.schematics_dir())   # a different template
+    w, _plain = _open_schematic_with_nested(env)
+    monkeypatch.setattr(BlockSaveDialog, "exec", _fake_exec("Riser D"))
+    defn = w.save(None)
+    monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "rename")
+    monkeypatch.setattr(themed_message, "themed_input_text",
+                        lambda *a, **k: ("Riser E", True))
+    path = save_schematic_template(ms, defn, None)
+    assert path == os.path.join(app_data.schematics_dir(), "Riser E.fpdb")
+    assert ms.get_block_definition(defn.id).name == "Riser E"      # renamed in project
+    assert _read(os.path.join(app_data.schematics_dir(), "Riser D.fpdb"))["id"] == other.id
+    ms.undo()                                                       # rename = one project step
+    assert ms.get_block_definition(defn.id).name == "Riser D"
+
+
+def test_save_schematic_template_collision_cancel_and_overwrite(env, monkeypatch):
+    from firepro3d import themed_message
+    from firepro3d.block_editor import save_schematic_template
+    ms, _tabs, _mgr = env
+    other = BlockDefinition.new(name="Riser F", library="", series="", origin=(0.0, 0.0),
+                                primitives=[_line().to_dict()], kind="schematic")
+    bl.save_to_library(other, root=app_data.schematics_dir())
+    w, _plain = _open_schematic_with_nested(env)
+    monkeypatch.setattr(BlockSaveDialog, "exec", _fake_exec("Riser F"))
+    defn = w.save(None)
+    path = os.path.join(app_data.schematics_dir(), "Riser F.fpdb")
+    monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "cancel")
+    assert save_schematic_template(ms, defn, None) is None
+    assert _read(path)["id"] == other.id                            # untouched
+    monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "overwrite")
+    assert save_schematic_template(ms, defn, None) == path
+    assert _read(path)["id"] == defn.id
