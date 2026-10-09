@@ -1,4 +1,6 @@
 """SV1 Task 4 -- Project Browser Schematics root (D-S4, D-S16; G6 widget half)."""
+from PyQt6.QtCore import QPoint
+
 from firepro3d.mime_types import MIME_VIEW
 from firepro3d.project_browser import _ROLE_NAME, _ROLE_TYPE, ProjectBrowser
 
@@ -69,7 +71,7 @@ def test_context_menu_actions(qapp, monkeypatch):
                             [x.text() for x in self.actions()]))
     for item in (pb._schem_root, _leaf(pb, "id1")):
         monkeypatch.setattr(pb._tree, "itemAt", lambda pos, it=item: it)
-        pb._on_context_menu(None)
+        pb._on_context_menu(QPoint(0, 0))
     assert captured == [["New Schematic…"], ["Open", "Rename…", "Delete"]]
 
 

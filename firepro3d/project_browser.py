@@ -500,5 +500,4 @@ class ProjectBrowser(QWidget):
             act_del.triggered.connect(lambda: self.deleteSchematic.emit(bid))
         else:
             return
-        gpos = self._tree.viewport().mapToGlobal(pos) if pos is not None else None
-        menu.exec(gpos) if gpos is not None else menu.exec()
+        menu.exec(self._tree.viewport().mapToGlobal(pos))
