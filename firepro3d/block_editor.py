@@ -32,6 +32,7 @@ def _is_scaffold_item(item) -> bool:
 
 
 _SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice
+_SAVE_TEMPLATE_KEY = "BlockEditor/save_schematic_template"   # last "Also save as Template" choice (SV3)
 
 #: Editor tab title prefixes, by definition kind (schematics.md D-S14).
 TAB_PREFIXES = ("Block: ", "Schematic: ")
@@ -43,10 +44,18 @@ def tab_title(kind: str, name: str) -> str:
     return f"{'Schematic' if kind == 'schematic' else 'Block'}: {name}"
 
 
-def schematic_series_for(project_scene) -> list[str]:
-    """The non-blank Series already used by the project's schematics."""
-    return sorted({d.series for d in project_scene._block_definitions.values()
-                   if d.kind == "schematic" and d.series}, key=str.lower)
+def schematic_series_for(project_scene, root: str | None = None) -> list[str]:
+    """Series choices for the Save Schematic dialog: the non-blank Series
+    already used by the project's schematics UNION the Series folders on
+    disk under the templates root (schematics.md D-S15; None = the
+    configured ``app_data.schematics_dir()``)."""
+    from . import block_library
+    from .app_data import schematics_dir
+    names = {d.series for d in project_scene._block_definitions.values()
+             if d.kind == "schematic" and d.series}
+    names.update(block_library.list_folders(
+        root if root is not None else schematics_dir()))
+    return sorted(names, key=str.lower)
 
 
 def library_tree_for(project_scene, root: str | None = None) -> dict[str, list[str]]:
@@ -72,6 +81,9 @@ class BlockSaveDialog(HouseDialog):
     remembers the last choice. When saving to the library would overwrite a
     DIFFERENT block's file, Save offers Overwrite / Rename / Cancel before
     anything is committed (Rename keeps the dialog open on the Name field).
+    A schematic dialog shows "Also save as Template" instead (default OFF,
+    remembered under ``BlockEditor/save_schematic_template``; ``root`` is then
+    the templates root the collision probe reads — schematics.md D-S14, SV3).
 
     context: "new" | "seeded" | "edit". Shows a replace-source toggle for
     "seeded" and an "updates N instances" warning for "edit" when N>0.
@@ -155,7 +167,20 @@ class BlockSaveDialog(HouseDialog):
                                                checked=bool(remembered) and not is_schematic)
         self.save_to_library_cb.setToolTip(
             "Also write this block to the on-disk library folder above")
-        if not is_schematic:   # SV3 adds "Also save as Template" here
+        self.save_template_cb = None
+        if is_schematic:
+            # Templates are an explicit push-back (schematics.md D-S6): the
+            # toggle defaults OFF and remembers the last choice (SV3, 2026-10-09).
+            remembered_t = QSettings("GV", "FirePro3D").value(_SAVE_TEMPLATE_KEY, False)
+            if isinstance(remembered_t, str):
+                remembered_t = remembered_t.lower() in ("true", "1")
+            self.save_template_cb = ToggleSwitch("Also save as Template",
+                                                 checked=bool(remembered_t))
+            self.save_template_cb.setToolTip(
+                "Also write this schematic to the Schematics templates folder "
+                "(System Settings > General > Data folder > Schematics)")
+            form.addRow("", self.save_template_cb)
+        else:
             form.addRow("", self.save_to_library_cb)
         self.replace_source_cb = ToggleSwitch(
             "Replace selected geometry with an instance", checked=True)
@@ -231,13 +256,15 @@ class BlockSaveDialog(HouseDialog):
             ser = self.series_combo.currentText().strip()
             return {"name": self.name_edit.text().strip(), "library": "",
                     "series": "" if ser == _NO_SERIES else ser,
-                    "save_to_library": False, "replace_source": False,
-                    "overwrite": False}
+                    "save_to_library": False,
+                    "save_template": self.save_template_cb.isChecked(),
+                    "replace_source": False, "overwrite": self._overwrite}
         return {
             "name": self.name_edit.text().strip(),
             "library": self.library_combo.currentText().strip(),
             "series": self.series_combo.currentText().strip(),
             "save_to_library": self.save_to_library_cb.isChecked(),
+            "save_template": False,
             "replace_source": (self._context != "seeded") or self.replace_source_cb.isChecked(),
             "overwrite": self._overwrite,
         }
@@ -260,7 +287,10 @@ class BlockSaveDialog(HouseDialog):
 
     def _on_save(self):
         from PyQt6.QtCore import QSettings
-        if self._kind != "schematic":
+        if self._kind == "schematic":
+            QSettings("GV", "FirePro3D").setValue(
+                _SAVE_TEMPLATE_KEY, self.save_template_cb.isChecked())
+        else:
             QSettings("GV", "FirePro3D").setValue(
                 _SAVE_TO_LIB_KEY, self.save_to_library_cb.isChecked())
         err = self.validation_error()
@@ -270,25 +300,32 @@ class BlockSaveDialog(HouseDialog):
         self.error_label.hide()
         v = self.values()
         self._overwrite = False
-        if v["save_to_library"]:
+        if v["save_to_library"] or v["save_template"]:
             from . import block_library
             from .themed_message import themed_choice
+            # Templates probe the schematics root (``root=`` is that root for
+            # a schematic dialog); blocks probe the block library root.
             clash = block_library.find_collision(
                 self._collision_id or "", v["library"], v["series"], v["name"],
                 root=self._lib_root)
             if clash is not None:
+                if self._kind == "schematic":
+                    noun, where = "schematic", (
+                        f"{v['series']} / {v['name']}" if v["series"] else v["name"])
+                    title = "Name already a template"
+                else:
+                    noun, where = "block", f"{v['library']} / {v['series']} / {v['name']}"
+                    title = "Name already in library"
                 choice = themed_choice(
-                    self, "Name already in library",
-                    f"A different block \u201c{clash}\u201d is already saved as "
-                    f"{v['library']} / {v['series']} / {v['name']}.",
+                    self, title,
+                    f"A different {noun} \u201c{clash}\u201d is already saved as {where}.",
                     [("Cancel", "cancel", None), ("Rename", "rename", None),
                      ("Overwrite", "overwrite", "danger")], kind="warn")
                 if choice == "overwrite":
                     self._overwrite = True
                 elif choice == "rename":
                     self._show_error(
-                        f"\u201c{v['name']}\u201d is taken in {v['library']} / "
-                        f"{v['series']} — choose another name.")
+                        f"“{v['name']}” is taken in {where} — choose another name.")
                     self.name_edit.setFocus()
                     self.name_edit.selectAll()
                     return
@@ -756,8 +793,10 @@ class BlockEditorWidget(QWidget):
                         where = f" in {series}" if series else ""
                         return f"A schematic '{name}' already exists{where}."
                 return None
-            dlg = BlockSaveDialog(parent or self, kind="schematic",
-                                  schematic_series=schematic_series_for(proj),
+            from .app_data import schematics_dir
+            tpl_root = schematics_dir()
+            dlg = BlockSaveDialog(parent or self, kind="schematic", root=tpl_root,
+                                  schematic_series=schematic_series_for(proj, root=tpl_root),
                                   collision_id=writes_as, context=context,
                                   instance_count=0, initial=initial,
                                   validator=_validator)
@@ -787,6 +826,11 @@ class BlockEditorWidget(QWidget):
         if v["save_to_library"]:
             self._save_to_library(defn, parent or self,
                                   overwrite=v.get("overwrite", False))
+        elif v.get("save_template"):
+            from .app_data import schematics_dir
+            self._save_to_library(defn, parent or self,
+                                  overwrite=v.get("overwrite", False),
+                                  root=schematics_dir())
         return defn
 
     # ── Import (BE4) ────────────────────────────────────────────────────────
@@ -871,8 +915,10 @@ class BlockEditorWidget(QWidget):
         if added and not p.insert_at_origin:
             self.editor_scene.begin_move_from(QPointF(0.0, 0.0))
 
-    def _save_to_library(self, defn, parent, *, overwrite: bool = False):
-        """Persist *defn* to the on-disk block library.
+    def _save_to_library(self, defn, parent, *, overwrite: bool = False,
+                         root: str | None = None):
+        """Persist *defn* to the on-disk block library (or, with ``root``,
+        the schematic templates folder — schematics.md D-S6).
 
         The Save dialog already resolved any collision (``overwrite`` carries
         its Overwrite choice); the confirm below only guards a race where the
@@ -881,18 +927,22 @@ class BlockEditorWidget(QWidget):
         Args:
             defn: The ``BlockDefinition`` to persist.
             parent: Qt parent widget for confirmation dialogs.
-            overwrite: Clobber a different block holding the same file.
+            overwrite: Clobber a different definition holding the same file.
+            root: Library root; None = the block library.
         """
         from . import block_library
         from .themed_message import themed_confirm
+        noun = "template" if root is not None else "block"
         bundled = self._project_scene.block_registry.bundle_for(defn.id)
         try:
-            block_library.save_to_library(defn, overwrite=overwrite, bundled=bundled)
+            block_library.save_to_library(defn, root=root, overwrite=overwrite,
+                                          bundled=bundled)
         except block_library.BlockNameCollision as e:
-            if themed_confirm(parent, "Overwrite block?",
-                              f"A different block '{e.existing_name}' occupies that "
+            if themed_confirm(parent, f"Overwrite {noun}?",
+                              f"A different {noun} '{e.existing_name}' occupies that "
                               f"file. Overwrite it?"):
-                block_library.save_to_library(defn, overwrite=True, bundled=bundled)
+                block_library.save_to_library(defn, root=root, overwrite=True,
+                                              bundled=bundled)
 
 
 class BlockEditorManager:
