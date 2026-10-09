@@ -818,6 +818,8 @@ class SheetViewport(QGraphicsObject):
 
         self._source_scene = None
         self._source_rect = QRectF()
+        # Last resolved schematic name (title fallback once the id vanishes).
+        self._last_schematic_name = ""
         # Echo guard note: the suppress flag lives on the SOURCE SCENE
         # (``_suppress_paper_echo``), not on this viewport — the scene's
         # ``changed`` signal is per-scene, so a per-viewport flag would let one
@@ -843,6 +845,8 @@ class SheetViewport(QGraphicsObject):
             return
         self._placeholder = False
         self._source_scene, self._source_rect = result
+        if self._is_schematic():
+            self.display_title()   # prime _last_schematic_name while resolvable
         # Seed a plan/elevation crop to the full source extent on first use.
         if (not self._live_crop()
                 and (self._data.crop_rect.isNull()
@@ -868,8 +872,14 @@ class SheetViewport(QGraphicsObject):
         if self._data.title:
             return self._data.title
         if self._is_schematic() and self._resolver is not None:
-            return self._resolver.display_name(self._data.source_view_type,
+            name = self._resolver.display_name(self._data.source_view_type,
                                                self._data.source_view_name)
+            if name != self._data.source_view_name:
+                self._last_schematic_name = name
+                return name
+            # Definition gone (cross-stack undo): keep the last known name
+            # rather than showing the raw id in the title bubble.
+            return self._last_schematic_name or name
         return ""
 
     def refresh_source(self) -> None:
@@ -2965,6 +2975,12 @@ class PaperScene(QGraphicsScene):
         """
         vp = _find_viewport(self, data)
         if vp is not None:
+            # Re-derive a scaled schematic box from the *live* extent: the
+            # restored w/h were captured at push time and go stale when the
+            # definition changed since (D-S10 SV2 delta; NTS is a no-op).
+            # Other kinds keep restoring the captured w/h verbatim.
+            if vp._is_schematic():
+                vp._recompute_size_from_scale()
             vp.setPos(data.x, data.y)
             vp.prepareGeometryChange()
             vp.mark_dirty()

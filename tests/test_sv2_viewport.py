@@ -147,6 +147,7 @@ def test_cross_stack_undo_shows_placeholder_and_redo_restores(env):
     vp = _place(env)
     env["proj"].undo()                                # removes the schematic
     assert vp._placeholder
+    assert vp.display_title() == "Riser"              # last name, not the id
     env["proj"].redo()
     assert not vp._placeholder
     assert vp._effective_crop() == QRectF(-2, -2, 104, 54)
@@ -162,3 +163,36 @@ def test_drop_dialog_schematic_defaults(qapp):
     plain = SheetViewPropertiesDialog("Plan: Level 1")
     assert plain.get_title() == "Plan: Level 1"
     assert plain.get_scale() == pytest.approx(0.01)   # 1:100 unchanged
+
+
+def test_paper_undo_redo_rederives_scaled_box_after_edit(env):
+    """Review fix: paper undo/redo must not restore a stale extent x scale."""
+    vp = _place(env, scale=0.0)
+    assert env["ps"].commit_viewport_edit(vp, scale=0.5)
+    assert (vp.data.w, vp.data.h) == (52.0, 27.0)
+    _grow(env)
+    assert (vp.data.w, vp.data.h) == (104.0, 29.0)
+    env["ps"].undo_stack.undo()                       # back to NTS
+    assert vp.data.scale == 0.0
+    env["ps"].undo_stack.redo()                       # scale 1:2 again
+    assert vp.data.scale == 0.5
+    assert (vp.data.w, vp.data.h) == (104.0, 29.0)
+
+
+def test_paper_undo_of_move_keeps_live_scaled_box(env):
+    """Review fix: a move made before the edit, undone after it, keeps the
+    box at the current extent x scale (real manipulator commit path)."""
+    vp = _place(env, scale=0.5)
+    x0, y0 = vp.data.x, vp.data.y
+    ps = env["ps"]
+    ps._manip_capture_press([vp])
+    vp.manip_translate(10.0, 5.0)
+    ps._manip_commit("move")
+    _grow(env)
+    assert (vp.data.w, vp.data.h) == (104.0, 29.0)
+    ps.undo_stack.undo()
+    assert (vp.data.x, vp.data.y) == (x0, y0)
+    assert (vp.data.w, vp.data.h) == (104.0, 29.0)
+    ps.undo_stack.redo()
+    assert (vp.data.x, vp.data.y) == (x0 + 10.0, y0 + 5.0)
+    assert (vp.data.w, vp.data.h) == (104.0, 29.0)
