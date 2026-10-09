@@ -450,8 +450,9 @@ run, no branch). Code homes only — the decisions stay owned above (Rule A).
 
 - [x] Guards G1–G6 (concept doc) RED with each slice's change reverted, GREEN
       with it. *(Per-slice records SV1–SV3; SV4 guards RED at `4a7452e5`.)*
-- [ ] Full suite green; registry-enumerating tests updated (concept doc
-      keep-green list).
+- [x] Full suite green; registry-enumerating tests updated (concept doc
+      keep-green list). *(SV4 VC6 2026-10-09: chunked `-m "not perf"` green
+      bar the filed Shift+F/I/S shortcut bug; `-m perf` 35 passed.)*
 - [x] Cross-spec reconciliation below applied as each slice lands; this spec's
       `status` moves `proposal → partial → current` per slice. *(SV4 Account:
       containment C2/C3/C9 + System Blocks Q2/phase 7 pointers added; the
