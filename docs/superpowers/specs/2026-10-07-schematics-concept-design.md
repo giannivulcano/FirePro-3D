@@ -167,7 +167,8 @@ the NTS box" clash; the deferred rebuild; `definition.name` always painted).
   schematic id. On a change the manager clears the materialized items (tracked
   primitive lists + `remove_block_instance`) and re-materializes into the
   **same** scene, so viewport references and `changed` subscriptions survive
-  and `changed` drives the repaint. Cache key `(id(defn), defn.version)` —
+  and `changed` drives the repaint. Cache key = the definition object (compared by identity — holding it
+  stops address reuse) + `defn.version` —
   project undo restores **new** definition objects.
 - **Never rebuild during paint.** Rebuild runs only in the manager's
   `blockDefinitionsChanged` handler or synchronously inside `resolve()`
