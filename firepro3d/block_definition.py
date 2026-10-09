@@ -241,7 +241,8 @@ class BlockDefinition:
                  attributes: list, primitives: list[dict],
                  render_mode: str = "default", geoms: list[dict] | None = None,
                  constraints: list | None = None, tile: dict | None = None,
-                 repeat: dict | None = None, end: dict | None = None):
+                 repeat: dict | None = None, end: dict | None = None,
+                 kind: str = "block"):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -264,6 +265,10 @@ class BlockDefinition:
         # End-type capability (LT5): {"size","trim"} or None. Additive key --
         # absent => None (no schema bump).
         self._end: dict | None = _norm_end(end)
+        # Definition kind (schematics.md SD1): "block" or "schematic". A
+        # schematic is never placed (capabilities.place_refusal). Additive
+        # key -- written only when not "block" (byte-identical plain blocks).
+        self.kind: str = kind or "block"
         # Reference definitions (render_mode="reference") own the curve-preserving,
         # layer-tagged import geom-dict list. This is the geometry data model for
         # imported references — rendered by the batched underlay builder (which
@@ -290,12 +295,14 @@ class BlockDefinition:
             constraints: list | None = None,
             tile: dict | None = None,
             repeat: dict | None = None,
-            end: dict | None = None) -> "BlockDefinition":
+            end: dict | None = None,
+            kind: str = "block") -> "BlockDefinition":
         """Create a fresh definition with a new uuid and version 1."""
         return cls(id=uuid.uuid4().hex, version=1, name=name, library=library,
                    series=series, scale_mode="real_size", origin=origin,
                    attributes=[], primitives=primitives, render_mode=render_mode,
-                   constraints=constraints, tile=tile, repeat=repeat, end=end)
+                   constraints=constraints, tile=tile, repeat=repeat, end=end,
+                   kind=kind)
 
     @classmethod
     def reference_from_geoms(cls, geoms: list[dict], *, name: str = "",
@@ -643,6 +650,8 @@ class BlockDefinition:
         }
         if self._end:
             d["end"] = dict(self._end)      # omitted when None (byte-identical)
+        if self.kind != "block":
+            d["kind"] = self.kind   # omitted for plain blocks (byte-identical)
         return d
 
     @classmethod
@@ -661,4 +670,5 @@ class BlockDefinition:
             tile=data.get("tile"),
             repeat=data.get("repeat"),
             end=data.get("end"),
+            kind=data.get("kind", "block"),
         )

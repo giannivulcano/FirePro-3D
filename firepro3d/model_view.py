@@ -650,9 +650,9 @@ class Model_View(QGraphicsView):
                     "a block", host_name, 1)
             return defn, pool, (f"{defn.name} contains {host_name} — "
                                 f"{block_library.LOOP_REASON}")
-        # hatch D-A34 / LT3-2 / LT5 Q12: a capability block is never a symbol.
-        from .capabilities import capability_place_reason
-        return defn, pool, capability_place_reason(defn)
+        # hatch D-A34 / LT3-2 / LT5 Q12 / schematics D-S3: never a symbol.
+        from .capabilities import place_refusal
+        return defn, pool, place_refusal(defn)
 
     def _begin_block_drag(self, sc, payload, defn, pool) -> None:
         """Enter place_block for the dragged block, remembering the mode."""
