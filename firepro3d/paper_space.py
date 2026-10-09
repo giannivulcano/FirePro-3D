@@ -626,7 +626,10 @@ class ViewportProperties:
         return {
             "View": {"type": "label",
                      "value": self._vp.display_title() or d.source_view_name},
-            "Title": {"type": "string", "value": d.title},
+            # A schematic's Title field shows its live name until overridden.
+            "Title": {"type": "string",
+                      "value": (self._vp.display_title()
+                                if self._vp._is_schematic() else d.title)},
             "Scale": {"type": "enum", "value": scale_val,
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},
@@ -639,7 +642,8 @@ class ViewportProperties:
     def set_property(self, key: str, value) -> None:
         d = self._vp.data
         if key == "Title":
-            self._scene.commit_viewport_edit(self._vp, title=str(value))
+            self._scene.commit_viewport_edit(
+                self._vp, title=self._vp.title_to_store(value))
         elif key == "Scale":
             s = (0.0 if str(value).upper() == "NTS"
                  else scale_to_float(str(value)))
@@ -881,6 +885,20 @@ class SheetViewport(QGraphicsObject):
             # rather than showing the raw id in the title bubble.
             return self._last_schematic_name or name
         return ""
+
+    def title_to_store(self, text: str) -> str:
+        """The ``title`` to store for edited title *text*.
+
+        A schematic title equal to its live name is stored as ``""`` so the
+        title keeps following Rename; anything else is a typed override
+        (schematics.md D-S10 — the title field shows the name by default).
+        """
+        text = str(text)
+        if (self._is_schematic() and self._resolver is not None
+                and text.strip() == self._resolver.display_name(
+                    self._data.source_view_type, self._data.source_view_name)):
+            return ""
+        return text
 
     def refresh_source(self) -> None:
         """Re-resolve the source (fresh extent / placeholder) and repaint."""
@@ -1387,8 +1405,7 @@ class SheetViewPropertiesDialog(QDialog):
     """
 
     def __init__(self, source_view_name: str, data: SheetViewData | None = None,
-                 parent=None, *, title_placeholder: str = "",
-                 default_scale: str = "1:100"):
+                 parent=None, *, default_scale: str = "1:100"):
         super().__init__(parent)
         self.setWindowTitle("Sheet View Properties")
         self._data = data
@@ -1396,8 +1413,6 @@ class SheetViewPropertiesDialog(QDialog):
         layout = QFormLayout(self)
 
         self._title_edit = QLineEdit(data.title if data else source_view_name)
-        if title_placeholder:
-            self._title_edit.setPlaceholderText(title_placeholder)
         layout.addRow("Title:", self._title_edit)
 
         self._scale_combo = QComboBox()
@@ -1889,10 +1904,10 @@ class PaperGraphicsView(QGraphicsView):
         resolver = self._paper_scene._resolver
         is_schematic = view_type == "schematic"
         if is_schematic:
-            # D-S7 / SV2 delta: NTS default; empty title = live name.
+            # D-S7 / SV2 delta: NTS default; the title field shows the live
+            # name (left unchanged it is stored "" and follows Rename).
             dlg = SheetViewPropertiesDialog(
-                "", parent=self,
-                title_placeholder=resolver.display_name(view_type, view_name),
+                resolver.display_name(view_type, view_name), parent=self,
                 default_scale="NTS")
         else:
             dlg = SheetViewPropertiesDialog(view_name, parent=self)
@@ -1901,6 +1916,9 @@ class PaperGraphicsView(QGraphicsView):
             return
 
         title = dlg.get_title()
+        if (is_schematic
+                and title.strip() == resolver.display_name(view_type, view_name)):
+            title = ""          # unchanged name = no override (SheetViewport.title_to_store)
         scale = dlg.get_scale()
 
         result = resolver.resolve(view_type, view_name)

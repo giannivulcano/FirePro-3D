@@ -33,10 +33,15 @@ def _leaf_item(win, block_id):
     return None
 
 
-def _drop_on_sheet(win, monkeypatch, block_id):
-    """Drag the REAL browser leaf payload onto the paper view's centre."""
-    monkeypatch.setattr(SheetViewPropertiesDialog, "exec",
-                        lambda self: QDialog.DialogCode.Accepted)
+def _drop_on_sheet(win, monkeypatch, block_id, on_exec=None):
+    """Drag the REAL browser leaf payload onto the paper view's centre.
+
+    *on_exec(dlg)* runs inside the (stubbed) dialog exec -- inspect / type."""
+    def _exec(dlg):
+        if on_exec is not None:
+            on_exec(dlg)
+        return QDialog.DialogCode.Accepted
+    monkeypatch.setattr(SheetViewPropertiesDialog, "exec", _exec)
     mime = win.project_browser._tree.mimeData([_leaf_item(win, block_id)])
     view = win.paper_space_widget.view
     view.resize(900, 700)
@@ -85,6 +90,23 @@ def test_g3_drop_is_nts_sized_to_extent(mw, monkeypatch):
     assert vp.display_title() == "Riser A"
     assert (vp.data.w, vp.data.h) == pytest.approx((104.0, 24.0))
     assert vp.manip_capabilities() == {"translate", "scale"}
+
+
+def test_drop_title_field_shows_name_unchanged_stays_live(mw, monkeypatch):
+    w, defn, _ = _new_saved_schematic(mw, monkeypatch)
+    shown = []
+    vp = _drop_on_sheet(mw, monkeypatch, defn.id,
+                        on_exec=lambda dlg: shown.append(dlg.get_title()))
+    assert shown == ["Riser A"]                        # field = view name
+    assert vp.data.title == ""                         # unchanged -> live link
+
+
+def test_drop_typed_title_is_kept(mw, monkeypatch):
+    w, defn, _ = _new_saved_schematic(mw, monkeypatch)
+    vp = _drop_on_sheet(mw, monkeypatch, defn.id,
+                        on_exec=lambda dlg: dlg._title_edit.setText("Typ. Riser"))
+    assert vp.data.title == "Typ. Riser"
+    assert vp.display_title() == "Typ. Riser"
 
 
 def test_g6_italics_follow_placement(mw, monkeypatch):

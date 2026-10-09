@@ -155,14 +155,28 @@ def test_cross_stack_undo_shows_placeholder_and_redo_restores(env):
 
 def test_drop_dialog_schematic_defaults(qapp):
     from firepro3d.paper_space import SheetViewPropertiesDialog
-    dlg = SheetViewPropertiesDialog("", title_placeholder="Riser",
-                                    default_scale="NTS")
-    assert dlg.get_title() == ""
-    assert dlg._title_edit.placeholderText() == "Riser"
+    dlg = SheetViewPropertiesDialog("Riser", default_scale="NTS")
+    assert dlg.get_title() == "Riser"                 # field shows the view name
     assert dlg.get_scale() == 0.0
     plain = SheetViewPropertiesDialog("Plan: Level 1")
     assert plain.get_title() == "Plan: Level 1"
     assert plain.get_scale() == pytest.approx(0.01)   # 1:100 unchanged
+
+
+def test_panel_title_shows_live_name_and_unchanged_keeps_link(env):
+    vp = _place(env)
+    vpp = ViewportProperties(env["ps"], vp)
+    assert vpp.get_properties()["Title"]["value"] == "Riser"
+    vpp.set_property("Title", "Riser")                # unchanged -> still live
+    assert vp.data.title == ""
+    env["proj"].set_block_metadata(env["sch"].id, "Riser B", "", "")
+    assert vpp.get_properties()["Title"]["value"] == "Riser B"
+    vpp.set_property("Title", "Typ. Riser")           # typed -> fixed
+    assert vp.data.title == "Typ. Riser"
+    env["proj"].set_block_metadata(env["sch"].id, "Riser C", "", "")
+    assert vp.display_title() == "Typ. Riser"
+    vpp.set_property("Title", "")                     # cleared -> live again
+    assert vp.display_title() == "Riser C"
 
 
 def test_paper_undo_redo_rederives_scaled_box_after_edit(env):
