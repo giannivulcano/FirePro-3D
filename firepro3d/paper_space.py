@@ -625,7 +625,7 @@ class ViewportProperties:
             scale_opts = [scale_val] + scale_opts
         return {
             "View": {"type": "label",
-                     "value": d.title or d.source_view_name},
+                     "value": self._vp.display_title() or d.source_view_name},
             "Title": {"type": "string", "value": d.title},
             "Scale": {"type": "enum", "value": scale_val,
                       "options": scale_opts},
@@ -844,7 +844,7 @@ class SheetViewport(QGraphicsObject):
         self._placeholder = False
         self._source_scene, self._source_rect = result
         # Seed a plan/elevation crop to the full source extent on first use.
-        if (not self._is_detail()
+        if (not self._live_crop()
                 and (self._data.crop_rect.isNull()
                      or self._data.crop_rect.isEmpty())):
             self._data.crop_rect = QRectF(self._source_rect)
@@ -854,14 +854,39 @@ class SheetViewport(QGraphicsObject):
     def _is_detail(self) -> bool:
         return self._data.source_view_type == "detail"
 
+    def _is_schematic(self) -> bool:
+        return self._data.source_view_type == "schematic"
+
+    def _live_crop(self) -> bool:
+        """Detail and schematic viewports track their source extent live —
+        no crop_rect is seeded or persisted (schematics.md D-S10)."""
+        return self._is_detail() or self._is_schematic()
+
+    def display_title(self) -> str:
+        """The title painted under the box: the typed title, else (schematics)
+        the live definition name — Rename needs no sheet migration (SV2)."""
+        if self._data.title:
+            return self._data.title
+        if self._is_schematic() and self._resolver is not None:
+            return self._resolver.display_name(self._data.source_view_type,
+                                               self._data.source_view_name)
+        return ""
+
+    def refresh_source(self) -> None:
+        """Re-resolve the source (fresh extent / placeholder) and repaint."""
+        self.prepareGeometryChange()
+        self._reconnect_source()
+        self.mark_dirty()
+
     def _effective_crop(self) -> QRectF:
         """The model-space window actually rendered.
 
-        Detail viewports track the live marker crop (via the resolver's
-        source_rect). Plan/elevation viewports use the stored data.crop_rect,
-        falling back to the resolved full source extent when unset.
+        Detail and schematic viewports track the live source extent (via the
+        resolver's source_rect). Plan/elevation viewports use the stored
+        data.crop_rect, falling back to the resolved full source extent when
+        unset.
         """
-        if self._is_detail():
+        if self._live_crop():
             return QRectF(self._source_rect)
         if self._data.crop_rect.isNull() or self._data.crop_rect.isEmpty():
             return QRectF(self._source_rect)
@@ -926,7 +951,9 @@ class SheetViewport(QGraphicsObject):
         in v1.
         """
         caps = {"translate", "scale"}
-        if self._is_detail():
+        # Details are marker-owned; a schematic at a true scale is extent ×
+        # scale (resizable only at NTS — schematics.md D-S10 SV2 delta).
+        if self._is_detail() or (self._is_schematic() and self._data.scale > 0):
             caps.discard("scale")
         return caps
 
@@ -950,8 +977,8 @@ class SheetViewport(QGraphicsObject):
         the current on-paper rect.  All crop×scale bookkeeping is delegated to
         the one home :meth:`_resize_on_paper`.
         """
-        if self._is_detail():
-            return  # detail extent is marker-owned (inert)
+        if "scale" not in self.manip_capabilities():
+            return  # detail / scaled schematic extent is source-owned (inert)
         x, y, w, h = self._data.x, self._data.y, self._data.w, self._data.h
         new_w = abs(w * fx)
         new_h = abs(h * fy)
@@ -1199,7 +1226,7 @@ class SheetViewport(QGraphicsObject):
         _draw_mm_text(
             painter,
             title_rect_above,
-            self._data.title.upper(),
+            self.display_title().upper(),
             2.2,
             bold=True,
             align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
@@ -1350,7 +1377,8 @@ class SheetViewPropertiesDialog(QDialog):
     """
 
     def __init__(self, source_view_name: str, data: SheetViewData | None = None,
-                 parent=None):
+                 parent=None, *, title_placeholder: str = "",
+                 default_scale: str = "1:100"):
         super().__init__(parent)
         self.setWindowTitle("Sheet View Properties")
         self._data = data
@@ -1358,6 +1386,8 @@ class SheetViewPropertiesDialog(QDialog):
         layout = QFormLayout(self)
 
         self._title_edit = QLineEdit(data.title if data else source_view_name)
+        if title_placeholder:
+            self._title_edit.setPlaceholderText(title_placeholder)
         layout.addRow("Title:", self._title_edit)
 
         self._scale_combo = QComboBox()
@@ -1368,7 +1398,7 @@ class SheetViewPropertiesDialog(QDialog):
         if data:
             self._scale_combo.setCurrentText(float_to_scale_str(data.scale))
         else:
-            self._scale_combo.setCurrentText("1:100")
+            self._scale_combo.setCurrentText(default_scale)
         layout.addRow("Scale:", self._scale_combo)
 
         self._border_check = QCheckBox("Show Border")
@@ -1846,7 +1876,16 @@ class PaperGraphicsView(QGraphicsView):
 
         drop_pos = self.mapToScene(event.position().toPoint())
 
-        dlg = SheetViewPropertiesDialog(view_name, parent=self)
+        resolver = self._paper_scene._resolver
+        is_schematic = view_type == "schematic"
+        if is_schematic:
+            # D-S7 / SV2 delta: NTS default; empty title = live name.
+            dlg = SheetViewPropertiesDialog(
+                "", parent=self,
+                title_placeholder=resolver.display_name(view_type, view_name),
+                default_scale="NTS")
+        else:
+            dlg = SheetViewPropertiesDialog(view_name, parent=self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             event.ignore()
             return
@@ -1854,7 +1893,7 @@ class PaperGraphicsView(QGraphicsView):
         title = dlg.get_title()
         scale = dlg.get_scale()
 
-        result = self._paper_scene._resolver.resolve(view_type, view_name)
+        result = resolver.resolve(view_type, view_name)
         if result is None:
             event.ignore()
             return
@@ -1864,7 +1903,10 @@ class PaperGraphicsView(QGraphicsView):
         max_w = pw - 2 * (MARGIN + INNER_MARGIN)
         max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H
 
-        if scale == 0.0:
+        if scale == 0.0 and is_schematic:
+            # Extent at 1 mm = 1 mm, clamped to the sheet below (concept SD3).
+            vp_w, vp_h = src_rect.width(), src_rect.height()
+        elif scale == 0.0:
             # NTS: fit to a reasonable default viewport size
             target_w = max_w * 0.6
             target_h = max_h * 0.6
@@ -3423,6 +3465,19 @@ class PaperScene(QGraphicsScene):
     def refresh_viewport(self):
         for vp in self._viewports:
             vp.mark_dirty()
+
+    def refresh_schematic_viewports(self) -> None:
+        """Re-resolve every schematic viewport after a definition change.
+
+        Connected (by MainWindow) to ``blockDefinitionsChanged``: picks up a
+        rebuilt render scene's extent (NTS content re-fits; a scaled box
+        becomes extent × scale), a rename (live title), and an id that
+        vanished or returned through undo / redo (placeholder / restore —
+        schematics.md Edge Cases "Cross-stack undo").
+        """
+        for vp in self._viewports:
+            if vp.data.source_view_type == "schematic":
+                vp.refresh_source()
 
     def dispose(self):
         """Disconnect every viewport's source-change signal.

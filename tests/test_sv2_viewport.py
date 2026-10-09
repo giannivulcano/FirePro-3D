@@ -51,6 +51,8 @@ def env(qapp):
     sheet = Sheet.create_default()
     proj._sheets = [sheet]
     ps = PaperScene(sheet, resolver)
+    # MainWindow's wiring (Task 8), reproduced for the headless scene.
+    proj.blockDefinitionsChanged.connect(ps.refresh_schematic_viewports)
     return dict(proj=proj, sym=sym, sch=sch, mgr=mgr, resolver=resolver,
                 sheet=sheet, ps=ps)
 
@@ -93,3 +95,70 @@ def test_display_name(env):
 def test_resolver_without_manager_degrades(env):
     r = ViewResolver(env["proj"], _PlanStub(), _DetailStub(), None)
     assert r.resolve("schematic", env["sch"].id) is None
+
+
+# -- Task 5: viewport rules ---------------------------------------------------
+
+def test_crop_is_live_and_never_persisted(env):
+    vp = _place(env)
+    assert vp._effective_crop() == QRectF(-2, -2, 104, 54)
+    assert vp.data.crop_rect.isEmpty()               # D-S10: no stale crop
+    assert vp.data.to_dict()["crop_rect"]["w"] == 0
+
+
+def test_title_is_live_name_unless_overridden(env):
+    vp = _place(env)
+    assert vp.display_title() == "Riser"
+    env["proj"].set_block_metadata(env["sch"].id, "Riser B", "", "")
+    assert vp.display_title() == "Riser B"            # rename, no migration
+    typed = _place(env, title="Typ. Riser")
+    assert typed.display_title() == "Typ. Riser"
+
+
+def test_property_panel_view_label_shows_name_not_id(env):
+    vp = _place(env)
+    props = ViewportProperties(env["ps"], vp).get_properties()
+    assert props["View"]["value"] == "Riser"
+
+
+def test_resize_handles_only_at_nts(env):
+    nts = _place(env, scale=0.0)
+    scaled = _place(env, scale=0.5)
+    assert nts.manip_capabilities() == {"translate", "scale"}
+    assert scaled.manip_capabilities() == {"translate"}
+    w0 = scaled.data.w
+    scaled.manip_scale(2.0, 2.0, QPointF(scaled.data.x, scaled.data.y))
+    assert scaled.data.w == w0                        # backstop: inert
+
+
+def test_edit_refits_nts_content_and_resizes_scaled_box(env):
+    nts = _place(env, scale=0.0)
+    scaled = _place(env, scale=0.5)
+    assert (scaled.data.w, scaled.data.h) == (52.0, 27.0)   # 104x54 x 0.5
+    x0, y0 = scaled.data.x, scaled.data.y
+    _grow(env)                                        # extent -> 208 x 58
+    assert (nts.data.w, nts.data.h) == (104.0, 54.0)  # NTS box keeps its size
+    assert nts._effective_crop() == QRectF(-4, -4, 208, 58)
+    assert (scaled.data.w, scaled.data.h) == (104.0, 29.0)
+    assert (scaled.data.x, scaled.data.y) == (x0, y0)  # top-left anchored
+
+
+def test_cross_stack_undo_shows_placeholder_and_redo_restores(env):
+    vp = _place(env)
+    env["proj"].undo()                                # removes the schematic
+    assert vp._placeholder
+    env["proj"].redo()
+    assert not vp._placeholder
+    assert vp._effective_crop() == QRectF(-2, -2, 104, 54)
+
+
+def test_drop_dialog_schematic_defaults(qapp):
+    from firepro3d.paper_space import SheetViewPropertiesDialog
+    dlg = SheetViewPropertiesDialog("", title_placeholder="Riser",
+                                    default_scale="NTS")
+    assert dlg.get_title() == ""
+    assert dlg._title_edit.placeholderText() == "Riser"
+    assert dlg.get_scale() == 0.0
+    plain = SheetViewPropertiesDialog("Plan: Level 1")
+    assert plain.get_title() == "Plan: Level 1"
+    assert plain.get_scale() == pytest.approx(0.01)   # 1:100 unchanged
