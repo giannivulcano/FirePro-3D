@@ -1,8 +1,10 @@
 """Two-tier user library for block definitions.
 
 Layout: ``<root>/<Library>/<Series>/<name>.fpdb`` (a BlockDefinition.to_dict())
-plus a per-Series ``index.json`` mapping filename -> {id, name, version,
-thumbnail, tile, repeat, end}. Mirrors titleblock_template's atomic-write + tolerant-load + version
+for blocks; ``<root>[/<Series>]/<name>.fpdb`` for schematic templates (empty
+tiers skipped -- schematics.md D-S15); plus a per-folder ``index.json`` mapping
+filename -> {id, name, version, thumbnail, tile, repeat, end[, kind]}.
+Mirrors titleblock_template's atomic-write + tolerant-load + version
 divergence, over a folder tree with human-readable filenames. Thumbnails are
 reserved (S4). See docs/specs/block-system.md.
 """
@@ -82,8 +84,20 @@ def sanitize(name: str) -> str:
     return s or "_"
 
 
+def _segments(library: str, series: str) -> tuple[str, str]:
+    """Sanitized folder segments for a (library, series) pair.
+
+    An EMPTY tier stays ``""`` instead of becoming ``"_"``: a schematic
+    template has no Library tier (schematics.md D-S15) and an ungrouped one
+    no Series either, so its file lives at ``<root>/<Series>/`` or at the
+    root itself. Blocks always carry both tiers (validated on save).
+    """
+    return (sanitize(library) if library else "",
+            sanitize(series) if series else "")
+
+
 def _series_dir(root: str | None, library: str, series: str) -> str:
-    return os.path.join(_root(root), sanitize(library), sanitize(series))
+    return os.path.join(_root(root), *[s for s in _segments(library, series) if s])
 
 
 def list_folders(root: str | None = None) -> dict[str, list[str]]:
@@ -116,9 +130,7 @@ def create_folder(library: str, series: str | None = None,
     Segments are :func:`sanitize`-d exactly as :func:`save_to_library` names
     them, so a folder made here is the one a later save lands in.
     """
-    path = os.path.join(_root(root), sanitize(library))
-    if series:
-        path = os.path.join(path, sanitize(series))
+    path = os.path.join(_root(root), *[sanitize(s) for s in (library, series) if s])
     os.makedirs(path, exist_ok=True)
     _notify_changed()
     return path
@@ -242,9 +254,8 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     existing = _find_by_id(definition.id, root)
     if existing is not None:
         old_lib, old_series, old_fname, _meta = existing
-        if (old_lib, old_series, old_fname) != (sanitize(definition.library),
-                                                sanitize(definition.series),
-                                                filename):
+        if (old_lib, old_series, old_fname) != (*_segments(definition.library,
+                                                           definition.series), filename):
             delete_from_library(old_lib, old_series, old_fname, root)
 
     # (c) Write the .fpdb + refresh the Series index.
@@ -273,6 +284,8 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
                        "tile": bool(definition.tile),
                        "repeat": bool(definition.repeat),
                        "end": bool(definition.end)}
+    if definition.kind != "block":    # schematics.md I/O: `kind` only when not a block
+        index[filename]["kind"] = definition.kind
     _atomic_write_json(os.path.join(series_dir, _INDEX), index)
     _notify_changed()
     return path
@@ -281,20 +294,33 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
 def _iter_index_entries(root: str | None):
     """Yield ``(library, series, filename, meta)`` for every indexed .fpdb in the
     tree (sorted, deterministic). The single tree-walk shared by ``list_library``
-    and the by-id lookups — identity is the ``id``, not the folder location."""
+    and the by-id lookups — identity is the ``id``, not the folder location.
+
+    Two layouts share one walk: the two-tier block tree
+    ``<root>/<Library>/<Series>/index.json`` and the one-tier schematics tree
+    ``<root>[/<Series>]/index.json`` (schematics.md D-S15). A folder holding an
+    ``index.json`` is a leaf folder: at depth 0 it yields ``("", "")`` entries,
+    at depth 1 ``("", <Series>)`` entries and is not descended; a depth-1
+    folder without one is a Library and its children are Series."""
     base = _root(root)
     if not os.path.isdir(base):
         return
-    for library in sorted(os.listdir(base)):
-        lib_dir = os.path.join(base, library)
-        if not os.path.isdir(lib_dir):
+    for filename, meta in _read_index(base).items():        # ungrouped (root)
+        yield "", "", filename, meta
+    for first in sorted(os.listdir(base)):
+        first_dir = os.path.join(base, first)
+        if not os.path.isdir(first_dir):
             continue
-        for series in sorted(os.listdir(lib_dir)):
-            series_dir = os.path.join(lib_dir, series)
+        if os.path.isfile(os.path.join(first_dir, _INDEX)):   # one-tier Series
+            for filename, meta in _read_index(first_dir).items():
+                yield "", first, filename, meta
+            continue
+        for series in sorted(os.listdir(first_dir)):          # Library / Series
+            series_dir = os.path.join(first_dir, series)
             if not os.path.isdir(series_dir):
                 continue
             for filename, meta in _read_index(series_dir).items():
-                yield library, series, filename, meta
+                yield first, series, filename, meta
 
 
 def _find_by_id(block_id: str, root: str | None):
@@ -319,8 +345,9 @@ def list_library(root: str | None = None) -> list[dict]:
 
 
 def entry_path(entry: dict, root: str | None = None) -> str:
-    """Absolute ``.fpdb`` path of a :func:`list_library` entry."""
-    return os.path.join(_root(root), entry["library"], entry["series"],
+    """Absolute ``.fpdb`` path of a :func:`list_library` entry (empty tiers skipped)."""
+    return os.path.join(_root(root),
+                        *[s for s in (entry["library"], entry["series"]) if s],
                         entry["filename"])
 
 
@@ -353,16 +380,18 @@ def load_block_file(path: str) -> BlockDefinition | None:
         return None
 
 
-def load_failure_message(name: str, summary: dict) -> str:
+def load_failure_message(name: str, summary: dict, *, noun: str = "block") -> str:
     """The user message for a library block that failed to load.
 
-    Shared by the Blocks-browser double-click and the canvas drop so both
-    read the same.
+    Shared by the Blocks-browser double-click, the canvas drop and the New
+    Schematic picker so all read the same.
 
     Args:
         name: The block's display name.
         summary: ``Model_Space.load_blocks_from_files`` result ({} if no load
             was attempted).
+        noun: ``"block"`` or ``"schematic"`` — the kind named in the
+            name-clash reason (schematics.md D-S11d, ratified 2026-10-09).
 
     Returns:
         ``Could not load “name”: <why>.``
@@ -371,7 +400,7 @@ def load_failure_message(name: str, summary: dict) -> str:
     if any(LOOP_REASON in r for r in refused):
         why = LOOP_REASON
     elif refused:
-        why = "a different block already uses this name in the project"
+        why = f"a different {noun} already uses this name in the project"
     else:
         why = "the file could not be read"
     return f"Could not load “{name}”: {why}."

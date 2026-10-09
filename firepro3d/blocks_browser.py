@@ -191,6 +191,8 @@ def library_only_entries(scene, root: str | None = None, *,
     for e in entries:
         if e.get("id") in seen:
             continue
+        if e.get("kind") == "schematic":
+            continue      # never a block-library citizen (schematics.md D-S4/D-S5)
         out.append((e["library"], e["series"], e.get("name") or e["filename"],
                     e.get("id", ""), block_library.entry_path(e, root)))
     return out
