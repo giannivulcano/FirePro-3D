@@ -243,7 +243,7 @@ class BlockSaveDialog(HouseDialog):
             ser = self.series_combo.currentText().strip()
             return {"name": self.name_edit.text().strip(), "library": "",
                     "series": "" if ser == _NO_SERIES else ser,
-                    "save_to_library": False, "replace_source": True,
+                    "save_to_library": False, "replace_source": False,
                     "overwrite": False}
         return {
             "name": self.name_edit.text().strip(),

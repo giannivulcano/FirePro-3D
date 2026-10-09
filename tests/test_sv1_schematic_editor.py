@@ -70,8 +70,31 @@ def test_save_dialog_schematic_shape(qapp):
     assert dlg.validation_error() is None
     v = dlg.values()
     assert (v["library"], v["series"], v["save_to_library"]) == ("", "Risers", False)
+    # D-S14: no Library row and no "Also save to library" row in the form.
+    assert dlg.library_sel.parent() is None
+    assert dlg.save_to_library_cb.parent() is None
     dlg.name_edit.setText("")
     assert dlg.validation_error() is not None
+    dlg.deleteLater()
+
+
+def test_schematic_series_plus_adds_and_returns_it(qapp):
+    dlg = BlockSaveDialog(None, kind="schematic", schematic_series=[],
+                          initial=("R", "", ""))
+    dlg._add_schematic_series("Risers")
+    assert dlg.values()["series"] == "Risers"
+    dlg.deleteLater()
+
+
+def test_schematic_save_leaves_the_library_toggle_setting(qapp):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.block_editor import _SAVE_TO_LIB_KEY
+    s = QSettings("GV", "FirePro3D")
+    s.setValue(_SAVE_TO_LIB_KEY, True)
+    dlg = BlockSaveDialog(None, kind="schematic", schematic_series=[],
+                          initial=("R", "", ""))
+    dlg._on_save()
+    assert QSettings("GV", "FirePro3D").value(_SAVE_TO_LIB_KEY) in (True, "true")
     dlg.deleteLater()
 
 
