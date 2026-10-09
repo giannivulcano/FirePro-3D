@@ -441,6 +441,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # editor tab (smoke 1). Editor scenes are wired in the manager's
         # _created; the plan scene is created once, so this is its one connect.
         self.scene.blockEditRequested.connect(self.block_editor_manager.edit_definition)
+        # Schematics (schematics.md D-S16): the Project Browser root's verbs;
+        # MainWindow owns every dialog / confirm and pushes rows back. Bound
+        # methods only (test-harness Invariant 6).
+        self.project_browser.createSchematic.connect(self._new_schematic)
+        self.project_browser.activateSchematic.connect(self._open_schematic)
+        self.project_browser.renameSchematic.connect(self._rename_schematic)
+        self.project_browser.deleteSchematic.connect(self._delete_schematic)
+        self.scene.blockDefinitionsChanged.connect(self._refresh_schematic_browser)
+        self._refresh_schematic_browser()
 
         # Paper space — ViewResolver + Sheet + widget
         self.scene._sheets = [Sheet.create_default()]
@@ -1228,7 +1237,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.scene.active_level or DEFAULT_LEVEL)
 
     def _close_stale_view_tabs(self):
-        """Remove all Plan/Elevation/Detail view tabs left from a prior project.
+        """Remove all Plan/Elevation/Detail view tabs and Schematic editor tabs left from a prior project.
 
         These are per-project, disposable Model_View widgets (each its own
         widget over the shared scene). On project load/new they must not carry
@@ -1247,6 +1256,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                     self.central_tabs.removeTab(i)
                     if w is not None and w is not self.paper_space_widget:
                         w.deleteLater()
+            # Schematic editors are bound to the old project's definitions
+            # (schematics.md Edge Cases); plain Block Editor tabs keep their
+            # existing behaviour.
+            for ed in [e for e in self.block_editor_manager.open_editors()
+                       if e.kind == "schematic"]:
+                self.block_editor_manager.close(ed)
         finally:
             self.central_tabs.blockSignals(False)
         # Elevation view tracking referenced the now-removed tabs.
@@ -4149,6 +4164,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.plan_view_mgr.clear()
         self.project_browser.refresh_details(self.detail_manager.detail_names)
         self.scene._clear_scene()
+        self._refresh_schematic_browser()   # _clear_scene emits no registry signal
         self.level_widget.populate()
         pass  # level indicator removed
         # Drop the previous project's view tabs, then open the fresh project's
@@ -5244,6 +5260,63 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._commit_text_edits()
         self.block_editor_manager.edit_definition(block_id)
 
+    # ── Schematics (schematics.md D-S9 / D-S16 / D-S17) ─────────────────────
+    def _refresh_schematic_browser(self):
+        """Push the project's schematics to the browser and re-title open
+        Schematic tabs (covers Rename and its undo)."""
+        rows = [(d.id, d.name, d.series)
+                for d in self.scene._block_definitions.values()
+                if d.kind == "schematic"]
+        self.project_browser.refresh_schematics(rows)
+        self.block_editor_manager.retitle_schematics()
+
+    def _new_schematic(self):
+        """Browser root ▸ New Schematic…: a blank Schematic editor tab."""
+        self._commit_text_edits()
+        self.block_editor_manager.open_new(kind="schematic")
+
+    def _open_schematic(self, block_id: str):
+        """Browser leaf Open / double-click: its Schematic editor tab."""
+        self._commit_text_edits()
+        self.block_editor_manager.edit_definition(block_id)
+
+    def _rename_schematic(self, block_id: str):
+        """Browser leaf Rename…: one project undo step (D-S17)."""
+        from firepro3d import themed_message as tm
+        defn = self.scene.get_block_definition(block_id)
+        if defn is None:
+            return
+        text, ok = tm.themed_input_text(self, "Rename Schematic", "Name",
+                                        initial=defn.name)
+        name = text.strip()
+        if not ok or name == defn.name:
+            return
+        if not self.scene.set_block_metadata(block_id, name, "", defn.series):
+            where = f" in {defn.series}" if defn.series else ""
+            tm.themed_info(self, "Rename Schematic",
+                           f"A schematic named “{name}” already exists{where}."
+                           if name else "A schematic needs a name.")
+
+    def _delete_schematic(self, block_id: str):
+        """Browser leaf Delete: confirm, delete (one undo step), close its tab."""
+        from firepro3d import themed_message as tm
+        defn = self.scene.get_block_definition(block_id)
+        if defn is None:
+            return
+        editor = self.block_editor_manager.editor_for(block_id)
+        msg = f"Delete schematic “{defn.name}”?"
+        if editor is not None:
+            msg += " Its open editor tab will close."
+        if not tm.themed_confirm(self, "Delete Schematic", msg, danger=True):
+            return
+        if not self.scene.delete_block_definition(block_id):
+            tm.themed_info(self, "Delete Schematic",
+                           self.scene.block_users_message(block_id)
+                           or f"“{defn.name}” can't be deleted.")
+            return
+        if editor is not None:
+            self.block_editor_manager.close(editor)
+
     def _be_save(self):
         w = self._active_editor_widget()
         if w is not None:
@@ -5290,10 +5363,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _sync_capability_buttons(self) -> None:
         """Check Pattern Tile / Linetype / End Type iff the active editor's
-        block is one."""
+        block is one; a Schematic tab disables all three (schematics.md D-S14)."""
         from PyQt6 import sip
+        from firepro3d.capabilities import SCHEMATIC_CAP_REASON
         w = self._active_editor_widget()
         cap = w.editor_scene.block_capability if w is not None else None
+        schematic = w is not None and w.kind == "schematic"
+        tips = {id(b): tip for b, tip in getattr(self, "_be_editor_only", ())}
         for attr, kind in (("_be_tile_btn", "tile"), ("_be_linetype_btn", "repeat"),
                            ("_be_end_btn", "end")):
             btn = getattr(self, attr, None)
@@ -5306,6 +5382,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 btn.setChecked(cap is not None and cap[0] == kind)
             finally:
                 btn.blockSignals(blocked)
+            if w is not None:   # no editor: _set_block_editor_context owns it
+                btn.setEnabled(not schematic)
+                btn.setToolTip(SCHEMATIC_CAP_REASON if schematic
+                               else tips.get(id(btn), btn.toolTip()))
 
     def _be_edit_attributes(self):
         pass   # wired later — block attribute authoring
@@ -5337,8 +5417,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self.central_tabs.currentWidget()
         tab_text = self.central_tabs.tabText(self.central_tabs.currentIndex())
         if isinstance(w, BlockEditorWidget):
+            from firepro3d.block_editor import TAB_PREFIXES
             from firepro3d.block_properties_info import BlockPropertiesInfo
-            name = tab_text[len("Block: "):] if tab_text.startswith("Block: ") else tab_text
+            name = next((tab_text[len(p):] for p in TAB_PREFIXES
+                         if tab_text.startswith(p)), tab_text)
             return BlockPropertiesInfo(w.editor_scene, name, editor=w)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
