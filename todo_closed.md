@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Linetypes -- LT5 end capability -- 2026-10-08
+
+- [x] [type:feature] LT5 — `end` capability (Fixed / Weight-relative, trim, attach point +X) + end rendering + per-end override + per-end Visible [P2] [subject:CAD] [done:2026-10-08]
+  - Built 2026-10-08 on `feat/lt5-end-capability` (verified `220b5b55`; feature/Large, chain 1 → 1b → 2 → 3 → 4 → 5 → 6, FP2 + FP6; six implementer groups G1–G6, each two-stage reviewed, + VC9 seam review). Phase-2 Q1–Q15 + design groups A–D + mockup gate: `docs/superpowers/specs/2026-10-07-lt5-end-capability-design.md`; as built: `linetypes.md` "LT5" (LT5-1..15). End types = blocks with an `end` capability (Fixed = Drafting rule / "Line weight" = × the drawn width), per-line Start/Finish End + Visible, linetype default ends (`repeat.ends`), trim along the path with phase-stable dashes, chord/tangent orientation, mirror flag + Arc swap fix, closing clears explicit ends (user ruling), content lock in end types / linetype units / tiles, End type mode + ribbon toggle, End Types folder, `capabilities.py` kind table + one picker source, graph edges (delete refusal, `.fpdb`, cycles, host repaint), `end_render.py` shared by raw primitives, placed blocks and PDF. Guards E1–E12 (`tests/test_lt5_*.py`); legacy parity golden recorded at base. Smoke ruling: Weight-relative stays screen-constant on canvas (like the line), relabelled "Line weight". Perf (report-only, user-ruled): end-less ≤ 1.1× base; with ends raw 1.65× / block 2.34× vs 1.3× → LT8. Also found + fixed a G1 deep-copy regression on the linetype paint path, and the pre-existing 2-step multi-target folder pick (shared load fix). VC6: only filed host-clipboard / load-sensitive / Shift+F/I/S failures, proven at base.
+
 ## Linetypes -- WM2 weight model, placement half -- 2026-10-07
 
 - [x] [type:feature] WM2 — Weight model, placement half: Weight (As Authored | By Category | named) + Linetype (As Authored | named) on `BlockInstance` and nested `block_instance` records, outer-wins resolution on canvas + paper, Explode bakes resolved values, end blocks follow the placement weight [P2] [subject:CAD] [done:2026-10-07]
