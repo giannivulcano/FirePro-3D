@@ -5335,9 +5335,35 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.paper_space_widget.paper_scene.refresh_schematic_viewports()
 
     def _new_schematic(self):
-        """Browser root ▸ New Schematic…: a blank Schematic editor tab."""
+        """Browser root ▸ New Schematic…: Blank or From template (D-S9).
+
+        With no template on disk the dialog would list only Blank, so a blank
+        Schematic editor opens directly (SV3 plan, ratified 2026-10-09). A
+        template is loaded into the project through the shared block loader
+        (one project undo step; bundled blocks adopted; same id = skip /
+        replace by version — D-S11c / D-S11d) and its editor opened; a
+        (Series, name) clash with a different schematic is refused.
+        """
+        from firepro3d import block_library
+        from firepro3d import themed_message as tm
+        from firepro3d.schematic_new_dialog import NewSchematicDialog
         self._commit_text_edits()
-        self.block_editor_manager.open_new(kind="schematic")
+        if not NewSchematicDialog.has_templates():
+            self.block_editor_manager.open_new(kind="schematic")
+            return
+        dlg = NewSchematicDialog(self)
+        if not dlg.exec() or dlg.choice() is None:
+            return
+        kind, path, block_id, name = dlg.choice()
+        if kind == "blank":
+            self.block_editor_manager.open_new(kind="schematic")
+            return
+        summary = self.scene.load_blocks_from_files([path])
+        if block_id in self.scene._block_definitions:
+            self.block_editor_manager.edit_definition(block_id)
+            return
+        tm.themed_info(self, "New Schematic",
+                       block_library.load_failure_message(name, summary, noun="schematic"))
 
     def _open_schematic(self, block_id: str):
         """Browser leaf Open / double-click: its Schematic editor tab."""
