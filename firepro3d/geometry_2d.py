@@ -427,14 +427,15 @@ class Geometry2DMixin:
         return resolve_ends(st, rs.lt, reg)
 
     def _ends_rect(self, ends=None) -> QRectF | None:
-        """Item-local bounds of the ends this item draws (LT5), or None.
+        """Item-local bounds of the ends this item draws (LT5 / ET1), or None.
 
-        Fixed ends: their exact extent at this surface's printed factor;
-        weight-relative ones at the pen width converted at the current view
-        zoom (the cosmetic-pad convention); a missing end: the badge pad
-        around its attach point. Non-cosmetic (paper) pens add half their
-        width here (the Qt base only pads its own path). *ends* is the
-        caller's ``_item_ends()`` when it has one.
+        Scale-with-zoom ends: their exact extent at this surface's printed
+        factor; Fixed-size ends on a model canvas: at the screen factor for
+        the current view zoom (the badge-pad convention -- the zoom hook
+        re-prepares them, spec C); a missing end: the badge pad around its
+        attach point. Non-cosmetic (paper) pens add half their width here
+        (the Qt base only pads its own path). *ends* is the caller's
+        ``_item_ends()`` when it has one.
         """
         if ends is None:
             ends = self._item_ends()
@@ -444,9 +445,13 @@ class Geometry2DMixin:
         w = pen.widthF()
         cos = pen.isCosmetic()
         bp = badge_pad_px()
+        a = self._lt_args()
+        unit = scene_hit_width(self, 1.0, 1.0)          # scene units per device px
         r = _er.ends_rect(self.stroke_pieces(), ends,
-                          fixed_factor=printed_factor(**self._lt_args()),
-                          weight_factor=scene_hit_width(self, w, w) if cos else w,
+                          printed=printed_factor(**a),
+                          screen=_er.screen_factor(paper_scale=a["paper_scale"],
+                                                   role=a["role"],
+                                                   device_scale=1.0 / unit),
                           badge=scene_hit_width(self, bp, bp))
         if r is not None and not cos:
             r = r.adjusted(-w / 2.0, -w / 2.0, w / 2.0, w / 2.0)
@@ -462,14 +467,21 @@ class Geometry2DMixin:
         LOD / LTS-7 short) stroke draws its cached trimmed path, a zero trim
         the unchanged base stroke. Ends draw on every surface with the
         line's painter-local pen (never LOD-dropped); the selection
-        highlight covers them. Paper passes use the true-mm printed factor.
+        highlight covers them. Paper passes use the true-mm printed factor;
+        a Fixed-size end on a model canvas the screen factor (ET1), and a
+        stroke too short for its Fixed-size trims draws plain with no ends
+        (Q7).
         """
         from .hatch_render import _device_scale
         pieces = self.stroke_pieces()
-        w = pen.widthF()
-        wf = w / _device_scale(painter) if pen.isCosmetic() else w
-        ff = printed_factor(**self._lt_args())
-        trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+        a = self._lt_args()
+        ff = printed_factor(**a)
+        sf = _er.screen_factor(paper_scale=a["paper_scale"], role=a["role"],
+                               device_scale=_device_scale(painter))
+        trims = _er.end_trims(ends, printed=ff, screen=sf)
+        if _er.short_on_screen(pieces, ends, trims, sf):     # ET1 Q7 (LTS-7 parity)
+            trims = _er.NO_TRIMS
+            ends = _er.badges_only(ends)
         miss = tuple(e.missing_id for e in ends if e.missing_id)
         dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
         hl = None
@@ -489,11 +501,11 @@ class Geometry2DMixin:
                 else:
                     self._paint_trimmed_stroke(painter, pieces, trims, hl)
         sc = self.scene()
-        _er.paint_ends(painter, pieces, ends, pen, fixed_factor=ff,
-                       weight_factor=wf, scene=sc)
+        drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf, scene=sc)
+        _er.mark_screen_ends(self, drew)
         if hl is not None:
-            _er.paint_ends(painter, pieces, ends, hl, fixed_factor=ff,
-                           weight_factor=wf, scene=sc, badges=False)
+            _er.paint_ends(painter, pieces, ends, hl, printed=ff, screen=sf,
+                           scene=sc, badges=False)
         return dashed
 
     def _paint_trimmed_stroke(self, painter, pieces, trims, pen) -> None:
@@ -681,11 +693,14 @@ class Geometry2DMixin:
 
     def _set_end_field(self, which: str, field: str, value) -> None:
         """Write one end-record field (LT5 Q10), keeping the others
-        (``mirrored`` included), then repaint (bounds cover the ends)."""
+        (``mirrored`` included) and normalising through the record helper
+        (ET1: a 1x Scale drops its key in memory too), then repaint (bounds
+        cover the ends)."""
         self.prepareGeometryChange()
         rec = dict(self.style[which])
         rec[field] = value
-        self.style[which] = rec
+        from .stroke_style import _end
+        self.style[which] = _end(rec)
         self._sync_stroke_pen()
         self.update()
 

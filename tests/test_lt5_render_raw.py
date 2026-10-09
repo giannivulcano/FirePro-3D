@@ -17,7 +17,7 @@ from firepro3d.geometry_2d import LineItem, RectangleItem, SplineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
 from tests.lt3_support import hidden, make_linetype
-from tests.lt5_support import arrow, round_end, set_ends
+from tests.lt5_support import arrow, set_ends
 from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
 from tests.test_lt3_pdf import _viewport_hlines
 from tests.test_lt3_primitive_paint import _render
@@ -108,20 +108,6 @@ def test_e2_fixed_arrow_prints_3mm_on_any_weight_and_closed_draws_none(qapp, tmp
     assert abs((x1 - x0) - 3.0) <= 0.05                 # Fixed 3 mm, any weight
     assert abs((y1 - y0) - 1.5) <= 0.05
     assert abs(x1 - _line_span(tmp_path)[1]) <= 0.05    # tip at the endpoint
-
-
-@pytest.mark.parametrize("weight", ["Thinnest", "Thin"])
-def test_e2_weight_relative_round_radius_is_half_the_weight(qapp, tmp_path, weight):
-    save_paper_color_mode(PaperColorMode.BW)
-    _construction(weight)
-    r = round_end()
-    ms = _plan([r])
-    ln = _add(ms, LineItem(QPointF(-1500.0, 0.0), QPointF(1500.0, 0.0)))
-    set_ends(ln, finish=r.id)
-    fills = _fills(_export(tmp_path, ms, _S, f"e2r_{weight}.pdf"))
-    assert len(fills) == 1, fills
-    radius = (fills[0][2] - fills[0][0]) / 2.0
-    assert abs(radius - pd.resolve_line_weight_mm(weight) / 2.0) <= 0.01
 
 
 def test_e3_stroke_stops_at_the_trim(qapp, tmp_path):
@@ -320,8 +306,10 @@ def _view_image(v):
 
 
 @pytest.mark.parametrize("zoom", [0.15, 0.06])
-def test_bounds_cover_fixed_and_weight_relative_ends(qapp, zoom):
-    a, r = arrow(), round_end()
+def test_bounds_cover_scale_and_fixed_size_ends(qapp, zoom):
+    """G6 (static half): the bounds cover a Scale-with-zoom end and a
+    Fixed-size end (screen factor at this zoom) at both zooms."""
+    a, r = arrow(), arrow(screen="fixed", name="F")
     ms = _plan([a, r])
     ms.setBackgroundBrush(QColor("black"))
     ln = _add(ms, LineItem(QPointF(-1000.0, 0.0), QPointF(1000.0, 0.0)))

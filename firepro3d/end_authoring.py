@@ -6,8 +6,11 @@ from __future__ import annotations
 
 import math
 
-from .end_render import FIXED, WEIGHT_RELATIVE
+from .end_render import SCREEN_FIXED
 
+# ET1 Task 6 rewrites the SEED / Size rows (On screen); until then the
+# retired size keyword is kept only so the module imports.
+FIXED, WEIGHT_RELATIVE = SCREEN_FIXED, "weight_relative"
 SEED = {"size": FIXED, "trim": 0.0}
 SIZE_LABELS = {FIXED: "Fixed", WEIGHT_RELATIVE: "Line weight"}
 
@@ -112,8 +115,7 @@ def preview_painter(scene):
                 pieces = (Seg(x0, y, x1, y),)
                 pen = QPen(ink, ss.canvas_px(weight))
                 pen.setCosmetic(True)
-                kw = {"fixed_factor": END_PREVIEW_PX_PER_MM,
-                      "weight_factor": pen.widthF()}
+                kw = {"printed": END_PREVIEW_PX_PER_MM, "screen": None}   # Q10-c
                 s0, s1 = end_trims(ends, **kw)
                 body = trim_pieces(pieces, s0, s1)
                 if body:
