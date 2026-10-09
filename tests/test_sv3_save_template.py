@@ -246,3 +246,68 @@ def test_save_schematic_template_collision_cancel_and_overwrite(env, monkeypatch
     monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "overwrite")
     assert save_schematic_template(ms, defn, None) == path
     assert _read(path)["id"] == defn.id
+
+
+# -- Task 6: ribbon button --------------------------------------------------
+
+@pytest.fixture()
+def mw(qapp, tmp_path, monkeypatch):
+    """Fresh MainWindow per test (mirrors tests/test_sv1_schematics_mainwindow.py)."""
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    import main as main_mod
+    from firepro3d.view_3d import View3D
+    from firepro3d import snap_engine
+    main_mod.View3D = View3D
+    saved_tol = snap_engine.SNAP_TOLERANCE_PX
+    w = main_mod.MainWindow()
+    yield w
+    for ed in list(w.block_editor_manager.open_editors()):
+        ed._mark_clean()
+    w._modified = False
+    w.close()
+    snap_engine.SNAP_TOLERANCE_PX = saved_tol
+
+
+def _mw_saved_schematic(win, monkeypatch, name="Riser G"):
+    plain = _plain(win.scene)
+    win.project_browser.createSchematic.emit()          # no templates -> blank tab
+    w = win.central_tabs.currentWidget()
+    assert w.kind == "schematic"
+    w._add_primitive(_line())
+    w.editor_scene.place_block_instance(plain.id, (50.0, 20.0))
+    w.editor_scene.push_undo_state()
+    monkeypatch.setattr(BlockSaveDialog, "exec", _fake_exec(name))
+    defn = w.save(win)
+    assert defn is not None
+    return w, defn, plain
+
+
+def test_ribbon_template_button_schematic_only(mw, monkeypatch):
+    btn = mw._be_template_btn
+    assert btn.text() == "Save as Template"
+    blk = mw.block_editor_manager.open_new(kind="block")
+    mw.central_tabs.setCurrentWidget(blk)
+    assert not btn.isEnabled()
+    assert btn.toolTip() == mw._BE_TEMPLATE_BLOCK_TIP
+    w, defn, plain = _mw_saved_schematic(mw, monkeypatch)
+    mw.central_tabs.setCurrentWidget(w)
+    assert btn.isEnabled() and "template" in btn.toolTip().lower()
+    btn.click()
+    path = os.path.join(app_data.schematics_dir(), "Riser G.fpdb")
+    assert os.path.isfile(path) and plain.id in _read(path)["bundled"]
+
+
+# -- Task 7: browser verb ---------------------------------------------------
+
+def test_browser_leaf_save_as_template_signal_writes_saved_copy(mw, monkeypatch):
+    w, defn, plain = _mw_saved_schematic(mw, monkeypatch, name="Riser H")
+    # Unsaved editor work is NOT in the template (editor = scratchpad).
+    w._add_primitive(LineItem(QPointF(0, 0), QPointF(0, 90)))
+    w.editor_scene.push_undo_state()
+    assert w.is_dirty()
+    mw.project_browser.saveSchematicTemplate.emit(defn.id)
+    path = os.path.join(app_data.schematics_dir(), "Riser H.fpdb")
+    data = _read(path)
+    assert data["id"] == defn.id and plain.id in data["bundled"]
+    assert len(data["primitives"]) == len(defn.primitives)
+    assert w.is_dirty()                                   # the verb never touches the editor

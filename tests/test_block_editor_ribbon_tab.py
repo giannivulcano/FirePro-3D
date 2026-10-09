@@ -176,7 +176,8 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
     assert set(defn) == {"Save", "Save As", "Import", "Edit Attributes",
                          "Pattern Tile",       # hatch D-A32 (HF2 Task 7)
                          "Linetype",           # linetypes LT4-11f
-                         "End Type"}           # LT5 Q12
+                         "End Type",           # LT5 Q12
+                         "Save as Template"}   # schematics.md D-S6 (SV3)
     smalls = page.findChildren(RibbonSmallButton)
     larges = [b for b in page.findChildren(QToolButton)
               if not isinstance(b, RibbonSmallButton)]
@@ -243,8 +244,8 @@ def test_entering_editor_switches_page_and_leaving_restores(mw, qapp):
     page = _page(mw, PAGE)
     for title in ("Definition", "2D Geometry"):
         for label, b in _buttons(_group(page, title)).items():
-            if label == "Edit Attributes":
-                continue
+            if label in ("Edit Attributes", "Save as Template"):
+                continue      # placeholder / schematic-only (SV3)
             assert b.isEnabled(), label
             assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, label
     # Edit/Modify follow _refresh_modify_buttons (empty editor selection).

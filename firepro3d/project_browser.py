@@ -35,6 +35,7 @@ createSchematic()              — Schematics root "New Schematic…"
 activateSchematic(id)          — schematic leaf opened (definition id)
 renameSchematic(id)            — rename request; MainWindow prompts
 deleteSchematic(id)            — delete request; MainWindow confirms
+saveSchematicTemplate(id)      — leaf "Save as Template…"; MainWindow writes the file (D-S6)
 
 The tree never self-mutates from its own gestures (pure-push contract,
 spec §"Multi-sheet design deltas").  Gestures emit signals; MainWindow
@@ -162,6 +163,7 @@ class ProjectBrowser(QWidget):
     activateSchematic = pyqtSignal(str)    # leaf open -- definition id
     renameSchematic = pyqtSignal(str)      # definition id; MainWindow prompts
     deleteSchematic = pyqtSignal(str)      # definition id; MainWindow confirms
+    saveSchematicTemplate = pyqtSignal(str)   # definition id; MainWindow writes (D-S6)
 
     # Stub categories under 2D Model (Plans and Elevations are live)
     _MS_STUBS = ["Schedules"]
@@ -511,6 +513,8 @@ class ProjectBrowser(QWidget):
             act_open.triggered.connect(lambda: self.activateSchematic.emit(bid))
             act_ren = menu.addAction("Rename…")
             act_ren.triggered.connect(lambda: self.renameSchematic.emit(bid))
+            act_tpl = menu.addAction("Save as Template…")
+            act_tpl.triggered.connect(lambda: self.saveSchematicTemplate.emit(bid))
             act_del = menu.addAction("Delete")
             act_del.triggered.connect(lambda: self.deleteSchematic.emit(bid))
         else:

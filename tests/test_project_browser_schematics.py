@@ -91,7 +91,8 @@ def test_context_menu_actions(qapp, monkeypatch):
     for item in (pb._schem_root, _leaf(pb, "id1")):
         monkeypatch.setattr(pb._tree, "itemAt", lambda pos, it=item: it)
         pb._on_context_menu(QPoint(0, 0))
-    assert captured == [["New Schematic…"], ["Open", "Rename…", "Delete"]]
+    assert captured == [["New Schematic…"],
+                        ["Open", "Rename…", "Save as Template…", "Delete"]]
 
 
 def test_menu_signals(qapp):

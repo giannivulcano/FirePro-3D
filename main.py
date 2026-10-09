@@ -448,6 +448,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.project_browser.activateSchematic.connect(self._open_schematic)
         self.project_browser.renameSchematic.connect(self._rename_schematic)
         self.project_browser.deleteSchematic.connect(self._delete_schematic)
+        self.project_browser.saveSchematicTemplate.connect(self._save_schematic_template)
         self.scene.blockDefinitionsChanged.connect(self._refresh_schematic_browser)
         self._refresh_schematic_browser()
 
@@ -4936,6 +4937,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # The "no editor" tooltip every editor-only Block Editor button shows while
     # no Block Editor tab is current (ribbon-bar.md §3.8).
     _BE_NO_EDITOR_TIP = "Open or create a block to edit"
+    # Save as Template is live only on a Schematic tab (schematics.md D-S6, SV3).
+    _BE_TEMPLATE_BLOCK_TIP = "Only a schematic can be saved as a template"
 
     def _init_block_editor_tab(self, _I):
         """Build Tab 6: Block Editor — permanent, built once (layout A).
@@ -4986,6 +4989,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                 self._be_save_as),
             "Save Block As (Ctrl+Shift+S) — save this geometry as a NEW block; "
             "the original is left unchanged")
+        self._be_template_btn = _editor_only(
+            gd.add_small_button("Save as Template", _I("make_block_icon.svg"),
+                                self._be_save_template),
+            "Save as Template — save this schematic, then write it to the "
+            "Schematics templates folder (schematics.md D-S6)")
         self._be_import_btn = _editor_only(
             gd.add_small_button("Import", _I("block_manager_icon.svg"),
                                 self._be_import),
@@ -5376,6 +5384,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if editor is not None:
             self.block_editor_manager.close(editor)
 
+    def _save_schematic_template(self, block_id: str):
+        """Browser leaf Save as Template…: write the SAVED project copy to the
+        templates folder (schematics.md D-S6; the editor is a scratchpad, so
+        unsaved editor work is not in the file)."""
+        from firepro3d.block_editor import save_schematic_template
+        defn = self.scene.get_block_definition(block_id)
+        if defn is None or defn.kind != "schematic":
+            return
+        self._commit_text_edits()
+        if save_schematic_template(self.scene, defn, self):
+            self.scene._show_status(f"Saved template “{defn.name}”", 5000)
+
     def _be_save(self):
         w = self._active_editor_widget()
         if w is not None:
@@ -5385,6 +5405,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self._active_editor_widget()
         if w is not None:
             w.save_as(self)
+
+    def _be_save_template(self):
+        """Ribbon Save as Template (Schematic tabs only — schematics.md D-S6)."""
+        w = self._active_editor_widget()
+        if w is not None and w.kind == "schematic":
+            w.save_as_template(self)
 
     def _be_import(self):
         w = self._active_editor_widget()
@@ -5422,7 +5448,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _sync_capability_buttons(self) -> None:
         """Check Pattern Tile / Linetype / End Type iff the active editor's
-        block is one; a Schematic tab disables all three (schematics.md D-S14)."""
+        block is one; a Schematic tab disables all three (schematics.md D-S14)
+        and is the only tab where Save as Template is enabled (D-S6)."""
         from PyQt6 import sip
         from firepro3d.capabilities import SCHEMATIC_CAP_REASON
         w = self._active_editor_widget()
@@ -5445,6 +5472,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 btn.setEnabled(not schematic)
                 btn.setToolTip(SCHEMATIC_CAP_REASON if schematic
                                else tips.get(id(btn), btn.toolTip()))
+        # Save as Template is the inverse: live only on a Schematic tab (SV3).
+        btn = getattr(self, "_be_template_btn", None)
+        if btn is not None and not sip.isdeleted(btn) and w is not None:
+            btn.setEnabled(schematic)
+            btn.setToolTip(tips.get(id(btn), btn.toolTip()) if schematic
+                           else self._BE_TEMPLATE_BLOCK_TIP)
 
     def _be_edit_attributes(self):
         pass   # wired later — block attribute authoring
