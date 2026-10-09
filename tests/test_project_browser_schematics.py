@@ -54,11 +54,30 @@ def test_leaf_activation_emits_id(qapp):
     assert got == ["id2"]
 
 
-def test_leaf_is_not_draggable_in_sv1(qapp):
+def test_leaf_drag_emits_schematic_view_payload(qapp):
+    import json
+    from PyQt6.QtCore import Qt
     pb = ProjectBrowser()
     pb.refresh_schematics(_rows())
-    mime = pb._tree.mimeData([_leaf(pb, "id1")])
-    assert not mime.hasFormat(MIME_VIEW)
+    leaf = _leaf(pb, "id2")                            # under a Series row
+    assert leaf.flags() & Qt.ItemFlag.ItemIsDragEnabled
+    mime = pb._tree.mimeData([leaf])
+    payload = json.loads(bytes(mime.data(MIME_VIEW)).decode("utf-8"))
+    assert payload == {"view_type": "schematic", "view_name": "id2"}
+    series = pb._schem_root.child(0)
+    assert not (series.flags() & Qt.ItemFlag.ItemIsDragEnabled)
+
+
+def test_placed_italics_follow_set_placed_views_and_survive_refresh(qapp):
+    pb = ProjectBrowser()
+    pb.refresh_schematics(_rows())
+    pb.set_placed_views({("schematic", "id2")})
+    assert _leaf(pb, "id2").font(0).italic()
+    assert not _leaf(pb, "id1").font(0).italic()
+    pb.refresh_schematics(_rows())                     # rebuild keeps italics
+    assert _leaf(pb, "id2").font(0).italic()
+    pb.set_placed_views(set())
+    assert not _leaf(pb, "id2").font(0).italic()
 
 
 def test_context_menu_actions(qapp, monkeypatch):
