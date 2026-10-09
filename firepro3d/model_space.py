@@ -2442,19 +2442,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if not primitives:
             return None
         old = self._block_definitions.get(block_id) if block_id else None
-        # `kind` is rebound below to the capability kind; keep the definition kind.
+        if old is not None and kind is not None and kind != old.kind:
+            # schematics.md D-S3: a placed/nested block must never silently
+            # become a schematic, nor a schematic a block.
+            return None
         def_kind = kind or (old.kind if old is not None else "block")
         if def_kind == "schematic":
             capability = None                     # D-S14: no capability slot
+            library = ""                          # D-S15: no Library tier
             place_instance, source_items = False, None   # D-S3: never placed
-        kind, data = capability if capability else (None, None)
-        tile = data if kind == "tile" else None
-        repeat = data if kind == "repeat" else None
-        end = data if kind == "end" else None
+        cap_kind, data = capability if capability else (None, None)
+        tile = data if cap_kind == "tile" else None
+        repeat = data if cap_kind == "repeat" else None
+        end = data if cap_kind == "end" else None
         pattern_saved_msg = None
-        if kind is not None:
+        if cap_kind is not None:
             # D-A34 / LT4-11a at save time (the toggle's check can go stale).
-            why = self.symbol_use_refusal(block_id, kind)
+            why = self.symbol_use_refusal(block_id, cap_kind)
             if why is not None:
                 self._show_status(why, 5000)
                 return None
@@ -2463,7 +2467,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # is registered but never placed; a Create-Block-from-selection
                 # source stays untouched.
                 from .capabilities import CAP_INFO
-                noun = CAP_INFO[kind].noun
+                noun = CAP_INFO[cap_kind].noun
                 pattern_saved_msg = (f"Saved {noun} ‘{name}’ — {noun}s "
                                      f"aren't placed; your original geometry is "
                                      f"unchanged.")
@@ -2487,7 +2491,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                        kind=def_kind)
             self.register_block_definition(defn)
         else:
-            defn = self._block_definitions.get(block_id)
+            defn = old
             if defn is None:
                 return None
             # Defence in depth (D8): refuse a save that would nest A in itself.

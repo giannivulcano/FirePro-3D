@@ -127,10 +127,11 @@ def test_g2_paste_skips_schematic_instances(qapp):
 
 def test_commit_never_places_a_schematic(qapp):
     ms = Model_Space()
-    d = ms.commit_block_definition(block_id=None, name="R", library="", series="",
+    d = ms.commit_block_definition(block_id=None, name="R", library="X", series="",
                                    primitives=[_line()], origin=(0.0, 0.0),
                                    place_instance=True, kind="schematic")
     assert d.kind == "schematic"
+    assert d.library == ""
     assert ms.instance_count(d.id) == 0
 
 
@@ -177,3 +178,17 @@ def test_commit_edit_without_kind_keeps_schematic(qapp):
                                    primitives=[_line()], origin=(0.0, 0.0),
                                    place_instance=True)
     assert d.kind == "schematic" and ms.instance_count(s.id) == 0
+
+
+def test_commit_refuses_a_kind_change_on_edit(qapp):
+    ms = Model_Space()
+    p = _plain(ms)
+    s = _schematic(ms)
+    assert ms.commit_block_definition(block_id=p.id, name="P", library="L", series="S",
+                                      primitives=[_line()], origin=(0.0, 0.0),
+                                      place_instance=False, kind="schematic") is None
+    assert p.kind == "block"
+    assert ms.commit_block_definition(block_id=s.id, name="R", library="", series="",
+                                      primitives=[_line()], origin=(0.0, 0.0),
+                                      place_instance=False, kind="block") is None
+    assert s.kind == "schematic"
