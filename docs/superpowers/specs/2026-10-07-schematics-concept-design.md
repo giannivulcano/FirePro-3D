@@ -158,6 +158,47 @@ exists only while the tab is open, PDF export needs (1) regardless.
   `block_editor_manager.edit_definition(id)` (D-S10 non-navigable).
 - `_compute_scale_field` already yields NTS / AS NOTED; no change.
 
+### SV2 delta (ratified 2026-10-08 — /todo SV2 Phase 2 FP1 + Phase 3 FP3)
+
+Supersedes the SD2 / SD3 bullets it contradicts (the "grips inert" vs "resize
+the NTS box" clash; the deferred rebuild; `definition.name` always painted).
+
+- **Rebuild in place.** A render scene is one long-lived `Model_Space` per
+  schematic id. On a change the manager clears the materialized items (tracked
+  primitive lists + `remove_block_instance`) and re-materializes into the
+  **same** scene, so viewport references and `changed` subscriptions survive
+  and `changed` drives the repaint. Cache key `(id(defn), defn.version)` —
+  project undo restores **new** definition objects.
+- **Never rebuild during paint.** Rebuild runs only in the manager's
+  `blockDefinitionsChanged` handler or synchronously inside `resolve()`
+  (reconnect / drop / export — never mid-paint), so PDF export always sees the
+  current definition and no deferred-rebuild machinery exists. Paint-time
+  `_effective_crop` reads the cached extent (`ViewResolver.schematic_extent`).
+- **Extent** = `geometry_import.geometric_bounds` over the materialized
+  primitives minus scaffolding (the editor-fit bound: no origin cross, no pen
+  slop); empty → the 1000×1000 default rect.
+- **Rename repaint.** On `blockDefinitionsChanged` the manager `update()`s
+  every live render scene (viewports repaint the live title) and disposes
+  scenes whose id vanished or is no longer a schematic.
+- **Materializer home.** `schematic_scene.py` owns `_CLS_TO_LIST` (moved from
+  `block_editor`, re-imported there), `add_primitive(scene, item)` and
+  `materialize_primitives(scene, dicts)`; `BlockEditorWidget._add_primitive` /
+  `seed_from_dicts` delegate (one materializer, two callers).
+- **Ownership.** `MainWindow` builds one `SchematicSceneManager(self.scene)`;
+  both `ViewResolver` sites pass it; `dispose_all()` on load, new file and
+  `closeEvent`; disposal detaches each scene from the registry.
+- **Sheet usage.** `Model_Space.schematic_sheet_users(id)` scans
+  `self._sheets` → sheet numbers; `delete_block_definition` refuses when
+  non-empty; `block_users_message` adds "used on sheets 2, 5 — remove its
+  viewports first".
+- **Viewport rules (schematics.md D-S10 SV2 delta).** Live-crop predicate
+  covers detail + schematic (no persisted crop). Title = stored `title` if
+  non-empty, else the live `definition.name`; the drop dialog shows the name
+  as placeholder text with an empty field and defaults the scale to NTS.
+  Resize handles only at NTS (scaled: box = extent × scale, no handles). On a
+  definition change an NTS box keeps its size (content re-fits); a scaled box
+  recomputes extent × scale, top-left anchored.
+
 ### SD4 — Project Browser (D-S4, D-S8, D-S15, D-S16)
 
 - Role `"schematic"` added to `_ROLE_TYPE`; the Schematics root leaves

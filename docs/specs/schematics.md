@@ -173,6 +173,13 @@ one mechanism by which block content reaches paper.
   - **Non-navigable into the model:** Go to View / double-click opens the
     Schematic Editor tab; the context menu offers Go to View and Delete only
     (no plan-only detail-hide entries).
+  - **Title, resize, re-fit** (SV2 delta, ratified 2026-10-08). The title
+    reads the live schematic name unless the user typed one (clearing it
+    returns to the live name; the drop dialog's title field starts empty with
+    the name as placeholder). The box is resizable only at NTS; at a true scale
+    it is extent × scale with no resize handles. After an edit, an NTS box
+    keeps its size and the content re-fits; a scaled box resizes to the new
+    extent × scale, top-left fixed.
 - **D-S12 Paper display.** No new Display-Manager row. Inside a schematic
   viewport, nested block instances plot under the paper **Blocks** row, raw
   primitives under **Construction**, text under its existing handling — exactly
@@ -215,6 +222,10 @@ one mechanism by which block content reaches paper.
 - **Template referencing a block absent from the project and not bundled**
   (hand-edited file): the nested record renders the shipped missing-block
   badge; nothing is dropped.
+- **Cross-stack undo** (SV2 delta, ratified 2026-10-08): paper Ctrl+Z can
+  restore a viewport whose schematic was since deleted, and project Ctrl+Z of a
+  schematic's first Save can remove a placed one. Undo is not a delete path:
+  the viewport shows the "View not found" placeholder, and redo restores it.
 - **Empty schematic placed:** extent falls back to the resolver's default
   rect (the plan / elevation rule); the box is still placeable and resizable.
 - **Rename collision inside the project:** refused like block
