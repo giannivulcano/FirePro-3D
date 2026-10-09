@@ -642,7 +642,9 @@ class BlockManagerDialog(HouseDialog):
     def _sync_ui(self) -> None:
         defn = self._current_def()
         n_shown = self.proxy.rowCount()
-        n_total = len(self.scene._block_definitions)
+        # What the model lists — schematics are hidden (D-S4), so they must
+        # not inflate "N of M".
+        n_total = self.model.rowCount()
         n_inst = len(self.scene._block_instances)
         self.count_label.setText(
             f"{n_shown} of {n_total} blocks · {n_inst} instances")
