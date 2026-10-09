@@ -390,7 +390,7 @@ def preview_painter(scene):
                 draw_expansion(painter, dash, dot, pen)
                 return
             from .end_render import end_trims, paint_ends
-            kw = {"fixed_factor": s, "weight_factor": pen.widthF()}
+            kw = {"printed": s, "screen": None}     # the swatch previews printed size
             trims = end_trims(ends, **kw)
             for stroke in (pieces[:1], pieces[1:]):
                 dash, dot = expand(stroke, lt, s, (rect.left(), rect.top()),

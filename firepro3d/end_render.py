@@ -3,12 +3,13 @@
 One renderer for raw primitives (Block Editor, plan canvas, paper) and placed
 block stroke ops (plain + linetyped): an end type is a block with an ``end``
 capability, resolved and drawn at PAINT -- never compiled into the host's op
-list (flyweight compile: its size depends on the paint's weight and printed
-factor; ``path_walk.map_piece`` refuses reflection). Each end draws under
-``translate(attach) . rotate(outward) . scale(k) [. scale(1, -1)]``: origin =
-the attach point, +X = outward (Q5); k = the printed factor (Fixed) or the
-line's pen width in painter units (Weight-relative). All content takes the
-using line's colour and resolved width (Q7).
+list (flyweight compile: its size depends on the paint's device scale and
+printed factor; ``path_walk.map_piece`` refuses reflection). Each end draws
+under ``translate(attach) . rotate(outward) . scale(k) [. scale(1, -1)]``:
+origin = the attach point, +X = outward (Q5); k = (the screen factor for a
+Fixed-size end on a model canvas, else the printed factor) x the line's
+per-end Scale (ET1). All content takes the using line's colour and resolved
+width (Q7).
 """
 from __future__ import annotations
 
@@ -23,12 +24,13 @@ from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
 from . import path_walk as pw
-from .constants import END_DEF_CACHE_MAX, END_JOIN_TOL_MM, END_XF_CACHE_MAX
+from .constants import (END_DEF_CACHE_MAX, END_JOIN_TOL_MM, END_XF_CACHE_MAX,
+                        FIXED_END_PX_PER_MM)
 from .render_op import FILL, PATTERN, STROKE, TEXT
-from .stroke_style import ENDS
+from .stroke_style import ENDS, ResolvedEnd
 
-FIXED = "fixed"
-WEIGHT_RELATIVE = "weight_relative"
+SCREEN_FIXED = "fixed"          # EndDef.screen: constant px on model canvases (ET1 Q6)
+SCREEN_SCALE = "scale"
 NO_TRIMS = (0.0, 0.0)
 _NO_BRUSH = Qt.BrushStyle.NoBrush
 
@@ -42,7 +44,7 @@ _CACHE: OrderedDict = OrderedDict()
 # frozen dataclasses hashing by value, so equal geometry hits and an edited
 # stroke (new pieces) misses -- no invalidation needed.
 _XF: dict = {}       # (pieces, which, trim, k, mirrored) -> QTransform | None
-_RECT: dict = {}     # (pieces, ((EndDef | missing id, mirrored), ...), ff, wf, badge) -> QRectF | None
+_RECT: dict = {}     # (pieces, ((EndDef | missing id, mirrored, scale), ...), printed, screen, badge) -> QRectF | None
 
 
 @dataclass(frozen=True)
@@ -52,8 +54,9 @@ class EndDef:
     Attributes:
         block_id: The definition read.
         version: Its version at the read.
-        size: ``"fixed"`` (1 authored mm = 1 printed mm) or
-            ``"weight_relative"`` (1 authored mm = 1 x the line's weight).
+        screen: ``"fixed"`` (printed mm x FIXED_END_PX_PER_MM at any zoom on
+            a model canvas) or ``"scale"`` (printed mm under the Drafting
+            rule).
         trim: How far back (authored units) the stroke stops (Q5).
         ops: The block's compiled ops -- origin-relative = attach-relative.
         bounds: ``(x0, y0, x1, y1)`` over every op path, unscaled.
@@ -63,7 +66,7 @@ class EndDef:
     """
     block_id: str
     version: int
-    size: str
+    screen: str
     trim: float
     ops: tuple
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)
@@ -95,7 +98,7 @@ class EndDef:
         b = (min(xs), min(ys), max(xs), max(ys)) if xs else (0.0, 0.0, 0.0, 0.0)
         reach = max(math.hypot(x, y) for x in (b[0], b[2]) for y in (b[1], b[3]))
         res = cls(defn.id, defn.version,
-                  WEIGHT_RELATIVE if cap.get("size") == WEIGHT_RELATIVE else FIXED,
+                  SCREEN_FIXED if cap.get("screen") == "fixed" else SCREEN_SCALE,
                   float(cap.get("trim", 0.0)), tuple(ops), b, reach,
                   any(op.kind == STROKE for op in ops))
         _CACHE[key] = (ops, res)
@@ -109,23 +112,65 @@ def _ok(k: float) -> bool:
     return k > 0.0 and math.isfinite(k)
 
 
-def end_scales(end_def: EndDef, *, fixed_factor: float,
-               weight_factor: float) -> float:
-    """k for *end_def*: the printed factor (Fixed) or the line's pen width in
-    painter units (Weight-relative)."""
-    return float(weight_factor if end_def.size == WEIGHT_RELATIVE else fixed_factor)
+def end_scales(end_def: EndDef, end, *, printed: float, screen) -> float:
+    """k for *end_def* drawn as *end* (a ``ResolvedEnd``): the screen factor
+    (painter units per printed mm, a Fixed-size end on a model canvas) or the
+    printed factor, times the line's per-end Scale (ET1 spec B)."""
+    base = screen if (screen is not None and end_def.screen == SCREEN_FIXED) else printed
+    return float(base) * float(getattr(end, "scale", 1.0) or 1.0)
 
 
-def end_trims(ends, *, fixed_factor: float, weight_factor: float) -> tuple:
+def end_trims(ends, *, printed: float, screen=None) -> tuple:
     """``(s0, s1)`` painter units the stroke stops short of each end (0 for
     None / missing / unscalable ends)."""
     out = []
     for e in ends:
         ed = EndDef.from_block(e.defn) if e.defn is not None else None
-        k = end_scales(ed, fixed_factor=fixed_factor,
-                       weight_factor=weight_factor) if ed is not None else 0.0
+        k = end_scales(ed, e, printed=printed, screen=screen) if ed is not None else 0.0
         out.append(ed.trim * k if ed is not None and _ok(k) else 0.0)
     return (out[0], out[1])
+
+
+def screen_factor(*, paper_scale, role, device_scale: float):
+    """Painter units per printed mm for a Fixed-size end at this paint, or
+    None off a model canvas (the LTS-2 scope, ``screen_fixed_here``)."""
+    if not _lr.screen_fixed_here(paper_scale=paper_scale, role=role):
+        return None
+    return FIXED_END_PX_PER_MM / max(float(device_scale), 1e-12)
+
+
+def short_on_screen(pieces, ends, trims, screen) -> bool:
+    """ET1 Q7 (LTS-7 parity): True when a Fixed-size end is drawn at a screen
+    factor and the trims consume the whole stroke -- the caller then draws
+    the plain stroke and only badges."""
+    if screen is None or not pieces:
+        return False
+    if trims[0] + trims[1] < pw.total_length(pieces):
+        return False
+    for e in ends:
+        if e.defn is not None:
+            ed = EndDef.from_block(e.defn)
+            if ed is not None and ed.screen == SCREEN_FIXED:
+                return True
+    return False
+
+
+def badges_only(ends) -> tuple:
+    """*ends* with every drawable end dropped (badges kept)."""
+    return tuple(ResolvedEnd(None, e.missing_id, e.mirrored, e.scale) for e in ends)
+
+
+def mark_screen_ends(item, drew: bool) -> None:
+    """Record on *item* (and its scene's ``_screen_end_items``) whether its
+    last paint drew a Fixed-size end at a screen factor (ET1 spec C): the
+    view's zoom hook re-prepares exactly those items."""
+    if drew == getattr(item, "_screen_ends", False):
+        return
+    item._screen_ends = drew
+    sc = item.scene()
+    reg = getattr(sc, "_screen_end_items", None)
+    if reg is not None:
+        (reg.add if drew else reg.discard)(item)
 
 
 def _frame_xf(at, outward, k: float, mirrored: bool) -> QTransform:
@@ -197,18 +242,23 @@ def _draw_end(painter, ed: EndDef, t: QTransform, k: float, pen: QPen,
         painter.restore()
 
 
-def paint_ends(painter, pieces, ends, pen, *, fixed_factor: float,
-               weight_factor: float, scene=None, badges: bool = True) -> None:
+def paint_ends(painter, pieces, ends, pen, *, printed: float, screen=None,
+               scene=None, badges: bool = True) -> bool:
     """Draw each resolved end of *pieces* (painter-local) with *pen*.
 
     *ends* = ``(start, finish)`` ``ResolvedEnd``s. A missing end draws the
     canvas-only missing glyph at its attach point (never on a paper pass;
     *badges* False skips it -- the selection-highlight pass). Ends are never
     LOD-dropped. Leaves the painter state as found.
+
+    Returns:
+        True when a Fixed-size end drew at the screen factor (its scene
+        bounds follow the zoom -- ``mark_screen_ends``).
     """
     if not pieces:
-        return
+        return False
     badge = badges and not _pd.paper_pass_active()
+    drew_screen = False
     for which, e in zip(ENDS, ends):
         if e.defn is None:
             if e.missing_id and badge:
@@ -219,36 +269,39 @@ def paint_ends(painter, pieces, ends, pen, *, fixed_factor: float,
         ed = EndDef.from_block(e.defn)
         if ed is None or not ed.ops:
             continue
-        k = end_scales(ed, fixed_factor=fixed_factor, weight_factor=weight_factor)
+        k = end_scales(ed, e, printed=printed, screen=screen)
         if not _ok(k):
             continue
         t = _end_xf(pieces, which, ed.trim * k, k, e.mirrored)
         if t is None:
             continue
         _draw_end(painter, ed, t, k, pen, scene)
+        if screen is not None and ed.screen == SCREEN_FIXED:
+            drew_screen = True
+    return drew_screen
 
 
-def ends_rect(pieces, ends, *, fixed_factor: float, weight_factor: float,
+def ends_rect(pieces, ends, *, printed: float, screen=None,
               badge: float = 0.0) -> QRectF | None:
     """Painter-local bounds of the ends drawn on *pieces* (exact frame-mapped
     op bounds; a missing end: +-*badge* around its attach point), or None.
 
-    Memoised on (pieces, each end's ``EndDef`` / missing id + mirrored,
-    factors, badge) -- every input -- returning a copy (callers may adjust
-    it)."""
+    Memoised on (pieces, each end's ``EndDef`` / missing id + mirrored +
+    scale, factors, badge) -- every input -- returning a copy (callers may
+    adjust it)."""
     key = (pieces, tuple((EndDef.from_block(e.defn) if e.defn is not None
-                          else e.missing_id, e.mirrored) for e in ends),
-           fixed_factor, weight_factor, badge)
+                          else e.missing_id, e.mirrored, e.scale) for e in ends),
+           printed, screen, badge)
     r = _RECT.get(key, False)
     if r is False:
-        r = _ends_rect(pieces, ends, fixed_factor, weight_factor, badge)
+        r = _ends_rect(pieces, ends, printed, screen, badge)
         if len(_RECT) >= END_XF_CACHE_MAX:
             _RECT.clear()
         _RECT[key] = r
     return QRectF(r) if r is not None else None
 
 
-def _ends_rect(pieces, ends, fixed_factor, weight_factor, badge) -> QRectF | None:
+def _ends_rect(pieces, ends, printed, screen, badge) -> QRectF | None:
     """``ends_rect``'s uncached body."""
     r = None
     for which, e in zip(ENDS, ends):
@@ -262,8 +315,7 @@ def _ends_rect(pieces, ends, fixed_factor, weight_factor, badge) -> QRectF | Non
         else:
             ed = EndDef.from_block(e.defn)
             if ed is not None:
-                k = end_scales(ed, fixed_factor=fixed_factor,
-                               weight_factor=weight_factor)
+                k = end_scales(ed, e, printed=printed, screen=screen)
                 t = _end_xf(pieces, which, ed.trim * k, k, e.mirrored) if _ok(k) else None
                 if t is not None:
                     x0, y0, x1, y1 = ed.bounds
@@ -273,10 +325,11 @@ def _ends_rect(pieces, ends, fixed_factor, weight_factor, badge) -> QRectF | Non
     return r
 
 
-def ends_reach(ends, *, fixed_factor: float, weight_factor: float,
-               badge: float = 0.0) -> float:
+def ends_reach(ends, *, printed: float, screen=None, badge: float = 0.0) -> float:
     """Largest distance any drawn end reaches from its attach point (the
-    radial bounds pad of a placed block)."""
+    radial bounds pad of a placed block). ``printed=1.0, screen=None``
+    gives every end's unit reach; ``printed=0.0, screen=1.0`` the unit reach
+    of the Fixed-size ends alone (an unscalable k skips the end)."""
     reach = 0.0
     for e in ends:
         if e.defn is None:
@@ -286,7 +339,7 @@ def ends_reach(ends, *, fixed_factor: float, weight_factor: float,
         ed = EndDef.from_block(e.defn)
         if ed is None:
             continue
-        k = end_scales(ed, fixed_factor=fixed_factor, weight_factor=weight_factor)
+        k = end_scales(ed, e, printed=printed, screen=screen)
         if _ok(k):
             reach = max(reach, ed.reach * k)
     return reach

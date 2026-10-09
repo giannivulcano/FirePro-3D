@@ -19,18 +19,21 @@ def _poly(points, closed=True, fill=True):
     return pl.to_dict()
 
 
-def make_end(name, prims, size="fixed", trim=0.0):
-    """An end-type block (``end`` capability, origin = attach point)."""
+def make_end(name, prims, trim=0.0, screen="scale"):
+    """An end-type block (``end`` capability, origin = attach point);
+    *screen* "fixed" = On screen Fixed size (ET1 Q6)."""
+    end = {"trim": trim}
+    if screen == "fixed":
+        end["screen"] = "fixed"
     return BlockDefinition.new(name=name, library="L", series="End Types",
-                               primitives=prims, origin=(0.0, 0.0),
-                               end={"size": size, "trim": trim})
+                               primitives=prims, origin=(0.0, 0.0), end=end)
 
 
-def arrow(length=3.0, half=0.75, trim=None, size="fixed", name="Arrow"):
+def arrow(length=3.0, half=0.75, trim=None, screen="scale", name="Arrow"):
     """Filled closed triangle: tip at the attach point, base at x = -length;
     trim defaults to the length (the stroke stops at the base)."""
     return make_end(name, [_poly([(0.0, 0.0), (-length, -half), (-length, half)])],
-                    size=size, trim=length if trim is None else trim)
+                    trim=length if trim is None else trim, screen=screen)
 
 
 def half_arrow(length=3.0, h=1.5, name="Half"):
@@ -45,11 +48,6 @@ def _disc(radius):
     return c.to_dict()
 
 
-def round_end(radius=0.5, name="Round"):
-    """Weight-relative filled disc: radius 0.5 = half the line's weight."""
-    return make_end(name, [_disc(radius)], size="weight_relative")
-
-
 def dot(radius=0.5, name="Dot"):
     """Fixed filled disc (printed mm)."""
     return make_end(name, [_disc(radius)])
@@ -60,28 +58,33 @@ def tick(h=1.0, name="Tick"):
     return make_end(name, [LineItem(QPointF(0.0, -h), QPointF(0.0, h)).to_dict()])
 
 
-def set_ends(item, start=None, finish=None, mirrored=False):
-    """Stamp explicit end refs (an id or "none") on a style record."""
+def set_ends(item, start=None, finish=None, mirrored=False, scale=None):
+    """Stamp explicit end refs (an id or "none") on a style record; *scale*
+    (ET1 Q5) is written on each stamped end when given."""
     for key, ref in (("start", start), ("finish", finish)):
         if ref is not None:
             rec = {"end": ref, "visible": True}
             if mirrored:
                 rec["mirrored"] = True
+            if scale is not None:
+                rec["scale"] = scale
             item.style[key] = rec
 
 
 # ── Group D helpers (R2: one LT5 helper module) ─────────────────────────────
 
-def v_end(name="Arrow", size="fixed", trim=0.0, length=3.0, half=1.0,
+def v_end(name="Arrow", screen="scale", trim=0.0, length=3.0, half=1.0,
           library="L", series="End Types"):
     """An end block: an open V arrowhead pointing +X with its tip on the
-    origin (two Lines (0,0)->(-length, +-half)); *size* / *trim* set the
+    origin (two Lines (0,0)->(-length, +-half)); *screen* / *trim* set the
     ``end`` record (LT5 Q5: origin = attach point, +X = outward)."""
     prims = [LineItem(QPointF(0.0, 0.0), QPointF(-length, -half)).to_dict(),
              LineItem(QPointF(0.0, 0.0), QPointF(-length, half)).to_dict()]
+    end = {"trim": trim}
+    if screen == "fixed":
+        end["screen"] = "fixed"
     return BlockDefinition.new(name=name, library=library, series=series,
-                               primitives=prims, origin=(0.0, 0.0),
-                               end={"size": size, "trim": trim})
+                               primitives=prims, origin=(0.0, 0.0), end=end)
 
 
 def end_id(ms, **kw):

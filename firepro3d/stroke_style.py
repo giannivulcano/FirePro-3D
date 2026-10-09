@@ -10,6 +10,7 @@ Continuous / By Linetype weight / By Linetype ends with the px dropped
 from __future__ import annotations
 
 import copy
+import math
 from typing import NamedTuple
 
 from . import paper_display as _pd
@@ -23,6 +24,26 @@ AS_AUTHORED_LABEL = "As Authored"
 BY_CATEGORY_LABEL = "By Category"
 _KEYWORDS = (BY_BLOCK, BY_LINETYPE, AS_AUTHORED, BY_CATEGORY)
 ENDS = ("start", "finish")
+END_SCALE_SUFFIX = "×"       # the Scale row's suffix (ET1 Q10-b)
+
+
+def parse_end_scale(value) -> float | None:
+    """A per-end Scale entry (``"2"``, ``"1.5 ×"``, ``"2×"``, a number) ->
+    a float within [END_SCALE_MIN, END_SCALE_MAX], else None (the panel
+    refresh shows the old value)."""
+    from .constants import END_SCALE_MAX, END_SCALE_MIN
+    if isinstance(value, bool):
+        return None
+    s = str(value).replace(END_SCALE_SUFFIX, "").replace("x", "").strip()
+    try:
+        k = float(s)
+    except ValueError:
+        return None
+    if not math.isfinite(k) or k < END_SCALE_MIN or k > END_SCALE_MAX:
+        return None
+    return k
+
+
 NONE = "none"                  # end keyword: no end block (LT5 Q3)
 END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 
@@ -56,9 +77,10 @@ def _hex(colour) -> str:
 
 
 def _end(d) -> dict:
-    """A complete end record ``{"end", "visible"[, "mirrored"]}`` (LT5 Q9:
-    ``mirrored`` is written only when true, so default records and every
-    pre-LT5 golden stay byte-identical)."""
+    """A complete end record ``{"end", "visible"[, "mirrored"][, "scale"]}``
+    (LT5 Q9 / ET1 Q5: ``mirrored`` is written only when true, ``scale`` only
+    when a finite positive float != 1, so default records and every pre-ET1
+    golden stay byte-identical)."""
     d = d if isinstance(d, dict) else {}
     end = d.get("end") or BY_LINETYPE
     if end == BY_BLOCK:                          # WM-9 migration
@@ -66,6 +88,14 @@ def _end(d) -> dict:
     out = {"end": str(end), "visible": bool(d.get("visible", True))}
     if d.get("mirrored"):
         out["mirrored"] = True
+    sc = d.get("scale")
+    if sc is not None and not isinstance(sc, bool):
+        try:
+            sc = float(sc)
+        except (TypeError, ValueError):
+            sc = 1.0
+        if math.isfinite(sc) and sc > 0.0 and sc != 1.0:
+            out["scale"] = sc
     return out
 
 
@@ -233,13 +263,14 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
 # -- LT5: end types ---------------------------------------------------------
 
 class ResolvedEnd(NamedTuple):
-    """One stroke end after the LT5 cascade (design A)."""
+    """One stroke end after the LT5 cascade (design A; ET1 adds scale)."""
     defn: object | None        # the end BlockDefinition, or None (no end)
     missing_id: str | None     # unresolvable / non-end id (badge, Q13)
     mirrored: bool             # draw flipped across the stroke axis (Q9)
+    scale: float = 1.0         # the line's per-end Scale (ET1 Q5)
 
 
-NO_ENDS = (ResolvedEnd(None, None, False),) * 2
+NO_ENDS = (ResolvedEnd(None, None, False, 1.0),) * 2
 
 
 def is_end_ref(e) -> bool:
@@ -295,15 +326,16 @@ def end_block(ref, registry):
 def _resolve_end(rec, default, registry) -> ResolvedEnd:
     rec = rec if isinstance(rec, dict) else {}
     m = bool(rec.get("mirrored"))
+    k = _end(rec).get("scale", 1.0)
     if not rec.get("visible", True):
-        return ResolvedEnd(None, None, m)          # Visible off = None (Q10)
+        return ResolvedEnd(None, None, m, k)       # Visible off = None (Q10)
     ref = rec.get("end") or BY_LINETYPE
     if ref in (BY_LINETYPE, BY_BLOCK):
         ref = default                              # the linetype default (Q11)
     if not is_end_ref(ref):
-        return ResolvedEnd(None, None, m)          # None / no default
+        return ResolvedEnd(None, None, m, k)       # None / no default
     d = end_block(ref, registry)
-    return ResolvedEnd(d, None, m) if d is not None else ResolvedEnd(None, ref, m)
+    return ResolvedEnd(d, None, m, k) if d is not None else ResolvedEnd(None, ref, m, k)
 
 
 def resolve_ends(style: dict, lt, registry) -> tuple:

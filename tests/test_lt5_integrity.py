@@ -107,7 +107,7 @@ def test_fpdb_bundles_an_explicit_end(qapp, tmp_path):
     path = block_library.save_to_library(
         h, root=str(tmp_path), bundled=ms.block_registry.bundle_for(h.id))
     data = json.loads(open(path, encoding="utf-8").read())
-    assert data["bundled"][e.id]["end"] == {"size": "fixed", "trim": 0.0}
+    assert data["bundled"][e.id]["end"] == {"trim": 0.0}        # ET1: no size key
 
 
 def test_fpdb_bundles_an_end_via_linetype_default(qapp, tmp_path):

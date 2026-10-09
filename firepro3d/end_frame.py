@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import QGraphicsItem
 from .capability_frame import (_HIT_PX, CAPABILITY_FRAME_TAG, FRAME_PEN_PX,
                                PREVIEW_OPACITY, CapabilityFrameItem)
 from .constants import END_GLYPH_ARM_PX, END_GLYPH_HALF_PX, END_SAMPLE_MM
-from .end_render import FIXED
 
 _TRIM_GRIP = 0
 _HEAD_PX, _HEAD_HALF_PX = 6.0, 3.0        # arrowhead on the +X arm (px)
@@ -94,7 +93,8 @@ class EndFrame(CapabilityFrameItem):
 
     def _sample_body(self) -> tuple:
         """The drawn sample: cut back by the real end trims at real size
-        (k = 1 in the editor for both sizes: 1 authored mm = 1 scene mm)."""
+        (k = 1 in the editor: 1 authored mm = 1 scene mm; the sample never
+        previews the screen factor, Q10-c)."""
         from . import stroke_style as ss
         from .end_render import end_trims
         from .path_walk import trim_pieces
@@ -103,7 +103,7 @@ class EndFrame(CapabilityFrameItem):
         if d is None:
             return pieces
         ends = (ss.NO_ENDS[0], ss.ResolvedEnd(d, None, False))
-        s0, s1 = end_trims(ends, fixed_factor=1.0, weight_factor=1.0)
+        s0, s1 = end_trims(ends, printed=1.0, screen=None)
         return trim_pieces(pieces, s0, s1)
 
     def _rect(self) -> QRectF:
@@ -172,5 +172,4 @@ class EndFrame(CapabilityFrameItem):
         if c is None or index != _TRIM_GRIP:
             return
         c["trim"] = -pos.x()     # clamped at 0 by the slot (_norm_end)
-        c.setdefault("size", FIXED)
         self._sc.set_block_capability(("end", c), push_undo=False)

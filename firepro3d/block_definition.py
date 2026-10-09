@@ -18,8 +18,6 @@ from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
-from .end_render import FIXED as _er_FIXED
-from .end_render import WEIGHT_RELATIVE as _er_WEIGHT_RELATIVE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
@@ -177,26 +175,27 @@ def _norm_repeat(repeat) -> dict | None:
     return out
 
 
-_END_SIZES = (_er_FIXED, _er_WEIGHT_RELATIVE)   # one home: end_render
-
-
 def _norm_end(end) -> dict | None:
-    """Normalised end-type record, or None (LT5 design A).
+    """Normalised end-type record, or None (LT5 design A; ET1 Q4 / Q6).
 
-    ``{"size": "fixed" | "weight_relative", "trim": mm >= 0}``: a non-dict
-    is no capability; a bad size reads Fixed; a non-numeric, non-finite or
-    negative trim reads 0.
+    ``{"trim": mm >= 0[, "screen": "fixed"]}``: a non-dict is no capability;
+    a stored ``size`` (any value, incl. the retired ``weight_relative``) is
+    read and dropped -- every end is Fixed; ``screen`` is kept only as
+    ``"fixed"`` (absent = Scale with zoom, the ``_norm_repeat`` idiom); a
+    non-numeric, non-finite or negative trim reads 0.
     """
     if not isinstance(end, dict):
         return None
-    size = end.get("size")
     try:
         trim = float(end.get("trim", 0.0))
     except (TypeError, ValueError):
         trim = 0.0
     if not math.isfinite(trim) or trim < 0.0:
         trim = 0.0
-    return {"size": size if size in _END_SIZES else _er_FIXED, "trim": trim}
+    out = {"trim": trim}
+    if end.get("screen") == "fixed":
+        out["screen"] = "fixed"
+    return out
 
 
 def _load_prim(p):

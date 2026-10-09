@@ -80,6 +80,12 @@ MODEL_WEIGHT_PX_MAX = 20          # per-row Model (px) override range 1..20
 # Fixed on-screen linetypes keep printed mm x 6 px/mm, decoupled from the
 # weight factor (MW-10 / H-MW-d; was UNDERLAY_MM_TO_PX_HINT).
 FIXED_LINETYPE_PX_PER_MM = 6.0
+# ET1: Fixed-size end types (On screen = Fixed size) share the LTS px-per-mm
+# mapping on model canvases (linetypes.md ET1 / LTS-3).
+FIXED_END_PX_PER_MM = FIXED_LINETYPE_PX_PER_MM
+# ET1: per-end Scale on a line's end record (a plain multiplier, Q5 / Q10-b).
+END_SCALE_MIN = 0.1
+END_SCALE_MAX = 10.0
 # A cosmetic canvas pen that survives into a paper pass (an unweighted raw-PDF
 # underlay width; a styled primitive with no paper category) plots at the
 # PRE-MW mapping, frozen so paper / PDF output never follows the Model weight
