@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Schematics -- SV3 library -- 2026-10-09
+
+- [x] [type:feature] SV3 — Schematics library: `app_data.schematics_dir()` (`paths/schematic_dir`, System Settings row, `_MIGRATABLE`), one-tier `_series_dir` (P4 probe = first step), Save as Template (bundled nested blocks, Overwrite/Rename/Cancel) from editor + browser, New Schematic dialog Blank | From template (mockup gate before build) [subject:Architecture] [P1] [done:2026-10-09]
+  - Details: concept SD5 (template toggle), SD6, SD7. Guard G4. Depends SV1; SV2 for the placed-template smoke. Tier Medium. ref: schematics.md D-S5/D-S6/D-S9/D-S11c/D-S11d/D-S15.
+  - Built 2026-10-09 on `feat/sv3-schematics-library` (feature/Medium, chain 1 → 1b → 2 → 4 → 5 → 6, FP1 + FP3 + FP6, inline execution). 1b P4 probe: `sanitize("")` → `_` and a two-level-only index walk — the one-tier root needed `_segments` + a layout-detecting walk (a folder holding `index.json` is a leaf). Phase 2 FP1 ratified: ungrouped templates at the folder root; editor verb = Definition-group button (Schematic tabs only) saving the project copy first; "Also save as Template" off + remembered; name clash with a different project schematic refused. Mockup gate (two live Qt renders served): Option A one tree ratified. Plan approval ratified: no template on disk → blank editor directly. Build finds: the dialog must resolve the templates root itself (`block_library`'s `root=None` is the BLOCK library); `HouseDialog` owns `self._root`. VC5 rewrites: ribbon Definition roster + editor-active loop (`test_block_editor_ribbon_tab.py`), leaf menu roster (`test_project_browser_schematics.py`). Smoke clean (user). VC6: chunked `-m "not perf"` 8027 passed, 3 failed = the filed pre-existing Shift+F/I/S Block Editor shortcut bug (unchanged on this branch); `-m perf` 10 failed, proven pre-existing at base `56753e90` in a worktree (filed). Follow-ups: perf guards at main, SV3 seam minors.
+
 ## Schematics -- SV2 viewport -- 2026-10-09
 
 - [x] [type:feature] SV2 — Schematic viewport: `SchematicSceneManager` (new `schematic_scene.py`, materializer promoted from `BlockEditorWidget.seed_from_dicts`), `ViewResolver` schematic branch (id-keyed, live extent), drop default NTS + clamped box, title bubble name lookup, Go-to-view → editor, leaf drag (`mimeData`) + placed italics, "used on sheets" delete refusal, PDF [P1] [subject:Architecture] [done:2026-10-09]
