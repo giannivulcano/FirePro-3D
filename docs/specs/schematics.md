@@ -1,8 +1,8 @@
 ---
-status: partial           # SV1 built 2026-10-08 (kind + editor + browser); SV2–SV4 unbuilt. Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-10-08  # SV1 Account: the "SV1 — as built" section + acceptance ticks verified against the code; SV2–SV4 content is still as-intended
-verified-commit: b851b1aa   # prior 7f97f687 (proposal)
-applies-to:               # seams this contract governs (SV1 seams built 2026-10-08; SV2–SV4 seams as-intended); the rest of each file is owned by the spec named in parentheses
+status: partial           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3–SV4 unbuilt. Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
+last-verified: 2026-10-09  # SV2 Account: the "SV2 — as built" section + acceptance ticks verified against the code; SV3–SV4 content is still as-intended
+verified-commit: 7dd64383   # prior b851b1aa (SV1), 7f97f687 (proposal)
+applies-to:               # seams this contract governs (SV1/SV2 seams built; SV3–SV4 seams as-intended); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog only (rest: block-system.md)
   - firepro3d/block_library.py        # `root=` reuse + one-tier series dir only (rest: block-system.md)
@@ -10,8 +10,9 @@ applies-to:               # seams this contract governs (SV1 seams built 2026-10
   - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs, drag payload (rest: project-browser.md)
   - firepro3d/paper_space.py          # `ViewResolver` schematic branch, drop default, crop rule (rest: paper-space.md)
   - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal` (rest: model-space-architecture.md)
-  - main.py                           # browser signal wiring, stale-tab prefix, Go-to-view branch
-  # new: schematic_scene.py (SchematicSceneManager + materializer home)
+  - main.py                           # browser signal wiring, stale-tab prefix, Go-to-view branch, render-scene ownership
+  - firepro3d/schematic_scene.py      # SchematicSceneManager + the one primitive materializer (SV2)
+  - firepro3d/paper_display.py        # raw-primitive / text categories inside a viewport render only (rest: paper-space.md)
 source-tasks: ["Schematic views concept — block-like definition authored in a Schematic Editor, stored project or system, placed on sheets only as a viewport; SV1…SVn series (2026-10-07)"]
 ---
 
@@ -175,8 +176,9 @@ one mechanism by which block content reaches paper.
     (no plan-only detail-hide entries).
   - **Title, resize, re-fit** (SV2 delta, ratified 2026-10-08). The title
     reads the live schematic name unless the user typed one (clearing it
-    returns to the live name; the drop dialog's title field starts empty with
-    the name as placeholder). The box is resizable only at NTS; at a true scale
+    returns to the live name). The drop dialog's and property panel's Title
+    field shows the name; left unchanged it stores no override, so the title
+    keeps following Rename (user-ratified 2026-10-09 smoke). The box is resizable only at NTS; at a true scale
     it is extent × scale with no resize handles. After an edit, an NTS box
     keeps its size and the content re-fits; a scaled box resizes to the new
     extent × scale, top-left fixed.
@@ -225,7 +227,8 @@ one mechanism by which block content reaches paper.
 - **Cross-stack undo** (SV2 delta, ratified 2026-10-08): paper Ctrl+Z can
   restore a viewport whose schematic was since deleted, and project Ctrl+Z of a
   schematic's first Save can remove a placed one. Undo is not a delete path:
-  the viewport shows the "View not found" placeholder, and redo restores it.
+  the viewport shows the "View not found" placeholder (its title keeps the last
+  known name), and redo restores it.
 - **Empty schematic placed:** extent falls back to the resolver's default
   rect (the plan / elevation rule); the box is still placeable and resizable.
 - **Rename collision inside the project:** refused like block
@@ -274,7 +277,7 @@ This section names code homes only — the decisions stay owned above (Rule A).
 - **Project Browser (D-S16).** Schematics root (role `schematic_root`, no longer
   a stub), Series rows (`schematic_series`), leaves (`schematic`, data =
   definition id); verbs **New Schematic** (root), **Open / Rename / Delete**
-  (leaf); `refresh_schematics(rows)`. Leaves are **not draggable** until SV2.
+  (leaf); `refresh_schematics(rows)`. (Leaves became draggable in SV2.)
   `MainWindow` handlers: `_new_schematic`, `_open_schematic`, `_rename_schematic`,
   `_delete_schematic`, `_refresh_schematic_browser` (on `blockDefinitionsChanged`
   and new file); `_close_stale_view_tabs` also closes Schematic editor tabs.
@@ -282,6 +285,46 @@ This section names code homes only — the decisions stay owned above (Rule A).
   Open Recent prompt **Discard / Cancel** when a Schematic tab is dirty
   (`MainWindow._confirm_discard_dirty_schematics`); tab-close and delete
   confirmations use schematic wording. Recorded under Edge Cases.
+
+## SV2 — as built (2026-10-09)
+
+Built on `feat/sv2-schematic-viewport` (`7dd64383`). Code homes only — the
+decisions stay owned above (Rule A); the mechanism is the concept doc's
+"SV2 delta".
+
+- **Render scenes (D-S10, D-S12).** `schematic_scene.SchematicSceneManager`
+  (`scene_for` / `extent` / `display_name` / `live_ids` / `dispose` /
+  `dispose_all`): one off-screen `Model_Space(scene_role="block_editor")` per
+  placed schematic, borrowing the project registry, rebuilt in place when the
+  definition object or its version changes, disposed when the id vanishes or
+  stops being a schematic, and on load / new file / close (`MainWindow` owns
+  the one manager). The same module holds the one materializer
+  (`materialize_primitives`, `add_primitive`, `materialized_items`,
+  `clear_materialized`) — the Block Editor seeds through it.
+- **Resolver & viewport (D-S7, D-S10).** `ViewResolver(schematic_scenes=)`
+  resolves `("schematic", id)` to (render scene, padded pen-free extent);
+  `ViewResolver.display_name`. `SheetViewport`: live crop for detail +
+  schematic (no persisted `crop_rect`), `display_title` / `title_to_store`
+  (live name unless overridden), resize handles only at NTS,
+  `refresh_source`; `PaperScene.refresh_schematic_viewports` runs on
+  `blockDefinitionsChanged`; `PaperScene._resync_viewport` re-derives a scaled
+  schematic box after paper undo / redo. Drop: NTS default, title field = name,
+  box = extent at 1 mm = 1 mm clamped to the sheet. Go to View →
+  `MainWindow._open_schematic`.
+- **Paper display (D-S12).** `paper_display.apply_paper_overrides` handles
+  `TextItem` (reads `QGraphicsItem.data(item, 0)`) and maps Ellipse / Spline /
+  RegularPolygon to Construction — plan viewports never held raw primitives, so
+  these were latent.
+- **Browser (D-S8).** Schematic leaves drag `MIME_VIEW`
+  `{"view_type": "schematic", "view_name": <id>}`; italics from
+  `set_placed_views` / `refresh_schematics` keyed `("schematic", id)`.
+- **Delete (D-S11a).** `Model_Space.schematic_sheet_users`;
+  `delete_block_definition` refuses; `block_users_message` → “Riser” is used on
+  sheets FP-2.0, FP-5.0 — remove its viewports first.
+- **Guards.** `tests/test_sv2_mainwindow.py` (G1 sheet half, G3 incl. PDF
+  weights + NTS text, G5, G6 SV2 half), `test_sv2_viewport.py`,
+  `test_sv2_schematic_scene.py`, `test_sv2_delete_refusal.py`,
+  `test_sv2_paper_primitives.py`.
 
 ## Acceptance Criteria
 
@@ -295,13 +338,14 @@ This section names code homes only — the decisions stay owned above (Rule A).
       Save as Template; SV4: Duplicate, Manager Kind column.*
 - [ ] D-S6/D-S9/D-S11c/d: New (blank | template), Save, Save as Template with
       bundling and collision dialog (G4).
-- [ ] D-S7/D-S10: drop → NTS viewport sized to content; edit → every viewport
-      re-fits; title bubble reads NTS; PDF contains the strokes (G3).
-- [ ] D-S11a/b: delete refusals (G5).
-- [ ] D-S17: one project undo step per definition op; paper stack for viewports
-      (G1 asserts both).
-- [ ] Round trip `.fpd` save / reopen keeps the schematic, its viewport and its
+- [x] D-S7/D-S10: drop → NTS viewport sized to content; edit → every viewport
+      re-fits; title bubble reads NTS; PDF contains the strokes (G3). (SV2)
+- [x] D-S11a/b: delete refusals (G5). (SV2)
+- [x] D-S17: one project undo step per definition op; paper stack for viewports
+      (G1 asserts both). (SV1 + SV2)
+- [x] Round trip `.fpd` save / reopen keeps the schematic, its viewport and its
       contents (G1). *SV1: definition + contents; SV2: viewport.*
+- [x] D-S8: leaf drag places a viewport; placed italics (G6 SV2 half). (SV2)
 
 ## Verification Checklist
 
