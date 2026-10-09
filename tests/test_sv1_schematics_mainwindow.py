@@ -204,3 +204,130 @@ def test_new_file_sweeps_schematic_tabs_and_clears_tree(mw, monkeypatch):
     titles = [mw.central_tabs.tabText(i) for i in range(mw.central_tabs.count())]
     assert not any(t.startswith("Schematic: ") for t in titles)
     assert _leaves(mw) == []
+
+
+# -- Seam fix 1: dirty Schematic tabs prompt before New / Open (data loss) ----
+
+def _dirty_schematic(win, monkeypatch):
+    """A saved schematic whose open editor then gets an unsaved edit."""
+    w, defn, plain = _new_saved_schematic(win, monkeypatch)
+    w._add_primitive(LineItem(QPointF(0, 50), QPointF(30, 50)))
+    w.editor_scene.push_undo_state()
+    assert w.is_dirty()
+    return w, defn
+
+
+def _schematic_tab_titles(win):
+    return [win.central_tabs.tabText(i) for i in range(win.central_tabs.count())
+            if win.central_tabs.tabText(i).startswith("Schematic: ")]
+
+
+def _spy_confirm(monkeypatch, answer):
+    import firepro3d.themed_message as tm
+    calls = []
+
+    def _confirm(*a, **k):
+        calls.append((a, k))
+        return answer
+    monkeypatch.setattr(tm, "themed_confirm", _confirm)
+    return calls
+
+
+def test_new_file_cancel_keeps_dirty_schematic_tab_and_project(mw, monkeypatch):
+    w, defn = _dirty_schematic(mw, monkeypatch)
+    calls = _spy_confirm(monkeypatch, False)
+    asked = []
+    monkeypatch.setattr(mw, "_ask_save_changes",
+                        lambda *a, **k: asked.append(a) or True)
+    mw.new_file()
+    assert len(calls) == 1
+    a, k = calls[0]
+    assert a[1] == "Unsaved schematics"
+    assert "1 schematic(s) have unsaved changes" in a[2]
+    assert k.get("ok_label") == "Discard" and k.get("cancel_label") == "Cancel"
+    assert asked == []                               # prompted FIRST
+    assert mw.central_tabs.indexOf(w) != -1 and w.is_dirty()
+    assert mw.scene.get_block_definition(defn.id) is not None
+    assert _leaves(mw) == [(defn.id, "Riser A")]
+
+
+def test_new_file_discard_sweeps_dirty_schematic_tab(mw, monkeypatch):
+    _w, defn = _dirty_schematic(mw, monkeypatch)
+    calls = _spy_confirm(monkeypatch, True)
+    monkeypatch.setattr(mw, "_ask_save_changes", lambda *a, **k: True)
+    mw.new_file()
+    assert len(calls) == 1
+    assert _schematic_tab_titles(mw) == []
+    assert mw.scene.get_block_definition(defn.id) is None
+    assert _leaves(mw) == []
+
+
+def test_new_file_clean_schematic_tab_sweeps_without_prompt(mw, monkeypatch):
+    w, _defn, _ = _new_saved_schematic(mw, monkeypatch)
+    assert not w.is_dirty()
+    calls = _spy_confirm(monkeypatch, False)
+    monkeypatch.setattr(mw, "_ask_save_changes", lambda *a, **k: True)
+    mw.new_file()
+    assert calls == []
+    assert _schematic_tab_titles(mw) == []
+
+
+def test_open_file_cancel_keeps_dirty_schematic_tab(mw, monkeypatch, tmp_path):
+    import main as main_mod
+    w, defn = _dirty_schematic(mw, monkeypatch)
+    path = tmp_path / "other.fpd"
+    mw.scene.save_to_file(str(path))
+    calls = _spy_confirm(monkeypatch, False)
+    shown = []
+    monkeypatch.setattr(main_mod.QFileDialog, "getOpenFileName",
+                        lambda *a, **k: shown.append(a) or (str(path), ""))
+    mw.open_file()
+    assert len(calls) == 1 and shown == []
+    assert mw.central_tabs.indexOf(w) != -1 and w.is_dirty()
+    # Recent-files entry: same gate.
+    mw._open_recent(str(path))
+    assert len(calls) == 2
+    assert mw.central_tabs.indexOf(w) != -1 and w.is_dirty()
+
+
+def test_open_file_discard_sweeps_dirty_schematic_tab(mw, monkeypatch, tmp_path):
+    import main as main_mod
+    _w, defn = _dirty_schematic(mw, monkeypatch)
+    path = tmp_path / "other.fpd"
+    mw.scene.save_to_file(str(path))
+    calls = _spy_confirm(monkeypatch, True)
+    monkeypatch.setattr(main_mod.QFileDialog, "getOpenFileName",
+                        lambda *a, **k: (str(path), ""))
+    monkeypatch.setattr(mw, "_maybe_offer_template_push", lambda *a, **k: None)
+    mw.open_file()
+    assert len(calls) == 1
+    assert _schematic_tab_titles(mw) == []
+    assert _leaves(mw) == [(defn.id, "Riser A")]
+
+
+# -- Seam fix 4: dirty-close / delete wording -----------------------------------
+
+def test_close_dirty_schematic_tab_says_schematic(mw, monkeypatch):
+    w, _defn = _dirty_schematic(mw, monkeypatch)
+    calls = _spy_confirm(monkeypatch, False)
+    mw._on_tab_close_requested(mw.central_tabs.indexOf(w))
+    assert calls[0][0][2] == "This schematic has unsaved changes. Discard them?"
+    assert mw.central_tabs.indexOf(w) != -1
+    blk = mw.block_editor_manager.open_new()
+    blk._add_primitive(LineItem(QPointF(0, 0), QPointF(5, 0)))
+    blk.editor_scene.push_undo_state()
+    mw._on_tab_close_requested(mw.central_tabs.indexOf(blk))
+    assert calls[1][0][2] == "This block editor has unsaved changes. Discard them?"
+
+
+def test_delete_dirty_schematic_warns_unsaved_changes(mw, monkeypatch):
+    w, defn = _dirty_schematic(mw, monkeypatch)
+    calls = _spy_confirm(monkeypatch, False)
+    mw.project_browser.deleteSchematic.emit(defn.id)
+    msg = calls[0][0][2]
+    assert "Its open editor tab will close." in msg
+    assert msg.endswith(" Its unsaved changes will be lost.")
+    assert mw.scene.get_block_definition(defn.id) is not None
+    w._mark_clean()
+    mw.project_browser.deleteSchematic.emit(defn.id)
+    assert "unsaved changes" not in calls[1][0][2]

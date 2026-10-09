@@ -1181,8 +1181,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # first lets a real text change surface here if there is one.
             if widget.is_dirty():
                 from firepro3d.themed_message import themed_confirm
+                what = ("This schematic" if widget.kind == "schematic"
+                        else "This block editor")
                 if not themed_confirm(self, "Discard changes?",
-                                      "This block editor has unsaved changes. Discard them?"):
+                                      f"{what} has unsaved changes. Discard them?"):
                     return   # abort close
             self.block_editor_manager.forget(widget)
             self.central_tabs.removeTab(index)
@@ -3917,6 +3919,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def open_file(self):
         self._commit_text_edits()
+        if not self._confirm_discard_dirty_schematics("opening a project"):
+            return
         file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.FPD);;JSON Files (*.json)")
         if file:
             self._load_project(file)
@@ -4062,6 +4066,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.settings.setValue("recent_files", self._recent_files)
             self._rebuild_recent_menu()
             return
+        if not self._confirm_discard_dirty_schematics("opening a project"):
+            return
         self._load_project(path)
 
     # ── Auto-save / crash recovery ────────────────────────────────────────
@@ -4112,6 +4118,36 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if os.path.isfile(path):
             os.remove(path)
 
+    def _confirm_discard_dirty_schematics(self, action: str) -> bool:
+        """Ask before a project replace sweeps unsaved Schematic tabs.
+
+        New / Open close every Schematic editor (``_close_stale_view_tabs``,
+        schematics.md Edge Cases "Project close / new file"); a dirty one
+        would lose its edits silently. Returns True to proceed (nothing
+        dirty, or the user chose Discard), False on Cancel.
+
+        Args:
+            action: Phrase completing "continue …" (e.g. "starting a new
+                project").
+        """
+        dirty = []
+        for ed in self.block_editor_manager.open_editors():
+            if ed.kind != "schematic":
+                continue
+            # Commit a live inline edit first so typing alone counts
+            # (mirrors _on_tab_close_requested).
+            ed.editor_scene.commit_text_edit()
+            if ed.is_dirty():
+                dirty.append(ed)
+        if not dirty:
+            return True
+        from firepro3d import themed_message as tm
+        return tm.themed_confirm(
+            self, "Unsaved schematics",
+            f"{len(dirty)} schematic(s) have unsaved changes. "
+            f"Discard them and continue {action}?",
+            danger=True, ok_label="Discard", cancel_label="Cancel")
+
     def _ask_save_changes(self, action="proceeding"):
         """Show unsaved-changes dialog. Returns True to proceed, False to cancel."""
         if not self._modified:
@@ -4157,6 +4193,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def new_file(self):
         """Clear the scene and start a fresh project."""
         self._commit_text_edits()
+        if not self._confirm_discard_dirty_schematics("starting a new project"):
+            return
         if not self._ask_save_changes("starting a new project"):
             return
         self._current_file = None
@@ -5307,6 +5345,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         msg = f"Delete schematic “{defn.name}”?"
         if editor is not None:
             msg += " Its open editor tab will close."
+            editor.editor_scene.commit_text_edit()   # typing alone counts
+            if editor.is_dirty():
+                msg += " Its unsaved changes will be lost."
         if not tm.themed_confirm(self, "Delete Schematic", msg, danger=True):
             return
         if not self.scene.delete_block_definition(block_id):
