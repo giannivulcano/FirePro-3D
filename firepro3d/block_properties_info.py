@@ -32,8 +32,9 @@ class BlockPropertiesInfo:
     def get_properties(self) -> dict:
         ctl = self._scene.constraint_ctl
         text, state = ctl.sketch_state()
+        schematic = getattr(self._editor, "kind", "block") == "schematic"
         props = {
-            "Block": {"type": "header", "value": ""},
+            ("Schematic" if schematic else "Block"): {"type": "header", "value": ""},
             "Name": {"type": "string", "value": self._name, "readonly": True},
             "Primitives": {"type": "string", "value": str(len(ctl.primitive_uids())),
                            "readonly": True},
@@ -41,10 +42,12 @@ class BlockPropertiesInfo:
                             "readonly": True},
             "Status": {"type": "status", "value": text, "state": state},
         }
-        # Capability (hatch D-A32 tile / linetypes LT4 repeat): the same rows
-        # the selected capability frame shows.
-        from .capability_panel import capability_rows
-        props.update(capability_rows(self._scene))
+        # Capability (hatch D-A32 tile / linetypes LT4 repeat / LT5 end): the
+        # same rows the selected capability frame shows -- none for a
+        # schematic (schematics.md D-S14).
+        if not schematic:
+            from .capability_panel import capability_rows
+            props.update(capability_rows(self._scene))
         return props
 
     def set_property(self, key, value) -> None:
