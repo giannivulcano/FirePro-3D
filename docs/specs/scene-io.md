@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-17  # + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+last-verified: 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
 verified-commit: 6a36206
 applies-to:
   - firepro3d/scene_io.py
@@ -60,6 +60,10 @@ primitives, containment C5), `gridlines`, `walls`,
 `floor_slabs`, `roofs`, `rooms`, `block_definitions` (embedded by id),
 `blocks` (instances referencing definition ids), `constraints` (indexed against
 `_tools._all_geometry_items()`), `detail_views`, `sheets`, `titleblock_template`.
+
+Each `block_definitions` entry carries an additive `"kind"` key (written for schematics
+only, omitted for plain blocks) on both serialization paths (project file and undo
+snapshot) — see `schematics.md` Input / Output.
 
 **Atomic write:** the existing file is copied to `<name>.bak` first; on write
 failure the backup is restored; on success the backup is removed.

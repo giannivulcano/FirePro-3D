@@ -1,7 +1,7 @@
 ---
-status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); unbuilt — slices SV1–SV4
-last-verified: 2026-10-07
-verified-commit: 7f97f687
+status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); SV1 built 2026-10-08; SV2–SV4 unbuilt
+last-verified: 2026-10-08  # SV1 Account (SD1/SD4/SD5 SV1 halves match the code)
+verified-commit: b851b1aa   # prior 7f97f687
 applies-to:
   - firepro3d/block_definition.py
   - firepro3d/block_editor.py
@@ -254,7 +254,7 @@ placement" task and SB7's host note are amended at SV1's filing.
 
 | Slice | Content | Guards | Depends |
 |---|---|---|---|
-| **SV1** | SD1 kind flag + `place_refusal` + `SCHEMATIC_REASON` at all sites; SD5 editor (kind, title, capability lock, Save Schematic → project); SD4 browser root / role / leaves / verbs Open / Rename / Delete / New (blank only), leaves not draggable; `.fpd` + undo persistence; listing filters (Block Manager hidden); `_close_stale_view_tabs` prefix | G1 (project half), G2, G6 (SV1 half) | — |
+| **SV1** (built 2026-10-08) | SD1 kind flag + `place_refusal` + `SCHEMATIC_REASON` at all sites; SD5 editor (kind, title, capability lock, Save Schematic → project); SD4 browser root / role / leaves / verbs Open / Rename / Delete / New (blank only), leaves not draggable; `.fpd` + undo persistence; listing filters (Block Manager hidden); `_close_stale_view_tabs` prefix | G1 (project half), G2, G6 (SV1 half) | — |
 | **SV2** | SD2 `SchematicSceneManager` + promoted materializer; SD3 resolver branch, drop NTS default, live crop, title bubble name lookup, Go-to-view, placed italics; SD4 leaf drag (`mimeData`); SD8 "used on sheets" refusal; PDF | G1 (sheet half), G3, G5, G6 (SV2 half) | SV1 |
 | **SV3** | SD7 `schematics_dir` + settings row + migration + one-tier `_series_dir` (P4 probe first); SD5 Save as Template (bundling, collision) + browser verb; SD6 New-from-template dialog (**mockup gate**) | G4 | SV1 (editor), SV2 for the placed-template smoke |
 | **SV4** | Block Manager Kind column / filter + Used-in; Duplicate verb; `available_views` Schematics group; spec Account (`schematics.md` → partial/current, reconciliation pointers, SPEC-INDEX) | keep-green only | SV2 |

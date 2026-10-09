@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
-verified-commit: f1d8151   # prior 2330ae8
+last-verified: 2026-10-08  # SV1 Account: Schematics root / roles / 4 signals / refresh_schematics verified against project_browser.py + main.py; prior 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
+verified-commit: b851b1aa   # prior f1d8151; prior 2330ae8
 applies-to:
   - firepro3d/project_browser.py
   - main.py (ProjectBrowser wiring in MainWindow.__init__)
@@ -28,7 +28,7 @@ The user's mental model is Revit's: views are discovered and opened from a brows
 ## Architecture & Constraints
 
 - **One widget, signal-driven.** `ProjectBrowser(QWidget)` embeds a private `_ProjectTree(QTreeWidget)`. It never touches scenes, managers, or `MainWindow` directly — every user gesture becomes a `pyqtSignal` that `MainWindow` wires in `__init__` (main.py). Data flows *in* through explicit refresh methods, *out* through signals only.
-- **Tree item identity via data roles**, not text: `_ROLE_TYPE` (`"view3d" | "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation" | "detail"`) and `_ROLE_NAME` (the view/sheet name; unset on the `view3d` leaf). `_ROLE_VIEW` is declared but unused.
+- **Tree item identity via data roles**, not text: `_ROLE_TYPE` (`"view3d" | "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation" | "detail" | "schematic_root" | "schematic_series" | "schematic"`) and `_ROLE_NAME` (the view/sheet name; unset on the `view3d` leaf). `_ROLE_VIEW` is declared but unused.
 - **Drag-out + guarded internal drop.** The tree is a drag *source* for view items; drops of views land on `PaperScene` (paper-space spec §6.1). The tree's own drop mode is `DragDrop` with `IgnoreAction` default, used only for the guarded internal sheet reorder (D7). `_ProjectTree.mimeData` serializes the first draggable item as JSON under the custom MIME type `application/x-firepro3d-view` with keys `view_type` (`"plan" | "elevation" | "detail"`) and `view_name`. Plan names are prefixed at the drag boundary (`"Plan: {level}"`) because that is the `ViewResolver` key format; elevation/detail names pass through raw.
 - **Refresh, don't mutate.** Sub-trees rebuild wholesale (`takeChildren()` + repopulate): `refresh_levels()` (from the injected `level_manager`), `refresh_details(names)`, `set_sheets(names)`. There is no incremental item editing API.
 - **Theming** via `theme.detect()` tokens (`architecture/theming.md` — Rule A: token values live there).
@@ -36,7 +36,7 @@ The user's mental model is Revit's: views are discovered and opened from a brows
 ## Design Decisions
 
 - **Revit-style single browser** over per-view-type toolbars/menus — matches the user's linked-views workflow and gives sheets and model views one home.
-- **Stub categories rendered inert** (`Schematics`, `Schedules` under 2D Model, disabled-text color, "Coming soon" tooltip) — the taxonomy is declared up front so future features slot in without re-teaching the tree's shape.
+- **Stub category rendered inert** (`Schedules` under 2D Model; `Schematics` is live since SV1 — see "Schematics root (SV1)", disabled-text color, "Coming soon" tooltip) — the taxonomy is declared up front so future features slot in without re-teaching the tree's shape.
 - **Elevations are a fixed cardinal set** (`North/South/East/West`, `_ELEVATIONS`) — mirrors the cardinal-only elevation model (`view-relationships.md`); no dynamic elevation list.
 - **Signals carry names (strings), not objects** — the browser holds no references to levels/sheets/details, so stale-object bugs are impossible; `MainWindow` resolves names against the live managers.
 - **Pure-push tree state (grill 2026-08-05, binding):** the browser never self-mutates tree structure in response to its own gestures. Gestures emit signals; `MainWindow` mutates data and pushes the authoritative state back via the refresh API. (The as-built `_create_new_sheet` local append violates this — divergence D2, to be removed by the multi-sheet task.)
@@ -51,7 +51,8 @@ The user's mental model is Revit's: views are discovered and opened from a brows
     ▼ Plans               (ms_stub)   ← one child per Level (plan)
     ▼ Elevations          (ms_stub)   ← N/S/E/W (elevation)
     ▶ Details             (ms_stub)   ← populated via refresh_details (detail)
-    Schematics, Schedules (ms_stub)   ← inert "Coming soon" stubs
+    Schematics            (schematic_root) ← Series ▸ leaf, populated via refresh_schematics
+    Schedules             (ms_stub)   ← inert "Coming soon" stub
 ▼ Paper Space             (paper_root)
     Layout 1 …            (sheet)
 ```
@@ -72,6 +73,10 @@ Re-verified against `main.py` at `f1d8151` (every row: connect site + handler).
 | `createPaperSheet` | — | context-"New Drawing" (instant create) | `_create_sheet` |
 | `deletePaperSheet` | sheet number | context-"Delete" on a sheet | `_delete_sheet` (owns the confirm) |
 | `sheetSelected` | sheet number | single-click selection of a sheet row | `_on_browser_sheet_selected` (sheet props → panel; skipped in Add-Text mode) |
+| `createSchematic` | — | root context-"New Schematic…" | `_new_schematic` |
+| `activateSchematic` | definition id | activating / context-"Open" on a schematic leaf | `_open_schematic` |
+| `renameSchematic` | definition id | context-"Rename…" on a leaf | `_rename_schematic` |
+| `deleteSchematic` | definition id | context-"Delete" on a leaf | `_delete_schematic` |
 | `sheetOrderChanged` | numbers, new order | internal sheet drag-drop (`sheetDropped` → order computation) | `_reorder_sheets` (reorder + reconcile push) |
 
 Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the same dispatcher (`_on_item_activated`); on Windows these can double-fire for one double-click — harmless today because every handler is idempotent, but new handlers must stay idempotent or the wiring must be deduplicated.
@@ -89,7 +94,15 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 - `paper_root` / `sheet` → **New Drawing** (emits parameterless `createPaperSheet` — instant create, no dialog, no local append; D2). `sheet` adds **Open** (`activatePaperSheet(number)`) and **Delete** (`deletePaperSheet(number)`).
 - `detail` → **Open** / **Delete**.
 - `view3d` → **Open** (`activate3DView`).
+- `schematic_root` → **New Schematic…**; `schematic` → **Open / Rename… / Delete** (see "Schematics root (SV1)").
 - All other roles → no menu.
+
+### Schematics root (SV1)
+
+The Schematics root, Series rows and leaves, their verbs and the push API
+`refresh_schematics(rows)` are owned by [`schematics.md`](schematics.md) D-S4/D-S16
+(as built: its "SV1 as built" section). Leaves are not draggable and carry no placed
+style until SV2 (D-S8). Root and Series rows are folders (no activation signal).
 
 ## Divergences (classifications grilled 2026-08-05; D1/D2/D3/D5/D7 **resolved by the multi-sheet build, 2026-08-07**)
 
