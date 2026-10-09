@@ -671,12 +671,15 @@ class ViewResolver:
     """
 
     def __init__(self, model_scene, plan_view_manager,
-                 detail_manager, elevation_manager, level_manager=None):
+                 detail_manager, elevation_manager, level_manager=None,
+                 schematic_scenes=None):
         self._scene = model_scene
         self._pvm = plan_view_manager
         self._dm = detail_manager
         self._em = elevation_manager
         self._level_manager = level_manager
+        # SchematicSceneManager (schematics.md D-S10); None = no schematics.
+        self._schematics = schematic_scenes
 
     def resolve(self, view_type: str, view_name: str
                 ) -> "tuple[QGraphicsScene, QRectF] | None":
@@ -687,6 +690,8 @@ class ViewResolver:
             return self._resolve_detail(view_name)
         if view_type == "elevation":
             return self._resolve_elevation(view_name)
+        if view_type == "schematic":
+            return self._resolve_schematic(view_name)
         return None
 
     def _resolve_plan(self, name: str):
@@ -713,6 +718,28 @@ class ViewResolver:
         if rect.isNull() or rect.isEmpty():
             rect = QRectF(0, 0, 1000, 1000)
         return (scene, rect)
+
+    def _resolve_schematic(self, block_id: str):
+        """(render scene, live extent) for a schematic id (SV2).
+
+        ``source_view_name`` holds the definition id (rename-stable); the
+        manager builds / rebuilds the scene here — never during a paint.
+        """
+        mgr = self._schematics
+        if mgr is None:
+            return None
+        scene = mgr.scene_for(block_id)
+        if scene is None:
+            return None
+        return (scene, mgr.extent(block_id))
+
+    def display_name(self, view_type: str, view_name: str) -> str:
+        """Human name for a source view: a schematic's current definition name
+        (falls back to the id when it no longer exists); other kinds are
+        already named by *view_name*."""
+        if view_type == "schematic" and self._schematics is not None:
+            return self._schematics.display_name(view_name) or view_name
+        return view_name
 
     def resolve_level_context(self, view_type: str, view_name: str):
         """Return (level_name, view_height, view_depth) for a plan/detail view,
