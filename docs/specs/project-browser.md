@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-08  # SV1 Account: Schematics root / roles / 4 signals / refresh_schematics verified against project_browser.py + main.py; prior 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
-verified-commit: b851b1aa   # prior f1d8151; prior 2330ae8
+last-verified: 2026-10-09  # SV2 Account: schematic leaf drag + placed italics verified against project_browser.py; prior 2026-10-08  # SV1 Account: Schematics root / roles / 4 signals / refresh_schematics verified against project_browser.py + main.py; prior 2026-09-30  # closable 3D tab: 3D Model leaf + activate3DView; full signal table re-verified; prior 2026-09-19
+verified-commit: 7dd64383   # prior b851b1aa; prior f1d8151; prior 2330ae8
 applies-to:
   - firepro3d/project_browser.py
   - main.py (ProjectBrowser wiring in MainWindow.__init__)
@@ -101,8 +101,11 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 
 The Schematics root, Series rows and leaves, their verbs and the push API
 `refresh_schematics(rows)` are owned by [`schematics.md`](schematics.md) D-S4/D-S16
-(as built: its "SV1 as built" section). Leaves are not draggable and carry no placed
-style until SV2 (D-S8). Root and Series rows are folders (no activation signal).
+(as built: its "SV1 as built" section). Since SV2 (2026-10-09) leaves drag a
+schematic viewport (`mimeData` → `MIME_VIEW` `{"view_type": "schematic", "view_name":
+<definition id>}`) and are italic while placed — `set_placed_views` walks the
+Schematics root, keyed `("schematic", id)` — schematics.md D-S8 / "SV2 as built".
+Root and Series rows are folders (no activation signal, not draggable).
 
 ## Divergences (classifications grilled 2026-08-05; D1/D2/D3/D5/D7 **resolved by the multi-sheet build, 2026-08-07**)
 

@@ -77,7 +77,8 @@ class _ProjectTree(QTreeWidget):
         mime = QMimeData()
         for item in items:
             role_type = item.data(0, _ROLE_TYPE)
-            if role_type in ("plan", "elevation", "detail"):
+            # A schematic leaf's _ROLE_NAME is the definition id = view_name.
+            if role_type in ("plan", "elevation", "detail", "schematic"):
                 view_name = item.data(0, _ROLE_NAME)
                 # For plan views, the ViewResolver expects "Plan: Level 1" format
                 if role_type == "plan":
@@ -257,6 +258,15 @@ class ProjectBrowser(QWidget):
                 f = it.font(0)
                 f.setItalic((role, key) in placed)
                 it.setFont(0, f)
+        # Schematic leaves sit under the root or a Series row (D-S15).
+        stack = [self._schem_root]
+        while stack:
+            it = stack.pop()
+            if it.data(0, _ROLE_TYPE) == "schematic":
+                f = it.font(0)
+                f.setItalic(("schematic", it.data(0, _ROLE_NAME)) in placed)
+                it.setFont(0, f)
+            stack.extend(it.child(i) for i in range(it.childCount()))
 
     def set_level_manager(self, level_manager):
         """Set or replace the level manager and rebuild the Plans sub-tree."""
@@ -302,7 +312,8 @@ class ProjectBrowser(QWidget):
         """Rebuild the Schematics sub-tree (pure push from MainWindow).
 
         Series rows first (sorted), then ungrouped leaves; leaves sorted by
-        name. Leaves are not draggable until SV2 (schematic viewports).
+        name. Leaves drag a schematic viewport (``MIME_VIEW``) and are italic
+        while placed on a sheet (D-S8).
 
         Args:
             rows: ``[(definition_id, name, series), …]``; ``series == ""``
@@ -322,7 +333,11 @@ class ProjectBrowser(QWidget):
                     it.setData(0, _ROLE_TYPE, "schematic")
                     it.setData(0, _ROLE_NAME, bid)
                     it.setToolTip(0, f"Schematic — {name}")
-                    it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+                    it.setFlags(it.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+                    if ("schematic", bid) in self._placed_views:
+                        f = it.font(0)
+                        f.setItalic(True)
+                        it.setFont(0, f)
 
             for series in sorted((s for s in by_series if s), key=str.lower):
                 s_item = QTreeWidgetItem(root, [series])

@@ -1,7 +1,7 @@
 ---
-status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); SV1 built 2026-10-08; SV2–SV4 unbuilt
-last-verified: 2026-10-08  # SV1 Account (SD1/SD4/SD5 SV1 halves match the code)
-verified-commit: b851b1aa   # prior 7f97f687
+status: proposal          # concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11); SV1 built 2026-10-08; SV2 built 2026-10-09; SV3–SV4 unbuilt
+last-verified: 2026-10-09  # SV2 Account (SD2/SD3/SD4 SV2 half/SD8 + SV2 delta match the code)
+verified-commit: 7dd64383   # prior b851b1aa, 7f97f687
 applies-to:
   - firepro3d/block_definition.py
   - firepro3d/block_editor.py
@@ -19,7 +19,7 @@ applies-to:
   - firepro3d/scene_io.py
   - firepro3d/settings/panes.py
   - main.py
-  # new: schematic_scene.py
+  - firepro3d/schematic_scene.py
 source-tasks: ["Schematic views concept — block-like definition authored in a Schematic Editor, stored project or system, placed on sheets only as a viewport; SV1…SVn series (2026-10-07)"]
 ---
 
@@ -158,6 +158,57 @@ exists only while the tab is open, PDF export needs (1) regardless.
   `block_editor_manager.edit_definition(id)` (D-S10 non-navigable).
 - `_compute_scale_field` already yields NTS / AS NOTED; no change.
 
+### SV2 delta (ratified 2026-10-08 — /todo SV2 Phase 2 FP1 + Phase 3 FP3)
+
+Supersedes the SD2 / SD3 bullets it contradicts (the "grips inert" vs "resize
+the NTS box" clash; the deferred rebuild; `definition.name` always painted).
+
+- **Rebuild in place.** A render scene is one long-lived `Model_Space` per
+  schematic id. On a change the manager clears the materialized items (tracked
+  primitive lists + `remove_block_instance`) and re-materializes into the
+  **same** scene, so viewport references and `changed` subscriptions survive
+  and `changed` drives the repaint. Cache key = the definition object (compared by identity — holding it
+  stops address reuse) + `defn.version` —
+  project undo restores **new** definition objects.
+- **Never rebuild during paint.** Rebuild runs only in the manager's
+  `blockDefinitionsChanged` handler or synchronously inside `resolve()`
+  (reconnect / drop / export — never mid-paint), so PDF export always sees the
+  current definition and no deferred-rebuild machinery exists. Paint-time
+  `_effective_crop` reads the extent captured at the last reconnect (the
+  detail precedent).
+- **Extent** = `geometry_import.geometric_bounds` over the materialized
+  primitives minus scaffolding (the editor-fit bound: no origin cross, no pen
+  slop), padded 2 % per side (min 1 mm) so edge strokes are not half-clipped,
+  degenerate axes grown to the pad; empty → the 1000×1000 default rect.
+  Recomputed on every `resolve()` (cheap), so a nested block's edit re-fits too.
+- **Viewport refresh (rename, re-fit, undo placeholder).** `MainWindow`
+  connects `blockDefinitionsChanged` → `PaperScene.refresh_schematic_viewports()`,
+  which re-runs `_reconnect_source()` on every schematic viewport (fresh
+  extent, scaled-box re-fit via `_recompute_size_from_scale`, placeholder when
+  the id vanished, restore on redo) and repaints (live title). The manager's
+  own handler disposes scenes whose id vanished or is no longer a schematic.
+  (Plan-time refinement 2026-10-08 of the ratified delta — same behaviour,
+  simpler mechanism.)
+- **Materializer home.** `schematic_scene.py` owns `_CLS_TO_LIST` (moved from
+  `block_editor`, re-imported there), `add_primitive(scene, item)` and
+  `materialize_primitives(scene, dicts)`; `BlockEditorWidget._add_primitive` /
+  `seed_from_dicts` delegate (one materializer, two callers).
+- **Ownership.** `MainWindow` builds one `SchematicSceneManager(self.scene)`;
+  both `ViewResolver` sites pass it; `dispose_all()` on load, new file and
+  `closeEvent`; disposal detaches each scene from the registry.
+- **Sheet usage.** `Model_Space.schematic_sheet_users(id)` scans
+  `self._sheets` → sheet numbers; `delete_block_definition` refuses when
+  non-empty; `block_users_message` adds "used on sheets 2, 5 — remove its
+  viewports first".
+- **Viewport rules (schematics.md D-S10 SV2 delta).** Live-crop predicate
+  covers detail + schematic (no persisted crop). Title = stored `title` if
+  non-empty, else the live `definition.name`; the drop dialog's and panel's Title
+  field shows the name (unchanged → stored `""`, user-ratified 2026-10-09) and the
+  drop defaults the scale to NTS.
+  Resize handles only at NTS (scaled: box = extent × scale, no handles). On a
+  definition change an NTS box keeps its size (content re-fits); a scaled box
+  recomputes extent × scale, top-left anchored.
+
 ### SD4 — Project Browser (D-S4, D-S8, D-S15, D-S16)
 
 - Role `"schematic"` added to `_ROLE_TYPE`; the Schematics root leaves
@@ -255,7 +306,7 @@ placement" task and SB7's host note are amended at SV1's filing.
 | Slice | Content | Guards | Depends |
 |---|---|---|---|
 | **SV1** (built 2026-10-08) | SD1 kind flag + `place_refusal` + `SCHEMATIC_REASON` at all sites; SD5 editor (kind, title, capability lock, Save Schematic → project); SD4 browser root / role / leaves / verbs Open / Rename / Delete / New (blank only), leaves not draggable; `.fpd` + undo persistence; listing filters (Block Manager hidden); `_close_stale_view_tabs` prefix | G1 (project half), G2, G6 (SV1 half) | — |
-| **SV2** | SD2 `SchematicSceneManager` + promoted materializer; SD3 resolver branch, drop NTS default, live crop, title bubble name lookup, Go-to-view, placed italics; SD4 leaf drag (`mimeData`); SD8 "used on sheets" refusal; PDF | G1 (sheet half), G3, G5, G6 (SV2 half) | SV1 |
+| **SV2** (built 2026-10-09) | SD2 `SchematicSceneManager` + promoted materializer; SD3 resolver branch, drop NTS default, live crop, title bubble name lookup, Go-to-view, placed italics; SD4 leaf drag (`mimeData`); SD8 "used on sheets" refusal; PDF | G1 (sheet half), G3, G5, G6 (SV2 half) | SV1 |
 | **SV3** | SD7 `schematics_dir` + settings row + migration + one-tier `_series_dir` (P4 probe first); SD5 Save as Template (bundling, collision) + browser verb; SD6 New-from-template dialog (**mockup gate**) | G4 | SV1 (editor), SV2 for the placed-template smoke |
 | **SV4** | Block Manager Kind column / filter + Used-in; Duplicate verb; `available_views` Schematics group; spec Account (`schematics.md` → partial/current, reconciliation pointers, SPEC-INDEX) | keep-green only | SV2 |
 

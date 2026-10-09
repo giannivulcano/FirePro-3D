@@ -16,25 +16,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
 
 from .model_space import Model_Space
 from .model_view import Model_View
-from .geometry_2d import (
-    LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-    RegularPolygonItem, EllipseItem, SplineItem,
-)
-from .text_item import TextItem
-from .block_definition import _PRIMITIVE_FACTORY, is_scaffold
+from .geometry_2d import ReferenceLineItem
+from .block_definition import is_scaffold
 from . import geometry_import
 from .house_dialog import HouseDialog
 
-_CLS_TO_LIST = {
-    # Subclass before base (lookup is exact type(item), but keep the guard order).
-    ReferenceLineItem: "_reference_lines",
-    LineItem: "_draw_lines", RectangleItem: "_draw_rects",
-    CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
-    EllipseItem: "_draw_ellipses",
-    SplineItem: "_draw_splines",
-    PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
-    TextItem: "_texts",
-}
+from . import schematic_scene
+from .schematic_scene import _CLS_TO_LIST  # noqa: F401 (moved; re-exported)
 
 
 def _is_scaffold_item(item) -> bool:
@@ -417,10 +405,7 @@ class BlockEditorWidget(QWidget):
 
     def _add_primitive(self, item):
         """Add a construction primitive to the editor scene + its tracking list."""
-        self.editor_scene.addItem(item)
-        list_attr = _CLS_TO_LIST.get(type(item))
-        if list_attr is not None:
-            getattr(self.editor_scene, list_attr).append(item)
+        schematic_scene.add_primitive(self.editor_scene, item)
 
     def seed_from_dicts(self, prim_dicts, *, source_items=None):
         """Populate the editor scene with editable copies of primitive dicts.
@@ -430,19 +415,8 @@ class BlockEditorWidget(QWidget):
             source_items: the project-scene items these copies came from (for a
                 seeded create's replace-on-save); stored, not modified.
         """
-        for d in prim_dicts:
-            if d.get("type") == "block_instance":
-                # Nested block (D2/D8): a live instance resolved through the
-                # borrowed project registry, not a factory primitive.
-                pos = d.get("pos", [0.0, 0.0])
-                self.editor_scene.place_block_instance(
-                    d["block_id"], (pos[0], pos[1]), rotation=d.get("rotation", 0.0),
-                    uid=d.get("uid"), overrides=d.get("overrides"))
-                continue
-            cls = _PRIMITIVE_FACTORY.get(d.get("type"))
-            if cls is None:
-                continue
-            self._add_primitive(cls.from_dict(d))
+        # One materializer (SV2): the render scenes share it.
+        schematic_scene.materialize_primitives(self.editor_scene, prim_dicts)
         if source_items is not None:
             self._seed_source_items = list(source_items)
         # The seeded geometry is the undo baseline (index 0) and cannot be
@@ -612,17 +586,7 @@ class BlockEditorWidget(QWidget):
         live drawing tools), so drawn and seeded geometry are both captured, and
         transient preview/ref items are naturally excluded.
         """
-        s = self.editor_scene
-        items = []
-        for attr in ("_draw_lines", "_draw_rects", "_draw_circles",
-                     "_draw_arcs", "_draw_ellipses", "_draw_splines", "_polylines", "_draw_polygons",
-                     "_texts"):
-            items.extend(getattr(s, attr))
-        # Nested blocks (D8): emitted as D2 block_instance records on commit.
-        items.extend(getattr(s, "_block_instances", []))
-        # Reference lines are scaffolding (D23): all are saved; compile renders only printed ones.
-        items.extend(getattr(s, "_reference_lines", []))
-        return items
+        return schematic_scene.materialized_items(self.editor_scene)
 
     def commit_block(self, name, library, series, *, replace_source=True,
                      save_to_library=False):
