@@ -233,9 +233,10 @@ scene items to take handles from.
   [`snapping-engine.md §6.1`](snapping-engine.md)
   — the same rule `find()` applies; not restated here). On top of it the session
   excludes the moving items and their children and pipes attached to a moving node,
-  plus (CS3, 2026-10-03) the items a constrained drag's solve moves with them
-  (`also_exclude` = `ConstraintController.drag_partners`; a grip drag's cursor
-  snap skips the same set via `Model_Space._grip_partners`) — the rule is owned by
+  plus (CS3, 2026-10-03; refined 2026-10-10) a constrained drag's partners once
+  the solve has moved them (`partners` = a `PartnerWatch` over
+  `ConstraintController.drag_partners`; a grip drag's cursor snap consults the
+  same watch via `Model_Space._grip_partners`) — the rule is owned by
   [`parametric-constraint-system.md §8`](parametric-constraint-system.md).
   The **origin points** (the (0,0) cross — the Block Editor insertion marker was
   retired at CS1, 2026-10-02) are

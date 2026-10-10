@@ -46,7 +46,7 @@ class _FakeScene(QGraphicsScene):
             def drag(self, item, grip_index): self._s.solved.append((item, grip_index))
             def end_drag(self): pass
             def cancel_drag(self): pass
-            def drag_partners(self, items): return []   # CS3 snap-exclusion surface
+            def drag_partners(self, items): return []   # D46 partner-watch surface
         self.constraint_ctl = _Ctl(self)
 
     def get_effective_position(self, pos):

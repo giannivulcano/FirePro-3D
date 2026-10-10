@@ -82,6 +82,59 @@ def removed_status(n: int) -> str:
     return f"{n} constraint{'' if n == 1 else 's'} removed"
 
 
+class PartnerWatch:
+    """D46 (refined 2026-10-10): a drag's constraint partners, watched for
+    movement. A partner stays a snap target until a snap query first sees
+    the solve has moved it (its adapter values off their press-time read);
+    from then on it is excluded for the rest of the gesture -- monotone, so a target never
+    flickers back while its spot is stale.
+
+    The latch is per item (a moved partner's unmoved points go too) and is an
+    anti-flicker choice: a partner back exactly at its press-time read is no
+    longer stale, but would otherwise toggle as a target frame to frame. A
+    partner with no adapter is not watched -- the solve cannot write it, so
+    it stays a plain target.
+
+    Args:
+        partners: ``ConstraintController.drag_partners`` result, read at
+            press (items at rest).
+    """
+
+    _EPS = 1e-9
+
+    def __init__(self, partners=()):
+        self._rest = {}
+        for it in partners:
+            ad = adapter_for(it)
+            if ad is not None:
+                self._rest[it] = (ad, list(ad.read(it)))
+        self._moved: set = set()
+
+    def __contains__(self, item) -> bool:
+        return item in self._rest
+
+    def __len__(self) -> int:
+        return len(self._rest)
+
+    def __iter__(self):
+        return iter(self._rest)
+
+    def moved(self, item) -> bool:
+        """Whether the solve has moved partner *item* since press (latched)."""
+        if item in self._moved:
+            return True
+        rec = self._rest.get(item)
+        if rec is None:
+            return False
+        ad, vals = rec
+        now = ad.read(item)
+        if len(now) != len(vals) or any(abs(a - b) > self._EPS
+                                        for a, b in zip(now, vals)):
+            self._moved.add(item)
+            return True
+        return False
+
+
 def _safe_ref_uids(c) -> set | None:
     """``sm.ref_uids`` that tolerates a malformed (inert, newer-build) record.
 
@@ -456,8 +509,9 @@ class ConstraintController:
     def drag_partners(self, items) -> list:
         """Items a drag of *items* can move through the solve: everything
         constraint-connected to them (active constraints, transitively),
-        *items* excluded. A drag's handle-snap session never targets them --
-        they move every frame, so their spots are stale (CS3; was CS1 VC9 R2).
+        *items* excluded. A drag's snap sessions watch them (``PartnerWatch``):
+        a partner is a target until the solve moves it, then its spot is stale
+        (D46, refined 2026-10-10; was CS1 VC9 R2).
         """
         if not self.enabled:
             return []
