@@ -8,6 +8,11 @@ the cap; a newline becomes ``<br>``) and consumes the event. Every shorter
 tip -- and any tip already authored as rich text -- is left to the widget,
 so it renders exactly as before. Graphics-item tips (the view's viewport
 has an empty ``toolTip()``) pass through.
+
+Not covered: per-cell model tips, ``QMenu`` action tips and ``QTabBar`` tab
+tips (none comes from the widget's own ``toolTip()``). A widget that shows
+per-sub-element tips in its own ``event()`` AND carries a long ``toolTip()``
+would have the sub-element tip pre-empted (none in firepro3d today).
 """
 from __future__ import annotations
 
@@ -35,6 +40,7 @@ def wrap(text: str, cap: int = TOOLTIP_MAX_PX) -> str | None:
     """
     if not text or Qt.mightBeRichText(text):
         return None
+    text = text.rstrip("\n")                 # no trailing <br> (an empty last line)
     fm = QFontMetrics(QToolTip.font())
     if max(fm.horizontalAdvance(line) for line in text.split("\n")) <= cap:
         return None
@@ -49,7 +55,8 @@ class _Filter(QObject):
         if ev.type() == QEvent.Type.ToolTip and isinstance(obj, QWidget):
             rich = wrap(obj.toolTip())
             if rich is not None:
-                QToolTip.showText(ev.globalPos(), rich, obj, obj.rect())
+                QToolTip.showText(ev.globalPos(), rich, obj, obj.rect(),
+                                  obj.toolTipDuration())
                 return True
         return False
 

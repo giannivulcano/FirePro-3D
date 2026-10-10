@@ -2,6 +2,7 @@
 wider than the cap (+ padding) with word wrap and a <br> per newline; a short
 tip's label is byte-identical to today's; every tip this task authors has no
 line wider than the cap."""
+import pytest
 from PyQt6.QtCore import QEvent, QPoint
 from PyQt6.QtGui import QFontMetrics, QHelpEvent
 from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
@@ -32,54 +33,60 @@ def _send(qapp, host):
     return _tip()
 
 
-def _host(qapp):
+@pytest.fixture
+def host(qapp):
+    """A shown widget under the app stylesheet; the previous stylesheet is
+    restored, the tip hidden and the widget closed afterwards."""
+    prev = qapp.styleSheet()
     qapp.setStyleSheet(theme.build_app_qss(theme.detect()))
-    host = QWidget()
-    host.resize(200, 100)
-    host.show()
-    qapp.processEvents()
-    return host
-
-
-def test_g7_long_tip_wraps_at_the_cap_and_short_tip_is_unchanged(qapp):
-    host = _host(qapp)
-    host.setToolTip(LONG)
-    before_long = _send(qapp, host)
-    host.setToolTip(SHORT)
-    before_short = _send(qapp, host)
-    assert before_long[0] > TOOLTIP_MAX_PX + 40 and before_long[2] is False
-    tooltips.install(qapp)
+    w = QWidget()
     try:
-        host.setToolTip(LONG)
-        after_long = _send(qapp, host)
-        host.setToolTip(SHORT)
-        after_short = _send(qapp, host)
+        w.resize(200, 100)
+        w.show()
+        qapp.processEvents()
+        yield w
     finally:
-        tooltips.uninstall(qapp)
-    assert after_long[2] is True and after_long[0] <= TOOLTIP_MAX_PX + 40
-    assert after_long[1] > before_long[1]
-    assert "<br>" in after_long[3] and "&lt;" not in after_long[3]
-    assert after_short == before_short
-    QToolTip.hideText()
+        QToolTip.hideText()
+        w.close()
+        w.deleteLater()
+        qapp.setStyleSheet(prev)
+        qapp.processEvents()
 
 
-def test_g7_install_is_idempotent_and_uninstall_restores(qapp):
+def test_g7_long_tip_wraps_at_the_cap_and_short_tip_is_plain(tooltips_installed, host):
+    qapp = tooltips_installed
+    host.setToolTip(LONG)
+    long_ = _send(qapp, host)
+    host.setToolTip(SHORT)
+    short = _send(qapp, host)
+    assert long_[2] is True and long_[0] <= TOOLTIP_MAX_PX + 40
+    assert long_[1] > short[1]                       # wrapped: more lines than SHORT's two
+    assert "<br>" in long_[3] and "&lt;" not in long_[3]
+    assert short[2] is False and short[3] == SHORT   # left to the widget
+
+
+def test_g7_install_is_idempotent_and_uninstall_restores(qapp, host):
     """main() installs once; a second install (e.g. a test fixture on the
-    same app) adds no second filter -- one wrap, and uninstall leaves none."""
-    host = _host(qapp)
+    same app) adds no second filter -- one wrap, and uninstall leaves none.
+    A short tip's label is byte-identical with and without the filter."""
     host.setToolTip(LONG)
     tooltips.install(qapp)
     tooltips.install(qapp)
     try:
         assert len(tooltips._FILTERS) == 1
         wrapped = _send(qapp, host)
+        host.setToolTip(SHORT)
+        short_on = _send(qapp, host)
     finally:
         tooltips.uninstall(qapp)
     assert wrapped[2] is True and wrapped[0] <= TOOLTIP_MAX_PX + 40
     assert tooltips._FILTERS == {}
+    short_off = _send(qapp, host)
+    assert short_on == short_off
+    host.setToolTip(LONG)
     plain = _send(qapp, host)
     assert plain[2] is False and plain[0] > TOOLTIP_MAX_PX + 40
-    QToolTip.hideText()
+    assert wrapped[1] > plain[1]
 
 
 def test_g7_wrap_rules():
@@ -91,6 +98,12 @@ def test_g7_wrap_rules():
     assert tooltips.wrap("", TOOLTIP_MAX_PX) is None
     assert tooltips.wrap("a < b & c", TOOLTIP_MAX_PX) is None       # short: untouched
     assert fm.horizontalAdvance("x") > 0
+
+
+def test_g7_trailing_newline_adds_no_trailing_break():
+    rich = tooltips.wrap(LONG + "\n", TOOLTIP_MAX_PX)
+    assert rich == tooltips.wrap(LONG, TOOLTIP_MAX_PX), rich
+    assert "<br></td>" not in rich
 
 
 def test_g7_authored_tips_have_no_line_over_the_cap(qapp):
