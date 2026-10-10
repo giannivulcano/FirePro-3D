@@ -175,3 +175,54 @@ def test_end_poking_into_a_viewport_prints(qapp, tmp_path, screen):
     assert len(fills) == 1, fills                               # the end, inside the box
     x0, y0, x1, y1 = fills[0]
     assert abs((x1 - x0) - 4.0) <= 0.1 and abs((y1 - y0) - 4.0) <= 0.1, fills
+
+
+def test_g3_block_editor_per_end_scale_doubles_head(qapp):
+    """G3 Block Editor paint: at drawing scale 1 (printed factor 1) a 3 mm
+    arrow is 60 px at 20 px/mm; per-end Scale 2 makes it 120 px."""
+    heads = []
+    for scale in (None, 2.0):
+        ms, _, _ = _plan(role="block_editor", scale=scale)
+        ms.scale_manager.drawing_scale = 1.0
+        assert printed_factor(paper_scale=None, role="block_editor",
+                              drawing_scale=1.0) == 1.0          # composition
+        heads.append(_head_width(_render(ms, QRectF(1980.0, -10.0, 20.0, 10.0), 400, 200)))
+    assert abs(heads[0] - 60) <= 3 and abs(heads[1] - 120) <= 3, heads
+
+
+def test_g4_stored_end_without_screen_key_scales_with_zoom(qapp):
+    """G4: an end record loaded without a ``screen`` key (``from_dict``)
+    is Scale with zoom -- its head doubles when the zoom doubles."""
+    from firepro3d.block_definition import BlockDefinition
+    rec = arrow(length=3.0, half=1.0).to_dict()
+    rec["end"] = {"trim": 3.0}
+    a = BlockDefinition.from_dict(rec)
+    assert a.end == {"trim": 3.0}
+    ms = Model_Space()
+    ms.register_block_definition(a)
+    ln = LineItem(QPointF(0.0, 0.0), QPointF(2000.0, 0.0))
+    set_ends(ln, finish=a.id)
+    ms.addItem(ln)
+    ms._draw_lines.append(ln)
+    near = _head_width(_render(ms, QRectF(1000.0, -500.0, 1000.0, 500.0), 400, 200))   # 0.4 px/mm
+    far = _head_width(_render(ms, QRectF(0.0, -1000.0, 2000.0, 1000.0), 400, 200))     # 0.2 px/mm
+    assert far >= 50 and abs(near - 2 * far) <= 4, (near, far)
+
+
+def test_g5_short_stroke_pdf_keeps_lt5_4(qapp, tmp_path):
+    """G5: the short-stroke rule is canvas-only -- a PDF of the short case
+    keeps LT5-4 (trims >= the length: no stroke, both ends draw)."""
+    from tests.test_lt3_pdf import _viewport_hlines
+    ms = Model_Space()
+    a = arrow(screen="fixed")                    # 3 printed mm trim -> 150 mm at 1:50
+    ms.register_block_definition(a)
+    ln = LineItem(QPointF(-50.0, 0.0), QPointF(50.0, 0.0))
+    set_ends(ln, start=a.id, finish=a.id)
+    ms.addItem(ln)
+    ms._draw_lines.append(ln)
+    pdf = _export(tmp_path, ms, _S, "g5_short.pdf")
+    assert _viewport_hlines(pdf) == []                         # no stroke
+    fills = _fills(pdf)
+    assert len(fills) == 2, fills                              # both ends
+    for x0, y0, x1, y1 in fills:
+        assert abs((x1 - x0) - 3.0) <= 0.05, fills

@@ -55,6 +55,49 @@ def test_placed_paper_pass_keeps_the_screen_end_mark(qapp, tmp_path):
     assert inst._screen_ends is True and inst in ms._screen_end_items
 
 
+def _lt_block(a, lt, length, scale=None, name="LT"):
+    """A block holding one linetyped line with Fixed-size ends both sides."""
+    ln = LineItem(QPointF(0.0, 0.0), QPointF(length, 0.0))
+    ln.style["linetype"] = lt.id
+    set_ends(ln, start=a.id, finish=a.id, scale=scale)
+    return BlockDefinition.new(name=name, library="L", series="S",
+                               primitives=[ln.to_dict()], origin=(0.0, 0.0))
+
+
+def test_g5_placed_linetyped_short_op_draws_plain(qapp):
+    """G5 through BlockInstance.paint's linetyped branch: a linetyped op too
+    short on screen for its Fixed-size trims draws its plain stroke, no
+    heads."""
+    from tests.lt3_support import make_linetype
+    a = arrow(screen="fixed")
+    lt = make_linetype()
+    d = _lt_block(a, lt, 100.0)
+    ms, inst = scene_with([a, lt, d], d.id)
+    assert inst._linetype_ids(inst.render_ops()) == frozenset({lt.id})   # composition
+    img = _render(ms, QRectF(-100.0, -100.0, 400.0, 200.0), 40, 20)   # 0.1 px/mm
+    assert _head_width(img) == 0
+    mid = img.height() // 2
+    lit = [x for x in range(img.width()) for y in range(mid - 2, mid + 3)
+           if QColor(img.pixel(x, y)).lightness() > 128]
+    assert lit, "the plain stroke must draw"
+
+
+def test_g5_placed_linetyped_long_op_scale_doubles_heads(qapp):
+    """The same linetyped op, long on screen: per-end Scale 2 draws heads
+    twice the Fixed-size width (2 x 3 mm x FIXED_END_PX_PER_MM)."""
+    from tests.lt3_support import make_linetype
+    a = arrow(length=3.0, half=1.0, screen="fixed")
+    lt = make_linetype()
+    heads = []
+    for scale, name in ((None, "L1"), (2.0, "L2")):
+        d = _lt_block(a, lt, 2000.0, scale=scale, name=name)
+        ms, inst = scene_with([a, lt, d], d.id)
+        assert inst._linetype_ids(inst.render_ops()) == frozenset({lt.id})
+        heads.append(_head_width(_render(ms, QRectF(1800.0, -100.0, 200.0, 100.0), 400, 200)))
+    want = 3.0 * FIXED_END_PX_PER_MM
+    assert abs(heads[0] - want) <= 2 and abs(heads[1] - 2 * want) <= 2, heads
+
+
 @pytest.mark.parametrize("screen", ["fixed", "scale"])   # "scale": the control
 def test_placed_end_poking_into_a_viewport_prints(qapp, tmp_path, screen):
     """Seam fix 3 (placed): the block's line lies just outside the 1:50
