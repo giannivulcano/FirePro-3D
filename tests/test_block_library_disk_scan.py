@@ -413,3 +413,29 @@ def test_n2_source_file_survives_an_undo_redo(tmp_path, qapp):
     ms.redo()
     bl.save_to_library(ms.get_block_definition(s["ids"][path]), root=str(tmp_path))
     assert not os.path.exists(path)                          # still re-filed
+
+
+def test_o1_an_unrelated_new_block_never_overwrites_a_copy_silently(tmp_path):
+    d = _defn("Corner")
+    a = _drop(tmp_path / "Fire" / "Valves", "Corner.fpdb", d)
+    shutil.copyfile(a, tmp_path / "Fire" / "Valves" / "Corner v2.fpdb")
+    y = _defn("Corner v2")                                    # brand-new block
+    assert bl.find_collision(y.id, "Fire", "Valves", "Corner v2",
+                             str(tmp_path)) == "Corner v2"
+    import pytest
+    with pytest.raises(bl.BlockNameCollision):
+        bl.save_to_library(y, root=str(tmp_path))
+    with open(tmp_path / "Fire" / "Valves" / "Corner v2.fpdb", encoding="utf-8") as fh:
+        assert json.load(fh)["id"] == d.id                   # the copy is intact
+
+
+def test_o2_a_nested_library_file_is_never_refiled_by_the_outer_one(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    inner_root = tmp_path / "Company"
+    path = _drop(inner_root / "Lib" / "Ser", "Valve.fpdb", _defn("Valve", "Lib", "Ser"))
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([path], root=str(inner_root))
+    got = ms.get_block_definition(s["ids"][path])
+    got.series = "Other"
+    bl.save_to_library(got, root=str(tmp_path))              # the outer library
+    assert os.path.exists(path)

@@ -169,16 +169,18 @@ def create_folder(library: str, series: str | None = None,
 
 
 def find_collision(block_id: str, library: str, series: str, name: str,
-                   root: str | None = None) -> str | None:
+                   root: str | None = None, *,
+                   source_path: str | None = None) -> str | None:
     """Name of a DIFFERENT block holding ``<name>.fpdb`` in Library/Series.
 
     The same probe :func:`save_to_library` refuses on (without writing), so a
     caller can resolve Overwrite / Rename / Cancel before committing.
 
     The occupying file is read itself. A duplicate-id copy (its id owned by
-    another file) is not a collision for the block it became (loading it gave
-    the project copy a fresh id; its Save writes back over that file) -- but
-    it IS one for the original, whose Save would clobber the user's copy.
+    another file) is not a collision ONLY for the block that was loaded from
+    it (*source_path* is that file -- loading gave the project copy a fresh
+    id, and its Save writes back over the file); for any other block, the
+    original included, it is one (its Save would clobber the user's copy).
 
     Returns:
         The occupying file's block name (its filename stem), or None when the
@@ -193,8 +195,9 @@ def find_collision(block_id: str, library: str, series: str, name: str,
         is_owner = owner is None or _same_path(owner[3]["path"], path)
         if meta["id"] == block_id and is_owner:
             return None          # this block's own file
-        if meta["id"] != block_id and not is_owner:
-            return None          # a copy the project re-id'd on load (AC4)
+        if (meta["id"] != block_id and not is_owner and source_path
+                and _same_path(source_path, path)):
+            return None          # the copy this block was loaded from (AC4)
     return os.path.basename(path)[:-5]
 
 
@@ -204,16 +207,6 @@ def _atomic_write_json(path: str, data) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     os.replace(tmp, path)
-
-
-def _inside(path: str, folder: str) -> bool:
-    """True when *path* lies under *folder* (compared as the file system does)."""
-    nc = os.path.normcase
-    p, f = nc(os.path.abspath(path)), nc(os.path.abspath(folder))
-    try:
-        return os.path.commonpath([p, f]) == f
-    except ValueError:      # different drives
-        return False
 
 
 def _same_path(a: str, b: str) -> bool:
@@ -311,8 +304,10 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
 
     # (a) Cross-id collision check — BEFORE any mutation, so a refused save is inert.
     if not overwrite:
-        clash_name = find_collision(definition.id, definition.library,
-                                    definition.series, definition.name, root)
+        clash_name = find_collision(
+            definition.id, definition.library, definition.series,
+            definition.name, root,
+            source_path=getattr(definition, "source_path", None))
         if clash_name is not None:
             raise BlockNameCollision(clash_name, filename)
 
@@ -352,9 +347,10 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
 def _previous_file(definition: BlockDefinition, root: str | None) -> str | None:
     """The file a Save of *definition* may re-file (see :func:`save_to_library`)."""
     src = getattr(definition, "source_path", None)
-    if src and not _inside(src, _root(root)):
-        src = None          # loaded from elsewhere (Desktop, another library):
-                            # never touched by a Save into this library
+    if src and not any(_same_path(m["path"], src)
+                       for _l, _s, _f, m in _iter_entries(root)):
+        src = None          # not a file of THIS library (Desktop, another or a
+                            # nested library): never touched by its Save
     if src:
         meta = capability_folder.read_meta(src) if os.path.isfile(src) else None
         return src if meta is not None and meta["id"] == definition.id else None

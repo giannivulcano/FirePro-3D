@@ -168,7 +168,7 @@ class BlockSaveDialog(HouseDialog):
     def __init__(self, parent=None, *, theme=None, library_tree=None, root=None,
                  collision_id=None, context="new", instance_count=0,
                  initial=("", "", ""), validator=None, kind="block",
-                 schematic_series=None):
+                 schematic_series=None, collision_source=None):
         is_schematic = kind == "schematic"
         super().__init__(parent, title="Save Schematic" if is_schematic else "Save Block",
                          icon="insert_block_icon.svg", min_width=420, theme=theme)
@@ -180,6 +180,9 @@ class BlockSaveDialog(HouseDialog):
         self._kind = kind
         self._lib_root = root
         self._collision_id = collision_id
+        # The library file the edited definition came from (its copy may be
+        # overwritten without a prompt -- block-system.md "Library on disk").
+        self._collision_source = collision_source
         self._overwrite = False
         self._tree = {k: list(v) for k, v in (library_tree or {}).items()}
         # Keep a pre-filled library/series selectable even if not in the tree.
@@ -368,7 +371,7 @@ class BlockSaveDialog(HouseDialog):
             # a schematic dialog); blocks probe the block library root.
             clash = block_library.find_collision(
                 self._collision_id or "", v["library"], v["series"], v["name"],
-                root=self._lib_root)
+                root=self._lib_root, source_path=self._collision_source)
             if clash is not None:
                 if self._kind == "schematic":
                     noun, where = "schematic", (
@@ -878,6 +881,8 @@ class BlockEditorWidget(QWidget):
             initial = ("", "", "")
         # The id this save writes as: a Save As writes a brand-new block.
         writes_as = None if save_as else self._edit_block_id
+        src_def = proj.get_block_definition(writes_as) if writes_as else None
+        writes_from = getattr(src_def, "source_path", None)
 
         if self.kind == "schematic":
             def _validator(name, library, series):
@@ -894,7 +899,7 @@ class BlockEditorWidget(QWidget):
                                   schematic_series=schematic_series_for(proj, root=tpl_root),
                                   collision_id=writes_as, context=context,
                                   instance_count=0, initial=initial,
-                                  validator=_validator)
+                                  validator=_validator, collision_source=writes_from)
         else:
             def _validator(name, library, series):
                 for o in proj._block_definitions.values():
@@ -906,7 +911,8 @@ class BlockEditorWidget(QWidget):
             dlg = BlockSaveDialog(parent or self, library_tree=library_tree_for(proj),
                                   collision_id=writes_as,
                                   context=context, instance_count=icount,
-                                  initial=initial, validator=_validator)
+                                  initial=initial, validator=_validator,
+                                  collision_source=writes_from)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         v = dlg.values()
