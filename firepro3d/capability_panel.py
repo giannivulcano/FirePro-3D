@@ -8,14 +8,18 @@ from __future__ import annotations
 
 from .constants import FIXED_END_PX_PER_MM
 
-_TILE_TIP = ("Make this block a hatch pattern: it repeats on a tile and fills "
-             "regions instead of being placed as a symbol")
-_LT_TIP = ("Make this block a linetype: it repeats along lines and is applied "
-           "from a line's Linetype row instead of being placed as a symbol")
+_TILE_TIP = ("Make this block a hatch pattern:\n"
+             "it repeats on a tile and fills regions\n"
+             "instead of being placed as a symbol")
+_LT_TIP = ("Make this block a linetype:\n"
+           "it repeats along lines and is applied\n"
+           "from a line's Linetype row\n"
+           "instead of being placed as a symbol")
 _OVERLAP_NOTE = "Dashes overlap — edit on the canvas"
-_END_TOGGLE_TIP = ("Make this block an end type: it draws on the free ends of open "
-            "lines (picked from a line's Start End / Finish End rows) instead "
-            "of being placed as a symbol")
+_END_TOGGLE_TIP = ("Make this block an end type:\n"
+            "it draws on the free ends of open lines\n"
+            "(picked from a line's Start End / Finish End rows)\n"
+            "instead of being placed as a symbol")
 _TOGGLES = {"Pattern tile": "tile", "Linetype": "repeat", "End type": "end"}
 # LT5 mockup strings (R4).
 _END_SCREEN_TIP = ("How this end sizes on model canvases\n"

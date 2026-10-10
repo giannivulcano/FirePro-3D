@@ -5699,6 +5699,8 @@ def main():
         Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True)
     app = QApplication(sys.argv)
     th.apply_app_font(app)          # house UI font (Arial) app-wide
+    from firepro3d import tooltips
+    tooltips.install(app)           # ET1 Q8: long plain tooltips wrap at TOOLTIP_MAX_PX
 
     # Show splash IMMEDIATELY — before heavy 3D imports
     splash = FireProSplash(version=APP_VERSION)

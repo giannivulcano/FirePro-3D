@@ -1,0 +1,103 @@
+"""ET1 G7 -- the app-level tooltip filter: a long plain tip shows a label no
+wider than the cap (+ padding) with word wrap and a <br> per newline; a short
+tip's label is byte-identical to today's; every tip this task authors has no
+line wider than the cap."""
+from PyQt6.QtCore import QEvent, QPoint
+from PyQt6.QtGui import QFontMetrics, QHelpEvent
+from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
+
+from firepro3d import capability_panel, geometry_2d, theme, tooltips
+from firepro3d.constants import TOOLTIP_MAX_PX
+
+LONG = ("How this end sizes on model canvases (plan, detail, Block Editor).\n"
+        "Fixed size: a constant 6 px per printed mm at any zoom, which is a long "
+        "line of text that must wrap because it is wider than the cap.")
+SHORT = "Show this end's end type.\nOff draws a plain end but keeps the pick."
+
+
+def _tip():
+    for w in QApplication.allWidgets():
+        if w.metaObject().className() == "QTipLabel":
+            return (w.width(), w.height(), w.wordWrap(), w.text())
+    return None
+
+
+def _send(qapp, host):
+    QToolTip.hideText()
+    qapp.processEvents()
+    ev = QHelpEvent(QEvent.Type.ToolTip, QPoint(10, 10), host.mapToGlobal(QPoint(10, 10)))
+    qapp.sendEvent(host, ev)
+    for _ in range(5):
+        qapp.processEvents()
+    return _tip()
+
+
+def _host(qapp):
+    qapp.setStyleSheet(theme.build_app_qss(theme.detect()))
+    host = QWidget()
+    host.resize(200, 100)
+    host.show()
+    qapp.processEvents()
+    return host
+
+
+def test_g7_long_tip_wraps_at_the_cap_and_short_tip_is_unchanged(qapp):
+    host = _host(qapp)
+    host.setToolTip(LONG)
+    before_long = _send(qapp, host)
+    host.setToolTip(SHORT)
+    before_short = _send(qapp, host)
+    assert before_long[0] > TOOLTIP_MAX_PX + 40 and before_long[2] is False
+    tooltips.install(qapp)
+    try:
+        host.setToolTip(LONG)
+        after_long = _send(qapp, host)
+        host.setToolTip(SHORT)
+        after_short = _send(qapp, host)
+    finally:
+        tooltips.uninstall(qapp)
+    assert after_long[2] is True and after_long[0] <= TOOLTIP_MAX_PX + 40
+    assert after_long[1] > before_long[1]
+    assert "<br>" in after_long[3] and "&lt;" not in after_long[3]
+    assert after_short == before_short
+    QToolTip.hideText()
+
+
+def test_g7_install_is_idempotent_and_uninstall_restores(qapp):
+    """main() installs once; a second install (e.g. a test fixture on the
+    same app) adds no second filter -- one wrap, and uninstall leaves none."""
+    host = _host(qapp)
+    host.setToolTip(LONG)
+    tooltips.install(qapp)
+    tooltips.install(qapp)
+    try:
+        assert len(tooltips._FILTERS) == 1
+        wrapped = _send(qapp, host)
+    finally:
+        tooltips.uninstall(qapp)
+    assert wrapped[2] is True and wrapped[0] <= TOOLTIP_MAX_PX + 40
+    assert tooltips._FILTERS == {}
+    plain = _send(qapp, host)
+    assert plain[2] is False and plain[0] > TOOLTIP_MAX_PX + 40
+    QToolTip.hideText()
+
+
+def test_g7_wrap_rules():
+    fm = QFontMetrics(QToolTip.font())
+    assert tooltips.wrap(SHORT, TOOLTIP_MAX_PX) is None
+    rich = tooltips.wrap(LONG, TOOLTIP_MAX_PX)
+    assert rich.startswith(f"<table width='{TOOLTIP_MAX_PX}'>") and "<br>" in rich
+    assert tooltips.wrap("<b>already rich</b> " * 20, TOOLTIP_MAX_PX) is None
+    assert tooltips.wrap("", TOOLTIP_MAX_PX) is None
+    assert tooltips.wrap("a < b & c", TOOLTIP_MAX_PX) is None       # short: untouched
+    assert fm.horizontalAdvance("x") > 0
+
+
+def test_g7_authored_tips_have_no_line_over_the_cap(qapp):
+    fm = QFontMetrics(QToolTip.font())
+    tips = [v for n, v in vars(geometry_2d).items() if n.endswith("_TIP") and isinstance(v, str)]
+    tips += [v for n, v in vars(capability_panel).items() if n.endswith("_TIP") and isinstance(v, str)]
+    assert any("Multiplies" in t for t in tips)                     # composition: the ET1 tips are in
+    for t in tips:
+        for line in t.split("\n"):
+            assert fm.horizontalAdvance(line) <= TOOLTIP_MAX_PX, line

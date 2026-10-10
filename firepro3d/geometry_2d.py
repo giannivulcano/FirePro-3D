@@ -3959,24 +3959,30 @@ def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     return [CAD_Math.rotate_point(p, pivot, -angle_deg) for p in local]
 
 
-_LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
-                 "from the Linetypes folder load into the project when picked.")
-_WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
+_LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid;\n"
+                 "linetypes from the Linetypes folder load\n"
+                 "into the project when picked.")
+_WEIGHT_TIP = ("Line weight.\n"
+               "By Linetype uses the linetype's designed weight\n"
                "(shown in brackets); a named weight overrides it.")
 _LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
 _LOCKED_END_LINETYPE_TIP = "Lines inside an end type are always Continuous"
 _LOCKED_WEIGHT_TIP = ("New lines take the linetype's Weight "
                       "(set it in the Repeat section)")
 _PLACEMENT_LINETYPE_TIP = (
-    "Linetype for every stroke in this block, nested blocks included. "
+    "Linetype for every stroke in this block,\n"
+    "nested blocks included.\n"
     "As Authored keeps each stroke's own linetype.")
 _PLACEMENT_WEIGHT_TIP = (
-    "Line weight for every stroke in this block, nested blocks included. "
-    "As Authored keeps each stroke's own weight; By Category uses the "
-    "Display Manager “Blocks” weight (shown in brackets).")
+    "Line weight for every stroke in this block,\n"
+    "nested blocks included.\n"
+    "As Authored keeps each stroke's own weight;\n"
+    "By Category uses the Display Manager “Blocks” weight\n"
+    "(shown in brackets).")
 _LOCKED_PLACEMENT_TIP = (
-    "Strokes in a pattern tile or linetype unit draw Continuous at the "
-    "pattern's own pen, so a nested block can't override them here.")
+    "Strokes in a pattern tile or linetype unit\n"
+    "draw Continuous at the pattern's own pen,\n"
+    "so a nested block can't override them here.")
 
 # LT5 Q10 / ET1 Q5 panel rows -> (end, record field).
 _END_ROW_KEYS = {"Start End": ("start", "end"), "Finish End": ("finish", "end"),
@@ -3995,8 +4001,9 @@ _END_SCALE_TIP = ("Multiplies the end type's authored size\n"
                   "1× = as authored (1 mm drawn = 1 mm printed).\n"
                   "Range 0.1 to 10.")
 _LOCKED_END_TIP = "Lines inside an end type are always Continuous with plain ends"
-_LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends -- set the "
-                      "linetype's default ends in its Start End / Finish End rows")
+_LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends --\n"
+                      "set the linetype's default ends\n"
+                      "in its Start End / Finish End rows")
 _LOCKED_TILE_END_TIP = "Lines inside a pattern tile draw plain ends"
 
 
