@@ -14,6 +14,8 @@ import math
 from typing import NamedTuple
 
 from . import paper_display as _pd
+from .constants import (END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN, END_SCALE_MAX,
+                        END_SCALE_MIN)
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"          # legacy input only -- migrated by normalize_style (WM-9)
@@ -34,7 +36,6 @@ def parse_end_scale(value) -> float | None:
     number) -> a float within [END_SCALE_MIN, END_SCALE_MAX], else None (the
     panel refresh shows the old value). Only a trailing suffix is stripped,
     so ``"0x5"`` / ``"x2x"`` are refused."""
-    from .constants import END_SCALE_MAX, END_SCALE_MIN
     if isinstance(value, bool):
         return None
     s = str(value).strip().rstrip(END_SCALE_SUFFIX + "xX").strip()
@@ -55,7 +56,6 @@ def model_scale_value(v) -> float | None:
     """A stored Model scale denominator (ET1 Q12e: 30.0 = 1:30) -> a finite
     float within [END_MODEL_SCALE_MIN, END_MODEL_SCALE_MAX], else None
     (absent, a bool, non-numeric, non-finite or out of range = not set)."""
-    from .constants import END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN
     if v is None or isinstance(v, bool):
         return None
     try:
@@ -135,7 +135,6 @@ def _end_scale(rec) -> float:
     """The per-end Scale stored on end record *rec* (ET1 Q5): a finite float
     within [END_SCALE_MIN, END_SCALE_MAX] (the UI range), else 1.0 -- absent,
     a bool, non-numeric, non-finite or out of range."""
-    from .constants import END_SCALE_MAX, END_SCALE_MIN
     sc = rec.get("scale") if isinstance(rec, dict) else None
     if sc is None or isinstance(sc, bool):
         return 1.0

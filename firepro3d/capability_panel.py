@@ -101,6 +101,8 @@ def _model_scale_row(scene, end: dict) -> dict:
     non-preset scale is offered as its own option."""
     from . import stroke_style as ss
     sm = getattr(scene, "scale_manager", None)
+    # By design a drawing scale outside 1..10000 (an enlargement like 2:1)
+    # is no valid Model scale: the head then reads plain "Project".
     ds = ss.model_scale_value(sm.drawing_scale if sm is not None else None)
     head = (f"{ss.MODEL_SCALE_PROJECT} ({ss.model_scale_label(ds)})"
             if ds is not None else ss.MODEL_SCALE_PROJECT)

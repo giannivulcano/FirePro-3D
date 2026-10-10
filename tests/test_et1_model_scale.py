@@ -367,6 +367,37 @@ def test_q12_g7_raw_bounds_cover_a_1_300_override_head(qapp):
     assert top <= -300.0 + 1.0 and top < top_p, (top, top_p)    # 300 mm half-height
 
 
+def test_q12_g7_placed_bounds_follow_an_end_type_model_scale_edit(qapp):
+    """The placed pad memo (``_end_pad_rows``) re-resolves when the end type
+    it read changes version: a Model scale set on the definition after a
+    first bounds read grows the pad (version-invalidation path)."""
+    a = arrow(length=3.0, half=1.0)
+    d = _placed(a)
+    ms, inst = scene_with([a, d], d.id)
+    top_p = inst.boundingRect().top()
+    reach = 300.0 * (10.0 ** 0.5)
+    assert top_p > -reach / 2.0, top_p                           # Project pad first
+    reg_a = ms.get_block_definition(a.id)
+    _model(reg_a, 300.0)                                         # set_end bumps the version
+    top_o = inst.boundingRect().top()
+    assert -reach - 10.0 < top_o <= -reach + 1.0, (top_o, top_p)
+
+
+def test_q12_placed_model_scaled_line_prints_true_mm(qapp, tmp_path):
+    """Parity: a placed block whose line carries a Model scale override still
+    prints the true 3 mm on a real PDF (the paper pass's printed path)."""
+    a = _model(arrow(), 30.0)
+    ln = LineItem(QPointF(-1500.0, 0.0), QPointF(1500.0, 0.0))
+    set_ends(ln, finish=a.id)
+    ln.style["finish"]["model_scale"] = 50.0
+    d = BlockDefinition.new(name="P", library="L", series="S",
+                            primitives=[ln.to_dict()], origin=(0.0, 0.0))
+    ms, _ = scene_with([a, d], d.id)
+    fills = _fills(_export(tmp_path, ms, _S, "q12_placed.pdf"))
+    assert len(fills) == 1, fills
+    assert abs((fills[0][2] - fills[0][0]) - 3.0) <= 0.05, fills
+
+
 def test_q12_g7_placed_bounds_cover_a_1_300_override_head(qapp):
     a = arrow(length=3.0, half=1.0)
     d_p, d_o = _placed(a), _placed(a, 300.0, name="B300")
