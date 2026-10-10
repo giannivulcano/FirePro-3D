@@ -184,15 +184,16 @@ def test_missing_placement_linetype_override_draws_the_badge(qapp):
 
 # -- Q9: new placements start As Authored x2 (no sticky current) -------------
 
-def test_new_placement_and_ghost_start_as_authored(qapp):
+def test_new_placement_starts_as_authored(qapp):
     from PyQt6.QtCore import QPointF
     from firepro3d.stroke_style import AS_AUTHORED
     s = sprinkler_def()
     ms, prev = scene_with([s], s.id, {"weight": "Thick", "linetype": "continuous"})
     both = {"weight": AS_AUTHORED, "linetype": AS_AUTHORED}
     ms.set_mode("place_block", template=s.id)
+    # The placement ghost is a Paste-style trace since 2026-10-10 (no
+    # overrides of its own); the PLACED instance is what starts As Authored.
     ms._move_place_block(None, QPointF(0.0, 0.0))
-    assert ms._place_block_ghost.overrides == both              # placement ghost
     ms._press_place_block(None, QPointF(50.0, 0.0), QPointF(50.0, 0.0),
                           None, None, None)                     # place_block click
     clicked = ms._block_instances[-1]

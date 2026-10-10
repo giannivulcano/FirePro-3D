@@ -315,28 +315,27 @@ def test_ghost_polyline_is_never_tinted(be):
 
 
 def test_block_placement_ghost_is_never_tinted(be):
-    """The same ruling for BlockInstance placement ghosts (``_is_ghost``),
-    made through the real placement-ghost path. The ghost is also listed as
-    a participant so the exclusion -- not a missing uid -- is what holds."""
+    """The same ruling for the block placement ghost, through the real
+    placement path. Since 2026-10-10 the ghost is the Paste-style trace of a
+    free-standing prototype: never a scene item nor a placed instance, so it
+    is never a constraint participant and never tinted."""
     from firepro3d.block_definition import BlockDefinition
     v, sc = be
     a = LineItem(QPointF(-100, 0), QPointF(100, 0))
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[a.to_dict()], origin=(0.0, 0.0))
     sc.register_block_definition(d)
-    sc._place_block_id = d.id
-    sc._place_block_make_ghost()
-    g = sc._place_block_ghost
-    assert g is not None and g._is_ghost
-    sc._block_instances.append(g)
+    sc.set_mode("place_block", template=d.id)
     try:
+        sc._move_place_block(None, QPointF(0.0, 0.0))
+        g = sc._place_block_ghost
+        assert g is not None and sc._move_ghost              # the trace is shown
+        assert g.scene() is None and g not in sc._block_instances
         ctl = sc.constraint_ctl
-        assert g._uid in ctl.diagnostics().item_dof
+        assert g._uid not in ctl.diagnostics().item_dof
         assert ctl.tint_color(g) is None
     finally:
-        sc._block_instances.remove(g)
-        sc._place_block_drop_ghost()
-        sc._place_block_id = None
+        sc.set_mode("select")
 
 
 def test_tint_lookup_failure_paints_the_item_untinted(be, monkeypatch):

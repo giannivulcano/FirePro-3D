@@ -2685,7 +2685,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         if self._block_activation_refusal(block_id) is not None:
             return
-        self._active_scene().set_mode("place_block", template=block_id)
+        scene = self._active_scene()
+        scene.set_mode("place_block", template=block_id)
+        # Keyboard focus follows the placement onto the canvas, so Space /
+        # Shift+Space (rotate) and Esc reach the scene before the first click
+        # instead of staying on the Blocks browser tree (review I1). The
+        # current tab's own view (a plan tab IS a Model_View; a Block Editor
+        # tab has .view) -- not self.view, the hidden startup view (L769).
+        # Deferred: the tree re-takes focus on the double-click's own press,
+        # which arrives after the first activation signal.
+        from firepro3d.model_view import Model_View
+        w = self.central_tabs.currentWidget()
+        view = w if isinstance(w, Model_View) else getattr(w, "view", None)
+        if isinstance(view, Model_View) and view.scene() is scene:
+            QTimer.singleShot(0, view.setFocus)
 
     def _block_activation_refusal(self, block_id: str,
                                   path: str | None = None) -> str | None:

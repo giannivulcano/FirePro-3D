@@ -4319,7 +4319,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self.mode in ("select", None, ""):
             return self._halo_cycle()
-        if self.mode == "place_block" and self._place_block_ghost is not None:
+        if self.mode == "place_block" and self._place_block_id is not None:
             # App rotation is Y-up CCW+; the view is not Y-flipped, so CW on
             # screen is -90.
             self.rotate_place_block(90.0 if reverse else -90.0)
@@ -6689,10 +6689,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._move_ghost_base = []
 
     def rotate_place_block(self, delta_deg: float) -> None:
-        """Turn the armed placement by *delta_deg* (app Y-up CCW+), live."""
+        """Turn the armed placement by *delta_deg* (app Y-up CCW+), live --
+        also before the first mouse move (the prototype is built on demand)."""
         r = (self._place_block_rot + delta_deg) % 360.0
         self._place_block_rot = r - 360.0 if r > 180.0 else r
-        self._place_block_refresh_ghost()
+        if self._place_block_ghost is None:
+            self._place_block_make_ghost()
+        else:
+            self._place_block_refresh_ghost()
 
     def _press_place_block(self, event, pos, snapped, item_under, node_under, pipe_under):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""

@@ -799,3 +799,39 @@ def test_g2_editor_scene_paste_skips_schematic_instances(qapp):
         assert shown == [SCHEMATIC_REASON]
     finally:
         mgr.close(w); tabs.deleteLater(); proj.cleanup(); QApplication.processEvents()
+
+
+def test_space_rotates_the_first_placement_after_a_browser_double_click(qapp, main_window):
+    """Review I1 (2026-10-10 placement batch): the double-click hands keyboard
+    focus to the canvas, so Space reaches the scene before the first click --
+    no explicit setFocus here, the real entry path only."""
+    from firepro3d.halo import halo_scene_path
+    proj = main_window.scene
+    b = _line_def("B_SPACE")
+    proj.register_block_definition(b)
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    QApplication.processEvents()
+    try:
+        main_window._activate_plan_view(proj.active_level)  # the visible plan tab
+        QApplication.processEvents()
+        v = main_window.central_tabs.currentWidget()
+        assert isinstance(v, Model_View) and v.isVisible() and v.scene() is proj
+        _dclick_leaf(main_window, b.name)
+        assert proj.mode == "place_block"
+        v.resetTransform()
+        v.centerOn(0, 0)
+        QApplication.processEvents()
+        _hover(v, QPointF(20, 30))
+        # Space goes wherever keyboard focus is -- exactly as the OS delivers it
+        fw = QApplication.focusWidget()
+        QApplication.sendEvent(fw, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space,
+                                             Qt.KeyboardModifier.NoModifier, " "))
+        QApplication.processEvents()
+        _click_place(v, QPointF(20, 30))
+        inst = [i for i in proj._block_instances if i.block_id == b.id][-1]
+        r = halo_scene_path(inst).boundingRect()
+        # line (0,0)->(100,0) turned 90 deg CW on screen: it now runs down
+        assert round(r.width()) == 0 and round(r.height()) == 100
+    finally:
+        proj.set_mode("select")

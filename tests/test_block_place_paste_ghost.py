@@ -160,3 +160,51 @@ def test_g4_space_rotates_the_placement_on_screen(qapp, keys, expect):
                     round(rect.top()), round(rect.bottom())) == got
     finally:
         _close(v, sc)
+
+
+def test_m1_space_before_the_first_mouse_move_still_rotates(qapp):
+    sc, d, _t = _scene_with_target()
+    v = _shown(sc)
+    try:
+        sc.set_mode("place_block", template=d.id)
+        QTest.keyClick(v, Qt.Key.Key_Space)                  # no hover yet
+        QApplication.processEvents()
+        _click(v, QPointF(200, 150))
+        [inst] = sc._block_instances
+        r = halo_scene_path(inst).boundingRect()
+        assert (round(r.left()), round(r.right()), round(r.top()), round(r.bottom())) == (
+            200, 200, 150, 250)
+    finally:
+        _close(v, sc)
+
+
+def test_m2_a_block_drag_keeps_the_armed_rotation(qapp, tmp_path):
+    from firepro3d.blocks_browser import BlocksBrowser
+    from PyQt6.QtGui import QDragEnterEvent, QDragLeaveEvent
+    from tests.test_block_drag_drop import _mime_for
+    sc, d, _t = _scene_with_target()
+    other = BlockDefinition.new(name="Other", library="L", series="S",
+                                primitives=[LineItem(QPointF(0, 0), QPointF(50, 0)).to_dict()],
+                                origin=(0.0, 0.0))
+    sc.register_block_definition(other)
+    v = _shown(sc)
+    br = BlocksBrowser(sc, root=str(tmp_path))
+    try:
+        sc.set_mode("place_block", template=d.id)
+        _hover(v, QPointF(200, 150))
+        QTest.keyClick(v, Qt.Key.Key_Space)                  # A turned CW
+        QApplication.processEvents()
+        mime = _mime_for(br, "Other")                       # kept alive: the event doesn't own it
+        enter = QDragEnterEvent(v.mapFromScene(QPointF(0, 0)), Qt.DropAction.CopyAction,
+                                mime, Qt.MouseButton.LeftButton,
+                                Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(v.viewport(), enter)
+        QApplication.sendEvent(v.viewport(), QDragLeaveEvent())
+        assert sc.mode == "place_block" and sc._place_block_id == d.id
+        _click(v, QPointF(200, 150))
+        [inst] = sc._block_instances
+        r = halo_scene_path(inst).boundingRect()
+        assert (round(r.left()), round(r.right()), round(r.top()), round(r.bottom())) == (
+            200, 200, 150, 250)
+    finally:
+        _close(v, sc)
