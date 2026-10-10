@@ -544,6 +544,9 @@ def _dclick_leaf(win, name, library_only=False):
     leaf = _leaf(win.blocks_browser, name, library_only)
     tree.scrollToItem(leaf)
     QApplication.processEvents()
+    # A refresh during those events (e.g. a tab switch) rebuilds the tree and
+    # deletes the item: look it up again before reading its rect.
+    leaf = _leaf(win.blocks_browser, name, library_only)
     at = tree.visualItemRect(leaf).center()
     # The OS sequence: press+release, then the double-click press+release.
     QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton,
@@ -838,3 +841,6 @@ def test_space_rotates_the_first_placement_after_a_browser_double_click(qapp, ma
         assert round(r.width()) == 0 and round(r.height()) == 100
     finally:
         proj.set_mode("select")
+        _drop_lib_instances(proj, b.id)
+        _forget_defs(proj, b)
+        QApplication.processEvents()
