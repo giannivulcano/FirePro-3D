@@ -16,7 +16,6 @@ from tests.test_lts_canvas import _inner, _row
 
 def _editor_scene(kind="block"):
     proj = Model_Space()
-    proj.scale_manager.drawing_scale = 50.0
     w = BlockEditorWidget(proj, kind=kind)
     return proj, w, w.editor_scene
 

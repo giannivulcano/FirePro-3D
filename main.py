@@ -2316,8 +2316,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         dst.precision = src.precision
         # ET1 Q1/Q2: a block editor previews Fixed ends and Drafting
         # linetypes at the project drawing scale; a schematic editor keeps
-        # real size (its ScaleManager holds 1.0 from construction).
-        kind = getattr(getattr(editor_scene, "_tile_editor", None), "kind", "block")
+        # real size (its ScaleManager holds 1.0 from construction). A scene
+        # with no owning editor widget is skipped.
+        kind = getattr(getattr(editor_scene, "_tile_editor", None), "kind", None)
         if kind == "block" and dst.drawing_scale != src.drawing_scale:
             dst.drawing_scale = src.drawing_scale
             editor_scene.update()
@@ -4879,7 +4880,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         sc = widget.editor_scene
         # The editor builds its own default ScaleManager; seed the project's
-        # display unit + precision so its readouts/panel rows match the plan.
+        # display unit + precision (and, block editors, drawing scale) so its
+        # readouts/panel rows and previews match the plan.
         self._seed_editor_units(sc)
         # Crosshair parity with plan views: the accent crosshair (placement-mode
         # gated in Model_View) should show while inserting geometry in the editor
