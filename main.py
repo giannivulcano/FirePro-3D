@@ -2321,6 +2321,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         kind = getattr(getattr(editor_scene, "_tile_editor", None), "kind", None)
         if kind == "block" and dst.drawing_scale != src.drawing_scale:
             dst.drawing_scale = src.drawing_scale
+            # Drafting ends / linetypes change extent with the scale: the
+            # Qt bounds contract wants prepareGeometryChange, not a repaint.
+            from firepro3d.linetype_authoring import _styled_items
+            for it in (*_styled_items(editor_scene),
+                       *getattr(editor_scene, "_block_instances", ())):
+                it.prepareGeometryChange()
             editor_scene.update()
         editor_scene._refresh_all_labels()
 
