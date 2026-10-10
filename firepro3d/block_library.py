@@ -359,26 +359,33 @@ def _iter_entries(root: str | None):
     (identity is the ``id``, not the folder location).
 
     *meta* is ``capability_folder.read_meta`` plus ``name`` (the filename
-    stem -- filename wins), ``path`` and ``duplicate`` (True when an earlier
-    file in walk order already holds this id; that earlier file owns it).
-    Unreadable files and files without an id are skipped."""
+    stem -- filename wins), ``path`` and ``duplicate``. When several files
+    hold one id (a file copied to make a variant), the one whose filename
+    still matches its stored name owns it -- the original; walk order breaks
+    a tie -- and the others are ``duplicate``. Unreadable files and files
+    without an id are skipped."""
     base = _root(root)
     if not os.path.isdir(base):
         return
-    owners: set = set()
+    found = []
     for dirs, path in _walk_fpdb(base):
         meta = capability_folder.read_meta(path)
         if meta is None or not meta["id"]:
             continue
         tiers = _tiers(meta["kind"], dirs)
-        if tiers is None:
-            continue
+        if tiers is not None:
+            found.append((tiers, path, meta))
+    owner: dict = {}
+    for _tiers_, path, meta in found:          # a name-matching file first
+        if os.path.basename(path)[:-5] == sanitize(meta["name"]):
+            owner.setdefault(meta["id"], path)
+    for _tiers_, path, meta in found:          # else the first in walk order
+        owner.setdefault(meta["id"], path)
+    for (library, series), path, meta in found:
         filename = os.path.basename(path)
-        duplicate = meta["id"] in owners
-        owners.add(meta["id"])
-        yield tiers[0], tiers[1], filename, {
+        yield library, series, filename, {
             **meta, "name": filename[:-5], "path": path,
-            "duplicate": duplicate}
+            "duplicate": owner[meta["id"]] != path}
 
 
 def _find_by_id(block_id: str, root: str | None):

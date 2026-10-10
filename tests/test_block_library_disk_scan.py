@@ -128,3 +128,39 @@ def test_unreadable_file_is_skipped(tmp_path):
     (folder / "Broken.fpdb").write_text("{not json")
     _drop(folder, "Good.fpdb", _defn("Good"))
     assert [e["name"] for e in bl.list_library(str(tmp_path))] == ["Good"]
+
+
+# -- load adopts the disk identity (G3, G4) -----------------------------------
+
+def test_g4_load_adopts_the_folder_over_the_stored_series(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    d = _defn("2x4", "Typical Details", "Wet Valve Schematics")   # folder-jump repro
+    path = _drop(tmp_path / "Typical Details" / "Dimensional Lumber", "2x4.fpdb", d)
+    ms = Model_Space()
+    ms.load_blocks_from_files([path], root=str(tmp_path))
+    got = ms.get_block_definition(d.id)
+    assert (got.library, got.series, got.name) == (
+        "Typical Details", "Dimensional Lumber", "2x4")
+
+
+def test_g3_copied_file_loads_as_a_separate_block(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    d = _defn("Corner")
+    folder = tmp_path / "Fire" / "Valves"
+    a = _drop(folder, "Corner.fpdb", d)
+    b = str(folder / "Corner v2.fpdb")
+    shutil.copyfile(a, b)
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([a, b], root=str(tmp_path))
+    assert s["loaded"] == ["Corner", "Corner v2"] and not s["refused"]
+    defs = {x.name: x for x in ms._block_definitions.values()}
+    assert defs["Corner"].id == d.id and defs["Corner v2"].id != d.id
+    assert bl.source_status(defs["Corner"], str(tmp_path)) == "library"
+    with open(b, encoding="utf-8") as fh:
+        assert json.load(fh)["id"] == d.id               # file untouched until Save
+    # Saving the copy writes over its own file -- not a collision
+    bl.save_to_library(defs["Corner v2"], root=str(tmp_path))
+    with open(b, encoding="utf-8") as fh:
+        assert json.load(fh)["id"] == defs["Corner v2"].id
+    with open(a, encoding="utf-8") as fh:
+        assert json.load(fh)["id"] == d.id               # the original is kept

@@ -2095,7 +2095,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         library copy is of the other ``kind`` (schematics.md D-S3).
         ``root`` overrides the library root.
         """
-        import os
         from . import block_library
         current = self._block_definitions.get(block_id)
         if current is None:
@@ -2103,9 +2102,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         found = block_library._find_by_id(block_id, root)
         if found is None:
             return False
-        library, series, filename, _meta = found
-        path = os.path.join(block_library._series_dir(root, library, series), filename)
-        loaded = block_library.load_block_file_with_bundle(path)
+        loaded = block_library.load_block_file_with_bundle(found[3]["path"])
         if loaded is None:
             return False
         lib_def, bundled = loaded
@@ -2139,10 +2136,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         nesting cycle over the project ∪ its bundle is refused with the reason
         ``"<name> (a block can't contain itself)"``; the rest of the batch
         still loads.
+
+        A file inside the library tree (*root*) takes its on-disk identity
+        first: Library / Series from its folder, name from its filename
+        (folder + filename win, 2026-10-10); a copied file whose id another
+        file owns (``duplicate``) gets a fresh id -- its own block. The file
+        itself is never rewritten here.
         """
+        import os
+        import uuid
         from . import block_library
         summary = {"loaded": [], "replaced": [], "skipped": [],
                    "refused": [], "failed": [], "missing": []}
+        on_disk = {os.path.normcase(os.path.abspath(e["path"])): e
+                   for e in block_library.list_library(root)}
         changed = False
         for path in paths:
             loaded = block_library.load_block_file_with_bundle(path)
@@ -2150,6 +2157,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 summary["failed"].append(path)
                 continue
             defn, bundled = loaded
+            entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
+            if entry is not None:
+                defn.library, defn.series = entry["library"], entry["series"]
+                defn.name = entry["name"]
+                if entry["duplicate"]:
+                    defn.id = uuid.uuid4().hex
             if self._load_would_cycle(bundled, defn):
                 summary["refused"].append(
                     f"{defn.name} ({block_library.LOOP_REASON})")
