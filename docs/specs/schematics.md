@@ -1,16 +1,16 @@
 ---
 status: current           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 built 2026-10-09 (Manager Kind column + gating, Duplicate, available_views group, kind frozen on load / reload). Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-10-09  # SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
-verified-commit: f2a059d6   # SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
+last-verified: 2026-10-10  # disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
+verified-commit: 73d16e2b   # disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
 applies-to:               # seams this contract governs (SV1–SV4 seams built); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog + template toggle / save_schematic_template / save_as_template only (rest: block-system.md)
-  - firepro3d/block_library.py        # `root=` reuse + one-tier root (empty tiers, root/Series index walk, index `kind`) + `KIND_REASON` + emptied-index removal (SV4) only (rest: block-system.md)
+  - firepro3d/block_library.py        # `root=` reuse + one-tier root (empty tiers, kind-based tier mapping in the disk walk) + `KIND_REASON` only (rest: block-system.md)
   - firepro3d/block_manager.py        # Kind column, per-row library-verb gating, templates-root Source, kind-keeping New From Selected (SV4) only (rest: block-system.md)
   - firepro3d/app_data.py             # `schematics_dir()` + `SCHEMATIC_DIR_KEY` + migration entry
   - firepro3d/schematic_new_dialog.py # New Schematic dialog (SV3)
   - firepro3d/settings/panes.py       # Schematics folder row only (rest: settings-dialog.md)
-  - firepro3d/blocks_browser.py       # `library_only_entries` skips schematic index entries only (rest: block-system.md)
+  - firepro3d/blocks_browser.py       # `library_only_entries` skips schematic entries only (rest: block-system.md)
   - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs (incl. Duplicate, SV4), drag payload (rest: project-browser.md)
   - firepro3d/paper_space.py          # `ViewResolver` schematic branch + `available_views` Schematics group (SV4), drop default, crop rule (rest: paper-space.md)
   - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal`, kind frozen on load / reload + `duplicate_block_definition` (SV4) (rest: model-space-architecture.md)
@@ -130,7 +130,7 @@ one mechanism by which block content reaches paper.
   its Series. Block identity rules are unchanged.
   *(SV3 delta, ratified 2026-10-09: an ungrouped template lives at the folder
   root — `<schematics>/<name>.fpdb` + a root `index.json`; empty tiers are
-  skipped, never a `_` folder.)*
+  skipped, never a `_` folder.)* *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)*
 - **D-S11c Templates bundle.** Save as Template bundles the nested block
   definitions (the shipped schema-2 `bundled` field) so a template opens on a
   fresh project with its symbols; loading adopts them with the existing same-id
@@ -239,7 +239,7 @@ one mechanism by which block content reaches paper.
   "schematic"` written for schematics only; the key is omitted for plain
   blocks (missing → `"block"`), so plain blocks serialize byte-identically
   (the LT5 `end` precedent; SV1 delta, ratified 2026-10-08).
-- `index.json` entry: `"kind"` next to `tile` / `repeat`.
+- `index.json` entry: `"kind"` next to `tile` / `repeat`. *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)*
 - `SheetViewData.source_view_type`: new value `"schematic"`;
   `source_view_name` holds the **definition id** (rename-stable); the display
   name is resolved at paint.
@@ -369,7 +369,10 @@ under D-S9 and D-S15.
   empty tiers; `_iter_index_entries` walks root / Series / Library-Series (a
   folder holding `index.json` is a leaf folder); index entries carry `kind` for
   non-block definitions; `blocks_browser.library_only_entries` skips schematic
-  entries; `load_failure_message(noun=)`.
+  entries; `load_failure_message(noun=)`. *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)* The tier
+  mapping now comes from each file's `kind`; New Schematic loads with
+  `root=schematics_dir()` and opens the id the load resolved (a copied
+  template opens as its own schematic).
 - **Save as Template (D-S6, D-S11c, D-S11d).** `block_editor.save_schematic_template`
   (bundle, Overwrite / Rename / Cancel, rename via `set_block_metadata` + retry);
   `BlockEditorWidget.save_as_template`; `MainWindow._be_save_template` button
@@ -418,7 +421,8 @@ run, no branch). Code homes only — the decisions stay owned above (Rule A).
   ribbon Save as Template whose Save dialog toggle already wrote the template
   writes once (`_save_to_library` returns the path). (b)
   `block_library.delete_from_library` removes an index it emptied, so the last
-  ungrouped template leaves no `{}` root `index.json`. (c) recorded under
+  ungrouped template leaves no `{}` root `index.json` (superseded 2026-10-10:
+  no index is written at all). (c) recorded under
   D-S14, no code change.
 - **Guards.** `tests/test_sv4_kind_swap.py` (3), `tests/test_sv4_polish.py`
   (10, incl. the MainWindow Duplicate path); SV1's "Manager hides schematics"
