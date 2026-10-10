@@ -242,20 +242,19 @@ def test_paper_tab_has_blocks_row_under_drafting(qapp):
 
 
 def test_placement_ghost_never_plots(qapp):
-    """A ghost-flagged BlockInstance is hidden for the pass, restored after."""
+    """The placement ghost is the Paste-style trace of a free-standing
+    prototype (2026-10-10): never a scene item, so a paper pass can't plot it."""
     ms = _scene_with_blocks()
     ms._place_block_id = ms._block_instances[0].block_id
     ms._place_block_make_ghost()
     g = ms._place_block_ghost
-    assert g is not None and g.isVisible()
+    assert g is not None and g.scene() is None and g not in ms.items()
     saved = pd.apply_paper_overrides(ms, _crop(0.02), paper_scale=0.02)
     try:
-        assert not g.isVisible()
-        assert g.opacity() == 0.5 and g._paper_pen_width is None
+        assert g._paper_pen_width is None                  # untouched by the pass
         assert ms._block_instances[0]._paper_pen_width is not None
     finally:
         pd.restore_model_display(saved)
-    assert g.isVisible() and g.opacity() == 0.5
     ms._place_block_drop_ghost()
 
 

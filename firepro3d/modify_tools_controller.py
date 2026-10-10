@@ -1804,6 +1804,16 @@ class ModifyToolsController:
                 for seg in obj.get("pipes", []):
                     p.moveTo(c.x(), c.y()); p.lineTo(seg.get("x", 0.0), seg.get("y", 0.0))
                 paths.append(p)
+            elif t == "block_instance":
+                # L204: a pasted block previews like any other copy -- a
+                # free-standing instance (never added to the scene) traced.
+                from .block_instance import BlockInstance
+                try:
+                    inst = BlockInstance.from_dict(
+                        obj, resolver=self._scene.get_block_definition)
+                except Exception:
+                    continue
+                paths.extend(ghost_base_paths([inst]))
             elif t in geom_ctors:
                 try:
                     item = geom_ctors[t].from_dict(obj)

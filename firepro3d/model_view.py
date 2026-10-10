@@ -660,6 +660,7 @@ class Model_View(QGraphicsView):
         prev_tpl = (sc._place_block_id if prev_mode == "place_block"
                     else getattr(sc, "current_template", None))
         self._block_drag = {"prev_mode": prev_mode, "prev_template": prev_tpl,
+                            "prev_rot": getattr(sc, "_place_block_rot", 0.0),
                             "payload": payload, "name": defn.name}
         sc.set_mode("place_block", template=payload["id"])
         if pool:
@@ -672,7 +673,7 @@ class Model_View(QGraphicsView):
             if g is not None:
                 g._resolver = (lambda i, t=defn:
                                t if i == t.id else sc.get_block_definition(i))
-                g.on_definition_changed()
+                sc._place_block_refresh_ghost()
 
     def _end_block_drag(self, sc) -> None:
         """Leave the drag's place_block and restore the remembered mode."""
@@ -680,6 +681,11 @@ class Model_View(QGraphicsView):
         self._block_drag = None
         if st is not None and sc is not None:
             sc.set_mode(st["prev_mode"] or "select", template=st["prev_template"])
+            if st["prev_mode"] == "place_block":
+                # set_mode starts a placement upright; an interrupted one keeps
+                # the rotation the user gave it (review M2).
+                sc._place_block_rot = st.get("prev_rot", 0.0)
+                sc._place_block_refresh_ghost()
 
     def _abort_block_drag(self, event, stage: str) -> None:
         """Log the in-flight exception, drop all block-drag state, ignore.

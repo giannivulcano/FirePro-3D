@@ -57,6 +57,18 @@ def _click(view, scene_pt):
     QApplication.processEvents()
 
 
+def _ghost_origin(sc):
+    """Where the Paste-style placement ghost's origin sits: the top-left of
+    its traced paths (these test blocks run (0,0) -> (+X, 0)); None when no
+    ghost is shown. The ghost is never a scene item (2026-10-10)."""
+    if not sc._move_ghost:
+        return None
+    r = sc._move_ghost[0].boundingRect()
+    for p in sc._move_ghost[1:]:
+        r = r.united(p.boundingRect())
+    return (round(r.left(), 3), round(r.top(), 3))
+
+
 def _scene_with_snap_target():
     sc = Model_Space()
     d = _def(sc)
@@ -80,13 +92,13 @@ def test_one_click_places_at_snapped_point_0deg_one_undo_and_rearms(qapp):
         # the mode stays live with a fresh ghost that is NOT a placed instance
         assert sc.mode == "place_block"
         g = sc._place_block_ghost
-        assert g is not None and g.scene() is sc
-        assert g not in sc._block_instances
+        assert g is not None and g.scene() is None       # Paste-style ghost (2026-10-10)
+        assert _ghost_origin(sc) == (-100.0, 0.0)
         assert g.block_rotation() == 0.0
         # a second click places a second instance (still 0 deg) exactly where
         # the ghost showed the snapped cursor (grid/other snaps may apply here)
         _hover(v, QPointF(200, 150))
-        shown_at = sc._place_block_ghost.block_pos()
+        shown_at = _ghost_origin(sc)
         assert shown_at == pytest.approx((200.0, 150.0), abs=10.0)
         _click(v, QPointF(200, 150))
         assert len(sc._block_instances) == 2
@@ -99,8 +111,7 @@ def test_one_click_places_at_snapped_point_0deg_one_undo_and_rearms(qapp):
         QTest.keyClick(v.viewport(), Qt.Key.Key_Escape)
         QApplication.processEvents()
         assert sc.mode != "place_block"
-        assert sc._place_block_ghost is None
-        assert g.scene() is None
+        assert sc._place_block_ghost is None and _ghost_origin(sc) is None
         sc.undo()                                            # one Ctrl+Z = one placement
         assert len(sc._block_instances) == 1
     finally:

@@ -37,6 +37,18 @@ def _line_def(name, extra=()):
                                primitives=prims, origin=(0.0, 0.0))
 
 
+def _ghost_origin(sc):
+    """Where the Paste-style placement ghost's origin sits: the top-left of
+    its traced paths (these test blocks run (0,0) -> (+X, 0)); None when no
+    ghost is shown. The ghost is never a scene item (2026-10-10)."""
+    if not sc._move_ghost:
+        return None
+    r = sc._move_ghost[0].boundingRect()
+    for p in sc._move_ghost[1:]:
+        r = r.united(p.boundingRect())
+    return (round(r.left(), 3), round(r.top(), 3))
+
+
 def _leaf(browser, name, library_only=False):
     """The tree leaf called *name* (``library_only``: the italic one)."""
     from firepro3d.blocks_browser import _ROLE_PATH
@@ -153,17 +165,16 @@ def test_ghost_follows_during_drag(qapp, tmp_path):
     br = BlocksBrowser(sc, root=str(tmp_path))
     try:
         _drag(v, _mime_for(br, "B"), [QPointF(0, 0), QPointF(55, -40)], drop=False)
-        g = sc._place_block_ghost
-        assert g is not None and g.block_pos() == pytest.approx((55.0, -40.0), abs=1.0)
+        assert _ghost_origin(sc) == pytest.approx((55.0, -40.0), abs=1.0)
+        assert sc._place_block_ghost.scene() is None       # never a scene item
         # mid-drag near the endpoint: the ghost sits on the SNAPPED point
         mv = QDragMoveEvent(v.mapFromScene(QPointF(-103, 2)), Qt.DropAction.CopyAction,
                             _mime_for(br, "B"), Qt.MouseButton.LeftButton,
                             Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(v.viewport(), mv)
-        assert sc._place_block_ghost is g
-        assert g.block_pos() == (-100.0, 0.0)
+        assert _ghost_origin(sc) == (-100.0, 0.0)
         QApplication.sendEvent(v.viewport(), QDragLeaveEvent())
-        assert sc._place_block_ghost is None
+        assert sc._place_block_ghost is None and _ghost_origin(sc) is None
         assert sc.mode != "place_block"
     finally:
         sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
@@ -275,9 +286,9 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
         # the mode stays armed with a fresh ghost; a second click nests another
         assert es.mode == "place_block"
         g = es._place_block_ghost
-        assert g is not None and g.scene() is es and g not in es._block_instances
+        assert g is not None and g.scene() is None and _ghost_origin(es) is not None
         _hover(w.view, QPointF(-60, 45))
-        shown_at = es._place_block_ghost.block_pos()    # the snapped cursor
+        shown_at = _ghost_origin(es)                    # the snapped cursor
         _click_place(w.view, QPointF(-60, 45))
         assert [(i.block_id, i.block_rotation()) for i in es._block_instances] == \
             [(b.id, 0.0), (b.id, 0.0)]
@@ -288,7 +299,7 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
         QTest.keyClick(w.view.viewport(), Qt.Key.Key_Escape)
         QApplication.processEvents()
         assert es.mode != "place_block"
-        assert es._place_block_ghost is None and g.scene() is None
+        assert es._place_block_ghost is None and _ghost_origin(es) is None
         assert len(es._block_instances) == 2
     finally:
         w.editor_scene.set_mode("select")
@@ -533,6 +544,9 @@ def _dclick_leaf(win, name, library_only=False):
     leaf = _leaf(win.blocks_browser, name, library_only)
     tree.scrollToItem(leaf)
     QApplication.processEvents()
+    # A refresh during those events (e.g. a tab switch) rebuilds the tree and
+    # deletes the item: look it up again before reading its rect.
+    leaf = _leaf(win.blocks_browser, name, library_only)
     at = tree.visualItemRect(leaf).center()
     # The OS sequence: press+release, then the double-click press+release.
     QTest.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton,
@@ -788,3 +802,45 @@ def test_g2_editor_scene_paste_skips_schematic_instances(qapp):
         assert shown == [SCHEMATIC_REASON]
     finally:
         mgr.close(w); tabs.deleteLater(); proj.cleanup(); QApplication.processEvents()
+
+
+def test_space_rotates_the_first_placement_after_a_browser_double_click(qapp, main_window):
+    """Review I1 (2026-10-10 placement batch): after a Blocks-browser
+    double-click, Space reaches the scene before the first click -- no
+    explicit setFocus here, the real entry path only. Regression guard: in
+    this harness focus already lands on a visible plan tab without the
+    hand-off (it was not RED-provable here); the hand-off covers the live
+    case the review probe showed (focus left on the tree)."""
+    from firepro3d.halo import halo_scene_path
+    proj = main_window.scene
+    b = _line_def("B_SPACE")
+    proj.register_block_definition(b)
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    QApplication.processEvents()
+    try:
+        main_window._activate_plan_view(proj.active_level)  # the visible plan tab
+        QApplication.processEvents()
+        v = main_window.central_tabs.currentWidget()
+        assert isinstance(v, Model_View) and v.isVisible() and v.scene() is proj
+        _dclick_leaf(main_window, b.name)
+        assert proj.mode == "place_block"
+        v.resetTransform()
+        v.centerOn(0, 0)
+        QApplication.processEvents()
+        _hover(v, QPointF(20, 30))
+        # Space goes wherever keyboard focus is -- exactly as the OS delivers it
+        fw = QApplication.focusWidget()
+        QApplication.sendEvent(fw, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space,
+                                             Qt.KeyboardModifier.NoModifier, " "))
+        QApplication.processEvents()
+        _click_place(v, QPointF(20, 30))
+        inst = [i for i in proj._block_instances if i.block_id == b.id][-1]
+        r = halo_scene_path(inst).boundingRect()
+        # line (0,0)->(100,0) turned 90 deg CW on screen: it now runs down
+        assert round(r.width()) == 0 and round(r.height()) == 100
+    finally:
+        proj.set_mode("select")
+        _drop_lib_instances(proj, b.id)
+        _forget_defs(proj, b)
+        QApplication.processEvents()
