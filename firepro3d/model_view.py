@@ -820,6 +820,12 @@ class Model_View(QGraphicsView):
     # -----------------------------
     def showEvent(self, event):
         super().showEvent(event)
+        if not self._first_show:
+            # A re-show (plan / detail / Block Editor tab switch) changes
+            # which view's zoom the scene's bounds read (ET1 spec C); the
+            # first show notifies through its fitInView below.
+            self._notify_zoom()
+            return
         if self._first_show:
             self._first_show = False
             if self._pending_fit_rect is not None:

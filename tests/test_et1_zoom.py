@@ -1,7 +1,7 @@
 """ET1 G6 -- a view zoom re-prepares exactly the items that drew a
 Fixed-size end, so their scene bounds follow the zoom (spec C)."""
 from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt
-from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtGui import QTransform, QWheelEvent
 
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
@@ -69,6 +69,38 @@ def test_g6_zoom_out_grows_fixed_size_end_bounds(qapp):
         assert any(r.contains(new_extent) for r in dirty), dirty
     finally:
         v.close()
+
+
+def test_g6_tab_switch_re_prepares_for_the_shown_view(qapp):
+    """Plan / detail / Block Editor tabs are separate views on one scene and
+    bounds read the visible view's zoom: re-showing a view (a tab switch)
+    re-prepares the Fixed-size-end items at that view's zoom."""
+    ms, ln = _scene("fixed")
+    a = _view(ms, 1.0)
+    b = _view(ms, 1.0)                  # both shown once: first-show fit consumed
+    try:
+        a.setTransform(QTransform.fromScale(1.0, 1.0))
+        a.centerOn(1000, 0)
+        b.setTransform(QTransform.fromScale(0.05, 0.05))
+        b.centerOn(1000, 0)
+        b.hide()
+        a.viewport().repaint()
+        qapp.processEvents()
+        assert ln in ms._screen_end_items                       # A's paint marked it
+        before = ln.sceneBoundingRect().height()
+        a.hide()
+        dirty = _dirty(ms)
+        b.show()                                                # the tab switch
+        qapp.processEvents()
+        after = ln.sceneBoundingRect()
+        assert after.height() > before * 2, (before, after)     # B's zoom (live)
+        far_tip = QRectF(1990.0, after.center().y() - 1.0, 20.0, 2.0)
+        assert ln in ms.items(far_tip)
+        # The show hook's prepareGeometryChange invalidates the grown extent.
+        assert any(r.contains(after) for r in dirty), dirty
+    finally:
+        a.close()
+        b.close()
 
 
 def test_g6_fit_notifies_the_scene(qapp):
