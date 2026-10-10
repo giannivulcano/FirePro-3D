@@ -1,7 +1,7 @@
 ---
-status: proposal   # designed 2026-10-09, unbuilt; on build folded into an "ET1 — as built" section of linetypes.md (Rule A)
-last-verified: 2026-10-09
-verified-commit: bee3c3cc
+status: current   # BUILT 2026-10-10 on feat/et1-end-sizing; as-built home = linetypes.md "ET1" (Rule A). Smoke amendments: schematic editors follow the drawing scale (Q2 retired), Model scale (Q12) added, a hidden x10 model factor (Q11) built then reverted -- see "Smoke amendments" below
+last-verified: 2026-10-10
+verified-commit: e221ca0e
 applies-to:
   - firepro3d/end_render.py          # k per end: printed | screen, × per-use scale; short-stroke gate; memo keys
   - firepro3d/end_authoring.py       # SEED, On screen field, Size retired
@@ -56,6 +56,9 @@ authoring preview before LT7 ships the System End Types.
 - **Q2 Which scale.** Block editors follow the project drawing scale through
   the same chokepoint that syncs units and precision (`_seed_editor_units`);
   **schematic editors keep real size** (NTS content has no scale).
+  *(Retired at smoke 2026-10-10: schematics are built from model-size blocks,
+  so schematic editors follow the drawing scale too; only the sheet-render
+  scene stays 1:1. See "Smoke amendments".)*
 - **Q3 Caps.** Line weight sizing goes; Fixed (1 authored mm = 1 printed mm)
   is the only size. Flat / Round / Square caps are **retired from the LT7
   catalog** (a weight-tracking cap is a pen property, and LT5-3 already draws
@@ -179,9 +182,14 @@ authoring preview before LT7 ships the System End Types.
 - `Model_View.wheelEvent` (and any other zoom step: fit, keyboard zoom —
   every path that calls `self.scale()`; grep at build) calls
   `scene.view_zoom_changed()` after the transform change, which runs
-  `prepareGeometryChange()` on the registered items and clears the set (a
-  later paint re-registers). Cost bounded by items that actually draw
-  Fixed-size ends; nothing for Scale-with-zoom ends or end-less scenes.
+  `prepareGeometryChange()` on the registered items. Cost bounded by items
+  that actually draw Fixed-size ends; nothing for Scale-with-zoom ends or
+  end-less scenes. *(As built: the set is **not** cleared on zoom --
+  `mark_screen_ends` returns early on an unchanged state, so a cleared item
+  would never re-register; membership mirrors `_screen_ends`. Items also
+  register at bounds time (a zoom before the first paint), dead wrappers are
+  dropped, `_clear_scene` empties the set, and a view re-show (tab switch)
+  and a `fitInView` override notify too.)*
 - *Rejected:* a scene-wide `prepareGeometryChange` on zoom (O(n) every
   wheel step); sizing bounds for the largest possible reach (unbounded as
   the view zooms out).
@@ -268,6 +276,32 @@ authoring preview before LT7 ships the System End Types.
   end-override design task gets "per-use On screen override belongs here";
   the "Line-weight end bounds" bug and LT5 leftovers (b) and (d) close as
   superseded.
+
+## Smoke amendments (user-ratified 2026-10-10)
+
+- **Schematic editors follow the drawing scale** (retires Q2): a line's end
+  looked right in a block editor and tiny in a schematic editor -- schematics
+  are built from the same model-size blocks. Both editor kinds take the
+  project drawing scale via `_seed_editor_units`; the sheet-render scene stays
+  1:1.
+- **Q11, rejected:** a hidden x10 model-canvas factor x a per-end-type "Model
+  size" multiplier (1x = ten times the printed size) was built and reverted
+  ("10 is too much"). A project-setting home for a model multiplier was also
+  rejected.
+- **Q12 Model scale** (built): per end type, default **Project** (the scene
+  drawing scale); pick 1:N from `paper_space.SCALE_PRESETS` (1:30 added;
+  presets only -- the panel Selector is not editable). On model canvases a
+  Scale-with-zoom end draws at N x the per-end Scale; a line end can override
+  it ("By End Type (...)"). Paper and Fixed-size ends ignore it. Stored as
+  `model_scale` (denominator) on the end record and the line per-end record;
+  a fresh cut end drops it.
+- **Fresh cut ends drop `scale`** (seam ruling, confirmed at smoke).
+- Found at smoke: the project drawing scale has **no UI** (every project is
+  1:100 unless the `.fpd` is hand-edited) -- follow-up filed.
+- Wording: Q7's "sum of its Fixed-size trims" is built as s0 + s1 (both ends'
+  trims) with at least one Fixed-size end drawn. The panel's Scale row only
+  accepts numbers (a typed "×" is rejected by the float validator; the
+  suffix label shows it), so "`2×` parses" holds below the panel only.
 
 ## Acceptance Criteria
 

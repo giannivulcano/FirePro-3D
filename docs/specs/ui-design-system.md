@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-10-06  # LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: b9b1094   # LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-10-10  # ET1 Account: new "Tooltips" section verified against firepro3d/tooltips.py + the G7 guards; prior LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: e221ca0e   # ET1 tooltip wrap (Tooltips section only); prior b9b1094 LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -10,6 +10,7 @@ applies-to:
   - firepro3d/ui_kit.py             # new (this spec)
   - firepro3d/colour_picker.py      # house colour picker (D6, todo #70)
   - firepro3d/themed_message.py
+  - firepro3d/tooltips.py           # ET1 — app-wide tooltip wrap filter ("Tooltips")
   - firepro3d/underlay_manager.py
   - firepro3d/underlay_import_dialog.py
   - firepro3d/block_manager.py
@@ -497,6 +498,26 @@ follows these rules so every column reads as a proper rail:
 6. **Small fixed choice-sets → `SwitchBar(expanding=False)`** (orientation, corner,
    alignment, sizing): content-fit segments, selected segment SOLID accent. Larger/open
    sets stay a `QComboBox`.
+
+## Tooltips (ET1, 2026-10-10)
+
+- **Every control explains itself** (project rule; the property panel's
+  `tooltip` meta key — `property-panel.md` §3).
+- **Width cap, one chokepoint.** `firepro3d/tooltips.py` installs one
+  `QApplication` event filter (`install(app)` in `main()`, idempotent). A
+  widget's *plain* `toolTip()` whose longest line is wider than
+  `constants.TOOLTIP_MAX_PX` (360 px at `QToolTip.font()`) is shown as
+  width-capped rich text (`<table width=…>`; newline → `<br>`; trailing
+  newlines dropped; the widget's `toolTipDuration()` kept). Shorter tips and
+  rich-text tips are left to the widget, pixel-identical.
+- **Authored breaks.** Multi-item tips put a `\n` between items (e.g. one line
+  per option of an enum). Every `*_TIP` in `geometry_2d.py` /
+  `capability_panel.py` stays ≤ 360 px per line (guard
+  `tests/test_et1_tooltips.py`).
+- **Not covered** (they don't come from the widget's `toolTip()`): per-cell
+  model tips (`ToolTipRole`), `QMenu` action tips, `QTabBar` tab tips. A widget
+  that shows per-sub-element tips from its own `event()` *and* carries a long
+  `toolTip()` would have the sub-element tip pre-empted (none today).
 
 ## Acceptance Criteria
 

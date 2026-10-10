@@ -1,7 +1,7 @@
 ---
-status: partial          # LT5 BUILT 2026-10-08 (end capability: end types as blocks, per-line + linetype-default ends, Fixed / Line weight sizing, trim, mirror, closing clears ends, End type mode, End Types folder, integrity); WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT6–LT8, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
-last-verified: 2026-10-08  # LT5 Account (LT5 section as built: LT5-1..15, how, guards; D-L7 / D-L8b / D-L23e / LTS-9f amendment pointers; applies-to LT5 seams); prior WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: 220b5b55   # LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+status: partial          # ET1 BUILT 2026-10-10 (end sizing: Fixed only, per-end Scale, On screen, Model scale + line override, editors at the drawing scale, zoom hook, tooltip wrap -- see "ET1"); LT5 BUILT 2026-10-08 (end capability: end types as blocks, per-line + linetype-default ends, Fixed / Line weight sizing, trim, mirror, closing clears ends, End type mode, End Types folder, integrity); WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT6–LT8, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
+last-verified: 2026-10-10  # ET1 Account (ET1 section as built: ET1-1..10, how, guards, residuals; LT5-4 / D-L8b / LTS-9f / LTS-7 amendment pointers; applies-to ET1 seams); prior LT5 Account (LT5 section as built: LT5-1..15, how, guards; D-L7 / D-L8b / D-L23e / LTS-9f amendment pointers; applies-to LT5 seams); prior WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: e221ca0e   # ET1 Account (feat/et1-end-sizing); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
   - firepro3d/crisp_stroke.py        # MW — split_axis / SplitCache / stroke / stroke_cached, the crisp H/V axis-split (H-MW-f)
   - firepro3d/settings/panes.py      # MW: UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
@@ -26,16 +26,18 @@ applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams 
   - firepro3d/geometry_2d.py         # Geometry2DMixin style record + LT3 stroke_pieces / paint routing / panel Linetype + Weight rows; WM1 stroke_rows + GeometryTemplate rows; LT4 stroke_rows locked= + the template's locked linetype-unit rows; LTS _lt_args + device-scale/fixed= routing only (the rest is owned by 2d-geometry.md); WM2: stroke_rows(placement=) + block-only label filter
   - firepro3d/geometry_drawing_controller.py  # WM1: apply_current at the 7 draw commits only
   - firepro3d/placement_input_coordinator.py  # WM1: scene-aware GeometryTemplate only
-  - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore; LT4: ribbon Linetype toggle (_be_toggle_linetype / _be_toggle_capability / _sync_capability_buttons) only
+  - main.py                          # WM1: _GEOMETRY_DRAW_MODES template routing + current save/restore; LT4: ribbon Linetype toggle (_be_toggle_linetype / _be_toggle_capability / _sync_capability_buttons) only; ET1: _seed_editor_units drawing-scale sync (block + schematic editors)
   - firepro3d/block_explode.py      # WM2: _bake (placement override onto exploded primitives) + compose_overrides onto nested children only (rest owned by block-system.md)
   - firepro3d/block_library.py      # WM2: used_weight_names counts nested-record override weights only (rest owned by block-system.md)
-  - firepro3d/scene_io.py           # WM2: file-open block loop passes overrides= only
-  - firepro3d/end_render.py         # LT5 — EndDef, end_trims / paint_ends / ends_rect, end-frame memo
-  - firepro3d/end_authoring.py      # LT5 — End type seed, Size / Trim fields, preview painter
+  - firepro3d/scene_io.py           # WM2: file-open block loop passes overrides= only; ET1: _clear_scene empties _screen_end_items
+  - firepro3d/end_render.py         # LT5 — EndDef, end_trims / paint_ends / ends_rect, end-frame memo; ET1 — end_scales (one k rule), screen_factor, short_on_screen, has_fixed, badges_only, mark_screen_ends, model_scale_of
+  - firepro3d/end_authoring.py      # LT5 — End type seed, Trim field, preview painter; ET1 — On screen / Model scale fields (Size retired)
   - firepro3d/end_frame.py          # LT5 — EndFrame (attach glyph, sample line, trim grip)
   - firepro3d/capabilities.py       # LT5 — capability kind table, place refusal, one picker source (tile / repeat / end)
   - firepro3d/app_data.py           # LT5: end_types_dir / END_DIR_KEY only
-  - firepro3d/model_view.py         # LT5: block drag gate via capability_place_reason only
+  - firepro3d/model_view.py         # LT5: block drag gate via capability_place_reason only; ET1: _notify_zoom (wheel, fit_to_screen, fitInView override, showEvent re-show)
+  - firepro3d/scene_tools.py        # ET1: _fresh_end drops per-end scale / model_scale only (rest owned by scene-tools.md)
+  - firepro3d/schematic_scene.py    # ET1: sheet-render scene drawing scale 1:1 only (rest owned by schematics.md)
   - firepro3d/hatch_patterns.py     # LT5: tile_choices / ensure_pattern_available as capabilities thin callers only
 source-tasks: ["Concept: user-definable linetypes as blocks — end types, dash-dot spacing + configuration, lineweight at definition vs host level (2026-10-02)"]
 ---
@@ -157,6 +159,8 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   (units of line weight). System caps ship weight-relative; arrows, ticks, dots
   ship Fixed. *(LT5-4: UI label "Line weight"; on canvas it is screen-constant
   with the line's cosmetic width; Fixed follows the Drafting rule.)*
+  *(Amended 2026-10-10 by ET1-3: Weight-relative / Line weight retired; caps
+  leave the LT7 catalog; every end is Fixed.)*
 - **D-L10 End data.** End blocks may hold `@[key]` attribute text (System
   Blocks F3) resolved from the placement that owns the line; Fixed sizing;
   `keep_upright`; missing source → `?`. Repeat units stay static.
@@ -1468,7 +1472,10 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   vanishes inside a gap (whole item, not per segment; inside a placed block
   the unit is each primitive's stroke op, exactly as if drawn raw — build
   Phase-2 Δ2, 2026-10-06). D-L21's < 2 px LOD
-  keeps applying to Scale-with-zoom linetypes. Paper is exact.
+  keeps applying to Scale-with-zoom linetypes. Paper is exact. *(ET1-7
+  applies the same idea to Fixed-size ends: a stroke too short for its trims
+  on a model canvas draws plain; ET1-5 reuses this LTS-2 scope via
+  `screen_fixed_here`.)*
 - **LTS-8 Performance** (Q9). On the D-L21 bench scene with every linetype
   Fixed, in both shapes — (A) few items carrying 2,000 segments, (B) 200
   placed instances of a block with Hidden lines — one wheel-zoom frame is
@@ -1496,7 +1503,8 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   (LT3-6); (d) each detail view uses its own zoom; (e) linetyped lines inside
   placed blocks follow the linetype's On screen like raw lines; (f) LT6
   symbols in a Fixed unit scale with the pattern (the whole unit is in px);
-  LT5 end blocks keep their own sizing (answered by LT5-4: never screen-constant);
+  LT5 end blocks keep their own sizing (answered by LT5-4: never screen-constant;
+  *amended by ET1-5: an end type has its own On screen row*);
   (g) `.fpdb` bundles and library files carry the property.
 
 ### How (H-LTS-a–f) — as built
@@ -1889,7 +1897,10 @@ standalone (Test-harness Invariant 8).
   so the end is screen-constant like the line itself (smoke ruling
   2026-10-08: kept, labelled "Line weight" with a canvas-vs-paper tooltip);
   on paper, printed mm. Trim ≥ 0 in the same units, along the path; trims ≥
-  the length → no stroke, both ends draw.
+  the length → no stroke, both ends draw. *(Amended 2026-10-10 by "ET1": Line
+  weight sizing retired — Fixed is the only size; the Block Editor previews at
+  the drawing scale; per-end Scale, On screen and Model scale; a short stroke
+  on a model canvas with a Fixed-size end draws plain — see ET1-1..ET1-7.)*
 - **LT5-5 Orientation** (Q6). −X points from the endpoint to the trim point
   (chord); trim 0 → endpoint tangent.
 - **LT5-6 Look** (Q7). All end content draws in the using line's pen colour
@@ -1974,6 +1985,112 @@ text / hatch), `test_lt5_mainwindow.py` (E10), `test_lt5_perf.py` (report-only).
 Known gaps (filed): Q4 beside a Fixed-on-screen linetype, Q6/Q9 not driven
 reflect → paint → PDF end to end.
 
+## ET1 — End-type sizing polish (ratified 2026-10-09; BUILT 2026-10-10)
+
+> Feature run on `feat/et1-end-sizing` (base `bee3c3cc`). *What* = Phase-2
+> grill Q1–Q10 (user-ratified 2026-10-09) + smoke rulings (2026-10-10);
+> *how* + rejected options =
+> `docs/superpowers/specs/2026-10-09-et1-end-sizing-design.md`. **Amends**
+> LT5-4 (Fixed is the only size; per-use Scale; On screen; Model scale),
+> D-L8b (Line weight sizing retired; caps leave the LT7 catalog), LTS-9f (ends
+> follow their own On screen) and LTS-2 / LTS-7 (scope and short rule cover
+> Fixed-size ends).
+
+### What (Q1–Q10 + smoke rulings)
+
+- **ET1-1 Editor preview** (Q1, smoke ruling 2026-10-10). Block **and
+  schematic** editors preview Scale-with-zoom ends and Drafting linetypes at
+  the project drawing scale, like the plan canvas (`printed_factor`: role
+  `plan` / `block_editor` → drawing scale). The schematic sheet-render scene
+  stays 1:1 (paper only). *Q2's "schematic editors keep real size" was retired
+  at smoke: schematics are built from model-size blocks.*
+- **ET1-2 Drawing scale source.** The project drawing scale reaches open
+  editors through `MainWindow._seed_editor_units` (block + schematic kinds).
+  The drawing scale has **no UI** today (a new project is 1:100; `.fpd` key
+  `drawing_scale`) — follow-up filed.
+- **ET1-3 One size** (Q3/Q4). Fixed (1 authored mm = 1 printed mm) is the only
+  end size. The record is `{"trim"[, "screen": "fixed"][, "model_scale": N]}`;
+  a stored `size` (incl. `weight_relative`) is read and dropped on load (no
+  format bump). Flat / Round / Square caps leave the LT7 catalog.
+- **ET1-4 Per-use Scale** (Q5). Each line end may carry `scale` (0.1–10,
+  written only when ≠ 1; out-of-range stored values are dropped on load). It
+  multiplies k, Trim included, on every surface. Rows Start / Finish Scale
+  (string row, "×" suffix; the panel's float validator rejects a typed "×").
+- **ET1-5 On screen** (Q6). Per end type: **Fixed size** (printed mm ×
+  `FIXED_END_PX_PER_MM` px at any zoom on model canvases; LTS-1–3 parity) |
+  **Scale with zoom**. New end types seed Fixed size; a stored end without
+  the key is Scale with zoom. Sheets / PDF always print true mm.
+- **ET1-6 Model scale** (smoke amendment Q12). Per end type, default
+  **Project** (= the scene drawing scale); pick 1:N from
+  `paper_space.SCALE_PRESETS` (1:30 added; presets only — the panel Selector
+  is not editable). On model canvases a Scale-with-zoom end draws at N × the
+  per-end Scale (a 3 mm arrow at 1:30 → 90 mm). A line end can override it
+  (`model_scale` on the per-end record; "By End Type (…)" head). Paper and
+  Fixed-size ends ignore it. *Rejected at smoke: a hidden ×10 model factor +
+  per-end-type "Model size" multiplier (built, then reverted — "10 is too
+  much"); a project-setting home.*
+- **ET1-7 Short stroke** (Q7). On a model canvas, a stroke whose length is ≤
+  its trims s0 + s1 with a Fixed-size end drawn draws plain, no heads (whole
+  item; per stroke op in a placed block). Paper keeps LT5-4.
+- **ET1-8 Rows** (Q10). End-type editor: End type · On screen · Model scale ·
+  Trim (project length) · Preview. Lines: per end End · Visible · Scale ·
+  Model scale. One undo step per edit incl. a two-line multi-selection;
+  hidden on closed items / the Geometry template / placements; locked in
+  capability editors. The editor sample line and panel swatches stay printed /
+  real (LTS-6 parity).
+- **ET1-9 Fresh cut ends** (seam ruling, confirmed at smoke). Trim / Break /
+  Fillet / Chamfer reset a cut end to By Linetype and drop its `scale` and
+  `model_scale`; `mirrored` is kept (LT5-8).
+- **ET1-10 Tooltips** (Q8). One app-level filter wraps a plain tip whose
+  longest line exceeds `TOOLTIP_MAX_PX` (360) — convention owned by
+  `ui-design-system.md` "Tooltips".
+
+### How — as built
+
+`end_render.end_scales(ed, e, *, printed, screen)` is the one place k is
+decided: model canvas (`screen` not None) + Fixed size → screen factor;
+model canvas + Model scale (`model_scale_of`: line → end type) → N; else
+`printed`; × `e.scale`. `screen_factor` / `linetype_render.screen_fixed_here`
+(the LTS-2 scope, shared with `fixed_on_canvas`), `short_on_screen`,
+`has_fixed`, `badges_only`. `paint_ends` returns whether it drew at the
+screen factor; `mark_screen_ends` keeps `Model_Space._screen_end_items`
+(WeakSet) in step — set from paint (model canvases only, never a paper
+pass) **and** from bounds (`_ends_rect` / `_ends_pad`), so a zoom before the
+first paint still re-prepares. **Membership mirrors `_screen_ends`; the set
+is not cleared on zoom** (design C said it was — superseded); dead wrappers
+are dropped and `_clear_scene` empties it. `Model_View._notify_zoom` →
+`Model_Space.view_zoom_changed` fires on wheel, `fit_to_screen`, a
+`fitInView` override (covers detail-view / model-browser callers) and every
+re-show (tab switch). Placed bounds: `_end_pad_rows` = (printed_all,
+printed_scale_only, screen, model, missing). A drawing-scale change in an
+open editor re-prepares its styled items and block instances.
+
+### ET1 guards (VC3) — as built
+
+`tests/test_et1_record.py` (record, normalisers, parse), `test_et1_raw.py`
+(G3/G4/G5 raw + PDF, paper-pass mark, keyless end), `test_et1_placed.py`
+(G3/G4/G5 placed incl. linetyped op path), `test_et1_zoom.py` (G6: wheel,
+fit, tab re-show, bounds-time registration, dead wrapper, reset),
+`test_et1_editor_scale.py` + `test_et1_mainwindow_scale.py` (G1),
+`test_et1_rows.py` (rows, two-line real panel), `test_et1_model_scale.py`
+(Q12), `test_et1_roundtrip.py` (.fpd / .fpdb / paste / Explode),
+`test_et1_cut_ends.py`, `test_et1_tooltips.py` (G7). Perf report-only
+(`test_lt5_perf.py` raw 1.76× / block 2.59× / raw-fixed 1.82× vs end-less;
+residual with LT8).
+
+### Residuals (filed)
+
+- A drawing-scale change on the **plan** only repaints (no
+  `prepareGeometryChange`; NoIndex makes it low severity).
+- A detail view shares the plan scene; bounds read the visible view's zoom,
+  so two simultaneously visible views at different zooms can under-bound a
+  Fixed-size end in the other view.
+- An item moved to another scene with `_screen_ends` True is not registered
+  there (no such move today).
+- `BlockInstance._ends_pad` ignores the instance's own scale (pre-existing).
+- A hand-edited non-preset Model scale (e.g. 37.5) displays rounded and a
+  re-pick writes the rounded value.
+
 ## Acceptance Criteria
 
 - [x] Collinear lines sharing a linetype are indistinguishable from one line (D-L9) — LT3 G1 (`tests/test_lt3_primitive_paint.py`), 2026-10-05.
@@ -2000,6 +2117,11 @@ reflect → paint → PDF end to end.
 - `view-relationships.md` §7.4 — catalog rows 2 and 4 point here.
 - `units-and-formatting.md` — line-weight display convention (named weight + mm).
 - `feature-system.md` — pipe as a Feature (D-L22).
+- **ET1 (applied 2026-10-10, ET1 Account):** `ui-design-system.md` — new
+  "Tooltips" section (tooltips.py chokepoint, 360 px cap, authored breaks);
+  `property-panel.md` — tooltip pointer; `paper-space.md` — 1:30 preset;
+  `SPEC-INDEX.md` rows. `schematics.md` / `scene-tools.md` carry no ET1 fact
+  (the schematic editor scale and fresh-end rules live here, ET1-1 / ET1-9).
 - **LT5 (applied 2026-10-08, LT5 Account):** `block-system.md` — "End
   capability (LT5)" pointer (`end` key, `capabilities.py` kind table,
   `capability_place_reason`, end refs in the graph); `2d-geometry.md` — end
