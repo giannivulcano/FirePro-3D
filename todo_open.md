@@ -159,12 +159,6 @@
   - Widened 2026-09-30 (nested-blocks smoke): also change LIBRARY and SERIES in place — the user asked "how do i switch the metadata in app?"; today `set_block_metadata` is reachable only through the Manager's save-collision Rename (name only).
 - [ ] [type:feature] Grip object limit for large selections (AutoCAD GRIPOBJLIMIT-style) [P3] [subject:UX]
   - Details: block polish 2026-09-23 — selecting a whole imported PDF sheet shows ~100k control-point grips (fast after the grip-point cache, but visually overwhelming). Above N selected items (~100) show frame + move only, no per-item grips. `selection_manipulator.py` `_active_handles`; ref `selection-manipulator.md`.
-- [ ] [type:feature] Block placement uses the paste workflow: ghost follows the cursor with the base point fixed at the block origin [P2] [subject:UX]
-  - Details: block polish batch 2026-10-10. Place-block (`model_space` mode `"place_block"`, `_press_place_block` / `_move_place_block`) should behave like the scene-tools Paste flow, base point pre-picked = the block's origin. Absorbs "Paste ghost for block instances" (`_clipboard_ghost_paths` returns [] for `block_instance`). `model_space.py`, `modify_tools_controller.py`, `docs/specs/scene-tools.md`, `block-system.md`.
-- [ ] [type:bug] Block placement ghost shows a yellow endpoint snap glyph even when snapping to nothing — likely snapping to its own primitives [P2] [subject:CAD]
-  - Details: block polish batch 2026-10-10 (user report). Repro first: does the place-block ghost (or its preview items) enter the snap collect set? Exclude the placement ghost like other transient previews. `snap_engine.py`, `model_space.py` (`place_block`).
-- [ ] [type:feature] Placement keys: Space rotates 90° CW, Shift+Space CCW; arrow keys flip about X / Y while placing a block [P2] [subject:UX]
-  - Details: block polish batch 2026-10-10 (user: "<> and updown to flip about x/y axis" — Left/Right vs Up/Down → which axis to confirm in the grill). Rotation ships now; flip depends on "Flip / Mirror / Scale for block instances" (no persisted mirror pose today). Consider whether the keys also apply to paste ghosts. `model_space.py`, `docs/specs/scene-tools.md`.
 - [ ] [type:feature] Block instance selection frame: 8 handles + centre point [P2] [subject:UX]
   - Details: block polish batch 2026-10-10. Corner/edge handles imply scaling → depends on "Flip / Mirror / Scale for block instances" (scale pose). `selection_manipulator.py`, `block_instance.py`, `docs/specs/selection-manipulator.md`.
 - [ ] [type:bug] Block origin isn't usable as a snap / ALIGN point (user report) — verify against the 2026-09-04 first cut [P2] [subject:CAD]
@@ -201,8 +195,6 @@
   - Details: nested-blocks G2 review (concern c). Undo restore / scene_io load recreate definition objects; open editors' nested instances only repaint on their next `registry.invalidate`. Add a registry-wide invalidate at the end of the project-role `_restore_network` and scene_io load. `model_space.py`, `scene_io.py`, `block_registry.py`.
 - [ ] [type:bug] Pasting a block into its own Block Editor isn't refused until Save [P3] [subject:CAD]
   - Details: nested-blocks G2/VC9 reviews. Paste has no cycle check (`paste_items` block_instance branch); A-in-A shows until the commit guard refuses it at Save. Refuse at paste with the LOOP_REASON footer. `model_space.py`, `modify_tools_controller.py`.
-- [ ] [type:maint] Paste ghost for block instances [P3] [subject:UX]
-  - Details: **to be absorbed by** "Block placement uses the paste workflow" (2026-10-10 batch). nested-blocks G2 review (concern a, pre-existing). `_clipboard_ghost_paths` returns [] for `block_instance` records, so pasting a block shows no ghost. `modify_tools_controller.py`.
 - [ ] [type:bug] Blocks browser wires both itemActivated and itemDoubleClicked to the same slot [P3] [subject:UX]
   - Details: nested-blocks G3/VC9 (pre-existing). On Windows a double-click can fire both → duplicate footer / double activation (in practice the double-click slot's tree refresh suppresses itemActivated). Connect one. `blocks_browser.py`.
 - [ ] [type:bug] Unreadable library block on double-click shows only a footer, not the read-failure dialog [P3] [subject:UX]
@@ -789,6 +781,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: the downstream goal the arc revamp unblocks (arc as a wall centreline). `wall.py`, `model_space.py`.
 - [ ] [type:bug] Retire the orphan `MainWindow.view` that breaks `views()[0]` consumers [P2] [subject:Architecture]
   - Details: `main.py:400` — a `Model_View` attached to the plan scene but never parented, never shown, never added to `central_tabs`, so it is `scene.views()[0]`. It broke the HUD in smoke test (built correctly inside an invisible widget tree). Worked around locally by selecting the first visible view, but ~12 other `views()[0]` uses in `model_space.py` have the same latent bug — dialog parents at ~2190/6438/8106 parent onto the orphan, and zoom-scale reads at ~3634/6783/7227/7749 read its transform. Retiring it (or never attaching it to the scene) fixes all of them at once. `main.py`, `model_space.py`.
+  - 2026-10-10 (placement batch review): `MainWindow._active_view()` returns this hidden view for the plan, so focus hand-offs and anything else using it act on an invisible widget; the placement batch worked around it in `_on_block_activated` (current tab's own view). Retiring the orphan should repoint `_active_view` too.
 - [ ] [type:maint] Qt fixtures must `show()` their view [P3] [subject:Testing]
   - Details: the dynamic-input fixtures built a `Model_View` without showing it, which made `views()[0]` trivially correct and hid the orphan-view bug class entirely. Fixed in the dynamic-input test files; audit the other Qt fixtures in the suite for the same gap. `tests/`.
 - [ ] [type:maint] Split `node_start_pos` into typed pipe-start and move-start fields [P3] [subject:Architecture]
