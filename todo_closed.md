@@ -145,6 +145,12 @@
   - Details: found by the nested-blocks VC9 seam probe 2026-09-30, PROVEN PRE-EXISTING (branch touches neither `paper_display.py` nor `BlockInstance._display_pen_color`): white-pen block ops plot white-on-white, plain and nested alike. Apply the paper white→black display rule to BlockInstance ops. `block_instance.py`, `paper_display.py`. Memory: paper white/invisible render class.
   - Build: absorbed into LT1 (user choice in the LT1 grill Q3, phase-drift logged) -- the paper Blocks category forces the category colour onto block stroke + text ops in B&W/Custom; guard `tests/test_lt1_block_paper.py::test_white_block_plots_black_in_bw_authored_in_full_color`.
 
+## Block Editor constraint system — D46 refined: static partners stay snap targets — 2026-10-10
+
+- [x] [type:bug] A dragged item never snaps to its constraint partner, even one the solve leaves in place (refine D46) [P1] [subject:CAD] [done:2026-10-10]
+  - Details: user report 2026-10-10. D46 (CS3) excluded every `drag_partners` item as a handle-snap / cursor-snap target. User ruling 2026-10-10: only partners the solve actually moves are excluded; static partners snap again.
+  - Build: `fix/d46-static-partner-snap` (`5551fda5`). `PartnerWatch` (`constraint_controller.py`) latches a partner as moved from the first snap query that sees its adapter read off the press-time read; `HandleSnapSession(partners=)` replaces `also_exclude=`; the grip cursor snap consults the same watch and drops a held snap on a moved partner (review I1, incl. `source_item2`). Guards in `tests/test_constraint_live_drag.py`: grip handle snap / body drag / grip cursor snap onto a static partner (RED with the fix reverted), cursor-snap hold release (RED before the I1 fix), rewritten stale-spot guard (partner moved first). Spec D46 + §8 grip-drag row + roadmap row 3; `selection-manipulator.md` handle-snap clause. Smoke passed. Follow-ups: held-intersection guard, latch polling.
+
 ## Block Editor constraint system — CS4 Smart Dimension: linear (+ D17 Scale-commit guard) — 2026-10-03
 
 - [x] [type:feature] CS4 — Smart Dimension: linear (length, aligned, Δx, Δy) + lock-a-readout promotion + Driving/Reference [P1] [subject:CAD] [done:2026-10-03]
