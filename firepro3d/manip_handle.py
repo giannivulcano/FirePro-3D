@@ -254,11 +254,14 @@ class GripHandle(Handle):
         self._prev_grip_partners = getattr(sc, "_grip_partners", frozenset())
         sc._grip_item = self.item
         sc._grip_dragging = True
-        # CS3: the items the solve moves with this grip are never cursor-snap
-        # targets (they sit one frame behind -- the drag would stick).
+        # D46 (refined 2026-10-10): the items the solve may move with this
+        # grip are watched; one stops being a cursor/handle-snap target the
+        # frame the solve first moves it (its spot is then stale).
+        from .constraint_controller import PartnerWatch
         ctl0 = getattr(sc, "constraint_ctl", None)
-        sc._grip_partners = (frozenset(ctl0.drag_partners([self.item]))
-                             if ctl0 is not None else frozenset())
+        self._partner_watch = PartnerWatch(
+            ctl0.drag_partners([self.item]) if ctl0 is not None else ())
+        sc._grip_partners = self._partner_watch
         # Snapshot every grip point for an exact Esc restore.
         self._snapshot = list(self.item.grip_points())
         self._extra_snapshots(m)   # subclasses snapshot siblings if they mutate them
@@ -441,11 +444,9 @@ class TranslateGripHandle(GripHandle):
             view = m._view() if hasattr(m, "_view") else None
             if engine is not None and view is not None:
                 from .handle_snap import HandleSnapSession
-                ctl = getattr(sc, "constraint_ctl", None)
-                partners = ctl.drag_partners([self.item]) if ctl is not None else []
-                self._hs = HandleSnapSession(engine, sc, view, [self.item],
-                                             self._snapshot[self.index],
-                                             also_exclude=partners)
+                self._hs = HandleSnapSession(
+                    engine, sc, view, [self.item], self._snapshot[self.index],
+                    partners=getattr(self, "_partner_watch", None))
         return getattr(self, "_hs", None)
 
     def _transform_point(self, m, pt: QPointF, mods) -> QPointF:

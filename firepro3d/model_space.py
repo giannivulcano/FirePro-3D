@@ -427,8 +427,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_dragging: bool = False
-        # Constraint partners the solve moves with the grip: never snap targets (CS3)
-        self._grip_partners: frozenset = frozenset()
+        # The grip's constraint partners (a PartnerWatch during a grip drag):
+        # snap targets until the solve moves them (D46, refined 2026-10-10)
+        self._grip_partners = frozenset()
         # Gridline body drag (perpendicular constraint)
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
@@ -3373,9 +3374,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
     def _not_grip_partner(self, item) -> bool:
-        """``find`` item_filter during a grip drag: False for an item the
-        constraint solve moves with the grip (``_grip_partners``, CS3)."""
-        return item not in self._grip_partners
+        """``find`` item_filter during a grip drag: False for a constraint
+        partner the solve has moved since press (``_grip_partners`` is the
+        grip's ``PartnerWatch``; D46 refined 2026-10-10)."""
+        w = self._grip_partners
+        return not (item in w and w.moved(item))
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
@@ -3466,6 +3469,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         held = self._snap_result if self._snap_result is not None else self._align_result
         if isinstance(held, HandleSnapResult):
             held = None     # S2 handle-snap marker: a handle's target, not a cursor snap
+        elif (held is not None and self._grip_dragging and self._grip_partners
+              and not all(self._not_grip_partner(getattr(held, k, None))
+                          for k in ("source_item", "source_item2"))):
+            held = None     # D46: a held snap on a partner the solve has since moved
         res = self._snap_engine.find(
             scene_pos, self, _view.transform(),
             # Offset (D9): never snap onto the armed source — its own
@@ -3474,7 +3481,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             exclude=(self._grip_item if self._grip_dragging
                      else self._offset_source if self.mode == "offset_side"
                      else None),
-            # CS3: a grip's constraint partners move with it every frame.
+            # D46: a grip's constraint partners, once the solve moves them.
             item_filter=(self._not_grip_partner
                          if self._grip_dragging and self._grip_partners else None),
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),

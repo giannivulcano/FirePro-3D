@@ -704,9 +704,9 @@ def test_d18_rect_heavy_commit_bar(qapp):
 # ── CS3: a drag never snaps onto a partner the solve is moving ───────────────
 
 def test_constrained_body_drag_never_snaps_to_a_partners_stale_spot(be):
-    """Filed CS1 VC9 R2 (absorbed CS3): an H-tied partner end moves with the
-    drag every frame; its PRESS-time spot must not stay a handle-snap target
-    (here it lies 4 px from where the dragged end belongs)."""
+    """Filed CS1 VC9 R2 (absorbed CS3), D46 refined 2026-10-10: once the
+    solve has moved the H-tied partner, its PRESS-time spot is never a
+    handle-snap target again (here 4 px from where the dragged end belongs)."""
     v, sc = be
     sc._snap_enabled = True                    # the bug is a snap pull-back
     a = _line(sc, (300, 100), (400, 100))
@@ -717,10 +717,103 @@ def test_constrained_body_drag_never_snaps_to_a_partners_stale_spot(be):
     QApplication.processEvents()
     grab = QPointF(325, 100)                   # body, off every grip
     _press(v, grab)
-    for off in ((12, 0), (25, 0), (38, 0), (50, 4)):
+    for off in ((12, 0), (25, 12), (38, 12), (50, 4)):   # dy 12 moves c first
         _move(v, grab + QPointF(*off))
     # Without the fix a.p2 snaps onto c.p1's stale (450, 100): y pulled to 100.
     assert (a._pt2.x(), a._pt2.y()) == pytest.approx((450.0, 104.0), abs=0.05)
     assert c._pt1.y() == pytest.approx(a._pt2.y(), abs=1e-6)
     _release(v, grab + QPointF(50, 4))
     assert a._pt2.y() == pytest.approx(104.0, abs=0.05)
+
+
+# ── D46 refined (2026-10-10): a partner the solve leaves in place is a target ─
+
+def _coincident_corner(sc):
+    """a = (300,100)-(400,100) and c = (300,100)-(300,200), a.p1 == c.p1."""
+    a = _line(sc, (300, 100), (400, 100))
+    c = _line(sc, (300, 100), (300, 200))
+    assert sc.constraint_ctl.add("coincident", [{"uid": a._uid, "h": "p1"},
+                                                {"uid": c._uid, "h": "p1"}])
+    QApplication.processEvents()
+    return a, c
+
+
+def test_grip_drag_snaps_onto_a_partner_the_solve_leaves_in_place(be):
+    """User report 2026-10-10: dragging a's free end next to c's free end
+    (4 px off) snaps onto it -- the coincident p1 pair never moves c."""
+    v, sc = be
+    sc._snap_enabled = True
+    a, c = _coincident_corner(sc)
+    a.setSelected(True)
+    QApplication.processEvents()
+    p2 = QPointF(400, 100)                               # a's p2 end grip
+    _press(v, p2)
+    for p in ((380, 130), (340, 170), (310, 190), (303, 197)):
+        _move(v, QPointF(*p))
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((300.0, 200.0), abs=0.05)
+    _release(v, QPointF(303, 197))
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((300.0, 200.0), abs=0.05)
+    assert (c._pt1.x(), c._pt1.y(), c._pt2.x(), c._pt2.y()) == pytest.approx(
+        (300.0, 100.0, 300.0, 200.0), abs=1e-6)          # the partner stayed
+    assert (a._pt1.x(), a._pt1.y()) == pytest.approx((300.0, 100.0), abs=1e-6)
+
+
+def test_body_drag_snaps_onto_a_partner_the_solve_leaves_in_place(be):
+    """A purely horizontal body drag never moves the H-tied partner c, so
+    a.p2 coming within 4 px of c.p1 snaps onto it (D46 refined)."""
+    v, sc = be
+    sc._snap_enabled = True
+    a = _line(sc, (300, 100), (400, 100))
+    c = _line(sc, (450, 100), (550, 160))
+    assert sc.constraint_ctl.add("horizontal", [{"uid": a._uid, "h": "p2"},
+                                                {"uid": c._uid, "h": "p1"}])
+    a.setSelected(True)
+    QApplication.processEvents()
+    grab = QPointF(325, 100)                   # body, off every grip
+    _press(v, grab)
+    for off in ((12, 0), (25, 0), (38, 0), (50, 4)):
+        _move(v, grab + QPointF(*off))
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((450.0, 100.0), abs=0.05)
+    _release(v, grab + QPointF(50, 4))
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((450.0, 100.0), abs=0.05)
+    assert (c._pt1.x(), c._pt1.y()) == pytest.approx((450.0, 100.0), abs=1e-6)
+
+
+def test_grip_cursor_snap_hold_releases_a_partner_once_the_solve_moves_it(be):
+    """Review I1: a's p2 nearest-snaps onto c's edge at y 170, which moves
+    the H-tied c.p1 there (c latches as moved); the cursor-snap HOLD must not
+    keep the drag on that stale spot as the cursor walks up the edge."""
+    v, sc = be
+    sc._snap_enabled = True
+    a = _line(sc, (300, 100), (400, 100))
+    c = _line(sc, (450, 100), (450, 200))
+    assert sc.constraint_ctl.add("horizontal", [{"uid": a._uid, "h": "p2"},
+                                                {"uid": c._uid, "h": "p1"}])
+    a.setSelected(True)
+    QApplication.processEvents()
+    p2 = QPointF(400, 100)                               # a's p2 end grip
+    _press(v, p2)
+    for p in ((420, 100), (440, 100), (452, 170)):
+        _move(v, QPointF(*p))
+    assert c._pt1.y() == pytest.approx(170.0, abs=0.05)  # the solve moved c
+    for p in ((452, 166), (452, 163), (453, 160)):
+        _move(v, QPointF(*p))
+    _release(v, QPointF(453, 160))
+    assert (a._pt2.x(), a._pt2.y()) == pytest.approx((453.0, 160.0), abs=0.05)
+
+
+def test_grip_cursor_snap_lands_on_a_static_partners_edge(be):
+    """Cursor snap (not handle snap: ``nearest`` is not a handle type) puts
+    a's dragged end ON partner c's edge mid-span -- c never moves."""
+    v, sc = be
+    sc._snap_enabled = True
+    a, c = _coincident_corner(sc)
+    a.setSelected(True)
+    QApplication.processEvents()
+    p2 = QPointF(400, 100)                               # a's p2 end grip
+    _press(v, p2)
+    for p in ((380, 120), (340, 128), (310, 130), (303, 130)):
+        _move(v, QPointF(*p))
+    _release(v, QPointF(303, 130))
+    assert a._pt2.x() == pytest.approx(300.0, abs=0.05)
+    assert (c._pt1.x(), c._pt2.x()) == pytest.approx((300.0, 300.0), abs=1e-6)

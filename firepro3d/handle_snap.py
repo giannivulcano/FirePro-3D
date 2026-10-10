@@ -61,19 +61,22 @@ class HandleSnapSession:
         exclude_moving: When True (default) the moving items are not snap
             targets. Duplicate passes False: its originals stay put and
             remain targets (scene-tools.md D6).
-        also_exclude: Items that are never targets but are NOT handle
-            sources -- a constrained drag's partners, which the solve moves
-            every frame (parametric-constraint-system.md §8, CS3).
+        partners: A ``PartnerWatch`` of a constrained drag's partners (or
+            None). They stay targets (and are NOT handle sources) until the
+            solve moves one; a hit on a moved partner is skipped
+            (parametric-constraint-system.md D46, refined 2026-10-10).
     """
 
     def __init__(self, engine, scene, view, moving, anchor: QPointF,
                  extra_handles=(), exclude_moving: bool = True,
-                 also_exclude=()):
+                 partners=None):
         self._engine = engine
         self._scene = scene
         self._exclude_moving = exclude_moving
         self._moving = set(moving)
-        self._not_targets = (self._moving if exclude_moving else set()) | set(also_exclude)
+        self._not_targets = self._moving if exclude_moving else set()
+        self._partners = partners
+        self._partner_root: dict = {}   # grid source item -> its watched partner
         self._anchor0 = QPointF(anchor)
         self._handles = self._build_handles(engine, moving, anchor,
                                             extra_handles)
@@ -165,6 +168,7 @@ class HandleSnapSession:
         self._cell = _se.px_to_scene(float(_se.SNAP_TOLERANCE_PX), self._scale) or 1.0
         self._grid = {}
         self._underlays = []
+        self._partner_root = {}
         c = self._cell
         vis = self._visible_rect(view)
         px_ = vis.width() * HANDLE_SNAP_COLLECT_PAD_FRAC
@@ -205,6 +209,7 @@ class HandleSnapSession:
                     getattr(item, "node1", None) in moving_nodes
                     or getattr(item, "node2", None) in moving_nodes):
                 continue
+            root = self._watched_root(item)
             for kind, p, name in engine._collect(item):
                 px, py = p.x(), p.y()
                 if (kind in HANDLE_TYPES
@@ -212,6 +217,8 @@ class HandleSnapSession:
                     # Inlined _key (hot loop: every visible target point).
                     grid.setdefault((floor(px / c), floor(py / c)), []).append(
                         (kind, p, item, name))
+                    if root is not None:
+                        self._partner_root[item] = root
         # The origin points (DD6): fixed positions, not item geometry.
         for p in engine._origin_points(self._scene):
             px, py = p.x(), p.y()
@@ -221,7 +228,7 @@ class HandleSnapSession:
 
     def _is_excluded(self, item) -> bool:
         """Whether *item* or any ancestor is never a target: a moving item
-        (when ``exclude_moving``) or an ``also_exclude`` item.
+        (when ``exclude_moving``).
 
         Args:
             item: A scene item.
@@ -235,6 +242,18 @@ class HandleSnapSession:
                 return True
             p = p.parentItem()
         return False
+
+    def _watched_root(self, item):
+        """The watched partner *item* is (or descends from), else None."""
+        w = self._partners
+        if not w:
+            return None
+        p = item
+        while p is not None:
+            if p in w:
+                return p
+            p = p.parentItem()
+        return None
 
     def _key(self, p: QPointF) -> tuple[int, int]:
         """The grid cell of scene point *p* (cell side = one aperture).
@@ -269,6 +288,10 @@ class HandleSnapSession:
         best = None   # (d_px, prio, handle, kind, target, src, name)
         ax, ay = anchor_now.x(), anchor_now.y()
         rx0, ry0 = self._anchor0.x(), self._anchor0.y()
+        # D46 (refined): partners the solve has moved since press are stale.
+        roots = self._partner_root
+        gone = ({r for r in set(roots.values()) if self._partners.moved(r)}
+                if roots else ())
         for h in self._handles:
             hx, hy = h.x(), h.y()
             q = QPointF(ax + hx, ay + hy)
@@ -281,6 +304,8 @@ class HandleSnapSession:
             if self._underlays:
                 cands.extend(self._underlay_targets(q))
             for kind, p, src, name in cands:
+                if gone and roots.get(src) in gone:
+                    continue
                 px, py = p.x(), p.y()
                 if (abs(px - restx) < _SELF_REST_EPS
                         and abs(py - resty) < _SELF_REST_EPS):
