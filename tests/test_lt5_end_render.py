@@ -114,7 +114,7 @@ def test_trimmed_path_keeps_joins_and_an_overtrim_is_empty(qapp):
 
 
 @pytest.mark.parametrize("ff", [5.0, 10.0])
-def test_fixed_arrow_length_is_three_times_the_fixed_factor(qapp, ff):
+def test_fixed_arrow_length_is_three_times_the_printed_factor(qapp, ff):
     img = _paint((_OFF, ResolvedEnd(arrow(), None, False)), _pen(), ff=ff)
     row = _row(img, 50)
     assert row and max(row) <= 101                       # tip at the attach point
