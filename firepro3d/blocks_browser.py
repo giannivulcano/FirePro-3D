@@ -1,7 +1,7 @@
 """BlocksBrowser — left-dock tree of the block library + the project's blocks.
 
 Library > Series > block. The tree is the on-disk block library (every
-Library/Series folder, even empty, and every indexed ``.fpdb``) merged with
+Library/Series folder, even empty, and every ``.fpdb`` on disk) merged with
 the project's embedded definitions: a block already in the project shows in
 regular weight, a library-only block in italic/dimmed. Activating a project
 block emits ``blockActivated(id)`` (the app routes it into place_block mode);
@@ -178,7 +178,7 @@ def library_only_entries(scene, root: str | None = None, *,
         scene: The project ``Model_Space`` (its ``_block_definitions`` registry).
         root: Block-library root override (None = the configured library).
         entries: An already-read ``block_library.list_library(root)`` result
-            (one index read per Blocks-browser refresh); None reads it here.
+            (one disk walk per Blocks-browser refresh); None reads it here.
 
     Returns:
         ``(library, series, name, block_id, path)`` tuples — on-disk entries
@@ -328,7 +328,7 @@ class BlocksBrowser(QWidget):
 
     def _grouped(self, entries: list[dict] | None = None) -> dict:
         """``{library: {series: [(name, id, path|None), ...]}}`` — the on-disk
-        folders + indexed blocks merged with the project's definitions (a
+        folders + on-disk blocks merged with the project's definitions (a
         library entry whose id is in the project is listed once, as project).
         *entries* is the refresh's one ``list_library`` read (None reads it)."""
         registry = self._scene._block_definitions
@@ -374,10 +374,11 @@ class BlocksBrowser(QWidget):
         dim = QBrush(QColor(th.detect().muted))
         entries = block_library.list_library(self._lib_root)   # read once
         grouped = self._grouped(entries)
-        # Library rows read the index ``tile`` / ``repeat`` / ``end`` flags
+        # Library rows read each file's ``tile`` / ``repeat`` / ``end`` flags
         # (LT4-10, LT5 Q12).
         from .capabilities import kind_of
-        lib_caps = {e.get("id"): kind_of(e) for e in entries}
+        lib_caps = {block_library.entry_path(e, self._lib_root): kind_of(e)
+                    for e in entries}               # per file: a copy is its own
         dpr = self.devicePixelRatioF()
         for library in sorted(grouped):
             lib_item = QTreeWidgetItem(self._tree, [library])
@@ -398,7 +399,7 @@ class BlocksBrowser(QWidget):
                         leaf.setData(0, _ROLE_PATH, path)
                         leaf.setFont(0, f_lib)
                         leaf.setForeground(0, dim)
-                        kind = lib_caps.get(block_id)
+                        kind = lib_caps.get(path)
                         tip = ("In the library — drag or double-click "
                                "to load into the project and place")
                     badge = _capability_badge(kind, dpr)

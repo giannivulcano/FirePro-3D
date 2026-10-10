@@ -2107,8 +2107,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if loaded is None:
             return False
         lib_def, bundled = loaded
-        # folder + filename win, exactly as a first load (2026-10-10)
-        lib_def.library, lib_def.series, lib_def.name = found[0], found[1], found[3]["name"]
+        # folder + filename win, exactly as a first load (2026-10-10) -- unless
+        # another project definition already holds that identity (the load
+        # path refuses such a clash; a reload keeps the current names instead)
+        disk = (found[0], found[1], found[3]["name"])
+        if not any((o.library, o.series, o.name) == disk
+                   for bid, o in self._block_definitions.items() if bid != block_id):
+            lib_def.library, lib_def.series, lib_def.name = disk
+        else:
+            lib_def.library, lib_def.series, lib_def.name = (
+                current.library, current.series, current.name)
         if self._load_would_cycle(bundled, lib_def):
             return False
         if lib_def.kind != current.kind:

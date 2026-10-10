@@ -5373,13 +5373,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         dlg = NewSchematicDialog(self)
         if not dlg.exec() or dlg.choice() is None:
             return
-        kind, path, block_id, name = dlg.choice()
+        kind, path, _block_id, name = dlg.choice()
         if kind == "blank":
             self.block_editor_manager.open_new(kind="schematic")
             return
-        summary = self.scene.load_blocks_from_files([path])
-        if block_id in self.scene._block_definitions:
-            self.block_editor_manager.edit_definition(block_id)
+        # The templates folder is the library root: its folder / filename
+        # identity applies, and a copied template opens as its own schematic
+        # under the id the load resolved (disk scan, 2026-10-10).
+        from firepro3d import app_data
+        summary = self.scene.load_blocks_from_files(
+            [path], root=app_data.schematics_dir())
+        resolved = summary["ids"].get(path)
+        if resolved is not None and resolved in self.scene._block_definitions:
+            self.block_editor_manager.edit_definition(resolved)
             return
         tm.themed_info(self, "New Schematic",
                        block_library.load_failure_message(name, summary, noun="schematic"))

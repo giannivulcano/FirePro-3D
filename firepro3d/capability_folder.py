@@ -77,7 +77,8 @@ def _dir_stamp(dirs: list[str]) -> tuple:
 
 
 def read_meta(path: str) -> dict | None:
-    """``{id, name, version, kind, tile, repeat, end}`` read from the ``.fpdb``
+    """``{id, name, library, series, version, kind, tile, repeat, end}`` read
+    from the ``.fpdb``
     itself, cached per (path, mtime, size, file id) -- a save inside one
     clock tick still changes the file id (atomic replace) -- ; None if
     unreadable (logged once).
@@ -98,6 +99,8 @@ def read_meta(path: str) -> dict | None:
         if not isinstance(data, dict):
             raise ValueError("not a block definition")
         res = {"id": data.get("id") or "", "name": data.get("name") or "",
+               "library": data.get("library") or "",
+               "series": data.get("series") or "",
                "version": data.get("version", 1),
                "kind": data.get("kind") or "block",
                **{f: bool(data.get(f)) for f in FLAGS}}

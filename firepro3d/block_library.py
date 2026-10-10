@@ -89,20 +89,45 @@ def _root(root: str | None) -> str:
     return root if root is not None else block_library_dir()
 
 
-def _segments(library: str, series: str) -> tuple[str, str]:
-    """Sanitized folder segments for a (library, series) pair.
+def _plain_segment(raw: str) -> bool:
+    """True when *raw* can name one folder / file as-is (no separators)."""
+    return bool(raw) and raw not in (".", "..") and not any(
+        c in raw for c in ("/", "\\", os.sep))
 
-    An EMPTY tier stays ``""`` instead of becoming ``"_"``: a schematic
-    template has no Library tier (schematics.md D-S15) and an ungrouped one
-    no Series either, so its file lives at ``<root>/<Series>/`` or at the
-    root itself. Blocks always carry both tiers (validated on save).
-    """
-    return (sanitize(library) if library else "",
-            sanitize(series) if series else "")
+
+def _segment(parent: str, raw: str, suffix: str = "") -> str:
+    """The on-disk name for *raw* under *parent*: an existing entry with the
+    exact name is reused (a folder or file the user made in Explorer, e.g.
+    ``Pipe & Fittings``), else :func:`sanitize` names a new one."""
+    if _plain_segment(raw) and os.path.exists(os.path.join(parent, raw + suffix)):
+        return raw + suffix
+    return sanitize(raw) + suffix
 
 
 def _series_dir(root: str | None, library: str, series: str) -> str:
-    return os.path.join(_root(root), *[s for s in _segments(library, series) if s])
+    """Folder for a (library, series) pair. An EMPTY tier is skipped (never a
+    ``"_"`` folder): a schematic template has no Library tier (schematics.md
+    D-S15) and an ungrouped one no Series either. Blocks always carry both."""
+    d = _root(root)
+    for raw in (library, series):
+        if raw:
+            d = os.path.join(d, _segment(d, raw))
+    return d
+
+
+def _target_path(root: str | None, library: str, series: str, name: str) -> str:
+    """Where a definition with this identity is saved (see :func:`_segment`)."""
+    d = _series_dir(root, library, series)
+    return os.path.join(d, _segment(d, name, ".fpdb"))
+
+
+def _human(on_disk: str, stored: str) -> str:
+    """The stored (human) value when *on_disk* is it or its sanitized form --
+    ``Pipe _ Fittings`` reads ``Pipe & Fittings`` -- else the on-disk name
+    (folder / filename win)."""
+    if stored and on_disk in (stored, sanitize(stored)):
+        return stored
+    return on_disk
 
 
 def list_folders(root: str | None = None) -> dict[str, list[str]]:
@@ -149,24 +174,25 @@ def find_collision(block_id: str, library: str, series: str, name: str,
     caller can resolve Overwrite / Rename / Cancel before committing.
 
     The occupying file is read itself. A duplicate-id copy (its id owned by
-    another file) is not a collision: loading it gave the project copy a
-    fresh id, and its Save writes back over that same file.
+    another file) is not a collision for the block it became (loading it gave
+    the project copy a fresh id; its Save writes back over that file) -- but
+    it IS one for the original, whose Save would clobber the user's copy.
 
     Returns:
         The occupying file's block name (its filename stem), or None when the
         slot is free (or already held by *block_id*).
     """
-    path = os.path.join(_series_dir(root, library, series),
-                        sanitize(name) + ".fpdb")
+    path = _target_path(root, library, series, name)
     if not os.path.isfile(path):
         return None
     meta = capability_folder.read_meta(path)
-    if meta is not None:
-        if meta["id"] == block_id:
-            return None
-        owner = _find_by_id(meta["id"], root) if meta["id"] else None
-        if owner is not None and not _same_path(owner[3]["path"], path):
-            return None
+    if meta is not None and meta["id"]:
+        owner = _find_by_id(meta["id"], root)
+        is_owner = owner is None or _same_path(owner[3]["path"], path)
+        if meta["id"] == block_id and is_owner:
+            return None          # this block's own file
+        if meta["id"] != block_id and not is_owner:
+            return None          # a copy the project re-id'd on load (AC4)
     return os.path.basename(path)[:-5]
 
 
@@ -267,9 +293,9 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     and its bundle use (linetypes.md LT1-4); absent when none are used. Their
     Model px overrides ride in an optional ``weight_model_px`` (H-MW-a).
     """
-    series_dir = _series_dir(root, definition.library, definition.series)
-    filename = sanitize(definition.name) + ".fpdb"
-    path = os.path.join(series_dir, filename)
+    path = _target_path(root, definition.library, definition.series,
+                        definition.name)
+    series_dir, filename = os.path.dirname(path), os.path.basename(path)
 
     # (a) Cross-id collision check — BEFORE any mutation, so a refused save is inert.
     if not overwrite:
@@ -278,9 +304,12 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         if clash_name is not None:
             raise BlockNameCollision(clash_name, filename)
 
-    # (b) Re-file: drop the copy of this id parked at a different location.
+    # (b) Re-file: drop this block's previous file -- only one the app wrote
+    # where its stored identity says (``consistent``); a user's copy filed
+    # elsewhere is never deleted.
     existing = _find_by_id(definition.id, root)
-    if existing is not None and not _same_path(existing[3]["path"], path):
+    if (existing is not None and existing[3]["consistent"]
+            and not _same_path(existing[3]["path"], path)):
         _delete_path(existing[3]["path"])
 
     # (c) Write the .fpdb (the file IS the listing -- no index).
@@ -333,19 +362,21 @@ def _walk_fpdb(base: str):
                 yield (first, second), p
 
 
-def _tiers(kind: str, dirs: tuple) -> tuple[str, str]:
-    """On-disk ``(library, series)`` of a *kind* file under *dirs* (folder
-    wins). Schematics are one-tier (schematics.md D-S15: root = ungrouped,
-    one folder = Series; one filed two deep reads like a block); blocks are
+def _tiers(meta: dict, dirs: tuple) -> tuple[str, str]:
+    """``(library, series)`` of a file under *dirs* (folder wins; a folder
+    that is the stored value's sanitized form reads as the stored value).
+    Schematics are one-tier (schematics.md D-S15: root = ungrouped, one
+    folder = Series; one filed two deep reads like a block); blocks are
     two-tier, a file short of a full Library/Series folder listing under
     :data:`UNGROUPED`."""
-    if kind == "schematic" and len(dirs) < 2:
-        return ("", dirs[0]) if dirs else ("", "")
+    lib, ser = meta["library"], meta["series"]
+    if meta["kind"] == "schematic" and len(dirs) < 2:
+        return ("", _human(dirs[0], ser)) if dirs else ("", "")
     if len(dirs) == 0:
         return UNGROUPED, UNGROUPED
     if len(dirs) == 1:
-        return dirs[0], UNGROUPED
-    return dirs[0], dirs[1]
+        return _human(dirs[0], lib), UNGROUPED
+    return _human(dirs[0], lib), _human(dirs[1], ser)
 
 
 def _iter_entries(root: str | None):
@@ -354,11 +385,13 @@ def _iter_entries(root: str | None):
     (identity is the ``id``, not the folder location).
 
     *meta* is ``capability_folder.read_meta`` plus ``name`` (the filename
-    stem -- filename wins), ``path`` and ``duplicate``. When several files
-    hold one id (a file copied to make a variant), the one whose filename
-    still matches its stored name owns it -- the original; walk order breaks
-    a tie -- and the others are ``duplicate``. Unreadable files and files
-    without an id are skipped."""
+    stem -- filename wins -- or the stored name when the stem is its
+    sanitized form), ``path``, ``consistent`` (the file sits where its stored
+    identity would be saved: the app wrote it there) and ``duplicate``.
+    When several files hold one id (a file copied to make a variant), the
+    owner is the first consistent one, else the first whose filename still
+    matches its stored name, else the first in walk order; the others are
+    ``duplicate``. Unreadable files and files without an id are skipped."""
     base = _root(root)
     if not os.path.isdir(base):
         return
@@ -367,17 +400,24 @@ def _iter_entries(root: str | None):
         meta = capability_folder.read_meta(path)
         if meta is None or not meta["id"]:
             continue
-        found.append((_tiers(meta["kind"], dirs), path, meta))
+        library, series = _tiers(meta, dirs)
+        name = _human(os.path.basename(path)[:-5], meta["name"])
+        consistent = (library, series, name) == (
+            meta["library"], meta["series"], meta["name"])
+        found.append((library, series, name, consistent, path, meta))
     owner: dict = {}
-    for _tiers_, path, meta in found:          # a name-matching file first
+    for *_x, consistent, path, meta in found:   # the app-written file first
+        if consistent:
+            owner.setdefault(meta["id"], path)
+    for *_x, path, meta in found:               # then a name-matching one
         if capability_folder.owns_name(path, meta):
             owner.setdefault(meta["id"], path)
-    for _tiers_, path, meta in found:          # else the first in walk order
+    for *_x, path, meta in found:               # else the first in walk order
         owner.setdefault(meta["id"], path)
-    for (library, series), path, meta in found:
-        filename = os.path.basename(path)
-        yield library, series, filename, {
-            **meta, "name": filename[:-5], "path": path,
+    for library, series, name, consistent, path, meta in found:
+        yield library, series, os.path.basename(path), {
+            **meta, "library": library, "series": series, "name": name,
+            "path": path, "consistent": consistent,
             "duplicate": owner[meta["id"]] != path}
 
 

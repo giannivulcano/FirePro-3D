@@ -237,3 +237,79 @@ def test_status_reads_a_save_made_inside_one_clock_tick(tmp_path):
     assert os.stat(path).st_size == before.st_size
     assert bl.list_library(str(tmp_path))[0]["version"] == d.version
     assert bl.source_status(d, str(tmp_path)) == "library"
+
+
+# -- review round: ownership, human names, user folders (C1, I1-I3, M1) -------
+
+def test_c1_same_filename_copy_in_another_folder_never_owns_and_survives_save(
+        tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    d = _defn("Corner")                                     # stored Fire/Valves
+    a = _drop(tmp_path / "Fire" / "Valves", "Corner.fpdb", d)
+    archive = tmp_path / "Archive" / "Old"                  # sorts before Fire
+    archive.mkdir(parents=True)
+    shutil.copyfile(a, archive / "Corner.fpdb")
+    owner = bl._find_by_id(d.id, str(tmp_path))
+    assert owner[3]["path"] == a                            # the original owns the id
+    ms = Model_Space()
+    ms.load_blocks_from_files([a], root=str(tmp_path))
+    proj = ms.get_block_definition(d.id)
+    proj.set_primitives(proj.primitives)                    # edit -> v2
+    bl.save_to_library(proj, root=str(tmp_path))
+    assert (archive / "Corner.fpdb").exists()               # the user's copy is kept
+    with open(a, encoding="utf-8") as fh:
+        assert json.load(fh)["version"] == proj.version
+
+
+def test_i1_pattern_copy_elsewhere_does_not_rob_the_shipped_id(tmp_path, qapp):
+    from firepro3d import hatch_patterns as hp
+    from firepro3d.model_space import Model_Space
+    hatches = tmp_path / "System" / "Hatches"
+    hp.seed_hatch_folder(str(hatches))
+    archive = tmp_path / "Archive" / "Old"
+    archive.mkdir(parents=True)
+    shutil.copyfile(hatches / "Brick.fpdb", archive / "Brick.fpdb")
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([str(hatches / "Brick.fpdb")], root=str(tmp_path))
+    assert s["ids"] == {str(hatches / "Brick.fpdb"): hp.BUILTIN_BRICK}
+
+
+def test_i2_human_names_survive_the_sanitized_file_names(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    d = _defn("Valve (OS&Y)", "Pipe & Fittings", "Gate/Globe")
+    path = bl.save_to_library(d, root=str(tmp_path))
+    [e] = bl.list_library(str(tmp_path))
+    assert (e["library"], e["series"], e["name"]) == (
+        "Pipe & Fittings", "Gate/Globe", "Valve (OS&Y)")
+    ms = Model_Space()
+    ms.load_blocks_from_files([path], root=str(tmp_path))
+    got = ms.get_block_definition(d.id)
+    assert (got.library, got.series, got.name) == (
+        "Pipe & Fittings", "Gate/Globe", "Valve (OS&Y)")
+    got.set_primitives(got.primitives)
+    bl.save_to_library(got, root=str(tmp_path))
+    assert ms.reload_block_definition(d.id, root=str(tmp_path))
+    again = ms.get_block_definition(d.id)
+    assert (again.library, again.series, again.name) == (
+        "Pipe & Fittings", "Gate/Globe", "Valve (OS&Y)")
+
+
+def test_i3_a_user_made_folder_is_saved_back_in_place(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    path = _drop(tmp_path / "Pipe & Fittings" / "Elbows", "Elbow (90).fpdb",
+                 _defn("Elbow", "Other", "Thing"))
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([path], root=str(tmp_path))
+    got = ms.get_block_definition(s["ids"][path])
+    assert (got.library, got.series, got.name) == ("Pipe & Fittings", "Elbows", "Elbow (90)")
+    got.set_primitives(got.primitives)
+    assert bl.save_to_library(got, root=str(tmp_path)) == path   # same file, in place
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Pipe & Fittings"]
+
+
+def test_m1_saving_the_original_onto_its_copys_file_name_asks_first(tmp_path):
+    d = _defn("Corner")
+    a = _drop(tmp_path / "Fire" / "Valves", "Corner.fpdb", d)
+    shutil.copyfile(a, tmp_path / "Fire" / "Valves" / "Corner v2.fpdb")
+    assert bl.find_collision(d.id, "Fire", "Valves", "Corner v2",
+                             str(tmp_path)) == "Corner v2"
