@@ -179,11 +179,13 @@ def _norm_repeat(repeat) -> dict | None:
 def _norm_end(end) -> dict | None:
     """Normalised end-type record, or None (LT5 design A; ET1 Q4 / Q6).
 
-    ``{"trim": mm >= 0[, "screen": "fixed"]}``: a non-dict is no capability;
-    a stored ``size`` (any value, incl. the retired line-weight keyword) is
-    read and dropped -- every end is Fixed; ``screen`` is kept only as
-    ``"fixed"`` (absent = Scale with zoom, the ``_norm_repeat`` idiom); a
-    non-numeric, non-finite or negative trim reads 0.
+    ``{"trim": mm >= 0[, "screen": "fixed"][, "model_scale": N]}``: a
+    non-dict is no capability; a stored ``size`` (any value, incl. the
+    retired line-weight keyword) is read and dropped -- every end is Fixed;
+    ``screen`` is kept only as ``"fixed"`` (absent = Scale with zoom, the
+    ``_norm_repeat`` idiom); a non-numeric, non-finite or negative trim
+    reads 0; ``model_scale`` (ET1 Q12e, the 1:N denominator) is kept only
+    when ``stroke_style.model_scale_value`` reads one (absent = Project).
     """
     if not isinstance(end, dict):
         return None
@@ -196,6 +198,10 @@ def _norm_end(end) -> dict | None:
     out = {"trim": trim}
     if end.get("screen") == SCREEN_FIXED:
         out["screen"] = SCREEN_FIXED
+    from .stroke_style import model_scale_value
+    n = model_scale_value(end.get("model_scale"))
+    if n is not None:
+        out["model_scale"] = n
     return out
 
 

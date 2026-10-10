@@ -7,9 +7,10 @@ list (flyweight compile: its size depends on the paint's device scale and
 printed factor; ``path_walk.map_piece`` refuses reflection). Each end draws
 under ``translate(attach) . rotate(outward) . scale(k) [. scale(1, -1)]``:
 origin = the attach point, +X = outward (Q5); k = (the screen factor for a
-Fixed-size end on a model canvas, else the printed factor) x the line's
-per-end Scale (ET1). All content takes the using line's colour and resolved
-width (Q7).
+Fixed-size end on a model canvas; else, on a model canvas, the Model scale
+denominator N when the line end or the end type sets one (ET1 Q12); else
+the printed factor) x the line's per-end Scale (ET1). All content takes the
+using line's colour and resolved width (Q7).
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from . import path_walk as pw
 from .constants import (END_DEF_CACHE_MAX, END_JOIN_TOL_MM, END_XF_CACHE_MAX,
                         FIXED_END_PX_PER_MM)
 from .render_op import FILL, PATTERN, STROKE, TEXT
-from .stroke_style import ENDS, ResolvedEnd
+from .stroke_style import ENDS, ResolvedEnd, model_scale_value
 
 SCREEN_FIXED = "fixed"          # EndDef.screen: constant px on model canvases (ET1 Q6)
 SCREEN_SCALE = "scale"
@@ -44,7 +45,7 @@ _CACHE: OrderedDict = OrderedDict()
 # frozen dataclasses hashing by value, so equal geometry hits and an edited
 # stroke (new pieces) misses -- no invalidation needed.
 _XF: dict = {}       # (pieces, which, trim, k, mirrored) -> QTransform | None
-_RECT: dict = {}     # (pieces, ((EndDef | missing id, mirrored, scale), ...), printed, screen, badge) -> QRectF | None
+_RECT: dict = {}     # (pieces, ((EndDef | missing id, mirrored, scale, model_scale), ...), printed, screen, badge) -> QRectF | None
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,9 @@ class EndDef:
         reach: Farthest ``bounds`` corner from the attach point, unscaled.
         has_stroke: True when any op is a stroke (``_draw_end`` builds its
             scaled pen copy only then).
+        model_scale: The end type's Model scale denominator N (1:N) a
+            Scale-with-zoom end previews at on a model canvas, or None =
+            Project, the scene's drawing scale (ET1 Q12a).
     """
     block_id: str
     version: int
@@ -72,6 +76,7 @@ class EndDef:
     bounds: tuple = (0.0, 0.0, 0.0, 0.0)
     reach: float = 0.0
     has_stroke: bool = False
+    model_scale: float | None = None
 
     @classmethod
     def from_block(cls, defn) -> "EndDef | None":
@@ -100,7 +105,8 @@ class EndDef:
         res = cls(defn.id, defn.version,
                   SCREEN_FIXED if cap.get("screen") == SCREEN_FIXED else SCREEN_SCALE,
                   float(cap.get("trim", 0.0)), tuple(ops), b, reach,
-                  any(op.kind == STROKE for op in ops))
+                  any(op.kind == STROKE for op in ops),
+                  model_scale_value(cap.get("model_scale")))
         _CACHE[key] = (ops, res)
         _CACHE.move_to_end(key)
         while len(_CACHE) > END_DEF_CACHE_MAX:
@@ -112,11 +118,29 @@ def _ok(k: float) -> bool:
     return k > 0.0 and math.isfinite(k)
 
 
+def model_scale_of(end_def: EndDef, end) -> float | None:
+    """The Model scale denominator N a Scale-with-zoom *end_def* drawn as
+    *end* previews at on a model canvas: the line end's override, else the
+    end type's, else None (Project: the printed factor) -- ET1 Q12a/b."""
+    return getattr(end, "model_scale", None) or end_def.model_scale
+
+
 def end_scales(end_def: EndDef, end, *, printed: float, screen) -> float:
-    """k for *end_def* drawn as *end* (a ``ResolvedEnd``): the screen factor
-    (painter units per printed mm, a Fixed-size end on a model canvas) or the
-    printed factor, times the line's per-end Scale (ET1 spec B)."""
-    base = screen if (screen is not None and end_def.screen == SCREEN_FIXED) else printed
+    """k for *end_def* drawn as *end* (a ``ResolvedEnd``), times the line's
+    per-end Scale (ET1 spec B). One place decides the base (ET1 Q12a):
+
+    * a model canvas (*screen* not None) and a Fixed-size end -> the screen
+      factor (painter units per printed mm);
+    * a model canvas and a Model scale (``model_scale_of``) -> its N;
+    * else (Project, or any paper pass / preview) -> the printed factor.
+    """
+    if screen is not None:
+        if end_def.screen == SCREEN_FIXED:
+            base = screen
+        else:
+            base = model_scale_of(end_def, end) or printed
+    else:
+        base = printed
     return float(base) * float(getattr(end, "scale", 1.0) or 1.0)
 
 
@@ -160,7 +184,8 @@ def has_fixed(ends) -> bool:
 
 def badges_only(ends) -> tuple:
     """*ends* with every drawable end dropped (badges kept)."""
-    return tuple(ResolvedEnd(None, e.missing_id, e.mirrored, e.scale) for e in ends)
+    return tuple(ResolvedEnd(None, e.missing_id, e.mirrored, e.scale, e.model_scale)
+                 for e in ends)
 
 
 def mark_screen_ends(item, drew: bool) -> None:
@@ -295,11 +320,12 @@ def ends_rect(pieces, ends, *, printed: float, screen=None,
     """Painter-local bounds of the ends drawn on *pieces* (exact frame-mapped
     op bounds; a missing end: +-*badge* around its attach point), or None.
 
-    Memoised on (pieces, each end's ``EndDef`` / missing id + mirrored +
-    scale, factors, badge) -- every input -- returning a copy (callers may
-    adjust it)."""
+    Memoised on (pieces, each end's ``EndDef`` (its Model scale included) /
+    missing id + mirrored + scale + Model scale override, factors, badge) --
+    every input -- returning a copy (callers may adjust it)."""
     key = (pieces, tuple((EndDef.from_block(e.defn) if e.defn is not None
-                          else e.missing_id, e.mirrored, e.scale) for e in ends),
+                          else e.missing_id, e.mirrored, e.scale, e.model_scale)
+                         for e in ends),
            printed, screen, badge)
     r = _RECT.get(key, False)
     if r is False:
@@ -334,11 +360,16 @@ def _ends_rect(pieces, ends, printed, screen, badge) -> QRectF | None:
     return r
 
 
-def ends_reach(ends, *, printed: float, screen=None, badge: float = 0.0) -> float:
+def ends_reach(ends, *, printed: float, screen=None, badge: float = 0.0,
+               model: bool = True) -> float:
     """Largest distance any drawn end reaches from its attach point (the
     radial bounds pad of a placed block). ``printed=1.0, screen=None``
-    gives every end's unit reach; ``printed=0.0, screen=1.0`` the unit reach
-    of the Fixed-size ends alone (an unscalable k skips the end)."""
+    gives every end's unit reach; ``printed=0.0, screen=1.0, model=False``
+    the unit reach of the Fixed-size ends alone; ``printed=1.0, screen=0.0,
+    model=False`` that of the Project Scale-with-zoom ends alone;
+    ``printed=0.0, screen=0.0`` the model-canvas reach (painter units) of
+    the Model-scaled ends alone (ET1 Q12; an unscalable k skips the end).
+    *model* False skips every end a Model scale sizes at this *screen*."""
     reach = 0.0
     for e in ends:
         if e.defn is None:
@@ -347,6 +378,9 @@ def ends_reach(ends, *, printed: float, screen=None, badge: float = 0.0) -> floa
             continue
         ed = EndDef.from_block(e.defn)
         if ed is None:
+            continue
+        if (not model and screen is not None and ed.screen != SCREEN_FIXED
+                and model_scale_of(ed, e)):
             continue
         k = end_scales(ed, e, printed=printed, screen=screen)
         if _ok(k):

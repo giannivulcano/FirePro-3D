@@ -229,8 +229,8 @@ def test_end_panel_rows_and_edits_are_one_step(qapp):
     from firepro3d.ui_kit import PaintSwatch
     _, w, sc, _ = _end_editor()
     r = capability_rows(sc)
-    for k in ("Repeat", "Pattern tile", "Linetype", "End type", "On screen", "Trim",
-              "Preview", "Preview swatch"):
+    for k in ("Repeat", "Pattern tile", "Linetype", "End type", "On screen",
+              "Model scale", "Trim", "Preview", "Preview swatch"):        # ET1 Q12c
         assert k in r, k
     assert r["End type"]["value"] is True
     assert r["On screen"]["value"] == "Fixed size" and r["Trim"]["value_mm"] == 0.0

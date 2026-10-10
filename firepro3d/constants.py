@@ -86,6 +86,10 @@ FIXED_END_PX_PER_MM = FIXED_LINETYPE_PX_PER_MM
 # ET1: per-end Scale on a line's end record (a plain multiplier, Q5 / Q10-b).
 END_SCALE_MIN = 0.1
 END_SCALE_MAX = 10.0
+# ET1 Q12: an end type's / line end's Model scale, stored as the drawing
+# scale denominator N (1:N; imperial presets store 1 / ratio).
+END_MODEL_SCALE_MIN = 1.0
+END_MODEL_SCALE_MAX = 10000.0
 # A cosmetic canvas pen that survives into a paper pass (an unweighted raw-PDF
 # underlay width; a styled primitive with no paper category) plots at the
 # PRE-MW mapping, frozen so paper / PDF output never follows the Model weight

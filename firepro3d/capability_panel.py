@@ -29,6 +29,13 @@ _END_SCREEN_TIP = ("How this end sizes on model canvases\n"
                    f"Fixed size: a constant {FIXED_END_PX_PER_MM:g} px per printed mm\n"
                    "at any zoom.\n"
                    "Sheets and PDF always print the true size.")
+_END_MODEL_SCALE_TIP = ("Drawing scale a Scale with zoom end\n"
+                        "previews at on model canvases\n"
+                        "(plan, detail views, Block and Schematic editors).\n"
+                        "Project uses the project's drawing scale.\n"
+                        "A line end can override it.\n"
+                        "Sheets and PDF always print the true size;\n"
+                        "Fixed size ends ignore it.")
 _END_TRIM_TIP = ("The line stops this far back from its endpoint,\n"
                  "measured along the path.\n"
                  "Authored mm, scaled with the end.")
@@ -88,6 +95,25 @@ def _default_end_rows(scene) -> dict:
     return rows
 
 
+def _model_scale_row(scene, end: dict) -> dict:
+    """The end type's Model scale row (ET1 Q12c): ``Project (1:<scene
+    drawing scale>)`` then the ``SCALE_PRESETS`` labels; a stored
+    non-preset scale is offered as its own option."""
+    from . import stroke_style as ss
+    sm = getattr(scene, "scale_manager", None)
+    ds = ss.model_scale_value(sm.drawing_scale if sm is not None else None)
+    head = (f"{ss.MODEL_SCALE_PROJECT} ({ss.model_scale_label(ds)})"
+            if ds is not None else ss.MODEL_SCALE_PROJECT)
+    scales = ss.model_scale_options()
+    n = end.get("model_scale")
+    value = ss.model_scale_label(n) if n is not None else head
+    options = [head, *scales]
+    if value not in options:
+        options = [head, value, *scales]
+    return {"type": "enum", "options": options, "value": value,
+            "tooltip": _END_MODEL_SCALE_TIP}
+
+
 def capability_rows(scene) -> dict:
     """Ordered panel rows for the editor's capability.
 
@@ -98,7 +124,8 @@ def capability_rows(scene) -> dict:
         Ordered property dict for ``PropertyManager``: the Repeat header and
         the three capability toggles, then the tile rows, the linetype rows
         (Length / Size / Weight / Start End / Finish End, Pattern list,
-        Preview swatch) or the end-type rows (Size / Trim, Preview swatch).
+        Preview swatch) or the end-type rows (On screen / Model scale /
+        Trim, Preview swatch).
     """
     from .tile_frame import tile_properties
     cap = scene.block_capability
@@ -168,6 +195,7 @@ def capability_rows(scene) -> dict:
                               "value": SCREEN_LABELS[0] if end.get("screen") == SCREEN_FIXED
                               else SCREEN_LABELS[1],
                               "tooltip": _END_SCREEN_TIP}
+        props["Model scale"] = _model_scale_row(scene, end)      # ET1 Q12c
         props["Trim"] = {"type": "dimension", "value": _fmt(scene, end["trim"]),
                          "value_mm": end["trim"], "minimum": -1e-6,
                          "tooltip": _END_TRIM_TIP}
@@ -229,5 +257,5 @@ def set_capability_property(scene, editor, key, value) -> None:
             mm = _to_mm(scene, value)
             if mm is not None:
                 ea.set_end_field(scene, "Trim", mm)
-        elif key == "On screen":
-            ea.set_end_field(scene, "On screen", value)
+        elif key in ("On screen", "Model scale"):
+            ea.set_end_field(scene, key, value)

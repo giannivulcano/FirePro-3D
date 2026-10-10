@@ -15,7 +15,8 @@ from tests.lt3_support import make_linetype
 from tests.lt5_support import end_id, scene_line, v_end
 
 _KEYS = ("Start End", "Finish End", "Start Visible", "Finish Visible",
-         "Start Scale", "Finish Scale")                    # ET1 Q10-b
+         "Start Scale", "Finish Scale",                    # ET1 Q10-b
+         "Start Model scale", "Finish Model scale")        # ET1 Q12b
 
 
 @pytest.fixture

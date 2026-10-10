@@ -334,10 +334,14 @@ class BlockInstance(QGraphicsObject):
         ff = None
         pad = 0.0
         fixed = False
-        for printed_all, printed_scale, scr, miss in rows:
-            # On a model canvas a Fixed-size end draws at the screen factor,
-            # so only the Scale-with-zoom ends take the printed factor.
+        for printed_all, printed_scale, scr, model, miss in rows:
+            # On a model canvas a Fixed-size end draws at the screen factor
+            # and a Model-scaled end at its own N (ET1 Q12, *model* is
+            # already painter units), so only the Project Scale-with-zoom
+            # ends take the printed factor.
             printed = printed_scale if on_screen else printed_all
+            if model > 0.0 and on_screen:
+                pad = max(pad, model)
             if printed > 0.0:
                 if ff is None:
                     ff = _lr.printed_factor(**a)
@@ -355,11 +359,13 @@ class BlockInstance(QGraphicsObject):
         return pad
 
     def _end_pad_rows(self, ops, end_ops, lt_ids, reg) -> tuple:
-        """``(printed reach of every end, printed reach of the Scale-with-zoom
-        ends, screen reach of the Fixed-size ends, missing)`` of every op of
-        *ops* that draws an end (LT5 / ET1 bounds): the reaches unscaled
+        """``(printed reach of every end, printed reach of the Project
+        Scale-with-zoom ends, screen reach of the Fixed-size ends, model-
+        canvas reach of the Model-scaled ends, missing)`` of every op of
+        *ops* that draws an end (LT5 / ET1 bounds): the first three unscaled
         (``end_render.ends_reach`` at unit factors -- a zero factor skips an
-        end), so ``_ends_pad`` only scales them per call.
+        end), so ``_ends_pad`` only scales them per call; the fourth already
+        at each end's own Model scale N (ET1 Q12).
 
         Candidates: the explicit-end ops (*end_ops*) plus -- only when one
         of *lt_ids* carries a default end -- the ops on such a linetype.
@@ -409,8 +415,11 @@ class BlockInstance(QGraphicsObject):
                 ends = self._op_ends(op, lt, reg)
                 if has_ends(ends):
                     rows.append((_er.ends_reach(ends, printed=1.0, screen=None),
-                                 _er.ends_reach(ends, printed=1.0, screen=0.0),
-                                 _er.ends_reach(ends, printed=0.0, screen=1.0),
+                                 _er.ends_reach(ends, printed=1.0, screen=0.0,
+                                                model=False),
+                                 _er.ends_reach(ends, printed=0.0, screen=1.0,
+                                                model=False),
+                                 _er.ends_reach(ends, printed=0.0, screen=0.0),
                                  any(e.missing_id for e in ends)))
         rows = tuple(rows)
         self._end_pad_cache = (ops, reg, tuple(seen.values()), rows)

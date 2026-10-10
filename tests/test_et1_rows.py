@@ -16,7 +16,8 @@ def test_end_editor_rows_on_screen_trim_preview(qapp):
     assert sc.block_end == {"trim": 0.0, "screen": "fixed"}          # SEED (Q6)
     r = capability_rows(sc)
     assert "Size" not in r
-    assert list(k for k in r if k in ("On screen", "Trim", "Preview")) == ["On screen", "Trim", "Preview"]
+    assert list(k for k in r if k in ("On screen", "Model scale", "Trim", "Preview")) == [
+        "On screen", "Model scale", "Trim", "Preview"]                   # ET1 Q12c
     assert r["On screen"]["options"] == ["Fixed size", "Scale with zoom"]
     assert r["On screen"]["value"] == "Fixed size"
     assert r["Trim"]["type"] == "dimension"
@@ -41,9 +42,11 @@ def test_line_scale_rows_order_edit_revert_and_round_trip(qapp):
     end_id(proj)
     ln = scene_line(proj)
     ln.set_property("Finish End", "Arrow")
-    keys = [k for k in ln.get_properties() if k.endswith((" End", " Visible", " Scale"))]
-    assert keys == ["Start End", "Start Visible", "Start Scale",
-                    "Finish End", "Finish Visible", "Finish Scale"]
+    keys = [k for k in ln.get_properties()
+            if k.endswith((" End", " Visible", " Scale", " Model scale"))]
+    assert keys == ["Start End", "Start Visible", "Start Scale", "Start Model scale",
+                    "Finish End", "Finish Visible", "Finish Scale",
+                    "Finish Model scale"]                                 # ET1 Q12b
     r = ln.get_properties()["Finish Scale"]
     assert (r["type"], r["value"], r["suffix"]) == ("string", "1", "×")
     assert "\n" in r["tooltip"]

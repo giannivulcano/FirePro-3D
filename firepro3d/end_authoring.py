@@ -49,8 +49,9 @@ def pre_capture(scene) -> None:
 
 
 def set_end_field(scene, key: str, value) -> bool:
-    """On screen (``"Fixed size"`` / ``"Scale with zoom"``) or Trim (mm >= 0)
-    edit; one undo step.
+    """On screen (``"Fixed size"`` / ``"Scale with zoom"``), Model scale
+    (``"Project (...)"`` drops the key; a scale label stores its
+    denominator, ET1 Q12c) or Trim (mm >= 0) edit; one undo step.
 
     Returns:
         False (no step) for a no-op or a refused value, else True.
@@ -75,6 +76,18 @@ def set_end_field(scene, key: str, value) -> bool:
                 or abs(mm - float(cap.get("trim", 0.0))) <= 1e-9):
             return False
         cap["trim"] = mm
+    elif key == "Model scale":
+        from . import stroke_style as ss
+        old = ss.model_scale_value(cap.get("model_scale"))
+        if str(value).startswith(ss.MODEL_SCALE_PROJECT):
+            if old is None:
+                return False
+            cap.pop("model_scale", None)
+        else:
+            n = ss.model_scale_from_label(value)
+            if n is None or (old is not None and abs(n - old) <= 1e-9):
+                return False
+            cap["model_scale"] = n
     else:
         return False
     scene.set_block_capability(("end", cap))

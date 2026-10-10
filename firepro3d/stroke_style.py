@@ -46,6 +46,62 @@ def parse_end_scale(value) -> float | None:
         return None
     return k
 
+
+MODEL_SCALE_BY_END_TYPE = "By End Type"   # a line end's Model scale head (Q12b)
+MODEL_SCALE_PROJECT = "Project"           # an end type's Model scale head (Q12c)
+
+
+def model_scale_value(v) -> float | None:
+    """A stored Model scale denominator (ET1 Q12e: 30.0 = 1:30) -> a finite
+    float within [END_MODEL_SCALE_MIN, END_MODEL_SCALE_MAX], else None
+    (absent, a bool, non-numeric, non-finite or out of range = not set)."""
+    from .constants import END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(n) or n < END_MODEL_SCALE_MIN or n > END_MODEL_SCALE_MAX:
+        return None
+    return n
+
+
+def model_scale_from_label(label) -> float | None:
+    """A Model scale pick (a ``paper_space.SCALE_PRESETS`` label, or any
+    scale ``paper_space.scale_to_float`` reads) -> its denominator N
+    (``1 / ratio``, rounded to 6 places so 1:30 stores 30.0), else None
+    (unparseable or out of range -- refused)."""
+    from .paper_space import scale_to_float
+    try:
+        ratio = scale_to_float(str(label))
+    except (ValueError, ZeroDivisionError):
+        return None
+    if not (ratio > 0.0) or not math.isfinite(ratio):
+        return None
+    return model_scale_value(round(1.0 / ratio, 6))
+
+
+def model_scale_label(n) -> str:
+    """The scale label of denominator *n* (``paper_space.float_to_scale_str``:
+    a preset label when one matches, else ``"1:N"``)."""
+    from .paper_space import float_to_scale_str
+    return float_to_scale_str(1.0 / float(n))
+
+
+def model_scale_options() -> list:
+    """The Model scale list: every ``paper_space.SCALE_PRESETS`` label."""
+    from .paper_space import SCALE_PRESETS
+    return [label for label, _ in SCALE_PRESETS]
+
+
+def project_scale_label(drawing_scale) -> str:
+    """``"Project 1:100"`` for the scene's *drawing_scale* (a denominator),
+    or ``"Project"`` when there is none (no scene)."""
+    n = model_scale_value(drawing_scale)
+    return (f"{MODEL_SCALE_PROJECT} {model_scale_label(n)}" if n is not None
+            else MODEL_SCALE_PROJECT)
+
 # Primitive types that carry a style record (LT2-1). Text keeps border_weight;
 # reference lines keep their fixed reference style; nested records get their
 # slot in LT5.
@@ -93,10 +149,12 @@ def _end_scale(rec) -> float:
 
 
 def _end(d) -> dict:
-    """A complete end record ``{"end", "visible"[, "mirrored"][, "scale"]}``
-    (LT5 Q9 / ET1 Q5: ``mirrored`` is written only when true, ``scale`` only
-    when ``_end_scale`` reads a value != 1, so default records and every
-    pre-ET1 golden stay byte-identical)."""
+    """A complete end record ``{"end", "visible"[, "mirrored"][, "scale"]
+    [, "model_scale"]}`` (LT5 Q9 / ET1 Q5 / Q12e: ``mirrored`` is written
+    only when true, ``scale`` only when ``_end_scale`` reads a value != 1,
+    ``model_scale`` only when ``model_scale_value`` reads one -- absent = By
+    End Type -- so default records and every pre-ET1 golden stay
+    byte-identical)."""
     d = d if isinstance(d, dict) else {}
     end = d.get("end") or BY_LINETYPE
     if end == BY_BLOCK:                          # WM-9 migration
@@ -107,6 +165,9 @@ def _end(d) -> dict:
     sc = _end_scale(d)
     if sc != 1.0:
         out["scale"] = sc
+    n = model_scale_value(d.get("model_scale"))
+    if n is not None:
+        out["model_scale"] = n
     return out
 
 
@@ -172,6 +233,7 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
     for end in fresh_ends:
         new[end]["end"] = BY_LINETYPE
         new[end].pop("scale", None)         # ET1: a fresh end drops its Scale
+        new[end].pop("model_scale", None)   # ... and its Model scale (Q12e)
     dst.style = new
     sync = getattr(dst, "_sync_stroke_pen", None)
     if callable(sync):
@@ -278,11 +340,13 @@ def resolve_stroke(style: dict, registry) -> ResolvedStroke:
 # -- LT5: end types ---------------------------------------------------------
 
 class ResolvedEnd(NamedTuple):
-    """One stroke end after the LT5 cascade (design A; ET1 adds scale)."""
+    """One stroke end after the LT5 cascade (design A; ET1 adds scale and
+    the Model scale override)."""
     defn: object | None        # the end BlockDefinition, or None (no end)
     missing_id: str | None     # unresolvable / non-end id (badge, Q13)
     mirrored: bool             # draw flipped across the stroke axis (Q9)
     scale: float = 1.0         # the line's per-end Scale (ET1 Q5)
+    model_scale: float | None = None   # the line's Model scale override N (Q12b)
 
 
 NO_ENDS = (ResolvedEnd(None, None, False, 1.0),) * 2
@@ -342,15 +406,17 @@ def _resolve_end(rec, default, registry) -> ResolvedEnd:
     rec = rec if isinstance(rec, dict) else {}
     m = bool(rec.get("mirrored"))
     k = _end_scale(rec)
+    n = model_scale_value(rec.get("model_scale"))
     if not rec.get("visible", True):
-        return ResolvedEnd(None, None, m, k)       # Visible off = None (Q10)
+        return ResolvedEnd(None, None, m, k, n)    # Visible off = None (Q10)
     ref = rec.get("end") or BY_LINETYPE
     if ref in (BY_LINETYPE, BY_BLOCK):
         ref = default                              # the linetype default (Q11)
     if not is_end_ref(ref):
-        return ResolvedEnd(None, None, m, k)       # None / no default
+        return ResolvedEnd(None, None, m, k, n)    # None / no default
     d = end_block(ref, registry)
-    return ResolvedEnd(d, None, m, k) if d is not None else ResolvedEnd(None, ref, m, k)
+    return (ResolvedEnd(d, None, m, k, n) if d is not None
+            else ResolvedEnd(None, ref, m, k, n))
 
 
 def resolve_ends(style: dict, lt, registry) -> tuple:
