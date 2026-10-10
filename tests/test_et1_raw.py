@@ -124,7 +124,6 @@ def test_paper_pass_keeps_the_screen_end_mark(qapp, tmp_path):
     must not clear the mark a model-canvas paint set -- the zoom hook still
     has to re-prepare the item."""
     ms, ln, _ = _plan(screen="fixed")
-    ms._screen_end_items = set()          # the registry Task 4 adds (a WeakSet)
     _render(ms, QRectF(0.0, -1000.0, 2000.0, 1000.0), 400, 200)
     assert ln._screen_ends is True and ln in ms._screen_end_items   # composition
     _fills(_export(tmp_path, ms, _S, "mark.pdf"))

@@ -48,7 +48,6 @@ def test_placed_paper_pass_keeps_the_screen_end_mark(qapp, tmp_path):
     a = arrow(length=3.0, half=1.0, screen="fixed")
     d = _block(a)
     ms, inst = scene_with([a, d], d.id)
-    ms._screen_end_items = set()          # the registry Task 4 adds (a WeakSet)
     _render(ms, QRectF(0.0, -1000.0, 2000.0, 1000.0), 400, 200)
     assert inst._screen_ends is True and inst in ms._screen_end_items   # composition
     _export(tmp_path, ms, _S, "mark_placed.pdf")
