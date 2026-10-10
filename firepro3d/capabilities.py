@@ -44,11 +44,11 @@ CAP_INFO = {
 
 
 def kind_of(obj) -> str | None:
-    """The capability kind of a definition or a library index entry.
+    """The capability kind of a definition or a library listing entry.
 
     Args:
-        obj: A ``BlockDefinition`` (attributes), a ``list_library`` /
-            ``index.json`` entry (dict keys), or None.
+        obj: A ``BlockDefinition`` (attributes), a ``list_library`` entry
+            (dict keys), or None.
 
     Returns:
         ``"tile"`` / ``"repeat"`` / ``"end"`` (first truthy in
@@ -202,7 +202,7 @@ def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
     for name, bid, path in folder_fn():
         if bid == ref:
             from .blocks_browser import ensure_block_loaded
-            return ensure_block_loaded(project, bid, path, name)
+            return ensure_block_loaded(project, bid, path, name) == bid
     return True
 
 

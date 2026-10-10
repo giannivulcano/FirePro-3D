@@ -1,9 +1,7 @@
 """LT5 D1 -- the capability table: an end-type block is never a symbol
 (set_mode, armed click, drag gate, paste), the Blocks browser badges it,
-the library index + capability folder flag it, and commit / symbol-refusal
+the library listing + capability folder flag it, and commit / symbol-refusal
 wording reads "end type" (linetypes.md D-L12, LT5 Q12 / Q13)."""
-import json
-
 import pytest
 from PyQt6.QtCore import QPointF
 
@@ -142,35 +140,16 @@ def test_browser_badges_end_blocks_on_project_and_library_rows(qapp, tmp_path):
     assert a != c
 
 
-def test_library_index_flags_end_and_folder_scan_finds_it(qapp, tmp_path,
-                                                          monkeypatch):
+def test_library_listing_flags_end_and_folder_scan_finds_it(qapp, tmp_path):
+    # The index is retired (2026-10-10): the flag is read from the files.
     e = v_end("Arrow")
     block_library.save_to_library(e, root=str(tmp_path))
     block_library.save_to_library(make_linetype("Hidden"), root=str(tmp_path))
-    idx = json.loads((tmp_path / "L" / "End Types" / "index.json").read_text())
-    assert idx["Arrow.fpdb"]["end"] is True
-    lt_idx = json.loads((tmp_path / "L" / "Linetypes" / "index.json").read_text())
-    assert lt_idx["Hidden.fpdb"]["end"] is False
+    end = {x["name"]: x["end"] for x in block_library.list_library(str(tmp_path))}
+    assert end == {"Arrow": True, "Hidden": False}
     assert "end" in capability_folder.FLAGS
     assert [(n, b) for n, b, _ in capability_folder.scan(str(tmp_path), "end")] \
         == [("Arrow", e.id)]
-    # An index entry written before LT5 (no "end" key) is parsed instead.
-    idx_path = tmp_path / "L" / "End Types" / "index.json"
-    for meta in idx.values():
-        meta.pop("end")
-    idx_path.write_text(json.dumps(idx))
-    # Drop the scan memo (an index rewrite inside the mtime granularity would
-    # hit it) and spy the parse, so the fallback is what answers.
-    capability_folder._SCAN_CACHE.clear()
-    capability_folder._PARSE_CACHE.clear()
-    parsed = []
-    real_parse = capability_folder._parse_fpdb
-    monkeypatch.setattr(capability_folder, "_parse_fpdb",
-                        lambda path, *a: (parsed.append(path),
-                                          real_parse(path, *a))[1])
-    assert [b for _n, b, _p in capability_folder.scan(str(tmp_path), "end")] \
-        == [e.id]
-    assert [p.endswith("Arrow.fpdb") for p in parsed] == [True]
 
 
 def test_new_end_type_is_registered_not_placed(qapp):

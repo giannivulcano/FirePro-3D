@@ -2,24 +2,31 @@
 
 Layout: ``<root>/<Library>/<Series>/<name>.fpdb`` (a BlockDefinition.to_dict())
 for blocks; ``<root>[/<Series>]/<name>.fpdb`` for schematic templates (empty
-tiers skipped -- schematics.md D-S15); plus a per-folder ``index.json`` mapping
-filename -> {id, name, version, thumbnail, tile, repeat, end[, kind]}.
-Mirrors titleblock_template's atomic-write + tolerant-load + version
-divergence, over a folder tree with human-readable filenames. Thumbnails are
-reserved (S4). See docs/specs/block-system.md.
+tiers skipped -- schematics.md D-S15). The files on disk ARE the library: the
+walk reads each ``.fpdb`` (``capability_folder.read_meta``, cached per mtime),
+so a file copied in from outside the app is listed. Folder + filename win over
+the stored library / series / name; a block file not in a full
+Library/Series folder lists under :data:`UNGROUPED`. The per-folder
+``index.json`` is retired (2026-10-10): never written, and a stale one is
+removed when the app next writes or deletes in that folder. Mirrors
+titleblock_template's atomic-write + tolerant-load + version divergence. See
+docs/specs/block-system.md.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
-import re
 
+from . import capability_folder
+from .capability_folder import sanitize  # noqa: F401 -- public name, kept here
 from .app_data import block_library_dir
 from .block_definition import BlockDefinition
 
 _log = logging.getLogger(__name__)
-_INDEX = "index.json"
+_LEGACY_INDEX = "index.json"   # retired 2026-10-10; removed on the next write
+#: Fallback tier for a block ``.fpdb`` not in a full <Library>/<Series> folder.
+UNGROUPED = "Ungrouped"
 # Load-summary refusal reason for a file that would nest a block in itself.
 LOOP_REASON = "a block can't contain itself"
 # Place / drag refusal for a tiled (pattern) block (hatch D-A34).
@@ -82,26 +89,47 @@ def _root(root: str | None) -> str:
     return root if root is not None else block_library_dir()
 
 
-def sanitize(name: str) -> str:
-    """Filesystem-safe segment: keep [A-Za-z0-9 _.-], collapse the rest to '_'."""
-    s = re.sub(r"[^A-Za-z0-9 _.\-]", "_", (name or "").strip())
-    return s or "_"
+def _plain_segment(raw: str) -> bool:
+    """True when *raw* can name one folder / file as-is (no separators)."""
+    return bool(raw) and raw not in (".", "..") and not any(
+        c in raw for c in ("/", "\\", os.sep))
 
 
-def _segments(library: str, series: str) -> tuple[str, str]:
-    """Sanitized folder segments for a (library, series) pair.
-
-    An EMPTY tier stays ``""`` instead of becoming ``"_"``: a schematic
-    template has no Library tier (schematics.md D-S15) and an ungrouped one
-    no Series either, so its file lives at ``<root>/<Series>/`` or at the
-    root itself. Blocks always carry both tiers (validated on save).
-    """
-    return (sanitize(library) if library else "",
-            sanitize(series) if series else "")
+def _segment(parent: str, raw: str, suffix: str = "") -> str:
+    """The on-disk name for *raw* under *parent*: an existing entry with the
+    exact name is reused (a folder or file the user made in Explorer, e.g.
+    ``Pipe & Fittings``), else :func:`sanitize` names a new one."""
+    if _plain_segment(raw) and os.path.exists(os.path.join(parent, raw + suffix)):
+        return raw + suffix
+    return sanitize(raw) + suffix
 
 
 def _series_dir(root: str | None, library: str, series: str) -> str:
-    return os.path.join(_root(root), *[s for s in _segments(library, series) if s])
+    """Folder for a (library, series) pair. An EMPTY tier is skipped (never a
+    ``"_"`` folder): a schematic template has no Library tier (schematics.md
+    D-S15) and an ungrouped one no Series either. Blocks always carry both."""
+    d = _root(root)
+    for raw in (library, series):
+        if raw:
+            d = os.path.join(d, _segment(d, raw))
+    return d
+
+
+def _target_path(root: str | None, library: str, series: str, name: str) -> str:
+    """Where a definition with this identity is saved (see :func:`_segment`)."""
+    d = _series_dir(root, library, series)
+    return os.path.join(d, _segment(d, name, ".fpdb"))
+
+
+def _human(on_disk: str, stored: str) -> str:
+    """The stored (human) value when *on_disk* is it or its sanitized form --
+    ``Pipe _ Fittings`` reads ``Pipe & Fittings`` -- else the on-disk name
+    (folder / filename win). Compared as the file system does (case-blind on
+    Windows), so a reused ``fire/valves`` folder still reads ``Fire/Valves``."""
+    nc = os.path.normcase
+    if stored and nc(on_disk) in (nc(stored), nc(sanitize(stored))):
+        return stored
+    return on_disk
 
 
 def list_folders(root: str | None = None) -> dict[str, list[str]]:
@@ -141,21 +169,36 @@ def create_folder(library: str, series: str | None = None,
 
 
 def find_collision(block_id: str, library: str, series: str, name: str,
-                   root: str | None = None) -> str | None:
+                   root: str | None = None, *,
+                   source_path: str | None = None) -> str | None:
     """Name of a DIFFERENT block holding ``<name>.fpdb`` in Library/Series.
 
     The same probe :func:`save_to_library` refuses on (without writing), so a
     caller can resolve Overwrite / Rename / Cancel before committing.
 
+    The occupying file is read itself. A duplicate-id copy (its id owned by
+    another file) is not a collision ONLY for the block that was loaded from
+    it (*source_path* is that file -- loading gave the project copy a fresh
+    id, and its Save writes back over the file); for any other block, the
+    original included, it is one (its Save would clobber the user's copy).
+
     Returns:
-        The occupying block's human name, or None when the slot is free (or
-        already held by *block_id*).
+        The occupying file's block name (its filename stem), or None when the
+        slot is free (or already held by *block_id*).
     """
-    filename = sanitize(name) + ".fpdb"
-    clash = _read_index(_series_dir(root, library, series)).get(filename)
-    if clash is not None and clash.get("id") != block_id:
-        return clash.get("name", filename)
-    return None
+    path = _target_path(root, library, series, name)
+    if not os.path.isfile(path):
+        return None
+    meta = capability_folder.read_meta(path)
+    if meta is not None and meta["id"]:
+        owner = _find_by_id(meta["id"], root)
+        is_owner = owner is None or _same_path(owner[3]["path"], path)
+        if meta["id"] == block_id and is_owner:
+            return None          # this block's own file
+        if (meta["id"] != block_id and not is_owner and source_path
+                and _same_path(source_path, path)):
+            return None          # the copy this block was loaded from (AC4)
+    return os.path.basename(path)[:-5]
 
 
 def _atomic_write_json(path: str, data) -> None:
@@ -166,16 +209,26 @@ def _atomic_write_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def _read_index(series_dir: str) -> dict:
-    path = os.path.join(series_dir, _INDEX)
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except Exception as exc:
-        _log.warning("Unreadable block index %s: %s", path, exc)
-        return {}
+def _same_path(a: str, b: str) -> bool:
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _drop_stale_index(folder: str) -> None:
+    """Remove a pre-2026-10-10 ``index.json`` from *folder* (no-op if absent)."""
+    path = os.path.join(folder, _LEGACY_INDEX)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError:
+            _log.debug("could not remove stale index %s", path, exc_info=True)
+
+
+def _delete_path(path: str) -> None:
+    """Remove one ``.fpdb`` (no-op when absent) and its folder's stale index."""
+    if os.path.isfile(path):
+        os.remove(path)
+    capability_folder.forget(path)
+    _drop_stale_index(os.path.dirname(path))
 
 
 def used_weight_names(records) -> set[str]:
@@ -222,19 +275,21 @@ def read_bundled_weight_model_px(path: str) -> dict:
 
 def save_to_library(definition: BlockDefinition, root: str | None = None,
                     *, overwrite: bool = False, bundled: dict | None = None) -> str:
-    """Write *definition* to the tree + update the Series index; returns the path.
+    """Write *definition* to the tree; returns the path. No index is written
+    (a stale ``index.json`` in the target folder is removed).
 
     Keyed on ``definition.id`` (the frozen identity), not the folder location:
 
     - **Collision:** if the target ``<name>.fpdb`` is already held by a *different*
       ``id`` and ``overwrite`` is False, raise :class:`BlockNameCollision` without
       touching disk (so the caller can prompt overwrite/cancel).
-    - **Re-file:** any stale copy of this same ``id`` living elsewhere in the tree
-      (a prior Library/Series/name) is removed, so the block never duplicates.
+    - **Re-file:** the file that owns this ``id`` elsewhere in the tree (a prior
+      Library/Series/name, or a loose file) is removed, so the block never
+      duplicates.
 
     Args:
         overwrite: proceed past a cross-``id`` filename collision (clobber the
-            other block's ``.fpdb`` + index entry). Confirmed by the caller.
+            other block's ``.fpdb``). Confirmed by the caller.
         bundled: ``{id: to_dict}`` of the definitions *definition* nests
             (``BlockRegistry.bundle_for``). Non-empty → the file is written as
             schema 2 with a ``bundled`` map (D11); empty/None → schema 1.
@@ -243,26 +298,30 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     and its bundle use (linetypes.md LT1-4); absent when none are used. Their
     Model px overrides ride in an optional ``weight_model_px`` (H-MW-a).
     """
-    series_dir = _series_dir(root, definition.library, definition.series)
-    filename = sanitize(definition.name) + ".fpdb"
-    path = os.path.join(series_dir, filename)
+    path = _target_path(root, definition.library, definition.series,
+                        definition.name)
+    series_dir, filename = os.path.dirname(path), os.path.basename(path)
 
     # (a) Cross-id collision check — BEFORE any mutation, so a refused save is inert.
     if not overwrite:
-        clash_name = find_collision(definition.id, definition.library,
-                                    definition.series, definition.name, root)
+        clash_name = find_collision(
+            definition.id, definition.library, definition.series,
+            definition.name, root,
+            source_path=getattr(definition, "source_path", None))
         if clash_name is not None:
             raise BlockNameCollision(clash_name, filename)
 
-    # (b) Re-file: drop any stale copy of this id parked at a different location.
-    existing = _find_by_id(definition.id, root)
-    if existing is not None:
-        old_lib, old_series, old_fname, _meta = existing
-        if (old_lib, old_series, old_fname) != (*_segments(definition.library,
-                                                           definition.series), filename):
-            delete_from_library(old_lib, old_series, old_fname, root)
+    # (b) Re-file: remove this block's previous file -- ONLY the file it came
+    # from (user ruling 2026-10-10): ``definition.source_path`` (set on load /
+    # reload / save, session-only) if that file still holds this id; with no
+    # known source (e.g. after reopening the project), only an id owner the
+    # app wrote where its stored identity says (``consistent``). A user's
+    # copy or variant elsewhere is never deleted.
+    old = _previous_file(definition, root)
+    if old is not None and not _same_path(old, path):
+        _delete_path(old)
 
-    # (c) Write the .fpdb + refresh the Series index.
+    # (c) Write the .fpdb (the file IS the listing -- no index).
     rec = definition.to_dict()
     if bundled:
         rec["schema"] = 2
@@ -278,78 +337,180 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         if model:                     # MW H-MW-a: overrides of used names only
             rec["weight_model_px"] = model
     _atomic_write_json(path, rec)
-    index = _read_index(series_dir)
-    # ``tile`` / ``repeat`` / ``end`` flag capability blocks (hatch D-A37,
-    # linetypes LT3 H3-g, LT5 Q13) so the pattern / linetype / end picker
-    # scans needn't parse every file; readers tolerate older entries without
-    # them (capability_folder.scan parses the file instead).
-    index[filename] = {"id": definition.id, "name": definition.name,
-                       "version": definition.version, "thumbnail": None,
-                       "tile": bool(definition.tile),
-                       "repeat": bool(definition.repeat),
-                       "end": bool(definition.end)}
-    if definition.kind != "block":    # schematics.md I/O: `kind` only when not a block
-        index[filename]["kind"] = definition.kind
-    _atomic_write_json(os.path.join(series_dir, _INDEX), index)
+    capability_folder.forget(path)
+    definition.source_path = path
+    _drop_stale_index(series_dir)
     _notify_changed()
     return path
 
 
-def _iter_index_entries(root: str | None):
-    """Yield ``(library, series, filename, meta)`` for every indexed .fpdb in the
-    tree (sorted, deterministic). The single tree-walk shared by ``list_library``
-    and the by-id lookups — identity is the ``id``, not the folder location.
+def _previous_file(definition: BlockDefinition, root: str | None) -> str | None:
+    """The file a Save of *definition* may re-file (see :func:`save_to_library`)."""
+    src = getattr(definition, "source_path", None)
+    if src and not any(_same_path(m["path"], src)
+                       for _l, _s, _f, m in _iter_entries(root)):
+        src = None          # not a file of THIS library (Desktop, another or a
+                            # nested library): never touched by its Save
+    if src:
+        meta = capability_folder.read_meta(src) if os.path.isfile(src) else None
+        return src if meta is not None and meta["id"] == definition.id else None
+    owner = _find_by_id(definition.id, root)
+    if owner is not None and owner[3]["consistent"]:
+        return owner[3]["path"]
+    return None
 
-    Two layouts share one walk: the two-tier block tree
-    ``<root>/<Library>/<Series>/index.json`` and the one-tier schematics tree
-    ``<root>[/<Series>]/index.json`` (schematics.md D-S15). A folder holding an
-    ``index.json`` is a leaf folder: at depth 0 it yields ``("", "")`` entries,
-    at depth 1 ``("", <Series>)`` entries and is not descended; a depth-1
-    folder without one is a Library and its children are Series."""
+
+def _walk_fpdb(base: str):
+    """``(folder names, path)`` for every ``.fpdb`` at depth 0–2 under *base*,
+    depth-first with names sorted -- the deterministic order that decides
+    which copy of a duplicated id owns it."""
+    def files(d):
+        try:
+            return sorted(e.path for e in os.scandir(d)
+                          if e.is_file() and e.name.lower().endswith(".fpdb"))
+        except OSError:
+            return []
+
+    def subdirs(d):
+        try:
+            return sorted(e.name for e in os.scandir(d) if e.is_dir())
+        except OSError:
+            return []
+
+    for p in files(base):
+        yield (), p
+    for first in subdirs(base):
+        d1 = os.path.join(base, first)
+        for p in files(d1):
+            yield (first,), p
+        for second in subdirs(d1):
+            for p in files(os.path.join(d1, second)):
+                yield (first, second), p
+
+
+def _tiers(meta: dict, dirs: tuple) -> tuple[str, str]:
+    """``(library, series)`` of a file under *dirs* (folder wins; a folder
+    that is the stored value's sanitized form reads as the stored value).
+    Schematics are one-tier (schematics.md D-S15: root = ungrouped, one
+    folder = Series; one filed two deep reads like a block); blocks are
+    two-tier, a file short of a full Library/Series folder listing under
+    :data:`UNGROUPED`."""
+    lib, ser = meta["library"], meta["series"]
+    if meta["kind"] == "schematic" and len(dirs) < 2:
+        return ("", _human(dirs[0], ser)) if dirs else ("", "")
+    if len(dirs) == 0:
+        return UNGROUPED, UNGROUPED
+    if len(dirs) == 1:
+        return _human(dirs[0], lib), UNGROUPED
+    return _human(dirs[0], lib), _human(dirs[1], ser)
+
+
+def _iter_entries(root: str | None):
+    """Yield ``(library, series, filename, meta)`` for every readable ``.fpdb``
+    on disk -- the single walk behind ``list_library`` and the by-id lookups
+    (identity is the ``id``, not the folder location).
+
+    *meta* is ``capability_folder.read_meta`` plus ``name`` (the filename
+    stem -- filename wins -- or the stored name when the stem is its
+    sanitized form), ``path``, ``consistent`` (the file sits where its stored
+    identity would be saved: the app wrote it there) and ``duplicate``.
+    When several files hold one id (a file copied to make a variant), the
+    owner is the first consistent one, else the first whose filename still
+    matches its stored name, else the first in walk order; the others are
+    ``duplicate``. Unreadable files and files without an id are skipped."""
     base = _root(root)
     if not os.path.isdir(base):
         return
-    for filename, meta in _read_index(base).items():        # ungrouped (root)
-        yield "", "", filename, meta
-    for first in sorted(os.listdir(base)):
-        first_dir = os.path.join(base, first)
-        if not os.path.isdir(first_dir):
+    found = []
+    for dirs, path in _walk_fpdb(base):
+        meta = capability_folder.read_meta(path)
+        if meta is None or not meta["id"]:
             continue
-        if os.path.isfile(os.path.join(first_dir, _INDEX)):   # one-tier Series
-            for filename, meta in _read_index(first_dir).items():
-                yield "", first, filename, meta
-            continue
-        for series in sorted(os.listdir(first_dir)):          # Library / Series
-            series_dir = os.path.join(first_dir, series)
-            if not os.path.isdir(series_dir):
-                continue
-            for filename, meta in _read_index(series_dir).items():
-                yield first, series, filename, meta
+        library, series = _tiers(meta, dirs)
+        name = _human(os.path.basename(path)[:-5], meta["name"])
+        consistent = (library, series, name) == (
+            meta["library"], meta["series"], meta["name"])
+        found.append((library, series, name, consistent, path, meta))
+    owner: dict = {}
+    for *_x, consistent, path, meta in found:   # the app-written file first
+        if consistent:
+            owner.setdefault(meta["id"], path)
+    for *_x, path, meta in found:               # then a name-matching one
+        if capability_folder.owns_name(path, meta):
+            owner.setdefault(meta["id"], path)
+    for *_x, path, meta in found:               # else the first in walk order
+        owner.setdefault(meta["id"], path)
+    for library, series, name, consistent, path, meta in found:
+        yield library, series, os.path.basename(path), {
+            **meta, "library": library, "series": series, "name": name,
+            "path": path, "consistent": consistent,
+            "duplicate": owner[meta["id"]] != path}
 
 
 def _find_by_id(block_id: str, root: str | None):
-    """Locate a block by its ``id`` anywhere in the tree (not just its def's
-    current Library/Series folder). Returns ``(library, series, filename, meta)``
-    for the first match, or None. Fixes the 're-filed block reads project-only'
-    class where a block's on-disk copy lives in a folder other than its current
-    metadata would suggest."""
-    for library, series, filename, meta in _iter_index_entries(root):
-        if meta.get("id") == block_id:
+    """Locate the file that owns *block_id* anywhere in the tree (not just its
+    def's current Library/Series folder). Returns ``(library, series, filename,
+    meta)`` -- ``meta["path"]`` is the file -- or None. A duplicate-id copy
+    never answers (the owner does). Fixes the 're-filed block reads
+    project-only' class where a block's on-disk copy lives in a folder other
+    than its current metadata would suggest."""
+    for library, series, filename, meta in _iter_entries(root):
+        if meta["id"] == block_id and not meta["duplicate"]:
             return library, series, filename, meta
     return None
 
 
-def list_library(root: str | None = None) -> list[dict]:
-    """List library entries from the per-Series indexes (no full .fpdb parse).
+def is_copy(path: str, block_id: str, root: str | None = None) -> bool:
+    """True when *path* holds *block_id* but another file owns that id -- a
+    copied file, which loads as its own block under a fresh id."""
+    owner = _find_by_id(block_id, root)
+    return owner is not None and not _same_path(owner[3]["path"], path)
 
-    Each entry: {library, series, filename, id, name, version, thumbnail}.
+
+def human_folders(root: str | None = None,
+                  entries: list[dict] | None = None) -> dict[str, list[str]]:
+    """:func:`list_folders` with each folder named as its blocks read it --
+    a ``Pipe _ Fittings`` folder holding "Pipe & Fittings" blocks is listed
+    as "Pipe & Fittings", so a browser shows one node, not a sanitized twin.
+
+    Args:
+        entries: An already-read :func:`list_library` result (None reads it).
+    """
+    base = _root(root)
+    if entries is None:
+        entries = list_library(root)
+    lib_name: dict = {}
+    ser_name: dict = {}
+    for e in entries:
+        if e.get("kind") == "schematic":
+            continue
+        parts = os.path.relpath(os.path.dirname(e["path"]), base).split(os.sep)
+        if parts and parts[0] not in ("", "."):
+            lib_name.setdefault(parts[0], e["library"])
+        if len(parts) == 2:
+            ser_name.setdefault(tuple(parts), e["series"])
+    out: dict[str, list[str]] = {}
+    for lib, series in list_folders(root).items():
+        names = out.setdefault(lib_name.get(lib, lib), [])
+        names.extend(ser_name.get((lib, s), s) for s in series)
+    return {k: sorted(set(v)) for k, v in out.items()}
+
+
+def list_library(root: str | None = None) -> list[dict]:
+    """List every ``.fpdb`` on disk (each parsed once per mtime, cached).
+
+    Each entry: {library, series, filename, path, id, name, version, kind,
+    tile, repeat, end, duplicate} -- library / series from the folder, name
+    from the filename.
     """
     return [{"library": library, "series": series, "filename": filename, **meta}
-            for library, series, filename, meta in _iter_index_entries(root)]
+            for library, series, filename, meta in _iter_entries(root)]
 
 
 def entry_path(entry: dict, root: str | None = None) -> str:
-    """Absolute ``.fpdb`` path of a :func:`list_library` entry (empty tiers skipped)."""
+    """Absolute ``.fpdb`` path of a :func:`list_library` entry."""
+    if entry.get("path"):
+        return entry["path"]
     return os.path.join(_root(root),
                         *[s for s in (entry["library"], entry["series"]) if s],
                         entry["filename"])
@@ -462,28 +623,12 @@ def reload_from_library(definition: BlockDefinition,
     found = _find_by_id(definition.id, root)
     if found is None:
         return None
-    library, series, filename, _meta = found
-    return load_block(library, series, filename, root)
+    return load_block_file(found[3]["path"])
 
 
 def delete_from_library(library: str, series: str, filename: str,
                         root: str | None = None) -> None:
-    """Remove a .fpdb + its index entry (no-op when absent). An index left
-    empty is removed with it, so deleting the last ungrouped template leaves
-    no ``{}`` root ``index.json`` behind (SV3 seam minor (b), SV4)."""
-    series_dir = _series_dir(root, library, series)
-    path = os.path.join(series_dir, filename)
-    if os.path.isfile(path):
-        os.remove(path)
-    index = _read_index(series_dir)
-    if filename in index:
-        del index[filename]
-        index_path = os.path.join(series_dir, _INDEX)
-        if index:
-            _atomic_write_json(index_path, index)
-        else:
-            try:
-                os.remove(index_path)
-            except OSError:
-                _log.debug("could not remove empty index %s", index_path, exc_info=True)
+    """Remove a .fpdb (no-op when absent) and its folder's stale
+    ``index.json``, if any (the index is retired, 2026-10-10)."""
+    _delete_path(os.path.join(_series_dir(root, library, series), filename))
     _notify_changed()

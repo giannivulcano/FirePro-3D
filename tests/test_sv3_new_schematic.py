@@ -224,3 +224,21 @@ def test_g4_override_redirects_the_picker_and_the_writer(mw, monkeypatch, tmp_pa
     monkeypatch.setattr(NewSchematicDialog, "exec", _pick("Riser T"))
     mw.project_browser.createSchematic.emit()
     assert mw.scene.get_block_definition(tpl.id) is not None
+
+
+def test_g4_a_copied_template_opens_as_its_own_schematic(mw, monkeypatch):
+    """Disk scan (2026-10-10): a template copied in Explorer is listed under
+    its file name and opens as a separate schematic; the original still
+    opens as itself afterwards."""
+    import shutil
+    tpl, _plain, path = _seed_template(mw)
+    shutil.copyfile(path, os.path.join(os.path.dirname(path), "Riser T v2.fpdb"))
+    monkeypatch.setattr(NewSchematicDialog, "exec", _pick("Riser T v2"))
+    mw.project_browser.createSchematic.emit()
+    copy_id = mw.central_tabs.currentWidget()._edit_block_id
+    copy = mw.scene.get_block_definition(copy_id)
+    assert copy_id != tpl.id and copy.name == "Riser T v2"
+    monkeypatch.setattr(NewSchematicDialog, "exec", _pick("Riser T"))
+    mw.project_browser.createSchematic.emit()
+    assert mw.central_tabs.currentWidget()._edit_block_id == tpl.id
+    assert mw.scene.get_block_definition(tpl.id).name == "Riser T"

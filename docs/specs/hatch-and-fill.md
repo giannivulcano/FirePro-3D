@@ -1,7 +1,7 @@
 ---
 status: partial          # HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-06  # LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: b9b1094   # LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+last-verified: 2026-10-10  # disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: 73d16e2b   # disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
@@ -9,7 +9,7 @@ applies-to:
   - firepro3d/render_op.py          # RenderOp type — shared with linetypes (LT3 extends it); block compile semantics owned by block-system.md
   - firepro3d/capability_frame.py   # Block Editor capability frame base (CapabilityFrameItem, tag, frame_for) — shared with linetypes.md LT4 (RepeatFrame), owned here
   - firepro3d/tile_frame.py         # Block Editor pattern-tile frame (TileFrame) + tile panel rows
-  - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files + index.json (D-A39)
+  - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files (D-A39; the shipped index.json was removed 2026-10-10)
   - firepro3d/displayable_item.py   # draw_fill / draw_section_hatch adapters only (the mixin's other state is owned elsewhere)
 source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns as blocks + theme-Automatic colours (2026-10-01)"]
 ---
@@ -42,7 +42,9 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   `.fpdb` in the folder and any clashing file name; it never rewrites an
   unreadable `index.json`, and marks the folder seeded only when every shipped
   id is present and the index is sound (a failed copy retries). Called at app
-  startup (`main.py`) and after System Settings Apply/OK.
+  startup (`main.py`) and after System Settings Apply/OK. *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)* Seeding
+  writes no index and removes a stale one; the folder is marked seeded once
+  every shipped id is present.
 - **Folder scan** — `library_patterns()` delegates to the shared
   `capability_folder.scan(folder, "tile")` (moved there in LT3 so the
   Linetypes folder reuses it with `"repeat"` — scan rules: `linetypes.md`
@@ -337,7 +339,7 @@ until that doc is approved.
   patterns: pickers list the project's pattern blocks + every
   pattern block in that folder; picking a library pattern loads it into the
   project first, then stores its id (D-A29). Library `index.json` entries
-  carry a `tile` flag. (Closes the gap that a library-only pattern could
+  carry a `tile` flag. *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)* (Closes the gap that a library-only pattern could
   never reach a picker — patterns load on place, and can't be placed.)
 - **D-A38** *(user ruling 2026-10-02, amends D-A32)* Turning Pattern tile on
   seeds **Size = Model** (the tile is what you drew, in real mm); Drafting is

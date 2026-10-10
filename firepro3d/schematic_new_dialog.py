@@ -30,7 +30,7 @@ TEMPLATE_TIP = "Template — Create copies it into the project, then opens it"
 
 
 def _template_entries(root: str | None) -> list[dict]:
-    """Index entries of the templates folder that are schematics.
+    """``list_library`` entries of the templates folder that are schematics.
 
     ``root`` None = the configured ``app_data.schematics_dir()`` (resolved
     here so a changed override is honoured on every open)."""

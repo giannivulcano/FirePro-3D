@@ -2095,7 +2095,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         library copy is of the other ``kind`` (schematics.md D-S3).
         ``root`` overrides the library root.
         """
-        import os
         from . import block_library
         current = self._block_definitions.get(block_id)
         if current is None:
@@ -2103,12 +2102,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         found = block_library._find_by_id(block_id, root)
         if found is None:
             return False
-        library, series, filename, _meta = found
-        path = os.path.join(block_library._series_dir(root, library, series), filename)
+        path = found[3]["path"]
         loaded = block_library.load_block_file_with_bundle(path)
         if loaded is None:
             return False
         lib_def, bundled = loaded
+        lib_def.source_path = path       # the file a later Save may re-file
+        # folder + filename win, exactly as a first load (2026-10-10) -- unless
+        # another project definition already holds that identity (the load
+        # path refuses such a clash; a reload keeps the current names instead)
+        disk = (found[0], found[1], found[3]["name"])
+        if not any((o.library, o.series, o.name) == disk
+                   for bid, o in self._block_definitions.items() if bid != block_id):
+            lib_def.library, lib_def.series, lib_def.name = disk
+        else:
+            lib_def.library, lib_def.series, lib_def.name = (
+                current.library, current.series, current.name)
         if self._load_would_cycle(bundled, lib_def):
             return False
         if lib_def.kind != current.kind:
@@ -2132,17 +2141,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         emit (guards against N model resets). Returns name lists:
         ``{loaded, replaced, skipped, refused, failed, missing}`` — *missing*
         is the sorted ids of nested definitions still absent afterwards (they
-        draw as red placeholders, D12).
+        draw as red placeholders, D12) — plus ``ids``: ``{path: project id}``
+        for every file that resolved (loaded, replaced or skipped), so a
+        caller places the block a copied file became.
 
         A schema-2 file's bundled nested definitions are added only when their
         id is absent (the project copy wins, D11). A file that would form a
         nesting cycle over the project ∪ its bundle is refused with the reason
         ``"<name> (a block can't contain itself)"``; the rest of the batch
         still loads.
+
+        A file inside the library tree (*root*) takes its on-disk identity
+        first: Library / Series from its folder, name from its filename
+        (folder + filename win, 2026-10-10); a copied file whose id another
+        file owns (``duplicate``) gets a fresh id -- its own block. The file
+        itself is never rewritten here.
         """
+        import os
+        import uuid
         from . import block_library
         summary = {"loaded": [], "replaced": [], "skipped": [],
-                   "refused": [], "failed": [], "missing": []}
+                   "refused": [], "failed": [], "missing": [], "ids": {}}
+        on_disk = {os.path.normcase(os.path.abspath(e["path"])): e
+                   for e in block_library.list_library(root)}
         changed = False
         for path in paths:
             loaded = block_library.load_block_file_with_bundle(path)
@@ -2150,6 +2171,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 summary["failed"].append(path)
                 continue
             defn, bundled = loaded
+            entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
+            if entry is not None:
+                defn.library, defn.series = entry["library"], entry["series"]
+                defn.name = entry["name"]
+                if entry["duplicate"]:
+                    defn.id = uuid.uuid4().hex
             if self._load_would_cycle(bundled, defn):
                 summary["refused"].append(
                     f"{defn.name} ({block_library.LOOP_REASON})")
@@ -2164,7 +2191,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     continue
                 self._merge_bundled_weights(path)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
+                summary["ids"][path] = defn.id
+                defn.source_path = path
                 if existing.version == defn.version:
+                    if existing.source_path is None:
+                        existing.source_path = path
                     summary["skipped"].append(defn.name)
                 else:
                     self._swap_block_definition(defn.id, defn)
@@ -2182,7 +2213,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._merge_bundled_weights(path)
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
+            defn.source_path = path          # the file a later Save may re-file
             summary["loaded"].append(defn.name)
+            summary["ids"][path] = defn.id
             changed = True
         summary["missing"] = sorted(self._block_registry.missing_nested())
         if changed:
@@ -2991,6 +3024,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if inst.scene() is self:
                     self.removeItem(inst)
             self._block_instances.clear()
+            # Session-only library source files survive the rebuild (by id):
+            # Save's re-file rule needs them (block-system.md "Library on disk").
+            sources = {bid: d.source_path for bid, d in self._block_definitions.items()
+                       if d.source_path}
             self._block_definitions.clear()
 
             # Restore from snapshot
@@ -3080,6 +3117,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .block_definition import BlockDefinition
             for bid, ddict in state.get("block_definitions", {}).items():
                 self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+                self._block_definitions[bid].source_path = sources.get(bid)
             for bdict in state.get("blocks", []):
                 _pos = bdict.get("pos", [0.0, 0.0])
                 inst = self.place_block_instance(

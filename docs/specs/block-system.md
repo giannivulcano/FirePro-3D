@@ -1,12 +1,13 @@
 ---
-status: partial           # + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring deferred; paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
-last-verified: 2026-10-09  # SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: f2a059d6   # SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+status: partial           # + library disk scan, index.json retired (2026-10-10); + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring deferred; paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
+last-verified: 2026-10-10  # disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: 73d16e2b   # disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
   - firepro3d/block_instance.py     # new — the lightweight placed scene entity
-  - firepro3d/block_library.py      # new — .fpdb I/O, per-folder index, divergence
+  - firepro3d/block_library.py      # .fpdb I/O, disk walk (no index since 2026-10-10), divergence
+  - firepro3d/capability_folder.py  # read_meta / owns_name / sanitize -- the shared per-file parse (library walk + capability scan)
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
   - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser) + module helpers library_only_entries / ensure_block_loaded (shared with the Open picker, 2026-09-30)
   - firepro3d/block_open_dialog.py  # 2026-09-30 — BlockOpenDialog, the Block Editor tab's Open… picker
@@ -209,11 +210,11 @@ level does this block show on?" is an **instance** question, so level scope live
    **Convention gate: this `id`/`version` scheme and the `.fpdb` key schema below are frozen before
    implementation fans out.**
 3. **`.fpdb` filenames are human-readable** (`blocks/<Library>/<Series>/<sanitized-name>.fpdb`) with
-   the `uuid` stored *inside* the file, because blocks are browsed in a folder tree. A per-folder
-   `index.json` carries `filename ↔ {id, name, version, thumbnail}` so listings never open every file.
+   the `uuid` stored *inside* the file, because blocks are browsed in a folder tree. *(2026-10-10:
+   the per-folder `index.json` is **retired** — the files on disk are the listing; see "Library on
+   disk" below.)*
    *(SV3, 2026-10-09: the same I/O also serves a **one-tier** root — `<root>[/<Series>]/<name>.fpdb`,
-   empty tiers skipped, index entries carrying `kind` when not a block — for schematic templates;
-   owned by `schematics.md` D-S15 / SV3. The block tree and its index entries are unchanged.)*
+   empty tiers skipped — for schematic templates; owned by `schematics.md` D-S15 / SV3.)*
    (Contrast: the title-block library uses uuid-named files; blocks differ deliberately.)
 4. **Embedded copy authoritative; library advisory.** Projects open standalone with the library
    folder **absent** (hard portability gate). Save-to-Library pushes embedded→disk; Reload-from-Library
@@ -275,7 +276,7 @@ level does this block show on?" is an **instance** question, so level scope live
 ## Tech Context
 
 - **Language/Framework:** Python 3.x + PyQt6; geometry in millimetres (scene unit = 1 mm).
-- **Persistence:** JSON — `.fpdb` (library file), `.fpd` (project embed), `index.json` (per-folder).
+- **Persistence:** JSON — `.fpdb` (library file), `.fpd` (project embed). No index (retired 2026-10-10).
 - **Dependencies:** reuse existing modules per the reuse map; no new third-party deps.
 
 ## Input / Output
@@ -336,7 +337,7 @@ transitively nested definition (`BlockRegistry.bundle_for`); a definition with n
 is still written as schema 1, and **schema-1 files load unchanged**. Loading / reloading adds a
 bundled definition only when its id is absent (**the project copy wins**), then the file's own
 definition; a file that would form a nesting cycle is skipped with its reason in the load summary.
-`index.json` is unchanged (one block per file). The `.fpd` project embed is unchanged in shape —
+One block per file. The `.fpd` project embed is unchanged in shape —
 nested records ride inside each embedded definition's `primitives`.
 
 ### `.fpd` project embed
@@ -351,12 +352,58 @@ nested records ride inside each embedded definition's `primitives`.
 }
 ```
 
-### Per-folder `index.json`
+### Library on disk — no index (2026-10-10)
 
-```jsonc
-{ "<sanitized-name>.fpdb": { "id": "<uuid>", "name": "Corner Joint",
-                             "version": 3, "thumbnail": "<name>.png" } }
-```
+The one home for how the library folders map to blocks (ratified in the 2026-10-10 FP1 round; the
+schematics one-tier root, the capability pickers and the hatch seeding link here). The per-folder
+`index.json` is **retired**: never written; a stale one is removed when the app next writes or deletes
+in its folder (`_drop_stale_index`); the shipped `system_blocks/Hatches/index.json` is gone.
+
+- **The files are the listing.** `block_library._iter_entries` walks `<root>` to depth 2 (sorted,
+  depth-first) and reads every `.fpdb` with `capability_folder.read_meta` (cached per path + mtime +
+  size + file id; `capability_folder.forget` on every app write / delete). A file copied in from
+  Explorer is listed; the Blocks browser also re-lists on `applicationStateChanged → ApplicationActive`.
+  Unreadable files and files without an `id` are skipped (logged once).
+- **Folder + filename win.** An entry's Library / Series come from its folders and its name from its
+  filename stem — except that a folder / stem which *is* the stored value or its `sanitize()` form
+  reads as the stored human value (`Pipe _ Fittings` → "Pipe & Fittings"; `_human`, compared with
+  `os.path.normcase` — case-blind on Windows). The browser's folder skeleton uses the same names
+  (`human_folders`), so a sanitized folder never shows as a second node. Loading
+  (`load_blocks_from_files`, files inside `root`) and `reload_block_definition` adopt this identity
+  (a reload keeps the current names if another project definition already holds it).
+- **Tiers by kind.** A block file is two-tier; one short of a full `<Library>/<Series>` folder lists
+  under `UNGROUPED` ("Ungrouped") — Library-level → `(<Library>, Ungrouped)`, root-level →
+  `(Ungrouped, Ungrouped)`; Save then files it into a real `Ungrouped` folder (re-file removes the
+  loose copy). A `kind: "schematic"` file is one-tier (root = ungrouped, one folder = Series;
+  `schematics.md` D-S15); one filed two deep maps like a block.
+- **Consistent file / id owner.** A file is *consistent* when its on-disk identity equals the stored
+  one (the app wrote it where its identity says). When several files hold one id (a file copied to
+  make a variant) the **owner** is the first consistent file, else the first whose filename is its
+  stored name's sanitized form (`capability_folder.owns_name`), else the first in walk order; the
+  others are `duplicate`. `_find_by_id` / `source_status` / `reload_from_library` answer with the owner
+  only. The capability scan applies the same owner rule within its folder.
+- **A copy is its own block.** Loading a `duplicate` file gives the project copy a fresh `uuid` (the
+  file is untouched until Save; `load_blocks_from_files` reports `ids: {path: project id}` and
+  `blocks_browser.ensure_block_loaded` returns that id, so the browser, Open picker and canvas drop
+  place the copy). `library_only_entries` keeps a duplicate listed until a project definition has its
+  (library, series, name).
+- **Save target and re-file.** `_target_path` reuses an existing folder / file with the exact raw name
+  (one made in Explorer), else `sanitize()`s. **Re-file removes only the file the block came from**
+  (user ruling 2026-10-10): `BlockDefinition.source_path` — session-only, never serialized; set on
+  load / reload / save and carried across undo restore by id — when the target root's walk lists it
+  and it still holds this id; with no usable source (a reopened project,
+  a file loaded from outside the library or from a nested one) only an id owner that is *consistent*.
+  A user's copy or variant, and any file outside the library being saved to, is never deleted.
+  `find_collision(…, source_path=)`: a same-id file is no collision only when it is the owner; a
+  non-owner copy is no collision only for the block loaded from it (`source_path` is that file —
+  `BlockSaveDialog(collision_source=)` passes it); any other block gets the Overwrite / Rename /
+  Cancel prompt.
+- **Listing entry shape:** `{library, series, filename, path, id, name, version, kind, tile, repeat,
+  end, consistent, duplicate}` (`entry_path` = `path`). Thumbnails remain deferred (no field).
+- **API added:** `block_library.UNGROUPED`, `human_folders(root, entries)`, `is_copy(path, block_id,
+  root)`, `find_collision(…, source_path=)`; `capability_folder.read_meta` / `owns_name` / `forget` /
+  `sanitize` (re-exported as `block_library.sanitize`); `BlockDefinition.source_path`;
+  `load_blocks_from_files` summary key `ids`; `ensure_block_loaded` returns the resolved id (or None).
 
 ## Existing Code Context (reuse map)
 
@@ -391,12 +438,13 @@ nested records ride inside each embedded definition's `primitives`.
 - **Divergence:** embedded `version` ≠ library `version` for same `id` → Manager marks "modified";
   Save-to-Library / Reload-from-Library resolve it (embedded stays authoritative until the user acts).
 - **Library lookups resolve by `id`, not folder location (2026-09-05).** `source_status` /
-  `reload_from_library` scan the *whole* tree for the definition's `id` (a single `_iter_index_entries`
-  walk → `_find_by_id`), so a block whose metadata (Library/Series/name) has drifted from its on-disk
-  folder still reads its true status instead of falsely `project-only`. `save_to_library` **re-files**:
-  a stale same-`id` `.fpdb` + index entry parked at a prior location is deleted before the new write,
-  so a relocated/renamed block never duplicates on disk.
-- **Cross-`id` filename collision on Save (2026-09-05).** If the target `<sanitized-name>.fpdb` is
+  `reload_from_library` scan the *whole* tree for the definition's `id` (a single `_iter_entries`
+  walk → `_find_by_id`, owner only), so a block whose metadata (Library/Series/name) has drifted from
+  its on-disk folder still reads its true status instead of falsely `project-only`. `save_to_library`
+  **re-files**: the file the block came from (or, with no known source, a *consistent* owner) is
+  deleted before the new write (see "Library on disk"), so a relocated/renamed block never
+  duplicates on disk.
+- **Cross-`id` filename collision on Save (2026-09-05).** If the target `.fpdb` (`_target_path`) is
   already held by a *different* `id`, `save_to_library` raises `BlockNameCollision(existing_name)`
   *without touching disk* (collision check precedes re-file/write, so a refused save is inert). The
   callers resolve it as **Overwrite / Rename / Cancel** (2026-09-23, block polish): the Manager's
@@ -407,7 +455,8 @@ nested records ride inside each embedded definition's `primitives`.
   each other's library entry.
 - **Make-from-selection with non-primitives selected:** non-primitive items ignored/refused with a
   message; an all-non-primitive selection makes no block.
-- **Corrupt `.fpdb` / stale `index.json`:** tolerant load — skip + log, like the title-block library.
+- **Corrupt `.fpdb`:** tolerant — not listed, logged once (a stale `index.json` is ignored and removed
+  on the next write).
 
 ## Performance
 
@@ -439,7 +488,7 @@ nested records ride inside each embedded definition's `primitives`.
       `_capture_network`/`_restore_network` (constructively fixes `todo_open.md:18/286`).
 - [ ] **Def→instance propagation:** mutating a definition re-renders **every** instance (shared
       render-ops), proven with real `BlockInstance` objects.
-- [ ] **Library I/O + divergence:** Save-to-Library writes `.fpdb` + updates `index.json` + PNG;
+- [ ] **Library I/O + divergence:** Save-to-Library writes the `.fpdb` (no index since 2026-10-10);
       Reload-from-Library updates the embedded copy; divergence detected on `version` mismatch.
 - [ ] **Make-from-selection:** captures 2D primitives with correct origin, **consumes** the selection,
       refuses non-primitives.
@@ -653,7 +702,7 @@ project registry — **disconnected from all model views**.
   `find_collision`, `entry_path`, and `add_change_listener` (held weakly — `WeakMethod` for bound
   methods; fired on save / delete / create_folder).
 - **Blocks browser = library view** — every on-disk Library/Series folder (even empty) + every
-  indexed `.fpdb`, merged with the project registry (a library entry whose `id` is in the project
+  `.fpdb` on disk (2026-10-10; was: indexed), merged with the project registry (a library entry whose `id` is in the project
   lists once, as project). Library-only leaves are italic/dimmed; double-click loads them via
   `load_blocks_from_files` then emits `blockActivated` (a refused/unreadable load reports and does
   not place). *Since 2026-09-30 (behaviour unchanged):* the catalog and the loader are module
@@ -745,8 +794,8 @@ D-A32–D-A34, D-A39) — not restated here. Block-system-owned facts:
 
 - **`BlockDefinition.tile`** — optional `{"w", "h", "row_shift", "size"}` (or None); a block with a
   tile *is* a pattern (a capability, not a kind). Additive `.fpdb` / embed key — **no `schema`
-  bump**; absent ⇒ None. `set_tile` bumps the version and invalidates like a content edit. Library
-  `index.json` entries gain a `tile` flag (readers tolerate older entries without it).
+  bump**; absent ⇒ None. `set_tile` bumps the version and invalidates like a content edit. Listings
+  read the `tile` flag from the file (index retired 2026-10-10).
 - **Typed compile** — `render_ops()` returns shared `RenderOp`s
   (`firepro3d/render_op.py`, file governed by `hatch-and-fill.md`; LT3 extends it) of kind `stroke` / `fill` / `pattern` / `text`;
   a primitive's per-item `fill` compiles to a `fill` or `pattern` op ahead of its stroke, and
@@ -777,7 +826,7 @@ renderer, the missing badge and the Linetypes folder are owned by [`linetypes.md
 
 - **`BlockDefinition.repeat`** — optional `{"length", "size"}` (or None); a block with a repeat
   *is* a linetype (a capability, not a kind). Additive `.fpdb` / embed key — **no `schema` bump**;
-  `set_repeat` bumps the version like `set_tile`. Library `index.json` entries gain a `repeat` flag.
+  `set_repeat` bumps the version like `set_tile`. Listings read the `repeat` flag from the file.
 - **Linetype blocks are never symbols** — the pattern refusal paths (shared `set_mode` entry,
   placement click, drag / browser gate, paste skip) also refuse `repeat` blocks
   (`block_library.LINETYPE_REASON`).
@@ -803,7 +852,7 @@ Built on `feat/lt4-repeat-authoring` (`b9b1094`). The authoring contract is owne
   `pattern_use_refusal` is its tile alias) refuses turning either capability on, and saving it, while
   the block is placed or nested → `linetypes.md` LT4-11a / H4-e.
 - **Blocks browser** — the capability badge (pattern or linetype) and its tooltip now show on
-  **library** rows as well as project rows, read from the `index.json` `tile` / `repeat` flags →
+  **library** rows as well as project rows, read from each file's `tile` / `repeat` flags →
   `linetypes.md` LT4-10 / H4-g. The delete refusal's linetype wording → LT4-11e.
 
 ### Placement Weight / Linetype overrides (WM2)
@@ -834,7 +883,7 @@ Built on `feat/lt5-end-capability` (`220b5b55`). The end-type contract is owned 
 - **Kind table** — `capabilities.py` (`CAP_INFO`, `kind_of`, `capability_place_reason`;
   callers use the gate `place_refusal`, see "Schematic kind (SV1)")
   replaces the per-site tile/repeat branches: placement, paste, drag and symbol refusals,
-  browser badges, library index flags, `capability_folder.FLAGS`.
+  browser badges, library listing flags, `capability_folder.FLAGS`.
 - **Graph edges** — explicit end ids (`prim_refs`) and `repeat.ends` (`referenced_ids`),
   so delete refusal, `.fpdb` bundling, cycles and host invalidation follow
   (`block_registry.end_users_in`, `invalidate(was_end=)`).

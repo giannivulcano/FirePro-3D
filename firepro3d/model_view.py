@@ -708,17 +708,15 @@ class Model_View(QGraphicsView):
         p = sc.get_effective_position(self.mapToScene(event.position().toPoint()))
         self._end_block_drag(sc)
         proj = self._project_scene_for(sc)
-        if proj.get_block_definition(payload["id"]) is None:
-            path = payload.get("path")
-            summary = proj.load_blocks_from_files([path]) if path else {}
-            if proj.get_block_definition(payload["id"]) is None:
-                from . import block_library, themed_message
-                themed_message.themed_info(
-                    self, "Load block",
-                    block_library.load_failure_message(st["name"], summary))
-                event.ignore()
-                return
-        inst = sc.place_block_instance(payload["id"], (p.x(), p.y()), rotation=0.0)
+        # Shared with the browser double-click: loads a library-only leaf and
+        # returns the project id (a copied file's fresh id, 2026-10-10).
+        from .blocks_browser import ensure_block_loaded
+        block_id = ensure_block_loaded(proj, payload["id"], payload.get("path"),
+                                       st["name"], None, self)
+        if block_id is None:
+            event.ignore()
+            return
+        inst = sc.place_block_instance(block_id, (p.x(), p.y()), rotation=0.0)
         sc.clearSelection()
         inst.setSelected(True)
         sc.push_undo_state()

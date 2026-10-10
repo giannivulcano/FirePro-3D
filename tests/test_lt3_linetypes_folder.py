@@ -96,15 +96,13 @@ def test_scan_finds_repeat_blocks_only(qapp, tmp_path):
     assert [b for _n, b, _p in hp.library_patterns(str(tmp_path))] == [pat.id]
 
 
-def test_old_index_without_repeat_is_detected_by_parsing(qapp, tmp_path):
+def test_a_stale_index_is_ignored_the_file_decides(qapp, tmp_path):
     lt = make_linetype(name="Hidden")
     bl.save_to_library(lt, root=str(tmp_path))
-    bl.save_to_library(_symbol(), root=str(tmp_path))
-    idx_path = tmp_path / "L" / "Linetypes" / "index.json"
-    idx = json.loads(idx_path.read_text())
-    for meta in idx.values():
-        meta.pop("repeat")
-    idx_path.write_text(json.dumps(idx))
+    sym = _symbol()
+    bl.save_to_library(sym, root=str(tmp_path))
+    idx_path = tmp_path / "L" / "Linetypes" / "index.json"   # older build's index
+    idx_path.write_text(json.dumps({"Hidden.fpdb": {"id": lt.id, "repeat": False}}))
     assert [b for _n, b, _p in capability_folder.scan(str(tmp_path), "repeat")] \
         == [lt.id]
 
