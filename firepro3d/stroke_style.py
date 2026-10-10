@@ -171,6 +171,7 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
     new = normalize_style(st)
     for end in fresh_ends:
         new[end]["end"] = BY_LINETYPE
+        new[end].pop("scale", None)         # ET1: a fresh end drops its Scale
     dst.style = new
     sync = getattr(dst, "_sync_stroke_pen", None)
     if callable(sync):
