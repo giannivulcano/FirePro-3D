@@ -333,7 +333,10 @@ class BlocksBrowser(QWidget):
         *entries* is the refresh's one ``list_library`` read (None reads it)."""
         registry = self._scene._block_definitions
         tree: dict = {}
-        for lib, series in block_library.list_folders(self._lib_root).items():
+        if entries is None:
+            entries = block_library.list_library(self._lib_root)
+        for lib, series in block_library.human_folders(
+                self._lib_root, entries).items():
             node = tree.setdefault(lib, {})
             for ser in series:
                 node.setdefault(ser, [])

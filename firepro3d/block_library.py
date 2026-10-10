@@ -124,8 +124,10 @@ def _target_path(root: str | None, library: str, series: str, name: str) -> str:
 def _human(on_disk: str, stored: str) -> str:
     """The stored (human) value when *on_disk* is it or its sanitized form --
     ``Pipe _ Fittings`` reads ``Pipe & Fittings`` -- else the on-disk name
-    (folder / filename win)."""
-    if stored and on_disk in (stored, sanitize(stored)):
+    (folder / filename win). Compared as the file system does (case-blind on
+    Windows), so a reused ``fire/valves`` folder still reads ``Fire/Valves``."""
+    nc = os.path.normcase
+    if stored and nc(on_disk) in (nc(stored), nc(sanitize(stored))):
         return stored
     return on_disk
 
@@ -304,13 +306,16 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         if clash_name is not None:
             raise BlockNameCollision(clash_name, filename)
 
-    # (b) Re-file: drop this block's previous file -- only one the app wrote
-    # where its stored identity says (``consistent``); a user's copy filed
-    # elsewhere is never deleted.
-    existing = _find_by_id(definition.id, root)
-    if (existing is not None and existing[3]["consistent"]
-            and not _same_path(existing[3]["path"], path)):
-        _delete_path(existing[3]["path"])
+    # (b) Re-file: drop this block's previous file -- the id owner, when the
+    # app wrote it where its stored identity says (``consistent``) or it is
+    # the only file holding the id (a sole holder can't be anyone's copy). A
+    # user's copy of a block filed elsewhere is never deleted.
+    holders = [m for _l, _s, _f, m in _iter_entries(root)
+               if m["id"] == definition.id]
+    owner = next((m for m in holders if not m["duplicate"]), None)
+    if (owner is not None and (owner["consistent"] or len(holders) == 1)
+            and not _same_path(owner["path"], path)):
+        _delete_path(owner["path"])
 
     # (c) Write the .fpdb (the file IS the listing -- no index).
     rec = definition.to_dict()
@@ -439,6 +444,35 @@ def is_copy(path: str, block_id: str, root: str | None = None) -> bool:
     copied file, which loads as its own block under a fresh id."""
     owner = _find_by_id(block_id, root)
     return owner is not None and not _same_path(owner[3]["path"], path)
+
+
+def human_folders(root: str | None = None,
+                  entries: list[dict] | None = None) -> dict[str, list[str]]:
+    """:func:`list_folders` with each folder named as its blocks read it --
+    a ``Pipe _ Fittings`` folder holding "Pipe & Fittings" blocks is listed
+    as "Pipe & Fittings", so a browser shows one node, not a sanitized twin.
+
+    Args:
+        entries: An already-read :func:`list_library` result (None reads it).
+    """
+    base = _root(root)
+    if entries is None:
+        entries = list_library(root)
+    lib_name: dict = {}
+    ser_name: dict = {}
+    for e in entries:
+        if e.get("kind") == "schematic":
+            continue
+        parts = os.path.relpath(os.path.dirname(e["path"]), base).split(os.sep)
+        if parts and parts[0] not in ("", "."):
+            lib_name.setdefault(parts[0], e["library"])
+        if len(parts) == 2:
+            ser_name.setdefault(tuple(parts), e["series"])
+    out: dict[str, list[str]] = {}
+    for lib, series in list_folders(root).items():
+        names = out.setdefault(lib_name.get(lib, lib), [])
+        names.extend(ser_name.get((lib, s), s) for s in series)
+    return {k: sorted(set(v)) for k, v in out.items()}
 
 
 def list_library(root: str | None = None) -> list[dict]:

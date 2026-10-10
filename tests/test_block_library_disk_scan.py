@@ -313,3 +313,54 @@ def test_m1_saving_the_original_onto_its_copys_file_name_asks_first(tmp_path):
     shutil.copyfile(a, tmp_path / "Fire" / "Valves" / "Corner v2.fpdb")
     assert bl.find_collision(d.id, "Fire", "Valves", "Corner v2",
                              str(tmp_path)) == "Corner v2"
+
+
+# -- re-review round (R1-R4) ---------------------------------------------------
+
+def test_r1_a_loaded_loose_file_moves_into_ungrouped_on_save(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    path = _drop(tmp_path / "Fire", "A.fpdb", _defn("A"))     # stored Fire/Valves
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([path], root=str(tmp_path))
+    got = ms.get_block_definition(s["ids"][path])
+    assert (got.library, got.series) == ("Fire", bl.UNGROUPED)
+    bl.save_to_library(got, root=str(tmp_path))
+    assert not os.path.exists(path)                          # the loose copy moved
+    assert [e["path"] for e in bl.list_library(str(tmp_path))] == [
+        str(tmp_path / "Fire" / bl.UNGROUPED / "A.fpdb")]
+
+
+def test_r2_moved_in_explorer_then_renamed_leaves_no_old_file(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    path = _drop(tmp_path / "Fire" / "Heads", "M.fpdb", _defn("M"))   # stored Valves
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([path], root=str(tmp_path))
+    bid = s["ids"][path]
+    assert ms.set_block_metadata(bid, "M renamed", "Fire", "Heads")
+    bl.save_to_library(ms.get_block_definition(bid), root=str(tmp_path))
+    assert sorted(p.name for p in (tmp_path / "Fire" / "Heads").iterdir()) == [
+        "M renamed.fpdb"]
+
+
+def test_r3_a_folder_differing_only_in_case_keeps_the_stored_names(tmp_path):
+    (tmp_path / "fire" / "valves").mkdir(parents=True)
+    d = _defn("C")                                            # Fire / Valves
+    bl.save_to_library(d, root=str(tmp_path))
+    [e] = bl.list_library(str(tmp_path))
+    assert (e["library"], e["series"], e["consistent"]) == ("Fire", "Valves", True)
+    d.name = "C2"
+    bl.save_to_library(d, root=str(tmp_path))
+    assert sorted(p.name for p in (tmp_path / "fire" / "valves").iterdir()) == ["C2.fpdb"]
+
+
+def test_r4_browser_shows_one_folder_node_for_a_sanitized_folder(tmp_path, qapp):
+    from firepro3d.blocks_browser import BlocksBrowser
+    from firepro3d.model_space import Model_Space
+    bl.save_to_library(_defn("Valve (OS&Y)", "Pipe & Fittings", "Gate/Globe"),
+                       root=str(tmp_path))
+    b = BlocksBrowser(Model_Space(), root=str(tmp_path))
+    tree = [(b._tree.topLevelItem(i).text(0),
+             [b._tree.topLevelItem(i).child(j).text(0)
+              for j in range(b._tree.topLevelItem(i).childCount())])
+            for i in range(b._tree.topLevelItemCount())]
+    assert tree == [("Pipe & Fittings", ["Gate/Globe"])]
