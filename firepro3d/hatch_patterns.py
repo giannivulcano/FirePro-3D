@@ -19,7 +19,7 @@ import os
 import shutil
 
 # The folder walk + log-once are shared with the Linetypes folder (LT3 H3-i).
-from .capability_folder import _log_once, _scan_dirs
+from .capability_folder import _log_once, _scan_dirs, read_meta
 
 # Frozen ids of the shipped patterns (D-A39: ordinary block ids — the files
 # live in firepro3d/system_blocks/Hatches; the ids predate the shipped files).
@@ -46,7 +46,6 @@ MISSING_PATTERN_LABEL = "<missing pattern>"
 #: QSettings key: the Hatch patterns folders already seeded (D-A39 "once").
 HATCH_SEEDED_KEY = "paths/hatch_seeded"
 
-_INDEX = "index.json"
 
 
 def canonical_ref(ref: str | None) -> str | None:
@@ -118,7 +117,7 @@ def _mark_seeded(folder: str) -> None:
 
 def _folder_ids(folder: str) -> set[str]:
     """Every block id held by an ``.fpdb`` in *folder* (+ two subfolder levels),
-    read from the files themselves (an index can be stale or missing)."""
+    read from the files themselves (``capability_folder.read_meta``)."""
     ids = set()
     for d in _scan_dirs(folder):
         try:
@@ -127,12 +126,9 @@ def _folder_ids(folder: str) -> set[str]:
         except OSError:
             continue
         for path in names:
-            try:
-                bid = _read_json(path).get("id")
-            except Exception:             # noqa: BLE001 — unreadable: not ours
-                continue
-            if bid:
-                ids.add(bid)
+            meta = read_meta(path)        # None = unreadable: not ours
+            if meta is not None and meta["id"]:
+                ids.add(meta["id"])
     return ids
 
 
@@ -143,11 +139,10 @@ def seed_hatch_folder(folder: str | None = None) -> list[str]:
     pattern the user later deletes is not re-seeded. A shipped pattern whose id
     is already held by any ``.fpdb`` in the folder (the user's edited copy,
     whatever its file name) is skipped — never overwritten. A copy that would
-    clash with a different block's file name is skipped too. The folder's
-    ``index.json`` gains an entry (with the ``tile`` flag) per copied file —
-    unless the existing index can't be read (corrupt / locked), which is
-    never rewritten. The folder is recorded as seeded only once every shipped
-    pattern is present and the index is sound, so a failed copy retries.
+    clash with a different block's file name is skipped too. No index is
+    written (the files are the library, 2026-10-10); a stale ``index.json``
+    in the folder is removed. The folder is recorded as seeded only once
+    every shipped pattern is present, so a failed copy retries.
 
     Args:
         folder: Target folder; None = ``app_data.hatch_patterns_dir()``.
@@ -167,17 +162,6 @@ def seed_hatch_folder(folder: str | None = None) -> list[str]:
         _log.warning("Hatch patterns folder %s not writable: %s", folder, exc)
         return []
     have = _folder_ids(folder)
-    idx_path = os.path.join(folder, _INDEX)
-    index: dict = {}
-    index_ok = True
-    if os.path.isfile(idx_path):
-        try:
-            index = _read_json(idx_path)
-            if not isinstance(index, dict):
-                raise ValueError("index is not a mapping")
-        except Exception as exc:          # noqa: BLE001 — corrupt or locked
-            _log_once(idx_path, exc)      # never rewrite (would drop entries)
-            index_ok = False
     copied = []
     for bid, src in shipped_pattern_files():
         if bid in have:
@@ -188,30 +172,18 @@ def seed_hatch_folder(folder: str | None = None) -> list[str]:
             continue                      # a different block owns the name
         try:
             shutil.copyfile(src, dst)
-            data = _read_json(src)
-        except (OSError, ValueError) as exc:
+        except OSError as exc:
             _log.warning("Hatch pattern seed %s failed: %s", fname, exc)
             continue
-        index[fname] = {"id": bid, "name": data.get("name") or fname[:-5],
-                        "version": data.get("version", 1), "thumbnail": None,
-                        "tile": bool(data.get("tile"))}
         copied.append(bid)
     if copied:
-        if index_ok:
-            tmp = idx_path + ".tmp"
-            try:
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(index, fh, indent=2)
-                os.replace(tmp, idx_path)
-            except OSError as exc:
-                index_ok = False
-                _log.warning("Hatch pattern index %s not written: %s", idx_path, exc)
         from . import block_library
+        block_library._drop_stale_index(folder)
         block_library._notify_changed()   # an open Blocks browser refreshes
-    # Seeded once only when complete: every shipped pattern is in the folder
-    # and the index is sound — a failed copy / unreadable index retries.
+    # Seeded once only when complete: every shipped pattern is in the
+    # folder — a failed copy retries.
     shipped = {bid for bid, _src in shipped_pattern_files()}
-    if index_ok and shipped and shipped <= (have | set(copied)):
+    if shipped and shipped <= (have | set(copied)):
         _mark_seeded(folder)
     return copied
 
@@ -301,7 +273,7 @@ _log = logging.getLogger(__name__)
 def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
     """Pattern blocks in the Hatch patterns folder (D-A37) -- the ``tile``
     blocks of :func:`capability_folder.scan` (folder + two subfolder levels,
-    ``index.json`` flag, mtime cache). Never called from paint paths.
+    each file's ``tile`` flag, mtime cache). Never called from paint paths.
 
     Args:
         folder: Folder to scan; None = the configured Hatch patterns folder.

@@ -44,11 +44,11 @@ CAP_INFO = {
 
 
 def kind_of(obj) -> str | None:
-    """The capability kind of a definition or a library index entry.
+    """The capability kind of a definition or a library listing entry.
 
     Args:
-        obj: A ``BlockDefinition`` (attributes), a ``list_library`` /
-            ``index.json`` entry (dict keys), or None.
+        obj: A ``BlockDefinition`` (attributes), a ``list_library`` entry
+            (dict keys), or None.
 
     Returns:
         ``"tile"`` / ``"repeat"`` / ``"end"`` (first truthy in
