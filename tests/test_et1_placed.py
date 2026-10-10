@@ -1,6 +1,7 @@
 """ET1 G3 / G4 / G5 inside placed blocks: a line's per-end Scale and the
 end's On screen follow the authored record (Q10-e); the short-stroke rule
 is per stroke op."""
+import pytest
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor
 
@@ -52,6 +53,26 @@ def test_placed_paper_pass_keeps_the_screen_end_mark(qapp, tmp_path):
     assert inst._screen_ends is True and inst in ms._screen_end_items   # composition
     _export(tmp_path, ms, _S, "mark_placed.pdf")
     assert inst._screen_ends is True and inst in ms._screen_end_items
+
+
+@pytest.mark.parametrize("screen", ["fixed", "scale"])   # "scale": the control
+def test_placed_end_poking_into_a_viewport_prints(qapp, tmp_path, screen):
+    """Seam fix 3 (placed): the block's line lies just outside the 1:50
+    viewport crop; its end draws wholly inside -- the pass's pick bounds it
+    at the printed reach, so it reaches the PDF."""
+    from tests.test_et1_raw import poke_end
+    from tests.test_lt1_block_paper import _export
+    from tests.test_lt5_render_raw import _S, _fills
+    a = poke_end(screen)
+    ln = LineItem(QPointF(5000.0, 0.0), QPointF(2100.0, 0.0))
+    set_ends(ln, finish=a.id)
+    d = BlockDefinition.new(name="P", library="L", series="S",
+                            primitives=[ln.to_dict()], origin=(0.0, 0.0))
+    ms, _ = scene_with([a, d], d.id)
+    fills = _fills(_export(tmp_path, ms, _S, f"poke_placed_{screen}.pdf"))
+    assert len(fills) == 1, fills                   # whole square (placed: 1:100 drafting)
+    x0, y0, x1, y1 = fills[0]
+    assert abs((x1 - x0) - 8.0) <= 0.1 and abs((y1 - y0) - 8.0) <= 0.1, fills
 
 
 def test_g5_placed_short_op_draws_plain(qapp):

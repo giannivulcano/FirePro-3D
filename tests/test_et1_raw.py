@@ -2,6 +2,7 @@
 head and the trim; a Fixed-size end is FIXED_END_PX_PER_MM px per printed mm
 at any zoom on plan and in a Block Editor and prints true mm; a stroke
 shorter on screen than its Fixed-size trims draws plain, no ends."""
+import pytest
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
@@ -146,3 +147,31 @@ def test_g5_short_stroke_draws_plain_and_no_ends(qapp):
     # 1 px/mm: 100 px line, 36 px of trims -> both heads and the trimmed stroke
     img = _render(ms, QRectF(-20.0, -20.0, 140.0, 40.0), 140, 40)
     assert _head_width(img) >= 100
+
+
+def poke_end(screen="fixed"):
+    """A filled 4 x 4 printed-mm square 8..12 mm past the attach point: on a
+    1:50 sheet it sits 400..600 model mm beyond the line's endpoint."""
+    from tests.lt5_support import _poly, make_end
+    return make_end("Poke", [_poly([(8.0, -2.0), (12.0, -2.0), (12.0, 2.0), (8.0, 2.0)])],
+                    trim=0.0, screen=screen)
+
+
+@pytest.mark.parametrize("screen", ["fixed", "scale"])   # "scale": the control
+def test_end_poking_into_a_viewport_prints(qapp, tmp_path, screen):
+    """Seam fix 3: a line whose body lies just outside the 1:50 viewport
+    crop (x <= 2000 mm) with an end drawn wholly inside it (x 1500..1700)
+    -- the viewport pick bounds a Fixed-size end at its printed reach too,
+    so the end reaches the PDF (pre-ET1 a Fixed end was bounded at the
+    drawing scale)."""
+    a = poke_end(screen)
+    ms = Model_Space()
+    ms.register_block_definition(a)
+    ln = LineItem(QPointF(5000.0, 0.0), QPointF(2100.0, 0.0))  # finish at x 2100, outward -X
+    set_ends(ln, finish=a.id)
+    ms.addItem(ln)
+    ms._draw_lines.append(ln)
+    fills = _fills(_export(tmp_path, ms, _S, f"poke_{screen}.pdf"))
+    assert len(fills) == 1, fills                               # the end, inside the box
+    x0, y0, x1, y1 = fills[0]
+    assert abs((x1 - x0) - 4.0) <= 0.1 and abs((y1 - y0) - 4.0) <= 0.1, fills
