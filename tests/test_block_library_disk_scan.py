@@ -227,9 +227,13 @@ def test_activating_a_copy_leaf_places_the_copy_not_the_original(tmp_path, qapp)
 def test_status_reads_a_save_made_inside_one_clock_tick(tmp_path):
     """A re-save right after a read must not be served from the parse cache."""
     d = _defn("Joint")
-    bl.save_to_library(d, root=str(tmp_path))
+    path = bl.save_to_library(d, root=str(tmp_path))
     assert bl.source_status(d, str(tmp_path)) == "library"          # caches v1
-    d.set_primitives(d.primitives)                                  # v2
+    before = os.stat(path)
+    d.set_primitives(d.primitives)                                  # v2 (same size)
     bl.save_to_library(d, root=str(tmp_path))
+    # Pin the clock tick: the re-saved file keeps the old mtime and size.
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert os.stat(path).st_size == before.st_size
     assert bl.list_library(str(tmp_path))[0]["version"] == d.version
     assert bl.source_status(d, str(tmp_path)) == "library"
