@@ -143,16 +143,19 @@ def short_on_screen(pieces, ends, trims, screen) -> bool:
     """ET1 Q7 (LTS-7 parity): True when a Fixed-size end is drawn at a screen
     factor and the trims consume the whole stroke -- the caller then draws
     the plain stroke and only badges."""
-    if screen is None or not pieces:
-        return False
+    if screen is None or not pieces or not has_fixed(ends):
+        return False                     # no Fixed-size end: never measure
+    return trims[0] + trims[1] >= pw.total_length(pieces)
+
+
+def has_fixed(ends) -> bool:
+    """True when any drawable end of *ends* is On screen Fixed size."""
     for e in ends:
         if e.defn is not None:
             ed = EndDef.from_block(e.defn)
             if ed is not None and ed.screen == SCREEN_FIXED:
-                break
-    else:
-        return False                     # no Fixed-size end: never measure
-    return trims[0] + trims[1] >= pw.total_length(pieces)
+                return True
+    return False
 
 
 def badges_only(ends) -> tuple:
@@ -161,16 +164,20 @@ def badges_only(ends) -> tuple:
 
 
 def mark_screen_ends(item, drew: bool) -> None:
-    """Record on *item* (and its scene's ``_screen_end_items``) whether its
-    last paint drew a Fixed-size end at a screen factor (ET1 spec C): the
-    view's zoom hook re-prepares exactly those items. Callers invoke it only
-    on paints with a screen factor (a paper pass never touches the mark);
-    *item* initialises ``_screen_ends`` False."""
-    if drew == item._screen_ends:
+    """Record on *item* (and its scene's ``_screen_end_items``) whether it
+    draws a Fixed-size end at a screen factor (ET1 spec C): the view's zoom
+    hook re-prepares exactly those items. Callers invoke it only with a
+    screen factor (a paper pass never touches the mark): a paint with what
+    it drew, a bounds read with True when it bounded a Fixed-size end (the
+    zoom can change before the first paint). A True mark taken outside a
+    scene registers on the next call inside one. *item* initialises
+    ``_screen_ends`` False."""
+    if drew == item._screen_ends and not drew:
+        return
+    reg = getattr(item.scene(), "_screen_end_items", None)
+    if drew == item._screen_ends and (reg is None or item in reg):
         return
     item._screen_ends = drew
-    sc = item.scene()
-    reg = getattr(sc, "_screen_end_items", None)
     if reg is not None:
         (reg.add if drew else reg.discard)(item)
 

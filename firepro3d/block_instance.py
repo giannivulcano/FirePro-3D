@@ -333,6 +333,7 @@ class BlockInstance(QGraphicsObject):
         on_screen = _lr.screen_fixed_here(paper_scale=a["paper_scale"], role=a["role"])
         ff = None
         pad = 0.0
+        fixed = False
         for printed_all, printed_scale, scr, miss in rows:
             # On a model canvas a Fixed-size end draws at the screen factor,
             # so only the Scale-with-zoom ends take the printed factor.
@@ -344,8 +345,13 @@ class BlockInstance(QGraphicsObject):
                     pad = max(pad, printed * ff)
             if scr > 0.0 and on_screen:
                 pad = max(pad, scr * FIXED_END_PX_PER_MM * unit)
+                fixed = True
             if miss:
                 pad = max(pad, _lr.badge_pad_px() * unit)
+        if fixed:
+            # Bounds follow the zoom from the first read, not the first
+            # paint (an editor / load can zoom before any paint, spec C).
+            _er.mark_screen_ends(self, True)
         return pad
 
     def _end_pad_rows(self, ops, end_ops, lt_ids, reg) -> tuple:

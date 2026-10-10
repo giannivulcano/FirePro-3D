@@ -449,12 +449,15 @@ class Geometry2DMixin:
         bp = badge_pad_px()
         a = self._lt_args()
         unit = scene_hit_width(self, 1.0, 1.0)          # scene units per device px
+        sf = _er.screen_factor(paper_scale=a["paper_scale"], role=a["role"],
+                               device_scale=1.0 / unit)
         r = _er.ends_rect(self.stroke_pieces(), ends,
-                          printed=printed_factor(**a),
-                          screen=_er.screen_factor(paper_scale=a["paper_scale"],
-                                                   role=a["role"],
-                                                   device_scale=1.0 / unit),
+                          printed=printed_factor(**a), screen=sf,
                           badge=scene_hit_width(self, bp, bp))
+        if sf is not None and _er.has_fixed(ends):
+            # Bounds follow the zoom from the first read, not the first
+            # paint (an editor / load can zoom before any paint, spec C).
+            _er.mark_screen_ends(self, True)
         if r is not None and not cos:
             r = r.adjusted(-w / 2.0, -w / 2.0, w / 2.0, w / 2.0)
         return r

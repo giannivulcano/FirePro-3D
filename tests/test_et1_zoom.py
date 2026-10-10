@@ -103,6 +103,50 @@ def test_g6_tab_switch_re_prepares_for_the_shown_view(qapp):
         b.close()
 
 
+def _bounds_then_zoom(qapp, ms, item):
+    """Attach a never-shown view (no paint ever runs), read *item*'s bounds,
+    then zoom out through the view; returns (registered after the bounds
+    read, the scene's repaint rects, the item's new scene extent)."""
+    v = Model_View(ms)
+    v.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    v.resize(400, 400)
+    try:
+        item.boundingRect()                                     # bounds only
+        registered = item in ms._screen_end_items
+        dirty = _dirty(ms)
+        v.fitInView(QRectF(-50000.0, -50000.0, 100000.0, 100000.0))
+        qapp.processEvents()
+        return registered, dirty, item.sceneBoundingRect()
+    finally:
+        v.close()
+
+
+def test_g6_bounds_read_registers_before_any_paint_raw(qapp):
+    """Zoom can change before the first paint (editor open before its view
+    attaches, a load with a deferred fit): the bounds read registers."""
+    ms, ln = _scene("fixed")
+    registered, dirty, after = _bounds_then_zoom(qapp, ms, ln)
+    assert registered
+    assert any(r.contains(after) for r in dirty), (after, dirty)
+
+
+def test_g6_bounds_read_registers_before_any_paint_placed(qapp):
+    from tests.test_et1_placed import _block
+    from tests.wm2_support import scene_with
+    a = arrow(length=3.0, half=1.0, screen="fixed")
+    d = _block(a)
+    ms, inst = scene_with([a, d], d.id)
+    registered, dirty, after = _bounds_then_zoom(qapp, ms, inst)
+    assert registered
+    assert any(r.contains(after) for r in dirty), (after, dirty)
+
+
+def test_g6_bounds_read_never_registers_scale_with_zoom(qapp):
+    ms, ln = _scene("scale")
+    registered, _, _ = _bounds_then_zoom(qapp, ms, ln)
+    assert not registered and not ln._screen_ends
+
+
 def test_g6_fit_notifies_the_scene(qapp):
     """Every fit path (fit_to_screen, fit_scene_rect, a direct fitInView from
     the detail-view / model-browser callers) reaches the zoom hook."""
