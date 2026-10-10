@@ -78,8 +78,13 @@ def test_g3_explode_keeps_scale(qapp):
     d = BlockDefinition.new(name="X", library="L", series="S",
                             primitives=[_scaled_line(a, -300.0, 300.0).to_dict()],
                             origin=(0.0, 0.0))
-    _w, ms = _editor_scene([a, d])
-    inst = ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
-    (item,) = explode_instances(ms, [inst], flatten=False)
-    assert isinstance(item, LineItem)
-    _assert_scaled(item.style, a)
+    w, ms = _editor_scene([a, d])
+    try:
+        inst = ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
+        (item,) = explode_instances(ms, [inst], flatten=False)
+        assert isinstance(item, LineItem)
+        _assert_scaled(item.style, a)
+    finally:
+        w.close()                     # dispose in Qt (a GC'd editor widget
+        w.deleteLater()               # crashed a later app-stylesheet repolish)
+        qapp.processEvents()

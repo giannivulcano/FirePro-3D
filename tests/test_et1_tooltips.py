@@ -2,6 +2,8 @@
 wider than the cap (+ padding) with word wrap and a <br> per newline; a short
 tip's label is byte-identical to today's; every tip this task authors has no
 line wider than the cap."""
+import gc
+
 import pytest
 from PyQt6.QtCore import QEvent, QPoint
 from PyQt6.QtGui import QFontMetrics, QHelpEvent
@@ -33,11 +35,21 @@ def _send(qapp, host):
     return _tip()
 
 
+def _flush(qapp):
+    """Settle earlier tests' widgets before an app-wide stylesheet repolish
+    walks every widget: collect dropped wrappers, then run the pending
+    deleteLater()s (processEvents alone never delivers DeferredDelete)."""
+    gc.collect()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    qapp.processEvents()
+
+
 @pytest.fixture
 def host(qapp):
     """A shown widget under the app stylesheet; the previous stylesheet is
     restored, the tip hidden and the widget closed afterwards."""
     prev = qapp.styleSheet()
+    _flush(qapp)
     qapp.setStyleSheet(theme.build_app_qss(theme.detect()))
     w = QWidget()
     try:
@@ -49,6 +61,7 @@ def host(qapp):
         QToolTip.hideText()
         w.close()
         w.deleteLater()
+        _flush(qapp)
         qapp.setStyleSheet(prev)
         qapp.processEvents()
 
