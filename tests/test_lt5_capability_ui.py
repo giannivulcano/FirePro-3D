@@ -173,7 +173,6 @@ def test_library_index_flags_end_and_folder_scan_finds_it(qapp, tmp_path,
     assert [p.endswith("Arrow.fpdb") for p in parsed] == [True]
 
 
-@pytest.mark.skip(reason="ET1: size key retired (weight_relative loads Fixed); rewritten in Task 6")
 def test_new_end_type_is_registered_not_placed(qapp):
     ms = Model_Space()
     shown = _sink(ms)
@@ -181,17 +180,17 @@ def test_new_end_type_is_registered_not_placed(qapp):
     d = ms.commit_block_definition(
         block_id=None, name="Arrow", library="L", series="End Types",
         primitives=prims, origin=(0.0, 0.0), place_instance=True,
-        capability=("end", {"size": "weight_relative", "trim": 1.5}))
+        capability=("end", {"trim": 1.5, "screen": "fixed"}))
     assert d is not None
-    assert d.end == {"size": "weight_relative", "trim": 1.5}
+    assert d.end == {"trim": 1.5, "screen": "fixed"}
     assert ms.instance_count(d.id) == 0
     assert shown[-1] == ("Saved end type ‘Arrow’ — end types aren't placed; "
                          "your original geometry is unchanged.")
     d2 = ms.commit_block_definition(
         block_id=d.id, name="Arrow", library="L", series="End Types",
         primitives=prims, origin=(0.0, 0.0), place_instance=False,
-        capability=("end", {"size": "fixed", "trim": 0.0}))
-    assert d2 is d and d.end == {"size": "fixed", "trim": 0.0}
+        capability=("end", {"trim": 0.0}))
+    assert d2 is d and d.end == {"trim": 0.0}
 
 
 def test_symbol_refusal_names_end_type(qapp):

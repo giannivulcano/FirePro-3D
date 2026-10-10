@@ -1,4 +1,5 @@
-"""LT5 D4 / Q10 -- Start End / Finish End + Start / Finish Visible rows on
+"""LT5 D4 / Q10 -- Start End / Finish End + Start / Finish Visible (+ ET1
+Scale) rows on
 open primitives only; one undo step per edit; folder pick loads first and a
 failed load restores; template and placement rows carry no end rows."""
 import pytest
@@ -12,7 +13,8 @@ from firepro3d.model_space import Model_Space
 from tests.lt3_support import make_linetype
 from tests.lt5_support import end_id, scene_line, v_end
 
-_KEYS = ("Start End", "Finish End", "Start Visible", "Finish Visible")
+_KEYS = ("Start End", "Finish End", "Start Visible", "Finish Visible",
+         "Start Scale", "Finish Scale")                    # ET1 Q10-b
 
 
 @pytest.fixture

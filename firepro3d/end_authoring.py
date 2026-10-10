@@ -1,18 +1,13 @@
-"""Live-scene end-type authoring (LT5 Q8 / Q12): toggle-on seed, Size /
-Trim field edits, the push_undo_state pre-capture lock (Continuous + plain
-ends) and the panel preview painter (the real end renderer on a Thin and a
-Heavy sample line). Mirrors ``linetype_authoring``."""
+"""Live-scene end-type authoring (LT5 Q8 / Q12; ET1 Q6): toggle-on seed,
+On screen / Trim field edits, the push_undo_state pre-capture lock
+(Continuous + plain ends) and the panel preview painter (the real end
+renderer on a Thin and a Heavy sample line). Mirrors ``linetype_authoring``."""
 from __future__ import annotations
 
 import math
 
-from .end_render import SCREEN_FIXED
-
-# ET1 Task 6 rewrites the SEED / Size rows (On screen); until then the
-# retired size keyword is kept only so the module imports.
-FIXED, WEIGHT_RELATIVE = SCREEN_FIXED, "weight_relative"
-SEED = {"size": FIXED, "trim": 0.0}
-SIZE_LABELS = {FIXED: "Fixed", WEIGHT_RELATIVE: "Line weight"}
+SEED = {"trim": 0.0, "screen": "fixed"}            # ET1 Q6: new ends are Fixed size
+SCREEN_LABELS = ("Fixed size", "Scale with zoom")  # the LTS On screen row's strings
 
 
 def _needs_lock(scene) -> list:
@@ -31,7 +26,8 @@ def _force_plain(items) -> None:
 def begin_end(scene) -> int:
     """Toggle-on body -- the caller pushes the one step.
 
-    Locks the content (Q8) and sets the end capability (Size Fixed, Trim 0).
+    Locks the content (Q8) and sets the end capability (Trim 0, On screen
+    Fixed size).
 
     Returns:
         The number of primitives converted.
@@ -51,8 +47,8 @@ def pre_capture(scene) -> None:
 
 
 def set_end_field(scene, key: str, value) -> bool:
-    """Size (``"Fixed"`` / ``"Line weight"``) or Trim (mm >= 0) edit;
-    one undo step.
+    """On screen (``"Fixed size"`` / ``"Scale with zoom"``) or Trim (mm >= 0)
+    edit; one undo step.
 
     Returns:
         False (no step) for a no-op or a refused value, else True.
@@ -60,12 +56,14 @@ def set_end_field(scene, key: str, value) -> bool:
     cap = scene.block_end
     if cap is None:
         return False
-    if key == "Size":
-        size = (WEIGHT_RELATIVE if str(value) == SIZE_LABELS[WEIGHT_RELATIVE]
-                else FIXED)
-        if size == cap.get("size"):
+    if key == "On screen":
+        fixed = str(value) == SCREEN_LABELS[0]
+        if fixed == (cap.get("screen") == "fixed"):
             return False
-        cap["size"] = size
+        if fixed:
+            cap["screen"] = "fixed"
+        else:
+            cap.pop("screen", None)
     elif key == "Trim":
         try:
             mm = float(value)

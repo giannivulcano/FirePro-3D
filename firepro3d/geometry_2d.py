@@ -707,9 +707,11 @@ class Geometry2DMixin:
         self.update()
 
     def _set_end_from_panel(self, key: str, value) -> None:
-        """Apply a Start End / Finish End / Visible panel edit (LT5 Q10).
+        """Apply a Start End / Finish End / Visible / Scale panel edit
+        (LT5 Q10, ET1 Q5).
 
-        One undo step via ``_dim_edit``. A ``"Missing: ..."`` or unknown
+        One undo step via ``_dim_edit``. Scale: a plain multiplier 0.1–10
+        (``parse_end_scale``); 1 drops the key. A ``"Missing: ..."`` or unknown
         label changes nothing. An End Types folder end is loaded into the
         project first: the ref is set BEFORE the load so the load's one
         snapshot carries it; a failed load restores the old ref. In a Block
@@ -725,6 +727,13 @@ class Geometry2DMixin:
                 "True", "true", "1")
             self._dim_edit(lambda v: self._set_end_field(which, "visible", v),
                            bool(on))
+            return
+        if field == "scale":
+            from .stroke_style import parse_end_scale
+            k = parse_end_scale(value)
+            if k is None:
+                return                             # refused: the panel refresh shows the old value
+            self._dim_edit(lambda v: self._set_end_field(which, "scale", v), k)
             return
         from .capabilities import end_ref_from_value, ensure_end_available
         from .hatch_patterns import picker_exclude
@@ -3969,16 +3978,22 @@ _LOCKED_PLACEMENT_TIP = (
     "Strokes in a pattern tile or linetype unit draw Continuous at the "
     "pattern's own pen, so a nested block can't override them here.")
 
-# LT5 Q10 panel rows -> (end, record field).
+# LT5 Q10 / ET1 Q5 panel rows -> (end, record field).
 _END_ROW_KEYS = {"Start End": ("start", "end"), "Finish End": ("finish", "end"),
                  "Start Visible": ("start", "visible"),
-                 "Finish Visible": ("finish", "visible")}
-_END_TIP = ("End type drawn at this end of the line. By Linetype uses the "
-            "linetype's default (shown in brackets); None draws a plain end. "
-            "End types from the End Types folder load into the project when "
-            "picked.")
-_END_VISIBLE_TIP = ("Show this end's end type. Off draws a plain end but "
-                    "keeps the pick.")
+                 "Finish Visible": ("finish", "visible"),
+                 "Start Scale": ("start", "scale"), "Finish Scale": ("finish", "scale")}
+_END_TIP = ("End type drawn at this end of the line.\n"
+            "By Linetype uses the linetype's default\n"
+            "(shown in brackets); None draws a plain end.\n"
+            "End types from the End Types folder load\n"
+            "into the project when picked.")
+_END_VISIBLE_TIP = ("Show this end's end type.\n"
+                    "Off draws a plain end but keeps the pick.")
+_END_SCALE_TIP = ("Multiplies the end type's authored size\n"
+                  "at this end, trim included.\n"
+                  "1× = as authored (1 mm drawn = 1 mm printed).\n"
+                  "Range 0.1 to 10.")
 _LOCKED_END_TIP = "Lines inside an end type are always Continuous with plain ends"
 _LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends -- set the "
                       "linetype's default ends in its Start End / Finish End rows")
@@ -3998,7 +4013,7 @@ def _ends_lock_tip(scene) -> str | None:
 
 
 def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
-    """Start End / Finish End + Start / Finish Visible rows (LT5 Q10).
+    """Start / Finish End, Visible and Scale rows (LT5 Q10, ET1 Q10-b).
 
     Args:
         style: The primitive's style record.
@@ -4008,14 +4023,14 @@ def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
             Block Editor, :func:`_ends_lock_tip`); None = editable.
 
     Returns:
-        The four rows: the two pickers, then the two Visible checkboxes.
+        The six rows per Q10-b: End, Visible, Scale for Start then Finish.
     """
     from .capabilities import end_choices
-    from .stroke_style import BY_LINETYPE, _end, end_label
+    from .stroke_style import BY_LINETYPE, END_SCALE_SUFFIX, end_label
     choices = end_choices(registry, exclude)
-    rows, vis = {}, {}
+    rows = {}
     for which, title in (("start", "Start"), ("finish", "Finish")):
-        rec = _end(style.get(which))
+        rec = normalize_end(style.get(which))
         ref = rec["end"]
         head = end_label(BY_LINETYPE, style["linetype"], registry, which=which)
         options = [head, *(n for n, _ in choices)]
@@ -4028,9 +4043,12 @@ def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
             options = [value] + options
         rows[f"{title} End"] = {"type": "enum", "options": options,
                                 "value": value, "tooltip": _END_TIP}
-        vis[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
-                                   "tooltip": _END_VISIBLE_TIP}
-    rows.update(vis)
+        rows[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
+                                    "tooltip": _END_VISIBLE_TIP}
+        rows[f"{title} Scale"] = {"type": "string",
+                                  "value": f"{rec.get('scale', 1.0):g}",
+                                  "suffix": END_SCALE_SUFFIX,
+                                  "tooltip": _END_SCALE_TIP}
     if locked_tip:
         for meta in rows.values():
             meta["disabled"] = True

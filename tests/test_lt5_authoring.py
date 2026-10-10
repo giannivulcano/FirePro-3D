@@ -1,7 +1,7 @@
 """LT5 D5 / E11 -- End type authoring: toggle (exclusive, symbol + nested
 refusal, off refused while used), Continuous / plain-ends lock, EndFrame
 (sample line ends at -trim, X-only trim grip = one undo step), panel rows
-(Size / Trim / Preview swatch) and the linetype default Start/Finish End."""
+(On screen / Trim / Preview swatch) and the linetype default Start/Finish End."""
 import pytest
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter
@@ -38,27 +38,25 @@ def _end_editor():
 
 # ── toggle ──────────────────────────────────────────────────────────────────
 
-@pytest.mark.skip(reason="ET1: size key retired (SEED gains screen); rewritten in Task 6")
 def test_on_seeds_fixed_trim0_one_step_and_frame(qapp):
     _, w, _ = _w()
     sc = w.editor_scene
     n = len(sc._undo_stack)
     assert w.toggle_capability("end")
-    assert sc.block_end == {"size": "fixed", "trim": 0.0}
+    assert sc.block_end == {"trim": 0.0, "screen": "fixed"}
     assert isinstance(sc.capability_frame_item(), EndFrame)
     assert len(sc._undo_stack) == n + 1
     sc.undo()
     assert sc.block_capability is None and sc.capability_frame_item() is None
 
 
-@pytest.mark.skip(reason="ET1: size key retired (SEED gains screen); rewritten in Task 6")
 def test_slot_normalises_the_end_record(qapp):
     _, w, _ = _w()
     sc = w.editor_scene
     sc.set_block_capability(("end", {"size": "bogus", "trim": -3.0}))
-    assert sc.block_end == {"size": "fixed", "trim": 0.0}
-    sc.set_block_capability(("end", {"size": "weight_relative", "trim": 2.0}))
-    assert sc.block_end == {"size": "weight_relative", "trim": 2.0}
+    assert sc.block_end == {"trim": 0.0}
+    sc.set_block_capability(("end", {"size": "weight_relative", "trim": 2.0, "screen": "fixed"}))
+    assert sc.block_end == {"trim": 2.0, "screen": "fixed"}
 
 
 def test_three_way_exclusivity(qapp):
@@ -102,7 +100,6 @@ def test_on_refused_with_nested_blocks(qapp):
                         "them first")
 
 
-@pytest.mark.skip(reason="ET1: size key retired (SEED gains screen); rewritten in Task 6")
 def test_off_refused_while_a_line_uses_it(qapp):
     proj = Model_Space()
     e = v_end("Arrow")
@@ -110,18 +107,17 @@ def test_off_refused_while_a_line_uses_it(qapp):
     scene_line(proj, finish={"end": e.id, "visible": True})
     _, w, msgs = _w(proj, e)
     sc = w.editor_scene
-    assert sc.block_end == {"size": "fixed", "trim": 0.0}   # seeded from defn
+    assert sc.block_end == {"trim": 0.0}                    # seeded from defn
     assert w.toggle_capability("end") is False
     assert sc.block_end is not None
     assert msgs[-1] == "“Arrow” is used by 1 line — change their ends first."
 
 
-@pytest.mark.skip(reason="ET1: size key retired (SEED gains screen); rewritten in Task 6")
 def test_save_keeps_the_end_record(qapp):
     proj, w, sc, _ = _end_editor()
-    sc.set_block_capability(("end", {"size": "weight_relative", "trim": 1.0}))
+    sc.set_block_capability(("end", {"trim": 1.0, "screen": "fixed"}))
     d = w.commit_block("Round", "L", "End Types")
-    assert d is not None and d.end == {"size": "weight_relative", "trim": 1.0}
+    assert d is not None and d.end == {"trim": 1.0, "screen": "fixed"}
     assert proj.instance_count(d.id) == 0
 
 
@@ -219,7 +215,7 @@ def test_sample_line_ends_at_minus_trim(qapp):
     _, w, sc, _ = _end_editor()
     sc.clearSelection()
     t0 = _render(sc)
-    sc.set_block_capability(("end", {"size": "fixed", "trim": 4.0}))
+    sc.set_block_capability(("end", {"trim": 4.0, "screen": "fixed"}))
     t4 = _render(sc)
     assert _col(t0, 160) != _col(t4, 160)        # trim 4 clears x = -2
     assert _col(t0, 80) == _col(t4, 80)          # x = -6 drawn both times
@@ -227,26 +223,24 @@ def test_sample_line_ends_at_minus_trim(qapp):
 
 # ── panel ───────────────────────────────────────────────────────────────────
 
-@pytest.mark.skip(reason="ET1: Size row retired (On screen row); rewritten in Task 6")
 def test_end_panel_rows_and_edits_are_one_step(qapp):
     from firepro3d.block_properties_info import BlockPropertiesInfo
     from firepro3d.property_manager import PropertyManager
     from firepro3d.ui_kit import PaintSwatch
     _, w, sc, _ = _end_editor()
     r = capability_rows(sc)
-    for k in ("Repeat", "Pattern tile", "Linetype", "End type", "Size", "Trim",
+    for k in ("Repeat", "Pattern tile", "Linetype", "End type", "On screen", "Trim",
               "Preview", "Preview swatch"):
         assert k in r, k
     assert r["End type"]["value"] is True
-    assert r["Size"]["options"] == ["Fixed", "Line weight"]
-    assert r["Size"]["value"] == "Fixed" and r["Trim"]["value_mm"] == 0.0
+    assert r["On screen"]["value"] == "Fixed size" and r["Trim"]["value_mm"] == 0.0
     for k, m in r.items():
         if m["type"] != "header":
             assert m.get("tooltip"), k
     pos0 = sc._undo_pos
-    set_capability_property(sc, w, "Size", "Line weight")
-    assert sc.block_end["size"] == "weight_relative" and sc._undo_pos == pos0 + 1
-    set_capability_property(sc, w, "Size", "Line weight")      # no-op
+    set_capability_property(sc, w, "On screen", "Scale with zoom")
+    assert sc.block_end == {"trim": 0.0} and sc._undo_pos == pos0 + 1
+    set_capability_property(sc, w, "On screen", "Scale with zoom")  # no-op
     set_capability_property(sc, w, "Trim", 2.5)
     assert sc.block_end["trim"] == 2.5 and sc._undo_pos == pos0 + 2
     set_capability_property(sc, w, "Trim", -1.0)                   # refused
@@ -257,7 +251,6 @@ def test_end_panel_rows_and_edits_are_one_step(qapp):
     assert pm.findChildren(PaintSwatch)
 
 
-@pytest.mark.skip(reason="ET1: end-type editor rows (capability_panel) rewritten in Task 6")
 def test_preview_swatch_draws_the_end_on_both_sample_lines(qapp):
     _, w, sc, _ = _end_editor()
     paint = capability_rows(sc)["Preview swatch"]["paint"]
@@ -405,31 +398,15 @@ def test_pattern_tile_end_rows_locked_and_ends_stripped_keep_linetype(qapp):
 
 # ── fix round minors ───────────────────────────────────────────────────────
 
-@pytest.mark.skip(reason="ET1: Line weight retired; rewritten in Task 6")
-def test_weight_relative_trim_is_a_plain_multiple_not_a_length(qapp):
-    from firepro3d.property_manager import PropertyManager
-    from firepro3d.block_properties_info import BlockPropertiesInfo
+def test_trim_is_always_a_project_length(qapp):
     _, w, sc, _ = _end_editor()
     from firepro3d.scale_manager import DisplayUnit
     sc.scale_manager.display_unit = DisplayUnit.IMPERIAL    # a feet-inch project
-    assert "'" in capability_rows(sc)["Trim"]["value"] or '"' in capability_rows(sc)["Trim"]["value"]
     r = capability_rows(sc)
-    assert r["Trim"]["type"] == "dimension"                   # Fixed: a length
-    set_capability_property(sc, w, "Size", "Line weight")
-    r = capability_rows(sc)
-    assert r["Trim"]["type"] == "string" and r["Trim"]["value"] == "0"
-    assert r["Trim"]["suffix"] == "× line weight"
-    assert "× line weight" in r["Trim"]["tooltip"]
-    pos0 = sc._undo_pos
-    set_capability_property(sc, w, "Trim", "1.5")
-    assert sc.block_end["trim"] == 1.5 and sc._undo_pos == pos0 + 1
-    assert capability_rows(sc)["Trim"]["value"] == "1.5"
-    set_capability_property(sc, w, "Trim", "abc")                 # refused
-    assert sc.block_end["trim"] == 1.5 and sc._undo_pos == pos0 + 1
-    pm = PropertyManager()
-    pm.show_properties(BlockPropertiesInfo(sc, "Arrow", w))
-    qapp.processEvents()
-    assert "Trim" in pm._prop_widgets
+    assert "'" in r["Trim"]["value"] or '"' in r["Trim"]["value"]
+    assert r["Trim"]["type"] == "dimension"
+    set_capability_property(sc, w, "On screen", "Scale with zoom")
+    assert capability_rows(sc)["Trim"]["type"] == "dimension"   # either sizing
 
 
 def test_keyword_named_end_blocks_stay_pickable(qapp):

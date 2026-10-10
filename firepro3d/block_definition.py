@@ -180,7 +180,7 @@ def _norm_end(end) -> dict | None:
     """Normalised end-type record, or None (LT5 design A; ET1 Q4 / Q6).
 
     ``{"trim": mm >= 0[, "screen": "fixed"]}``: a non-dict is no capability;
-    a stored ``size`` (any value, incl. the retired ``weight_relative``) is
+    a stored ``size`` (any value, incl. the retired line-weight keyword) is
     read and dropped -- every end is Fixed; ``screen`` is kept only as
     ``"fixed"`` (absent = Scale with zoom, the ``_norm_repeat`` idiom); a
     non-numeric, non-finite or negative trim reads 0.

@@ -162,8 +162,6 @@ def test_e10_block_editor_pick_is_one_editor_step(win_with_editor, qapp, tmp_pat
         qapp.processEvents()
 
 
-@pytest.mark.skip(reason="ET1: end-type editor rows (capability_panel) rewritten in Task 6 -- "
-                         "the toggle's panel build raises inside a Qt slot until then")
 def test_e10_ribbon_end_type_button_toggles_and_follows_undo(mw, qapp):
     w = mw.block_editor_manager.open_new()
     qapp.processEvents()
@@ -173,7 +171,7 @@ def test_e10_ribbon_end_type_button_toggles_and_follows_undo(mw, qapp):
         assert end.isCheckable() and "end type" in end.toolTip().lower()
         QTest.mouseClick(end, Qt.MouseButton.LeftButton)
         qapp.processEvents()
-        assert w.editor_scene.block_end == {"trim": 0.0}        # ET1: the SEED, no size key
+        assert w.editor_scene.block_end == {"trim": 0.0, "screen": "fixed"}  # ET1 Q6 SEED
         assert end.isChecked() and not lt.isChecked()
         QTest.mouseClick(lt, Qt.MouseButton.LeftButton)     # refused: exclusive
         qapp.processEvents()
