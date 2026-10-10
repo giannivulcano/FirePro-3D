@@ -18,8 +18,7 @@ from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
-from .end_render import FIXED as _er_FIXED
-from .end_render import WEIGHT_RELATIVE as _er_WEIGHT_RELATIVE
+from .end_render import SCREEN_FIXED
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
@@ -177,26 +176,33 @@ def _norm_repeat(repeat) -> dict | None:
     return out
 
 
-_END_SIZES = (_er_FIXED, _er_WEIGHT_RELATIVE)   # one home: end_render
-
-
 def _norm_end(end) -> dict | None:
-    """Normalised end-type record, or None (LT5 design A).
+    """Normalised end-type record, or None (LT5 design A; ET1 Q4 / Q6).
 
-    ``{"size": "fixed" | "weight_relative", "trim": mm >= 0}``: a non-dict
-    is no capability; a bad size reads Fixed; a non-numeric, non-finite or
-    negative trim reads 0.
+    ``{"trim": mm >= 0[, "screen": "fixed"][, "model_scale": N]}``: a
+    non-dict is no capability; a stored ``size`` (any value, incl. the
+    retired line-weight keyword) is read and dropped -- every end is Fixed;
+    ``screen`` is kept only as ``"fixed"`` (absent = Scale with zoom, the
+    ``_norm_repeat`` idiom); a non-numeric, non-finite or negative trim
+    reads 0; ``model_scale`` (ET1 Q12e, the 1:N denominator) is kept only
+    when ``stroke_style.model_scale_value`` reads one (absent = Project).
     """
     if not isinstance(end, dict):
         return None
-    size = end.get("size")
     try:
         trim = float(end.get("trim", 0.0))
     except (TypeError, ValueError):
         trim = 0.0
     if not math.isfinite(trim) or trim < 0.0:
         trim = 0.0
-    return {"size": size if size in _END_SIZES else _er_FIXED, "trim": trim}
+    out = {"trim": trim}
+    if end.get("screen") == SCREEN_FIXED:
+        out["screen"] = SCREEN_FIXED
+    from .stroke_style import model_scale_value
+    n = model_scale_value(end.get("model_scale"))
+    if n is not None:
+        out["model_scale"] = n
+    return out
 
 
 def _load_prim(p):

@@ -12,7 +12,7 @@ from firepro3d.block_instance import BlockInstance
 from firepro3d.geometry_2d import CircleItem, LineItem
 from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
 from tests.lt3_support import make_linetype
-from tests.lt5_support import arrow, dot, round_end, set_ends
+from tests.lt5_support import arrow, dot, make_end, set_ends
 from tests.test_lt1_block_paper import _export, _render_model
 from tests.test_lt3_pdf import _viewport_hlines
 from tests.test_lt3_primitive_paint import _render
@@ -63,20 +63,23 @@ def test_both_op_paths_trim_the_stroke_and_draw_the_end_on_paper(qapp, tmp_path,
 
 
 @pytest.mark.parametrize("weight", ["Thinner", "Thin"])   # Medium 0.25 / Heavy 0.35 (MW-6)
-def test_e7_placement_weight_override_scales_weight_relative_ends(qapp, tmp_path, weight):
+def test_e7_end_stroke_plots_at_the_placement_override_width(qapp, tmp_path, weight):
+    """E7's surviving half (ET1 retired weight-relative sizing): an end's
+    stroke op plots at the placement's resolved width, like the line."""
     save_paper_color_mode(PaperColorMode.BW)
-    r = round_end()
-    d = _line_block(finish=r.id)                     # authored Thickest (0.70)
-    ms, _inst = scene_with([r, d], d.id, {"weight": weight})
+    # A stroke-only end: one 2 mm bar parallel to the line, 1 mm above it.
+    bar = make_end("Bar", [LineItem(QPointF(-2.0, -1.0), QPointF(0.0, -1.0)).to_dict()])
+    d = _line_block(finish=bar.id)                   # authored Thickest (0.70)
+    ms, _inst = scene_with([bar, d], d.id, {"weight": weight})
     pdf = _export(tmp_path, ms, _S, f"e7_{weight}.pdf")
     mm = pd.resolve_line_weight_mm(weight)
-    lines = [l for l in _viewport_hlines(pdf) if l[1] - l[0] > 30.0]
-    assert lines and {round(w, 3) for *_, w in lines} == {round(mm, 3)}   # override plotted
-    fills = _fills(pdf)
-    assert len(fills) == 1, fills
-    x0, _y0, x1, _y1 = fills[0]
-    assert abs((x1 - x0) / 2.0 - mm / 2.0) <= 0.01                 # radius = half the override
-    assert abs((x0 + x1) / 2.0 - _line_span(tmp_path)[1]) <= 0.05  # still on the finish end
+    lines = _viewport_hlines(pdf)
+    long_ = [l for l in lines if l[1] - l[0] > 30.0]
+    short = [l for l in lines if abs((l[1] - l[0]) - 2.0) <= 0.05]
+    assert long_ and {round(w, 3) for *_, w in long_} == {round(mm, 3)}   # override plotted
+    assert len(short) == 1, lines                                        # the end's bar
+    assert abs(short[0][2] - mm) <= 0.005                                # at the override width
+    assert abs(short[0][1] - _line_span(tmp_path)[1]) <= 0.05            # on the finish end
 
 
 def test_e6_linetype_default_end_draws_follows_edits_and_yields_to_explicit(qapp):

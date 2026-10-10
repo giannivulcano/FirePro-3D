@@ -569,6 +569,9 @@ class SceneIOMixin:
         self.active_level = DEFAULT_LEVEL
         if self._level_manager:
             self._level_manager.reset()
+        # ET1 spec C: clear() below deletes the registered items; a Python
+        # ref outliving the reset must not leave a dead wrapper in the set.
+        self._screen_end_items.clear()
         self.clear()
         # self.clear() deleted the shared close-cue ring too (DD8); drop the
         # dead wrapper so show_close_ring lazily recreates it.

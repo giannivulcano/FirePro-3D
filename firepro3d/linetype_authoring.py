@@ -186,11 +186,13 @@ def set_repeat_field(scene, key: str, value) -> None:
             return
         rep["size"] = size
     elif key == "On screen":
-        fixed = str(value) == "Fixed size"
-        if fixed == (rep.get("screen") == "fixed"):
+        from .end_render import SCREEN_FIXED
+        from .linetype_render import SCREEN_LABELS
+        fixed = str(value) == SCREEN_LABELS[0]
+        if fixed == (rep.get("screen") == SCREEN_FIXED):
             return
         if fixed:
-            rep["screen"] = "fixed"
+            rep["screen"] = SCREEN_FIXED
         else:
             rep.pop("screen", None)
     else:
@@ -390,7 +392,7 @@ def preview_painter(scene):
                 draw_expansion(painter, dash, dot, pen)
                 return
             from .end_render import end_trims, paint_ends
-            kw = {"fixed_factor": s, "weight_factor": pen.widthF()}
+            kw = {"printed": s, "screen": None}     # the swatch previews printed size
             trims = end_trims(ends, **kw)
             for stroke in (pieces[:1], pieces[1:]):
                 dash, dot = expand(stroke, lt, s, (rect.left(), rect.top()),

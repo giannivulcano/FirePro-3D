@@ -47,6 +47,7 @@ def _inner(row, lit=True):
 
 def _editor(screen):
     ms = Model_Space(scene_role="block_editor")
+    ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; these cases read 1:1
     d = make_linetype(screen=screen)
     ms.register_block_definition(d)
     return ms, d.id

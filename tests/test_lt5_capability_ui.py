@@ -4,6 +4,7 @@ the library index + capability folder flag it, and commit / symbol-refusal
 wording reads "end type" (linetypes.md D-L12, LT5 Q12 / Q13)."""
 import json
 
+import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import block_library, capability_folder
@@ -179,17 +180,17 @@ def test_new_end_type_is_registered_not_placed(qapp):
     d = ms.commit_block_definition(
         block_id=None, name="Arrow", library="L", series="End Types",
         primitives=prims, origin=(0.0, 0.0), place_instance=True,
-        capability=("end", {"size": "weight_relative", "trim": 1.5}))
+        capability=("end", {"trim": 1.5, "screen": "fixed"}))
     assert d is not None
-    assert d.end == {"size": "weight_relative", "trim": 1.5}
+    assert d.end == {"trim": 1.5, "screen": "fixed"}
     assert ms.instance_count(d.id) == 0
     assert shown[-1] == ("Saved end type ‘Arrow’ — end types aren't placed; "
                          "your original geometry is unchanged.")
     d2 = ms.commit_block_definition(
         block_id=d.id, name="Arrow", library="L", series="End Types",
         primitives=prims, origin=(0.0, 0.0), place_instance=False,
-        capability=("end", {"size": "fixed", "trim": 0.0}))
-    assert d2 is d and d.end == {"size": "fixed", "trim": 0.0}
+        capability=("end", {"trim": 0.0}))
+    assert d2 is d and d.end == {"trim": 0.0}
 
 
 def test_symbol_refusal_names_end_type(qapp):

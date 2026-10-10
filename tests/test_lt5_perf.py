@@ -17,8 +17,8 @@ measures the LT5 gate checks themselves -- NOT incidental cost of the
 refactored paint code around them. The true pre-LT5 base is cbe41a15: copy
 this file into a base worktree and run it there (the LT5 cases skip; the
 end-less absolute ms print) and pass those as LT5_BASE_RAW / LT5_BASE_BLOCK
-here for an A/B line. "raw-wr" repeats the raw shape with a weight-relative
-trimmed arrow -- its trims change with zoom (flagged perf risk).
+here for an A/B line. "raw-fixed" repeats the raw shape with On screen = Fixed
+size arrows -- k changes with zoom (ET1, report-only; residual to LT8).
 
 Run standalone: ./venv/Scripts/python.exe -m pytest tests/test_lt5_perf.py -m perf -s
 """
@@ -39,18 +39,18 @@ _HAS_LT5 = importlib.util.find_spec("firepro3d.end_render") is not None
 _N, _EVERY = 2000, 5                       # 400 lines with ends
 
 
-def _end_defs(ms, size="fixed"):
+def _end_defs(ms, screen="scale"):
     from tests.lt5_support import arrow, dot
-    a, d = arrow(size=size), dot()
+    a, d = arrow(screen=screen), dot()
     ms.register_block_definition(a)
     ms.register_block_definition(d)
     return a.id, d.id
 
 
-def _raw(ends, size="fixed"):
+def _raw(ends, screen="scale"):
     """Plan: 2,000 raw 400 mm lines (40 rows x 50), every 5th with ends."""
     ms = Model_Space()
-    ids = _end_defs(ms, size) if ends else None
+    ids = _end_defs(ms, screen) if ends else None
     lines = []
     for i in range(_N):
         r, c = divmod(i, 50)
@@ -63,10 +63,10 @@ def _raw(ends, size="fixed"):
     return ms, QRectF(-500.0, -500.0, 26000.0, 13000.0), lines
 
 
-def _block(ends, size="fixed"):
+def _block(ends):
     """Plan: 200 placements of a 10-line block, lines 0 and 5 with ends."""
     ms = Model_Space()
-    ids = _end_defs(ms, size) if ends else None
+    ids = _end_defs(ms) if ends else None
     prims = []
     for k in range(10):
         ln = LineItem(QPointF(0.0, k * 30.0), QPointF(400.0, k * 30.0))
@@ -84,7 +84,7 @@ def _block(ends, size="fixed"):
 
 
 _SHAPES = {"raw": _raw, "block": _block,
-           "raw-wr": lambda ends: _raw(ends, size="weight_relative")}
+           "raw-fixed": lambda ends: _raw(ends, screen="fixed")}
 
 
 def _crops(crop):
@@ -129,19 +129,19 @@ def _bypassed():
 
 
 @pytest.mark.skipif(not _HAS_LT5, reason="base tree: no end_render")
-@pytest.mark.parametrize("shape", ["raw", "block", "raw-wr"])
+@pytest.mark.parametrize("shape", ["raw", "block", "raw-fixed"])
 def test_ends_vs_end_less(qapp, shape):
     with_e, crop, lines_e = _SHAPES[shape](True)
     without, _, lines_n = _SHAPES[shape](False)
     _assert_composition("block" if shape == "block" else "raw",
                         with_e, without, crop, lines_e, lines_n)
-    if shape != "block":                     # VC2: every drawn end, its size mode
-        from firepro3d.end_render import FIXED, WEIGHT_RELATIVE, EndDef
-        want = WEIGHT_RELATIVE if shape == "raw-wr" else FIXED
+    if shape != "block":                     # VC2: every drawn end, its On screen
+        from firepro3d.end_render import SCREEN_FIXED, SCREEN_SCALE, EndDef
+        want = SCREEN_FIXED if shape == "raw-fixed" else SCREEN_SCALE
         arrows = [EndDef.from_block(ln._item_ends()[0].defn) for ln in lines_e
                   if ln._item_ends()[0].defn is not None]
         assert len(arrows) == _N // _EVERY
-        assert {ed.size for ed in arrows} == {want}
+        assert {ed.screen for ed in arrows} == {want}
     t_e, t_n = _paired(with_e, without, _crops(crop))
     print(f"\nLT5 {shape}: ends {t_e:.1f} / end-less {t_n:.1f} ms "
           f"({t_e / t_n:.2f}x, target 1.3x)")

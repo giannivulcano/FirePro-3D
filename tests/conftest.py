@@ -198,6 +198,15 @@ def real_qsettings():
 
 
 @pytest.fixture
+def tooltips_installed(qapp):
+    """The ET1 tooltip wrap filter, installed for one test (removed after)."""
+    from firepro3d import tooltips
+    tooltips.install(qapp)
+    yield qapp
+    tooltips.uninstall(qapp)
+
+
+@pytest.fixture
 def model_space(qapp):
     """A bare ``Model_Space`` carrying an ``AlignController`` (for ALIGN tests).
 

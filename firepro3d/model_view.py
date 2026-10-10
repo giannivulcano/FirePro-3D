@@ -820,6 +820,12 @@ class Model_View(QGraphicsView):
     # -----------------------------
     def showEvent(self, event):
         super().showEvent(event)
+        if not self._first_show:
+            # A re-show (plan / detail / Block Editor tab switch) changes
+            # which view's zoom the scene's bounds read (ET1 spec C); the
+            # first show notifies through its fitInView below.
+            self._notify_zoom()
+            return
         if self._first_show:
             self._first_show = False
             if self._pending_fit_rect is not None:
@@ -864,6 +870,7 @@ class Model_View(QGraphicsView):
         new_pos = self.mapToScene(event.position().toPoint())
         delta = new_pos - old_pos
         self.translate(delta.x(), delta.y())
+        self._notify_zoom()
         # scale()/translate() change the transform without scrolling, so
         # scrollContentsBy does not always fire — re-place explicitly.
         self._reposition_dynamic_input()
@@ -1443,6 +1450,7 @@ class Model_View(QGraphicsView):
         if rect.isNull() or rect.isEmpty():
             # Nothing in scene — center origin in both X and Y
             self.resetTransform()
+            self._notify_zoom()
             vp = self.viewport().rect()
             w, h = vp.width(), vp.height()
             self.setSceneRect(QRectF(-w / 2, -h / 2, w, h))
@@ -1476,6 +1484,22 @@ class Model_View(QGraphicsView):
         margin = max(rect.width(), rect.height()) * 0.05
         rect.adjust(-margin, -margin, margin, margin)
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def fitInView(self, *args, **kwargs):
+        """QGraphicsView.fitInView, then the zoom hook (ET1 spec C).
+
+        One chokepoint for every fit: ``fit_to_screen`` / ``fit_scene_rect`` /
+        ``_fit_with_margin`` / the first-show default here, and the external
+        callers (detail-view crop fit, model-browser zoom-to-entity).
+        """
+        super().fitInView(*args, **kwargs)
+        self._notify_zoom()
+
+    def _notify_zoom(self) -> None:
+        """Tell the scene the view transform changed (ET1 spec C)."""
+        hook = getattr(self.scene(), "view_zoom_changed", None)
+        if hook is not None:
+            hook()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:

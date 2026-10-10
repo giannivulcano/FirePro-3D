@@ -43,10 +43,14 @@ from .tool_geometry import extract_edges  # re-exported for existing importers
 
 
 def _fresh_end(item, end: str) -> None:
-    """Reset one end of an in-place-trimmed item to By Linetype (LT2-3)."""
+    """Reset one end of an in-place-trimmed item to By Linetype (LT2-3); a
+    fresh end drops its per-use Scale and Model scale (ET1 Q5 / Q12e),
+    ``mirrored`` is kept (LT5)."""
     st = getattr(item, "style", None)
     if st is not None:
         st[end]["end"] = BY_LINETYPE
+        st[end].pop("scale", None)
+        st[end].pop("model_scale", None)
 
 
 # ``extract_edges`` moved to ``tool_geometry.py`` (Model_Space decomposition,

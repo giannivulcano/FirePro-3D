@@ -6,6 +6,7 @@ button toggles the capability and follows undo.
 
 Runs in its OWN pytest process (module-scoped MainWindow fixture).
 """
+import pytest
 from PyQt6.QtCore import QPointF, QRectF, QSettings, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter
 from PyQt6.QtTest import QTest
@@ -170,7 +171,7 @@ def test_e10_ribbon_end_type_button_toggles_and_follows_undo(mw, qapp):
         assert end.isCheckable() and "end type" in end.toolTip().lower()
         QTest.mouseClick(end, Qt.MouseButton.LeftButton)
         qapp.processEvents()
-        assert w.editor_scene.block_end == {"size": "fixed", "trim": 0.0}
+        assert w.editor_scene.block_end == {"trim": 0.0, "screen": "fixed"}  # ET1 Q6 SEED
         assert end.isChecked() and not lt.isChecked()
         QTest.mouseClick(lt, Qt.MouseButton.LeftButton)     # refused: exclusive
         qapp.processEvents()

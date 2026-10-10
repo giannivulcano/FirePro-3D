@@ -303,6 +303,7 @@ def test_g2_linetyped_dash_is_n_full_rows(be, half):
     # off it smears -- so both positions are probed.
     from tests.lt3_support import make_linetype
     v, sc = be
+    sc.scale_manager.drawing_scale = 1.0   # ET1 Q1: editor previews at the drawing scale; this case reads 1:1
     d = make_linetype(dashes=((0.0, 30.0),), length=45.0)
     sc.register_block_definition(d)
     y = boundary_y(v, 40.0) + half

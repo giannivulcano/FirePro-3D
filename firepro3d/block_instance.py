@@ -117,6 +117,9 @@ class BlockInstance(QGraphicsObject):
         self._end_ops_cache = None  # (ops list, frozenset of explicit-end op indices) -- LT5
         self._end_trim_ops = None   # (ops list, {op index: (trims, trimmed path)}) -- LT5
         self._end_pad_cache = None  # (ops, registry, deps, rows) -- LT5 bounds (_end_pad_rows)
+        self._drew_screen = False   # this paint drew a Fixed-size end at the screen factor (ET1)
+        self._paint_sf = None       # this paint's end screen factor (None: not read / paper)
+        self._screen_ends = False   # last model paint drew a Fixed-size end (ET1 spec C)
         # Missing id named in the tooltip (linetype_render.sync_missing_tooltip);
         # set here so paint reads a plain attribute (no getattr miss).
         self._lt_tip_id: Optional[str] = None
@@ -308,11 +311,13 @@ class BlockInstance(QGraphicsObject):
     def _ends_pad(self, ops, end_ops, lt_ids) -> float:
         """Scene-mm radius covering every end these ops draw (LT5 bounds).
 
-        Each drawn end (``_end_pad_rows``) is bounded by its reach x its
-        scale here (Fixed: the printed factor; weight-relative: the op's
-        canvas px at the current view zoom, or its paper width); a missing
-        end by the badge pad. Radial around the posed rect (ends attach at
-        path endpoints inside it). 0.0 when nothing draws.
+        On a model canvas a Fixed-size end is bounded by its screen reach
+        alone (unit reach x px/mm x scene mm per px at the current zoom; the
+        zoom hook re-prepares, spec C) and a Scale-with-zoom end by its unit
+        reach x the printed factor; off a model canvas (paper pass, sheet)
+        every drawn end takes the printed factor. A missing end is bounded
+        by the badge pad. Radial around the posed rect (ends attach at path
+        endpoints inside it). 0.0 when nothing draws.
         """
         if self._is_ghost:
             return 0.0
@@ -321,33 +326,46 @@ class BlockInstance(QGraphicsObject):
         rows = self._end_pad_rows(ops, end_ops, lt_ids, reg)
         if not rows:
             return 0.0
+        from .constants import FIXED_END_PX_PER_MM
         from .view_scale import scene_hit_width
         unit = scene_hit_width(self, 1.0, 1.0)      # scene mm per device px (linear)
-        on_paper = self._paper_pen_width is not None
+        a = self._lt_args()
+        on_screen = _lr.screen_fixed_here(paper_scale=a["paper_scale"], role=a["role"])
         ff = None
         pad = 0.0
-        for weight, px0, fixed, wr, miss in rows:
-            if fixed > 0.0:
+        fixed = False
+        for printed_all, printed_scale, scr, model, miss in rows:
+            # On a model canvas a Fixed-size end draws at the screen factor
+            # and a Model-scaled end at its own N (ET1 Q12, *model* is
+            # already painter units), so only the Project Scale-with-zoom
+            # ends take the printed factor.
+            printed = printed_scale if on_screen else printed_all
+            if model > 0.0 and on_screen:
+                pad = max(pad, model)
+            if printed > 0.0:
                 if ff is None:
-                    ff = _lr.printed_factor(**self._lt_args())
+                    ff = _lr.printed_factor(**a)
                 if ff > 0.0 and math.isfinite(ff):
-                    pad = max(pad, fixed * ff)
-            if wr > 0.0:
-                if on_paper:
-                    wf = self._paper_op_width(weight)
-                else:
-                    wf = (canvas_px(weight) if weight is not None else px0) * unit
-                if wf is not None and wf > 0.0 and math.isfinite(wf):
-                    pad = max(pad, wr * wf)
+                    pad = max(pad, printed * ff)
+            if scr > 0.0 and on_screen:
+                pad = max(pad, scr * FIXED_END_PX_PER_MM * unit)
+                fixed = True
             if miss:
                 pad = max(pad, _lr.badge_pad_px() * unit)
+        if fixed:
+            # Bounds follow the zoom from the first read, not the first
+            # paint (an editor / load can zoom before any paint, spec C).
+            _er.mark_screen_ends(self, True)
         return pad
 
     def _end_pad_rows(self, ops, end_ops, lt_ids, reg) -> tuple:
-        """``(weight, pen px, Fixed reach, weight-relative reach, missing)``
-        of every op of *ops* that draws an end (LT5 bounds): the reaches
-        unscaled (``end_render.ends_reach`` at unit factors), so
-        ``_ends_pad`` only scales them per call.
+        """``(printed reach of every end, printed reach of the Project
+        Scale-with-zoom ends, screen reach of the Fixed-size ends, model-
+        canvas reach of the Model-scaled ends, missing)`` of every op of
+        *ops* that draws an end (LT5 / ET1 bounds): the first three unscaled
+        (``end_render.ends_reach`` at unit factors -- a zero factor skips an
+        end), so ``_ends_pad`` only scales them per call; the fourth already
+        at each end's own Model scale N (ET1 Q12).
 
         Candidates: the explicit-end ops (*end_ops*) plus -- only when one
         of *lt_ids* carries a default end -- the ops on such a linetype.
@@ -396,12 +414,12 @@ class BlockInstance(QGraphicsObject):
                     dep(lt.finish_end)
                 ends = self._op_ends(op, lt, reg)
                 if has_ends(ends):
-                    rows.append((rs.weight if rs is not None else op.weight,
-                                 op.pen.widthF() if op.pen is not None else 0.0,
-                                 _er.ends_reach(ends, fixed_factor=1.0,
-                                                weight_factor=0.0),
-                                 _er.ends_reach(ends, fixed_factor=0.0,
-                                                weight_factor=1.0),
+                    rows.append((_er.ends_reach(ends, printed=1.0, screen=None),
+                                 _er.ends_reach(ends, printed=1.0, screen=0.0,
+                                                model=False),
+                                 _er.ends_reach(ends, printed=0.0, screen=1.0,
+                                                model=False),
+                                 _er.ends_reach(ends, printed=0.0, screen=0.0),
                                  any(e.missing_id for e in ends)))
         rows = tuple(rows)
         self._end_pad_cache = (ops, reg, tuple(seen.values()), rows)
@@ -443,6 +461,8 @@ class BlockInstance(QGraphicsObject):
     def paint(self, painter, option, widget=None):
         pose = self.pose_transform()
         ops = self.render_ops()
+        self._drew_screen = False               # ET1 spec C: set by _draw_op_ends
+        self._paint_sf = None                   # set where the ends' factors are read
         if not ops:
             if self.definition() is None:      # orphan placeholder
                 p = QPen(QColor("#c0392b"))
@@ -462,6 +482,8 @@ class BlockInstance(QGraphicsObject):
             eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
             miss = self._paint_plain_ops(painter, pose, ops, override, selected,
                                          tint, eo)
+            if self._paint_sf is not None:     # paper passes never touch the mark
+                _er.mark_screen_ends(self, self._drew_screen)
             if (miss or self._lt_tip_id is not None) and not self._is_ghost:
                 _lr.sync_missing_tooltip(self, None, end_ids=miss)  # refs edited away
             return
@@ -479,7 +501,8 @@ class BlockInstance(QGraphicsObject):
         dev_scale = None    # device px per local unit under the pose (lazy)
         win = False         # view_window key under the pose (LTS-8; lazy, Fixed only)
         paper_pass = None   # paper_display.paper_pass_active() (lazy)
-        ff = None           # LT5 printed factor of Fixed ends (lazy)
+        ff = None           # LT5 printed factor of the ends (lazy)
+        sf = None           # ET1 screen factor of Fixed-size ends (lazy, with ff)
         miss_e = []         # LT5 missing end ids, in op order
         ec = self._end_ops_cache            # LT5 explicit-end ops (inline hit)
         eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
@@ -544,9 +567,14 @@ class BlockInstance(QGraphicsObject):
                     if dev_scale is None:
                         dev_scale = self._posed_device_scale(painter, pose, xf)
                     if ff is None:
-                        ff = _lr.printed_factor(**self._lt_args())
-                    wf = p.widthF() / dev_scale if p.isCosmetic() else p.widthF()
-                    trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+                        a = self._lt_args()
+                        ff = _lr.printed_factor(**a)
+                        sf = _er.screen_factor(paper_scale=a["paper_scale"],
+                                               role=a["role"], device_scale=dev_scale)
+                    trims = _er.end_trims(ends, printed=ff, screen=sf)
+                    if _er.short_on_screen(op.pieces, ends, trims, sf):   # ET1 Q7
+                        trims = _er.NO_TRIMS
+                        ends = _er.badges_only(ends)
                 else:
                     ends = None
                 if lt is not None and op.pieces:
@@ -591,17 +619,19 @@ class BlockInstance(QGraphicsObject):
                         finally:
                             painter.restore()
                         if ends is not None:
-                            self._draw_op_ends(painter, op, ends, p, xf, ff, wf,
+                            self._draw_op_ends(painter, op, ends, p, xf, ff, sf,
                                                miss_e)
                         continue
                 self._stroke_op(painter, ops, i, op, pose, p, xf,
                                 path=(None if trims == _er.NO_TRIMS else
                                       self._trimmed_op_path(ops, i, op, trims)))
                 if ends is not None:
-                    self._draw_op_ends(painter, op, ends, p, xf, ff, wf, miss_e)
+                    self._draw_op_ends(painter, op, ends, p, xf, ff, sf, miss_e)
                 continue
             painter.drawPath(pose.map(op.path))
         xf.unposed()
+        if sf is not None:                      # paper passes never touch the mark
+            _er.mark_screen_ends(self, self._drew_screen)
         miss_e = tuple(dict.fromkeys(miss_e))
         if routed and (missing or self._lt_tip_id or miss_e):
             _lr.sync_missing_tooltip(self, missing, end_ids=miss_e)  # names the ids (LT3-10)
@@ -629,7 +659,7 @@ class BlockInstance(QGraphicsObject):
         last_w, last_px = None, None
         xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
         miss = []
-        ff = reg = dev = None         # LT5 lazies (ff None = not read yet)
+        ff = sf = reg = None          # LT5 / ET1 lazies (ff None = not read yet)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
                 xf.unposed()
@@ -675,16 +705,22 @@ class BlockInstance(QGraphicsObject):
                         sc = self.scene()
                         reg = (getattr(sc, "block_registry", None)
                                if sc is not None else None)
-                        ff = _lr.printed_factor(**self._lt_args())
+                        a = self._lt_args()
+                        ff = _lr.printed_factor(**a)
                         dev = self._posed_device_scale(painter, pose, xf)
+                        sf = self._paint_sf = _er.screen_factor(
+                            paper_scale=a["paper_scale"], role=a["role"],
+                            device_scale=dev)
                     ends = self._op_ends(op, None, reg)
                     if has_ends(ends):
-                        wf = p.widthF() / dev if p.isCosmetic() else p.widthF()
-                        trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+                        trims = _er.end_trims(ends, printed=ff, screen=sf)
+                        if _er.short_on_screen(op.pieces, ends, trims, sf):   # ET1 Q7
+                            trims = _er.NO_TRIMS
+                            ends = _er.badges_only(ends)
                         self._stroke_op(painter, ops, i, op, pose, p, xf,
                                         path=(None if trims == _er.NO_TRIMS else
                                               self._trimmed_op_path(ops, i, op, trims)))
-                        self._draw_op_ends(painter, op, ends, p, xf, ff, wf, miss)
+                        self._draw_op_ends(painter, op, ends, p, xf, ff, sf, miss)
                         continue
                 self._stroke_op(painter, ops, i, op, pose, p, xf)
                 continue
@@ -770,14 +806,16 @@ class BlockInstance(QGraphicsObject):
                 return NO_ENDS
         return resolve_ends({"start": s, "finish": f}, lt, registry)
 
-    def _draw_op_ends(self, painter, op, ends, pen, xf, ff, wf, missing) -> None:
+    def _draw_op_ends(self, painter, op, ends, pen, xf, ff, sf, missing) -> None:
         """Draw stroke op *op*'s resolved *ends* under the pose (LT5) with its
         painter-local *pen* -- every surface, never LOD-dropped; a missing
         end's canvas badge sits at that end -- and append its missing ids to
-        *missing*. Leaves the posed transform on (the ``_stroke_op`` rule)."""
+        *missing*. A Fixed-size end at the screen factor *sf* flags the paint
+        (ET1 spec C). Leaves the posed transform on (the ``_stroke_op`` rule)."""
         xf.posed()
-        _er.paint_ends(painter, op.pieces, ends, pen, fixed_factor=ff,
-                       weight_factor=wf, scene=self.scene())
+        if _er.paint_ends(painter, op.pieces, ends, pen, printed=ff, screen=sf,
+                          scene=self.scene()):
+            self._drew_screen = True
         missing.extend(e.missing_id for e in ends if e.missing_id)
 
     def _trimmed_op_path(self, ops, i, op, trims) -> QPainterPath:

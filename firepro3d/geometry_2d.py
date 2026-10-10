@@ -31,8 +31,9 @@ from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weig
 from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
                            canvas_weight_name, has_ends,
-                           is_linetype_ref, linetype_block, open_stroke,
-                           resolve_ends, resolve_stroke, toggle_mirrored)
+                           is_linetype_ref, linetype_block, normalize_end,
+                           open_stroke, resolve_ends, resolve_stroke,
+                           toggle_mirrored)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -187,6 +188,7 @@ class Geometry2DMixin:
         # never touches either (the base path keeps _mw_split_cache).
         self._end_trim_cache = None
         self._end_split_cache = None
+        self._screen_ends = False    # last model paint drew a Fixed-size end (ET1 spec C)
 
     # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
     _STYLED = True
@@ -427,14 +429,15 @@ class Geometry2DMixin:
         return resolve_ends(st, rs.lt, reg)
 
     def _ends_rect(self, ends=None) -> QRectF | None:
-        """Item-local bounds of the ends this item draws (LT5), or None.
+        """Item-local bounds of the ends this item draws (LT5 / ET1), or None.
 
-        Fixed ends: their exact extent at this surface's printed factor;
-        weight-relative ones at the pen width converted at the current view
-        zoom (the cosmetic-pad convention); a missing end: the badge pad
-        around its attach point. Non-cosmetic (paper) pens add half their
-        width here (the Qt base only pads its own path). *ends* is the
-        caller's ``_item_ends()`` when it has one.
+        Scale-with-zoom ends: their exact extent at this surface's printed
+        factor; Fixed-size ends on a model canvas: at the screen factor for
+        the current view zoom (the badge-pad convention -- the zoom hook
+        re-prepares them, spec C); a missing end: the badge pad around its
+        attach point. Non-cosmetic (paper) pens add half their width here
+        (the Qt base only pads its own path). *ends* is the caller's
+        ``_item_ends()`` when it has one.
         """
         if ends is None:
             ends = self._item_ends()
@@ -444,10 +447,17 @@ class Geometry2DMixin:
         w = pen.widthF()
         cos = pen.isCosmetic()
         bp = badge_pad_px()
+        a = self._lt_args()
+        unit = scene_hit_width(self, 1.0, 1.0)          # scene units per device px
+        sf = _er.screen_factor(paper_scale=a["paper_scale"], role=a["role"],
+                               device_scale=1.0 / unit)
         r = _er.ends_rect(self.stroke_pieces(), ends,
-                          fixed_factor=printed_factor(**self._lt_args()),
-                          weight_factor=scene_hit_width(self, w, w) if cos else w,
+                          printed=printed_factor(**a), screen=sf,
                           badge=scene_hit_width(self, bp, bp))
+        if sf is not None and _er.has_fixed(ends):
+            # Bounds follow the zoom from the first read, not the first
+            # paint (an editor / load can zoom before any paint, spec C).
+            _er.mark_screen_ends(self, True)
         if r is not None and not cos:
             r = r.adjusted(-w / 2.0, -w / 2.0, w / 2.0, w / 2.0)
         return r
@@ -462,14 +472,21 @@ class Geometry2DMixin:
         LOD / LTS-7 short) stroke draws its cached trimmed path, a zero trim
         the unchanged base stroke. Ends draw on every surface with the
         line's painter-local pen (never LOD-dropped); the selection
-        highlight covers them. Paper passes use the true-mm printed factor.
+        highlight covers them. Paper passes use the true-mm printed factor;
+        a Fixed-size end on a model canvas the screen factor (ET1), and a
+        stroke too short for its Fixed-size trims draws plain with no ends
+        (Q7).
         """
         from .hatch_render import _device_scale
         pieces = self.stroke_pieces()
-        w = pen.widthF()
-        wf = w / _device_scale(painter) if pen.isCosmetic() else w
-        ff = printed_factor(**self._lt_args())
-        trims = _er.end_trims(ends, fixed_factor=ff, weight_factor=wf)
+        a = self._lt_args()
+        ff = printed_factor(**a)
+        sf = _er.screen_factor(paper_scale=a["paper_scale"], role=a["role"],
+                               device_scale=_device_scale(painter))
+        trims = _er.end_trims(ends, printed=ff, screen=sf)
+        if _er.short_on_screen(pieces, ends, trims, sf):     # ET1 Q7 (LTS-7 parity)
+            trims = _er.NO_TRIMS
+            ends = _er.badges_only(ends)
         miss = tuple(e.missing_id for e in ends if e.missing_id)
         dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
         hl = None
@@ -489,11 +506,12 @@ class Geometry2DMixin:
                 else:
                     self._paint_trimmed_stroke(painter, pieces, trims, hl)
         sc = self.scene()
-        _er.paint_ends(painter, pieces, ends, pen, fixed_factor=ff,
-                       weight_factor=wf, scene=sc)
+        drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf, scene=sc)
+        if sf is not None:       # paper passes never touch the mark (spec C)
+            _er.mark_screen_ends(self, drew)
         if hl is not None:
-            _er.paint_ends(painter, pieces, ends, hl, fixed_factor=ff,
-                           weight_factor=wf, scene=sc, badges=False)
+            _er.paint_ends(painter, pieces, ends, hl, printed=ff, screen=sf,
+                           scene=sc, badges=False)
         return dashed
 
     def _paint_trimmed_stroke(self, painter, pieces, trims, pen) -> None:
@@ -681,18 +699,22 @@ class Geometry2DMixin:
 
     def _set_end_field(self, which: str, field: str, value) -> None:
         """Write one end-record field (LT5 Q10), keeping the others
-        (``mirrored`` included), then repaint (bounds cover the ends)."""
+        (``mirrored`` included) and normalising through the record helper
+        (ET1: a 1x Scale drops its key in memory too), then repaint (bounds
+        cover the ends)."""
         self.prepareGeometryChange()
         rec = dict(self.style[which])
         rec[field] = value
-        self.style[which] = rec
+        self.style[which] = normalize_end(rec)
         self._sync_stroke_pen()
         self.update()
 
     def _set_end_from_panel(self, key: str, value) -> None:
-        """Apply a Start End / Finish End / Visible panel edit (LT5 Q10).
+        """Apply a Start End / Finish End / Visible / Scale / Model scale
+        panel edit (LT5 Q10, ET1 Q5 / Q12b).
 
-        One undo step via ``_dim_edit``. A ``"Missing: ..."`` or unknown
+        One undo step via ``_dim_edit``. Scale: a plain multiplier 0.1–10
+        (``parse_end_scale``); 1 drops the key. A ``"Missing: ..."`` or unknown
         label changes nothing. An End Types folder end is loaded into the
         project first: the ref is set BEFORE the load so the load's one
         snapshot carries it; a failed load restores the old ref. In a Block
@@ -708,6 +730,25 @@ class Geometry2DMixin:
                 "True", "true", "1")
             self._dim_edit(lambda v: self._set_end_field(which, "visible", v),
                            bool(on))
+            return
+        if field == "scale":
+            from .stroke_style import parse_end_scale
+            k = parse_end_scale(value)
+            if k is None:
+                return                             # refused: the panel refresh shows the old value
+            self._dim_edit(lambda v: self._set_end_field(which, "scale", v), k)
+            return
+        if field == "model_scale":
+            # ET1 Q12b: By End Type drops the override; a scale label stores
+            # its denominator (presets only -- the row is a fixed list).
+            from .stroke_style import MODEL_SCALE_BY_END_TYPE, model_scale_from_label
+            v = str(value)
+            n = None
+            if not v.startswith(MODEL_SCALE_BY_END_TYPE):
+                n = model_scale_from_label(v)
+                if n is None:
+                    return                         # "< mixed >" / unparseable: refused
+            self._dim_edit(lambda x: self._set_end_field(which, "model_scale", x), n)
             return
         from .capabilities import end_ref_from_value, ensure_end_available
         from .hatch_patterns import picker_exclude
@@ -800,11 +841,13 @@ class Geometry2DMixin:
             from .hatch_patterns import picker_exclude
             sc = self.scene()
             in_end = getattr(sc, "block_end", None) is not None
+            sm = getattr(sc, "scale_manager", None)
             props.update(stroke_rows(
                 self.style, self._tile_registry(), picker_exclude(sc),
                 locked=in_end or getattr(sc, "block_repeat", None) is not None,
                 locked_tip=_LOCKED_END_LINETYPE_TIP if in_end else None,
-                ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc)))
+                ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc),
+                drawing_scale=sm.drawing_scale if sm is not None else None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable():
             props["Fill"] = {"type": "enum",
@@ -3933,38 +3976,60 @@ def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
     return [CAD_Math.rotate_point(p, pivot, -angle_deg) for p in local]
 
 
-_LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid; linetypes "
-                 "from the Linetypes folder load into the project when picked.")
-_WEIGHT_TIP = ("Line weight. By Linetype uses the linetype's designed weight "
+_LINETYPE_TIP = ("Linetype of the stroke. Continuous is solid;\n"
+                 "linetypes from the Linetypes folder load\n"
+                 "into the project when picked.")
+_WEIGHT_TIP = ("Line weight.\n"
+               "By Linetype uses the linetype's designed weight\n"
                "(shown in brackets); a named weight overrides it.")
 _LOCKED_LINETYPE_TIP = "Lines inside a linetype are always Continuous"
 _LOCKED_END_LINETYPE_TIP = "Lines inside an end type are always Continuous"
 _LOCKED_WEIGHT_TIP = ("New lines take the linetype's Weight "
                       "(set it in the Repeat section)")
 _PLACEMENT_LINETYPE_TIP = (
-    "Linetype for every stroke in this block, nested blocks included. "
+    "Linetype for every stroke in this block,\n"
+    "nested blocks included.\n"
     "As Authored keeps each stroke's own linetype.")
 _PLACEMENT_WEIGHT_TIP = (
-    "Line weight for every stroke in this block, nested blocks included. "
-    "As Authored keeps each stroke's own weight; By Category uses the "
-    "Display Manager “Blocks” weight (shown in brackets).")
+    "Line weight for every stroke in this block,\n"
+    "nested blocks included.\n"
+    "As Authored keeps each stroke's own weight;\n"
+    "By Category uses the Display Manager “Blocks” weight\n"
+    "(shown in brackets).")
 _LOCKED_PLACEMENT_TIP = (
-    "Strokes in a pattern tile or linetype unit draw Continuous at the "
-    "pattern's own pen, so a nested block can't override them here.")
+    "Strokes in a pattern tile or linetype unit\n"
+    "draw Continuous at the pattern's own pen,\n"
+    "so a nested block can't override them here.")
 
-# LT5 Q10 panel rows -> (end, record field).
+# LT5 Q10 / ET1 Q5 panel rows -> (end, record field).
 _END_ROW_KEYS = {"Start End": ("start", "end"), "Finish End": ("finish", "end"),
                  "Start Visible": ("start", "visible"),
-                 "Finish Visible": ("finish", "visible")}
-_END_TIP = ("End type drawn at this end of the line. By Linetype uses the "
-            "linetype's default (shown in brackets); None draws a plain end. "
-            "End types from the End Types folder load into the project when "
-            "picked.")
-_END_VISIBLE_TIP = ("Show this end's end type. Off draws a plain end but "
-                    "keeps the pick.")
+                 "Finish Visible": ("finish", "visible"),
+                 "Start Scale": ("start", "scale"), "Finish Scale": ("finish", "scale"),
+                 "Start Model scale": ("start", "model_scale"),
+                 "Finish Model scale": ("finish", "model_scale")}
+_END_TIP = ("End type drawn at this end of the line.\n"
+            "By Linetype uses the linetype's default\n"
+            "(shown in brackets); None draws a plain end.\n"
+            "End types from the End Types folder load\n"
+            "into the project when picked.")
+_END_VISIBLE_TIP = ("Show this end's end type.\n"
+                    "Off draws a plain end but keeps the pick.")
+_END_SCALE_TIP = ("Multiplies the end type's authored size\n"
+                  "at this end, trim included.\n"
+                  "1× = as authored (1 mm drawn = 1 mm printed).\n"
+                  "Range 0.1 to 10.")
+_END_MODEL_SCALE_TIP = ("Drawing scale this end previews at\n"
+                        "on model canvases (plan, detail views,\n"
+                        "Block and Schematic editors).\n"
+                        "By End Type uses the end type's\n"
+                        "Model scale (shown in brackets).\n"
+                        "Sheets and PDF always print the true size;\n"
+                        "Fixed size ends ignore it.")
 _LOCKED_END_TIP = "Lines inside an end type are always Continuous with plain ends"
-_LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends -- set the "
-                      "linetype's default ends in its Start End / Finish End rows")
+_LOCKED_LT_END_TIP = ("Lines inside a linetype draw plain ends --\n"
+                      "set the linetype's default ends\n"
+                      "in its Start End / Finish End rows")
 _LOCKED_TILE_END_TIP = "Lines inside a pattern tile draw plain ends"
 
 
@@ -3980,8 +4045,26 @@ def _ends_lock_tip(scene) -> str | None:
     return None
 
 
-def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
-    """Start End / Finish End + Start / Finish Visible rows (LT5 Q10).
+def _by_end_type_label(style: dict, which: str, registry, drawing_scale) -> str:
+    """``"By End Type (<resolved>)"`` for *which* end of *style* (ET1 Q12b):
+    the Model scale the end type it resolves to sets (``"1:30"``), else
+    ``"Project 1:<drawing scale>"`` (also when nothing resolves). Visible is
+    ignored -- the label says what a pick of By End Type would draw."""
+    from .stroke_style import (MODEL_SCALE_BY_END_TYPE, model_scale_label,
+                               model_scale_value, project_scale_label,
+                               resolve_ends, resolve_stroke)
+    st = {**style, which: {**normalize_end(style.get(which)), "visible": True}}
+    ends = resolve_ends(st, resolve_stroke(st, registry).lt, registry)
+    d = ends[0 if which == "start" else 1].defn
+    n = model_scale_value((d.end or {}).get("model_scale")) if d is not None else None
+    inner = model_scale_label(n) if n is not None else project_scale_label(drawing_scale)
+    return f"{MODEL_SCALE_BY_END_TYPE} ({inner})"
+
+
+def _end_rows(style: dict, registry, exclude, locked_tip: str | None,
+              drawing_scale=None) -> dict:
+    """Start / Finish End, Visible, Scale and Model scale rows (LT5 Q10,
+    ET1 Q10-b / Q12b).
 
     Args:
         style: The primitive's style record.
@@ -3989,16 +4072,20 @@ def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
         exclude: Block ids the picker must not offer (``picker_exclude``).
         locked_tip: Disable every row with this "why" tooltip (a capability
             Block Editor, :func:`_ends_lock_tip`); None = editable.
+        drawing_scale: The scene's drawing scale denominator (the Project
+            Model scale the By End Type label names), or None.
 
     Returns:
-        The four rows: the two pickers, then the two Visible checkboxes.
+        The eight rows: End, Visible, Scale, Model scale for Start then
+        Finish.
     """
     from .capabilities import end_choices
-    from .stroke_style import BY_LINETYPE, _end, end_label
+    from .stroke_style import (BY_LINETYPE, END_SCALE_SUFFIX, end_label,
+                               model_scale_label, model_scale_options)
     choices = end_choices(registry, exclude)
-    rows, vis = {}, {}
+    rows = {}
     for which, title in (("start", "Start"), ("finish", "Finish")):
-        rec = _end(style.get(which))
+        rec = normalize_end(style.get(which))
         ref = rec["end"]
         head = end_label(BY_LINETYPE, style["linetype"], registry, which=which)
         options = [head, *(n for n, _ in choices)]
@@ -4011,9 +4098,22 @@ def _end_rows(style: dict, registry, exclude, locked_tip: str | None) -> dict:
             options = [value] + options
         rows[f"{title} End"] = {"type": "enum", "options": options,
                                 "value": value, "tooltip": _END_TIP}
-        vis[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
-                                   "tooltip": _END_VISIBLE_TIP}
-    rows.update(vis)
+        rows[f"{title} Visible"] = {"type": "bool", "value": bool(rec["visible"]),
+                                    "tooltip": _END_VISIBLE_TIP}
+        rows[f"{title} Scale"] = {"type": "string",
+                                  "value": f"{rec.get('scale', 1.0):g}",
+                                  "suffix": END_SCALE_SUFFIX,
+                                  "tooltip": _END_SCALE_TIP}
+        head = _by_end_type_label(style, which, registry, drawing_scale)
+        scales = model_scale_options()
+        n = rec.get("model_scale")
+        value = model_scale_label(n) if n is not None else head
+        options = [head, *scales]
+        if value not in options:
+            options = [head, value, *scales]       # a stored non-preset scale
+        rows[f"{title} Model scale"] = {"type": "enum", "options": options,
+                                        "value": value,
+                                        "tooltip": _END_MODEL_SCALE_TIP}
     if locked_tip:
         for meta in rows.values():
             meta["disabled"] = True
@@ -4032,7 +4132,7 @@ def _is_block_only_weight_label(value) -> bool:
 def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
                 placement: bool = False, ends: bool = False,
                 ends_locked_tip: str | None = None,
-                locked_tip: str | None = None) -> dict:
+                locked_tip: str | None = None, drawing_scale=None) -> dict:
     """Linetype + Weight panel rows for a style record (WM1; shared by
     primitives and the GeometryTemplate).
 
@@ -4051,6 +4151,8 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
             capability Block Editor: end type Q8, linetype / tile I3).
         locked_tip: The locked Linetype row's "why" tooltip (default: the
             linetype-unit one).
+        drawing_scale: The scene's drawing scale denominator, named by the
+            end rows' By End Type Model scale label (ET1 Q12b).
     """
     from .paper_display import model_blocks_weight as _pd_blocks
     from .paper_display import picker_weight_name, weight_names
@@ -4089,7 +4191,8 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
         rows["Linetype"]["disabled"] = True
         rows["Linetype"]["tooltip"] = locked_tip or _LOCKED_LINETYPE_TIP
     if ends:
-        rows.update(_end_rows(style, registry, exclude, ends_locked_tip))
+        rows.update(_end_rows(style, registry, exclude, ends_locked_tip,
+                              drawing_scale))
     return rows
 
 

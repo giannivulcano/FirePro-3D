@@ -8,6 +8,7 @@ from tests.lt3_support import hidden
 
 def _editor():
     ms = Model_Space(scene_role="block_editor")
+    ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; these cases read 1:1
     return ms, hidden(ms)
 
 
@@ -31,12 +32,14 @@ def _line(ms, lt, a, b):
     return ln
 
 
-def test_block_editor_draws_real_size_dashes(qapp):
+def test_block_editor_draws_dashes_at_the_drawing_scale(qapp):
+    """LT3-5 as amended by ET1 Q1: the editor previews at the drawing scale."""
     ms, lid = _editor()
-    _line(ms, lid, (0, 0), (36, 0))
-    row = _row(_render(ms, QRectF(0, -2, 40, 4)), 20)       # 10 px per mm
-    # Hidden 6/3 at 1:1 -> lit 0-60 px, dark 60-90, lit 90-150 ...
-    assert all(row[5:55]) and not any(row[65:85]) and all(row[95:145])
+    ms.scale_manager.drawing_scale = 2.0
+    _line(ms, lid, (0, 0), (72, 0))
+    row = _row(_render(ms, QRectF(0, -2, 80, 4), 800, 40), 20)  # 10 px per mm
+    # Hidden 6/3 x 2 -> lit 0-120 px, dark 120-180, lit 180-300 ...
+    assert all(row[5:115]) and not any(row[125:175]) and all(row[185:295])
 
 
 def test_g1_collinear_pieces_match_one_line(qapp):
@@ -273,6 +276,7 @@ def test_g2_real_break_tool_keeps_surviving_dashes(qapp):
     from tests._snap_polish_helpers import click, close_view, make_view
     view, scene = make_view(role="block_editor", scale=10.0, mode=None)
     try:
+        scene.scale_manager.drawing_scale = 1.0   # ET1 Q1: editor previews at the drawing scale; this case reads 1:1
         lid = hidden(scene)
         ln = _line(scene, lid, (0, 0), (36, 0))
         scene._draw_lines.append(ln)

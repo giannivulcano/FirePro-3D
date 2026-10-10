@@ -1,7 +1,7 @@
 """LT5 C1 -- end_render: printed_factor (one Drafting rule, two callers),
-EndDef reading + cache, end_scales / end_trims, trimmed_path, paint_ends
-pixels (Fixed length, weight-relative radius, pen width under the end
-scale, mirror, colour, canvas-only badge)."""
+EndDef reading + cache, end_scales / end_trims (ET1: (screen | printed) x
+per-end Scale), trimmed_path, paint_ends pixels (Fixed length, pen width
+under the end scale, mirror, colour, canvas-only badge)."""
 import math
 
 import pytest
@@ -15,7 +15,7 @@ from firepro3d import theme
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.stroke_style import ResolvedEnd
 from tests.lt3_support import make_linetype
-from tests.lt5_support import arrow, half_arrow, round_end, tick
+from tests.lt5_support import arrow, half_arrow, tick
 
 _OFF = ResolvedEnd(None, None, False)
 _LINE = (pw.Seg(20.0, 50.0, 100.0, 50.0),)     # finish attach (100, 50), outward +X
@@ -34,11 +34,11 @@ def _blank():
     return img
 
 
-def _paint(ends, pen, *, ff=1.0, wf=1.0, pieces=_LINE):
+def _paint(ends, pen, *, ff=1.0, sf=None, pieces=_LINE):
     img = _blank()
     p = QPainter(img)
     try:
-        er.paint_ends(p, pieces, ends, pen, fixed_factor=ff, weight_factor=wf)
+        er.paint_ends(p, pieces, ends, pen, printed=ff, screen=sf)
         assert p.worldTransform() == QTransform()        # painter state restored
     finally:
         p.end()
@@ -61,7 +61,7 @@ def _col(img, x):
     (dict(paper_scale=0.02, role="plan", drawing_scale=100.0), 50.0),
     (dict(paper_scale=None, role="plan", drawing_scale=100.0), 100.0),
     (dict(paper_scale=None, role="plan", drawing_scale=None), 1.0),
-    (dict(paper_scale=None, role="block_editor", drawing_scale=100.0), 1.0),
+    (dict(paper_scale=None, role="block_editor", drawing_scale=100.0), 100.0),   # ET1 Q1
     (dict(paper_scale=None, role=None, drawing_scale=None), 1.0),
 ])
 def test_printed_factor_is_the_drafting_branch_of_length_factor(qapp, args, want):
@@ -75,28 +75,31 @@ def test_printed_factor_is_the_drafting_branch_of_length_factor(qapp, args, want
 def test_end_def_reads_the_capability_and_caches_on_version(qapp):
     a = arrow()
     ed = er.EndDef.from_block(a)
-    assert (ed.block_id, ed.size, ed.trim) == (a.id, "fixed", 3.0)
+    assert (ed.block_id, ed.screen, ed.trim) == (a.id, "scale", 3.0)
     assert [op.kind for op in ed.ops] == ["fill", "stroke"]
     assert er.EndDef.from_block(a) is ed                         # cached
     assert ed.bounds == pytest.approx((-3.0, -0.75, 0.0, 0.75))
     assert ed.reach == pytest.approx(math.hypot(3.0, 0.75))
-    a.set_end({"size": "weight_relative", "trim": 1.0})          # version bump
+    a.set_end({"trim": 1.0, "screen": "fixed"})                  # version bump
     ed2 = er.EndDef.from_block(a)
-    assert ed2 is not ed and (ed2.size, ed2.trim) == ("weight_relative", 1.0)
+    assert ed2 is not ed and (ed2.screen, ed2.trim) == ("fixed", 1.0)
     plain = BlockDefinition.new(name="P", library="L", series="S",
                                 primitives=[], origin=(0.0, 0.0))
     assert er.EndDef.from_block(plain) is None
 
 
 def test_end_scales_and_trims(qapp):
-    a, r = arrow(), round_end()
-    ea, eround = er.EndDef.from_block(a), er.EndDef.from_block(r)
-    assert er.end_scales(ea, fixed_factor=10.0, weight_factor=4.0) == 10.0
-    assert er.end_scales(eround, fixed_factor=10.0, weight_factor=4.0) == 4.0
-    ends = (ResolvedEnd(a, None, False), ResolvedEnd(r, None, False))
-    assert er.end_trims(ends, fixed_factor=10.0, weight_factor=4.0) == (30.0, 0.0)
-    assert er.end_trims((_OFF, ResolvedEnd(None, "gone", False)),
-                        fixed_factor=10.0, weight_factor=4.0) == (0.0, 0.0)
+    a, f = arrow(), arrow(screen="fixed", name="F")
+    ea, ef = er.EndDef.from_block(a), er.EndDef.from_block(f)
+    one = ResolvedEnd(a, None, False)
+    two = ResolvedEnd(a, None, False, 2.0)
+    assert er.end_scales(ea, one, printed=10.0, screen=4.0) == 10.0     # Scale with zoom: printed
+    assert er.end_scales(ef, one, printed=10.0, screen=4.0) == 4.0      # Fixed size: screen
+    assert er.end_scales(ef, one, printed=10.0, screen=None) == 10.0    # off a model canvas
+    assert er.end_scales(ea, two, printed=10.0, screen=None) == 20.0    # x per-end Scale
+    ends = (two, ResolvedEnd(f, None, False))
+    assert er.end_trims(ends, printed=10.0, screen=4.0) == (60.0, 12.0)
+    assert er.end_trims((_OFF, ResolvedEnd(None, "gone", False)), printed=10.0) == (0.0, 0.0)
 
 
 def test_trimmed_path_keeps_joins_and_an_overtrim_is_empty(qapp):
@@ -111,8 +114,8 @@ def test_trimmed_path_keeps_joins_and_an_overtrim_is_empty(qapp):
 
 
 @pytest.mark.parametrize("ff", [5.0, 10.0])
-def test_fixed_arrow_length_is_three_times_the_fixed_factor(qapp, ff):
-    img = _paint((_OFF, ResolvedEnd(arrow(), None, False)), _pen(), ff=ff, wf=99.0)
+def test_fixed_arrow_length_is_three_times_the_printed_factor(qapp, ff):
+    img = _paint((_OFF, ResolvedEnd(arrow(), None, False)), _pen(), ff=ff)
     row = _row(img, 50)
     assert row and max(row) <= 101                       # tip at the attach point
     assert abs((max(row) - min(row)) - 3.0 * ff) <= 1.5  # base at -3 mm x ff
@@ -122,18 +125,6 @@ def test_start_end_points_outward(qapp):
     img = _paint((ResolvedEnd(arrow(), None, False), _OFF), _pen(), ff=10.0)
     row = _row(img, 50)
     assert row and min(row) >= 19 and abs(max(row) - 50) <= 1.5
-
-
-@pytest.mark.parametrize("w", [8.0, 16.0])
-def test_weight_relative_round_radius_is_half_the_pen_width(qapp, w):
-    end = (_OFF, ResolvedEnd(round_end(), None, False))
-    # Non-cosmetic pen w: fill radius w/2 + the w-wide outline centred on it
-    # (NOT scaled by k) -> lit diameter 2w.
-    run = _col(_paint(end, _pen(w, cosmetic=False), ff=99.0, wf=w), 100)
-    assert abs(len(run) - 2.0 * w) <= 2
-    # Cosmetic 1 px pen: lit diameter = 2 x (w/2) + 1.
-    run = _col(_paint(end, _pen(1.0), ff=99.0, wf=w), 100)
-    assert abs(len(run) - (w + 1.0)) <= 2
 
 
 @pytest.mark.parametrize("cosmetic", [True, False])

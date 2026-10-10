@@ -421,6 +421,9 @@ class BlockEditorWidget(QWidget):
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
+        # ET1 (smoke ruling 2026-10-10): block AND schematic editors preview
+        # ends / Drafting linetypes at the project drawing scale -- schematics
+        # are built from model-size blocks (MainWindow._seed_editor_units).
         self._edit_block_id = block_id       # mirrored onto the scene (drop cycle host)
         self._dialog_template_path = None    # template the last Save dialog wrote (SV4)
         # The tile frame's preview / panel reach the editor's primitives and

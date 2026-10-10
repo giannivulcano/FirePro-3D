@@ -6,36 +6,40 @@ a selected capability frame show, and for their write-back.
 """
 from __future__ import annotations
 
-_TILE_TIP = ("Make this block a hatch pattern: it repeats on a tile and fills "
-             "regions instead of being placed as a symbol")
-_LT_TIP = ("Make this block a linetype: it repeats along lines and is applied "
-           "from a line's Linetype row instead of being placed as a symbol")
+from .constants import FIXED_END_PX_PER_MM
+
+_TILE_TIP = ("Make this block a hatch pattern:\n"
+             "it repeats on a tile and fills regions\n"
+             "instead of being placed as a symbol")
+_LT_TIP = ("Make this block a linetype:\n"
+           "it repeats along lines and is applied\n"
+           "from a line's Linetype row\n"
+           "instead of being placed as a symbol")
 _OVERLAP_NOTE = "Dashes overlap — edit on the canvas"
-_END_TOGGLE_TIP = ("Make this block an end type: it draws on the free ends of open "
-            "lines (picked from a line's Start End / Finish End rows) instead "
-            "of being placed as a symbol")
+_END_TOGGLE_TIP = ("Make this block an end type:\n"
+            "it draws on the free ends of open lines\n"
+            "(picked from a line's Start End / Finish End rows)\n"
+            "instead of being placed as a symbol")
 _TOGGLES = {"Pattern tile": "tile", "Linetype": "repeat", "End type": "end"}
 # LT5 mockup strings (R4).
-_END_SIZE_TIP = ("Fixed: 1 mm drawn = 1 mm printed (Drafting rule) -- it zooms "
-                 "with the drawing. Line weight: scales with the line's weight, "
-                 "1 mm drawn = 1 × its drawn width -- on screen that's constant "
-                 "pixels like the line itself; on paper, printed mm.")
-_END_TRIM_TIP = ("The line stops this far back from its endpoint, measured "
-                 "along the path. Same units as Size.")
+_END_SCREEN_TIP = ("How this end sizes on model canvases\n"
+                   "(plan, detail, Block Editor).\n"
+                   "Scale with zoom: at the drawing scale,\n"
+                   "zooms with the line.\n"
+                   f"Fixed size: a constant {FIXED_END_PX_PER_MM:g} px per printed mm\n"
+                   "at any zoom.\n"
+                   "Sheets and PDF always print the true size.")
+_END_MODEL_SCALE_TIP = ("Drawing scale a Scale with zoom end\n"
+                        "previews at on model canvases\n"
+                        "(plan, detail views, Block and Schematic editors).\n"
+                        "Project uses the project's drawing scale.\n"
+                        "A line end can override it.\n"
+                        "Sheets and PDF always print the true size;\n"
+                        "Fixed size ends ignore it.")
+_END_TRIM_TIP = ("The line stops this far back from its endpoint,\n"
+                 "measured along the path.\n"
+                 "Authored mm, scaled with the end.")
 _END_PREVIEW_TIP = "This end on a sample line at a thin and a heavy weight."
-_WR_SUFFIX = "× line weight"
-_END_TRIM_WR_TIP = (_END_TRIM_TIP + " Line weight: a plain number "
-                    "× line weight (e.g. 1.5).")
-
-
-def _wr_multiple(value) -> float | None:
-    """A Weight-relative Trim entry -> its plain multiple of the weight
-    (``"1.5"`` / ``"1.5 × line weight"``), or None if unreadable."""
-    s = str(value).replace(_WR_SUFFIX, "").replace("×", "").strip()
-    try:
-        return float(s)
-    except ValueError:
-        return None
 
 
 def _weight_rows(scene, rows_ok: bool) -> dict:
@@ -91,6 +95,27 @@ def _default_end_rows(scene) -> dict:
     return rows
 
 
+def _model_scale_row(scene, end: dict) -> dict:
+    """The end type's Model scale row (ET1 Q12c): ``Project (1:<scene
+    drawing scale>)`` then the ``SCALE_PRESETS`` labels; a stored
+    non-preset scale is offered as its own option."""
+    from . import stroke_style as ss
+    sm = getattr(scene, "scale_manager", None)
+    # By design a drawing scale outside 1..10000 (an enlargement like 2:1)
+    # is no valid Model scale: the head then reads plain "Project".
+    ds = ss.model_scale_value(sm.drawing_scale if sm is not None else None)
+    head = (f"{ss.MODEL_SCALE_PROJECT} ({ss.model_scale_label(ds)})"
+            if ds is not None else ss.MODEL_SCALE_PROJECT)
+    scales = ss.model_scale_options()
+    n = end.get("model_scale")
+    value = ss.model_scale_label(n) if n is not None else head
+    options = [head, *scales]
+    if value not in options:
+        options = [head, value, *scales]
+    return {"type": "enum", "options": options, "value": value,
+            "tooltip": _END_MODEL_SCALE_TIP}
+
+
 def capability_rows(scene) -> dict:
     """Ordered panel rows for the editor's capability.
 
@@ -101,7 +126,8 @@ def capability_rows(scene) -> dict:
         Ordered property dict for ``PropertyManager``: the Repeat header and
         the three capability toggles, then the tile rows, the linetype rows
         (Length / Size / Weight / Start End / Finish End, Pattern list,
-        Preview swatch) or the end-type rows (Size / Trim, Preview swatch).
+        Preview swatch) or the end-type rows (On screen / Model scale /
+        Trim, Preview swatch).
     """
     from .tile_frame import tile_properties
     cap = scene.block_capability
@@ -137,9 +163,12 @@ def capability_rows(scene) -> dict:
                          "value": "Model" if rep["size"] == "model" else "Drafting",
                          "tooltip": "Drafting: lengths are printed mm (scale with "
                                     "the view). Model: lengths are real size"}
+        from .end_render import SCREEN_FIXED
+        from .linetype_render import SCREEN_LABELS
         props["On screen"] = {
-            "type": "enum", "options": ["Fixed size", "Scale with zoom"],
-            "value": "Fixed size" if rep.get("screen") == "fixed" else "Scale with zoom",
+            "type": "enum", "options": list(SCREEN_LABELS),
+            "value": (SCREEN_LABELS[0] if rep.get("screen") == SCREEN_FIXED
+                      else SCREEN_LABELS[1]),
             "tooltip": "Fixed size: dashes keep the same size on screen at any "
                        "zoom (model views and the Block Editor). Scale with "
                        "zoom: dashes zoom with the drawing. Sheets and PDF "
@@ -159,24 +188,19 @@ def capability_rows(scene) -> dict:
                                               "polyline drawn with this linetype"}
     elif kind == "end":
         from .constants import PATTERN_PREVIEW_H_PX
-        from .end_authoring import SIZE_LABELS
         from .end_authoring import preview_painter as end_preview
-        from .end_render import WEIGHT_RELATIVE
+        from .end_render import SCREEN_FIXED
+        from .linetype_render import SCREEN_LABELS
         from .tile_frame import _fmt
         end = scene.block_end
-        props["Size"] = {"type": "enum", "options": list(SIZE_LABELS.values()),
-                         "value": SIZE_LABELS.get(end["size"], "Fixed"),
-                         "tooltip": _END_SIZE_TIP}
-        if end["size"] == WEIGHT_RELATIVE:
-            # A plain multiple of the line's weight -- never a project length
-            # (no feet-inches formatting / parsing).
-            props["Trim"] = {"type": "string", "value": f"{end['trim']:g}",
-                             "suffix": _WR_SUFFIX, "tooltip": _END_TRIM_WR_TIP}
-        else:
-            props["Trim"] = {"type": "dimension",
-                             "value": _fmt(scene, end["trim"]),
-                             "value_mm": end["trim"], "minimum": -1e-6,
-                             "tooltip": _END_TRIM_TIP}
+        props["On screen"] = {"type": "enum", "options": list(SCREEN_LABELS),
+                              "value": SCREEN_LABELS[0] if end.get("screen") == SCREEN_FIXED
+                              else SCREEN_LABELS[1],
+                              "tooltip": _END_SCREEN_TIP}
+        props["Model scale"] = _model_scale_row(scene, end)      # ET1 Q12c
+        props["Trim"] = {"type": "dimension", "value": _fmt(scene, end["trim"]),
+                         "value_mm": end["trim"], "minimum": -1e-6,
+                         "tooltip": _END_TRIM_TIP}
         props["Preview"] = {"type": "header", "value": ""}
         props["Preview swatch"] = {"type": "stroke_preview", "value": None,
                                    "paint": end_preview(scene),
@@ -232,12 +256,8 @@ def set_capability_property(scene, editor, key, value) -> None:
     elif kind == "end":
         from . import end_authoring as ea
         if key == "Trim":
-            from .end_render import WEIGHT_RELATIVE
-            if (scene.block_end or {}).get("size") == WEIGHT_RELATIVE:
-                mm = _wr_multiple(value)          # x line weight, plain decimal
-            else:
-                mm = _to_mm(scene, value)
+            mm = _to_mm(scene, value)
             if mm is not None:
                 ea.set_end_field(scene, "Trim", mm)
-        elif key == "Size":
-            ea.set_end_field(scene, "Size", value)
+        elif key in ("On screen", "Model scale"):
+            ea.set_end_field(scene, key, value)

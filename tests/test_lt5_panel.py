@@ -1,4 +1,5 @@
-"""LT5 D4 / Q10 -- Start End / Finish End + Start / Finish Visible rows on
+"""LT5 D4 / Q10 -- Start End / Finish End + Start / Finish Visible (+ ET1
+Scale) rows on
 open primitives only; one undo step per edit; folder pick loads first and a
 failed load restores; template and placement rows carry no end rows."""
 import pytest
@@ -7,12 +8,15 @@ from PyQt6.QtCore import QPointF, QSettings
 from firepro3d import app_data, block_library
 from firepro3d import stroke_style as ss
 from firepro3d.geometry_2d import (ArcItem, CircleItem, GeometryTemplate,
-                                   LineItem, PolylineItem, RectangleItem)
+                                   LineItem, PolylineItem, RectangleItem,
+                                   SplineItem)
 from firepro3d.model_space import Model_Space
 from tests.lt3_support import make_linetype
 from tests.lt5_support import end_id, scene_line, v_end
 
-_KEYS = ("Start End", "Finish End", "Start Visible", "Finish Visible")
+_KEYS = ("Start End", "Finish End", "Start Visible", "Finish Visible",
+         "Start Scale", "Finish Scale",                    # ET1 Q10-b
+         "Start Model scale", "Finish Model scale")        # ET1 Q12b
 
 
 @pytest.fixture
@@ -42,7 +46,9 @@ def test_rows_on_open_items_only(qapp):
     ms = Model_Space()
     open_items = [_add(ms, LineItem(QPointF(0, 0), QPointF(10, 0)), "_draw_lines"),
                   _add(ms, _poly(False), "_polylines"),
-                  _add(ms, ArcItem(QPointF(0, 0), 10.0, 0.0, 90.0), "_draw_arcs")]
+                  _add(ms, ArcItem(QPointF(0, 0), 10.0, 0.0, 90.0), "_draw_arcs"),
+                  _add(ms, SplineItem([QPointF(0, 0), QPointF(10, 10), QPointF(20, 0),
+                                       QPointF(30, 10)]), "_draw_splines")]
     closed = [_add(ms, _poly(True), "_polylines"),
               _add(ms, RectangleItem(QPointF(0, 0), QPointF(10, 10)), "_draw_rects"),
               _add(ms, CircleItem(QPointF(0, 0), 5.0), "_draw_circles"),

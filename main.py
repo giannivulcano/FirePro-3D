@@ -2300,9 +2300,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._update_title()
 
     def _seed_editor_units(self, editor_scene) -> None:
-        """Copy the project's display unit + precision into one editor scene.
+        """Copy the project's display unit, precision and — for block editors —
+        drawing scale into one editor scene.
 
-        Only those two display values are copied — never the ScaleManager
+        Only those values are copied — never the ScaleManager
         object itself: ``scene_io`` reassigns ``self.scene.scale_manager`` on
         load, and plan-scene calibration must not change the editor's
         mm<->scene seed (selection-mode §15 readouts format through it).
@@ -2313,10 +2314,26 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         dst.display_unit = src.display_unit
         dst.precision = src.precision
+        # ET1 Q1 (+ smoke ruling 2026-10-10): block and schematic editors
+        # preview Fixed ends and Drafting linetypes at the project drawing
+        # scale -- schematics are built from the same model-size blocks. A
+        # scene with no owning editor widget is skipped.
+        kind = getattr(getattr(editor_scene, "_tile_editor", None), "kind", None)
+        if kind in ("block", "schematic") and dst.drawing_scale != src.drawing_scale:
+            dst.drawing_scale = src.drawing_scale
+            # Drafting ends / linetypes change extent with the scale: the
+            # Qt bounds contract wants prepareGeometryChange, not a repaint.
+            from firepro3d.linetype_authoring import _styled_items
+            for it in (*_styled_items(editor_scene),
+                       *getattr(editor_scene, "_block_instances", ())):
+                it.prepareGeometryChange()
+            editor_scene.update()
         editor_scene._refresh_all_labels()
 
     def _sync_editor_units(self) -> None:
-        """Push the project display unit + precision to every open Block Editor."""
+        """Push the project display unit, precision and drawing scale to
+        every open Block Editor (drawing scale: block and schematic editors,
+        ET1 Q1 + smoke ruling 2026-10-10)."""
         mgr = getattr(self, "block_editor_manager", None)
         if mgr is None:
             return
@@ -4870,7 +4887,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         sc = widget.editor_scene
         # The editor builds its own default ScaleManager; seed the project's
-        # display unit + precision so its readouts/panel rows match the plan.
+        # display unit + precision (and, block editors, drawing scale) so its
+        # readouts/panel rows and previews match the plan.
         self._seed_editor_units(sc)
         # Crosshair parity with plan views: the accent crosshair (placement-mode
         # gated in Model_View) should show while inserting geometry in the editor
@@ -5688,6 +5706,8 @@ def main():
         Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True)
     app = QApplication(sys.argv)
     th.apply_app_font(app)          # house UI font (Arial) app-wide
+    from firepro3d import tooltips
+    tooltips.install(app)           # ET1 Q8: long plain tooltips wrap at TOOLTIP_MAX_PX
 
     # Show splash IMMEDIATELY — before heavy 3D imports
     splash = FireProSplash(version=APP_VERSION)

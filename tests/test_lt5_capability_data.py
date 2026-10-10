@@ -25,18 +25,20 @@ def _end_block(name="Arrow", end=None):
     return BlockDefinition.new(
         name=name, library="L", series="End Types", origin=(0.0, 0.0),
         primitives=[arm.to_dict()],
-        end=end if end is not None else {"size": "fixed", "trim": 1.5})
+        end=end if end is not None else {"trim": 1.5})
 
 
 @pytest.mark.parametrize("raw, exp", [
     (None, None), ("x", None), ([], None),
-    ({}, {"size": "fixed", "trim": 0.0}),
-    ({"size": "weight_relative", "trim": 2}, {"size": "weight_relative", "trim": 2.0}),
-    ({"size": "huge", "trim": 1.0}, {"size": "fixed", "trim": 1.0}),
-    ({"size": "fixed", "trim": -4}, {"size": "fixed", "trim": 0.0}),
-    ({"size": "fixed", "trim": "abc"}, {"size": "fixed", "trim": 0.0}),
-    ({"size": "fixed", "trim": float("nan")}, {"size": "fixed", "trim": 0.0}),
-    ({"size": "fixed", "trim": None}, {"size": "fixed", "trim": 0.0}),
+    ({}, {"trim": 0.0}),
+    ({"size": "weight_relative", "trim": 2}, {"trim": 2.0}),        # ET1 Q4: size dropped
+    ({"size": "huge", "trim": 1.0}, {"trim": 1.0}),
+    ({"trim": -4}, {"trim": 0.0}),
+    ({"trim": "abc"}, {"trim": 0.0}),
+    ({"trim": float("nan")}, {"trim": 0.0}),
+    ({"trim": None}, {"trim": 0.0}),
+    ({"trim": 1.0, "screen": "fixed"}, {"trim": 1.0, "screen": "fixed"}),
+    ({"trim": 1.0, "screen": "scale"}, {"trim": 1.0}),             # absent = Scale with zoom
 ])
 def test_norm_end(raw, exp):
     assert _norm_end(raw) == exp
@@ -44,7 +46,7 @@ def test_norm_end(raw, exp):
 
 def test_end_property_new_and_absent():
     d = _end_block()
-    assert d.end == {"size": "fixed", "trim": 1.5}
+    assert d.end == {"trim": 1.5}
     d.end["trim"] = 99.0                           # a copy, never the record
     assert d.end["trim"] == 1.5
     plain = BlockDefinition.new(name="P", library="L", series="S",
@@ -62,8 +64,8 @@ def test_set_end_bumps_version_and_notifies_like_the_other_capabilities():
     d._instances.append(_Inst())
     v = d.version
     d.render_ops()
-    d.set_end({"size": "weight_relative", "trim": 0.5})
-    assert d.end == {"size": "weight_relative", "trim": 0.5}
+    d.set_end({"trim": 0.5, "screen": "fixed"})
+    assert d.end == {"trim": 0.5, "screen": "fixed"}
     assert d.version == v + 1 and seen == [v + 1]
     assert d._render_ops is None                   # caches dropped
     d.set_end(None, notify=False)
@@ -75,9 +77,9 @@ def test_set_end_bumps_version_and_notifies_like_the_other_capabilities():
 
 
 def test_to_dict_from_dict_round_trip():
-    d = _end_block(end={"size": "weight_relative", "trim": 0.25})
+    d = _end_block(end={"trim": 0.25, "screen": "fixed"})
     rec = json.loads(json.dumps(d.to_dict()))
-    assert rec["end"] == {"size": "weight_relative", "trim": 0.25}
+    assert rec["end"] == {"trim": 0.25, "screen": "fixed"}
     d2 = BlockDefinition.from_dict(rec)
     assert d2.end == d.end and d2.version == d.version
 
@@ -91,7 +93,7 @@ def test_fpd_save_load_embeds_the_end(qapp, tmp_path):
     ms2 = Model_Space()
     ms2.load_from_file(str(path))
     d2 = ms2.get_block_definition(d.id)
-    assert d2 is not d and d2.end == {"size": "fixed", "trim": 1.5}
+    assert d2 is not d and d2.end == {"trim": 1.5}
 
 
 def test_undo_snapshot_keeps_the_end(qapp):
@@ -99,20 +101,19 @@ def test_undo_snapshot_keeps_the_end(qapp):
     d = _end_block()
     ms.register_block_definition(d)
     ms.push_undo_state()
-    d.set_end({"size": "weight_relative", "trim": 3.0})
+    d.set_end({"trim": 3.0, "screen": "fixed"})
     ms.push_undo_state()
     ms.undo()
-    assert ms.get_block_definition(d.id).end == {"size": "fixed", "trim": 1.5}
+    assert ms.get_block_definition(d.id).end == {"trim": 1.5}
     ms.redo()
-    assert ms.get_block_definition(d.id).end == {"size": "weight_relative",
-                                                 "trim": 3.0}
+    assert ms.get_block_definition(d.id).end == {"trim": 3.0, "screen": "fixed"}
 
 
 def test_fpdb_save_load_keeps_the_end(tmp_path):
     d = _end_block()
     path = block_library.save_to_library(d, root=str(tmp_path))
     with open(path, encoding="utf-8") as fh:
-        assert json.load(fh)["end"] == {"size": "fixed", "trim": 1.5}
+        assert json.load(fh)["end"] == {"trim": 1.5}
     loaded = block_library.load_block_file(path)
     assert loaded is not None and loaded.end == d.end
 

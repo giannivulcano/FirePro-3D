@@ -61,6 +61,7 @@ def _has_gaps(img, y):
 def _shape_a(screen):
     """Block Editor: 20 polylines x 100 segments = 2,000 linetyped segments."""
     ms = Model_Space(scene_role="block_editor")
+    ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; the bench reads 1:1
     lt = make_linetype(screen=screen)
     ms.register_block_definition(lt)
     for r in range(20):

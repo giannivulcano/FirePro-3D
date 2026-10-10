@@ -80,6 +80,16 @@ MODEL_WEIGHT_PX_MAX = 20          # per-row Model (px) override range 1..20
 # Fixed on-screen linetypes keep printed mm x 6 px/mm, decoupled from the
 # weight factor (MW-10 / H-MW-d; was UNDERLAY_MM_TO_PX_HINT).
 FIXED_LINETYPE_PX_PER_MM = 6.0
+# ET1: Fixed-size end types (On screen = Fixed size) share the LTS px-per-mm
+# mapping on model canvases (linetypes.md ET1 / LTS-3).
+FIXED_END_PX_PER_MM = FIXED_LINETYPE_PX_PER_MM
+# ET1: per-end Scale on a line's end record (a plain multiplier, Q5 / Q10-b).
+END_SCALE_MIN = 0.1
+END_SCALE_MAX = 10.0
+# ET1 Q12: an end type's / line end's Model scale, stored as the drawing
+# scale denominator N (1:N; imperial presets store 1 / ratio).
+END_MODEL_SCALE_MIN = 1.0
+END_MODEL_SCALE_MAX = 10000.0
 # A cosmetic canvas pen that survives into a paper pass (an unweighted raw-PDF
 # underlay width; a styled primitive with no paper category) plots at the
 # PRE-MW mapping, frozen so paper / PDF output never follows the Model weight
@@ -387,6 +397,9 @@ CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise on
 CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = closed
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis
 PATTERN_PREVIEW_H_PX = 64          # LT4 panel preview swatch height (mockup gate)
+# ET1 Q8: a plain tooltip whose longest line is wider than this wraps (rich
+# text, newline -> break) through the app-level filter (tooltips.py).
+TOOLTIP_MAX_PX = 360
 PATTERN_PREVIEW_PERIODS = 4.0      # periods across the swatch's straight sample
 END_GLYPH_HALF_PX = 8.0            # LT5 End type frame: accent crosshair half-size (mockup gate)
 END_GLYPH_ARM_PX = 28.0            # LT5 End type frame: +X arrow arm length (mockup gate)

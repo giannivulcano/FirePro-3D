@@ -25,6 +25,9 @@ from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_MAX_PERIODS, LINETYPE_WINDOW_MIN_PERIODS,
                         FIXED_LINETYPE_PX_PER_MM)
 
+#: The On screen row's strings (LTS-1 linetypes, ET1 ends): Fixed size first.
+SCREEN_LABELS = ("Fixed size", "Scale with zoom")
+
 
 def axis_role(p1, p2, length: float):
     """LT3-3 role of one unit Line (origin-relative points).
@@ -421,6 +424,13 @@ def periods_on(pieces, lt, factor: float) -> float:
 _FIXED_ROLES = ("plan", "block_editor")      # model canvases (LTS-2)
 
 
+def screen_fixed_here(*, paper_scale, role) -> bool:
+    """LTS-2 scope: a model canvas (plan, detail views, the Block Editor),
+    no paper scale, not a paper pass -- where On screen = Fixed size holds
+    (linetypes LTS-1; ET1 ends)."""
+    return not paper_scale and role in _FIXED_ROLES and not _pd.paper_pass_active()
+
+
 def fixed_on_canvas(lt, *, paper_scale, role) -> bool:
     """True when *lt* holds a constant screen length here (LTS-1 / LTS-2).
 
@@ -428,22 +438,25 @@ def fixed_on_canvas(lt, *, paper_scale, role) -> bool:
     scene) or the Block Editor. Never on a paper pass, a sheet or a viewport:
     paper / PDF stay true mm.
     """
-    return (getattr(lt, "screen", "scale") == "fixed" and not paper_scale
-            and role in _FIXED_ROLES and not _pd.paper_pass_active())
+    return (getattr(lt, "screen", "scale") == "fixed"
+            and screen_fixed_here(paper_scale=paper_scale, role=role))
 
 
 def printed_factor(*, paper_scale, role, drawing_scale) -> float:
     """Definition mm -> painter units under the Drafting length rule (LT3-5).
 
     A paper pass (*paper_scale* set) -> 1 / scale (true mm on the sheet);
-    the plan canvas (*role* ``"plan"``) -> the drawing scale; anything else
-    (Block Editor, no scene) -> 1 (real size). One rule, two callers:
-    Drafting linetypes (``length_factor``) and Fixed end types (LT5 Q4 --
-    never screen-constant, even beside an On-screen Fixed linetype).
+    a model canvas (*role* ``"plan"`` or ``"block_editor"``) -> the drawing
+    scale (ET1 Q1: a Block Editor previews at the project drawing scale; a
+    schematic editor / render scene holds 1.0, ET1 Q2); anything else (no
+    scene) -> 1 (real size). One rule, two callers:
+    Drafting linetypes (``length_factor``) and end types (LT5 Q4 -- the
+    Drafting rule; ET1 adds the screen factor for a Fixed-size end on a
+    model canvas, ``end_render.end_scales``).
     """
     if paper_scale:
         return 1.0 / paper_scale
-    if role == "plan":
+    if role in _FIXED_ROLES:
         return float(drawing_scale) if drawing_scale is not None else 1.0
     return 1.0
 
@@ -456,9 +469,8 @@ def length_factor(lt, *, paper_scale, role, drawing_scale,
     mm x ``FIXED_LINETYPE_PX_PER_MM`` px (MW-10, decoupled from the weight
     factor), divided by *device_scale* (device px
     per painter unit -- the caller passes this paint's). Otherwise: Model
-    size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan canvas
-    (*role* ``"plan"``) -> the drawing scale; anything else (Block Editor, no
-    scene) -> 1 (real size).
+    size -> 1; otherwise ``printed_factor`` (a paper pass -> 1 / scale; a
+    model canvas, plan or Block Editor -> the drawing scale; no scene -> 1).
     """
     if fixed_on_canvas(lt, paper_scale=paper_scale, role=role):
         # LTS-3 / MW-10: printed mm x 6 px/mm, back into painter units.

@@ -1,4 +1,4 @@
-import sys, json, math, shutil, logging, time, contextlib, uuid
+import sys, json, math, shutil, logging, time, contextlib, uuid, weakref
 
 log = logging.getLogger("FirePro3D")
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
@@ -185,6 +185,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def __init__(self, scene_role: str = "plan"):
         super().__init__()
         self.scene_role = scene_role
+        # ET1 spec C: items whose last paint drew a Fixed-size end at the
+        # screen factor (their scene bounds follow the view zoom).
+        self._screen_end_items = weakref.WeakSet()
         self._tools = SceneTools(self)   # composed geometry-tool collaborator (decomposition slice B)
         self.setSceneRect(QRectF(-500000, -500000, 1000000, 1000000))
         # One-time repair: fix display/*/visible stored as bool instead of string
@@ -1646,6 +1649,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """The end-type record (a copy), or None (LT5 Q12)."""
         c = self.block_capability
         return dict(c[1]) if c and c[0] == "end" else None
+
+    def view_zoom_changed(self) -> None:
+        """A view's zoom changed (ET1 spec C): every item that drew a
+        Fixed-size end re-prepares its geometry so its scene-unit bounds
+        follow the new zoom. Items unregister themselves when a paint draws
+        none (``end_render.mark_screen_ends``); a dead wrapper (its C++
+        item deleted while a Python ref survives) is discarded."""
+        from PyQt6 import sip
+        for it in list(self._screen_end_items):
+            if sip.isdeleted(it):
+                self._screen_end_items.discard(it)
+            elif it.scene() is self:
+                it.prepareGeometryChange()
 
     def capability_frame_item(self):
         """The Block Editor capability frame, or None."""
