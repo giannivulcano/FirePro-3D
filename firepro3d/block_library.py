@@ -206,6 +206,16 @@ def _atomic_write_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
+def _inside(path: str, folder: str) -> bool:
+    """True when *path* lies under *folder* (compared as the file system does)."""
+    nc = os.path.normcase
+    p, f = nc(os.path.abspath(path)), nc(os.path.abspath(folder))
+    try:
+        return os.path.commonpath([p, f]) == f
+    except ValueError:      # different drives
+        return False
+
+
 def _same_path(a: str, b: str) -> bool:
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
@@ -342,6 +352,9 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
 def _previous_file(definition: BlockDefinition, root: str | None) -> str | None:
     """The file a Save of *definition* may re-file (see :func:`save_to_library`)."""
     src = getattr(definition, "source_path", None)
+    if src and not _inside(src, _root(root)):
+        src = None          # loaded from elsewhere (Desktop, another library):
+                            # never touched by a Save into this library
     if src:
         meta = capability_folder.read_meta(src) if os.path.isfile(src) else None
         return src if meta is not None and meta["id"] == definition.id else None

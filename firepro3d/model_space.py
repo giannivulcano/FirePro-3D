@@ -3024,6 +3024,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if inst.scene() is self:
                     self.removeItem(inst)
             self._block_instances.clear()
+            # Session-only library source files survive the rebuild (by id):
+            # Save's re-file rule needs them (block-system.md "Library on disk").
+            sources = {bid: d.source_path for bid, d in self._block_definitions.items()
+                       if d.source_path}
             self._block_definitions.clear()
 
             # Restore from snapshot
@@ -3113,6 +3117,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .block_definition import BlockDefinition
             for bid, ddict in state.get("block_definitions", {}).items():
                 self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+                self._block_definitions[bid].source_path = sources.get(bid)
             for bdict in state.get("blocks", []):
                 _pos = bdict.get("pos", [0.0, 0.0])
                 inst = self.place_block_instance(

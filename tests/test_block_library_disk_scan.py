@@ -391,3 +391,25 @@ def test_save_after_reopen_removes_only_an_app_written_file(tmp_path):
     bl.save_to_library(d, root=str(tmp_path))
     assert [e["path"] for e in bl.list_library(str(tmp_path))] == [
         str(tmp_path / "Fire" / "Heads" / "Corner.fpdb")]
+
+
+def test_n1_save_never_touches_a_source_file_outside_the_library(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    outside = _drop(tmp_path / "Desktop", "Valve.fpdb", _defn("Valve"))
+    lib = tmp_path / "lib"
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([outside], root=str(lib))   # browse-anywhere
+    bl.save_to_library(ms.get_block_definition(s["ids"][outside]), root=str(lib))
+    assert os.path.exists(outside)
+
+
+def test_n2_source_file_survives_an_undo_redo(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    path = _drop(tmp_path / "Fire", "A.fpdb", _defn("A"))     # loose file
+    ms = Model_Space()
+    s = ms.load_blocks_from_files([path], root=str(tmp_path))
+    ms.push_undo_state()
+    ms.undo()
+    ms.redo()
+    bl.save_to_library(ms.get_block_definition(s["ids"][path]), root=str(tmp_path))
+    assert not os.path.exists(path)                          # still re-filed
