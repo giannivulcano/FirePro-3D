@@ -1,11 +1,11 @@
 """SV3 Task 3 -- one-tier library root for schematic templates
-(schematics.md D-S15: <schematics>[/<Series>]/<name>.fpdb; index `kind`).
+(schematics.md D-S15: <schematics>[/<Series>]/<name>.fpdb; the file's `kind`
+decides the tier mapping -- the index is retired, 2026-10-10).
 
 The two-tier block tree must be byte-for-byte unaffected.
 """
 from __future__ import annotations
 
-import json
 import os
 
 from PyQt6.QtCore import QPointF
@@ -22,12 +22,9 @@ def _defn(name, library, series, kind="block"):
         kind=kind)
 
 
-def _index(folder):
-    path = os.path.join(folder, "index.json")
-    if not os.path.isfile(path):
-        return {}            # an emptied index is removed (SV4 seam minor (b))
-    with open(path, encoding="utf-8") as fh:
-        return json.load(fh)
+def _no_index(root):
+    """No ``index.json`` anywhere under *root* (retired 2026-10-10)."""
+    return not any("index.json" in files for _d, _s, files in os.walk(root))
 
 
 # -- one-tier paths ----------------------------------------------------------
@@ -39,8 +36,9 @@ def test_series_and_root_paths_skip_empty_tiers(tmp_path):
     assert bl.save_to_library(grouped, root=root) == os.path.join(root, "Risers", "Riser.fpdb")
     assert bl.save_to_library(loose, root=root) == os.path.join(root, "Hanger.fpdb")
     assert not os.path.exists(os.path.join(root, "_"))          # never a "_" tier
-    assert _index(os.path.join(root, "Risers"))["Riser.fpdb"]["kind"] == "schematic"
-    assert _index(root)["Hanger.fpdb"]["kind"] == "schematic"
+    assert {(e["series"], e["name"], e["kind"]) for e in bl.list_library(root)} == {
+        ("Risers", "Riser", "schematic"), ("", "Hanger", "schematic")}
+    assert _no_index(root)
 
 
 def test_list_find_load_delete_see_one_tier_entries(tmp_path):
@@ -63,7 +61,7 @@ def test_list_find_load_delete_see_one_tier_entries(tmp_path):
     assert bl.reload_from_library(loose, root).id == loose.id
     bl.delete_from_library("", "", "Hanger.fpdb", root)
     assert not os.path.exists(os.path.join(root, "Hanger.fpdb"))
-    assert "Hanger.fpdb" not in _index(root)
+    assert _no_index(root)
     assert bl._find_by_id(loose.id, root) is None
 
 
@@ -74,7 +72,7 @@ def test_one_tier_resave_refiles_without_duplicates(tmp_path):
     d.series = "Risers"                                   # moved into a Series
     bl.save_to_library(d, root=root)
     assert not os.path.exists(os.path.join(root, "Riser.fpdb"))
-    assert "Riser.fpdb" not in _index(root)
+    assert _no_index(root)
     assert os.path.isfile(os.path.join(root, "Risers", "Riser.fpdb"))
     bl.save_to_library(d, root=root)                     # same place: no churn
     assert [e["id"] for e in bl.list_library(root)] == [d.id]
@@ -93,16 +91,13 @@ def test_find_collision_and_create_folder_one_tier(tmp_path):
 
 # -- two-tier block tree unchanged --------------------------------------------
 
-def test_two_tier_block_tree_and_index_unchanged(tmp_path):
+def test_two_tier_block_tree_unchanged(tmp_path):
     root = str(tmp_path)
     b = _defn("Joint", "Fire", "Valves")
     assert bl.save_to_library(b, root=root) == os.path.join(root, "Fire", "Valves", "Joint.fpdb")
-    entry = _index(os.path.join(root, "Fire", "Valves"))["Joint.fpdb"]
-    assert "kind" not in entry                            # plain blocks: byte-identical
-    assert set(entry) == {"id", "name", "version", "thumbnail", "tile", "repeat", "end"}
-    assert [(e["library"], e["series"]) for e in bl.list_library(root)] == [("Fire", "Valves")]
-    assert not os.path.isfile(os.path.join(root, "index.json"))
-    assert not os.path.isfile(os.path.join(root, "Fire", "index.json"))
+    [entry] = bl.list_library(root)
+    assert (entry["library"], entry["series"], entry["kind"]) == ("Fire", "Valves", "block")
+    assert _no_index(root)
 
 
 def test_library_only_entries_skip_schematic_index_entries(tmp_path, qapp):

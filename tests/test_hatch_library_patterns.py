@@ -84,15 +84,15 @@ def test_general_pane_hatch_patterns_row_round_trips(qapp, tmp_path):
         app_data.block_library_dir(), "System", "Hatches")
 
 
-# ── Index flag + scan ───────────────────────────────────────────────────────
+# ── Tile flag + scan (read from the files; index retired 2026-10-10) ─────────
 
-def test_save_to_library_flags_tile_in_the_index(tmp_path):
+def test_library_listing_carries_the_tile_flag(tmp_path):
     p, s = _pattern(), _symbol()
     bl.save_to_library(p, root=str(tmp_path))
     bl.save_to_library(s, root=str(tmp_path))
-    idx = json.loads((tmp_path / "System" / "Hatches" / "index.json").read_text())
-    assert idx["Zig.fpdb"]["tile"] is True
-    assert idx["Valve.fpdb"]["tile"] is False
+    tile = {e["name"]: e["tile"] for e in bl.list_library(str(tmp_path))}
+    assert tile == {"Zig": True, "Valve": False}
+    assert not list(tmp_path.rglob("index.json"))
 
 
 def test_library_pattern_is_listed_and_symbol_is_not(hatch_dir):
@@ -142,15 +142,14 @@ def test_newly_saved_pattern_appears_without_restart(hatch_dir):
     assert _labels(ms.block_registry).get("Brick2") == q.id
 
 
-def test_old_index_entry_without_tile_is_detected_by_parsing(hatch_dir):
+def test_a_stale_index_is_ignored_the_file_decides(hatch_dir):
     p, s = _pattern(), _symbol()
     bl.save_to_library(p, root=str(hatch_dir))
     bl.save_to_library(s, root=str(hatch_dir))
     idx_path = hatch_dir / "System" / "Hatches" / "index.json"
-    idx = json.loads(idx_path.read_text())
-    for meta in idx.values():
-        meta.pop("tile")                               # a pre-D-A37 index
-    idx_path.write_text(json.dumps(idx))
+    idx_path.write_text(json.dumps(                    # an older build's index
+        {"Zig.fpdb": {"id": p.id, "tile": False},
+         "Valve.fpdb": {"id": s.id, "tile": True}}))
     labels = _labels(Model_Space().block_registry)
     assert labels.get("Zig") == p.id
     assert s.id not in labels.values()

@@ -319,20 +319,20 @@ def test_first_save_as_template_with_the_toggle_writes_once(env, monkeypatch):
     assert len(json.load(open(expected, encoding="utf-8"))["primitives"]) == 2
 
 
-# -- Seam minor (b): an emptied index is removed -----------------------------
+# -- Seam minor (b), superseded 2026-10-10: no index is ever written ---------
 
-def test_deleting_the_last_ungrouped_template_leaves_no_empty_index(tmp_path):
+def test_deleting_the_last_ungrouped_template_leaves_no_index(tmp_path):
     root = str(tmp_path)
     d = BlockDefinition.new(name="Hanger", library="", series="",
                             primitives=[_line()], origin=(0.0, 0.0), kind="schematic")
     bl.save_to_library(d, root=root)
-    assert os.path.isfile(os.path.join(root, "index.json"))
+    assert not os.path.exists(os.path.join(root, "index.json"))
     assert NewSchematicDialog.has_templates(root)
     bl.delete_from_library("", "", "Hanger.fpdb", root)
     assert not os.path.exists(os.path.join(root, "index.json"))
     assert not os.path.exists(os.path.join(root, "Hanger.fpdb"))
     assert bl.list_library(root) == [] and not NewSchematicDialog.has_templates(root)
-    # A two-tier Series folder behaves the same, and a re-save recreates its index.
+    # A two-tier Series folder behaves the same; a re-save is listed again.
     b = BlockDefinition.new(name="Sym", library="L", series="S",
                             primitives=[_line()], origin=(0.0, 0.0))
     bl.save_to_library(b, root=root)

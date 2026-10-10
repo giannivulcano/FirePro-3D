@@ -1,4 +1,5 @@
-"""Block library I/O: .fpdb tree + index.json + divergence (Block system S3)."""
+"""Block library I/O: .fpdb tree + divergence (Block system S3; the per-folder
+index.json is retired 2026-10-10 -- the files on disk are the listing)."""
 import json
 
 import pytest
@@ -16,16 +17,18 @@ def _def(name="Corner", library="Typical Detail", series="Wall Joints"):
                                origin=(0.0, 0.0))
 
 
-def test_save_writes_fpdb_and_index(tmp_path):
+def _file_id(tmp_path, name="Corner"):
+    p = tmp_path / "Typical Detail" / "Wall Joints" / f"{name}.fpdb"
+    return json.loads(p.read_text())
+
+
+def test_save_writes_fpdb_and_no_index(tmp_path):
     d = _def()
     path = bl.save_to_library(d, root=str(tmp_path))
     assert path.endswith(".fpdb")
-    assert (tmp_path / "Typical Detail" / "Wall Joints" / "Corner.fpdb").is_file()
-    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
-    assert idx.is_file()
-    import json
-    entry = json.loads(idx.read_text())["Corner.fpdb"]
-    assert entry["id"] == d.id and entry["version"] == 1
+    rec = _file_id(tmp_path)
+    assert rec["id"] == d.id and rec["version"] == 1
+    assert not list(tmp_path.rglob("index.json"))           # retired 2026-10-10
 
 
 def test_list_and_load_round_trip(tmp_path):
@@ -63,10 +66,9 @@ def test_corrupt_fpdb_skipped(tmp_path):
     d = _def()
     bl.save_to_library(d, root=str(tmp_path))
     (tmp_path / "Typical Detail" / "Wall Joints" / "Corner.fpdb").write_text("{bad")
-    entries = bl.list_library(root=str(tmp_path))
-    assert len(entries) == 1
-    assert bl.load_block(entries[0]["library"], entries[0]["series"],
-                         entries[0]["filename"], root=str(tmp_path)) is None
+    assert bl.list_library(root=str(tmp_path)) == []        # unreadable: skipped
+    assert bl.load_block("Typical Detail", "Wall Joints", "Corner.fpdb",
+                         root=str(tmp_path)) is None
 
 
 def test_make_then_save_to_library(model_space, tmp_path):
@@ -116,11 +118,8 @@ def test_save_re_files_stale_copy_on_relocation(tmp_path):
     d.library, d.series = "LibB", "SerY"
     bl.save_to_library(d, root=str(tmp_path))
     assert (tmp_path / "LibB" / "SerY" / "Corner.fpdb").is_file()
-    # old copy + its index entry are gone (re-filed, not duplicated)
+    # old copy is gone (re-filed, not duplicated)
     assert not (tmp_path / "LibA" / "SerX" / "Corner.fpdb").exists()
-    old_idx = tmp_path / "LibA" / "SerX" / "index.json"
-    old = json.loads(old_idx.read_text()) if old_idx.is_file() else {}
-    assert "Corner.fpdb" not in old
     # exactly one library entry for this id, correctly resolved
     entries = [e for e in bl.list_library(root=str(tmp_path)) if e["id"] == d.id]
     assert len(entries) == 1
@@ -155,8 +154,7 @@ def test_cross_id_name_collision_raises_and_preserves_existing(tmp_path):
     with pytest.raises(bl.BlockNameCollision):
         bl.save_to_library(d2, root=str(tmp_path))
     # the existing block is untouched
-    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
-    assert json.loads(idx.read_text())["Corner.fpdb"]["id"] == d1.id
+    assert _file_id(tmp_path)["id"] == d1.id
 
 
 def test_cross_id_collision_overwrite_replaces(tmp_path):
@@ -164,8 +162,7 @@ def test_cross_id_collision_overwrite_replaces(tmp_path):
     bl.save_to_library(d1, root=str(tmp_path))
     d2 = _def(name="Corner")
     bl.save_to_library(d2, root=str(tmp_path), overwrite=True)
-    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
-    assert json.loads(idx.read_text())["Corner.fpdb"]["id"] == d2.id
+    assert _file_id(tmp_path)["id"] == d2.id
     entries = bl.list_library(root=str(tmp_path))
     assert len(entries) == 1 and entries[0]["id"] == d2.id
 
@@ -176,7 +173,6 @@ def test_same_id_re_save_updates_no_collision(tmp_path):
     bl.save_to_library(d, root=str(tmp_path))
     d.set_primitives(d.primitives)    # version -> 2
     bl.save_to_library(d, root=str(tmp_path))   # must NOT raise
-    idx = tmp_path / "Typical Detail" / "Wall Joints" / "index.json"
-    e = json.loads(idx.read_text())["Corner.fpdb"]
+    e = _file_id(tmp_path)
     assert e["id"] == d.id and e["version"] == 2
     assert len(bl.list_library(root=str(tmp_path))) == 1

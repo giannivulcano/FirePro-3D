@@ -65,7 +65,7 @@ def test_shipped_files_hold_the_five_patterns():
     folder = hp.shipped_patterns_dir()
     files = sorted(n for n in os.listdir(folder) if n.endswith(".fpdb"))
     assert files == sorted(_EXPECTED)
-    idx = json.load(open(os.path.join(folder, "index.json"), encoding="utf-8"))
+    assert not os.path.exists(os.path.join(folder, "index.json"))   # retired 2026-10-10
     for fname, (bid, name, tile, prims) in _EXPECTED.items():
         data = json.load(open(os.path.join(folder, fname), encoding="utf-8"))
         assert (data["id"], data["name"]) == (bid, name)
@@ -77,8 +77,6 @@ def test_shipped_files_hold_the_five_patterns():
         assert [g[0] for g in got] == [e[0] for e in prims], fname
         for (_t, gv), (_t2, ev) in zip(got, prims):
             assert gv == pytest.approx(ev, abs=1e-9), fname
-        assert idx[fname] == {"id": bid, "name": name, "version": data["version"],
-                              "thumbnail": None, "tile": True}
     # Legacy names still alias to the frozen ids the files carry (D-A29).
     ids = {v[0] for v in _EXPECTED.values()}
     assert set(hp.LEGACY_ALIAS.values()) <= ids
@@ -107,9 +105,7 @@ def test_seed_copies_missing_once_keeps_edits_and_never_reseeds(qapp, tmp_path):
     assert not (folder / "Diagonal.fpdb").exists()          # edit not shadowed
     mine = json.loads((folder / "My diagonal.fpdb").read_text(encoding="utf-8"))
     assert mine["version"] == 7 and len(mine["primitives"]) == 2
-    idx = json.loads((folder / "index.json").read_text(encoding="utf-8"))
-    assert all(idx[f]["tile"] is True for f in ("Brick.fpdb", "Concrete.fpdb",
-                                                "Cross Hatch.fpdb", "Horizontal.fpdb"))
+    assert not (folder / "index.json").exists()             # retired 2026-10-10
     # Every shipped pattern is now offered by the folder scan (pickers).
     assert {bid for _n, bid, _p in hp.library_patterns(str(folder))} == \
         {v[0] for v in _EXPECTED.values()}
@@ -381,15 +377,16 @@ def _seeded(folder):
     return os.path.normcase(os.path.abspath(str(folder))) in hp._seeded_folders()
 
 
-def test_seed_never_rewrites_an_unreadable_index(qapp, tmp_path):
+def test_seed_removes_a_stale_index_and_marks_the_folder(qapp, tmp_path):
+    # The index is retired (2026-10-10): a leftover one -- even unreadable --
+    # no longer blocks seeding; the copy removes it.
     folder = tmp_path / "Hatches"
     folder.mkdir()
-    corrupt = b'{"Mine.fpdb": {"id": "x", "name": "Mine"'      # truncated JSON
-    (folder / "index.json").write_bytes(corrupt)
+    (folder / "index.json").write_bytes(b'{"Mine.fpdb": {"id": "x"')   # truncated
     copied = hp.seed_hatch_folder(str(folder))
-    assert (folder / "index.json").read_bytes() == corrupt      # user entries kept
+    assert not (folder / "index.json").exists()
     assert len(copied) == 5 and _ids_in(str(folder)) == {v[0] for v in _EXPECTED.values()}
-    assert not _seeded(folder)                                  # retried next time
+    assert _seeded(folder)
 
 
 def test_seed_marks_the_folder_only_when_complete(qapp, tmp_path, monkeypatch):

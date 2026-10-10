@@ -290,9 +290,10 @@ def test_select_all_scoped_to_search(model_space, qapp, tmp_path):
 # Save-to-Library cross-id name collision: warn + confirm overwrite (fix batch)
 # ---------------------------------------------------------------------------
 
-def _read_index(tmp_path, library="L", series="S"):
+def _file_id(tmp_path, name="Corner", library="L", series="S"):
+    """The id stored in the on-disk .fpdb (the index is retired, 2026-10-10)."""
     import json
-    return json.loads((tmp_path / library / series / "index.json").read_text())
+    return json.loads((tmp_path / library / series / f"{name}.fpdb").read_text())["id"]
 
 
 def test_manager_save_collision_confirmed_overwrites(model_space, qapp, tmp_path,
@@ -310,7 +311,7 @@ def test_manager_save_collision_confirmed_overwrites(model_space, qapp, tmp_path
     _select_block(dlg, d.id)
     monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "overwrite")
     dlg._save_to_library()
-    assert _read_index(tmp_path)["Corner.fpdb"]["id"] == d.id   # overwritten
+    assert _file_id(tmp_path) == d.id                           # overwritten
     dlg.close()
 
 
@@ -328,7 +329,7 @@ def test_manager_save_collision_cancelled_preserves_existing(model_space, qapp,
     _select_block(dlg, d.id)
     monkeypatch.setattr(themed_message, "themed_choice", lambda *a, **k: "cancel")
     dlg._save_to_library()
-    assert _read_index(tmp_path)["Corner.fpdb"]["id"] == existing.id  # untouched
+    assert _file_id(tmp_path) == existing.id                    # untouched
     dlg.close()
 
 

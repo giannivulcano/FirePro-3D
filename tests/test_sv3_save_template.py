@@ -163,8 +163,9 @@ def test_first_save_with_toggle_writes_bundled_template(env, monkeypatch):
     assert os.path.isfile(path)
     data = _read(path)
     assert data["kind"] == "schematic" and plain.id in data["bundled"]
-    idx = _read(os.path.join(app_data.schematics_dir(), "index.json"))
-    assert idx["Riser A.fpdb"]["id"] == defn.id and idx["Riser A.fpdb"]["kind"] == "schematic"
+    [entry] = bl.list_library(app_data.schematics_dir())      # read from the file
+    assert entry["id"] == defn.id and entry["kind"] == "schematic"
+    assert not os.path.exists(os.path.join(app_data.schematics_dir(), "index.json"))
     assert bl.list_library() == []                              # block library untouched
 
 

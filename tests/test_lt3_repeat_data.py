@@ -26,10 +26,9 @@ def test_set_repeat_bumps_version():
     assert d.version == v + 1
 
 
-def test_library_index_flags_repeat(tmp_path):
+def test_library_listing_flags_repeat(tmp_path):
     from firepro3d import block_library
     d = make_linetype()
-    path = block_library.save_to_library(d, root=str(tmp_path))
-    import os
-    idx = json.load(open(os.path.join(os.path.dirname(path), "index.json")))
-    assert next(iter(idx.values()))["repeat"] is True
+    block_library.save_to_library(d, root=str(tmp_path))
+    [entry] = block_library.list_library(str(tmp_path))      # read from the file
+    assert entry["id"] == d.id and entry["repeat"] is True
