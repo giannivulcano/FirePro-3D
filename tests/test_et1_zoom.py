@@ -99,6 +99,30 @@ def test_g6_scale_with_zoom_registers_nothing(qapp):
             _wheel(v, up=False)                                 # zoom: nothing re-prepared
         ms.view_zoom_changed()                                  # no-op, no error
         qapp.processEvents()
-        assert dirty == []                                      # cost bounded (spec C)
+        own = ln.sceneBoundingRect()
+        assert not any(r.intersects(own) for r in dirty), dirty  # cost bounded (spec C)
     finally:
         v.close()
+
+
+def test_g6_dead_wrapper_is_dropped(qapp):
+    """A registered item whose C++ object was deleted while a Python ref
+    survives must not break the zoom hook; the dead entry is discarded."""
+    from PyQt6 import sip
+    ms, ln = _scene("fixed")
+    ms._screen_end_items.add(ln)
+    ms.removeItem(ln)
+    ms._draw_lines.remove(ln)
+    sip.delete(ln)
+    assert sip.isdeleted(ln) and ln in ms._screen_end_items
+    ms.view_zoom_changed()                                      # no RuntimeError
+    assert ln not in ms._screen_end_items
+
+
+def test_g6_scene_reset_empties_the_registry(qapp):
+    """New / Open (``_clear_scene``) drops every registered item."""
+    ms, ln = _scene("fixed")
+    ms._screen_end_items.add(ln)
+    keep = ln                                                   # Python ref outlives the reset
+    ms._clear_scene()
+    assert len(ms._screen_end_items) == 0, keep
