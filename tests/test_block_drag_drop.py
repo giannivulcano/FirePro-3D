@@ -802,9 +802,12 @@ def test_g2_editor_scene_paste_skips_schematic_instances(qapp):
 
 
 def test_space_rotates_the_first_placement_after_a_browser_double_click(qapp, main_window):
-    """Review I1 (2026-10-10 placement batch): the double-click hands keyboard
-    focus to the canvas, so Space reaches the scene before the first click --
-    no explicit setFocus here, the real entry path only."""
+    """Review I1 (2026-10-10 placement batch): after a Blocks-browser
+    double-click, Space reaches the scene before the first click -- no
+    explicit setFocus here, the real entry path only. Regression guard: in
+    this harness focus already lands on a visible plan tab without the
+    hand-off (it was not RED-provable here); the hand-off covers the live
+    case the review probe showed (focus left on the tree)."""
     from firepro3d.halo import halo_scene_path
     proj = main_window.scene
     b = _line_def("B_SPACE")
