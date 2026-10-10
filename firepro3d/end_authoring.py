@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import math
 
-SEED = {"trim": 0.0, "screen": "fixed"}            # ET1 Q6: new ends are Fixed size
-SCREEN_LABELS = ("Fixed size", "Scale with zoom")  # the LTS On screen row's strings
+from .end_render import SCREEN_FIXED
+from .linetype_render import SCREEN_LABELS
+
+SEED = {"trim": 0.0, "screen": SCREEN_FIXED}       # ET1 Q6: new ends are Fixed size
 
 
 def _needs_lock(scene) -> list:
@@ -58,10 +60,10 @@ def set_end_field(scene, key: str, value) -> bool:
         return False
     if key == "On screen":
         fixed = str(value) == SCREEN_LABELS[0]
-        if fixed == (cap.get("screen") == "fixed"):
+        if fixed == (cap.get("screen") == SCREEN_FIXED):
             return False
         if fixed:
-            cap["screen"] = "fixed"
+            cap["screen"] = SCREEN_FIXED
         else:
             cap.pop("screen", None)
     elif key == "Trim":

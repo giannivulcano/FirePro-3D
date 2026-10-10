@@ -25,6 +25,9 @@ from .constants import (LINETYPE_AXIS_TOL_MM, LINETYPE_CACHE_MAX,
                         LINETYPE_MAX_PERIODS, LINETYPE_WINDOW_MIN_PERIODS,
                         FIXED_LINETYPE_PX_PER_MM)
 
+#: The On screen row's strings (LTS-1 linetypes, ET1 ends): Fixed size first.
+SCREEN_LABELS = ("Fixed size", "Scale with zoom")
+
 
 def axis_role(p1, p2, length: float):
     """LT3-3 role of one unit Line (origin-relative points).

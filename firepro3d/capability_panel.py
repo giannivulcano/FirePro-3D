@@ -134,10 +134,12 @@ def capability_rows(scene) -> dict:
                          "value": "Model" if rep["size"] == "model" else "Drafting",
                          "tooltip": "Drafting: lengths are printed mm (scale with "
                                     "the view). Model: lengths are real size"}
-        from .end_authoring import SCREEN_LABELS
+        from .end_render import SCREEN_FIXED
+        from .linetype_render import SCREEN_LABELS
         props["On screen"] = {
             "type": "enum", "options": list(SCREEN_LABELS),
-            "value": SCREEN_LABELS[0] if rep.get("screen") == "fixed" else SCREEN_LABELS[1],
+            "value": (SCREEN_LABELS[0] if rep.get("screen") == SCREEN_FIXED
+                      else SCREEN_LABELS[1]),
             "tooltip": "Fixed size: dashes keep the same size on screen at any "
                        "zoom (model views and the Block Editor). Scale with "
                        "zoom: dashes zoom with the drawing. Sheets and PDF "
@@ -157,12 +159,13 @@ def capability_rows(scene) -> dict:
                                               "polyline drawn with this linetype"}
     elif kind == "end":
         from .constants import PATTERN_PREVIEW_H_PX
-        from .end_authoring import SCREEN_LABELS
         from .end_authoring import preview_painter as end_preview
+        from .end_render import SCREEN_FIXED
+        from .linetype_render import SCREEN_LABELS
         from .tile_frame import _fmt
         end = scene.block_end
         props["On screen"] = {"type": "enum", "options": list(SCREEN_LABELS),
-                              "value": SCREEN_LABELS[0] if end.get("screen") == "fixed"
+                              "value": SCREEN_LABELS[0] if end.get("screen") == SCREEN_FIXED
                               else SCREEN_LABELS[1],
                               "tooltip": _END_SCREEN_TIP}
         props["Trim"] = {"type": "dimension", "value": _fmt(scene, end["trim"]),
