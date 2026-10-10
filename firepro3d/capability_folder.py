@@ -12,12 +12,12 @@ import json
 import logging
 import os
 
-#: The capability flags a scan can select on (Series ``index.json`` keys).
+#: The capability flags a scan can select on (``.fpdb`` top-level keys).
 FLAGS = ("tile", "repeat", "end")
 
 _log = logging.getLogger(__name__)
 _SCAN_CACHE: dict = {}       # (abs folder, flag) -> (stamp, [(name, id, path)])
-_PARSE_CACHE: dict = {}      # (.fpdb path, mtime_ns) -> (flags, id, name) | None
+_PARSE_CACHE: dict = {}      # (.fpdb path, mtime_ns) -> read_meta dict | None
 _LOGGED: set = set()         # paths already logged as unreadable (log once)
 
 
@@ -45,7 +45,7 @@ def _scan_dirs(folder: str) -> list[str]:
 
 
 def _dir_stamp(dirs: list[str]) -> tuple:
-    """Cache key: every index.json / .fpdb path in *dirs* with its mtime."""
+    """Cache key: every .fpdb path in *dirs* with its mtime."""
     stamp = []
     for d in dirs:
         try:
@@ -53,8 +53,7 @@ def _dir_stamp(dirs: list[str]) -> tuple:
         except OSError:
             continue
         for e in entries:
-            low = e.name.lower()
-            if e.is_file() and (low == "index.json" or low.endswith(".fpdb")):
+            if e.is_file() and e.name.lower().endswith(".fpdb"):
                 try:
                     stamp.append((e.path, e.stat().st_mtime_ns))
                 except OSError:
@@ -62,19 +61,29 @@ def _dir_stamp(dirs: list[str]) -> tuple:
     return tuple(stamp)
 
 
-def _parse_fpdb(path: str, mtime_ns: int):
-    """``(flags, id, name)`` read from the .fpdb itself (its index entry
-    lacked the flag), where ``flags`` maps every :data:`FLAGS` key to a bool —
-    one parse serves every capability. Cached per (path, mtime); None if
-    unreadable."""
-    key = (path, mtime_ns)
+def read_meta(path: str) -> dict | None:
+    """``{id, name, version, kind, tile, repeat, end}`` read from the ``.fpdb``
+    itself, cached per (path, mtime); None if unreadable (logged once).
+
+    The one parse shared by the capability pickers and ``block_library``'s
+    disk walk -- there is no index (retired 2026-10-10).
+    """
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+    key = (path, mtime)
     if key in _PARSE_CACHE:
         return _PARSE_CACHE[key]
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        flags = {f: bool(data.get(f)) for f in FLAGS}
-        res = (flags, data.get("id") or "", data.get("name") or "")
+        if not isinstance(data, dict):
+            raise ValueError("not a block definition")
+        res = {"id": data.get("id") or "", "name": data.get("name") or "",
+               "version": data.get("version", 1),
+               "kind": data.get("kind") or "block",
+               **{f: bool(data.get(f)) for f in FLAGS}}
     except Exception as exc:          # noqa: BLE001 — skip silently, log once
         _log_once(path, exc)
         res = None
@@ -85,11 +94,10 @@ def _parse_fpdb(path: str, mtime_ns: int):
 def scan(folder: str, flag: str) -> list[tuple[str, str, str]]:
     """Capability blocks in *folder* plus two levels of subfolders.
 
-    Each Series ``index.json`` entry's *flag* decides; an older entry without
-    the flag (or a ``.fpdb`` with no entry) is parsed once (cached per mtime).
-    Cached on (folder, flag) + every index.json/.fpdb mtime, so a newly saved
-    block appears without a restart. Unreadable files are skipped (logged
-    once). Never called from paint paths.
+    Each ``.fpdb`` is read for *flag* (:func:`read_meta`, cached per mtime).
+    Cached on (folder, flag) + every .fpdb mtime, so a newly saved or
+    hand-copied block appears without a restart. Unreadable files are skipped
+    (logged once). Never called from paint paths.
 
     Args:
         folder: Folder to scan.
@@ -109,41 +117,15 @@ def scan(folder: str, flag: str) -> list[tuple[str, str, str]]:
     hit = _SCAN_CACHE.get((folder, flag))
     if hit is not None and hit[0] == stamp:
         return list(hit[1])
-    mtimes = dict(stamp)
     out, seen = [], set()
-    for d in dirs:
-        idx_path = os.path.join(d, "index.json")
-        index: dict = {}
-        if os.path.isfile(idx_path):
-            try:
-                with open(idx_path, "r", encoding="utf-8") as fh:
-                    index = json.load(fh)
-                if not isinstance(index, dict):
-                    raise ValueError("index is not a mapping")
-            except Exception as exc:  # noqa: BLE001
-                _log_once(idx_path, exc)
-                index = {}
-        try:
-            names = sorted(e.name for e in os.scandir(d)
-                           if e.is_file() and e.name.lower().endswith(".fpdb"))
-        except OSError:
+    for path, _mtime in stamp:
+        meta = read_meta(path)
+        if meta is None:
             continue
-        for fname in names:
-            path = os.path.join(d, fname)
-            meta = index.get(fname)
-            if isinstance(meta, dict) and flag in meta and meta.get("id"):
-                has = bool(meta[flag])
-                bid, name = meta["id"], meta.get("name") or fname[:-5]
-            else:
-                parsed = _parse_fpdb(path, mtimes.get(path, 0))
-                if parsed is None:
-                    continue
-                flags, bid, name = parsed
-                has = flags[flag]
-                name = name or fname[:-5]
-            if has and bid and bid not in seen:
-                seen.add(bid)
-                out.append((name, bid, path))
+        bid = meta["id"]
+        if meta[flag] and bid and bid not in seen:
+            seen.add(bid)
+            out.append((meta["name"] or os.path.basename(path)[:-5], bid, path))
     out.sort(key=lambda x: x[0].lower())
     _SCAN_CACHE[(folder, flag)] = (stamp, out)
     return list(out)
