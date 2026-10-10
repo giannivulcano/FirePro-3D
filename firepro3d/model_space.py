@@ -2107,6 +2107,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if loaded is None:
             return False
         lib_def, bundled = loaded
+        lib_def.source_path = path       # the file a later Save may re-file
         # folder + filename win, exactly as a first load (2026-10-10) -- unless
         # another project definition already holds that identity (the load
         # path refuses such a clash; a reload keeps the current names instead)
@@ -2191,7 +2192,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._merge_bundled_weights(path)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 summary["ids"][path] = defn.id
+                defn.source_path = path
                 if existing.version == defn.version:
+                    if existing.source_path is None:
+                        existing.source_path = path
                     summary["skipped"].append(defn.name)
                 else:
                     self._swap_block_definition(defn.id, defn)
@@ -2209,6 +2213,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._merge_bundled_weights(path)
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
+            defn.source_path = path          # the file a later Save may re-file
             summary["loaded"].append(defn.name)
             summary["ids"][path] = defn.id
             changed = True

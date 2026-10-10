@@ -364,3 +364,30 @@ def test_r4_browser_shows_one_folder_node_for_a_sanitized_folder(tmp_path, qapp)
               for j in range(b._tree.topLevelItem(i).childCount())])
             for i in range(b._tree.topLevelItemCount())]
     assert tree == [("Pipe & Fittings", ["Gate/Globe"])]
+
+
+# -- re-file only removes the file a block came from (user ruling 2026-10-10) --
+
+def test_save_never_removes_a_variant_once_the_source_file_is_gone(tmp_path, qapp):
+    from firepro3d.model_space import Model_Space
+    d = _defn("Corner")
+    a = _drop(tmp_path / "Fire" / "Valves", "Corner.fpdb", d)
+    ms = Model_Space()
+    ms.load_blocks_from_files([a], root=str(tmp_path))
+    archive = tmp_path / "Archive" / "Old"
+    archive.mkdir(parents=True)
+    shutil.copyfile(a, archive / "Corner v2.fpdb")          # a variant ...
+    os.remove(a)                                           # ... original gone
+    bl.save_to_library(ms.get_block_definition(d.id), root=str(tmp_path))
+    assert (archive / "Corner v2.fpdb").exists()
+    assert os.path.exists(a)
+
+
+def test_save_after_reopen_removes_only_an_app_written_file(tmp_path):
+    d = _defn("Corner")
+    bl.save_to_library(d, root=str(tmp_path))
+    d.source_path = None                                   # a reopened project
+    d.series = "Heads"
+    bl.save_to_library(d, root=str(tmp_path))
+    assert [e["path"] for e in bl.list_library(str(tmp_path))] == [
+        str(tmp_path / "Fire" / "Heads" / "Corner.fpdb")]

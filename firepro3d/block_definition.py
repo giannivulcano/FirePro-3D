@@ -254,6 +254,10 @@ class BlockDefinition:
         self.name = name
         self.library = library
         self.series = series
+        # Session-only: the library ``.fpdb`` this definition was loaded from
+        # or last saved to -- the one file a later Save may re-file (remove);
+        # never serialized (block-system.md "Library on disk").
+        self.source_path: str | None = None
         self.scale_mode = scale_mode
         # Set directly (not via the setter): the caches do not exist yet.
         self._origin = (float(origin[0]), float(origin[1]))

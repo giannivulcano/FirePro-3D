@@ -306,16 +306,15 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         if clash_name is not None:
             raise BlockNameCollision(clash_name, filename)
 
-    # (b) Re-file: drop this block's previous file -- the id owner, when the
-    # app wrote it where its stored identity says (``consistent``) or it is
-    # the only file holding the id (a sole holder can't be anyone's copy). A
-    # user's copy of a block filed elsewhere is never deleted.
-    holders = [m for _l, _s, _f, m in _iter_entries(root)
-               if m["id"] == definition.id]
-    owner = next((m for m in holders if not m["duplicate"]), None)
-    if (owner is not None and (owner["consistent"] or len(holders) == 1)
-            and not _same_path(owner["path"], path)):
-        _delete_path(owner["path"])
+    # (b) Re-file: remove this block's previous file -- ONLY the file it came
+    # from (user ruling 2026-10-10): ``definition.source_path`` (set on load /
+    # reload / save, session-only) if that file still holds this id; with no
+    # known source (e.g. after reopening the project), only an id owner the
+    # app wrote where its stored identity says (``consistent``). A user's
+    # copy or variant elsewhere is never deleted.
+    old = _previous_file(definition, root)
+    if old is not None and not _same_path(old, path):
+        _delete_path(old)
 
     # (c) Write the .fpdb (the file IS the listing -- no index).
     rec = definition.to_dict()
@@ -334,9 +333,22 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
             rec["weight_model_px"] = model
     _atomic_write_json(path, rec)
     capability_folder.forget(path)
+    definition.source_path = path
     _drop_stale_index(series_dir)
     _notify_changed()
     return path
+
+
+def _previous_file(definition: BlockDefinition, root: str | None) -> str | None:
+    """The file a Save of *definition* may re-file (see :func:`save_to_library`)."""
+    src = getattr(definition, "source_path", None)
+    if src:
+        meta = capability_folder.read_meta(src) if os.path.isfile(src) else None
+        return src if meta is not None and meta["id"] == definition.id else None
+    owner = _find_by_id(definition.id, root)
+    if owner is not None and owner[3]["consistent"]:
+        return owner[3]["path"]
+    return None
 
 
 def _walk_fpdb(base: str):
