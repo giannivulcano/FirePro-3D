@@ -164,3 +164,61 @@ def test_g3_copied_file_loads_as_a_separate_block(tmp_path, qapp):
         assert json.load(fh)["id"] == defs["Corner v2"].id
     with open(a, encoding="utf-8") as fh:
         assert json.load(fh)["id"] == d.id               # the original is kept
+
+
+# -- Blocks browser (G1) -------------------------------------------------------
+
+def _leaf_names(browser):
+    out = {}
+    for i in range(browser._tree.topLevelItemCount()):
+        lib = browser._tree.topLevelItem(i)
+        for j in range(lib.childCount()):
+            ser = lib.child(j)
+            for k in range(ser.childCount()):
+                out[ser.child(k).text(0)] = (lib.text(0), ser.text(0))
+    return out
+
+
+def test_g1_file_dropped_while_running_appears_on_reactivation(tmp_path, qapp):
+    from PyQt6.QtCore import Qt
+    from firepro3d.blocks_browser import BlocksBrowser
+    from firepro3d.model_space import Model_Space
+    b = BlocksBrowser(Model_Space(), root=str(tmp_path))
+    assert _leaf_names(b) == {}
+    _drop(tmp_path / "Fire" / "Valves", "Gate Valve.fpdb", _defn("Old Name", "X", "Y"))
+    qapp.applicationStateChanged.emit(Qt.ApplicationState.ApplicationActive)
+    assert _leaf_names(b) == {"Gate Valve": ("Fire", "Valves")}
+
+
+def test_duplicate_entry_stays_listed_after_its_owner_loads(tmp_path, qapp):
+    from firepro3d.blocks_browser import library_only_entries
+    from firepro3d.model_space import Model_Space
+    a = _drop(tmp_path / "Fire" / "Valves", "Corner.fpdb", _defn("Corner"))
+    shutil.copyfile(a, tmp_path / "Fire" / "Valves" / "Corner v2.fpdb")
+    ms = Model_Space()
+    ms.load_blocks_from_files([a], root=str(tmp_path))
+    names = [n for _l, _s, n, _i, _p in library_only_entries(ms, str(tmp_path))]
+    assert names == ["Corner v2"]
+    ms.load_blocks_from_files([str(tmp_path / "Fire" / "Valves" / "Corner v2.fpdb")],
+                              root=str(tmp_path))
+    assert library_only_entries(ms, str(tmp_path)) == []
+
+
+def test_activating_a_copy_leaf_places_the_copy_not_the_original(tmp_path, qapp):
+    from firepro3d.blocks_browser import BlocksBrowser
+    from firepro3d.model_space import Model_Space
+    d = _defn("Corner")
+    a = _drop(tmp_path / "Fire" / "Valves", "Corner.fpdb", d)
+    shutil.copyfile(a, tmp_path / "Fire" / "Valves" / "Corner v2.fpdb")
+    ms = Model_Space()
+    ms.load_blocks_from_files([a], root=str(tmp_path))      # original in project
+    b = BlocksBrowser(ms, root=str(tmp_path))
+    got = []
+    b.blockActivated.connect(got.append)
+    lib = b._tree.topLevelItem(0)
+    leaf = next(lib.child(0).child(k) for k in range(lib.child(0).childCount())
+                if lib.child(0).child(k).text(0) == "Corner v2")
+    b._on_item_activated(leaf, 0)
+    [placed] = got
+    assert placed != d.id
+    assert ms.get_block_definition(placed).name == "Corner v2"

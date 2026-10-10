@@ -401,6 +401,13 @@ def _find_by_id(block_id: str, root: str | None):
     return None
 
 
+def is_copy(path: str, block_id: str, root: str | None = None) -> bool:
+    """True when *path* holds *block_id* but another file owns that id -- a
+    copied file, which loads as its own block under a fresh id."""
+    owner = _find_by_id(block_id, root)
+    return owner is not None and not _same_path(owner[3]["path"], path)
+
+
 def list_library(root: str | None = None) -> list[dict]:
     """List every ``.fpdb`` on disk (each parsed once per mtime, cached).
 

@@ -200,8 +200,9 @@ class BlockOpenDialog(HouseDialog):
             return
         block_id = item.data(0, _ROLE_ID)
         path = item.data(0, _ROLE_PATH)
-        if not ensure_block_loaded(self._scene, block_id, path, item.text(0),
-                                   self._lib_root, self):
+        block_id = ensure_block_loaded(self._scene, block_id, path, item.text(0),
+                                       self._lib_root, self)
+        if block_id is None:
             return
         self._chosen = block_id
         self.accept()

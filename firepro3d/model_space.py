@@ -2129,7 +2129,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         emit (guards against N model resets). Returns name lists:
         ``{loaded, replaced, skipped, refused, failed, missing}`` — *missing*
         is the sorted ids of nested definitions still absent afterwards (they
-        draw as red placeholders, D12).
+        draw as red placeholders, D12) — plus ``ids``: ``{path: project id}``
+        for every file that resolved (loaded, replaced or skipped), so a
+        caller places the block a copied file became.
 
         A schema-2 file's bundled nested definitions are added only when their
         id is absent (the project copy wins, D11). A file that would form a
@@ -2147,7 +2149,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         import uuid
         from . import block_library
         summary = {"loaded": [], "replaced": [], "skipped": [],
-                   "refused": [], "failed": [], "missing": []}
+                   "refused": [], "failed": [], "missing": [], "ids": {}}
         on_disk = {os.path.normcase(os.path.abspath(e["path"])): e
                    for e in block_library.list_library(root)}
         changed = False
@@ -2177,6 +2179,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     continue
                 self._merge_bundled_weights(path)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
+                summary["ids"][path] = defn.id
                 if existing.version == defn.version:
                     summary["skipped"].append(defn.name)
                 else:
@@ -2196,6 +2199,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
             summary["loaded"].append(defn.name)
+            summary["ids"][path] = defn.id
             changed = True
         summary["missing"] = sorted(self._block_registry.missing_nested())
         if changed:

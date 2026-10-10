@@ -181,15 +181,22 @@ def library_only_entries(scene, root: str | None = None, *,
             (one index read per Blocks-browser refresh); None reads it here.
 
     Returns:
-        ``(library, series, name, block_id, path)`` tuples — on-disk index
-        entries whose id is not a project definition.
+        ``(library, series, name, block_id, path)`` tuples — on-disk entries
+        not yet in the project: an id owner whose id is not a project
+        definition, or a copied (duplicate-id) file whose (library, series,
+        name) no project definition has (it loads under a fresh id).
     """
     seen = set(scene._block_definitions)
+    triples = {(d.library, d.series, d.name)
+               for d in scene._block_definitions.values()}
     out = []
     if entries is None:
         entries = block_library.list_library(root)
     for e in entries:
-        if e.get("id") in seen:
+        if e.get("duplicate"):
+            if (e["library"], e["series"], e.get("name")) in triples:
+                continue
+        elif e.get("id") in seen:
             continue
         if e.get("kind") == "schematic":
             continue      # never a block-library citizen (schematics.md D-S4/D-S5)
@@ -199,35 +206,37 @@ def library_only_entries(scene, root: str | None = None, *,
 
 
 def ensure_block_loaded(scene, block_id: str, path: str | None, name: str,
-                        root: str | None = None, parent=None) -> bool:
+                        root: str | None = None, parent=None) -> str | None:
     """Make *block_id* a project definition, loading it from *path* if needed.
 
     A library-only block is loaded as one undoable batch via
     ``Model_Space.load_blocks_from_files``; on a failed load the shared
-    load-failure message is shown (parented to *parent*).
+    load-failure message is shown (parented to *parent*). A copied file
+    (``block_library.is_copy``) is loaded even when its id is already a
+    project definition: it becomes its own block under a fresh id.
 
     Args:
         scene: The project ``Model_Space``.
-        block_id: The block's id.
+        block_id: The block's id (the file's stored id for a library leaf).
         path: The library ``.fpdb`` path (None/empty for a project block).
         name: The block's display name (for the failure message).
         root: Block-library root override (None = the configured library).
         parent: Parent widget for the failure message.
 
     Returns:
-        True when the id resolves in the project afterwards.
+        The project id to use afterwards (a copied file's fresh id), or None.
     """
-    if block_id in scene._block_definitions:
-        return True
-    if not path:
-        return False
-    summary = scene.load_blocks_from_files([path], root=root)
-    if block_id in scene._block_definitions:
-        return True
+    if block_id in scene._block_definitions and not (
+            path and block_library.is_copy(path, block_id, root)):
+        return block_id
+    summary = scene.load_blocks_from_files([path], root=root) if path else {}
+    resolved = summary.get("ids", {}).get(path)
+    if resolved is not None and resolved in scene._block_definitions:
+        return resolved
     from .themed_message import themed_info
     themed_info(parent, "Load block",
                 block_library.load_failure_message(name, summary))
-    return False
+    return None
 
 
 class _BlocksTree(QTreeWidget):
@@ -296,6 +305,10 @@ class BlocksBrowser(QWidget):
         if hasattr(scene, "blockDefinitionsChanged"):
             scene.blockDefinitionsChanged.connect(self.refresh)
         block_library.add_change_listener(self.refresh)
+        from PyQt6.QtGui import QGuiApplication
+        app = QGuiApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._on_app_state)
         self.refresh()
 
     def showEvent(self, event):  # noqa: N802 (Qt API)
@@ -303,6 +316,13 @@ class BlocksBrowser(QWidget):
         # (System Settings) and other processes may write the folder.
         super().showEvent(event)
         self.refresh()
+
+    def _on_app_state(self, state) -> None:
+        """Re-list on returning to the app: files copied into the library from
+        outside (Explorer) appear without a restart -- the files on disk are
+        the library (no index, 2026-10-10)."""
+        if state == Qt.ApplicationState.ApplicationActive:
+            self.refresh()
 
     # ── data ──────────────────────────────────────────────────────────────
 
@@ -402,9 +422,11 @@ class BlocksBrowser(QWidget):
         guard = self.activation_guard
         if guard is not None and guard(block_id, path) is not None:
             return
-        if path and not ensure_block_loaded(self._scene, block_id, path,
-                                            item.text(0), self._lib_root, self):
-            return
+        if path:
+            block_id = ensure_block_loaded(self._scene, block_id, path,
+                                           item.text(0), self._lib_root, self)
+            if block_id is None:
+                return
         self.blockActivated.emit(block_id)
 
     # ── context menu ──────────────────────────────────────────────────────
@@ -442,7 +464,8 @@ class BlocksBrowser(QWidget):
         then emit ``editRequested``. No placement guard: editing never places."""
         block_id = item.data(0, _ROLE_ID)
         path = item.data(0, _ROLE_PATH)
-        if not ensure_block_loaded(self._scene, block_id, path, item.text(0),
-                                   self._lib_root, self):
+        block_id = ensure_block_loaded(self._scene, block_id, path, item.text(0),
+                                       self._lib_root, self)
+        if block_id is None:
             return
         self.editRequested.emit(block_id)
