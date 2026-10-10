@@ -61,6 +61,39 @@ def test_line_scale_rows_order_edit_revert_and_round_trip(qapp):
     assert proj._draw_lines[-1].style["finish"]["scale"] == 2.0
 
 
+def test_two_line_scale_edit_through_the_real_panel_is_one_step(qapp):
+    """The Scale row typed in the real PropertyManager on two selected lines:
+    both lines scale, ONE undo step; undo clears both; a refused entry
+    leaves the row showing the old value."""
+    from firepro3d.property_manager import PropertyManager
+    ms = Model_Space()
+    end_id(ms)
+    a = scene_line(ms)
+    b = scene_line(ms, p1=(0.0, 10.0), p2=(30.0, 10.0))
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    qapp.processEvents()
+    pos0 = ms._undo_pos
+    field = pm._prop_widgets["Finish Scale"]
+    field.setText("2")
+    field.editingFinished.emit()
+    qapp.processEvents()
+    assert [ln.style["finish"]["scale"] for ln in (a, b)] == [2.0, 2.0]
+    assert ms._undo_pos == pos0 + 1
+    field = pm._prop_widgets["Finish Scale"]
+    field.setText("12")                                        # refused
+    field.editingFinished.emit()
+    qapp.processEvents()
+    assert [ln.style["finish"]["scale"] for ln in (a, b)] == [2.0, 2.0]
+    assert ms._undo_pos == pos0 + 1
+    pm.show_properties([a, b])
+    qapp.processEvents()
+    assert pm._prop_widgets["Finish Scale"].text() == "2"
+    ms.undo()
+    assert ms._draw_lines and not any(
+        "scale" in ln.style["finish"] for ln in ms._draw_lines)
+
+
 def test_scale_rows_hidden_on_closed_template_and_placement_and_locked_in_editors(qapp):
     proj = Model_Space()
     rect = RectangleItem(QPointF(0, 0), QPointF(10, 10))

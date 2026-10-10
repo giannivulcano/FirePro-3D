@@ -6,6 +6,8 @@ a selected capability frame show, and for their write-back.
 """
 from __future__ import annotations
 
+from .constants import FIXED_END_PX_PER_MM
+
 _TILE_TIP = ("Make this block a hatch pattern: it repeats on a tile and fills "
              "regions instead of being placed as a symbol")
 _LT_TIP = ("Make this block a linetype: it repeats along lines and is applied "
@@ -20,7 +22,7 @@ _END_SCREEN_TIP = ("How this end sizes on model canvases\n"
                    "(plan, detail, Block Editor).\n"
                    "Scale with zoom: at the drawing scale,\n"
                    "zooms with the line.\n"
-                   "Fixed size: a constant 6 px per printed mm\n"
+                   f"Fixed size: a constant {FIXED_END_PX_PER_MM:g} px per printed mm\n"
                    "at any zoom.\n"
                    "Sheets and PDF always print the true size.")
 _END_TRIM_TIP = ("The line stops this far back from its endpoint,\n"
@@ -131,7 +133,7 @@ def capability_rows(scene) -> dict:
         from .end_authoring import SCREEN_LABELS
         props["On screen"] = {
             "type": "enum", "options": list(SCREEN_LABELS),
-            "value": "Fixed size" if rep.get("screen") == "fixed" else "Scale with zoom",
+            "value": SCREEN_LABELS[0] if rep.get("screen") == "fixed" else SCREEN_LABELS[1],
             "tooltip": "Fixed size: dashes keep the same size on screen at any "
                        "zoom (model views and the Block Editor). Scale with "
                        "zoom: dashes zoom with the drawing. Sheets and PDF "
