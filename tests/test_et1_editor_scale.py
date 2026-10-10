@@ -1,5 +1,5 @@
-"""ET1 G1 -- block editors preview Fixed ends and Drafting linetypes at the
-project drawing scale; schematic editors / render scenes keep real size;
+"""ET1 G1 -- block and schematic editors preview Fixed ends and Drafting
+linetypes at the project drawing scale; schematic render scenes keep real size;
 a project scale change reaches open editors (MainWindow half:
 ``test_et1_mainwindow_scale.py``)."""
 from PyQt6.QtCore import QPointF, QRectF
@@ -43,19 +43,30 @@ def test_g1_block_editor_follows_project_drawing_scale(qapp):
     assert abs(_head_width(img) - 30) <= 3, _head_width(img)    # 3 mm x 50 = 150 mm = 30 px
 
 
-def test_g1_schematic_editor_keeps_real_size(qapp):
-    _, _, sc = _editor_scene(kind="schematic")
-    assert sc.scale_manager.drawing_scale == 1.0
-    lid = hidden(sc)
-    ln = LineItem(QPointF(0, 0), QPointF(36, 0))
-    ln.style["linetype"] = lid
-    sc.addItem(ln)
-    row = _row(_render_bare(sc, QRectF(0, -2, 40, 4)), 20)             # 10 px/mm
-    # Hidden 6 / 3 at 1:1 -> lit 0-60 px, dark 60-90, lit 90-150 ...
-    assert all(row[5:55]) and not any(row[65:85]) and all(row[95:145])
+def test_g1_schematic_editor_follows_project_drawing_scale_like_a_block_editor(qapp):
+    """Smoke ruling 2026-10-10 (retires Q2's schematic real size): schematic
+    content is built from model-size blocks, so its editor previews ends and
+    Drafting linetypes at the project drawing scale exactly like a block
+    editor -- the same line looks the same in both."""
+    heads = {}
+    for kind in ("block", "schematic"):
+        _, _, sc = _editor_scene(kind=kind)
+        assert sc.scale_manager.drawing_scale == 100.0     # not pinned to 1:1
+        sc.scale_manager.drawing_scale = 50.0              # what the units sync copies
+        a = arrow(length=3.0, half=1.0)
+        sc.register_block_definition(a)
+        ln = LineItem(QPointF(0, 300), QPointF(2000, 300))
+        set_ends(ln, finish=a.id)
+        sc.addItem(ln)
+        sc._draw_lines.append(ln)
+        heads[kind] = _head_width(_render_bare(sc, QRectF(0, 200, 2000, 200), 400, 40))
+    assert abs(heads["schematic"] - 30) <= 3, heads      # 3 mm x 50 = 150 mm = 30 px
+    assert abs(heads["schematic"] - heads["block"]) <= 1, heads
 
 
 def test_g1_schematic_render_scene_keeps_real_size(qapp):
+    """The sheet-render scene stays 1:1: it only reaches paper, where ends
+    print true mm through the paper scale, and its extent fits the NTS box."""
     from firepro3d.schematic_scene import SchematicSceneManager
     proj = Model_Space()
     proj.scale_manager.drawing_scale = 50.0

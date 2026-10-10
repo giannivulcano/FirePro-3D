@@ -2314,12 +2314,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         dst.display_unit = src.display_unit
         dst.precision = src.precision
-        # ET1 Q1/Q2: a block editor previews Fixed ends and Drafting
-        # linetypes at the project drawing scale; a schematic editor keeps
-        # real size (its ScaleManager holds 1.0 from construction). A scene
-        # with no owning editor widget is skipped.
+        # ET1 Q1 (+ smoke ruling 2026-10-10): block and schematic editors
+        # preview Fixed ends and Drafting linetypes at the project drawing
+        # scale -- schematics are built from the same model-size blocks. A
+        # scene with no owning editor widget is skipped.
         kind = getattr(getattr(editor_scene, "_tile_editor", None), "kind", None)
-        if kind == "block" and dst.drawing_scale != src.drawing_scale:
+        if kind in ("block", "schematic") and dst.drawing_scale != src.drawing_scale:
             dst.drawing_scale = src.drawing_scale
             # Drafting ends / linetypes change extent with the scale: the
             # Qt bounds contract wants prepareGeometryChange, not a repaint.
@@ -2332,7 +2332,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _sync_editor_units(self) -> None:
         """Push the project display unit, precision and drawing scale to
-        every open Block Editor (drawing scale: block editors only, ET1 Q1)."""
+        every open Block Editor (drawing scale: block and schematic editors,
+        ET1 Q1 + smoke ruling 2026-10-10)."""
         mgr = getattr(self, "block_editor_manager", None)
         if mgr is None:
             return
