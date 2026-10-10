@@ -2102,10 +2102,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         found = block_library._find_by_id(block_id, root)
         if found is None:
             return False
-        loaded = block_library.load_block_file_with_bundle(found[3]["path"])
+        path = found[3]["path"]
+        loaded = block_library.load_block_file_with_bundle(path)
         if loaded is None:
             return False
         lib_def, bundled = loaded
+        # folder + filename win, exactly as a first load (2026-10-10)
+        lib_def.library, lib_def.series, lib_def.name = found[0], found[1], found[3]["name"]
         if self._load_would_cycle(bundled, lib_def):
             return False
         if lib_def.kind != current.kind:

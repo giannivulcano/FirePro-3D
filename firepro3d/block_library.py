@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 
 from . import capability_folder
+from .capability_folder import sanitize  # noqa: F401 -- public name, kept here
 from .app_data import block_library_dir
 from .block_definition import BlockDefinition
 
@@ -87,12 +87,6 @@ class BlockNameCollision(Exception):
 
 def _root(root: str | None) -> str:
     return root if root is not None else block_library_dir()
-
-
-def sanitize(name: str) -> str:
-    """Filesystem-safe segment: keep [A-Za-z0-9 _.-], collapse the rest to '_'."""
-    s = re.sub(r"[^A-Za-z0-9 _.\-]", "_", (name or "").strip())
-    return s or "_"
 
 
 def _segments(library: str, series: str) -> tuple[str, str]:
@@ -202,6 +196,7 @@ def _delete_path(path: str) -> None:
     """Remove one ``.fpdb`` (no-op when absent) and its folder's stale index."""
     if os.path.isfile(path):
         os.remove(path)
+    capability_folder.forget(path)
     _drop_stale_index(os.path.dirname(path))
 
 
@@ -304,6 +299,7 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         if model:                     # MW H-MW-a: overrides of used names only
             rec["weight_model_px"] = model
     _atomic_write_json(path, rec)
+    capability_folder.forget(path)
     _drop_stale_index(series_dir)
     _notify_changed()
     return path
@@ -337,15 +333,14 @@ def _walk_fpdb(base: str):
                 yield (first, second), p
 
 
-def _tiers(kind: str, dirs: tuple) -> tuple[str, str] | None:
+def _tiers(kind: str, dirs: tuple) -> tuple[str, str]:
     """On-disk ``(library, series)`` of a *kind* file under *dirs* (folder
     wins). Schematics are one-tier (schematics.md D-S15: root = ungrouped,
-    one folder = Series); blocks are two-tier, a file short of a full
-    Library/Series folder listing under :data:`UNGROUPED`. None = too deep."""
-    if kind == "schematic":
-        if len(dirs) == 0:
-            return "", ""
-        return ("", dirs[0]) if len(dirs) == 1 else None
+    one folder = Series; one filed two deep reads like a block); blocks are
+    two-tier, a file short of a full Library/Series folder listing under
+    :data:`UNGROUPED`."""
+    if kind == "schematic" and len(dirs) < 2:
+        return ("", dirs[0]) if dirs else ("", "")
     if len(dirs) == 0:
         return UNGROUPED, UNGROUPED
     if len(dirs) == 1:
@@ -372,12 +367,10 @@ def _iter_entries(root: str | None):
         meta = capability_folder.read_meta(path)
         if meta is None or not meta["id"]:
             continue
-        tiers = _tiers(meta["kind"], dirs)
-        if tiers is not None:
-            found.append((tiers, path, meta))
+        found.append((_tiers(meta["kind"], dirs), path, meta))
     owner: dict = {}
     for _tiers_, path, meta in found:          # a name-matching file first
-        if os.path.basename(path)[:-5] == sanitize(meta["name"]):
+        if capability_folder.owns_name(path, meta):
             owner.setdefault(meta["id"], path)
     for _tiers_, path, meta in found:          # else the first in walk order
         owner.setdefault(meta["id"], path)
