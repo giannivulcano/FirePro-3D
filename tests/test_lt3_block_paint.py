@@ -108,36 +108,32 @@ def _ghost_render(linetype_of):
         ms.register_block_definition(d)
         ms.set_mode("place_block", template=d.id)
         move(view, QPointF(0, 1000))                    # real place_block move
-        g = ms._place_block_ghost
-        assert g is not None and not ms._block_instances
-        x, y = g.block_pos()
-        return _render_model(ms), x, y
+        assert ms._place_block_ghost is not None and not ms._block_instances
+        return list(ms._move_ghost)
     finally:
         close_view(view, ms)
 
 
+def _subpaths(path):
+    return sum(1 for i in range(path.elementCount()) if path.elementAt(i).isMoveTo())
+
+
 def test_placement_ghost_draws_continuous(qapp):
-    img, x, y = _ghost_render(hidden)
-    row = round(200 + y / 10.0)
-    runs = []
-    start = None
-    for px in range(400):                               # ghost is 50 % opacity
-        on = QColor(img.pixel(px, row)).lightness() > 40
-        if on and start is None:
-            start = px
-        if not on and start is not None:
-            runs.append(px - start)
-            start = None
-    assert runs and max(runs) > 250, runs
+    # Since 2026-10-10 the ghost is the Paste-style trace of the block's base
+    # geometry: one unbroken 3000 mm line at the cursor, never dashed.
+    paths = _ghost_render(hidden)
+    assert len(paths) == 1 and _subpaths(paths[0]) == 1
+    r = paths[0].boundingRect()
+    assert (round(r.left()), round(r.right()), round(r.top())) == (-1500, 1500, 1000)
 
 
 def test_placement_ghost_has_no_missing_badge(qapp):
-    # The ghost paints at 50 % opacity, so the amber glyph would blend toward
-    # black: detect it by hue (red well above blue), not by the exact token.
-    img, x, y = _ghost_render(lambda ms: "deadbeef")
-    amber = [(i, j) for i in range(400) for j in range(400)
-             if QColor(img.pixel(i, j)).red() - QColor(img.pixel(i, j)).blue() > 30]
-    assert amber == []
+    # A missing linetype adds no badge geometry to the ghost: the trace is
+    # still exactly the base line.
+    paths = _ghost_render(lambda ms: "deadbeef")
+    assert len(paths) == 1 and _subpaths(paths[0]) == 1
+    r = paths[0].boundingRect()
+    assert round(r.height()) == 0 and round(r.width()) == 3000
 
 
 def test_nested_instance_in_block_editor_is_at_drawing_scale(qapp):

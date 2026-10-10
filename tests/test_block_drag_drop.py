@@ -37,6 +37,18 @@ def _line_def(name, extra=()):
                                primitives=prims, origin=(0.0, 0.0))
 
 
+def _ghost_origin(sc):
+    """Where the Paste-style placement ghost's origin sits: the top-left of
+    its traced paths (these test blocks run (0,0) -> (+X, 0)); None when no
+    ghost is shown. The ghost is never a scene item (2026-10-10)."""
+    if not sc._move_ghost:
+        return None
+    r = sc._move_ghost[0].boundingRect()
+    for p in sc._move_ghost[1:]:
+        r = r.united(p.boundingRect())
+    return (round(r.left(), 3), round(r.top(), 3))
+
+
 def _leaf(browser, name, library_only=False):
     """The tree leaf called *name* (``library_only``: the italic one)."""
     from firepro3d.blocks_browser import _ROLE_PATH
@@ -153,17 +165,16 @@ def test_ghost_follows_during_drag(qapp, tmp_path):
     br = BlocksBrowser(sc, root=str(tmp_path))
     try:
         _drag(v, _mime_for(br, "B"), [QPointF(0, 0), QPointF(55, -40)], drop=False)
-        g = sc._place_block_ghost
-        assert g is not None and g.block_pos() == pytest.approx((55.0, -40.0), abs=1.0)
+        assert _ghost_origin(sc) == pytest.approx((55.0, -40.0), abs=1.0)
+        assert sc._place_block_ghost.scene() is None       # never a scene item
         # mid-drag near the endpoint: the ghost sits on the SNAPPED point
         mv = QDragMoveEvent(v.mapFromScene(QPointF(-103, 2)), Qt.DropAction.CopyAction,
                             _mime_for(br, "B"), Qt.MouseButton.LeftButton,
                             Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(v.viewport(), mv)
-        assert sc._place_block_ghost is g
-        assert g.block_pos() == (-100.0, 0.0)
+        assert _ghost_origin(sc) == (-100.0, 0.0)
         QApplication.sendEvent(v.viewport(), QDragLeaveEvent())
-        assert sc._place_block_ghost is None
+        assert sc._place_block_ghost is None and _ghost_origin(sc) is None
         assert sc.mode != "place_block"
     finally:
         sc.cleanup(); v.close(); v.deleteLater(); QApplication.processEvents()
@@ -275,9 +286,9 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
         # the mode stays armed with a fresh ghost; a second click nests another
         assert es.mode == "place_block"
         g = es._place_block_ghost
-        assert g is not None and g.scene() is es and g not in es._block_instances
+        assert g is not None and g.scene() is None and _ghost_origin(es) is not None
         _hover(w.view, QPointF(-60, 45))
-        shown_at = es._place_block_ghost.block_pos()    # the snapped cursor
+        shown_at = _ghost_origin(es)                    # the snapped cursor
         _click_place(w.view, QPointF(-60, 45))
         assert [(i.block_id, i.block_rotation()) for i in es._block_instances] == \
             [(b.id, 0.0), (b.id, 0.0)]
@@ -288,7 +299,7 @@ def test_double_click_places_into_the_active_canvas(qapp, main_window):
         QTest.keyClick(w.view.viewport(), Qt.Key.Key_Escape)
         QApplication.processEvents()
         assert es.mode != "place_block"
-        assert es._place_block_ghost is None and g.scene() is None
+        assert es._place_block_ghost is None and _ghost_origin(es) is None
         assert len(es._block_instances) == 2
     finally:
         w.editor_scene.set_mode("select")
