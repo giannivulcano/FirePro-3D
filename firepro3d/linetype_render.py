@@ -443,15 +443,17 @@ def printed_factor(*, paper_scale, role, drawing_scale) -> float:
     """Definition mm -> painter units under the Drafting length rule (LT3-5).
 
     A paper pass (*paper_scale* set) -> 1 / scale (true mm on the sheet);
-    the plan canvas (*role* ``"plan"``) -> the drawing scale; anything else
-    (Block Editor, no scene) -> 1 (real size). One rule, two callers:
+    a model canvas (*role* ``"plan"`` or ``"block_editor"``) -> the drawing
+    scale (ET1 Q1: a Block Editor previews at the project drawing scale; a
+    schematic editor / render scene holds 1.0, ET1 Q2); anything else (no
+    scene) -> 1 (real size). One rule, two callers:
     Drafting linetypes (``length_factor``) and end types (LT5 Q4 -- the
     Drafting rule; ET1 adds the screen factor for a Fixed-size end on a
     model canvas, ``end_render.end_scales``).
     """
     if paper_scale:
         return 1.0 / paper_scale
-    if role == "plan":
+    if role in _FIXED_ROLES:
         return float(drawing_scale) if drawing_scale is not None else 1.0
     return 1.0
 
@@ -464,9 +466,8 @@ def length_factor(lt, *, paper_scale, role, drawing_scale,
     mm x ``FIXED_LINETYPE_PX_PER_MM`` px (MW-10, decoupled from the weight
     factor), divided by *device_scale* (device px
     per painter unit -- the caller passes this paint's). Otherwise: Model
-    size -> 1; a paper pass (*paper_scale* set) -> 1 / scale; the plan canvas
-    (*role* ``"plan"``) -> the drawing scale; anything else (Block Editor, no
-    scene) -> 1 (real size).
+    size -> 1; otherwise ``printed_factor`` (a paper pass -> 1 / scale; a
+    model canvas, plan or Block Editor -> the drawing scale; no scene -> 1).
     """
     if fixed_on_canvas(lt, paper_scale=paper_scale, role=role):
         # LTS-3 / MW-10: printed mm x 6 px/mm, back into painter units.

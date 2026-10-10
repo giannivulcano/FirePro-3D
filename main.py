@@ -2300,9 +2300,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._update_title()
 
     def _seed_editor_units(self, editor_scene) -> None:
-        """Copy the project's display unit + precision into one editor scene.
+        """Copy the project's display unit, precision and — for block editors —
+        drawing scale into one editor scene.
 
-        Only those two display values are copied — never the ScaleManager
+        Only those values are copied — never the ScaleManager
         object itself: ``scene_io`` reassigns ``self.scene.scale_manager`` on
         load, and plan-scene calibration must not change the editor's
         mm<->scene seed (selection-mode §15 readouts format through it).
@@ -2313,10 +2314,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         dst.display_unit = src.display_unit
         dst.precision = src.precision
+        # ET1 Q1/Q2: a block editor previews Fixed ends and Drafting
+        # linetypes at the project drawing scale; a schematic editor keeps
+        # real size (its ScaleManager holds 1.0 from construction).
+        kind = getattr(getattr(editor_scene, "_tile_editor", None), "kind", "block")
+        if kind == "block" and dst.drawing_scale != src.drawing_scale:
+            dst.drawing_scale = src.drawing_scale
+            editor_scene.update()
         editor_scene._refresh_all_labels()
 
     def _sync_editor_units(self) -> None:
-        """Push the project display unit + precision to every open Block Editor."""
+        """Push the project display unit, precision and drawing scale to
+        every open Block Editor (drawing scale: block editors only, ET1 Q1)."""
         mgr = getattr(self, "block_editor_manager", None)
         if mgr is None:
             return

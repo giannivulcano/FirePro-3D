@@ -311,11 +311,12 @@ class BlockInstance(QGraphicsObject):
     def _ends_pad(self, ops, end_ops, lt_ids) -> float:
         """Scene-mm radius covering every end these ops draw (LT5 bounds).
 
-        Each drawn end (``_end_pad_rows``) is bounded by its unit reach x
-        the printed factor, and a Fixed-size end on a model canvas
-        additionally by its unit reach x px/mm x scene mm per px at the
-        current zoom (the zoom hook re-prepares, spec C); a missing end by
-        the badge pad. Radial around the posed rect (ends attach at path
+        On a model canvas a Fixed-size end is bounded by its screen reach
+        alone (unit reach x px/mm x scene mm per px at the current zoom; the
+        zoom hook re-prepares, spec C) and a Scale-with-zoom end by its unit
+        reach x the printed factor; off a model canvas (paper pass, sheet)
+        every drawn end takes the printed factor. A missing end is bounded
+        by the badge pad. Radial around the posed rect (ends attach at path
         endpoints inside it). 0.0 when nothing draws.
         """
         if self._is_ghost:

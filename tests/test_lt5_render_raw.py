@@ -174,6 +174,7 @@ _E12_CROP = QRectF(-5.0, -10.0, 46.0, 20.0)                       # 10 px/mm ont
 
 def _e12_scene(kind, with_ends):
     ms = Model_Space(scene_role="block_editor")
+    ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; this case reads 1:1
     lid = hidden(ms)                                               # Hidden 6 / 3, 9 mm period
     a = arrow()
     ms.register_block_definition(a)
@@ -218,6 +219,7 @@ def test_e12_dashes_outside_the_trims_are_pixel_identical(qapp, kind):
 def test_selection_highlight_covers_the_ends(qapp):
     def render(selected):
         ms = Model_Space(scene_role="block_editor")
+        ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; this case reads 1:1
         a = arrow()
         ms.register_block_definition(a)
         ln = LineItem(QPointF(0.0, 0.0), QPointF(36.0, 0.0))
@@ -242,6 +244,7 @@ def test_selection_highlight_covers_the_ends(qapp):
 def test_lts_short_line_drawn_continuous_still_draws_its_ends(qapp):
     def render(with_ends):
         ms = Model_Space(scene_role="block_editor")
+        ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; this case reads 1:1
         lt = make_linetype(screen="fixed")   # 9 mm x 6 px/mm = 5.4 mm at 10 px/mm
         ms.register_block_definition(lt)
         a = arrow()
@@ -262,6 +265,7 @@ def test_lts_short_line_drawn_continuous_still_draws_its_ends(qapp):
 def test_ends_are_never_lod_dropped(qapp):
     def render(with_ends):
         ms = Model_Space(scene_role="block_editor")
+        ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; this case reads 1:1
         lid = hidden(ms)
         big = arrow(length=300.0, half=75.0, name="Big")       # 30 px at 0.1 px/mm
         ms.register_block_definition(big)
@@ -347,6 +351,7 @@ def test_plain_fallback_stroke_is_the_trimmed_path(qapp, case):
     the axis between the trim point and the (short) arrow's base is dark."""
     def render(with_ends):
         ms = Model_Space(scene_role="block_editor")
+        ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; this case reads 1:1
         if case == "lts7_short":
             lt = make_linetype(screen="fixed")       # 5.4 mm at 10 px/mm > 4 mm line
             ms.register_block_definition(lt)

@@ -148,6 +148,7 @@ class SchematicSceneManager:
         if sc is None:
             from .model_space import Model_Space
             sc = Model_Space(scene_role="block_editor")
+            sc.scale_manager.drawing_scale = 1.0   # ET1 Q2: schematic = real size
             sc._hatch_paper_scale = None           # explicit: the paper override pass sets/clears it per viewport render
             sc._suppress_preview_node = True
             sc.borrow_block_registry(self._project.block_registry,

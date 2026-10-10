@@ -140,24 +140,27 @@ def test_placement_ghost_has_no_missing_badge(qapp):
     assert amber == []
 
 
-def test_nested_instance_in_block_editor_is_real_size(qapp):
-    """LT3-5: a placed (nested) block inside the Block Editor draws real size,
-    not x drawing_scale (the editor scene has its own ScaleManager)."""
+def test_nested_instance_in_block_editor_is_at_drawing_scale(qapp):
+    """LT3-5 as amended by ET1 Q1: a placed (nested) block inside the Block
+    Editor previews at the editor's drawing scale (the project's, copied by
+    the units sync), like the plan canvas."""
     ms = Model_Space(scene_role="block_editor")
+    ms.scale_manager.drawing_scale = 2.0
     lid = hidden(ms)
-    ln = LineItem(QPointF(0, 0), QPointF(36, 0))
+    ln = LineItem(QPointF(0, 0), QPointF(72, 0))
     ln.style["linetype"] = lid
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[ln.to_dict()], origin=(0.0, 0.0))
     ms.register_block_definition(d)
     ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
-    img = QImage(400, 40, QImage.Format.Format_ARGB32)
+    img = QImage(800, 40, QImage.Format.Format_ARGB32)
     img.fill(QColor("#000000"))
     p = QPainter(img)
-    ms.render(p, QRectF(0, 0, 400, 40), QRectF(0, -2, 40, 4))   # 10 px/mm
+    ms.render(p, QRectF(0, 0, 800, 40), QRectF(0, -2, 80, 4))   # 10 px/mm
     p.end()
-    row = [QColor(img.pixel(x, 20)).lightness() > 128 for x in range(400)]
-    assert all(row[5:55]) and not any(row[65:85]) and all(row[95:145])
+    row = [QColor(img.pixel(x, 20)).lightness() > 128 for x in range(800)]
+    # Hidden 6/3 x 2 -> lit 0-120 px, dark 120-180, lit 180-300 ...
+    assert all(row[5:115]) and not any(row[125:175]) and all(row[185:295])
 
 
 def test_selected_placed_block_accent_only_on_dash_pixels(qapp):

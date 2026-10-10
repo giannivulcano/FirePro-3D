@@ -421,6 +421,10 @@ class BlockEditorWidget(QWidget):
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
+        if kind == "schematic":
+            # ET1 Q2: NTS content has no drawing scale -- Fixed ends and
+            # Drafting linetypes preview at real size here.
+            self.editor_scene.scale_manager.drawing_scale = 1.0
         self._edit_block_id = block_id       # mirrored onto the scene (drop cycle host)
         self._dialog_template_path = None    # template the last Save dialog wrote (SV4)
         # The tile frame's preview / panel reach the editor's primitives and

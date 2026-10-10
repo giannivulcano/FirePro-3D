@@ -65,6 +65,7 @@ def _plan():
 def _editor():
     """Block Editor: the same strokes as raw primitives at 1/10 size."""
     ms = Model_Space(scene_role="block_editor")
+    ms.scale_manager.drawing_scale = 1.0   # ET1 Q1: editors preview at the drawing scale; the base golden reads 1:1
     lid = hidden(ms)
     for it in _items(0.1, lid):
         ms.addItem(it)

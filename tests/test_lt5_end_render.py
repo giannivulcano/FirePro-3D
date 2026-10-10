@@ -61,7 +61,7 @@ def _col(img, x):
     (dict(paper_scale=0.02, role="plan", drawing_scale=100.0), 50.0),
     (dict(paper_scale=None, role="plan", drawing_scale=100.0), 100.0),
     (dict(paper_scale=None, role="plan", drawing_scale=None), 1.0),
-    (dict(paper_scale=None, role="block_editor", drawing_scale=100.0), 1.0),
+    (dict(paper_scale=None, role="block_editor", drawing_scale=100.0), 100.0),   # ET1 Q1
     (dict(paper_scale=None, role=None, drawing_scale=None), 1.0),
 ])
 def test_printed_factor_is_the_drafting_branch_of_length_factor(qapp, args, want):
