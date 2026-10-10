@@ -131,3 +131,32 @@ def test_g3_each_click_places_and_the_mode_stays_armed(qapp):
         assert _ghost_rect(sc) is not None                       # re-armed ghost
     finally:
         _close(v, sc)
+
+
+@pytest.mark.parametrize("keys, expect", [
+    ([(Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)], "down"),                 # CW
+    ([(Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)], "up"),                # CCW
+    ([(Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)] * 2, "left"),             # 180
+])
+def test_g4_space_rotates_the_placement_on_screen(qapp, keys, expect):
+    sc, d, _t = _scene_with_target()
+    v = _shown(sc)
+    try:
+        sc.set_mode("place_block", template=d.id)
+        _hover(v, QPointF(200, 150))
+        for key, mod in keys:
+            QTest.keyClick(v, key, mod)
+            QApplication.processEvents()
+        g = _ghost_rect(sc)                                  # the ghost turns live
+        _click(v, QPointF(200, 150))
+        [inst] = sc._block_instances
+        r = halo_scene_path(inst).boundingRect()             # the drawn geometry
+        # Raw source: block line (0,0)->(100,0) placed at (200,150); the view is
+        # not Y-flipped, so CW on screen sends +X to +Y (down).
+        got = {"down": (200, 200, 150, 250), "up": (200, 200, 50, 150),
+               "left": (100, 200, 150, 150)}[expect]
+        for rect in (r, g):
+            assert (round(rect.left()), round(rect.right()),
+                    round(rect.top()), round(rect.bottom())) == got
+    finally:
+        _close(v, sc)

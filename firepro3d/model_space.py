@@ -4301,12 +4301,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     # ─────────────────────────────────────────────────────────────────────────
 
-    def cycle_placement_ambiguity(self) -> bool:
+    def cycle_placement_ambiguity(self, reverse: bool = False) -> bool:
         """Spacebar: cycle whatever is ambiguous about the current placement.
 
         Select mode cycles similar elements, pipe mode cycles Z-stacked node
-        candidates, wall and opening modes cycle alignment.  One router so a
-        single ``Key_Space`` branch in :meth:`keyPressEvent` covers every mode.
+        candidates, wall and opening modes cycle alignment, block placement
+        turns the block 90° (Space clockwise on screen, Shift+Space -- *reverse*
+        -- counter-clockwise).  One router so a single ``Key_Space`` branch in
+        :meth:`keyPressEvent` covers every mode.
+
+        Args:
+            reverse: Shift was held (only block placement uses it).
 
         Returns:
             True when something was cycled, False when the current mode has
@@ -4314,6 +4319,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if self.mode in ("select", None, ""):
             return self._halo_cycle()
+        if self.mode == "place_block" and self._place_block_ghost is not None:
+            # App rotation is Y-up CCW+; the view is not Y-flipped, so CW on
+            # screen is -90.
+            self.rotate_place_block(90.0 if reverse else -90.0)
+            return True
         if self.mode == "pipe" and len(self._pipe_ctl._tab_candidates) > 1:
             self._pipe_ctl.cycle_tab()
             return True
@@ -7808,7 +7818,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if (event.key() == Qt.Key.Key_Space
                 and not event.isAutoRepeat()
                 and not self.is_input_mode()
-                and self.cycle_placement_ambiguity()):
+                and self.cycle_placement_ambiguity(reverse=bool(
+                    event.modifiers() & Qt.KeyboardModifier.ShiftModifier))):
             event.accept()
             return
         # ── Opening placement cycle keys (§7.6) ──────────────────────────────
