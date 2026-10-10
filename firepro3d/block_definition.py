@@ -18,6 +18,7 @@ from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .end_render import SCREEN_FIXED
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
@@ -193,8 +194,8 @@ def _norm_end(end) -> dict | None:
     if not math.isfinite(trim) or trim < 0.0:
         trim = 0.0
     out = {"trim": trim}
-    if end.get("screen") == "fixed":
-        out["screen"] = "fixed"
+    if end.get("screen") == SCREEN_FIXED:
+        out["screen"] = SCREEN_FIXED
     return out
 
 

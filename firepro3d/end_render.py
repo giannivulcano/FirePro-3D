@@ -98,7 +98,7 @@ class EndDef:
         b = (min(xs), min(ys), max(xs), max(ys)) if xs else (0.0, 0.0, 0.0, 0.0)
         reach = max(math.hypot(x, y) for x in (b[0], b[2]) for y in (b[1], b[3]))
         res = cls(defn.id, defn.version,
-                  SCREEN_FIXED if cap.get("screen") == "fixed" else SCREEN_SCALE,
+                  SCREEN_FIXED if cap.get("screen") == SCREEN_FIXED else SCREEN_SCALE,
                   float(cap.get("trim", 0.0)), tuple(ops), b, reach,
                   any(op.kind == STROKE for op in ops))
         _CACHE[key] = (ops, res)
@@ -145,14 +145,14 @@ def short_on_screen(pieces, ends, trims, screen) -> bool:
     the plain stroke and only badges."""
     if screen is None or not pieces:
         return False
-    if trims[0] + trims[1] < pw.total_length(pieces):
-        return False
     for e in ends:
         if e.defn is not None:
             ed = EndDef.from_block(e.defn)
             if ed is not None and ed.screen == SCREEN_FIXED:
-                return True
-    return False
+                break
+    else:
+        return False                     # no Fixed-size end: never measure
+    return trims[0] + trims[1] >= pw.total_length(pieces)
 
 
 def badges_only(ends) -> tuple:
@@ -163,8 +163,10 @@ def badges_only(ends) -> tuple:
 def mark_screen_ends(item, drew: bool) -> None:
     """Record on *item* (and its scene's ``_screen_end_items``) whether its
     last paint drew a Fixed-size end at a screen factor (ET1 spec C): the
-    view's zoom hook re-prepares exactly those items."""
-    if drew == getattr(item, "_screen_ends", False):
+    view's zoom hook re-prepares exactly those items. Callers invoke it only
+    on paints with a screen factor (a paper pass never touches the mark);
+    *item* initialises ``_screen_ends`` False."""
+    if drew == item._screen_ends:
         return
     item._screen_ends = drew
     sc = item.scene()

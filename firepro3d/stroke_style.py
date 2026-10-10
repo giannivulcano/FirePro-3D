@@ -24,17 +24,20 @@ AS_AUTHORED_LABEL = "As Authored"
 BY_CATEGORY_LABEL = "By Category"
 _KEYWORDS = (BY_BLOCK, BY_LINETYPE, AS_AUTHORED, BY_CATEGORY)
 ENDS = ("start", "finish")
+NONE = "none"                  # end keyword: no end block (LT5 Q3)
+END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 END_SCALE_SUFFIX = "×"       # the Scale row's suffix (ET1 Q10-b)
 
 
 def parse_end_scale(value) -> float | None:
-    """A per-end Scale entry (``"2"``, ``"1.5 ×"``, ``"2×"``, a number) ->
-    a float within [END_SCALE_MIN, END_SCALE_MAX], else None (the panel
-    refresh shows the old value)."""
+    """A per-end Scale entry (``"2"``, ``"1.5 ×"``, ``"2×"``, ``"2x"``, a
+    number) -> a float within [END_SCALE_MIN, END_SCALE_MAX], else None (the
+    panel refresh shows the old value). Only a trailing suffix is stripped,
+    so ``"0x5"`` / ``"x2x"`` are refused."""
     from .constants import END_SCALE_MAX, END_SCALE_MIN
     if isinstance(value, bool):
         return None
-    s = str(value).replace(END_SCALE_SUFFIX, "").replace("x", "").strip()
+    s = str(value).strip().rstrip(END_SCALE_SUFFIX + "xX").strip()
     try:
         k = float(s)
     except ValueError:
@@ -42,10 +45,6 @@ def parse_end_scale(value) -> float | None:
     if not math.isfinite(k) or k < END_SCALE_MIN or k > END_SCALE_MAX:
         return None
     return k
-
-
-NONE = "none"                  # end keyword: no end block (LT5 Q3)
-END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 
 # Primitive types that carry a style record (LT2-1). Text keeps border_weight;
 # reference lines keep their fixed reference style; nested records get their
@@ -76,11 +75,28 @@ def _hex(colour) -> str:
     return s if s.startswith("#") else "#ffffff"
 
 
+def _end_scale(rec) -> float:
+    """The per-end Scale stored on end record *rec* (ET1 Q5): a finite float
+    within [END_SCALE_MIN, END_SCALE_MAX] (the UI range), else 1.0 -- absent,
+    a bool, non-numeric, non-finite or out of range."""
+    from .constants import END_SCALE_MAX, END_SCALE_MIN
+    sc = rec.get("scale") if isinstance(rec, dict) else None
+    if sc is None or isinstance(sc, bool):
+        return 1.0
+    try:
+        sc = float(sc)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(sc) or sc < END_SCALE_MIN or sc > END_SCALE_MAX:
+        return 1.0
+    return sc
+
+
 def _end(d) -> dict:
     """A complete end record ``{"end", "visible"[, "mirrored"][, "scale"]}``
     (LT5 Q9 / ET1 Q5: ``mirrored`` is written only when true, ``scale`` only
-    when a finite positive float != 1, so default records and every pre-ET1
-    golden stay byte-identical)."""
+    when ``_end_scale`` reads a value != 1, so default records and every
+    pre-ET1 golden stay byte-identical)."""
     d = d if isinstance(d, dict) else {}
     end = d.get("end") or BY_LINETYPE
     if end == BY_BLOCK:                          # WM-9 migration
@@ -88,15 +104,13 @@ def _end(d) -> dict:
     out = {"end": str(end), "visible": bool(d.get("visible", True))}
     if d.get("mirrored"):
         out["mirrored"] = True
-    sc = d.get("scale")
-    if sc is not None and not isinstance(sc, bool):
-        try:
-            sc = float(sc)
-        except (TypeError, ValueError):
-            sc = 1.0
-        if math.isfinite(sc) and sc > 0.0 and sc != 1.0:
-            out["scale"] = sc
+    sc = _end_scale(d)
+    if sc != 1.0:
+        out["scale"] = sc
     return out
+
+
+normalize_end = _end     # public name for callers outside this module (ET1)
 
 
 def normalize_style(d: dict | None) -> dict:
@@ -326,7 +340,7 @@ def end_block(ref, registry):
 def _resolve_end(rec, default, registry) -> ResolvedEnd:
     rec = rec if isinstance(rec, dict) else {}
     m = bool(rec.get("mirrored"))
-    k = _end(rec).get("scale", 1.0)
+    k = _end_scale(rec)
     if not rec.get("visible", True):
         return ResolvedEnd(None, None, m, k)       # Visible off = None (Q10)
     ref = rec.get("end") or BY_LINETYPE

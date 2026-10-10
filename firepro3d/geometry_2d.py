@@ -31,8 +31,9 @@ from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weig
 from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
                            canvas_weight_name, has_ends,
-                           is_linetype_ref, linetype_block, open_stroke,
-                           resolve_ends, resolve_stroke, toggle_mirrored)
+                           is_linetype_ref, linetype_block, normalize_end,
+                           open_stroke, resolve_ends, resolve_stroke,
+                           toggle_mirrored)
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
@@ -187,6 +188,7 @@ class Geometry2DMixin:
         # never touches either (the base path keeps _mw_split_cache).
         self._end_trim_cache = None
         self._end_split_cache = None
+        self._screen_ends = False    # last model paint drew a Fixed-size end (ET1 spec C)
 
     # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
     _STYLED = True
@@ -502,7 +504,8 @@ class Geometry2DMixin:
                     self._paint_trimmed_stroke(painter, pieces, trims, hl)
         sc = self.scene()
         drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf, scene=sc)
-        _er.mark_screen_ends(self, drew)
+        if sf is not None:       # paper passes never touch the mark (spec C)
+            _er.mark_screen_ends(self, drew)
         if hl is not None:
             _er.paint_ends(painter, pieces, ends, hl, printed=ff, screen=sf,
                            scene=sc, badges=False)
@@ -699,8 +702,7 @@ class Geometry2DMixin:
         self.prepareGeometryChange()
         rec = dict(self.style[which])
         rec[field] = value
-        from .stroke_style import _end
-        self.style[which] = _end(rec)
+        self.style[which] = normalize_end(rec)
         self._sync_stroke_pen()
         self.update()
 

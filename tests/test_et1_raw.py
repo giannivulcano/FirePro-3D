@@ -5,8 +5,10 @@ shorter on screen than its Fixed-size trims draws plain, no ends."""
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
+from firepro3d import end_render as er
 from firepro3d.constants import FIXED_END_PX_PER_MM
 from firepro3d.geometry_2d import LineItem
+from firepro3d.linetype_render import printed_factor
 from firepro3d.model_space import Model_Space
 from tests.lt5_support import arrow, set_ends
 from tests.test_lt1_block_paper import _export
@@ -34,11 +36,12 @@ def _lit_cols(img, y0=0, y1=None):
 
 
 def _head_width(img):
-    """Width in px of the finish arrow head: from its base (the first lit
-    column OFF the line's own row band) to the crop's right edge, where the
-    finish attach point sits in every scene here (the triangle tapers into
-    the row band over its last few px, so its own lit extent under-reads);
-    0 when nothing lights off the band."""
+    """Px from the first lit column OFF the line's own row band to the
+    crop's right edge (the triangle tapers into the row band over its last
+    few px, so its own lit extent under-reads); 0 when nothing lights off
+    the band. Exact head width where the finish attach point is ON the right
+    edge (G3 / G4 crops); a lower bound elsewhere (the G5 1 px/mm crop puts
+    it at 120 px of 140)."""
     mid = img.height() // 2
     cols = sorted({x for x in range(img.width()) for y in range(img.height())
                    if abs(y - mid) > 2 and QColor(img.pixel(x, y)).lightness() > 128})
@@ -63,11 +66,12 @@ def test_g3_per_end_scale_doubles_head_and_trim_on_plan(qapp):
     crop = QRectF(0.0, -400.0, 2000.0, 800.0)
     h1, h2 = _head_width(_render(ms1, crop, 400, 160)), _head_width(_render(ms2, crop, 400, 160))
     assert abs(h1 - 60) <= 3 and abs(h2 - 120) <= 3, (h1, h2)
-    # the stroke stops at the head's base: the line's own row ends 60 / 120 px before x=400
-    row1 = _lit_cols(_render(ms1, crop, 400, 160), 79, 82)
-    row2 = _lit_cols(_render(ms2, crop, 400, 160), 79, 82)
-    assert abs(max(c for c in row1 if c < 340) - (400 - 60)) <= 4 or len(row1) < 340
-    assert max(row2) >= 390 and abs(len([c for c in row2 if c < 280]) - 280) <= 4
+    # the stroke stops at the head's base: the trims the paint cuts are the
+    # 3 mm trim x 1:100 x Scale (300 / 600 scene mm), the start end-less
+    pf = printed_factor(**ln1._lt_args())
+    assert pf == 100.0                                           # composition: 1:100 plan
+    assert er.end_trims(ln1._item_ends(), printed=pf, screen=None) == (0.0, 300.0)
+    assert er.end_trims(ln2._item_ends(), printed=pf, screen=None) == (0.0, 600.0)
 
 
 def test_g3_per_end_scale_prints_double(qapp, tmp_path):
@@ -113,6 +117,18 @@ def test_g4_fixed_size_end_prints_true_mm(qapp, tmp_path):
     ms._draw_lines.append(ln)
     fills = _fills(_export(tmp_path, ms, _S, "g4.pdf"))
     assert len(fills) == 1 and abs((fills[0][2] - fills[0][0]) - 3.0) <= 0.05
+
+
+def test_paper_pass_keeps_the_screen_end_mark(qapp, tmp_path):
+    """Spec C: a paper/PDF pass of the live scene (no screen factor there)
+    must not clear the mark a model-canvas paint set -- the zoom hook still
+    has to re-prepare the item."""
+    ms, ln, _ = _plan(screen="fixed")
+    ms._screen_end_items = set()          # the registry Task 4 adds (a WeakSet)
+    _render(ms, QRectF(0.0, -1000.0, 2000.0, 1000.0), 400, 200)
+    assert ln._screen_ends is True and ln in ms._screen_end_items   # composition
+    _fills(_export(tmp_path, ms, _S, "mark.pdf"))
+    assert ln._screen_ends is True and ln in ms._screen_end_items
 
 
 def test_g5_short_stroke_draws_plain_and_no_ends(qapp):

@@ -41,6 +41,20 @@ def test_g4_placed_fixed_size_end_is_constant_px(qapp):
     assert inst.boundingRect().right() >= inst.mapFromScene(QPointF(2000.0, 0.0)).x() - 1.0
 
 
+def test_placed_paper_pass_keeps_the_screen_end_mark(qapp, tmp_path):
+    """Spec C, plain-op path: a PDF pass of the live scene keeps the mark."""
+    from tests.test_lt1_block_paper import _export
+    from tests.test_lt5_render_raw import _S
+    a = arrow(length=3.0, half=1.0, screen="fixed")
+    d = _block(a)
+    ms, inst = scene_with([a, d], d.id)
+    ms._screen_end_items = set()          # the registry Task 4 adds (a WeakSet)
+    _render(ms, QRectF(0.0, -1000.0, 2000.0, 1000.0), 400, 200)
+    assert inst._screen_ends is True and inst in ms._screen_end_items   # composition
+    _export(tmp_path, ms, _S, "mark_placed.pdf")
+    assert inst._screen_ends is True and inst in ms._screen_end_items
+
+
 def test_g5_placed_short_op_draws_plain(qapp):
     a = arrow(screen="fixed")
     d = _block(a, length=100.0)

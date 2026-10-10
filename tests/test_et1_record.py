@@ -36,6 +36,8 @@ def test_per_end_scale_written_only_when_not_one():
     assert ss._end({"end": "arrow", "scale": "x"}) == {"end": "arrow", "visible": True}
     assert ss._end({"end": "arrow", "scale": 0}) == {"end": "arrow", "visible": True}
     assert ss._end({"end": "arrow", "scale": float("inf")}) == {"end": "arrow", "visible": True}
+    assert ss._end({"end": "arrow", "scale": 1e9}) == {"end": "arrow", "visible": True}   # out of UI range
+    assert ss.normalize_end is ss._end
     st = ss.normalize_style({"start": {"end": "none", "mirrored": True, "scale": 0.5}})
     assert st["start"] == {"end": "none", "visible": True, "mirrored": True, "scale": 0.5}
     assert ss.default_style()["start"] == {"end": ss.BY_LINETYPE, "visible": True}   # LT2 golden
@@ -54,7 +56,8 @@ def test_resolved_end_carries_scale():
 
 @pytest.mark.parametrize("v, exp", [("2", 2.0), ("1.5 ×", 1.5), ("2×", 2.0), (0.25, 0.25),
                                     ("abc", None), ("0", None), ("-1", None), ("inf", None),
-                                    ("12", None), (True, None)])
+                                    ("12", None), (True, None), ("0x5", None), ("2X", 2.0),
+                                    ("x2x", None)])
 def test_parse_end_scale(v, exp):
     assert ss.parse_end_scale(v) == exp
 
