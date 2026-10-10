@@ -672,7 +672,7 @@ class Model_View(QGraphicsView):
             if g is not None:
                 g._resolver = (lambda i, t=defn:
                                t if i == t.id else sc.get_block_definition(i))
-                g.on_definition_changed()
+                sc._place_block_refresh_ghost()
 
     def _end_block_drag(self, sc) -> None:
         """Leave the drag's place_block and restore the remembered mode."""

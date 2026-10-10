@@ -275,10 +275,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # reads it (linetypes.md LT2-8). None = no editors manager.
         self._editor_scenes_provider = None
         self._block_instances: list = []     # placed BlockInstance items
-        # place_block placement mode state: one click places at 0° and the
-        # mode re-arms until Esc.  A low-opacity BlockInstance is the ghost.
+        # place_block placement mode state (2026-10-10 placement batch): the
+        # ghost is the scene-tools Paste ghost (D11) traced from a free-standing
+        # BlockInstance PROTOTYPE that is never added to the scene (so it is no
+        # snap target and never plots); a click places at the current rotation
+        # and the mode re-arms until Esc. Space / Shift+Space rotate 90°.
         self._place_block_id = None          # active block definition id
-        self._place_block_ghost = None       # BlockInstance preview
+        self._place_block_ghost = None       # free-standing BlockInstance prototype
+        self._place_block_rot = 0.0          # app degrees (Y-up CCW+)
+        self._place_block_at = None          # last snapped cursor (QPointF)
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
@@ -1403,6 +1408,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # canvas or previews the wrong block.
         if mode == "place_block":
             self._place_block_id = template if isinstance(template, str) else None
+            self._place_block_rot = 0.0      # each placement starts upright
         else:
             self._place_block_id = None
         self._place_block_drop_ghost()
@@ -1506,7 +1512,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "opening":         "Click on a wall to place an opening  ·  Space = alignment",
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
-            "place_block":     "Click to place block (Esc to finish)",
+            "place_block":     "Click to place block  ·  Space / Shift+Space = rotate 90°  (Esc to finish)",
             "detail":          "Pick first corner for detail view boundary",
             "polygon":         None,   # emitted with live readout below
         }
@@ -6627,36 +6633,56 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._wall_ctl._press_wall_rect(*args, **kwargs)
 
 
-    # ── Block placement (Block S2 T3; one click since smoke 2) ─────────────
-    # A low-opacity BlockInstance ghost follows the snapped cursor at 0°; a
-    # click places the real instance there (rotation 0°, one undo step) and
-    # re-arms a fresh ghost for the next placement (mode stays live until Esc).
-    # Rotation is left to the scene's Rotate tool.
+    # ── Block placement (Block S2 T3; one click since smoke 2; Paste ghost
+    # + Space rotation since the 2026-10-10 placement batch) ──────────────
+    # The block previews as the scene-tools Paste ghost (D11 HALO + 1 px
+    # trace) with its origin on the snapped cursor: a free-standing
+    # BlockInstance prototype (never in the scene -- no snap target, never
+    # plots) is traced at (0,0) / the current rotation into the shared
+    # ``_move_ghost_base`` and slid into ``_move_ghost``. A click places the
+    # real instance at that rotation (one undo step) and the mode stays live
+    # until Esc. Space / Shift+Space turn it 90° (cycle_placement_ambiguity).
 
     def _place_block_make_ghost(self) -> None:
-        """Create the low-opacity BlockInstance preview for the active block."""
+        """Create the free-standing prototype for the active block and trace it."""
         from .block_instance import BlockInstance
         if self._place_block_id is None:
             return
         g = BlockInstance(block_id=self._place_block_id,
                           resolver=self.get_block_definition, level=self.active_level)
-        g.setOpacity(0.5)
-        g.setFlag(g.GraphicsItemFlag.ItemIsSelectable, False)
-        # Authoring preview -- never plots (a real BlockInstance would
-        # otherwise take the paper "Blocks" category, linetypes.md LT1-2).
-        g.PAPER_EXCLUDED = True
-        # Placement ghosts stay on the continuous base geometry (LT3-6).
-        g._is_ghost = True
-        self.addItem(g)
+        g._is_ghost = True                   # continuous base geometry (LT3-6)
         self._place_block_ghost = g
+        self._place_block_refresh_ghost()
+
+    def _place_block_refresh_ghost(self) -> None:
+        """Re-trace the prototype at (0,0) / the current rotation into the
+        shared ghost and slide it to the last cursor point."""
+        from .transform_ghost import ghost_base_paths
+        g = self._place_block_ghost
+        if g is None:
+            return
+        g.set_block_pos(0.0, 0.0)
+        g.set_block_rotation(self._place_block_rot)
+        self._move_ghost_base = ghost_base_paths([g])
+        at = self._place_block_at
+        self._move_ghost = ([p.translated(at.x(), at.y()) for p in self._move_ghost_base]
+                            if at is not None else [])
+        for v in self.views():
+            v.viewport().update()
 
     def _place_block_drop_ghost(self) -> None:
-        """Remove the placement ghost from the scene (no-op without one)."""
-        g = self._place_block_ghost
-        if g is not None:
-            if g.scene() is self:
-                self.removeItem(g)
+        """Drop the placement ghost (no-op without one)."""
+        if self._place_block_ghost is not None:
             self._place_block_ghost = None
+            self._place_block_at = None
+            self._move_ghost = []
+            self._move_ghost_base = []
+
+    def rotate_place_block(self, delta_deg: float) -> None:
+        """Turn the armed placement by *delta_deg* (app Y-up CCW+), live."""
+        r = (self._place_block_rot + delta_deg) % 360.0
+        self._place_block_rot = r - 360.0 if r > 180.0 else r
+        self._place_block_refresh_ghost()
 
     def _press_place_block(self, event, pos, snapped, item_under, node_under, pipe_under):
         """place_block press: place the instance at *snapped*, 0°, and re-arm."""
@@ -6673,18 +6699,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.set_mode(None)
             return
         self.place_block_instance(self._place_block_id, (snapped.x(), snapped.y()),
-                                  rotation=0.0, level=self.active_level)
+                                  rotation=self._place_block_rot,
+                                  level=self.active_level)
         self.push_undo_state()
-        # A fresh ghost at the placed point arms the next placement.
-        self._place_block_drop_ghost()
+        # The ghost (same rotation) stays on the placed point: the next click
+        # places another.
         self._move_place_block(None, snapped)
 
     def _move_place_block(self, event, snapped):
-        """place_block mouse-move: the ghost tracks the snapped cursor at 0°."""
+        """place_block mouse-move: the traced ghost's origin rides the snapped cursor."""
         if self._place_block_ghost is None:
             self._place_block_make_ghost()
-        if self._place_block_ghost is not None:
-            self._place_block_ghost.set_block_pos(snapped.x(), snapped.y())
+        if self._place_block_ghost is None:
+            return
+        self._place_block_at = QPointF(snapped)
+        self._move_ghost = [p.translated(snapped.x(), snapped.y())
+                            for p in self._move_ghost_base]
+        for v in self.views():
+            v.viewport().update()
 
     def _commit_wall_rect_rotated(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C2)
         return self._wall_ctl._commit_wall_rect_rotated(*args, **kwargs)

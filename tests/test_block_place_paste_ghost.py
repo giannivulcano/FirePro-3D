@@ -77,3 +77,57 @@ def test_g5_pasting_a_block_instance_shows_its_ghost(qapp):
     assert len(paths) == 1
     r = paths[0].boundingRect()
     assert (round(r.left()), round(r.right()), round(r.top())) == (10, 110, 20)
+
+
+def _scene_with_target():
+    sc = Model_Space()
+    d = _def(sc)
+    target = LineItem(QPointF(-300, 0), QPointF(-100, 0))
+    sc.addItem(target)
+    sc._draw_lines.append(target)
+    return sc, d, target
+
+
+def test_g1_the_ghost_is_never_a_snap_target(qapp):
+    sc, d, target = _scene_with_target()
+    v = _shown(sc)
+    try:
+        sc.set_mode("place_block", template=d.id)
+        for pt in (QPointF(200, 150), QPointF(203, 152), QPointF(240, 149)):
+            _hover(v, pt)
+            sc.get_effective_position(QPointF(pt.x() + 1, pt.y() + 1))
+            assert sc._snap_result is None              # empty space: no glyph
+        _hover(v, QPointF(-103, 2))
+        sc.get_effective_position(QPointF(-103, 2))
+        assert sc._snap_result is not None and sc._snap_result.source_item is target
+    finally:
+        _close(v, sc)
+
+
+def test_g2_trace_ghost_with_the_origin_on_the_cursor_no_scene_item(qapp):
+    sc, d, _t = _scene_with_target()
+    v = _shown(sc)
+    try:
+        sc.set_mode("place_block", template=d.id)
+        _hover(v, QPointF(200, 150))
+        assert not [i for i in sc.items() if isinstance(i, BlockInstance)]
+        r = _ghost_rect(sc)
+        assert (round(r.left()), round(r.right()), round(r.top())) == (200, 300, 150)
+    finally:
+        _close(v, sc)
+
+
+def test_g3_each_click_places_and_the_mode_stays_armed(qapp):
+    sc, d, _t = _scene_with_target()
+    v = _shown(sc)
+    try:
+        sc.push_undo_state()
+        depth0 = sc._undo_pos
+        sc.set_mode("place_block", template=d.id)
+        _click(v, QPointF(200, 150))
+        _click(v, QPointF(400, 150))
+        assert [i.block_pos() for i in sc._block_instances] == [(200.0, 150.0), (400.0, 150.0)]
+        assert sc._undo_pos == depth0 + 2 and sc.mode == "place_block"
+        assert _ghost_rect(sc) is not None                       # re-armed ghost
+    finally:
+        _close(v, sc)
