@@ -78,7 +78,27 @@ def test_decompose_round_trip(rot, mirrored, scale):
 
 def test_decompose_rigid_scale_is_exactly_one():
     for a in range(0, 360, 7):
-        assert decompose_pose(pose_matrix(3, 4, a))[4] == 1.0
+        for mirrored in (False, True):
+            assert decompose_pose(pose_matrix(3, 4, a, mirrored))[4] == 1.0
+
+
+def test_decompose_precision_far_origin_tiny_scale():
+    t = pose_matrix(1e6, -2e6, 30, scale=1e-9)
+    assert norm_deg(decompose_pose(t)[2] - 30.0) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_norm_deg_boundary():
+    assert norm_deg(-180) == 180
+    assert norm_deg(540) == 180
+    assert norm_deg(-540) == 180
+    assert norm_deg(180) == 180
+
+
+def test_is_upright_boundary_tolerance():
+    assert is_upright(90 + 1e-12)
+    assert not is_upright(-90 + 1e-12)
+    assert not is_upright(-90 - 1e-12)
+    assert not is_upright(90.1)
 
 
 def test_is_upright_range():

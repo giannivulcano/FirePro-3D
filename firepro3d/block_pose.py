@@ -12,12 +12,19 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
+
+# Float-noise slack on the +/-90 upright boundary: angles arrive as sums of
+# reflect_pose / decompose_pose output and the instance rotation, so exact
+# +/-90 can land an ulp off and flip vertical text.
+_UPRIGHT_EPS = 1e-9
 
 
 def norm_deg(a: float) -> float:
     """Fold an angle into (-180, 180].
+
+    Same fold as ``ScaleManager.normalize_angle`` (kept Qt-free here; do not
+    add a third copy).
 
     Args:
         a: Angle in degrees.
@@ -42,7 +49,8 @@ def pose_matrix(x: float, y: float, rot: float, mirrored: bool = False,
         y: Insertion point y (scene mm).
         rot: Rotation, Y-up CCW degrees.
         mirrored: Local x -> -x applied first (innermost).
-        scale: Uniform scale (> 0).
+        scale: Uniform scale (> 0); not validated here
+            (``BlockInstance.set_block_scale`` / ``manip_scale_about`` validate).
 
     Returns:
         The pose transform.
@@ -75,7 +83,8 @@ def decompose_pose(t: QTransform) -> tuple[float, float, float, bool, float]:
     """Inverse of ``pose_matrix`` for a similarity *t* (design DD9).
 
     Args:
-        t: A similarity transform (rotation, uniform scale, optional flip).
+        t: Must be a similarity (rigid x uniform scale, optionally
+            reflecting); not validated.
 
     Returns:
         ``(x, y, rot, mirrored, scale)``.
@@ -83,13 +92,11 @@ def decompose_pose(t: QTransform) -> tuple[float, float, float, bool, float]:
     det = t.m11() * t.m22() - t.m12() * t.m21()
     mirrored = det < 0
     scale = 1.0 if abs(abs(det) - 1.0) < 1e-12 else math.sqrt(abs(det))
-    o = t.map(QPointF(0.0, 0.0))
-    ex = t.map(QPointF(1.0, 0.0))
-    vx, vy = ex.x() - o.x(), ex.y() - o.y()
+    vx, vy = t.m11(), t.m12()                   # image of local (1, 0) minus origin
     if mirrored:                                # undo the innermost x flip
         vx, vy = -vx, -vy
     rot = math.degrees(math.atan2(-vy, vx))     # scene Y-down -> Y-up
-    return o.x(), o.y(), norm_deg(rot), mirrored, scale
+    return t.dx(), t.dy(), norm_deg(rot), mirrored, scale
 
 
 def is_upright(angle: float) -> bool:
@@ -97,6 +104,9 @@ def is_upright(angle: float) -> bool:
 
     Args:
         angle: Baseline angle, Y-up degrees.
+
+    Returns:
+        Whether the baseline reads upright (boundary tolerant to float noise).
     """
     a = norm_deg(angle)
-    return -90.0 < a <= 90.0
+    return -90.0 + _UPRIGHT_EPS < a <= 90.0 + _UPRIGHT_EPS
