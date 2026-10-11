@@ -40,6 +40,24 @@ from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
 _PLACEHOLDER_MM = 200.0
 
 
+def _record_scale(rec: dict) -> float:
+    """A record's ``"scale"`` (design DD7), 1.0 when absent; a corrupt value
+    (non-numeric, non-finite or <= 0) loads as 1.0 with a warning rather than
+    failing the whole load."""
+    raw = rec.get("scale", 1.0)
+    try:
+        s = float(raw)
+    except (TypeError, ValueError):
+        s = float("nan")
+    if not math.isfinite(s) or s <= 0.0:
+        import logging
+        logging.getLogger(__name__).warning(
+            "block instance %r: invalid scale %r loaded as 1.0",
+            rec.get("uid"), raw)
+        return 1.0
+    return s
+
+
 class _PoseXf:
     """Per-paint world-transform toggle for ``BlockInstance`` ops (MW-7).
 
@@ -101,6 +119,8 @@ class BlockInstance(QGraphicsObject):
         self._pose_x = 0.0
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
+        self._pose_mirrored = False   # local x -> -x, innermost (design DD2)
+        self._pose_scale = 1.0        # uniform, > 0
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
@@ -133,12 +153,14 @@ class BlockInstance(QGraphicsObject):
         return self._resolver(self.block_id)
 
     def render_ops(self):
-        """The definition's compiled ops with this placement's override
-        applied (WM2 H2) -- the base list itself while As Authored; else one
-        derived list memoised on (base list identity, override args), held
-        so its identity can't be recycled (the ``_posed_cache`` idiom)."""
+        """The definition's compiled ops under this placement's mirror / scale
+        variant (design DD4) with the override applied (WM2 H2) -- the
+        variant list itself while As Authored; else one derived list memoised
+        on (variant list identity, override args), held so its identity can't
+        be recycled (the ``_posed_cache`` idiom)."""
         d = self.definition()
-        base = d.render_ops() if d is not None else []
+        base = (d.render_ops_variant(self._pose_mirrored, self._pose_scale)
+                if d is not None else [])
         a = self._ov_args
         if a is None:
             return base
@@ -177,6 +199,34 @@ class BlockInstance(QGraphicsObject):
         t.rotate(-self._pose_rot)          # Qt CW+, app Y-up CCW+
         return t
 
+    def full_pose_transform(self) -> QTransform:
+        """Local -> scene map incl. mirror + scale (design DD2). The painter
+        stays on the rigid ``pose_transform``: mirror / scale live in the
+        variant ops (``render_ops``)."""
+        from .block_pose import pose_matrix
+        return pose_matrix(self._pose_x, self._pose_y, self._pose_rot,
+                           self._pose_mirrored, self._pose_scale)
+
+    def set_block_mirrored(self, mirrored: bool) -> None:
+        self.prepareGeometryChange()
+        self._pose_mirrored = bool(mirrored)
+        self.update()
+
+    def block_mirrored(self) -> bool:
+        return self._pose_mirrored
+
+    def set_block_scale(self, scale: float) -> None:
+        """Set the uniform scale; non-positive / non-finite raises ValueError."""
+        s = float(scale)
+        if not math.isfinite(s) or s <= 0.0:
+            raise ValueError(f"block scale must be > 0, got {scale!r}")
+        self.prepareGeometryChange()
+        self._pose_scale = s
+        self.update()
+
+    def block_scale(self) -> float:
+        return self._pose_scale
+
     def set_block_pos(self, x: float, y: float) -> None:
         self.prepareGeometryChange()
         self._pose_x, self._pose_y = float(x), float(y)
@@ -194,6 +244,10 @@ class BlockInstance(QGraphicsObject):
         d = {"type": "block_instance", "block_id": self.block_id,
              "pos": [self._pose_x, self._pose_y], "rotation": self._pose_rot,
              "uid": self._uid}
+        if self._pose_mirrored:
+            d["mirrored"] = True
+        if self._pose_scale != 1.0:
+            d["scale"] = self._pose_scale
         if not is_as_authored(self.overrides):
             d["overrides"] = dict(self.overrides)
         return d
@@ -229,6 +283,55 @@ class BlockInstance(QGraphicsObject):
         self._pose_x, self._pose_y = p.x(), p.y()
         self._pose_rot += float(angle_deg)
         self.update()
+
+    def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
+        """Baked mirror across the infinite line p1-p2 (design DD3).
+
+        Degenerate axis = no-op (``geometry_2d._degenerate_axis``). The
+        insertion point is mirrored; ``(rotation, mirrored)`` follow
+        ``block_pose.reflect_pose``.
+        """
+        from .arc_math import yup_angle
+        from .block_pose import reflect_pose
+        from .cad_math import CAD_Math
+        from .geometry_2d import _degenerate_axis
+        if _degenerate_axis(p1, p2):
+            return
+        p = CAD_Math.mirror_point(QPointF(self._pose_x, self._pose_y), p1, p2)
+        rot, mir = reflect_pose(self._pose_rot, self._pose_mirrored,
+                                yup_angle(p1, p2))
+        self.prepareGeometryChange()
+        self._pose_x, self._pose_y = p.x(), p.y()
+        self._pose_rot, self._pose_mirrored = rot, mir
+        self.update()
+
+    def manip_scale_about(self, base: "QPointF", factor: float) -> None:
+        """Baked uniform scale about scene *base* (design DD3). Never named
+        ``manip_scale`` -- that name enables manipulator resize handles."""
+        f = float(factor)
+        if not math.isfinite(f) or f <= 0.0:
+            raise ValueError(f"scale factor must be > 0, got {factor!r}")
+        from .cad_math import CAD_Math
+        p = CAD_Math.scale_point(QPointF(self._pose_x, self._pose_y), base, f)
+        self.prepareGeometryChange()
+        self._pose_x, self._pose_y = p.x(), p.y()
+        self._pose_scale *= f
+        self.update()
+
+    def _text_path(self, op) -> QPainterPath:
+        """A TEXT op's glyph path, turned 180 deg about its box centre when a
+        mirror left it reading upside down under this rotation (DD6)."""
+        fr = op.text_frame
+        if not op.readable or fr is None:
+            return op.path
+        from .block_pose import is_upright
+        if is_upright(fr[2] + self._pose_rot):
+            return op.path
+        t = QTransform()
+        t.translate(fr[0], fr[1])
+        t.rotate(180.0)
+        t.translate(-fr[0], -fr[1])
+        return t.map(op.path)
 
     # ── Geometry (pose-baked) ────────────────────────────────────────────
     def _local_path(self) -> QPainterPath:
@@ -628,7 +731,7 @@ class BlockInstance(QGraphicsObject):
                 if ends is not None:
                     self._draw_op_ends(painter, op, ends, p, xf, ff, sf, miss_e)
                 continue
-            painter.drawPath(pose.map(op.path))
+            painter.drawPath(pose.map(self._text_path(op)))
         xf.unposed()
         if sf is not None:                      # paper passes never touch the mark
             _er.mark_screen_ends(self, self._drew_screen)
@@ -724,7 +827,7 @@ class BlockInstance(QGraphicsObject):
                         continue
                 self._stroke_op(painter, ops, i, op, pose, p, xf)
                 continue
-            painter.drawPath(pose.map(op.path))
+            painter.drawPath(pose.map(self._text_path(op)))
         xf.unposed()
         return tuple(dict.fromkeys(miss))
 
@@ -1094,6 +1197,10 @@ class BlockInstance(QGraphicsObject):
         }
         if self._level_offset_mm != 0.0:
             d["level_offset_mm"] = self._level_offset_mm
+        if self._pose_mirrored:
+            d["mirrored"] = True
+        if self._pose_scale != 1.0:
+            d["scale"] = self._pose_scale
         if not is_as_authored(self.overrides):
             d["overrides"] = dict(self.overrides)
         return d
@@ -1107,8 +1214,32 @@ class BlockInstance(QGraphicsObject):
         pos = data.get("pos", [0.0, 0.0])
         inst._pose_x, inst._pose_y = float(pos[0]), float(pos[1])
         inst._pose_rot = float(data.get("rotation", 0.0))
+        inst._pose_mirrored = bool(data.get("mirrored", False))
+        inst._pose_scale = _record_scale(data)
         inst.attributes = dict(data.get("attributes", {}))
         inst.set_overrides(data.get("overrides"))
         if data.get("uid"):
             inst._uid = str(data["uid"])
         return inst
+
+    @classmethod
+    def place_kwargs(cls, rec: dict, default_level: Optional[str] = None) -> dict:
+        """``Model_Space.place_block_instance`` kwargs from an instance record
+        (``.fpd`` dict, undo snapshot, clipboard, nested record) -- the one
+        field-carrying choke point (design DD7).
+
+        Args:
+            rec: A ``to_dict`` / ``to_nested_dict`` record.
+            default_level: Level when the record names none (a nested record
+                never does -- C3); None lets the scene use its active level.
+
+        Returns:
+            The pose / level / override kwargs (``uid`` stays the caller's:
+            only restore paths carry it).
+        """
+        return {"rotation": float(rec.get("rotation", 0.0)),
+                "mirrored": bool(rec.get("mirrored", False)),
+                "scale": _record_scale(rec),
+                "level": rec.get("level", default_level),
+                "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
+                "overrides": rec.get("overrides")}

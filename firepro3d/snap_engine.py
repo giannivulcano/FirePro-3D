@@ -1530,7 +1530,8 @@ class SnapEngine:
                 from PyQt6.QtGui import QPainterPath as _QPP
                 _on_curve = (_QPP.ElementType.MoveToElement,
                              _QPP.ElementType.LineToElement)
-                for _op in (_defn.render_ops() if _defn is not None else []):
+                # posed ops: mirror / scale baked in, design DD4
+                for _op in item.render_ops():
                     if _op.kind != STROKE:
                         continue   # text glyphs / fill clips are never endpoint targets (S6)
                     path = _op.path
@@ -1539,9 +1540,11 @@ class SnapEngine:
                         if el.type in _on_curve:
                             pts.append(("endpoint",
                                         _pose.map(QPointF(el.x, el.y)), None))
-            # Text primitives snap by their frame box (S6), mapped through the pose.
+            # Text primitives snap by their frame box (S6), mapped through the
+            # full pose (definition-local boxes: mirror / scale apply, DD2).
+            _full = item.full_pose_transform()
             for box in (_defn.text_snap_points() if _defn is not None else []):
-                pts.extend(self._box_snaps([_pose.map(p) for p in box]))
+                pts.extend(self._box_snaps([_full.map(p) for p in box]))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):

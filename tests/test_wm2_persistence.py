@@ -67,7 +67,16 @@ def test_block_editor_seed_keeps_nested_overrides(qapp):
 
 def test_every_restore_caller_passes_overrides():
     """Structural backstop: each place_block_instance call that rebuilds a
-    saved record (the five restore paths) passes overrides=."""
+    saved record (the five restore paths) passes overrides= -- explicitly, or
+    through the ``BlockInstance.place_kwargs`` choke point (mirror/scale
+    design DD7), which carries the record's overrides."""
+    from firepro3d.block_instance import BlockInstance
+    assert BlockInstance.place_kwargs({"overrides": _OV})["overrides"] == _OV
+
+    def _splats_place_kwargs(k):
+        return (k.arg is None and isinstance(k.value, ast.Call)
+                and getattr(k.value.func, "attr", None) == "place_kwargs")
+
     root = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
     sites = {("scene_io.py", "bdict"), ("model_space.py", "bdict"),
              ("model_space.py", "obj"), ("schematic_scene.py", "d"),
@@ -81,7 +90,8 @@ def test_every_restore_caller_passes_overrides():
                     and any(isinstance(a, ast.Subscript)
                             and getattr(a.value, "id", None) == var
                             for a in node.args)):
-                assert any(k.arg == "overrides" for k in node.keywords), (fname, var)
+                assert any(k.arg == "overrides" or _splats_place_kwargs(k)
+                           for k in node.keywords), (fname, var)
                 found.add((fname, var))
     assert found == sites
 

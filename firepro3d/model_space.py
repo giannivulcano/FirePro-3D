@@ -2388,8 +2388,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None, uid: str | None = None,
-                             overrides: dict | None = None):
+                             overrides: dict | None = None, mirrored: bool = False,
+                             scale: float = 1.0, level_offset_mm: float = 0.0):
         """Create + add a BlockInstance referencing an existing definition.
+
+        Every rebuild-from-record site passes its pose through
+        ``BlockInstance.place_kwargs`` (design DD7), not field by field.
 
         Args:
             uid: Carry this primitive uid (undo restore, project load, editor
@@ -2397,14 +2401,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 fresh one (placement and every copy path).
             overrides: Placement Weight / Linetype override record (WM2);
                 None -> As Authored.
+            mirrored: Pose part, design DD7 (local x -> -x, innermost).
+            scale: Pose part, design DD7 (uniform, > 0).
+            level_offset_mm: Pose part, design DD7 (Z offset from the level).
         """
         from .block_instance import BlockInstance
         inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
-                             level=level or self.active_level)
+                             level=level or self.active_level,
+                             level_offset_mm=level_offset_mm)
         if uid:
             inst._uid = str(uid)
         inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
+        if mirrored:
+            inst.set_block_mirrored(True)
+        if scale != 1.0:
+            inst.set_block_scale(scale)
         if overrides:
             inst.set_overrides(overrides)
         self.addItem(inst)
@@ -3124,16 +3136,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             for bid, ddict in state.get("block_definitions", {}).items():
                 self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
                 self._block_definitions[bid].source_path = sources.get(bid)
+            from .block_instance import BlockInstance
             for bdict in state.get("blocks", []):
                 _pos = bdict.get("pos", [0.0, 0.0])
                 inst = self.place_block_instance(
-                    bdict["block_id"], (_pos[0], _pos[1]),
-                    rotation=bdict.get("rotation", 0.0),
-                    level=bdict.get("level", "Level 1"),
-                    uid=bdict.get("uid"),
-                    overrides=bdict.get("overrides"),
-                )
-                inst._level_offset_mm = bdict.get("level_offset_mm", 0.0)
+                    bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
+                    **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
                 inst.attributes = dict(bdict.get("attributes", {}))
             self.blockDefinitionsChanged.emit()
 
@@ -8089,13 +8097,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Offset / block Explode), so the new item always gets a NEW uid
         (parametric-constraint-system.md §6.1); *d* itself is not mutated.
 
+        Handles the registry types, plus ``block_instance`` (Mirror's copy
+        path, design DD7) -- placed through ``BlockInstance.place_kwargs``.
+
         Args:
             d: A ``to_dict()`` record.
 
         Returns:
-            The new scene item, or None for an unknown type or a record that
-            fails ``from_dict``.
+            The new scene item, or None for an unknown type, a record that
+            fails ``from_dict``, or a block whose definition is absent or
+            refuses placement (``capabilities.place_refusal``).
         """
+        if d.get("type") == "block_instance":
+            from .block_instance import BlockInstance
+            from .capabilities import place_refusal
+            defn = self.get_block_definition(d.get("block_id"))
+            if defn is None or place_refusal(defn) is not None:
+                return None
+            p = d.get("pos", [0.0, 0.0])
+            inst = self.place_block_instance(
+                d["block_id"], (p[0], p[1]),
+                **BlockInstance.place_kwargs(d, default_level=self.active_level))
+            inst.attributes = dict(d.get("attributes", {}))
+            return inst
         entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
         if entry is None:
             return None
@@ -8300,13 +8324,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     pattern_skipped += 1
                     skip_reason = _why
                 elif _d is not None:
+                    from .block_instance import BlockInstance
                     inst = self.place_block_instance(
                         obj["block_id"],
                         (_p[0] + offset.x(), _p[1] + offset.y()),
-                        rotation=obj.get("rotation", 0.0),
-                        level=obj.get("level", self.active_level),
-                        overrides=obj.get("overrides"),
-                    )
+                        **BlockInstance.place_kwargs(obj, default_level=self.active_level))
                     inst.attributes = dict(obj.get("attributes", {}))
                     inst.setSelected(True)
                     if obj.get("uid"):
