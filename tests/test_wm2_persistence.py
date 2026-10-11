@@ -73,9 +73,13 @@ def test_every_restore_caller_passes_overrides():
     from firepro3d.block_instance import BlockInstance
     assert BlockInstance.place_kwargs({"overrides": _OV})["overrides"] == _OV
 
-    def _splats_place_kwargs(k):
+    def _splats_place_kwargs(k, var):
+        # ``**BlockInstance.place_kwargs(<record var>, ...)`` -- the record
+        # itself, so a splat of some other dict (``place_kwargs({})``) fails.
         return (k.arg is None and isinstance(k.value, ast.Call)
-                and getattr(k.value.func, "attr", None) == "place_kwargs")
+                and getattr(k.value.func, "attr", None) == "place_kwargs"
+                and bool(k.value.args)
+                and getattr(k.value.args[0], "id", None) == var)
 
     root = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
     sites = {("scene_io.py", "bdict"), ("model_space.py", "bdict"),
@@ -90,7 +94,7 @@ def test_every_restore_caller_passes_overrides():
                     and any(isinstance(a, ast.Subscript)
                             and getattr(a.value, "id", None) == var
                             for a in node.args)):
-                assert any(k.arg == "overrides" or _splats_place_kwargs(k)
+                assert any(k.arg == "overrides" or _splats_place_kwargs(k, var)
                            for k in node.keywords), (fname, var)
                 found.add((fname, var))
     assert found == sites

@@ -10,9 +10,13 @@ from __future__ import annotations
 import copy
 import math
 import uuid
+from collections import OrderedDict
 
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QPainterPath, QPen
+
+from .block_pose import pose_matrix, valid_scale
+from .constants import BLOCK_VARIANT_CACHE_MAX
 
 from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
@@ -58,7 +62,9 @@ _COMPILING: set[str] = set()        # re-entrancy guard (corrupt cyclic data)
 def _nested_pose(rec: dict):
     """QTransform for a nested record's full pose (block_pose.pose_matrix).
 
-    Matches ``BlockInstance.full_pose_transform`` (design DD2).
+    Matches ``BlockInstance.full_pose_transform`` (design DD2). A corrupt
+    ``"scale"`` reads as 1.0 (``block_pose.valid_scale``), the same rule as
+    the instance record readers, so host and Block Editor seed agree.
 
     Args:
         rec: A ``block_instance`` primitive record.
@@ -66,11 +72,10 @@ def _nested_pose(rec: dict):
     Returns:
         The record's definition-local pose ``QTransform``.
     """
-    from .block_pose import pose_matrix
     x, y = rec.get("pos", [0.0, 0.0])
     return pose_matrix(float(x), float(y), float(rec.get("rotation", 0.0)),
                        bool(rec.get("mirrored", False)),
-                       float(rec.get("scale", 1.0)))
+                       valid_scale(rec.get("scale", 1.0)))
 
 
 def _placeholder_op(t) -> RenderOp:
@@ -467,7 +472,8 @@ class BlockDefinition:
         """The compiled ops under a mirror / uniform scale (design DD4).
 
         Identity (on the rounded key) returns ``render_ops()`` itself. Otherwise one list per
-        ``(mirrored, round(scale, 9))``, shared by every instance with that
+        ``(mirrored, scale to 9 significant digits)`` -- relative, so a tiny
+        scale never rounds to 0 -- shared by every instance with that
         pose part (flyweight per variant), LRU-capped at
         ``BLOCK_VARIANT_CACHE_MAX`` and dropped whenever the base list is
         recompiled (keyed on its identity).
@@ -480,11 +486,9 @@ class BlockDefinition:
             The shared variant ``RenderOp`` list (never mutate it).
         """
         base = self.render_ops()
-        key = (bool(mirrored), round(float(scale), 9))
+        key = (bool(mirrored), float(f"{float(scale):.9g}"))
         if key == (False, 1.0):
             return base
-        from collections import OrderedDict
-        from .constants import BLOCK_VARIANT_CACHE_MAX
         c = self._variants
         if c is None or c[0] is not base:
             c = self._variants = (base, OrderedDict())
@@ -492,7 +496,6 @@ class BlockDefinition:
         if hit is not None:
             c[1].move_to_end(key)
             return hit
-        from .block_pose import pose_matrix
         t = pose_matrix(0.0, 0.0, 0.0, key[0], key[1])
         out = [op.mapped(t) for op in base]
         c[1][key] = out

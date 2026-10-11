@@ -10,8 +10,9 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d.arc_math import yup_angle
-from firepro3d.block_pose import (decompose_pose, is_upright, norm_deg,
-                                  pose_matrix, reflect_pose)
+from firepro3d.block_pose import (check_scale, decompose_pose, is_upright,
+                                  norm_deg, pose_matrix, reflect_pose,
+                                  valid_scale)
 from firepro3d.transform_ghost import reflect_transform
 
 LOCAL = [QPointF(0, 0), QPointF(100, 0), QPointF(0, -40), QPointF(30, 25)]
@@ -104,3 +105,17 @@ def test_is_upright_boundary_tolerance():
 def test_is_upright_range():
     assert is_upright(0.0) and is_upright(90.0) and is_upright(-89.9)
     assert not is_upright(180.0) and not is_upright(-90.0) and not is_upright(135.0)
+
+
+@pytest.mark.parametrize("raw", ["x", None, 0, 0.0, -2.0, float("nan"),
+                                 float("inf"), float("-inf"), [1]])
+def test_valid_scale_falls_back_on_any_unusable_value(raw):
+    assert valid_scale(raw) == 1.0
+    assert valid_scale(raw, default=7.0) == 7.0
+    with pytest.raises(ValueError):
+        check_scale(raw)
+
+
+@pytest.mark.parametrize("raw, want", [(2, 2.0), ("0.5", 0.5), (1e-12, 1e-12)])
+def test_valid_scale_keeps_a_usable_value(raw, want):
+    assert valid_scale(raw) == want and check_scale(raw) == want

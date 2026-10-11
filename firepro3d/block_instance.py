@@ -28,6 +28,7 @@ from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
 from .block_definition import BlockDefinition
+from .block_pose import check_scale, pose_matrix, valid_scale
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
@@ -41,15 +42,20 @@ _PLACEHOLDER_MM = 200.0
 
 
 def _record_scale(rec: dict) -> float:
-    """A record's ``"scale"`` (design DD7), 1.0 when absent; a corrupt value
-    (non-numeric, non-finite or <= 0) loads as 1.0 with a warning rather than
-    failing the whole load."""
+    """A record's ``"scale"`` (design DD7) via ``block_pose.valid_scale``.
+
+    A corrupt value (non-numeric, non-finite or <= 0) loads as 1.0 with a
+    warning rather than failing the whole load.
+
+    Args:
+        rec: An instance record (``to_dict`` / ``to_nested_dict`` shape).
+
+    Returns:
+        The stored scale, 1.0 when absent or corrupt.
+    """
     raw = rec.get("scale", 1.0)
-    try:
-        s = float(raw)
-    except (TypeError, ValueError):
-        s = float("nan")
-    if not math.isfinite(s) or s <= 0.0:
+    s = valid_scale(raw, default=math.nan)
+    if math.isnan(s):
         import logging
         logging.getLogger(__name__).warning(
             "block instance %r: invalid scale %r loaded as 1.0",
@@ -203,28 +209,47 @@ class BlockInstance(QGraphicsObject):
         """Local -> scene map incl. mirror + scale (design DD2). The painter
         stays on the rigid ``pose_transform``: mirror / scale live in the
         variant ops (``render_ops``)."""
-        from .block_pose import pose_matrix
         return pose_matrix(self._pose_x, self._pose_y, self._pose_rot,
                            self._pose_mirrored, self._pose_scale)
 
     def set_block_mirrored(self, mirrored: bool) -> None:
+        """Set the mirror flag (local x -> -x, innermost -- design DD2).
+
+        Args:
+            mirrored: The new flag.
+        """
         self.prepareGeometryChange()
         self._pose_mirrored = bool(mirrored)
         self.update()
 
     def block_mirrored(self) -> bool:
+        """Whether this placement is mirrored (design DD2).
+
+        Returns:
+            The mirror flag.
+        """
         return self._pose_mirrored
 
     def set_block_scale(self, scale: float) -> None:
-        """Set the uniform scale; non-positive / non-finite raises ValueError."""
-        s = float(scale)
-        if not math.isfinite(s) or s <= 0.0:
-            raise ValueError(f"block scale must be > 0, got {scale!r}")
+        """Set the uniform scale (``block_pose.check_scale``).
+
+        Args:
+            scale: The new scale.
+
+        Raises:
+            ValueError: *scale* is not a finite number > 0.
+        """
+        s = check_scale(scale)
         self.prepareGeometryChange()
         self._pose_scale = s
         self.update()
 
     def block_scale(self) -> float:
+        """This placement's uniform scale (design DD2).
+
+        Returns:
+            The scale (> 0).
+        """
         return self._pose_scale
 
     def set_block_pos(self, x: float, y: float) -> None:
@@ -308,9 +333,7 @@ class BlockInstance(QGraphicsObject):
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about scene *base* (design DD3). Never named
         ``manip_scale`` -- that name enables manipulator resize handles."""
-        f = float(factor)
-        if not math.isfinite(f) or f <= 0.0:
-            raise ValueError(f"scale factor must be > 0, got {factor!r}")
+        f = check_scale(factor, "scale factor")
         from .cad_math import CAD_Math
         p = CAD_Math.scale_point(QPointF(self._pose_x, self._pose_y), base, f)
         self.prepareGeometryChange()
@@ -335,6 +358,10 @@ class BlockInstance(QGraphicsObject):
 
     # ── Geometry (pose-baked) ────────────────────────────────────────────
     def _local_path(self) -> QPainterPath:
+        """Combined path of the posed ops before the rigid pose: TEXT ops as
+        paint draws them (``_text_path``, DD6), so bounds / shape / halo /
+        ghosts cover a turned glyph; an orphan's placeholder under this
+        placement's mirror / scale (S.M -- the caller adds T.R)."""
         ops = self.render_ops()
         combined = QPainterPath()
         if not ops:
@@ -343,9 +370,12 @@ class BlockInstance(QGraphicsObject):
                 combined.addRect(-h, -h, _PLACEHOLDER_MM, _PLACEHOLDER_MM)
                 combined.moveTo(-h, -h)
                 combined.lineTo(h, h)
+                if self._pose_mirrored or self._pose_scale != 1.0:
+                    combined = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored,
+                                           self._pose_scale).map(combined)
             return combined
         for op in ops:
-            combined.addPath(op.path)
+            combined.addPath(self._text_path(op) if op.kind == TEXT else op.path)
         return combined
 
     def _posed_path(self, ops=None) -> QPainterPath:

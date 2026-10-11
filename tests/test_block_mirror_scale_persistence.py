@@ -192,3 +192,22 @@ def test_every_place_block_instance_site_carries_the_pose():
             if not ok:
                 bad.append(f.name)
     assert not bad, f"place_block_instance calls without place_kwargs: {bad}"
+
+
+def test_add_from_dict_refuses_a_definition_that_became_a_capability(qapp):
+    ms = Model_Space()
+    p = _posed(ms)
+    rec = p.to_dict()
+    ms.get_block_definition(p.block_id).set_tile({"w": 5, "h": 5})
+    n = len(ms._block_instances)
+    assert ms._add_from_dict(rec) is None
+    assert len(ms._block_instances) == n
+
+
+def test_add_from_dict_keeps_attributes(qapp):
+    ms = Model_Space()
+    p = _posed(ms)
+    p.attributes = {"k": "v"}
+    c = ms._add_from_dict(p.to_dict())
+    assert c.attributes == {"k": "v"}
+    assert c.attributes is not p.attributes

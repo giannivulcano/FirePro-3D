@@ -110,3 +110,46 @@ def is_upright(angle: float) -> bool:
     """
     a = norm_deg(angle)
     return -90.0 + _UPRIGHT_EPS < a <= 90.0 + _UPRIGHT_EPS
+
+
+def valid_scale(value, default: float = 1.0) -> float:
+    """*value* as a block scale when it is a finite number > 0, else *default*.
+
+    The lenient reader for stored records (``.fpd`` / undo / clipboard /
+    nested definition records): a corrupt scale must never fail a load or a
+    compile, nor collapse (0) or turn (negative) the geometry.
+
+    Args:
+        value: The raw stored scale (any type).
+        default: Returned when *value* is not a usable scale.
+
+    Returns:
+        The scale, or *default*.
+    """
+    try:
+        s = float(value)
+    except (TypeError, ValueError):
+        return default
+    return s if math.isfinite(s) and s > 0.0 else default
+
+
+def check_scale(value, what: str = "block scale") -> float:
+    """*value* as a block scale; the strict setter / tool check.
+
+    Args:
+        value: The scale or scale factor.
+        what: Name used in the error message.
+
+    Returns:
+        ``float(value)``.
+
+    Raises:
+        ValueError: *value* is not a finite number > 0.
+    """
+    try:
+        s = float(value)
+    except (TypeError, ValueError):
+        s = math.nan
+    if not math.isfinite(s) or s <= 0.0:
+        raise ValueError(f"{what} must be > 0, got {value!r}")
+    return s
