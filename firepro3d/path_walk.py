@@ -41,7 +41,7 @@ class Seg:
 
 @dataclass(frozen=True)
 class Arc:
-    """Circular arc: centre, radius, start angle, sweep (degrees, sweep > 0)."""
+    """Circular arc: centre, radius, start angle, signed sweep (degrees; positive = Qt CCW)."""
     cx: float
     cy: float
     r: float
@@ -53,7 +53,7 @@ class Arc:
 class EllipseArc:
     """Elliptical arc in the frame translate(cx, cy)·rotate(−rot) (degrees).
 
-    ``t0`` / ``sweep`` are Qt parametric angles (degrees, sweep > 0).
+    ``t0`` / ``sweep`` are Qt parametric angles (degrees; sweep signed, positive = Qt CCW).
     """
     cx: float
     cy: float
@@ -228,13 +228,15 @@ def point_at(p, s: float) -> QPointF:
         f = s / L
         return QPointF(p.x0 + (p.x1 - p.x0) * f, p.y0 + (p.y1 - p.y0) * f)
     if isinstance(p, Arc):
-        a = math.radians(p.a0 + (math.degrees(s / p.r) if p.r > _EPS else 0.0))
+        sg = -1.0 if p.sweep < 0 else 1.0
+        a = math.radians(p.a0 + sg * (math.degrees(s / p.r) if p.r > _EPS else 0.0))
         return QPointF(p.cx + p.r * math.cos(a), p.cy - p.r * math.sin(a))
     if isinstance(p, EllipseArc):
         if _ellipse_table(p.rx, p.ry)[-1] <= _EPS:
             return point_at_param(p, p.t0)
+        sg = -1.0 if p.sweep < 0 else 1.0
         s0 = _ellipse_s_of_t(p.rx, p.ry, p.t0)
-        return point_at_param(p, _ellipse_t_of_s(p.rx, p.ry, s0 + s))
+        return point_at_param(p, _ellipse_t_of_s(p.rx, p.ry, s0 + sg * s))
     if len(p.pts) < 2:
         return QPointF(*p.pts[0]) if p.pts else QPointF()
     cum = _curve_cum(p)
@@ -266,12 +268,14 @@ def split(p, s0: float, s1: float):
         a, b = point_at(p, s0), point_at(p, s1)
         return Seg(a.x(), a.y(), b.x(), b.y())
     if isinstance(p, Arc):
-        return Arc(p.cx, p.cy, p.r, p.a0 + math.degrees(s0 / p.r),
-                   math.degrees((s1 - s0) / p.r))
+        sg = -1.0 if p.sweep < 0 else 1.0
+        return Arc(p.cx, p.cy, p.r, p.a0 + sg * math.degrees(s0 / p.r),
+                   sg * math.degrees((s1 - s0) / p.r))
     if isinstance(p, EllipseArc):
+        sg = -1.0 if p.sweep < 0 else 1.0
         base = _ellipse_s_of_t(p.rx, p.ry, p.t0)
-        t0 = _ellipse_t_of_s(p.rx, p.ry, base + s0)
-        t1 = _ellipse_t_of_s(p.rx, p.ry, base + s1)
+        t0 = _ellipse_t_of_s(p.rx, p.ry, base + sg * s0)
+        t1 = _ellipse_t_of_s(p.rx, p.ry, base + sg * s1)
         return EllipseArc(p.cx, p.cy, p.rx, p.ry, p.rot, t0, t1 - t0)
     cum = _curve_cum(p)
     a, b = point_at(p, s0), point_at(p, s1)
@@ -309,24 +313,41 @@ def to_path(pieces) -> QPainterPath:
 
 
 def map_piece(p, t: QTransform):
-    """*p* mapped through a rigid, orientation-preserving transform *t*.
+    """*p* mapped through a similarity transform *t* (rigid x uniform scale,
+    possibly reflecting -- block mirror / scale, design DD5).
 
-    Raises:
-        ValueError: *t* reflects (determinant < 0) -- arc angles and sweeps
-            would silently come out wrong.
+    Arc radii and ellipse axes scale by sqrt|det t|. A reflecting *t*
+    preserves the walking direction: the start maps to the image of the
+    start and the sweep is negated (signed sweep).
     """
-    if t.m11() * t.m22() - t.m12() * t.m21() < 0:
-        raise ValueError("map_piece needs an orientation-preserving transform")
-    d = math.degrees(math.atan2(-t.m12(), t.m11()))      # Qt-angle offset
+    det = t.m11() * t.m22() - t.m12() * t.m21()
+    s = math.sqrt(abs(det))
+    flip = det < 0
+    d = math.degrees(math.atan2(-t.m12(), t.m11()))      # Qt-angle offset (rigid)
     if isinstance(p, Seg):
         a, b = t.map(QPointF(p.x0, p.y0)), t.map(QPointF(p.x1, p.y1))
         return Seg(a.x(), a.y(), b.x(), b.y())
     if isinstance(p, Arc):
         c = t.map(QPointF(p.cx, p.cy))
-        return Arc(c.x(), c.y(), p.r, _norm360(p.a0 + d), p.sweep)
+        if not flip:
+            return Arc(c.x(), c.y(), p.r * s, _norm360(p.a0 + d), p.sweep)
+        a = math.radians(p.a0)
+        q = t.map(QPointF(p.cx + p.r * math.cos(a), p.cy - p.r * math.sin(a)))
+        a0 = math.degrees(math.atan2(-(q.y() - c.y()), q.x() - c.x()))
+        return Arc(c.x(), c.y(), p.r * s, _norm360(a0), -p.sweep)
     if isinstance(p, EllipseArc):
         c = t.map(QPointF(p.cx, p.cy))
-        return EllipseArc(c.x(), c.y(), p.rx, p.ry, p.rot + d, p.t0, p.sweep)
+        if not flip:
+            return EllipseArc(c.x(), c.y(), p.rx * s, p.ry * s, p.rot + d,
+                              p.t0, p.sweep)
+        # g = frame then t; g(1, 0) gives the new major-axis direction, and
+        # the y-flip inside g maps parameter t to -t.
+        g = _ellipse_frame(p) * t
+        o = g.map(QPointF(0.0, 0.0))
+        ex = g.map(QPointF(1.0, 0.0))
+        rot = math.degrees(math.atan2(-(ex.y() - o.y()), ex.x() - o.x()))
+        return EllipseArc(c.x(), c.y(), p.rx * s, p.ry * s, rot,
+                          _norm360(-p.t0), -p.sweep)
     return Curve(tuple((q.x(), q.y()) for q in
                        (t.map(QPointF(*xy)) for xy in p.pts)))
 
@@ -365,9 +386,9 @@ def tangent_at(p, s: float) -> tuple[float, float]:
 
     Follows ``point_at``'s parametrisation: a Seg runs (x0, y0) -> (x1, y1)
     as given (never canonicalised); an Arc / EllipseArc runs from ``a0`` /
-    ``t0`` by +s -- on Qt's Y-down circle the point at angle ``a`` is
-    ``(cx + r cos a, cy - r sin a)``, so its s-derivative is
-    ``(-sin a, -cos a)``; a Curve takes the flattened segment at *s*
+    ``t0`` by +s in the sweep's direction -- on Qt's Y-down circle the point
+    at angle ``a`` is ``(cx + r cos a, cy - r sin a)``, so its s-derivative
+    (positive sweep) is ``(-sin a, -cos a)``; a Curve takes the flattened segment at *s*
     (zero-length segments skipped, looking forward first). ``(0.0, 0.0)``
     for a degenerate piece.
     """
@@ -376,17 +397,19 @@ def tangent_at(p, s: float) -> tuple[float, float]:
     elif isinstance(p, Arc):
         if p.r <= _EPS:
             return (0.0, 0.0)
-        a = math.radians(p.a0) + s / p.r
-        dx, dy = -math.sin(a), -math.cos(a)
+        sg = -1.0 if p.sweep < 0 else 1.0
+        a = math.radians(p.a0) + sg * s / p.r
+        dx, dy = -sg * math.sin(a), -sg * math.cos(a)
     elif isinstance(p, EllipseArc):
         if _ellipse_table(p.rx, p.ry)[-1] <= _EPS:
             return (0.0, 0.0)
+        sg = -1.0 if p.sweep < 0 else 1.0
         t = math.radians(_ellipse_t_of_s(
-            p.rx, p.ry, _ellipse_s_of_t(p.rx, p.ry, p.t0) + s))
+            p.rx, p.ry, _ellipse_s_of_t(p.rx, p.ry, p.t0) + sg * s))
         f = _ellipse_frame(p)
         o = f.map(QPointF(0.0, 0.0))
         v = f.map(QPointF(-p.rx * math.sin(t), -p.ry * math.cos(t)))
-        dx, dy = v.x() - o.x(), v.y() - o.y()
+        dx, dy = sg * (v.x() - o.x()), sg * (v.y() - o.y())
     else:
         pts = p.pts
         if len(pts) < 2:
