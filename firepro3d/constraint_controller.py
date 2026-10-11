@@ -1066,6 +1066,8 @@ class ConstraintController:
                 raise
             return
         snap = self._snapshot(items)
+        poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
+                 for it in items if hasattr(it, "block_mirrored")]
         try:
             yield
         except BaseException:
@@ -1075,6 +1077,10 @@ class ConstraintController:
         pins = self._typed_pins(items, snap) if typed else None
         if not self._solve(edited=items, typed=pins):
             self._restore(snap)
+            for it, r, mir, sc in poses:   # pose parts outside the solver vars (DD8)
+                it.set_block_rotation(r)
+                it.set_block_mirrored(mir)
+                it.set_block_scale(sc)
             for c, v in scaled:
                 c.value = v
             self._report_conflict(reassert=True)

@@ -120,8 +120,8 @@ class ModifyToolsController:
         capable = {"flip": self._reflectable, "mirror": self._reflectable,
                    "scale": self._scalable}.get(tool)
         if capable is not None and not capable(sel):
-            # DD4: only 2D drafting geometry carries manip_reflect /
-            # manip_scale_about (text, blocks, pipes, walls, gridlines… don't).
+            # DD4: 2D drafting geometry and block instances carry manip_reflect /
+            # manip_scale_about (text, pipes, walls, gridlines… don't).
             s._show_status(self.nothing_to_hint(tool), 3000)
             return False
         if tool == "move" and not self._transformable(sel):
@@ -166,8 +166,8 @@ class ModifyToolsController:
 
     def nothing_to_hint(self, tool: str) -> str:
         """Refusal status when no selected item can take *tool* (DD4)."""
-        return (f"Nothing to {tool} — only 2D drafting geometry can be "
-                f"{self._PAST[tool]}")
+        return (f"Nothing to {tool} — only 2D drafting geometry and blocks "
+                f"can be {self._PAST[tool]}")
 
     @staticmethod
     def _transformable(items) -> list:
@@ -1011,7 +1011,7 @@ class ModifyToolsController:
     def _reflectable(self, items) -> list:
         """The transformable *items* with a per-item ``manip_reflect`` (DD1).
 
-        Text and block instances define none, so they are skipped.
+        Text defines none, so it is skipped.
         """
         return [it for it in self._transformable(items)
                 if hasattr(it, "manip_reflect")]
@@ -1160,7 +1160,7 @@ class ModifyToolsController:
 
     def _scalable(self, items) -> list:
         """The transformable *items* with a per-item ``manip_scale_about``
-        (DD1); text and block instances define none and are skipped."""
+        (DD1); text defines none and is skipped."""
         return [it for it in self._transformable(items)
                 if hasattr(it, "manip_scale_about")]
 
