@@ -291,7 +291,7 @@ class BlockDefinition:
         #                 interactive. See docs/specs/reference-graphic-model.md.
         self.render_mode = render_mode or "default"
         self._render_ops: list[RenderOp] | None = None
-        self._variants = None   # (base ops list, OrderedDict) -- DD4
+        self._variants: tuple | None = None   # (base ops list, OrderedDict) -- DD4
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
         self._text_snap_pts: list[list[QPointF]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
@@ -348,6 +348,7 @@ class BlockDefinition:
         self.primitives = list(primitives)
         self.version += 1
         self._render_ops = None
+        self._variants = None
         self._text_snap_pts = None
         for inst in list(self._instances):
             inst.on_definition_changed()
@@ -363,8 +364,10 @@ class BlockDefinition:
         self.invalidate_cache()
 
     def invalidate_cache(self) -> None:
-        """Drop the compiled render ops + text snap points (next read recompiles)."""
+        """Drop the compiled render ops, their variants + text snap points
+        (next read recompiles)."""
         self._render_ops = None
+        self._variants = None
         self._text_snap_pts = None
 
     @property
@@ -463,7 +466,7 @@ class BlockDefinition:
     def render_ops_variant(self, mirrored: bool, scale: float) -> list[RenderOp]:
         """The compiled ops under a mirror / uniform scale (design DD4).
 
-        Identity returns ``render_ops()`` itself. Otherwise one list per
+        Identity (on the rounded key) returns ``render_ops()`` itself. Otherwise one list per
         ``(mirrored, round(scale, 9))``, shared by every instance with that
         pose part (flyweight per variant), LRU-capped at
         ``BLOCK_VARIANT_CACHE_MAX`` and dropped whenever the base list is
@@ -477,11 +480,11 @@ class BlockDefinition:
             The shared variant ``RenderOp`` list (never mutate it).
         """
         base = self.render_ops()
-        if not mirrored and scale == 1.0:
+        key = (bool(mirrored), round(float(scale), 9))
+        if key == (False, 1.0):
             return base
         from collections import OrderedDict
         from .constants import BLOCK_VARIANT_CACHE_MAX
-        key = (bool(mirrored), round(float(scale), 9))
         c = self._variants
         if c is None or c[0] is not base:
             c = self._variants = (base, OrderedDict())

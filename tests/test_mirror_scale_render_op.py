@@ -168,6 +168,38 @@ def test_variant_drops_on_recompile():
     assert d.render_ops_variant(True, 1.0) is not a
 
 
+def test_invalidate_cache_releases_the_variants():
+    d = _arc_def()
+    d.render_ops_variant(True, 2.0)
+    assert d._variants is not None
+    d.invalidate_cache()
+    assert d._variants is None
+
+
+def test_set_primitives_releases_the_variants():
+    d = _arc_def()
+    d.render_ops_variant(True, 2.0)
+    d.set_primitives(list(d.primitives))
+    assert d._variants is None
+
+
+def test_variant_identity_holds_on_the_rounded_key():
+    d = _arc_def()
+    assert d.render_ops_variant(False, 1.0000000001) is d.render_ops()
+
+
+def test_variant_cache_evicts_least_recently_used():
+    """Touching the oldest key makes it recent: the next insert past the
+    cap evicts the second-oldest instead (LRU, not FIFO)."""
+    d = _arc_def()
+    scales = [1.0 + 0.5 * (i + 1) for i in range(BLOCK_VARIANT_CACHE_MAX + 1)]
+    lists = [d.render_ops_variant(False, s) for s in scales[:-1]]   # fill to cap
+    assert d.render_ops_variant(False, scales[0]) is lists[0]        # touch
+    d.render_ops_variant(False, scales[-1])                          # one past cap
+    assert d.render_ops_variant(False, scales[0]) is lists[0]        # survived
+    assert d.render_ops_variant(False, scales[1]) is not lists[1]    # evicted
+
+
 def test_variant_cache_is_lru_capped():
     d = _arc_def()
     scales = [1.0 + 0.5 * (i + 1) for i in range(BLOCK_VARIANT_CACHE_MAX + 1)]
@@ -215,3 +247,42 @@ def test_nested_mirrored_scaled_arc_has_hand_derived_geometry():
     s0, s1 = point_at(p, 0.0), point_at(p, length(p))
     assert (round(s0.x(), 6), round(s0.y(), 6)) == (0.0, 0.0)
     assert (round(s1.x(), 6), round(s1.y(), 6)) == (20.0, -20.0)
+
+
+# ── Frame angle under rotating / reflecting poses (review round) ─────────────
+
+
+def _nested_text_frame(rotation, mirrored, text_angle=0.0):
+    """The host's TEXT op frame for a text child nested at *rotation*."""
+    child = _text_def(angle=text_angle)
+    host = BlockDefinition.new(
+        name="H", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[{"type": "block_instance", "block_id": child.id,
+                     "pos": [0.0, 0.0], "rotation": rotation,
+                     "mirrored": mirrored, "scale": 1.0, "uid": "n1"}])
+    host._resolve = lambda i: child if i == child.id else None
+    return _text_op(host).text_frame
+
+
+def test_direct_rotation_turns_the_frame_angle():
+    """A 0 deg text op mapped through a rigid 90 deg (Y-up CCW) pose: the
+    baseline now points up, centre (cx, cy) -> (cy, -cx) in Y-down scene."""
+    op = _text_op(_text_def())
+    cx, cy, _a = op.text_frame
+    m = op.mapped(pose_matrix(0.0, 0.0, 90.0))
+    assert m.text_frame == pytest.approx((cy, -cx, 90.0))
+    assert m.readable is False
+
+
+@pytest.mark.parametrize("rotation, mirrored, text_angle, want", [
+    (90.0, False, 0.0, 90.0),       # rigid: 0 + 90
+    (30.0, True, 0.0, 30.0),        # mirror negates 0 -> -0, then + 30
+    (30.0, True, 20.0, 10.0),       # mirror: -20, then + 30
+    (180.0, True, 0.0, 180.0),      # -0 + 180, folded into (-180, 180]
+])
+def test_nested_frame_angle_is_hand_derived(rotation, mirrored, text_angle, want):
+    """pose = T.R(rot).M: the mirror (innermost) negates the text angle,
+    then the record rotation adds; the frame angle lies in (-180, 180]."""
+    _x, _y, a = _nested_text_frame(rotation, mirrored, text_angle)
+    assert a == pytest.approx(want, abs=1e-9)
+    assert -180.0 < a <= 180.0

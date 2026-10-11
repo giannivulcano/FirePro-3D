@@ -79,6 +79,12 @@ class RenderOp:
         start / finish swap: ``map_piece`` keeps the walking direction) and
         un-mirrors TEXT glyphs about their own box-vertical axis so text
         never reads backwards (sets ``readable``).
+
+        Args:
+            t: The similarity map (definition-local -> target frame).
+
+        Returns:
+            A new op; this shared flyweight is never mutated.
         """
         flip = t.m11() * t.m22() - t.m12() * t.m21() < 0
         pieces = self.pieces
@@ -100,8 +106,9 @@ class RenderOp:
             path = g.map(self.path)
             q0 = g.map(QPointF(cx, cy))
             q1 = g.map(QPointF(cx + math.cos(a), cy - math.sin(a)))
-            frame = (q0.x(), q0.y(),
-                     math.degrees(math.atan2(-(q1.y() - q0.y()), q1.x() - q0.x())))
+            from .block_pose import norm_deg
+            frame = (q0.x(), q0.y(), norm_deg(math.degrees(
+                math.atan2(-(q1.y() - q0.y()), q1.x() - q0.x()))))
         else:
             path = t.map(self.path)
         ends = self.ends
