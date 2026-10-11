@@ -4,7 +4,8 @@ One renderer for raw primitives (Block Editor, plan canvas, paper) and placed
 block stroke ops (plain + linetyped): an end type is a block with an ``end``
 capability, resolved and drawn at PAINT -- never compiled into the host's op
 list (flyweight compile: its size depends on the paint's device scale and
-printed factor; ``path_walk.map_piece`` refuses reflection). Each end draws
+printed factor; ``path_walk.map_piece`` maps through any
+similarity -- a reflection negates the sweep, walking direction kept). Each end draws
 under ``translate(attach) . rotate(outward) . scale(k) [. scale(1, -1)]``:
 origin = the attach point, +X = outward (Q5); k = (the screen factor for a
 Fixed-size end on a model canvas; else, on a model canvas, the Model scale

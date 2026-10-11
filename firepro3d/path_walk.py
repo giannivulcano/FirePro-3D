@@ -136,6 +136,11 @@ def _ellipse_t_of_s(rx: float, ry: float, s: float) -> float:
     return turns * 360.0 + f / _ELLIPSE_SAMPLES * 360.0
 
 
+def _walk_sign(p) -> float:
+    """-1.0 when *p*'s sweep runs clockwise (negative), else 1.0."""
+    return -1.0 if p.sweep < 0 else 1.0
+
+
 def _ellipse_frame(e: EllipseArc) -> QTransform:
     t = QTransform()
     t.translate(e.cx, e.cy)
@@ -222,19 +227,20 @@ def point_at(p, s: float) -> QPointF:
     """Point at arc length *s* from the piece start.
 
     Zero-length (degenerate) Arcs / EllipseArcs return their start point.
+    A negative Arc / EllipseArc sweep walks clockwise (signed sweep).
     """
     if isinstance(p, Seg):
         L = length(p) or 1.0
         f = s / L
         return QPointF(p.x0 + (p.x1 - p.x0) * f, p.y0 + (p.y1 - p.y0) * f)
     if isinstance(p, Arc):
-        sg = -1.0 if p.sweep < 0 else 1.0
+        sg = _walk_sign(p)
         a = math.radians(p.a0 + sg * (math.degrees(s / p.r) if p.r > _EPS else 0.0))
         return QPointF(p.cx + p.r * math.cos(a), p.cy - p.r * math.sin(a))
     if isinstance(p, EllipseArc):
         if _ellipse_table(p.rx, p.ry)[-1] <= _EPS:
             return point_at_param(p, p.t0)
-        sg = -1.0 if p.sweep < 0 else 1.0
+        sg = _walk_sign(p)
         s0 = _ellipse_s_of_t(p.rx, p.ry, p.t0)
         return point_at_param(p, _ellipse_t_of_s(p.rx, p.ry, s0 + sg * s))
     if len(p.pts) < 2:
@@ -263,16 +269,20 @@ def phase0(p, anchor: tuple) -> float:
 
 
 def split(p, s0: float, s1: float):
-    """Exact sub-piece of canonical *p* between arc lengths s0 < s1."""
+    """Exact sub-piece of *p* between arc lengths s0 < s1.
+
+    Arc / EllipseArc lengths run in the sweep's direction (a negative
+    sweep yields a negative-sweep sub-piece).
+    """
     if isinstance(p, Seg):
         a, b = point_at(p, s0), point_at(p, s1)
         return Seg(a.x(), a.y(), b.x(), b.y())
     if isinstance(p, Arc):
-        sg = -1.0 if p.sweep < 0 else 1.0
+        sg = _walk_sign(p)
         return Arc(p.cx, p.cy, p.r, p.a0 + sg * math.degrees(s0 / p.r),
                    sg * math.degrees((s1 - s0) / p.r))
     if isinstance(p, EllipseArc):
-        sg = -1.0 if p.sweep < 0 else 1.0
+        sg = _walk_sign(p)
         base = _ellipse_s_of_t(p.rx, p.ry, p.t0)
         t0 = _ellipse_t_of_s(p.rx, p.ry, base + sg * s0)
         t1 = _ellipse_t_of_s(p.rx, p.ry, base + sg * s1)
@@ -321,7 +331,8 @@ def map_piece(p, t: QTransform):
     start and the sweep is negated (signed sweep).
     """
     det = t.m11() * t.m22() - t.m12() * t.m21()
-    s = math.sqrt(abs(det))
+    # Exactly 1.0 for rigid t: sqrt(|det|) can be 1 +- 1 ulp, drifting radii.
+    s = 1.0 if abs(abs(det) - 1.0) < 1e-12 else math.sqrt(abs(det))
     flip = det < 0
     d = math.degrees(math.atan2(-t.m12(), t.m11()))      # Qt-angle offset (rigid)
     if isinstance(p, Seg):
@@ -397,13 +408,13 @@ def tangent_at(p, s: float) -> tuple[float, float]:
     elif isinstance(p, Arc):
         if p.r <= _EPS:
             return (0.0, 0.0)
-        sg = -1.0 if p.sweep < 0 else 1.0
+        sg = _walk_sign(p)
         a = math.radians(p.a0) + sg * s / p.r
         dx, dy = -sg * math.sin(a), -sg * math.cos(a)
     elif isinstance(p, EllipseArc):
         if _ellipse_table(p.rx, p.ry)[-1] <= _EPS:
             return (0.0, 0.0)
-        sg = -1.0 if p.sweep < 0 else 1.0
+        sg = _walk_sign(p)
         t = math.radians(_ellipse_t_of_s(
             p.rx, p.ry, _ellipse_s_of_t(p.rx, p.ry, p.t0) + sg * s))
         f = _ellipse_frame(p)

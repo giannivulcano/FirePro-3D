@@ -54,7 +54,7 @@ def test_negative_ellipse_arc_point_at_and_split():
     end = pw.point_at(e, L)
     assert (round(end.x(), 3), round(end.y(), 3)) == (20.0, 0.0)   # [RED]
     sp = pw.split(e, 0.0, L)
-    assert sp.sweep < 0
+    assert (sp.t0, sp.sweep) == pytest.approx((90.0, -90.0), abs=1e-6)
     assert pw.tangent_at(e, 0.0)[0] > 0.99                           # [RED]
 
 
@@ -99,6 +99,7 @@ def test_map_piece_reflected_ellipse_matches_mapped_points(k):
     s_src = pw.length(e) * k
     want = t.map(pw.point_at(e, s_src))
     got = pw.point_at(m, pw.length(m) * k)
+    # abs=0.02: ellipse arc length is tabulated and interpolated.
     assert (got.x(), got.y()) == pytest.approx((want.x(), want.y()), abs=0.02)
 
 
@@ -107,4 +108,55 @@ def test_map_piece_seg_and_curve_map_points():
     s = pw.map_piece(pw.Seg(1.0, 2.0, 3.0, 4.0), t)
     assert (s.x0, s.y0, s.x1, s.y1) == (-1.0, 2.0, -3.0, 4.0)
     c = pw.map_piece(pw.Curve(((0.0, 0.0), (2.0, 1.0))), t)
-    assert c.pts == ((-0.0, 0.0), (-2.0, 1.0)) or c.pts == ((0.0, 0.0), (-2.0, 1.0))
+    assert c.pts == ((0.0, 0.0), (-2.0, 1.0))
+
+
+def test_negative_arc_split_from_positive_s0():
+    L = pw.length(NEG)
+    sp = pw.split(NEG, L / 4, L / 2)
+    assert (sp.a0, sp.sweep) == pytest.approx((67.5, -22.5))
+
+
+def test_negative_ellipse_split_from_positive_s0():
+    e = pw.EllipseArc(0.0, 0.0, 20.0, 10.0, 0.0, 90.0, -90.0)
+    L = pw.length(e)
+    s0, s1 = L / 4, 3 * L / 4
+    sp = pw.split(e, s0, s1)
+    assert sp.sweep < 0
+    a, b = pw.point_at(sp, 0.0), pw.point_at(sp, pw.length(sp))
+    wa, wb = pw.point_at(e, s0), pw.point_at(e, s1)
+    assert (a.x(), a.y()) == pytest.approx((wa.x(), wa.y()), abs=1e-6)
+    assert (b.x(), b.y()) == pytest.approx((wb.x(), wb.y()), abs=1e-6)
+
+
+def test_map_piece_reflect_and_scale_arc():
+    t = _mirror_x()
+    t.scale(2.0, 2.0)                      # mirror, then scale (row-vector order)
+    m = pw.map_piece(pw.Arc(10.0, 0.0, 5.0, 0.0, 90.0), t)
+    assert (m.cx, m.cy, m.r) == pytest.approx((-20.0, 0.0, 10.0))
+    assert m.sweep == pytest.approx(-90.0)
+    assert _xy(pw.point_at(m, 0.0)) == (-30.0, 0.0)
+    assert _xy(pw.point_at(m, pw.length(m))) == (-20.0, -10.0)
+
+
+def test_map_piece_rigid_rotation_scaled_ellipse_rot():
+    t = QTransform()
+    t.rotate(30.0)
+    t.scale(2.0, 2.0)
+    e = pw.EllipseArc(5.0, 3.0, 6.0, 2.0, 15.0, 40.0, 120.0)
+    m = pw.map_piece(e, t)
+    assert m.rot == pytest.approx(-15.0)       # 15 + (-30): rotate(30) is CW
+    assert (m.rx, m.ry) == pytest.approx((12.0, 4.0))
+    for a in (40.0, 70.0, 100.0, 160.0):
+        want = t.map(pw.point_at_param(e, a))
+        got = pw.point_at_param(m, a)
+        assert (got.x(), got.y()) == pytest.approx((want.x(), want.y()), abs=1e-9)
+
+
+@pytest.mark.parametrize("deg", range(360))
+def test_map_piece_rigid_keeps_radii_exact(deg):
+    t = QTransform()
+    t.rotate(float(deg))
+    assert pw.map_piece(pw.Arc(1.0, 2.0, 7.3, 10.0, 50.0), t).r == 7.3
+    m = pw.map_piece(pw.EllipseArc(1.0, 2.0, 7.3, 2.9, 10.0, 10.0, 50.0), t)
+    assert (m.rx, m.ry) == (7.3, 2.9)
