@@ -2,6 +2,14 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System — instance Mirror & Scale (persisted pose) — 2026-10-12
+
+- [x] [type:feature] Flip / Mirror / Scale for block instances (persisted mirror flag + scale pose) [P1] [subject:CAD] [done:2026-10-12]
+  - **Absorbs (2026-10-10 placement batch ruling):** the arrow-key flips while placing a block — ←/→ flip horizontally, ↑/↓ flip vertically (precedent: the opening tool's ←/→ hinge / ↑/↓ facing mirrors in `Model_Space.keyPressEvent`); lands with the persisted mirror pose. Space / Shift+Space rotation shipped in the placement batch.
+  - Details: 2026-10-01 grill (scene-tools P1 batch) excluded block instances from Flip, Mirror and Scale (skipped with a status count) because `BlockInstance` has no mirror/scale pose field. Needs: persisted flag/scale (both serialization paths), render cache, snap collectors, paper/PDF output. `block_instance.py`, `block-system.md`, `scene-tools.md`.
+  - **From LT3 (2026-10-05):** `path_walk.map_piece` (used by `RenderOp.mapped` for nested ops) raises ValueError on a reflecting transform — a mirror pose needs a reflection branch there (Arc/EllipseArc sweep direction) or linetyped nested blocks will raise at compile/paint.
+  - Built 2026-10-11/12 on `feat/block-instance-mirror-scale` (feature/Large, chain 1 → 1b → 2 → 3 → 4 → 5 → 6; design `docs/superpowers/specs/2026-10-11-block-instance-mirror-scale-design.md`, approach A = per-(mirrored, scale) variant op cache). Pose (pos, rot, mirrored, uniform scale) via `block_pose.py`; `path_walk` signed sweep + similarity `map_piece`; reflection-aware `RenderOp.mapped` (ends mirrored toggle, readable text frame, upright at paint); sparse `mirrored`/`scale` records + one `BlockInstance.place_kwargs` choke point (also fixed G9: paste/duplicate/array kept no Level Offset); Flip/Mirror/Scale on instances (Flip refuses a fully defined BLOCK at entry + commit, D45 amended, user ruling 2026-10-12); Mirrored / Scale panel rows + every instance row one undo step (G9); ←/→ ↑/↓ placement flips (screen axes); Explode composes the full pose (closed-form rotation/mirror/scale, readable text). VC6: 8,813 passed; only proven pre-existing failures (shortcuts test, drag-drop segfault, sv2 teardown 127).
+
 ## Block System — placement uses the Paste ghost + Space rotation (L162/L164/L166/L204) — 2026-10-10
 
 - [x] [type:feature] Block placement uses the paste workflow: ghost follows the cursor with the base point fixed at the block origin [P2] [subject:UX] [done:2026-10-10]
