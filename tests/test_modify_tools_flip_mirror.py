@@ -340,12 +340,6 @@ def _block(scene, at=(-150.0, -150.0)):
     return scene.place_block_instance(d.id, at)
 
 
-def _pose(item):
-    t = item.sceneTransform()
-    return tuple(round(v, 6) for v in (t.m11(), t.m12(), t.m21(), t.m22(),
-                                       t.dx(), t.dy()))
-
-
 def test_block_instance_flips_with_the_selection(qapp):
     view, scene = make_view(role="plan", scale=1.0)
     try:
@@ -360,6 +354,8 @@ def test_block_instance_flips_with_the_selection(qapp):
         _hover_and_click(view)
         assert grips(line) == LINE_FLIPPED
         assert inst.block_mirrored() is True
+        # (-150, -150) across x = AXIS_X -> (2*AXIS_X + 150, -150)
+        assert inst.block_pos() == pytest.approx((2 * AXIS_X + 150.0, -150.0))
         assert any("Flipped 2 item(s)" in m and "skipped" not in m for m in msgs)
     finally:
         close_view(view, scene)
@@ -374,6 +370,7 @@ def test_block_only_selection_is_accepted(qapp, tool):
         inst.setSelected(True)
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start(tool) is True                      # [RED]
+        assert scene.mode == tool               # _TOOL_MODE: "flip" / "mirror"
         assert _nothing_to(tool) not in msgs
     finally:
         close_view(view, scene)

@@ -1050,7 +1050,9 @@ class ConstraintController:
         empty *items* (e.g. Scale by 1) or untouched items is a pure no-op.
         On failure the WHOLE edit is rolled back (D10) — every adapter-backed
         item in *items*, constrained or not, plus every constrained item — and
-        the status bar reports the conflict. *scale* (D54, the Scale tool
+        the status bar reports the conflict. The rollback also restores a block
+        instance's pose parts that live outside the solver variables
+        (rotation, mirrored, scale). *scale* (D54, the Scale tool
         only): every driving dim whose refs all lie inside *items* is
         multiplied by it before the solve and restored on a rollback.
         """

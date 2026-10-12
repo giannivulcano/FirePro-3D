@@ -281,12 +281,6 @@ def _block(scene, at=(-150.0, -150.0)):
     return scene.place_block_instance(d.id, at)
 
 
-def _pose(item):
-    t = item.sceneTransform()
-    return tuple(round(v, 6) for v in (t.m11(), t.m12(), t.m21(), t.m22(),
-                                       t.dx(), t.dy()))
-
-
 def test_block_instance_scales_with_the_selection(qapp):
     view, scene = make_view(role="plan", scale=1.0)
     try:
@@ -314,6 +308,7 @@ def test_block_only_selection_is_accepted(qapp):
         inst.setSelected(True)
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start("scale") is True                   # [RED]
+        assert scene.mode == "scale"            # _TOOL_MODE["scale"]
         assert NOTHING_TO_SCALE not in msgs
     finally:
         close_view(view, scene)

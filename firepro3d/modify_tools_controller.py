@@ -1093,7 +1093,9 @@ class ModifyToolsController:
         """Reflect across the hovered axis: Flip in place, Mirror as copies.
 
         One undo step; returns to Select with the originals (Flip) or the
-        copies (Mirror) selected (D3). Text / blocks are skipped with a count.
+        copies (Mirror) selected (D3). Text (no manip_reflect) is skipped with a
+        count. Flip refuses the whole commit when a target is grounded (D17,
+        as Scale / Rotate do); Mirror's copies are never grounded.
 
         Returns:
             True when something was reflected; False with no axis (status
@@ -1130,6 +1132,9 @@ class ModifyToolsController:
                 s.constraint_ctl.internal_records(targets), uid_map,
                 mirror_axis=(p1, p2))
         else:
+            if s.constraint_ctl.refuse_grounded(targets):      # D17 (CS3)
+                self._end_refused(items)
+                return False
             with s.constraint_ctl.edit(targets):
                 for it in targets:
                     it.manip_reflect(p1, p2)
@@ -1231,8 +1236,8 @@ class ModifyToolsController:
     def commit_scale(self, factor: float) -> bool:
         """Scale the selection by *factor* about the base (one undo step).
 
-        Returns to Select with the originals selected (D3); text / blocks are
-        skipped with a count.
+        Returns to Select with the originals selected (D3); text (no
+        manip_scale_about) is skipped with a count.
 
         Args:
             factor: The uniform factor (strictly > 0).
