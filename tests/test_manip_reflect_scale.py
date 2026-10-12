@@ -207,13 +207,15 @@ def test_new_methods_do_not_make_primitives_box_resizable(scene, name):
     assert "scale" not in item_capabilities(item)
 
 
-def test_text_and_blocks_have_no_reflect_or_scale_about():
-    """DD1: Flip / Mirror / Scale skip text and block instances by capability."""
+def test_text_has_no_reflect_or_scale_about():
+    """DD1: Flip / Mirror / Scale skip text by capability; blocks opt in (DD8)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.text_item import TextItem
-    for cls in (TextItem, BlockInstance):
-        assert not hasattr(cls, "manip_reflect"), cls
-        assert not hasattr(cls, "manip_scale_about"), cls
+    assert not hasattr(TextItem, "manip_reflect")
+    assert not hasattr(TextItem, "manip_scale_about")
+    assert (hasattr(BlockInstance, "manip_reflect")
+            and hasattr(BlockInstance, "manip_scale_about")
+            and not hasattr(BlockInstance, "manip_scale"))
 
 
 # ── Review fix round (I-1 handedness, I-2 degenerate axis, round-trip) ──────

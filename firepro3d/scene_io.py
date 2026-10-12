@@ -416,16 +416,12 @@ class SceneIOMixin:
         # --- Blocks: definitions first (registry), then instances ---
         for bid, ddict in payload.get("block_definitions", {}).items():
             self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+        from .block_instance import BlockInstance
         for bdict in payload.get("blocks", []):
             _pos = bdict.get("pos", [0.0, 0.0])
             inst = self.place_block_instance(
-                bdict["block_id"], (_pos[0], _pos[1]),
-                rotation=bdict.get("rotation", 0.0),
-                level=bdict.get("level", "Level 1"),
-                uid=bdict.get("uid"),
-                overrides=bdict.get("overrides"),
-            )
-            inst._level_offset_mm = bdict.get("level_offset_mm", 0.0)
+                bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
+                **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
             inst.attributes = dict(bdict.get("attributes", {}))
         self.blockDefinitionsChanged.emit()
         # Nested definitions the file lacks draw as red placeholders (D12).

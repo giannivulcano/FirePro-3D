@@ -46,8 +46,10 @@ CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
 REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
-GROUNDED_STATUS = ("Fully defined geometry can't be moved, rotated or scaled "
-                   "-- delete or suppress a constraint first")      # D17 (CS3)
+# D17 (CS3); "flipped" since the 2026-10-12 ruling: Flip refuses a fully
+# defined BLOCK instance only (D45; see modify_tools_controller.flip_refusal_targets).
+GROUNDED_STATUS = ("Fully defined geometry can't be moved, rotated, scaled or "
+                   "flipped -- delete or suppress a constraint first")
 TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
 # D34 translate-first pass (_solve_x): it is taken outright when it holds the
 # edit within HONOUR_TOL; otherwise only when it moves the edit at most
@@ -531,7 +533,11 @@ class ConstraintController:
         any of *items* is fully defined (its own D41 state, per-item DOF 0).
         A partly grounded item is not refused: the solve moves it along its
         free DOF. The one predicate behind the Move / Rotate / Scale entry
-        (``Model_Space.set_mode``) and their commits."""
+        (``Model_Space.set_mode``) and their commits, and behind the Flip
+        entry / ``commit_reflect`` check -- which passes only the block
+        instances among the targets (``flip_refusal_targets``, D45 as refined
+        2026-10-12): a grounded primitive flips and re-solves, a grounded
+        block's mirror / rotation sit outside the solver."""
         if not self.enabled or not items:
             return False
         uids = {getattr(it, "_uid", None) for it in items} & self.constrained_uids()
@@ -1050,7 +1056,9 @@ class ConstraintController:
         empty *items* (e.g. Scale by 1) or untouched items is a pure no-op.
         On failure the WHOLE edit is rolled back (D10) — every adapter-backed
         item in *items*, constrained or not, plus every constrained item — and
-        the status bar reports the conflict. *scale* (D54, the Scale tool
+        the status bar reports the conflict. The rollback also restores a block
+        instance's pose parts that live outside the solver variables
+        (rotation, mirrored, scale). *scale* (D54, the Scale tool
         only): every driving dim whose refs all lie inside *items* is
         multiplied by it before the solve and restored on a rollback.
         """
@@ -1066,6 +1074,8 @@ class ConstraintController:
                 raise
             return
         snap = self._snapshot(items)
+        poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
+                 for it in items if hasattr(it, "block_mirrored")]
         try:
             yield
         except BaseException:
@@ -1075,6 +1085,10 @@ class ConstraintController:
         pins = self._typed_pins(items, snap) if typed else None
         if not self._solve(edited=items, typed=pins):
             self._restore(snap)
+            for it, r, mir, sc in poses:   # pose parts outside the solver vars (DD8)
+                it.set_block_rotation(r)
+                it.set_block_mirrored(mir)
+                it.set_block_scale(sc)
             for c, v in scaled:
                 c.value = v
             self._report_conflict(reassert=True)

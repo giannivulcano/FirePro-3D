@@ -14,7 +14,8 @@ def test_rows_and_options(qapp):
     ms, inst = scene_with([lt, s], s.id)
     props = inst.get_properties()
     keys = list(props)
-    assert keys.index("Linetype") == keys.index("Rotation") + 1
+    # The overrides follow the pose rows (Rotation, Mirrored, Scale -- DD8).
+    assert keys.index("Linetype") == keys.index("Scale") + 1
     assert keys.index("Weight") == keys.index("Linetype") + 1
     w = props["Weight"]
     assert w["value"] == "As Authored"

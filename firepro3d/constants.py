@@ -104,6 +104,10 @@ MODEL_BLOCKS_FACTORY_MM = 0.18
 # name -- MW-6 fallback).
 DEFAULT_LINE_WEIGHT_MM = 0.25
 
+# Block mirror / scale (design 2026-10-11 DD4): per-definition LRU cap on the
+# (mirrored, scale) variant op lists.
+BLOCK_VARIANT_CACHE_MAX = 32
+
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
 # DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic
 # béziers from PDF vector imports — overridable live via Preferences > Import &

@@ -49,10 +49,10 @@ def materialize_primitives(scene, prim_dicts) -> None:
     """
     for d in prim_dicts:
         if d.get("type") == "block_instance":
+            from .block_instance import BlockInstance
             pos = d.get("pos", [0.0, 0.0])
-            scene.place_block_instance(
-                d["block_id"], (pos[0], pos[1]), rotation=d.get("rotation", 0.0),
-                uid=d.get("uid"), overrides=d.get("overrides"))
+            scene.place_block_instance(d["block_id"], (pos[0], pos[1]),
+                                       uid=d.get("uid"), **BlockInstance.place_kwargs(d))
             continue
         cls = _PRIMITIVE_FACTORY.get(d.get("type"))
         if cls is None:

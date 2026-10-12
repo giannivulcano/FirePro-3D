@@ -661,6 +661,7 @@ class Model_View(QGraphicsView):
                     else getattr(sc, "current_template", None))
         self._block_drag = {"prev_mode": prev_mode, "prev_template": prev_tpl,
                             "prev_rot": getattr(sc, "_place_block_rot", 0.0),
+                            "prev_mirrored": getattr(sc, "_place_block_mirrored", False),
                             "payload": payload, "name": defn.name}
         sc.set_mode("place_block", template=payload["id"])
         if pool:
@@ -682,9 +683,11 @@ class Model_View(QGraphicsView):
         if st is not None and sc is not None:
             sc.set_mode(st["prev_mode"] or "select", template=st["prev_template"])
             if st["prev_mode"] == "place_block":
-                # set_mode starts a placement upright; an interrupted one keeps
-                # the rotation the user gave it (review M2).
+                # set_mode starts a placement upright and un-flipped; an
+                # interrupted one keeps the rotation (review M2) and the
+                # arrow-key flips (G7) the user gave it.
                 sc._place_block_rot = st.get("prev_rot", 0.0)
+                sc._place_block_mirrored = st.get("prev_mirrored", False)
                 sc._place_block_refresh_ghost()
 
     def _abort_block_drag(self, event, stage: str) -> None:

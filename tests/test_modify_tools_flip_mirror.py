@@ -42,7 +42,7 @@ def make_view(**kw):
 
 def _nothing_to(tool):
     past = {"flip": "flipped", "mirror": "mirrored"}[tool]
-    return f"Nothing to {tool} — only 2D drafting geometry can be {past}"
+    return f"Nothing to {tool} — only 2D drafting geometry and blocks can be {past}"
 
 
 def _axis_line(scene, x=AXIS_X):
@@ -329,7 +329,7 @@ def test_hover_paints_the_axis_and_the_reflected_ghost(qapp):
 # ── Slice-4 review hand-offs: blocks, undo restore, multi-view repaint ──────
 
 def _block(scene, at=(-150.0, -150.0)):
-    """A real placed BlockInstance (one line primitive) — no manip_reflect."""
+    """A real placed BlockInstance (one line primitive) (mirrorable since the 2026-10-11 pose)."""
     from firepro3d.block_definition import BlockDefinition
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[{"type": "draw_line", "pt1": [0, 0],
@@ -340,13 +340,7 @@ def _block(scene, at=(-150.0, -150.0)):
     return scene.place_block_instance(d.id, at)
 
 
-def _pose(item):
-    t = item.sceneTransform()
-    return tuple(round(v, 6) for v in (t.m11(), t.m12(), t.m21(), t.m22(),
-                                       t.dx(), t.dy()))
-
-
-def test_block_instance_is_skipped_with_a_status_count(qapp):
+def test_block_instance_flips_with_the_selection(qapp):
     view, scene = make_view(role="plan", scale=1.0)
     try:
         _axis_line(scene)
@@ -354,29 +348,30 @@ def test_block_instance_is_skipped_with_a_status_count(qapp):
         line, _ = add_primitive(scene, "line")
         inst.setSelected(True)                            # line + block selected
         assert inst.isSelected()
-        pose = _pose(inst)
         msgs = _capture_status(scene)
         scene._modify_ctl.start("flip")
-        assert inst.opacity() == pytest.approx(1.0)       # not "in flight"
+        assert inst.opacity() < 1.0                       # in flight like the line
         _hover_and_click(view)
         assert grips(line) == LINE_FLIPPED
-        assert _pose(inst) == pose
-        assert "Flipped 1 item(s) (1 skipped)" in msgs                    # [RED]
+        assert inst.block_mirrored() is True
+        # (-150, -150) across x = AXIS_X -> (2*AXIS_X + 150, -150)
+        assert inst.block_pos() == pytest.approx((2 * AXIS_X + 150.0, -150.0))
+        assert any("Flipped 2 item(s)" in m and "skipped" not in m for m in msgs)
     finally:
         close_view(view, scene)
 
 
 @pytest.mark.parametrize("tool", ["flip", "mirror"])
-def test_block_only_selection_is_refused(qapp, tool):
+def test_block_only_selection_is_accepted(qapp, tool):
     view, scene = make_view(role="plan", scale=1.0)
     try:
         inst = _block(scene)
         scene.clearSelection()
         inst.setSelected(True)
         msgs = _capture_status(scene)
-        assert scene._modify_ctl.start(tool) is False                     # [RED]
-        assert scene.mode in (None, "select")
-        assert _nothing_to(tool) in msgs
+        assert scene._modify_ctl.start(tool) is True                      # [RED]
+        assert scene.mode == tool               # _TOOL_MODE: "flip" / "mirror"
+        assert _nothing_to(tool) not in msgs
     finally:
         close_view(view, scene)
 
@@ -608,7 +603,7 @@ def test_node_only_plan_selection_gets_the_accurate_refusal(qapp, tool):
         assert scene._modify_ctl.start(tool) is False
         assert scene.mode in (None, "select")
         past = {"flip": "flipped", "mirror": "mirrored", "scale": "scaled"}[tool]
-        assert msgs == [f"Nothing to {tool} — only 2D drafting geometry can be {past}"]  # [RED]
+        assert msgs == [f"Nothing to {tool} — only 2D drafting geometry and blocks can be {past}"]  # [RED]
         assert not any("text and blocks" in m for m in msgs)
     finally:
         close_view(view, scene)

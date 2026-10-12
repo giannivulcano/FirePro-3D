@@ -2,7 +2,7 @@
 
 base (snap/ALIGN) -> reference point (= 1x; == base refused) -> the cursor sets
 the new distance (live ghost) -> click; or type Factor after the base. Uniform,
-in place; text / blocks skipped; factor <= 0 refused; one undo; Esc no-op.
+in place; text skipped, blocks scale; factor <= 0 refused; one undo; Esc no-op.
 Ground truth: grips / painted outlines vs CAD_Math.scale_point, viewport
 pixels for the ghost, the undo stack.
 """
@@ -25,7 +25,7 @@ from tests.test_manip_reflect_scale import _assert_same_outline, _dense
 
 GEOM = [n for n in PRIMITIVES if not n.startswith("text")]
 LINE0 = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]
-NOTHING_TO_SCALE = "Nothing to scale — only 2D drafting geometry can be scaled"
+NOTHING_TO_SCALE = "Nothing to scale — only 2D drafting geometry and blocks can be scaled"
 
 
 def make_view(**kw):
@@ -270,7 +270,7 @@ def test_base_point_uses_cursor_snap(qapp):
 
 
 def _block(scene, at=(-150.0, -150.0)):
-    """A real placed BlockInstance (one line primitive) — no manip_scale_about."""
+    """A real placed BlockInstance (one line primitive) (scalable since the 2026-10-11 pose)."""
     from firepro3d.block_definition import BlockDefinition
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[{"type": "draw_line", "pt1": [0, 0],
@@ -281,42 +281,35 @@ def _block(scene, at=(-150.0, -150.0)):
     return scene.place_block_instance(d.id, at)
 
 
-def _pose(item):
-    t = item.sceneTransform()
-    return tuple(round(v, 6) for v in (t.m11(), t.m12(), t.m21(), t.m22(),
-                                       t.dx(), t.dy()))
-
-
-def test_block_instance_is_skipped_with_a_status_count(qapp):
+def test_block_instance_scales_with_the_selection(qapp):
     view, scene = make_view(role="plan", scale=1.0)
     try:
         inst = _block(scene)
         line, _ = add_primitive(scene, "line")
         inst.setSelected(True)                            # line + block selected
         assert inst.isSelected()
-        pose = _pose(inst)
         msgs = _capture_status(scene)
         scene._modify_ctl.start("scale")
-        assert inst.opacity() == pytest.approx(1.0)       # not "in flight"
+        assert inst.opacity() < 1.0                       # in flight like the line
         click(view, QPointF(0, 0))
         _type_factor(scene, "2")
         assert grips(line) == [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
-        assert _pose(inst) == pose
-        assert "Scaled 1 item(s) by 2 (1 skipped)" in msgs                # [RED]
+        assert inst.block_scale() == pytest.approx(2.0)
+        assert any("Scaled 2 item(s) by 2" in m and "skipped" not in m for m in msgs)
     finally:
         close_view(view, scene)
 
 
-def test_block_only_selection_is_refused(qapp):
+def test_block_only_selection_is_accepted(qapp):
     view, scene = make_view(role="plan", scale=1.0)
     try:
         inst = _block(scene)
         scene.clearSelection()
         inst.setSelected(True)
         msgs = _capture_status(scene)
-        assert scene._modify_ctl.start("scale") is False                  # [RED]
-        assert scene.mode in (None, "select")
-        assert NOTHING_TO_SCALE in msgs
+        assert scene._modify_ctl.start("scale") is True                   # [RED]
+        assert scene.mode == "scale"            # _TOOL_MODE["scale"]
+        assert NOTHING_TO_SCALE not in msgs
     finally:
         close_view(view, scene)
 

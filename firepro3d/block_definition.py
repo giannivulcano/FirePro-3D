@@ -10,9 +10,13 @@ from __future__ import annotations
 import copy
 import math
 import uuid
+from collections import OrderedDict
 
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QPainterPath, QPen
+
+from .block_pose import pose_matrix, valid_scale
+from .constants import BLOCK_VARIANT_CACHE_MAX
 
 from .geometry_2d import (
     LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
@@ -56,9 +60,11 @@ _COMPILING: set[str] = set()        # re-entrancy guard (corrupt cyclic data)
 
 
 def _nested_pose(rec: dict):
-    """QTransform for a nested record: translate(pos) then rotate(-rot) (Y-up CCW).
+    """QTransform for a nested record's full pose (block_pose.pose_matrix).
 
-    Matches ``BlockInstance.pose_transform`` (D2).
+    Matches ``BlockInstance.full_pose_transform`` (design DD2). A corrupt
+    ``"scale"`` reads as 1.0 (``block_pose.valid_scale``), the same rule as
+    the instance record readers, so host and Block Editor seed agree.
 
     Args:
         rec: A ``block_instance`` primitive record.
@@ -66,12 +72,10 @@ def _nested_pose(rec: dict):
     Returns:
         The record's definition-local pose ``QTransform``.
     """
-    from PyQt6.QtGui import QTransform
     x, y = rec.get("pos", [0.0, 0.0])
-    t = QTransform()
-    t.translate(float(x), float(y))
-    t.rotate(-float(rec.get("rotation", 0.0)))
-    return t
+    return pose_matrix(float(x), float(y), float(rec.get("rotation", 0.0)),
+                       bool(rec.get("mirrored", False)),
+                       valid_scale(rec.get("scale", 1.0)))
 
 
 def _placeholder_op(t) -> RenderOp:
@@ -292,6 +296,7 @@ class BlockDefinition:
         #                 interactive. See docs/specs/reference-graphic-model.md.
         self.render_mode = render_mode or "default"
         self._render_ops: list[RenderOp] | None = None
+        self._variants: tuple | None = None   # (base ops list, OrderedDict) -- DD4
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
         self._text_snap_pts: list[list[QPointF]] | None = None
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
@@ -348,6 +353,7 @@ class BlockDefinition:
         self.primitives = list(primitives)
         self.version += 1
         self._render_ops = None
+        self._variants = None
         self._text_snap_pts = None
         for inst in list(self._instances):
             inst.on_definition_changed()
@@ -363,8 +369,10 @@ class BlockDefinition:
         self.invalidate_cache()
 
     def invalidate_cache(self) -> None:
-        """Drop the compiled render ops + text snap points (next read recompiles)."""
+        """Drop the compiled render ops, their variants + text snap points
+        (next read recompiles)."""
         self._render_ops = None
+        self._variants = None
         self._text_snap_pts = None
 
     @property
@@ -460,6 +468,41 @@ class BlockDefinition:
             self._render_ops = self._compile()
         return self._render_ops
 
+    def render_ops_variant(self, mirrored: bool, scale: float) -> list[RenderOp]:
+        """The compiled ops under a mirror / uniform scale (design DD4).
+
+        Identity (on the rounded key) returns ``render_ops()`` itself. Otherwise one list per
+        ``(mirrored, scale to 9 significant digits)`` -- relative, so a tiny
+        scale never rounds to 0 -- shared by every instance with that
+        pose part (flyweight per variant), LRU-capped at
+        ``BLOCK_VARIANT_CACHE_MAX`` and dropped whenever the base list is
+        recompiled (keyed on its identity).
+
+        Args:
+            mirrored: Reflect across the definition's local y axis (x -> -x).
+            scale: Uniform scale factor.
+
+        Returns:
+            The shared variant ``RenderOp`` list (never mutate it).
+        """
+        base = self.render_ops()
+        key = (bool(mirrored), float(f"{float(scale):.9g}"))
+        if key == (False, 1.0):
+            return base
+        c = self._variants
+        if c is None or c[0] is not base:
+            c = self._variants = (base, OrderedDict())
+        hit = c[1].get(key)
+        if hit is not None:
+            c[1].move_to_end(key)
+            return hit
+        t = pose_matrix(0.0, 0.0, 0.0, key[0], key[1])
+        out = [op.mapped(t) for op in base]
+        c[1][key] = out
+        while len(c[1]) > BLOCK_VARIANT_CACHE_MAX:
+            c[1].popitem(last=False)
+        return out
+
     def text_snap_points(self) -> list[list[QPointF]]:
         """Origin-relative 9-point frame boxes of every text primitive.
 
@@ -531,7 +574,10 @@ class BlockDefinition:
             path = item.mapToParent(_local_path(item))   # honor prim pos/rotation
             path.translate(-ox, -oy)                       # origin-relative
             if hasattr(item, "render_outline_path"):
-                ops.append(RenderOp(TEXT, path, colour=item.data.color))
+                c = item.grip_points()[8]                # box centre (MOVE_GRIP_INDEX)
+                ops.append(RenderOp(TEXT, path, colour=item.data.color,
+                                    text_frame=(c.x() - ox, c.y() - oy,
+                                                float(item._angle))))
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
             st = getattr(item, "style", None)
