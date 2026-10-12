@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; Trim/Extend/Break/Fillet/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
-last-verified: 2026-10-10  # placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
-verified-commit: e0ed656b   # placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-10-12  # block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: fb928260   # block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -257,8 +257,9 @@ Per-item protocol available on **every** 2D primitive: `to_dict`/`from_dict`,
 `manip_handles`. No primitive has an `offset`, `mirror` or `scale` method;
 `manip_scale` exists on `TextItem` only. *(P1 batch: the eight
 `geometry_2d.py` primitive classes — ReferenceLine inherits Line's — now carry
-`manip_reflect(p1, p2)` and `manip_scale_about(base, f)`; Text and block
-instances do not.)*
+`manip_reflect(p1, p2)` and `manip_scale_about(base, f)`; Text does not.
+Block instances carry their own since 2026-10-12 — `block-system.md`
+"Instance pose: mirror & scale".)*
 
 Legend: **S** supported · **P** partial · **M** missing (silently skipped
 unless noted) · **X** suspect (runs, wrong result) · **C** crashes ·
@@ -697,8 +698,11 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
   place; Mirror adds reflected copies. Modify-group buttons (D1).
   1. *Gate:* select-first (D3); with no selected item carrying
      `manip_reflect` → status `nothing_to_hint` ("Nothing to flip — only 2D
-     drafting geometry can be flipped"), no mode change. One shared helper
-     for Flip, Mirror and Scale.
+     drafting geometry and blocks can be flipped"), no mode change. One shared helper
+     for Flip, Mirror and Scale. **Flip refuses a fully defined block
+     instance** at entry (`Model_Space.set_mode`) and again at commit
+     (`commit_reflect`) — `parametric-constraint-system.md` D45 (2026-10-12
+     ruling); grounded primitives still flip and re-solve.
   2. *Axis step* ("Pick mirror axis"): cursor SNAP and ALIGN are **off** —
      no snap glyph (`snapping-engine.md` §3 forbids contextual snap-by-tool;
      the picker is not a snap). Each move → `axis_picker.pick_axis(scene,
@@ -732,9 +736,10 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
      kept; rect angle folded into [0°, 180°); arc start / span; degenerate
      axis = no-op via `geometry_2d._degenerate_axis`, the one threshold the
      picker and the axis paint share) are owned by `2d-geometry.md` §1.2.
-  7. *Skipped by capability:* Text, block instances (a persisted mirror flag
-     is a follow-up), Nodes / Sprinklers, pipes, walls, gridlines — anything
-     without `manip_reflect`.
+  7. *Skipped by capability:* Text, Nodes / Sprinklers, pipes, walls,
+     gridlines — anything without `manip_reflect`. **Block instances are
+     supported since 2026-10-12** (persisted mirror pose; Mirror's copies are
+     posed) — contract in `block-system.md` "Instance pose: mirror & scale".
 - **D17 Scale (Shift+S).** Uniform, in place, about a picked base.
   1. *Gate:* as D16 with `manip_scale_about` ("Nothing to scale — …").
   2. *Steps:* base (SNAP + ALIGN on) → reference point (= 1×; refused with
@@ -755,7 +760,9 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
   5. *Accepted limitation:* the per-primitive radius floors
      (`2d-geometry.md` §1.2) make a very small factor non-uniform for
      Circle / Arc / Ellipse; the tool does not refuse it (follow-up filed).
-  6. *Skipped by capability:* as D16 (Text, block instances, Nodes, …).
+  6. *Skipped by capability:* as D16 (Text, Nodes, …). Block instances are
+     supported since 2026-10-12 (uniform pose scale about the base) —
+     `block-system.md` "Instance pose: mirror & scale".
 - **D18 Mode badge.** The footer badge shows the friendly tool name for every
   mode a user can enter (`main.py` `_MODE_LABELS`): the dispatch-table modes,
   literal `set_mode` callers (incl. `dimension`), `offset_side` → Offset,

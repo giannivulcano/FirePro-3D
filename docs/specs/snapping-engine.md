@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-03  # CS4 Account: §3.3 pick modes (Flip/Mirror, constrain_*) take no cursor snap; prior CS1 Account: origin snap source = the fixed (0,0) cross only (Block Editor red insertion marker + block_origin_marker tag retired, D4); prior 2026-10-01 scene-tools P1 batch Account: one eligibility rule (is_snap_target), origin snap kind, periodic-spline endpoints; prior 2026-09-30 (blockquote impl notes below)
-verified-commit: 8c36a10   # feat/cs4-smart-dimension; prior 2a22ba9 feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 345f1b7
+last-verified: 2026-10-12  # block mirror/scale Account (pointer only: §5 BlockInstance row reads the posed render_ops() + full_pose_transform() text boxes); prior CS4 Account: §3.3 pick modes (Flip/Mirror, constrain_*) take no cursor snap; prior CS1 Account: origin snap source = the fixed (0,0) cross only (Block Editor red insertion marker + block_origin_marker tag retired, D4); prior 2026-10-01 scene-tools P1 batch Account: one eligibility rule (is_snap_target), origin snap kind, periodic-spline endpoints; prior 2026-09-30 (blockquote impl notes below)
+verified-commit: fb928260   # feat/block-instance-mirror-scale (pointer only); prior 8c36a10 feat/cs4-smart-dimension; prior 2a22ba9 feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 345f1b7
 applies-to:
   - firepro3d/snap_engine.py
   - firepro3d/model_view.py
@@ -179,7 +179,7 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 | `SplineItem` | ✓¹¹ (control points) | N/A | ✓⁹ (phase 4) | N/A | N/A | ✓¹⁰ | N/A | ✓¹⁰ |
 | Generic `QGraphicsPathItem` (DXF) | ✓ (vertices) | ✓ (segment mids) | ✓ (phase 4) | N/A | N/A | ✓¹⁰ | N/A | ✓⁸ ¹⁰ |
 | `TextItem` | ✓ (frame-box corners) | ✓ (frame-box edge mids) | N/A | ✓ (frame-box centre) | N/A | N/A | N/A | N/A |
-| `BlockInstance` | ✓ (stroked on-curve vertices + text frame-box corners — nested blocks' included, read from the definition's flattened ops) | ✓ (text frame-box edge mids) | N/A | ✓ (insertion origin + text frame-box centres; a nested block's own insertion point is not a snap) | N/A | N/A | N/A | N/A |
+| `BlockInstance` | ✓ (stroked on-curve vertices + text frame-box corners — nested blocks' included, read from the instance's posed `render_ops()` (mirror / scale variant, `block-system.md` "Instance pose"); text boxes mapped through `full_pose_transform()`) | ✓ (text frame-box edge mids) | N/A | ✓ (insertion origin + text frame-box centres; a nested block's own insertion point is not a snap) | N/A | N/A | N/A | N/A |
 
 **Notes:**
 1. ~~**Nearest is unreachable when perpendicular is on.**~~ **Fixed 2026-04-08** (roadmap item 5). `_geometric_snaps` now emits `perpendicular` and `nearest` as independent candidates; the picker's priority band resolves the winner. Since 2026-09-25 `perpendicular` is emitted only as perpendicular-from (§4), so without a start point `nearest` is the sole foot candidate. Regression test: `tests/test_snap_nearest_perpendicular_decoupling.py`.

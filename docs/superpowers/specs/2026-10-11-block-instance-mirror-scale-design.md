@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-11, unbuilt; durable contract lands in block-system.md "Instance pose: mirror & scale" at Account
-last-verified: 2026-10-11
-verified-commit: a6caccfd
+status: current           # BUILT 2026-10-12 (merged fb928260); archival "how" — the durable contract is block-system.md "Instance pose: mirror & scale (2026-10-12)"; drift reconciled in "As-built amendments (2026-10-12)"
+last-verified: 2026-10-12  # block mirror/scale Account: status → current; "As-built amendments (2026-10-12)" added (body left archival); prior 2026-10-11 design
+verified-commit: fb928260  # merge of feat/block-instance-mirror-scale; prior a6caccfd design base
 applies-to:
   - firepro3d/block_pose.py            # NEW — pure pose math (one home for the rules)
   - firepro3d/block_instance.py        # pose fields, hooks, posed_ops, records, panel rows
@@ -21,6 +21,35 @@ source-tasks:
 ---
 
 # Block instance Mirror & Scale — Design Spec
+
+## As-built amendments (2026-10-12)
+
+The body below is the archival design; where it and the code disagree, these win (code at
+`fb928260`). Durable contract: `block-system.md` "Instance pose: mirror & scale (2026-10-12)".
+
+- **Rollback pose snapshot** lives in `ConstraintController.edit` (restores rotation / mirrored /
+  scale on a rolled-back edit), not `sketch_adapters._InsAdapter` (DD8).
+- **No `posed_ops()`** — `BlockInstance.render_ops()` reads `render_ops_variant` (then the WM2
+  override); paint, bounds and the snap collector read it (DD4).
+- **`upright_angle` → `block_pose.is_upright(angle)`** (a predicate; (−90°, 90°] with float slack)
+  (DD6, DD9).
+- **Variant key** is the scale to 9 significant digits (`f"{scale:.9g}"`), not `round(scale, 9)`
+  — relative, so a tiny scale never rounds to 0 (DD4, Edge Cases).
+- **`path_walk` signed sweep** was generalized after the P4 probe (user ruling): `point_at` /
+  `split` / `tangent_at` honour a negative sweep; the DD5 fallback (canonicalise + reverse) was not
+  used.
+- **Explode child pose** is composed in closed form (`block_explode._compose`: position from the
+  full matrix; rotation / mirror / scale exact), not via `decompose_pose` (which ships with no
+  production caller) (DD9).
+- **D45:** Flip refuses a fully defined **block** instance at entry (`Model_Space.set_mode`) and
+  at commit (`commit_reflect`) via `modify_tools_controller.flip_refusal_targets` (user rulings
+  2026-10-12) — overrides DD8's "no new tool code". `ModifyToolsController.start` returns False
+  when `set_mode` refused.
+- **Perf guard** uses a relative bar (posed vs unposed paint), not the absolute block-paint budget.
+- **`block_pose.valid_scale` / `check_scale`** are the one scale validator (lenient record reader /
+  strict setter + tool check).
+- **G9 is absorbed:** `place_kwargs` fixed the Paste / Duplicate / Array Level Offset drop, and
+  every instance panel row is one undo step.
 
 ## Goal
 

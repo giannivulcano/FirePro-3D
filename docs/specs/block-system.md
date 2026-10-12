@@ -1,7 +1,7 @@
 ---
-status: partial           # + library disk scan, index.json retired (2026-10-10); + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring deferred; paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
-last-verified: 2026-10-10  # placement batch Account: Decision 8 amended (Paste-style prototype ghost, Space / Shift+Space rotation, focus hand-off), HUD line + drag paragraph pointers; prior disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: e0ed656b   # placement batch Account (feat/block-placement-paste-ghost); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+status: partial           # + instance mirror & uniform scale pose (2026-10-12); + library disk scan, index.json retired (2026-10-10); + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring deferred; paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
+last-verified: 2026-10-12  # block mirror/scale Account: new "Instance pose: mirror & scale (2026-10-12)" section (the one home: P = T·R·S·M, variant op cache, reflect/scale hooks, sparse records + place_kwargs, readable text, Explode closed form, placement arrow flips, Mirrored / Scale rows, decisions + known gaps); Decision 8 arrow-flip note closed; Decision 9 "no rescale/mirror" retired; flyweight-core / property-row / I-O record shapes reconciled; applies-to + block_pose.py; prior placement batch Account: Decision 8 amended (Paste-style prototype ghost, Space / Shift+Space rotation, focus hand-off), HUD line + drag paragraph pointers; prior disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: fb928260   # block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
@@ -19,7 +19,8 @@ applies-to:
   - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
   - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
   - firepro3d/block_registry.py     # nested blocks — BlockRegistry (resolution / dependency / cycle / invalidation choke point)
-  - firepro3d/block_explode.py      # nested blocks — explode_instances (Block-Editor-only, C1)
+  - firepro3d/block_explode.py      # nested blocks — explode_instances (Block-Editor-only, C1); full-pose compose since 2026-10-12
+  - firepro3d/block_pose.py         # 2026-10-12 — pure instance-pose math (pose_matrix / reflect_pose / decompose_pose / is_upright / valid_scale / check_scale)
   - firepro3d/mime_types.py         # nested blocks — one home for in-app drag MIME types (MIME_BLOCK)
   - firepro3d/model_view.py         # nested blocks — block drop target (plan + Block Editor views) + fit_scene_rect
 source-tasks:
@@ -125,7 +126,9 @@ attributes/schedules, paper-space/elevation hosting, and the Feature **projectio
 - **`BlockInstance`** is a **single lightweight `QGraphicsItem`** (no child items). It holds its
   definition's `id`, resolves the definition from the scene registry, and in `paint()` applies its
   `(pos, rotation)` transform and strokes the **shared** render-ops. `boundingRect()`/`shape()`
-  derive from the shared path bounds under the transform.
+  derive from the shared path bounds under the transform. *(Since 2026-10-12 a mirrored / scaled
+  instance strokes a shared per-`(mirrored, scale)` variant list instead — still one list per
+  variant, never per instance; see "Instance pose: mirror & scale" below.)*
 - **Constraint (perf gate):** N instances of one definition share one geometry object; there are
   **no per-instance geometry copies**. Editing a definition rebuilds its cached render-ops and calls
   `update()` on every instance → all repaint. This is the "edit def → all instances update"
@@ -181,10 +184,100 @@ level does this block show on?" is an **instance** question, so level scope live
   (heir of the loose-2D band, above all building geometry). Level rename remaps instances too.
 - **Property rows:** the instance exposes **Level**, **Level Offset**, and **Rotation** rows via
   `get_properties()`/`set_property()` (Level Offset as a `ScaleManager`-formatted dimension; Rotation
-  as a numeric line-edit matching the `RegularPolygonItem`/`EllipseItem` convention).
+  as a numeric line-edit matching the `RegularPolygonItem`/`EllipseItem` convention), then
+  **Mirrored** / **Scale** (2026-10-12 — "Instance pose: mirror & scale") and the placement
+  **Linetype** / **Weight** rows (WM2 — `linetypes.md`).
 - **Serialization (both paths):** level + offset round-trip through **both** the `.fpd` file path
   (`scene_io`) **and** the undo path (`_capture_network`/`_restore_network`) — `to_dict()` always
   emits `level` and emits `level_offset_mm` only when non-zero.
+
+### Instance pose: mirror & scale (2026-10-12)
+
+The one home for the placed-instance mirror / uniform-scale contract (built on
+`feat/block-instance-mirror-scale`, `fb928260`). The HOW, rejected alternatives and as-built
+amendments live in
+[`2026-10-11-block-instance-mirror-scale-design.md`](../superpowers/specs/2026-10-11-block-instance-mirror-scale-design.md).
+Tool behaviour stays in `scene-tools.md` D16 / D17, the grounded-Flip refusal in
+`parametric-constraint-system.md` D45, and `map_piece` / end maths in `linetypes.md` (Rule A).
+
+- **Pose.** `(x, y, rot, mirrored, scale)`; local → scene `P = T(x, y)·R(rot)·S(scale)·M^mirrored`,
+  `M` = local x → −x (innermost), scale uniform and > 0, `rot` Y-up CCW degrees. `block_pose.py`
+  owns the maths: `pose_matrix` (the one builder — `BlockInstance.full_pose_transform()` and the
+  nested record's `block_definition._nested_pose` both call it), `reflect_pose`, `is_upright`,
+  `norm_deg`, `valid_scale` (lenient record reader) / `check_scale` (strict setter / tool check) —
+  the one scale validator — and `decompose_pose` (the inverse; no production caller, Explode uses
+  the closed form below). Accessors: `block_mirrored()` / `set_block_mirrored()`,
+  `block_scale()` / `set_block_scale()` (raises `ValueError` unless finite and > 0).
+- **Rigid painter, variant ops.** `BlockInstance.pose_transform()` stays rigid `T·R`; mirror and
+  scale are baked into op lists by `BlockDefinition.render_ops_variant(mirrored, scale)`
+  (`op.mapped(S·M)` per op), cached on the definition: **one list per `(mirrored, scale)` variant,
+  shared by every instance with that pair** (the flyweight, per variant). Key = the scale to 9
+  significant digits (`.9g` — relative, so a tiny scale never rounds to 0); identity on the
+  rounded key returns `render_ops()` itself (an unposed instance takes the pre-pose path); LRU cap
+  `BLOCK_VARIANT_CACHE_MAX` (`constants.py`); dropped with the base list. `BlockInstance.render_ops()`
+  reads the variant, then applies the WM2 override; paint, bounds / shape / HALO and the snap
+  collector all read it. `RenderOp.mapped` takes any similarity: pieces through
+  `path_walk.map_piece`, open-stroke ends' `mirrored` toggled → `linetypes.md` H3-a / LT5.
+- **Hooks.** `manip_reflect(p1, p2)`: a degenerate axis is a no-op; the insertion point is
+  mirrored and `(rot, mirrored) ← reflect_pose(rot, mirrored, θ)` = `(norm(2θ + 180° − rot), not
+  mirrored)`, θ = the axis' Y-up heading. `manip_scale_about(base, f)`: the insertion point scales
+  about `base`, `scale ×= f` (`check_scale`). `manip_rotate` is unchanged (rotation commutes past
+  the innermost uniform `S·M`). The scale hook is **never** named `manip_scale` — that name
+  enables manipulator resize handles (`selection-manipulator.md`).
+- **Records.** Sparse keys `"mirrored": true` (only when true) and `"scale": <f>` (only when ≠ 1)
+  in the `.fpd` instance dict (`to_dict`) and the nested record (`to_nested_dict`, so `.fpdb`
+  bundles too); shapes in "Input / Output". Absent = identity; a corrupt scale (non-numeric,
+  non-finite or ≤ 0) loads as 1.0 (instances: `_record_scale`, with a warning; nested compile:
+  `valid_scale`). **`BlockInstance.place_kwargs(rec, default_level=)` is the single
+  field-carrying rebuild choke point** (rotation, mirrored, scale, level, level_offset_mm,
+  overrides; the uid stays the caller's): `.fpd` load (`scene_io`), undo restore
+  (`_restore_network`), `paste_items` (Paste / Duplicate / Array / copy-to-level), Block Editor
+  seeding (`schematic_scene.materialize_primitives`) and the `_add_from_dict` `block_instance`
+  branch (Mirror's copies, fresh uid). `place_block_instance` takes `mirrored` / `scale` /
+  `level_offset_mm`. Identity sites: the browser drop and `commit_block_definition`'s instance.
+- **Readable text.** Compiled TEXT ops carry `text_frame = (cx, cy, baseline angle)` (box centre,
+  definition-local). A reflecting `mapped` un-mirrors the glyphs about the text's own box
+  vertical (the box lands on its mirrored spot, justification kept) and sets `readable`; at paint
+  `BlockInstance._text_path` turns a `readable` op 180° about its box centre when frame angle +
+  instance rotation is not upright (`is_upright`: (−90°, 90°]). **A mirror alone never makes
+  text upside down or backwards.** Un-mirrored text is never flagged (a plain block rotated 180°
+  still reads upside down, as before). Bounds / shape / HALO use the turned path.
+- **Scale scope.** Scale enlarges geometry and text height only; lineweights, dash lengths, hatch
+  pattern spacing (and scene angle) and end-glyph sizes stay as styled (resolved at paint).
+  **Explode parity:** a posed instance looks like its exploded primitives Flipped / Scaled the same
+  way (exemption: dash phase along a reflected arc / ellipse — design DD10).
+- **Explode.** Primitives: translate by pos − origin, then about the insertion point reflect
+  across its vertical (when mirrored), `manip_scale_about`, `manip_rotate` — the order of `P`.
+  Text: height, wrap width, box height and cell padding × scale on the record (border weight
+  not), then `_pose_text` seats it on the mapped box centre at the readable angle. Nested
+  children: position from the composed full matrix; rotation / mirror / scale **in closed form**
+  (`block_explode._compose`: a mirrored host negates the child's rotation before adding its own
+  and toggles the child's mirror; scales multiply).
+- **Placement flips.** In `place_block`, ←/→ mirrors left↔right across the screen-vertical line
+  through the block origin and ↑/↓ top↔bottom across the screen-horizontal one
+  (`Model_Space.flip_place_block`: `reflect_pose` with θ = 90° / 0°) — **screen axes**, so a flip
+  reads the same after Space rotation; each press toggles; no modifier (keypad masked), not in
+  input mode, **auto-repeat ignored**. The flip persists across repeat placements, resets on mode
+  entry and survives an interrupting Blocks-browser drag (saved / restored with the rotation); a
+  drop itself places at 0° unmirrored. The status hint lists "←→ / ↑↓ = flip".
+- **Panel rows.** **Mirrored** (bool) and **Scale** (`dimension` row in the FACTOR grammar —
+  `ScaleManager.format_factor` / `parse_factor`, strictly > 0; refused input leaves it unchanged)
+  follow Rotation. **Every instance row — Level, Level Offset, Rotation, Mirrored, Scale — is one
+  undo step** (`set_property` requests one coalesced push when its state changed; a no-op commit
+  pushes none).
+- **Decisions (this build).** (a) Panel Mirrored / Scale are allowed on a grounded (fully
+  defined) instance: the panel is the typed seam and the insertion point doesn't move — the
+  refusal belongs to the tools (Move / Rotate / Scale, and Flip for blocks — D45). (b) They are not locked in pattern-tile /
+  linetype-unit Block Editors (geometry, not style — unlike Linetype / Weight, WM2 Q12). (c) Panel
+  Scale scales about the instance's own insertion point, so it does **not** pass `scale=` (D54)
+  to `constraint_ctl.edit`, unlike the Scale tool. (d) A rolled-back constraint edit restores the
+  pose parts outside the solver (rotation, mirrored, scale) — `ConstraintController.edit`.
+- **Known gaps (each filed in `todo_open.md`).** The readable-text upright turn is not applied in
+  the hatch-tile / end-glyph paths; reference-mode (imported) text reads backwards under a mirror;
+  hatch phase differs after Explode.
+
+Guards: `tests/test_block_pose.py`, `tests/test_block_mirror_scale*.py`,
+`tests/test_mirror_scale_path_walk.py`, `tests/test_mirror_scale_render_op.py`.
 
 ### Reuse (link, don't reinvent)
 
@@ -198,7 +291,7 @@ level does this block show on?" is an **instance** question, so level scope live
   two-token themed icon authoring + guard tests (not restated here).
 - **Placement/mode:** the existing placement-coordinator seam (grid-system placement conventions).
   Since 2026-09-30 `place_block` offers **no Dynamic-Input HUD** (Decision 8; one click,
-  Space / Shift+Space rotate since 2026-10-10).
+  Space / Shift+Space rotate since 2026-10-10, ←/→ ↑/↓ flip since 2026-10-12).
 
 ## Design Decisions
 
@@ -257,11 +350,15 @@ level does this block show on?" is an **instance** question, so level scope live
    Blocks-browser drag. Each click places at the current rotation; still no HUD, still armed until
    Esc. A Blocks-browser double-click hands keyboard focus to the current tab's own canvas view so
    Space / Esc reach it before the first click. The trace is static if the definition changes
-   mid-placement (refreshes on Space / re-entry). Arrow-key flips wait for the instance mirror
-   pose (todo "Flip / Mirror / Scale for block instances").
+   mid-placement (refreshes on Space / re-entry). **Arrow-key flips shipped 2026-10-12** (←/→
+   ↑/↓, screen axes) — contract in "Instance pose: mirror & scale" below.
 9. **`scale_mode` enum in schema, `Real-size` the only v1 value** (`Annotative` reserved for v2 with
-   paper-space). Instances render at the definition's real size; **no rescale/mirror in plan views**
-   (that is Editor-only, v2). **Attributes structure reserved in schema, no UI in v1.**
+   paper-space). Instances render at the definition's real size. ~~No rescale/mirror in plan
+   views~~ — **retired 2026-10-12:** a placed instance carries a mirror flag and a uniform scale on
+   its own pose (plan and Block Editor alike) — see "Instance pose: mirror & scale" below.
+   `scale_mode` (Real-size / Annotative) is unchanged and distinct: it is a definition-level
+   sizing mode, not the instance pose scale. **Attributes structure reserved in schema, no UI in
+   v1.**
 10. **v1 definitions are geometry-immutable** (no Editor yet). **The Manager is view-only**
     (2026-09-05): its details panel shows name/library/series read-only; the Manager's verbs are
     Load-from-Library / Save-to-Library / Reload / Delete / place. **All metadata editing
@@ -318,7 +415,9 @@ record — the placed-instance shape minus level fields (containment C3):
 
 ```jsonc
 { "type": "block_instance", "block_id": "<nested id>", "pos": [x_mm, y_mm], "rotation": <deg>,
-  "uid": "<primitive uid>" }
+  "uid": "<primitive uid>",
+  "mirrored": true,                 // 2026-10-12: written only when true
+  "scale": <f> }                    // 2026-10-12: written only when != 1
 ```
 
 `pos` is definition-local (before the host's origin shift); `rotation` is Y-up CCW degrees (the
@@ -361,7 +460,9 @@ nested records ride inside each embedded definition's `primitives`.
   "block_definitions": { "<id>": { /* schema above, sans file wrapper */ } },
   "blocks": [                       // instances
     { "block_id": "<id>", "pos": [x_mm, y_mm], "rotation": <deg>,
-      "level": "Level 1", "attributes": {} }
+      "level": "Level 1", "attributes": {},
+      "mirrored": true,             // 2026-10-12: written only when true
+      "scale": <f> }                // 2026-10-12: written only when != 1
   ]
 }
 ```
