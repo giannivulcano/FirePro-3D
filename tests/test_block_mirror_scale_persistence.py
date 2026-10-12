@@ -172,7 +172,6 @@ def _call_text(src, start):
     raise AssertionError("unbalanced call")
 
 
-@pytest.mark.xfail(strict=True, reason="Task 11 converts block_explode")
 def test_every_place_block_instance_site_carries_the_pose():
     """Structural tripwire (not an AC guard): a rebuild site that passes
     fields one by one drops the next new field silently."""
@@ -187,8 +186,14 @@ def test_every_place_block_instance_site_carries_the_pose():
             if src[m.start() - 4:m.start()] == "def ":
                 continue
             call = _call_text(src, m.start())
-            ok = "place_kwargs" in call or "_compose" in call or any(
-                f.name == n and k in call for n, k in identity_sites)
+            if f.name == "block_explode.py":
+                # DD9: the nested child splats _compose's decomposed pose
+                # (``**kw``) -- never rotation / mirrored / scale one by one.
+                ok = bool(re.search(r"\*\*\w+", call)) and not re.search(
+                    r"\b(rotation|mirrored|scale)\s*=", call)
+            else:
+                ok = "place_kwargs" in call or any(
+                    f.name == n and k in call for n, k in identity_sites)
             if not ok:
                 bad.append(f.name)
     assert not bad, f"place_block_instance calls without place_kwargs: {bad}"

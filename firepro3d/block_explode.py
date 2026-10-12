@@ -1,16 +1,21 @@
 """Explode block instances into editable geometry (nested-blocks D9).
 
 Block-Editor-only by contract C1 (Model Space holds no loose geometry).
+The full pose ``P = T . R . S . M`` (design DD2) is reproduced on every
+exploded item (design DD9); see ``block_pose``.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QTransform
 
-from .block_definition import is_scaffold
+from .block_definition import _nested_pose, is_scaffold
+from .block_pose import decompose_pose, is_upright
 from .stroke_style import compose_overrides
 
 _NESTED_TYPE = "block_instance"
+_TEXT_TYPE = "text"
 
 
 def can_explode(inst) -> bool:
@@ -41,16 +46,79 @@ def has_nested(instances) -> bool:
 
 
 def _compose(inst, rec, ox, oy):
-    """Scene pose of a nested record inside a placed instance.
+    """Scene pose of a nested record inside a placed instance (design DD9).
 
-    Mirrors the compile (``BlockDefinition._nested_ops``): the record's
-    definition-local position is shifted by the definition origin, then
-    mapped through the instance pose; rotations add (both Y-up CCW).
+    Full matrices, as the compile does (``BlockDefinition._nested_ops``):
+    the record pose, then the definition-origin shift, then the instance's
+    full pose -- decomposed back into (pos, rotation, mirrored, scale).
+
+    Args:
+        inst: The placed host ``BlockInstance``.
+        rec: The nested ``block_instance`` record.
+        ox: Host definition origin x.
+        oy: Host definition origin y.
+
+    Returns:
+        ``(pos, kwargs)`` for ``Model_Space.place_block_instance``.
     """
-    t = inst.pose_transform()
-    x, y = rec.get("pos", [0.0, 0.0])
-    p = t.map(QPointF(float(x) - ox, float(y) - oy))
-    return (p.x(), p.y()), inst.block_rotation() + float(rec.get("rotation", 0.0))
+    t = (_nested_pose(rec) * QTransform.fromTranslate(-ox, -oy)
+         * inst.full_pose_transform())
+    x, y, rot, mirrored, scale = decompose_pose(t)
+    return (x, y), {"rotation": rot, "mirrored": mirrored, "scale": scale}
+
+
+def _text_centre(rec) -> QPointF:
+    """Definition-local box centre of a text record (the compile's
+    ``text_frame`` centre: ``grip_points()[8]`` of the un-posed item)."""
+    from .text_item import TextItem
+    return TextItem.from_dict(rec).grip_points()[8]
+
+
+def _scaled_text_record(rec, s: float) -> dict:
+    """*rec* with its size fields x *s* (design DD9): cap height, wrap
+    width, box height and cell padding; 0 (auto) stays 0; the border weight
+    is a line weight and does not scale. Defaults resolve through the one
+    record reader so an absent key scales too."""
+    from .text_item import TextAnnotationData
+    data = TextAnnotationData.from_dict(rec)
+    return {**rec, "height_mm": data.height_mm * s,
+            "wrap_width_mm": data.wrap_width_mm * s,
+            "box_height_mm": data.box_height_mm * s,
+            "cell_padding_mm": data.cell_padding_mm * s}
+
+
+def _pose_text(item, inst, c_def, ox, oy) -> None:
+    """Seat an exploded ``TextItem`` on the instance's full pose (design DD9).
+
+    The box centre lands on the pose image of the definition's text box
+    centre *c_def*. The reading angle follows the readable rule as rendered
+    (``RenderOp.mapped`` + ``BlockInstance._text_path``, design DD6): a
+    mirror negates the baseline angle, the instance rotation adds, and the
+    text is turned 180 deg when that would read upside down. Un-mirrored
+    text keeps the legacy ``angle + rot`` (never turned). The size fields
+    were scaled on the record by the caller.
+
+    Args:
+        item: The freshly added ``TextItem`` (definition-local position).
+        inst: The instance being exploded.
+        c_def: Definition-local box centre of the un-scaled text record.
+        ox: Definition origin x.
+        oy: Definition origin y.
+    """
+    angle0 = float(item._angle)
+    rot = inst.block_rotation()
+    if inst.block_mirrored():
+        angle = -angle0 + rot
+        if not is_upright(angle):
+            angle += 180.0
+    else:
+        angle = angle0 + rot
+    target = inst.full_pose_transform().map(QPointF(c_def.x() - ox, c_def.y() - oy))
+    c = item.grip_points()[8]
+    if angle != angle0:
+        item.manip_rotate(angle - angle0, c)
+        c = item.grip_points()[8]
+    item.manip_translate(target.x() - c.x(), target.y() - c.y())
 
 
 def _bake(item, ov) -> None:
@@ -77,13 +145,20 @@ def explode_instances(scene, instances, flatten: bool) -> list:
     """Replace each instance by its definition's contents; returns new items.
 
     Primitives are re-created via ``scene._add_from_dict`` and moved onto the
-    instance pose (translate by pos - origin, then rotate about pos, Y-up CCW).
-    Nested records become new ``BlockInstance``s at the composed pose —
-    recursively exploded when *flatten*. An instance whose definition is
-    missing, or is geom-backed (an imported reference with no authored
-    primitives), is left in place. Placement overrides bake onto primitives
-    (WM-11) and compose onto nested children per axis (Q7). Does not push
-    undo (the caller does).
+    instance's full pose in the order of ``P = T . R . S . M`` (design DD9):
+    translate by pos - origin, then about the insertion point reflect across
+    its vertical when mirrored (``manip_reflect`` -- asymmetric end glyphs
+    flip with it), scale (``manip_scale_about``) and rotate (``manip_rotate``,
+    Y-up CCW). Text has no reflect / scale hooks: its size fields are scaled
+    on the record and ``_pose_text`` seats the readable ``TextItem`` on the
+    mapped box centre (design DD6). Nested records become new
+    ``BlockInstance``s at the composed full pose (``_compose``) -- recursively
+    exploded when *flatten*. An instance whose definition is missing, or is
+    geom-backed (an imported reference with no authored primitives), is left
+    in place. Placement overrides bake onto primitives (WM-11) and compose
+    onto nested children per axis (Q7). Dash phase along a reflected arc may
+    differ from the instance (design DD10). Does not push undo (the caller
+    does).
 
     Args:
         scene: The Block Editor ``Model_Space``.
@@ -101,14 +176,17 @@ def explode_instances(scene, instances, flatten: bool) -> list:
         ox, oy = d.origin
         px, py = inst.block_pos()
         rot = inst.block_rotation()
+        mirrored = inst.block_mirrored()
+        s = inst.block_scale()
         pivot = QPointF(px, py)
         for rec in d.primitives:
             if rec.get("type") == _NESTED_TYPE:
-                pos, r = _compose(inst, rec, ox, oy)
+                pos, kw = _compose(inst, rec, ox, oy)
                 child = scene.place_block_instance(
-                    rec["block_id"], pos, rotation=r,
+                    rec["block_id"], pos,
                     overrides=compose_overrides(inst.overrides,
-                                                rec.get("overrides")))
+                                                rec.get("overrides")),
+                    **kw)
                 if flatten:
                     created.extend(explode_instances(scene, [child], flatten=True))
                     if child.scene() is scene:      # unexplodable (missing) — keep it
@@ -118,14 +196,27 @@ def explode_instances(scene, instances, flatten: bool) -> list:
                 continue
             if is_scaffold(rec):
                 continue   # non-printed reference line: scaffolding (D23)
+            is_text = rec.get("type") == _TEXT_TYPE
+            if is_text:
+                c_def = _text_centre(rec)
+                if s != 1.0:
+                    rec = _scaled_text_record(rec, s)
             item = scene._add_from_dict(rec)
             if item is None:
                 continue
             _bake(item, inst.overrides)
+            if is_text:
+                _pose_text(item, inst, c_def, ox, oy)
+                created.append(item)
+                continue
             if hasattr(item, "translate"):
                 item.translate(px - ox, py - oy)
             else:
                 item.manip_translate(px - ox, py - oy)
+            if mirrored:
+                item.manip_reflect(pivot, QPointF(px, py + 1.0))
+            if s != 1.0:
+                item.manip_scale_about(pivot, s)
             if rot:
                 item.manip_rotate(rot, pivot)
             created.append(item)
