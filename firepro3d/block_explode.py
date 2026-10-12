@@ -11,7 +11,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
 from .block_definition import _nested_pose, is_scaffold
-from .block_pose import decompose_pose, is_upright
+from .block_pose import decompose_pose, is_upright, valid_scale
 from .stroke_style import compose_overrides
 
 _NESTED_TYPE = "block_instance"
@@ -63,8 +63,19 @@ def _compose(inst, rec, ox, oy):
     """
     t = (_nested_pose(rec) * QTransform.fromTranslate(-ox, -oy)
          * inst.full_pose_transform())
-    x, y, rot, mirrored, scale = decompose_pose(t)
-    return (x, y), {"rotation": rot, "mirrored": mirrored, "scale": scale}
+    x, y, _rot, _mir, _s = decompose_pose(t)
+    # Closed form for the pose parts (exact -- no atan2 / sqrt noise persisted
+    # to the record): M . R(a) = R(-a) . M, so a mirrored host negates the
+    # child's rotation and toggles its mirror; scales multiply.
+    rr = float(rec.get("rotation", 0.0))
+    rm = bool(rec.get("mirrored", False))
+    rs = valid_scale(rec.get("scale", 1.0))
+    if inst.block_mirrored():
+        rot, mirrored = inst.block_rotation() - rr, not rm
+    else:
+        rot, mirrored = inst.block_rotation() + rr, rm
+    return (x, y), {"rotation": rot, "mirrored": mirrored,
+                    "scale": inst.block_scale() * rs}
 
 
 def _text_centre(rec) -> QPointF:

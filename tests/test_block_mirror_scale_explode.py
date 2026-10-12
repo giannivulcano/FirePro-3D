@@ -269,6 +269,33 @@ def test_nested_rotated_child_inside_a_mirrored_rotated_host(qapp):
         es.cleanup()
 
 
+@pytest.mark.parametrize("host_rot, child_rot, host_mirrored, host_scale, want_rot", [
+    (0.0, 30.0, False, 1.0, 30.0),      # old explode summed exactly -- keep it
+    (90.0, 300.0, False, 1.0, 390.0),   # not normalised (old parity)
+    (0.0, 270.0, False, 1.0, 270.0),
+    (45.0, 15.0, False, 1.0, 60.0),
+    (45.0, 30.0, True, 1.0, 15.0),      # mirrored host negates the child's rotation
+])
+def test_nested_child_pose_parts_are_exact(qapp, host_rot, child_rot, host_mirrored,
+                                           host_scale, want_rot):
+    """The exploded child's stored rotation / scale carry no atan2 / sqrt
+    noise (review I1): they are persisted to the record and the panel."""
+    es = _editor()
+    try:
+        c = _l_def(es)
+        h, _rec = _nested_def(es, c, (50.0, 0.0), rot=child_rot, scale=2.0)
+        inst = es.place_block_instance(h.id, (10.0, 20.0), rotation=host_rot,
+                                       mirrored=host_mirrored, scale=host_scale)
+        want_pts = _endpoints(es, inst)
+        (child,) = explode_instances(es, [inst], flatten=False)
+        assert child.block_rotation() == want_rot                            # exact
+        assert child.block_scale() == 2.0 * host_scale                       # exact
+        assert child.block_mirrored() is host_mirrored
+        assert _endpoints(es, child) == want_pts
+    finally:
+        es.cleanup()
+
+
 def test_flatten_explodes_a_mirrored_chain_to_posed_primitives(qapp):
     es = _editor()
     try:
