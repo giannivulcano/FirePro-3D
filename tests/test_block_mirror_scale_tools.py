@@ -48,7 +48,7 @@ def test_flip_reflects_a_block_instance(qapp, role):
         scene.clearSelection()
         inst.setSelected(True)
         msgs = _capture_status(scene)
-        assert scene._modify_ctl.start("flip") is True                        # [RED] refused today
+        assert scene._modify_ctl.start("flip") is True                        # [RED]
         _hover_and_click(view)
         assert _ends(scene, inst) == _reflected(src_ends)
         assert "Flipped 1 item(s)" in msgs[-1] and "skipped" not in msgs[-1]

@@ -11,7 +11,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
 from .block_definition import _nested_pose, is_scaffold
-from .block_pose import decompose_pose, is_upright, valid_scale
+from .block_pose import is_upright, valid_scale
 from .stroke_style import compose_overrides
 
 _NESTED_TYPE = "block_instance"
@@ -50,7 +50,8 @@ def _compose(inst, rec, ox, oy):
 
     Full matrices, as the compile does (``BlockDefinition._nested_ops``):
     the record pose, then the definition-origin shift, then the instance's
-    full pose -- decomposed back into (pos, rotation, mirrored, scale).
+    full pose. The position is the composed matrix's translation; rotation,
+    mirror and scale come from the closed form below.
 
     Args:
         inst: The placed host ``BlockInstance``.
@@ -63,7 +64,7 @@ def _compose(inst, rec, ox, oy):
     """
     t = (_nested_pose(rec) * QTransform.fromTranslate(-ox, -oy)
          * inst.full_pose_transform())
-    x, y, _rot, _mir, _s = decompose_pose(t)
+    x, y = t.dx(), t.dy()
     # Closed form for the pose parts (exact -- no atan2 / sqrt noise persisted
     # to the record): M . R(a) = R(-a) . M, so a mirrored host negates the
     # child's rotation and toggles its mirror; scales multiply.

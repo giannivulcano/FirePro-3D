@@ -29,7 +29,8 @@ def test_mirrored_scaled_instances_share_one_variant_list(qapp):
     ms, d = _scene_def()
     insts = [ms.place_block_instance(d.id, (i * 10.0, 0.0), mirrored=True, scale=2.0)
              for i in range(1000)]
-    assert len({id(i.render_ops()) for i in insts}) == 1
+    ops = [i.render_ops() for i in insts]
+    assert all(o is ops[0] for o in ops)
     assert insts[0].render_ops() is d.render_ops_variant(True, 2.0)
 
 

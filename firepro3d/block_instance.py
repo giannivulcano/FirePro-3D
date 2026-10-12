@@ -1197,10 +1197,10 @@ class BlockInstance(QGraphicsObject):
             except (TypeError, ValueError):
                 pass
         elif key == "Mirrored":
-            # The checkbox hands a bool; a text form is tolerated.
-            on = (value if isinstance(value, bool)
-                  else str(value).strip().lower() in ("true", "1", "yes", "on"))
-            self.set_block_mirrored(on)
+            # The checkbox always hands a bool; anything else is ignored.
+            if not isinstance(value, bool):
+                return
+            self.set_block_mirrored(bool(value))
         elif key == "Scale":
             f = self._parse_factor(value)
             if f is not None:           # refused input: unchanged, no step

@@ -107,8 +107,10 @@ _POSES = [(True, 1.0, 0.0), (False, 2.0, 30.0), (True, 1.5, 180.0), (True, 1.0, 
 
 
 def _end():
-    """A small asymmetric end glyph (printed mm x model scale): the lines
-    and the arc, not the glyph, must dominate the inked count."""
+    """A small asymmetric end glyph (printed mm x model scale) on the open
+    line. The ended line plus its glyph is about half the inked count
+    (measured 52-62 %), so a dropped or un-flipped glyph, or a mis-posed
+    line, moves far more than ``_PARITY`` of the ink."""
     return half_arrow(length=0.2, h=0.1)
 
 
@@ -150,14 +152,18 @@ def test_exploded_geometry_paints_the_instance_pixels(qapp, mirrored, scale, rot
         es.cleanup()
 
 
-@pytest.mark.parametrize("mirrored, rot", [(True, 0.0), (False, 30.0), (True, 180.0),
-                                           (True, 90.0), (False, 180.0)])
-def test_exploded_text_paints_the_instance_glyphs(qapp, mirrored, rot):
+@pytest.mark.parametrize("a0, mirrored, rot", [
+    (0.0, True, 0.0), (0.0, False, 30.0), (0.0, True, 180.0),
+    (0.0, True, 90.0), (0.0, False, 180.0),
+    # a0 != 0: +a0 and -a0 differ, so the mirrored angle sign shows in pixels.
+    (20.0, True, 0.0), (20.0, True, 90.0),
+])
+def test_exploded_text_paints_the_instance_glyphs(qapp, a0, mirrored, rot):
     """G3 / G5 at scale 1: the TextItem's glyphs are the instance's pixels --
     reading upright and left-to-right when mirrored, legacy-turned when not."""
     es = _editor()
     try:
-        d = _text_def(es)
+        d = _text_def(es, angle=a0)
         inst = es.place_block_instance(d.id, (200.0, 100.0), rotation=rot, mirrored=mirrored)
         rect = inst.sceneBoundingRect().adjusted(-10, -10, 10, 10)
         before = _raster([inst], rect)

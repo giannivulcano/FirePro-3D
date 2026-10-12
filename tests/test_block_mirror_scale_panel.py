@@ -110,6 +110,17 @@ def test_noop_commit_is_no_step(qapp, key, value):
     assert _depth(ms) == d0
 
 
+@pytest.mark.parametrize("bad", ["true", "1", 1, None])
+def test_mirrored_ignores_a_non_bool_without_raising(qapp, bad):
+    """The checkbox always hands a bool; any other value is ignored (no
+    flip, no undo step) and never raises."""
+    ms, (inst,) = _scene()
+    d0 = _depth(ms)
+    inst.set_property("Mirrored", bad)
+    assert _state(inst) == IDENTITY
+    assert _depth(ms) == d0
+
+
 def test_multi_select_commit_is_one_step(qapp):
     ms, insts = _scene(n=2)
     d0 = _depth(ms)
