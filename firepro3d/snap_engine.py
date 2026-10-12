@@ -1003,6 +1003,7 @@ class SnapEngine:
         _items = scene.items(search_rect, _bbox)
 
         _queried_underlays: set[int] = set()
+        _collected: set[int] = set()
 
         for item in _items:
             if exclude is not None and item is exclude:
@@ -1044,12 +1045,29 @@ class SnapEngine:
             if item_filter is not None and not item_filter(item):
                 continue
 
+            _collected.add(id(item))
             for snap_type, pt, name in self._collect(item):
                 ctx.check(snap_type, pt, item, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, item,
                                                        ctx.from_point,
                                                        ctx.search_tol):
                 ctx.check(snap_type, pt, item)
+
+        # A block's insertion origin may lie outside its geometry's bounding
+        # rect, so the rect query above misses the instance there: offer the
+        # origins of the scene's registered instances directly (O(1) each).
+        if self.snap_center:
+            from PyQt6 import sip
+            for inst in getattr(scene, "_block_instances", None) or ():
+                if (id(inst) in _collected or sip.isdeleted(inst)
+                        or inst.scene() is not scene
+                        or (exclude is not None and inst is exclude)
+                        or not is_snap_target(inst, skip_pipes=self.skip_pipes)
+                        or (item_filter is not None and not item_filter(inst))):
+                    continue
+                pt = QPointF(*inst.block_pos())   # the insertion origin
+                if search_rect.contains(pt):
+                    ctx.check("center", pt, inst)
 
     @staticmethod
     def _origin_points(scene: QGraphicsScene) -> list[QPointF]:
@@ -1522,7 +1540,7 @@ class SnapEngine:
             _defn = item.definition()
             if self.snap_center:
                 # definition origin is local (0,0) — the instance's insertion point
-                pts.append(("center", _pose.map(QPointF(0.0, 0.0)), None))
+                pts.append(("center", QPointF(*item.block_pos()), None))
             if self.snap_endpoint:
                 # ON-CURVE vertices only. addEllipse/addPath emit cubic-bezier
                 # CONTROL points (CurveTo/CurveToData) that sit OFF the visible

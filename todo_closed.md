@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System — insertion origin snaps off-geometry — 2026-10-12
+
+- [x] [type:bug] Block origin isn't usable as a snap / ALIGN point (user report) — verify against the 2026-09-04 first cut [P1] [subject:CAD] [done:2026-10-12]
+  - Details: block polish batch 2026-10-10 (user: "Block Origins should be exposed as a snap/align point. All of block geometry should be exposed for snap"). `snap_engine._collect` reportedly emits the insertion origin + endpoints already; repro which part fails. The rest ("all block geometry") is the "Snap/ALIGN completeness for blocks" task below.
+  - Build (bug/Small, on main): 1b repro showed `_collect` did emit the origin, but `find()` phase 1 gathers items by `scene.items(search_rect, IntersectsItemBoundingRect)` and `BlockInstance.boundingRect` covers only the posed geometry — an insertion origin outside the geometry's bounds was never offered (cursor snap and ALIGN acquire). Fix: after the rect loop, `_check_scene_items` offers each registered `_block_instances` origin (`block_pos()`) as `center` when it lies in the search rect, gated by CEN + the same exclude / `is_snap_target` / `item_filter` rules, skipping instances the loop already collected. Guards `tests/test_block_origin_snap.py` (plan + Block Editor, hover + ALIGN dwell; 4 shown RED at base `c2319eb9` in a worktree). Rejected: growing `boundingRect` (manipulator frame / HALO / rubber band / zoom extents). The old `_collect`-only guard (`test_block_s2_fixes`) bypassed the gather step. Out of scope, filed: ALIGN is not armed in `place_block` mode.
+
 ## Block System — instance Mirror & Scale (persisted pose) — 2026-10-12
 
 - [x] [type:feature] Flip / Mirror / Scale for block instances (persisted mirror flag + scale pose) [P1] [subject:CAD] [done:2026-10-12]
