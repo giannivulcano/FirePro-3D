@@ -52,6 +52,7 @@ from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
 from .block_instance import BlockInstance
+from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .feature import DEFAULT_FEATURE_FOR_TYPE
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
@@ -283,6 +284,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._place_block_id = None          # active block definition id
         self._place_block_ghost = None       # free-standing BlockInstance prototype
         self._place_block_rot = 0.0          # app degrees (Y-up CCW+)
+        self._place_block_mirrored = False   # arrow-key flips (block mirror/scale G7)
         self._place_block_at = None          # last snapped cursor (QPointF)
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
@@ -1416,6 +1418,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if mode == "place_block":
             self._place_block_id = template if isinstance(template, str) else None
             self._place_block_rot = 0.0      # each placement starts upright
+            self._place_block_mirrored = False   # and un-flipped (G7)
         else:
             self._place_block_id = None
         self._place_block_drop_ghost()
@@ -1519,7 +1522,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "opening":         "Click on a wall to place an opening  ·  Space = alignment",
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
-            "place_block":     "Click to place block  ·  Space / Shift+Space = rotate 90°  (Esc to finish)",
+            "place_block":     "Click to place block  ·  Space / Shift+Space = rotate 90°  ·  ←→ / ↑↓ = flip  (Esc to finish)",
             "detail":          "Pick first corner for detail view boundary",
             "polygon":         None,   # emitted with live readout below
         }
@@ -6688,6 +6691,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         g.set_block_pos(0.0, 0.0)
         g.set_block_rotation(self._place_block_rot)
+        g.set_block_mirrored(self._place_block_mirrored)
         self._move_ghost_base = ghost_base_paths([g])
         at = self._place_block_at
         self._move_ghost = ([p.translated(at.x(), at.y()) for p in self._move_ghost_base]
@@ -6713,8 +6717,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         else:
             self._place_block_refresh_ghost()
 
+    def flip_place_block(self, axis: str) -> None:
+        """Flip the armed placement across a SCREEN line through its origin
+        (block mirror/scale G7), live -- also before the first mouse move.
+
+        The axis is a screen axis, not a block-local one, so the flip reads the
+        same after Space rotated the block; each call toggles.
+
+        Args:
+            axis: ``"h"`` for <-/-> (mirror left<->right across the
+                screen-vertical line) or ``"v"`` for up/down (mirror
+                top<->bottom across the screen-horizontal line).
+        """
+        theta = 90.0 if axis == "h" else 0.0        # Y-up heading of the mirror line
+        self._place_block_rot, self._place_block_mirrored = reflect_pose(
+            self._place_block_rot, self._place_block_mirrored, theta)
+        if self._place_block_ghost is None:
+            self._place_block_make_ghost()
+        else:
+            self._place_block_refresh_ghost()
+
     def _press_place_block(self, event, pos, snapped, item_under, node_under, pipe_under):
-        """place_block press: place the instance at *snapped*, 0°, and re-arm."""
+        """place_block press: place the instance at *snapped* in the armed
+        pose (rotation + flips) and re-arm."""
         if self._place_block_id is None:
             return
         from .capabilities import place_refusal
@@ -6729,6 +6754,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         self.place_block_instance(self._place_block_id, (snapped.x(), snapped.y()),
                                   rotation=self._place_block_rot,
+                                  mirrored=self._place_block_mirrored,
                                   level=self.active_level)
         self.push_undo_state()
         # The ghost (same rotation) stays on the placed point: the next click
@@ -7858,6 +7884,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._refresh_opening_ghost()
                 event.accept()
                 return
+        # ── Block placement flips (block mirror/scale G7) ────────────────────
+        # <-/-> mirror left-right, up/down top-bottom on screen; auto-repeat
+        # ignored so a held key doesn't flicker; gated like the opening keys.
+        # KeypadModifier is masked (Qt sets it on arrow keys on some
+        # platforms); any real modifier makes the arrow some other chord.
+        if (self.mode == "place_block" and not self.is_input_mode()
+                and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
+                == Qt.KeyboardModifier.NoModifier
+                and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                                    Qt.Key.Key_Up, Qt.Key.Key_Down)):
+            if not event.isAutoRepeat():
+                self.flip_place_block(
+                    "h" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "v")
+            event.accept()
+            return
         # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
