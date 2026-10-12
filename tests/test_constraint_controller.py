@@ -1842,6 +1842,23 @@ def test_tool_entry_refused_on_fully_defined_selection(qapp, mode):
     assert sc.mode != mode
 
 
+def test_flip_entry_keeps_d45_for_a_fully_defined_line(qapp):
+    """D45 as refined 2026-10-12: the Flip entry refuses only a fully defined
+    BLOCK instance (tests/test_block_mirror_scale_tools.py); a fully defined
+    line (the CS4 recipe) still enters Flip -- the solve pulls it back."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
+    assert ctl.diagnostics().state(ln._uid) == "defined"
+    ln.setSelected(True)
+    sc.set_mode("flip")
+    assert sc.mode == "flip"                                                  # [RED]
+    sc.set_mode(None)
+
+
 def test_partly_grounded_selection_still_moves(qapp):
     sc = _scene()
     ln = _line(sc, (0, 0), (100, 0))

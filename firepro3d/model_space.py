@@ -69,7 +69,7 @@ from .sprinkler_workflow_controller import SprinklerWorkflowController
 from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController, close_hit
 from .wall_placement_controller import WallPlacementController
-from .modify_tools_controller import ModifyToolsController
+from .modify_tools_controller import ModifyToolsController, flip_refusal_targets
 from .feature_placement_controller import FeaturePlacementController
 from .text_edit_controller import TextEditController
 from .network_codec import (
@@ -1174,7 +1174,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 and self.constraint_ctl.refuse_grounded(self.selectedItems())):
             # D17 (CS3): fully defined geometry is never transformed; refused
             # at the same shared entry (the commits re-check, move_items /
-            # commit_rotate / commit_scale).
+            # commit_rotate / commit_scale / commit_reflect).
+            return
+        if (mode == "flip" and self.constraint_ctl.refuse_grounded(
+                flip_refusal_targets(self.selectedItems()))):
+            # D45 as refined 2026-10-12 (design DD8): Flip refuses only a
+            # fully defined BLOCK instance -- its mirror / rotation live
+            # outside the solver; grounded primitives flip and re-solve.
+            # commit_reflect re-checks.
             return
         if mode == "place_block" and isinstance(template, str):
             from .capabilities import place_refusal

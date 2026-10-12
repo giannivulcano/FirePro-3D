@@ -68,17 +68,18 @@ def _mirror_via_tool(view, scene, inst, at=None):
 
 
 @pytest.mark.parametrize("role", ["plan", "block_editor"])
-def test_mirror_makes_a_posed_copy(qapp, role):
+@pytest.mark.parametrize("src_mirrored", [False, True])
+def test_mirror_makes_a_posed_copy(qapp, role, src_mirrored):
     """Mirror copies the WHOLE pose through ``place_kwargs`` (DD7) and then
-    reflects the copy: a mirrored, rotated, scaled, offset source on its own
-    level gives a new-uid copy that is unmirrored, keeps level / offset /
-    scale, and whose posed endpoints are the source's reflection."""
+    reflects the copy: a rotated, scaled, offset source on its own level
+    gives a new-uid copy with the opposite mirror flag that keeps level /
+    offset / scale, and whose posed endpoints are the source's reflection."""
     view, scene = make_view(role=role, scale=1.0)
     try:
         _axis_line(scene)
         inst = _block(scene, level="Level 2", level_offset_mm=300.0)
         inst.set_block_rotation(30.0)
-        inst.set_block_mirrored(True)           # mirrored source -> unmirrored copy
+        inst.set_block_mirrored(src_mirrored)   # the copy gets the opposite flag
         inst.set_block_scale(2.0)
         scene.active_level = "Level 3"          # the copy must NOT adopt this
         scene.push_undo_state()                 # baseline holds the posed source
@@ -90,8 +91,9 @@ def test_mirror_makes_a_posed_copy(qapp, role):
         assert len(scene._block_instances) == 2
         copy = [i for i in scene._block_instances if i is not inst][0]
         assert copy._uid != inst._uid
-        # place_kwargs must carry mirrored=True so the reflect toggles it OFF (M2a)
-        assert copy.block_mirrored() is False and inst.block_mirrored() is True
+        # place_kwargs must carry the source flag so the reflect toggles it (M2a)
+        assert copy.block_mirrored() is (not src_mirrored)
+        assert inst.block_mirrored() is src_mirrored
         assert copy.level == "Level 2"
         assert copy.to_dict()["level_offset_mm"] == pytest.approx(300.0)
         assert copy.block_scale() == pytest.approx(2.0)
@@ -124,10 +126,15 @@ def _ground(scene, inst):
     return (inst.block_pos(), inst.block_mirrored(), inst.block_rotation())
 
 
-def test_flip_refuses_a_grounded_block(qapp):
-    """A fully defined block refuses Flip the way it refuses Scale / Rotate
-    (D17): the WHOLE commit is refused -- a free line selected alongside is
-    not flipped either -- with no undo step and the selection kept."""
+def _pose_of(inst):
+    return (inst.block_pos(), inst.block_mirrored(), inst.block_rotation())
+
+
+def test_flip_refuses_a_grounded_block_at_entry(qapp):
+    """A fully defined block refuses Flip at tool ENTRY (D45 as refined
+    2026-10-12), exactly like Scale / Rotate at ``Model_Space.set_mode``:
+    GROUNDED_STATUS, no mode entered, no undo step, nothing moves -- the free
+    line selected alongside included."""
     from firepro3d.constraint_controller import GROUNDED_STATUS
     view, scene = make_view(role="block_editor", scale=1.0)
     try:
@@ -137,18 +144,76 @@ def test_flip_refuses_a_grounded_block(qapp):
         line, _ = add_primitive(scene, "line")            # (0,0)-(100,0), free
         line_grips = grips(line)
         scene.push_undo_state()
-        p0 = scene._undo_pos
+        p0, mode0 = scene._undo_pos, scene.mode
         scene.clearSelection()
         inst.setSelected(True)
         line.setSelected(True)
         msgs = _capture_status(scene)
-        assert scene._modify_ctl.start("flip") is True
+        assert scene._modify_ctl.start("flip") is False                       # [RED]
+        assert GROUNDED_STATUS in msgs
+        assert scene.mode == mode0 and scene._mirror_axis is None
+        _hover_and_click(view)                  # no tool armed: a plain click
+        assert _pose_of(inst) == pose and grips(line) == line_grips
+        assert scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
+
+
+def test_flip_commit_rechecks_a_block_grounded_after_entry(qapp):
+    """Grounding the block while Flip is armed: the commit re-checks (D45)
+    and refuses the whole commit -- GROUNDED_STATUS, nothing flipped, no undo
+    step, back to Select with the selection kept."""
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    view, scene = make_view(role="block_editor", scale=1.0)
+    try:
+        _axis_line(scene)
+        inst = _block(scene, at=(10.0, 0.0))
+        line, _ = add_primitive(scene, "line")            # (0,0)-(100,0), free
+        line_grips = grips(line)
+        scene.push_undo_state()
+        scene.clearSelection()
+        inst.setSelected(True)
+        line.setSelected(True)
+        msgs = _capture_status(scene)
+        assert scene._modify_ctl.start("flip") is True    # a free block arms Flip
+        pose = _ground(scene, inst)                       # grounded while armed
+        p0 = scene._undo_pos                    # after the add's own undo step
         _hover_and_click(view)
         assert GROUNDED_STATUS in msgs                                        # [RED]
-        assert (inst.block_pos(), inst.block_mirrored(), inst.block_rotation()) == pose
-        assert grips(line) == line_grips        # the free line is refused too
+        assert _pose_of(inst) == pose and grips(line) == line_grips
         assert scene._undo_pos == p0 and scene.mode in (None, "select")
         assert inst.isSelected() and line.isSelected()
+    finally:
+        close_view(view, scene)
+
+
+def test_flip_of_a_grounded_line_is_not_refused(qapp):
+    """D45 kept for primitives: a fully defined line (Coincident-to-origin +
+    Horizontal + a length dim, the CS4 recipe) still enters and commits a
+    Flip -- the solver pulls its points back -- so neither the entry nor the
+    commit posts GROUNDED_STATUS, and the commit status + undo step land."""
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    view, scene = make_view(role="block_editor", scale=1.0)
+    try:
+        _axis_line(scene)
+        line, _ = add_primitive(scene, "line")            # (0,0)-(100,0)
+        ctl = scene.constraint_ctl
+        for t, refs in (("coincident", [{"uid": line._uid, "h": "p1"}, {"ref": "origin"}]),
+                        ("horizontal", [{"uid": line._uid, "h": "edge"}]),
+                        ("dim_distance", [{"uid": line._uid, "h": "edge"}])):
+            assert ctl.add(t, refs) is not None
+        assert ctl.diagnostics().state(line._uid) == "defined"
+        scene.push_undo_state()
+        p0 = scene._undo_pos
+        scene.clearSelection()
+        line.setSelected(True)
+        msgs = _capture_status(scene)
+        assert scene._modify_ctl.start("flip") is True                        # [RED]
+        assert scene.mode == "flip"
+        _hover_and_click(view)
+        assert GROUNDED_STATUS not in msgs                                    # [RED]
+        assert any("Flipped 1 item(s)" in m for m in msgs)
+        assert scene._undo_pos == p0 + 1 and scene.mode in (None, "select")
     finally:
         close_view(view, scene)
 
@@ -274,7 +339,7 @@ def test_rolled_back_scale_restores_the_scale(qapp, monkeypatch):
         ctl = _forced_rollback(scene, monkeypatch)
         with ctl.edit([inst]):
             inst.manip_scale_about(QPointF(0, 0), 2.0)
-        assert inst.block_scale() == 1.0 and inst.block_pos() == (10.0, 0.0)
-        assert inst.block_rotation() == 30.0       # [RED]
+        assert inst.block_scale() == 1.0 and inst.block_pos() == (10.0, 0.0)   # [RED]
+        assert inst.block_rotation() == 30.0       # parity: Scale never turns a block
     finally:
         close_view(view, scene)

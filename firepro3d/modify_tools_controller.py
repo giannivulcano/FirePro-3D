@@ -29,6 +29,25 @@ DIM_ORIGINAL_TOOLS = frozenset({"move", "duplicate", "rotate", "array",
                                 "flip", "mirror", "scale"})
 
 
+def flip_refusal_targets(items) -> list:
+    """The block instances among *items*: the only Flip targets the D17
+    grounded refusal inspects (parametric-constraint-system.md D45 as refined
+    by the 2026-10-12 ruling; design DD8).
+
+    A grounded primitive flips and the solve pulls its points back; a block's
+    mirror / rotation live outside the solver, so a fully defined block can't
+    be pulled back and is refused instead -- at the ``Model_Space.set_mode``
+    entry and again in ``commit_reflect``, both through
+    ``ConstraintController.refuse_grounded`` on this subset.
+
+    Args:
+        items: Candidate items (the selection at entry, the reflectable
+            targets at commit).
+    """
+    from .block_instance import BlockInstance
+    return [it for it in items or () if isinstance(it, BlockInstance)]
+
+
 class ModifyToolsController:
     """Behaviour for the 2D modify tools. See docs/specs/scene-tools.md."""
 
@@ -137,6 +156,12 @@ class ModifyToolsController:
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
+        if s.mode != self._TOOL_MODE[tool]:
+            # set_mode refused at the shared entry (D17 grounded: Move /
+            # Rotate / Scale, and Flip of a fully defined block -- D45 as
+            # refined 2026-10-12): no mode entered, nothing armed.
+            s._selected_items = []
+            return False
         # D11: dim the originals. After set_mode — its clear() restores any
         # previous dim first, so entering a mode never undoes its own dim.
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
@@ -846,9 +871,9 @@ class ModifyToolsController:
         return 180.0 if d == -180.0 else d
 
     def _end_refused(self, items) -> None:
-        """End a Rotate / Scale commit that D17 refused (CS3): no change, no
-        undo step, back to Select with *items* reselected (the refusal status
-        is already posted by ``refuse_grounded``)."""
+        """End a Rotate / Scale / Flip (blocks) commit that D17 refused (CS3):
+        no change, no undo step, back to Select with *items* reselected (the
+        refusal status is already posted by ``refuse_grounded``)."""
         s = self._scene
         s._move_ghost = []
         s._move_ghost_base = []
@@ -1094,8 +1119,9 @@ class ModifyToolsController:
 
         One undo step; returns to Select with the originals (Flip) or the
         copies (Mirror) selected (D3). Text (no manip_reflect) is skipped with a
-        count. Flip refuses the whole commit when a target is grounded (D17,
-        as Scale / Rotate do); Mirror's copies are never grounded.
+        count. Flip refuses the whole commit when a target is a fully defined
+        block instance (D45 as refined 2026-10-12: blocks only -- grounded
+        primitives flip and re-solve); Mirror's copies are never grounded.
 
         Returns:
             True when something was reflected; False with no axis (status
@@ -1132,7 +1158,11 @@ class ModifyToolsController:
                 s.constraint_ctl.internal_records(targets), uid_map,
                 mirror_axis=(p1, p2))
         else:
-            if s.constraint_ctl.refuse_grounded(targets):      # D17 (CS3)
+            # D45 (2026-10-12 ruling): only a fully defined BLOCK refuses a
+            # Flip -- its mirror / rotation live outside the solver; grounded
+            # primitives flip and the solve pulls their points back. The
+            # entry (``Model_Space.set_mode``) runs the same check.
+            if s.constraint_ctl.refuse_grounded(flip_refusal_targets(targets)):
                 self._end_refused(items)
                 return False
             with s.constraint_ctl.edit(targets):
