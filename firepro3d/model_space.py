@@ -6683,8 +6683,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._place_block_refresh_ghost()
 
     def _place_block_refresh_ghost(self) -> None:
-        """Re-trace the prototype at (0,0) / the current rotation into the
-        shared ghost and slide it to the last cursor point."""
+        """Re-trace the prototype at (0,0) in the armed pose (rotation +
+        arrow-key mirror, G7) into the shared ghost and slide it to the last
+        cursor point."""
         from .transform_ghost import ghost_base_paths
         g = self._place_block_ghost
         if g is None:

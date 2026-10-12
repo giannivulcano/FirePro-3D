@@ -61,9 +61,11 @@ def _click(view, scene_pt):
 
 
 def _key(view, key, mods=Qt.KeyboardModifier.NoModifier, autorepeat=False):
-    """Press+release *key* on whatever really has the keyboard (the viewport
-    when nothing does), never on a widget the test focused by hand."""
-    w = QApplication.focusWidget() or view.viewport()
+    """Press+release *key* on whatever really has the keyboard, never on a
+    widget the test focused by hand -- and never on a fallback: if nothing has
+    focus after the real click, the entry path regressed and this goes RED."""
+    w = QApplication.focusWidget()
+    assert w is not None, "nothing holds keyboard focus after the canvas click"
     for et in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
         QApplication.sendEvent(w, QKeyEvent(et, key, mods, "", autorepeat))
     QApplication.processEvents()
@@ -220,6 +222,23 @@ def test_left_arrow_flips_in_the_block_editor_too(qapp):
         _key(v, Qt.Key.Key_Left)
         _click(v, QPointF(300, 0))
         assert _ends(sc, sc._block_instances[1]) == _left_right_mirrored_at(300)
+    finally:
+        _close(v, sc)
+
+
+@pytest.mark.parametrize("key, expect", [
+    (Qt.Key.Key_Left, _left_right_mirrored_at(300)),
+    (Qt.Key.Key_Up, {(300, 0), (400, 0), (300, 40)}),
+])
+def test_a_keypad_arrow_still_flips(qapp, key, expect):
+    """Qt sets KeypadModifier on arrow keys on some platforms: it is masked,
+    not a chord -- the flip must happen exactly as for a bare arrow."""
+    sc, d, v = _armed()
+    try:
+        _key(v, key, Qt.KeyboardModifier.KeypadModifier)
+        _click(v, QPointF(300, 0))
+        assert _ends(sc, sc._block_instances[1]) == expect
+        assert sc._place_block_mirrored is True
     finally:
         _close(v, sc)
 
