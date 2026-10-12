@@ -208,6 +208,8 @@ def test_add_from_dict_keeps_attributes(qapp):
     ms = Model_Space()
     p = _posed(ms)
     p.attributes = {"k": "v"}
-    c = ms._add_from_dict(p.to_dict())
-    assert c.attributes == {"k": "v"}
-    assert c.attributes is not p.attributes
+    rec = p.to_dict()
+    c = ms._add_from_dict(rec)
+    # The copy owns its dict: never the record's (to_dict already copies p's).
+    assert c.attributes == rec["attributes"] == {"k": "v"}
+    assert c.attributes is not rec["attributes"]

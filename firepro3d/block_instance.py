@@ -28,10 +28,12 @@ from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
 from .block_definition import BlockDefinition
-from .block_pose import check_scale, pose_matrix, valid_scale
+from .block_pose import (check_scale, is_upright, pose_matrix, reflect_pose,
+                         valid_scale)
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
+from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
                            canvas_px, has_ends, is_as_authored, is_end_ref,
                            is_linetype_ref, linetype_block,
@@ -317,7 +319,6 @@ class BlockInstance(QGraphicsObject):
         ``block_pose.reflect_pose``.
         """
         from .arc_math import yup_angle
-        from .block_pose import reflect_pose
         from .cad_math import CAD_Math
         from .geometry_2d import _degenerate_axis
         if _degenerate_axis(p1, p2):
@@ -347,7 +348,6 @@ class BlockInstance(QGraphicsObject):
         fr = op.text_frame
         if not op.readable or fr is None:
             return op.path
-        from .block_pose import is_upright
         if is_upright(fr[2] + self._pose_rot):
             return op.path
         t = QTransform()
@@ -1112,6 +1112,28 @@ class BlockInstance(QGraphicsObject):
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _fmt_factor(f: float) -> str:
+        """The Scale row's text: the Scale HUD's FACTOR grammar (G8)."""
+        return ScaleManager.format_factor(f)
+
+    @staticmethod
+    def _parse_factor(value) -> Optional[float]:
+        """A Scale row entry as a block scale, or None when refused.
+
+        Text goes through ``ScaleManager.parse_factor`` (the HUD grammar: no
+        sign, no exponent, a trailing ``x`` tolerated); a number arrives as
+        the row's committed ``value_mm``. Either way the result must satisfy
+        ``block_pose.valid_scale`` (finite, > 0) -- the one scale rule.
+        """
+        if isinstance(value, bool):
+            return None
+        if not isinstance(value, (int, float)):
+            value = ScaleManager.parse_factor("" if value is None else str(value))
+            if value is None:
+                return None
+        return valid_scale(value, default=None)
+
     def get_properties(self) -> dict:
         props = {
             "Type":         {"type": "label",     "value": "Block"},
@@ -1121,6 +1143,15 @@ class BlockInstance(QGraphicsObject):
             # "string" type → editable numeric line-edit (matches the
             # RegularPolygonItem / EllipseItem Rotation convention).
             "Rotation":     {"type": "string",    "value": f"{self._pose_rot:.1f}"},
+            # Design DD8 / G8: the pose rows stay together.
+            "Mirrored":     {"type": "bool",      "value": self._pose_mirrored},
+            # DimensionEdit seeds from value_mm and commits the parser's float;
+            # minimum is strict (> 0), so "0" reverts in the widget.
+            "Scale":        {"type": "dimension",
+                             "value": self._fmt_factor(self._pose_scale),
+                             "value_mm": self._pose_scale,
+                             "parser": ScaleManager.parse_factor,
+                             "formatter": self._fmt_factor, "minimum": 0.0},
         }
         # WM2 Q4: placement Linetype / Weight overrides; Q12: locked inside a
         # pattern-tile / linetype-unit Block Editor (strokes draw Continuous
@@ -1137,7 +1168,23 @@ class BlockInstance(QGraphicsObject):
         props.update(rows)
         return props
 
+    def _panel_state(self) -> tuple:
+        """The values the Level / Level Offset / Rotation / Mirrored / Scale
+        rows edit, compared before and after a commit (G9)."""
+        return (self.level, self._level_offset_mm, self._pose_rot,
+                self._pose_mirrored, self._pose_scale)
+
     def set_property(self, key: str, value) -> None:
+        """Apply one panel row commit.
+
+        Every row that changed something requests ONE undo step from the
+        scene (G9): ``PropertyManager._apply_property`` runs inside
+        ``Model_Space.deferred_undo_push``, which pushes only when a setter
+        asks, so a row that stayed silent produced no step at all. A no-op
+        commit (same value) stays silent. The Weight / Linetype path requests
+        its own step (``_set_override_from_panel``).
+        """
+        before = self._panel_state()
         if key == "Level":
             self.level = str(value)
         elif key == "Level Offset":
@@ -1149,10 +1196,27 @@ class BlockInstance(QGraphicsObject):
                 self.set_block_rotation(float(value))
             except (TypeError, ValueError):
                 pass
+        elif key == "Mirrored":
+            # The checkbox hands a bool; a text form is tolerated.
+            on = (value if isinstance(value, bool)
+                  else str(value).strip().lower() in ("true", "1", "yes", "on"))
+            self.set_block_mirrored(on)
+        elif key == "Scale":
+            f = self._parse_factor(value)
+            if f is not None:           # refused input: unchanged, no step
+                self.set_block_scale(f)
         elif key in ("Weight", "Linetype"):
             if self._overrides_locked():
                 return                  # Q12: a mixed selection can't bypass the lock
             self._set_override_from_panel(key, str(value))
+            return                      # requests its own undo step
+        else:
+            return
+        if self._panel_state() != before:
+            sc = self.scene()
+            req = getattr(sc, "request_undo_push", None) if sc is not None else None
+            if callable(req):
+                req()                   # G9: one step per panel commit (coalesced)
 
     def _overrides_locked(self) -> bool:
         """True inside a pattern-tile / linetype-unit Block Editor (WM2 Q12),
