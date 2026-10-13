@@ -78,9 +78,15 @@ class TestCyclePlacementAmbiguity:
         scene._pipe_ctl._tab_candidates = [type("N", (), {"z_pos": 0.0})()]
         assert scene.cycle_placement_ambiguity() is False
 
-    def test_plain_drawing_mode_returns_false(self, scene):
+    def test_drawing_mode_space_toggles_reference_shift_space_nothing(self, scene):
+        # RG6/RG7 (2026-10-13): Space toggles reference placement in a 2D
+        # shape tool; Shift+Space there (outside the arc span step) cycles
+        # nothing.
         scene.set_mode("draw_line")
-        assert scene.cycle_placement_ambiguity() is False
+        assert scene.cycle_placement_ambiguity(reverse=True) is False
+        assert scene._place_reference is False
+        assert scene.cycle_placement_ambiguity() is True
+        assert scene._place_reference is True
 
 
 class TestSpacebarDrivesCycle:

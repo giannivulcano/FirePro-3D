@@ -84,11 +84,11 @@ class TestRectangleVariantCycle:
 
 
 class TestNonVariantModes:
-    def test_draw_line_cycles_line_reference(self, scene):
-        # D (2026-09-16): draw_line now has a Line <-> Reference Line variant.
+    def test_draw_line_has_no_variants(self, scene):
+        # RG9 (2026-10-13): the Line <-> Reference Line variant is retired;
+        # reference placement is Space in every 2D tool (RG6).
         scene.set_mode("draw_line")
-        assert scene.cycle_placement_variant(+1) is True
-        assert scene._draw_line_variant == "reference"
+        assert scene.cycle_placement_variant(+1) is False
 
     def test_select_does_not_cycle(self, scene):
         scene.set_mode("select")

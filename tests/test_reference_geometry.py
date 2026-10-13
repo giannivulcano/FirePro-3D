@@ -285,3 +285,254 @@ def test_content_lock_never_rewrites_a_reference_style(qapp):
     live = next(l for l in sc._draw_lines if l.reference)
     assert live.style["linetype"] == lt_id != ss.CONTINUOUS
     assert live.style == before
+
+
+# -- Task 5: placement (RG6-RG9) --------------------------------------------
+
+from PyQt6.QtCore import QEvent  # noqa: E402
+from PyQt6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from PyQt6.QtWidgets import QApplication  # noqa: E402
+
+# mode -> (clicks in scene mm, finish key or None, list attr).  Real gestures
+# (geometry_drawing_controller): line 2 clicks; circle centre -> rim;
+# rectangle base -> side -> depth; arc (Center variant) centre -> start ->
+# end; polygon centre -> radius -> rotation; ellipse centre -> major ->
+# minor; polyline / spline N clicks + Enter.
+_TOOLS = {
+    "draw_line":      ([(0, 0), (600, 0)], None, "_draw_lines"),
+    "draw_circle":    ([(0, 0), (300, 0)], None, "_draw_circles"),
+    "draw_rectangle": ([(0, 0), (600, 0), (600, 300)], None, "_draw_rects"),
+    "draw_arc":       ([(0, 0), (300, 0), (0, 300)], None, "_draw_arcs"),
+    "polygon":        ([(0, 0), (300, 0), (300, 0)], None, "_draw_polygons"),
+    "draw_ellipse":   ([(0, 0), (300, 0), (0, 150)], None, "_draw_ellipses"),
+    "polyline":       ([(0, 0), (300, 0), (300, 300)], Qt.Key.Key_Return, "_polylines"),
+    "draw_spline":    ([(0, 0), (300, 300), (600, 0)], Qt.Key.Key_Return, "_draw_splines"),
+}
+
+
+def _click(view, x, y):
+    vp = view.mapFromScene(QPointF(x, y))
+    gp = view.viewport().mapToGlobal(vp)
+    for et in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+               QEvent.Type.MouseButtonRelease):
+        btn = (Qt.MouseButton.NoButton if et == QEvent.Type.MouseMove
+               else Qt.MouseButton.LeftButton)
+        QApplication.sendEvent(view.viewport(), QMouseEvent(
+            et, QPointF(vp), QPointF(gp), btn, btn,
+            Qt.KeyboardModifier.NoModifier))
+    QApplication.processEvents()
+
+
+def _key(view, key, mods=Qt.KeyboardModifier.NoModifier):
+    text = " " if key == Qt.Key.Key_Space else ""
+    for et in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+        QApplication.sendEvent(view, QKeyEvent(et, key, mods, text))
+    QApplication.processEvents()
+
+
+@pytest.mark.parametrize("mode", list(_TOOLS))
+def test_space_places_reference_then_resets(shown_model_view, mode):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    clicks, finish, attr = _TOOLS[mode]
+    for want_ref in (True, False):
+        before = len(getattr(scene, attr))
+        scene.set_mode(mode)
+        if want_ref:
+            _key(view, Qt.Key.Key_Space)
+            assert scene._place_reference is True
+        for x, y in clicks:
+            _click(view, x, y)
+        if finish is not None:
+            _key(view, finish)
+        assert len(getattr(scene, attr)) == before + 1, mode
+        placed = getattr(scene, attr)[-1]
+        assert placed.reference is want_ref, mode
+        assert scene._place_reference is False         # reset per placement
+
+
+def test_shift_space_flips_arc_and_space_toggles_reference_at_span_step(
+        shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    scene.set_mode("draw_arc")
+    _click(view, 0, 0); _click(view, 300, 0)
+    assert scene._draw_arc_step == 2
+    _key(view, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+    assert scene._draw_arc_cw is True and scene._place_reference is False
+    _key(view, Qt.Key.Key_Space)
+    assert scene._place_reference is True and scene._draw_arc_cw is True
+    _click(view, 0, 300)
+    arc = scene._draw_arcs[-1]
+    assert arc.reference is True
+    # Start bearing 0 swept CW to scene (0, 300) (bearing -90, Y-up) is the
+    # 90-degree arc through the lower-right quadrant (scene +x, +y); the
+    # unflipped CCW arc would be the 270-degree one through the upper-left.
+    mid = arc.arc_midpoint()
+    assert mid.x() > 0 and mid.y() > 0
+
+
+def test_shift_space_elsewhere_in_draw_modes_does_nothing(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    for mode in ("draw_line", "draw_circle", "draw_arc"):
+        s.set_mode(mode)
+        assert s.cycle_placement_ambiguity(reverse=True) is False
+        assert s._place_reference is False
+
+
+def test_text_tool_space_does_nothing(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("text")
+    assert s.cycle_placement_ambiguity() is False
+    assert s._place_reference is False
+
+
+def test_line_tool_has_no_reference_variant(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    assert "draw_line" not in s._plc._PLACEMENT_VARIANTS
+    s.set_mode("draw_line")
+    assert s.cycle_placement_variant(+1) is False
+
+
+class _NoMods:
+    def modifiers(self):
+        return Qt.KeyboardModifier.NoModifier
+
+
+def test_reference_toggle_recolours_the_live_ghost(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    s.set_mode("draw_circle")
+    s._press_draw_circle(_NoMods(), None, QPointF(0, 0), None, None, None)
+    ghost = s._draw_circle_preview
+    before = ghost.pen().color().name()
+    assert s.cycle_placement_ambiguity() is True
+    assert ghost.pen().color().name() != before
+    assert s.cycle_placement_ambiguity() is True      # toggles back
+    assert ghost.pen().color().name() == before
+
+
+def test_reference_toggle_appends_instruction_suffix(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    msgs: list[str] = []
+    s.instructionChanged.connect(msgs.append)
+    s.set_mode("draw_circle")
+    base = msgs[-1]
+    s.cycle_placement_ambiguity()
+    assert msgs[-1] == base + " (Reference)"
+    s.cycle_placement_ambiguity()
+    assert msgs[-1] == base
+
+
+def test_space_in_focused_hud_field_does_not_toggle_reference(qapp):
+    from PyQt6.QtTest import QTest
+    from firepro3d.model_space import Model_Space
+    from firepro3d.model_view import Model_View
+    s = Model_Space(scene_role="block_editor")
+    v = Model_View(s); v.resize(800, 600); v.resetTransform()
+    v.centerOn(0, 0); v.show()
+    QTest.qWaitForWindowExposed(v)
+    try:
+        s.set_mode("draw_line")
+        s._draw_line_anchor = QPointF(0, 0)
+        s.publish_placement_state(QPointF(0, 0), QPointF(1000, 0))
+        assert s.begin_dynamic_input(seed="1") is True
+        assert s.is_input_mode() is True
+        s.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space,
+                                  Qt.KeyboardModifier.NoModifier, " "))
+        assert s._place_reference is False           # Space typed, no toggle
+        assert s.is_input_mode() is True
+    finally:
+        s.end_dynamic_input()
+        v.close()
+
+
+def test_placed_reference_circle_survives_undo_redo(shown_model_view):
+    from PyQt6.QtCore import Qt as _Qt
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    scene.set_mode("draw_circle")
+    _key(view, Qt.Key.Key_Space)
+    _click(view, 0, 0); _click(view, 300, 0)
+    assert len(scene._draw_circles) == 1 and scene._draw_circles[0].reference
+    scene.undo()
+    assert [c for c in scene._draw_circles if c.scene() is scene] == []
+    scene.redo()
+    live = [c for c in scene._draw_circles if c.scene() is scene]
+    assert len(live) == 1
+    circle = live[0]
+    assert circle.reference is True
+    view.viewport().grab()                  # a real paint pass
+    QApplication.processEvents()
+    assert circle.pen().style() == _Qt.PenStyle.DashLine
+
+
+def _move(view, x, y):
+    vp = view.mapFromScene(QPointF(x, y))
+    gp = view.viewport().mapToGlobal(vp)
+    QApplication.sendEvent(view.viewport(), QMouseEvent(
+        QEvent.Type.MouseMove, QPointF(vp), QPointF(gp),
+        Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier))
+    QApplication.processEvents()
+
+
+# mode -> (clicks that arm the ghost, ghost getters on the scene)
+_GHOSTS = {
+    "draw_line":      ([(0, 0)], [lambda s: s.preview_pipe]),
+    "draw_circle":    ([(0, 0)], [lambda s: s._draw_circle_preview]),
+    "draw_rectangle": ([(0, 0)], [lambda s: s._draw_rect_preview]),
+    "draw_arc":       ([(0, 0)], [lambda s: s._draw_arc_radius_line]),
+    "draw_arc_span":  ([(0, 0), (300, 0)], [lambda s: s._draw_arc_preview]),
+    "polygon":        ([(0, 0)], [lambda s: s._polygon_preview]),
+    "draw_ellipse":   ([(0, 0), (300, 0)], [lambda s: s._ellipse_preview]),
+    "polyline":       ([(0, 0)], [lambda s: s._polyline_active]),
+    "draw_spline":    ([(0, 0), (300, 300)], [lambda s: s._spline_preview,
+                                              lambda s: s._spline_ref_poly]),
+}
+
+
+@pytest.mark.parametrize("case", list(_GHOSTS))
+def test_space_recolours_each_tools_ghost(shown_model_view, case):
+    from firepro3d.display_manager import _read_category_from_settings
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    ref = QColor(_read_category_from_settings("Reference Geometry")["color"]).name()
+    geo = QColor(scene._geom_color_lw()[0]).name()
+    assert ref != geo
+    clicks, getters = _GHOSTS[case]
+    scene.set_mode("draw_arc" if case == "draw_arc_span" else case)
+    for x, y in clicks:
+        _click(view, x, y)
+    _move(view, 150, 220)
+    for get in getters:
+        assert get(scene) is not None, case
+        assert get(scene).pen().color().name() == geo, case
+    _key(view, Qt.Key.Key_Space)
+    _move(view, 160, 230)                 # a move re-pens / rebuilds ghosts
+    for get in getters:
+        assert get(scene).pen().color().name() == ref, case
+    _key(view, Qt.Key.Key_Space)
+    _move(view, 150, 220)
+    for get in getters:
+        assert get(scene).pen().color().name() == geo, case
+
+
+def test_mid_chain_toggle_and_two_vertex_finish_commit_a_reference_line(
+        shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    lines_before = len(scene._draw_lines)
+    scene.set_mode("polyline")
+    _click(view, 0, 0); _click(view, 300, 0)
+    _key(view, Qt.Key.Key_Space)                    # mid-chain: chain takes it
+    assert scene._polyline_active.reference is True
+    _key(view, Qt.Key.Key_Return)
+    assert len(scene._draw_lines) == lines_before + 1
+    line = scene._draw_lines[-1]
+    assert isinstance(line, LineItem) and line.reference is True
+    assert scene._place_reference is False

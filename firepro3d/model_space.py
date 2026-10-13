@@ -290,7 +290,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
         self._draw_line_anchor: "QPointF | None" = None       # first click for line
-        self._draw_line_variant: str = "line"                 # "line" | "reference" (←/→ variant)
+        # RG6: Space toggles reference placement in every 2D shape tool;
+        # reset per placement (set_mode).  _last_instruction remembers the
+        # live instruction line so the toggle can append " (Reference)".
+        self._place_reference: bool = False
+        self._last_instruction: str = ""
+        self.instructionChanged.connect(self._remember_instruction)
         self._draw_rect_anchor: "QPointF | None" = None       # first click for rectangle
         self._draw_circle_center: "QPointF | None" = None     # first click for circle
         self._draw_rect_from_center: bool = False                # center vs corner rectangle
@@ -1229,6 +1234,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Any mode change ends a constraint pick session (D21); entering a
         # pick mode starts a fresh one below, after the initial instruction.
         self.constraint_ctl.cancel_pick()
+        # RG6: every mode change ends the placement's reference state --
+        # commit (_end_placement_switch), Esc, tool switch, scene reset
+        # (set_mode(None)) all pass here; refused switches return above.
+        self._place_reference = False
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         if hasattr(self, 'pipeNodeHighlight'):
@@ -4320,11 +4329,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Select mode cycles similar elements, pipe mode cycles Z-stacked node
         candidates, wall and opening modes cycle alignment, block placement
         turns the block 90° (Space clockwise on screen, Shift+Space -- *reverse*
-        -- counter-clockwise).  One router so a single ``Key_Space`` branch in
+        -- counter-clockwise).  In every 2D shape tool Space toggles reference
+        placement (RG6); at the arc's span step Shift+Space flips CCW / CW
+        (Center / Start) or minor / major (End Points) (RG7).  Shift+Space
+        elsewhere in a draw mode does nothing; the text tool has no reference
+        form.  One router so a single ``Key_Space`` branch in
         :meth:`keyPressEvent` covers every mode.
 
         Args:
-            reverse: Shift was held (only block placement uses it).
+            reverse: Shift was held (block rotation direction; arc flip).
 
         Returns:
             True when something was cycled, False when the current mode has
@@ -4346,14 +4359,56 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "opening":
             self._cycle_opening_alignment()
             return True
-        if (self.mode == "draw_arc" and self._arc_variant == _ARC_VARIANT_ENDPOINTS
-                and self._draw_arc_step == 2):
-            self._geom_ctl._toggle_arc_ep_major()
+        if self.mode == "draw_arc" and self._draw_arc_step == 2 and reverse:
+            if self._arc_variant == _ARC_VARIANT_ENDPOINTS:
+                self._geom_ctl._toggle_arc_ep_major()
+            else:
+                self._geom_ctl._toggle_arc_cw()          # Center / Start (RG7)
             return True
-        if self.mode == "draw_arc" and self._draw_arc_step == 2:
-            self._geom_ctl._toggle_arc_cw()          # Center / Start variants
-            return True
+        if self.mode in self._REFERENCE_MODES and not reverse:
+            return self._toggle_place_reference()
         return False
+
+    # 2D shape tools in which Space toggles reference placement (RG6).
+    _REFERENCE_MODES = frozenset({
+        "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse",
+        "draw_arc", "polygon", "draw_spline", "polyline",
+    })
+
+    def _remember_instruction(self, text) -> None:
+        """``instructionChanged`` slot: the live instruction line (RG8)."""
+        self._last_instruction = text if isinstance(text, str) else ""
+
+    def _stamp_place_reference(self, item) -> None:
+        """Commit-time stamp (RG6): the new primitive takes the placement's
+        reference state; a reference item takes its category colour."""
+        if self._place_reference and getattr(item, "_REFERENCE_CAPABLE", False):
+            item.reference = True
+            from .display_manager import refresh_category_display
+            refresh_category_display(item)
+
+    def _toggle_place_reference(self) -> bool:
+        """Space in a 2D shape tool (RG6 / RG8): flip the placement's
+        reference state, recolour the live ghosts and re-emit the
+        instruction line with or without the " (Reference)" suffix.
+
+        An in-progress polyline chain takes the new state at once (it is the
+        item that will be committed).
+
+        Returns:
+            True (the key was consumed).
+        """
+        self._place_reference = not self._place_reference
+        pl = self._polyline_active
+        if self.mode == "polyline" and pl is not None:
+            pl.reference = self._place_reference       # chain keeps it (RG6)
+            from .display_manager import refresh_category_display
+            refresh_category_display(pl)
+        self._geom_ctl.recolour_ghosts()
+        base = (self._last_instruction or "").removesuffix(" (Reference)")
+        self.instructionChanged.emit(
+            base + (" (Reference)" if self._place_reference else ""))
+        return True
 
     def _cycle_opening_alignment(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
         return self._feature_ctl._cycle_opening_alignment(*args, **kwargs)
@@ -5424,8 +5479,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Commit the in-progress polyline (Enter / double-click finish).
 
         A 2-vertex result commits as a ``LineItem`` (S3b) — a single segment
-        IS a line. Built directly (not via ``_make_line_like``, whose draw_line
-        "reference" variant could leak in). Colour + lineweight carry over, as
+        IS a line. Built directly (not via ``_make_line_like``, which reads
+        the live placement state). Colour + lineweight carry over, as
         do per-instance Display-Manager overrides (``_display_overrides`` —
         Line and Polyline are both 2D-geometry display items, so the override
         keys mean the same thing); a polyline fill on an open 2-point path is
@@ -5448,6 +5503,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                                  pl.pen().widthF()))
             from .stroke_style import copy_style
             copy_style(pl, placed)
+            # RG6: a 2-vertex reference chain commits a reference line.
+            self._stamp_place_reference(placed)
             if pl._display_overrides:
                 placed._display_overrides = dict(pl._display_overrides)
             self.removeItem(pl)
@@ -6453,6 +6510,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         item = LineItem(anchor, tip, _c, _lw)
         from .stroke_style import apply_current
         apply_current(item, self)  # WM1: the draw tool's current
+        self._stamp_place_reference(item)       # RG6: Space-toggled reference
         self.addItem(item)
         self._draw_lines.append(item)
         self.clearSelection()  # only the just-placed item stays selected

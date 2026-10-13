@@ -62,6 +62,57 @@ def close_hit(first: QPointF, tip: QPointF, cursor: QPointF,
 class GeometryDrawingController:
     def __init__(self, scene):
         self._scene = scene
+        # Live placement ghosts a Space reference toggle recolours (RG8).
+        # Transient UI handles only -- never persisted geometry state.
+        self._ghosts: list = []
+
+    # ── Reference-placement ghost cue (RG8) ──────────────────────────────────
+
+    def _ghost_colour(self) -> str:
+        """Ghost pen colour: the Reference Geometry colour while placing
+        reference geometry (RG8), else the geometry colour."""
+        s = self._scene
+        if s._place_reference:
+            from .display_manager import _read_category_from_settings
+            return _read_category_from_settings("Reference Geometry")["color"]
+        return s._geom_color_lw()[0]
+
+    @staticmethod
+    def _is_live_ghost(item, scene) -> bool:
+        """True while *item* is still a placement ghost in *scene* (not
+        sip-deleted, still added, and -- for a primitive used as its own
+        ghost, the polyline -- still owning a ghost pen)."""
+        from PyQt6 import sip
+        if sip.isdeleted(item):
+            return False
+        if item.scene() is not scene:
+            return False
+        return getattr(item, "_ghost_pen", True) is not False
+
+    def _track_ghost(self, item) -> None:
+        """Register a placement ghost so a Space toggle can recolour it, and
+        give it the current ghost colour."""
+        s = self._scene
+        self._ghosts = [g for g in self._ghosts if self._is_live_ghost(g, s)]
+        self._ghosts.append(item)
+        self._recolour(item)
+
+    def _recolour(self, item) -> None:
+        pen = QPen(item.pen())
+        pen.setColor(QColor(self._ghost_colour()))
+        item.setPen(pen)
+
+    def recolour_ghosts(self) -> None:
+        """Recolour every live placement ghost to the current ghost colour
+        (Space reference toggle, RG8)."""
+        s = self._scene
+        self._ghosts = [g for g in self._ghosts if self._is_live_ghost(g, s)]
+        for g in self._ghosts:
+            self._recolour(g)
+        # The shared line rubber band is re-penned per move
+        # (_preview_from_line) and never tracked; recolour it in place.
+        if s.mode == "draw_line" and s._draw_line_anchor is not None:
+            self._recolour(s.preview_pipe)
 
     def clear(self, new_mode) -> None:
         """Idempotent teardown for the simple-primitive draw modes.
@@ -167,7 +218,7 @@ class GeometryDrawingController:
         # width-1 dashed) so it matches the other 2D-geo previews — not the
         # shared preview_pipe's darkGray pipe default. set_mode resets the pen
         # for pipe/set_scale.
-        _pen = QPen(QColor(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        _pen = QPen(QColor(self._ghost_colour()), 1, Qt.PenStyle.DashLine)
         _pen.setCosmetic(True)
         self._scene.preview_pipe.setPen(_pen)
         self._scene.preview_pipe.setLine(anchor.x(), anchor.y(), tip.x(), tip.y())
@@ -281,6 +332,7 @@ class GeometryDrawingController:
             _prev_pen = QPen(QColor(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
+            self._track_ghost(preview)
             preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             preview.setZValue(200)
             self._scene.addItem(preview)
@@ -317,6 +369,7 @@ class GeometryDrawingController:
         _c, _lw = self._scene._geom_color_lw()
         item = CircleItem(centre, r, _c, _lw)
         apply_current(item, self._scene)
+        self._scene._stamp_place_reference(item)
         self._scene.addItem(item)
         self._scene._draw_circles.append(item)
         self._scene.clearSelection()  # only the just-placed item stays selected
@@ -420,6 +473,7 @@ class GeometryDrawingController:
         prev = EllipseItem(s._ellipse_center, rx, 0.5, s._ellipse_rot,
                            s._geom_color_lw()[0], 2)
         prev._ghost_pen = True       # keep the width-2 preview pen at paint
+        self._track_ghost(prev)
         prev.setZValue(200)
         s.addItem(prev)
         s._ellipse_preview = prev
@@ -492,6 +546,7 @@ class GeometryDrawingController:
         _c, _lw = s._geom_color_lw()
         item = EllipseItem(s._ellipse_center, rx, ry, rot, _c, _lw)
         apply_current(item, self._scene)
+        s._stamp_place_reference(item)
         s.addItem(item)
         s._draw_ellipses.append(item)
         s.clearSelection()            # only the just-placed item stays selected
@@ -613,12 +668,14 @@ class GeometryDrawingController:
             _c, _lw = self._scene._geom_color_lw()
             pl = PolylineItem(snapped, _c, _lw)
             apply_current(pl, self._scene)
+            self._scene._stamp_place_reference(pl)   # the chain keeps it (RG6)
             # Ghost the in-progress polyline in the canonical reference-line style
             # (width-1 dashed); finalize() restores the committed solid pen.
             _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
             _ghost.setCosmetic(True)
             pl.setPen(_ghost)
             pl._ghost_pen = True     # paint must not re-derive (LT2 H-c)
+            self._track_ghost(pl)
             self._scene.addItem(pl)
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
@@ -739,6 +796,7 @@ class GeometryDrawingController:
             _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
+            self._track_ghost(preview)
             preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             preview.setZValue(200)
             s.addItem(preview)
@@ -839,6 +897,7 @@ class GeometryDrawingController:
         _c, _lw = self._scene._geom_color_lw()
         item = RectangleItem(pt1, pt2, _c, _lw)
         apply_current(item, self._scene)
+        self._scene._stamp_place_reference(item)
         item.set_angle(angle_deg, self._scene._draw_rect_pivot)
         self._scene.addItem(item)
         self._scene._draw_rects.append(item)
@@ -999,6 +1058,7 @@ class GeometryDrawingController:
             _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             line.setPen(_prev_pen)
+            self._track_ghost(line)
             line.setZValue(200)
             s.addItem(line)
             s._draw_arc_radius_line = line
@@ -1044,6 +1104,7 @@ class GeometryDrawingController:
         _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         _prev_pen.setCosmetic(True)
         preview.setPen(_prev_pen)
+        self._track_ghost(preview)
         preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         preview.setZValue(200)
         s.addItem(preview)
@@ -1175,7 +1236,7 @@ class GeometryDrawingController:
 
         The one home for the Center / Start span math, shared by the preview,
         the commit and the ``arc_span`` HUD seed.  CCW (the default) returns
-        ``(0, 360]``; after Space toggles ``_draw_arc_cw`` it returns the
+        ``(0, 360]``; after Shift+Space toggles ``_draw_arc_cw`` it returns the
         complementary CW sweep in ``(-360, 0]`` — the same end bearing reached
         the other way round.
         """
@@ -1189,7 +1250,7 @@ class GeometryDrawingController:
         return span - 360.0 if s._draw_arc_cw else span
 
     def _toggle_arc_cw(self) -> None:
-        """Space (Center / Start span step): flip CCW ↔ CW and refresh.
+        """Shift+Space (Center / Start span step, RG7): flip CCW ↔ CW and refresh.
 
         Redraws the ghost at the resolved point and reseeds the HUD so the
         Span readout jumps to the complementary magnitude at once.
@@ -1215,6 +1276,7 @@ class GeometryDrawingController:
         re-prompt for the variant's first pick.
         """
         s = self._scene
+        s._stamp_place_reference(item)       # RG6 (every arc variant)
         s.addItem(item)
         s._draw_arcs.append(item)
         s.clearSelection()  # only the just-placed item stays selected
@@ -1292,7 +1354,7 @@ class GeometryDrawingController:
         s._draw_arc_ref_start = s._make_ref_line()    # centre → A
         s._draw_arc_ref_sweep = s._make_ref_line()    # centre → B
         s.clear_placement_state()
-        s.instructionChanged.emit("Pick center point (Space: minor/major)")
+        s.instructionChanged.emit("Pick center point (Shift+Space: minor/major)")
         return True
 
     def _arc_ep_90_tolerance(self) -> float:
@@ -1310,7 +1372,7 @@ class GeometryDrawingController:
         """``(centre, r, start°, span°)`` of the End-Points arc for *cursor*, or None.
 
         The cursor is projected onto the chord bisector; the arc bulges away
-        from the centre's side (minor) unless Space toggled major. Updates the
+        from the centre's side (minor) unless Shift+Space toggled major. Updates the
         remembered side whenever the centre is off the chord.
 
         Args:
@@ -1388,7 +1450,7 @@ class GeometryDrawingController:
         s.publish_placement_state(s.get_placement_anchor(), snapped)
 
     def _toggle_arc_ep_major(self) -> None:
-        """Space: flip minor ↔ major and refresh the ghost at the resolved point."""
+        """Shift+Space (RG7): flip minor ↔ major and refresh the ghost at the resolved point."""
         s = self._scene
         s._draw_arc_ep_major = not s._draw_arc_ep_major
         pt = s.get_resolved_point()
@@ -1572,6 +1634,7 @@ class GeometryDrawingController:
                                   inscribed=s._polygon_inscribed,
                                   color=_c, lineweight=_lw)
         apply_current(item, self._scene)
+        s._stamp_place_reference(item)
         s.addItem(item)
         s._draw_polygons.append(item)
         s.clearSelection()  # only the just-placed item stays selected
@@ -1619,6 +1682,7 @@ class GeometryDrawingController:
         pen.setCosmetic(True)
         ghost.setPen(pen)
         ghost._ghost_pen = True      # keep the width-1 dashed ghost at paint
+        self._track_ghost(ghost)
         ghost.setZValue(200)
         ghost.setFlag(ghost.GraphicsItemFlag.ItemIsSelectable, False)
         s.addItem(ghost)
@@ -1746,6 +1810,7 @@ class GeometryDrawingController:
             prev = SplineItem(list(s._spline_points), 3, None, None,
                               s._geom_color_lw()[0], 2)
             prev._ghost_pen = True   # keep the width-2 preview pen at paint
+            self._track_ghost(prev)
             prev.setZValue(200)
             s.addItem(prev)
             s._spline_preview = prev
@@ -1776,6 +1841,7 @@ class GeometryDrawingController:
             _pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _pen.setCosmetic(True)
             item.setPen(_pen)
+            self._track_ghost(item)
             item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             item.setZValue(199)   # under the smooth curve preview (200)
             s.addItem(item)
@@ -1863,6 +1929,7 @@ class GeometryDrawingController:
         _c, _lw = s._geom_color_lw()
         item = SplineItem(pts, 3, None, None, _c, _lw, closed=closed)
         apply_current(item, self._scene)
+        s._stamp_place_reference(item)
         s.addItem(item)
         s._draw_splines.append(item)
         s.clearSelection()            # only the just-placed item stays selected

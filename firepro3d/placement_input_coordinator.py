@@ -44,12 +44,6 @@ class PlacementInputCoordinator:
                                            _ARC_VARIANT_ENDPOINTS)
 
         self._PLACEMENT_VARIANTS = {
-            "draw_line": [
-                ("Line", "Pick first point",
-                 lambda s: setattr(s, "_draw_line_variant", "line")),
-                ("Reference Line", "Pick reference start point",
-                 lambda s: setattr(s, "_draw_line_variant", "reference")),
-            ],
             "draw_arc": [
                 ("Center Point Arc", "Select center point to begin",
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
