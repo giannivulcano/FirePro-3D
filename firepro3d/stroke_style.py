@@ -223,8 +223,14 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
     """Copy *src*'s style record onto *dst* (deep), resetting *fresh_ends*.
 
     The one style-preserving copy for derive paths that build a new item from
-    geometry (LT2-3). No-op when either side is unstyled (Text, ReferenceLine).
+    geometry (LT2-3). Also carries the ``reference`` / ``printed`` flags when
+    both sides are reference-capable (RG14). The style copy is a no-op when
+    either side is unstyled (Text).
     """
+    if (getattr(src, "_REFERENCE_CAPABLE", False)
+            and getattr(dst, "_REFERENCE_CAPABLE", False)):
+        dst.reference = bool(getattr(src, "reference", False))   # RG14
+        dst.printed = bool(getattr(src, "printed", False))
     st = getattr(src, "style", None)
     if st is None or getattr(dst, "style", None) is None:
         return
