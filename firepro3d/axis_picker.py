@@ -33,7 +33,7 @@ from .snap_engine import _is_underlay_group
 from .underlay_snap_index import UnderlaySnapIndex
 from .wall import WallSegment
 
-# Straight-edged 2D primitives (LineItem covers ReferenceLineItem).
+# Straight-edged 2D primitives (reference shapes included, RG1).
 _STRAIGHT_2D = (LineItem, PolylineItem, RectangleItem, RegularPolygonItem)
 
 

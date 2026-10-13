@@ -498,7 +498,7 @@ class ModifyToolsController:
             s._show_status(self.OFFSET_TOO_LARGE, 3000)
             return False
         # Register through the one deserialise-and-register helper (I1),
-        # keyed by the item's own to_dict()["type"] (RefLine -> _reference_lines).
+        # keyed by the item's own to_dict()["type"] (the reference flag rides along).
         if s._add_from_dict(new.to_dict()) is None:
             return False
         s.push_undo_state()

@@ -240,7 +240,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "2D Geometry",      "color": "#ffffff", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
-    {"key": "Reference Lines",  "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
+    {"key": "Reference Geometry", "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
 ]
 
 # Group display order
@@ -289,7 +289,7 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     """
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
-    _migrate_opening_split(settings)
+    _migrate_display_keys(settings)
     cat_def = _CATEGORY_MAP[key]
     ov = overrides or {}
 
@@ -350,26 +350,45 @@ def _apply_to_scene_items(scene, key: str, vals: dict,
     """Apply display settings *vals* to all items of category *key*."""
     items = _items_for_category_static(scene, key)
     for obj in items:
-        if respect_overrides:
-            ov = getattr(obj, "_display_overrides", {})
-            c = ov.get("color", vals["color"])
-            s = ov.get("scale", vals["scale"])
-            o = ov.get("opacity", vals["opacity"])
-            v = ov.get("visible", vals["visible"])
-            f = ov.get("fill", vals.get("fill"))
-            fn = ov.get("font", vals.get("font"))
-            sc = ov.get("section", vals.get("section"))
-            sp = ov.get("section_pattern", vals.get("section_pattern"))
-            ss = ov.get("section_scale", vals.get("section_scale"))
-        else:
-            c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
-            f, fn = vals.get("fill"), vals.get("font")
-            sc = vals.get("section")
-            sp = vals.get("section_pattern")
-            ss = vals.get("section_scale")
-        apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn,
-                              section_color=sc, section_pattern=sp,
-                              section_scale=ss)
+        _apply_vals_to_item(obj, vals, respect_overrides)
+
+
+def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True) -> None:
+    """Apply one category's display *vals* to *obj* (its per-item
+    ``_display_overrides`` win when *respect_overrides*)."""
+    if respect_overrides:
+        ov = getattr(obj, "_display_overrides", {})
+        c = ov.get("color", vals["color"])
+        s = ov.get("scale", vals["scale"])
+        o = ov.get("opacity", vals["opacity"])
+        v = ov.get("visible", vals["visible"])
+        f = ov.get("fill", vals.get("fill"))
+        fn = ov.get("font", vals.get("font"))
+        sc = ov.get("section", vals.get("section"))
+        sp = ov.get("section_pattern", vals.get("section_pattern"))
+        ss = ov.get("section_scale", vals.get("section_scale"))
+    else:
+        c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
+        f, fn = vals.get("fill"), vals.get("font")
+        sc = vals.get("section")
+        sp = vals.get("section_pattern")
+        ss = vals.get("section_scale")
+    apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn,
+                          section_color=sc, section_pattern=sp,
+                          section_scale=ss)
+
+
+def refresh_category_display(item) -> None:
+    """Apply the live Display-Manager values of a 2D primitive's category
+    (Reference Geometry when flagged, else 2D Geometry) -- design RG10.
+
+    Args:
+        item: A 2D primitive (``Geometry2DMixin``) whose ``reference`` flag
+            picks the category.
+    """
+    key = "Reference Geometry" if getattr(item, "reference", False) else "2D Geometry"
+    vals = _read_category_from_settings(key)
+    _apply_vals_to_item(item, vals, respect_overrides=True)
 
 
 def _category_has_fill(key: str) -> bool:
@@ -547,10 +566,10 @@ def _apply_fitting(fitting, color, scale, opacity, visible, fill_color=None):
 
 
 def _is_geo2d_item(item) -> bool:
-    """Check if item is one of the 5 draw-geometry classes (avoids circular imports)."""
+    """Check if item is one of the 8 draw-geometry classes (avoids circular imports)."""
     return type(item).__name__ in (
         "LineItem", "PolylineItem", "RectangleItem", "CircleItem", "ArcItem",
-        "EllipseItem", "SplineItem"
+        "EllipseItem", "SplineItem", "RegularPolygonItem"
     )
 
 
@@ -705,13 +724,43 @@ def _migrate_opening_split(settings: QSettings) -> None:
     settings.setValue(_OPENING_SPLIT_MARK, True)
 
 
+# "Reference Lines" was renamed "Reference Geometry" (reference-geometry
+# design RG13, 2026-10-13): a store or project written before seeds it.
+_REFERENCE_RENAME_MARK = "display/_reference_geometry_v1"
+
+
+def _migrate_reference_rename(settings: QSettings) -> None:
+    """One-shot (RG13): copy ``display/Reference Lines/*`` (current +
+    ``default_*``) to the absent ``display/Reference Geometry/*`` keys.
+    Idempotent via a store marker."""
+    if settings.value(_REFERENCE_RENAME_MARK):
+        return
+    settings.beginGroup("display/Reference Lines")
+    legacy = {p: settings.value(p) for p in settings.childKeys()}
+    settings.endGroup()
+    for prop, val in legacy.items():
+        k = f"display/Reference Geometry/{prop}"
+        if not settings.contains(k):
+            settings.setValue(k, val)
+    settings.setValue(_REFERENCE_RENAME_MARK, True)
+
+
+def _migrate_display_keys(settings: QSettings) -> None:
+    """Every one-shot display-key migration, in order."""
+    _migrate_opening_split(settings)
+    _migrate_reference_rename(settings)
+
+
 def _project_entry(display_dict: dict, key: str) -> dict:
     """Project ``display_settings`` entry for *key*; a pre-split project has
-    only "Opening", which seeds Door / Window."""
+    only "Opening", which seeds Door / Window; a pre-rename project's
+    "Reference Lines" seeds "Reference Geometry" (RG13)."""
     if key in display_dict:
         return display_dict[key]
     if key in _SPLIT_FROM_OPENING:
         return display_dict.get("Opening", {})
+    if key == "Reference Geometry":
+        return display_dict.get("Reference Lines", {})
     return {}
 
 
@@ -768,7 +817,7 @@ def apply_category_defaults(item):
         return
 
     settings = QSettings("GV", "FirePro3D")
-    _migrate_opening_split(settings)
+    _migrate_display_keys(settings)
 
     # For SVG-based categories, only apply overrides when the user has
     # explicitly saved settings — otherwise the default colour tint would
@@ -3057,7 +3106,7 @@ def apply_saved_display_settings(scene):
     so the user's "Set as Default" preferences are always honoured.
     """
     settings = QSettings("GV", "FirePro3D")
-    _migrate_opening_split(settings)
+    _migrate_display_keys(settings)
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
         # Build overrides from default_* keys so they win over current keys
@@ -3084,7 +3133,7 @@ def apply_default_display_settings(scene):
     Reads from ``display/{key}/default_*`` keys, falling back to regular keys.
     """
     settings = QSettings("GV", "FirePro3D")
-    _migrate_opening_split(settings)
+    _migrate_display_keys(settings)
 
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
@@ -3157,7 +3206,7 @@ def apply_project_display_settings(scene, display_dict: dict):
     Falls back to QSettings for any category not present in *display_dict*.
     """
     settings = QSettings("GV", "FirePro3D")
-    _migrate_opening_split(settings)
+    _migrate_display_keys(settings)
 
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
@@ -3229,7 +3278,10 @@ def _items_for_category_static(scene, key: str) -> list:
         items.extend(getattr(scene, "_draw_ellipses", []))
         items.extend(getattr(scene, "_draw_splines", []))
         items.extend(getattr(scene, "_draw_polygons", []))
-        return items
-    elif key == "Reference Lines":
-        return list(getattr(scene, "_reference_lines", []))
+        return [i for i in items if not getattr(i, "reference", False)]
+    elif key == "Reference Geometry":
+        lists = ("_polylines", "_draw_lines", "_draw_rects", "_draw_circles",
+                 "_draw_arcs", "_draw_ellipses", "_draw_splines", "_draw_polygons")
+        return [i for a in lists for i in getattr(scene, a, [])
+                if getattr(i, "reference", False)]
     return []

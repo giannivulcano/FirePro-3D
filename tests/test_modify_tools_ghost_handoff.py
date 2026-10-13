@@ -21,7 +21,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.geometry_2d import ReferenceLineItem
+from firepro3d.geometry_2d import LineItem
 from tests._modify_tools_helpers import add_primitive, grips, ignore_os_mouse
 from tests._snap_polish_helpers import click, close_view, move
 from tests._snap_polish_helpers import make_view as _make_view
@@ -94,9 +94,10 @@ def _build_ghost(view, scene, tool):
 def test_previous_tool_ghost_is_gone_before_the_base_pick(qapp, src, dst):
     view, scene = make_view(scale=1.0)
     try:
-        rl = ReferenceLineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
+        rl = LineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
+        rl.reference = True                            # reference axis (RG1)
         scene.addItem(rl)
-        scene._reference_lines.append(rl)
+        scene._draw_lines.append(rl)
         item, _ = add_primitive(scene, "line")         # selected
         move(view, EMPTY)
         ref = _grab(view)                              # no tool, no ghost
@@ -126,9 +127,10 @@ def test_move_builds_its_own_ghost_after_another_tools(qapp, entry):
     and the click commits."""
     view, scene = make_view(scale=1.0)
     try:
-        rl = ReferenceLineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
+        rl = LineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
+        rl.reference = True                            # reference axis (RG1)
         scene.addItem(rl)
-        scene._reference_lines.append(rl)
+        scene._draw_lines.append(rl)
         item, _ = add_primitive(scene, "line")
         _build_ghost(view, scene, "flip")
         assert scene._move_ghost

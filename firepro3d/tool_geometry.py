@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-    ReferenceLineItem, RegularPolygonItem, EllipseItem, SplineItem,
+    RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .geometry_2d import _AXIS_MIN as _ELLIPSE_AXIS_MIN
 from .cad_math import CAD_Math
@@ -505,8 +505,8 @@ def offset_item(src, signed_d: float):
     d = float(signed_d)
     if not math.isfinite(d):
         return None
-    # ReferenceLineItem subclasses LineItem: one branch, and _clone keeps the
-    # exact type (a RefLine offsets to a RefLine).
+    # _clone keeps the exact type and the reference / printed flags (a
+    # reference line offsets to a reference line, RG14).
     if isinstance(src, LineItem):
         a, b = src._pt1, src._pt2
         dx, dy = b.x() - a.x(), b.y() - a.y()

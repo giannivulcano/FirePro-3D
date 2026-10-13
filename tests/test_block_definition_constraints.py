@@ -3,7 +3,14 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QTabWidget
 
 from firepro3d.block_definition import BlockDefinition, is_scaffold
-from firepro3d.geometry_2d import LineItem, ReferenceLineItem
+from firepro3d.geometry_2d import LineItem
+
+
+def _ref(p1, p2, printed=False):
+    """A reference line: a flagged LineItem (reference-geometry RG1)."""
+    ln = LineItem(p1, p2)
+    ln.reference, ln.printed = True, bool(printed)
+    return ln
 
 
 def _defn(**kw):
@@ -33,7 +40,7 @@ def test_constraints_field_round_trips_and_defaults_empty():
 
 
 def test_non_printed_reference_line_is_scaffold_not_rendered(qapp):
-    rl = ReferenceLineItem(QPointF(0, 0), QPointF(100, 0))
+    rl = _ref(QPointF(0, 0), QPointF(100, 0))
     assert is_scaffold(rl.to_dict())
     d = _defn(primitives=[rl.to_dict()])
     assert d.render_ops() == []
@@ -49,13 +56,13 @@ def test_editor_saves_and_reseeds_every_reference_line(qapp):
     proj = Model_Space()
     w = _editor(proj)
     line = LineItem(QPointF(0, 100), QPointF(50, 100))
-    off = ReferenceLineItem(QPointF(0, 0), QPointF(50, 0), printed=False)
-    on = ReferenceLineItem(QPointF(0, 20), QPointF(50, 20), printed=True)
+    off = _ref(QPointF(0, 0), QPointF(50, 0), printed=False)
+    on = _ref(QPointF(0, 20), QPointF(50, 20), printed=True)
     for it in (line, off, on):
         w._add_primitive(it)
     assert off in w.gather_primitives() and on in w.gather_primitives()
     defn = w.commit_block("B", "L", "S")
-    saved = [p for p in defn.primitives if p["type"] == "reference_line"]
+    saved = [p for p in defn.primitives if p.get("reference")]
     assert sorted(p["printed"] for p in saved) == [False, True]
     # Compile renders the line + the printed reference line only.
     assert len(defn.render_ops()) == 2
@@ -63,9 +70,9 @@ def test_editor_saves_and_reseeds_every_reference_line(qapp):
     reloaded = BlockDefinition.from_dict(defn.to_dict())
     w2 = _editor(proj)
     w2.seed_from_definition(reloaded)
-    refs = w2.editor_scene._reference_lines
+    refs = [r for r in w2.editor_scene._draw_lines if r.reference]
     assert len(refs) == 2
-    assert all(type(r) is ReferenceLineItem for r in refs)
+    assert all(type(r) is LineItem for r in refs)
     assert sorted(r.printed for r in refs) == [False, True]
     assert {r.to_dict()["uid"] for r in refs} == {off.to_dict()["uid"], on.to_dict()["uid"]}
 
@@ -75,8 +82,8 @@ def test_explode_skips_scaffold_reference_lines(qapp):
     from firepro3d.block_explode import explode_instances
     proj = Model_Space()
     line = LineItem(QPointF(0, 100), QPointF(50, 100))
-    off = ReferenceLineItem(QPointF(0, 0), QPointF(50, 0), printed=False)
-    on = ReferenceLineItem(QPointF(0, 20), QPointF(50, 20), printed=True)
+    off = _ref(QPointF(0, 0), QPointF(50, 0), printed=False)
+    on = _ref(QPointF(0, 20), QPointF(50, 20), printed=True)
     defn = proj.commit_block_definition(
         block_id=None, name="B", library="L", series="S",
         primitives=[line.to_dict(), off.to_dict(), on.to_dict()],
@@ -86,7 +93,7 @@ def test_explode_skips_scaffold_reference_lines(qapp):
     inst = s.place_block_instance(defn.id, (0.0, 0.0), rotation=0.0)
     created = explode_instances(s, [inst], flatten=False)
     assert len(created) == 2
-    assert [r.printed for r in s._reference_lines] == [True]
+    assert [r.printed for r in s._draw_lines if r.reference] == [True]
 
 
 def test_scaffold_only_editor_counts_as_empty(qapp, monkeypatch):
@@ -96,7 +103,7 @@ def test_scaffold_only_editor_counts_as_empty(qapp, monkeypatch):
     from firepro3d import themed_message
     proj = Model_Space()
     w = _editor(proj)
-    off = ReferenceLineItem(QPointF(0, 0), QPointF(50, 0), printed=False)
+    off = _ref(QPointF(0, 0), QPointF(50, 0), printed=False)
     w._add_primitive(off)
     infos = []
     monkeypatch.setattr(themed_message, "themed_info",
@@ -109,4 +116,5 @@ def test_scaffold_only_editor_counts_as_empty(qapp, monkeypatch):
     assert w._has_geometry(None) is True
     defn = w.commit_block("B", "L", "S")
     assert defn is not None and proj._block_definitions == {defn.id: defn}
-    assert sorted(p["type"] for p in defn.primitives) == ["draw_line", "reference_line"]
+    assert sorted((p["type"], bool(p.get("reference"))) for p in defn.primitives) == [
+        ("draw_line", False), ("draw_line", True)]

@@ -81,9 +81,9 @@ def test_ends_survive_a_load_round_trip(qapp):
 
 
 def test_unstyled_and_text_ops_carry_no_ends(qapp):
-    from firepro3d.geometry_2d import ReferenceLineItem
-    ref = ReferenceLineItem(QPointF(0, 0), QPointF(10, 0))
-    ref.printed = True
+    from firepro3d.geometry_2d import LineItem
+    ref = LineItem(QPointF(0, 0), QPointF(10, 0))
+    ref.reference, ref.printed = True, True   # printed reference: unstyled op (RG4)
     d = BlockDefinition.new(name="R", library="L", series="S",
                             primitives=[ref.to_dict()], origin=(0.0, 0.0))
     assert all(op.ends is None for op in d.render_ops())

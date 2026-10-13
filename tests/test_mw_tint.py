@@ -175,11 +175,12 @@ def test_g8_missing_linetype_tints_continuous(be):
 
 
 def test_g8_tint_never_leaks_into_the_item(be):
-    from firepro3d.geometry_2d import ReferenceLineItem
+    from firepro3d.geometry_2d import LineItem
     v, sc = be
-    rl = ReferenceLineItem(QPointF(-300, -150), QPointF(0, -150))
-    sc.addItem(rl); sc._reference_lines.append(rl)
-    before = rl.to_dict()["color"]
+    rl = LineItem(QPointF(-300, -150), QPointF(0, -150))
+    rl.reference = True                       # reference line (RG1)
+    sc.addItem(rl); sc._draw_lines.append(rl)
+    before = rl.to_dict()["style"]["colour"]   # styled record (RG2 / RG5)
     img, dpr = grab(v)
     # Painted tinted (the hook reached it: lit pixels are tint / bg blends;
     # an unsplit 1 px reference line straddles two rows at part intensity) ...
@@ -191,7 +192,7 @@ def test_g8_tint_never_leaks_into_the_item(be):
     lit = [c for c in lit if dist(c, bg) > 30]
     assert lit and all(_is_blend(c, bg, free) for c in lit)
     # ... yet the item's own colour (its pen) is untouched.
-    assert rl.to_dict()["color"] == before
+    assert rl.to_dict()["style"]["colour"] == before
     assert rl.pen().color() != free
 
 

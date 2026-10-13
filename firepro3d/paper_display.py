@@ -808,24 +808,24 @@ def _category_for_item(item) -> str | None:
         return "Detail Marker"
     if cls_name == "LevelDatumItem":
         return "Level Datum"
+    # Reference geometry (any flagged 2D shape, design RG12): its own
+    # category, which no paper row overrides (keeps its canvas pen).
+    if getattr(item, "reference", False):
+        return "Reference Geometry"
     # Construction / draw geometry — pen-only paper category. These read
     # self.pen() directly in paint(), so they default to white (#ffffff) and
     # are invisible on white paper unless remapped (see _apply_construction).
     try:
         from .geometry_2d import (
-            PolylineItem, LineItem, ReferenceLineItem,
+            PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
             EllipseItem, SplineItem, RegularPolygonItem,
         )
-        if isinstance(item, ReferenceLineItem):   # subclass — check before LineItem
-            return "Reference Lines"
         if isinstance(item, (PolylineItem, LineItem,
                              RectangleItem, CircleItem, ArcItem,
                              EllipseItem, SplineItem, RegularPolygonItem)):
             return "Construction"
     except ImportError:  # pragma: no cover - defensive fallback
-        if cls_name == "ReferenceLineItem":
-            return "Reference Lines"
         if cls_name in ("PolylineItem", "LineItem",
                         "RectangleItem", "CircleItem", "ArcItem",
                         "EllipseItem", "SplineItem", "RegularPolygonItem"):
@@ -1069,6 +1069,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     from PyQt6.QtGui import QBrush, QColor, QPen
     from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
     from .display_manager import _set_svg_tint
+    from .block_definition import is_scaffold_item as _is_scaffold_item
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
     from .hydraulic_node_badge import HydraulicNodeBadge
@@ -1110,9 +1111,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                               "visible": item.isVisible()})
                 item.setVisible(False)
                 continue
-            if getattr(item, "printed", True) is False:
-                # Non-printing reference line (task D): scaffolding, never plots.
-                # (`printed` exists only on ReferenceLineItem; other items → True.)
+            if _is_scaffold_item(item):
+                # Non-printed reference geometry (task D, RG11 / RG12):
+                # scaffolding, never plots. Every 2D primitive (and Text)
+                # carries ``printed``, so the flag alone is not the test.
                 saved.append({"item": item, "cat_key": None,
                               "visible": item.isVisible()})
                 item.setVisible(False)

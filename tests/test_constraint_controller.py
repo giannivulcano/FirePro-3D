@@ -12,7 +12,7 @@ import pytest
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.geometry_2d import LineItem, RectangleItem, ReferenceLineItem
+from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 
 
@@ -963,8 +963,9 @@ def _mirror_across(qapp, axis_p1, axis_p2, hover):
     v, sc = _shown_editor(qapp)
     ignore_os_mouse(v)
     sc.set_mode("select")
-    rl = ReferenceLineItem(QPointF(*axis_p1), QPointF(*axis_p2))
-    sc.addItem(rl); sc._reference_lines.append(rl)
+    rl = LineItem(QPointF(*axis_p1), QPointF(*axis_p2))
+    rl.reference = True                      # reference axis (RG1)
+    sc.addItem(rl); sc._draw_lines.append(rl)
     ln = _line(sc, (0, 0), (100, 0))
     sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
     sc.clearSelection(); ln.setSelected(True)
@@ -976,7 +977,7 @@ def _mirror_across(qapp, axis_p1, axis_p2, hover):
 def test_mirror_across_an_axis_aligned_axis_keeps_horizontal(qapp):
     v, sc, ln = _mirror_across(qapp, (200, -500), (200, 500), (202, 250))
     try:
-        copy = next(l for l in sc._draw_lines if l is not ln)
+        copy = next(l for l in sc._draw_lines if l is not ln and not l.reference)
         assert (copy._pt1.x(), copy._pt2.x()) == (400.0, 300.0)      # reflected
         assert [c.refs[0]["uid"] for c in sc.constraint_ctl.constraints] == \
             [ln._uid, copy._uid]
@@ -989,8 +990,8 @@ def test_mirror_across_a_diagonal_axis_drops_horizontal(qapp):
     horizontal, so the copied Horizontal is dropped (not re-solved)."""
     v, sc, ln = _mirror_across(qapp, (200, -300), (500, 0), (400, -100))
     try:
-        assert len(sc._draw_lines) == 2
-        copy = next(l for l in sc._draw_lines if l is not ln)
+        assert len([l for l in sc._draw_lines if not l.reference]) == 2
+        copy = next(l for l in sc._draw_lines if l is not ln and not l.reference)
         assert abs(copy._pt1.y() - copy._pt2.y()) > 1                # tilted copy
         assert [c.refs[0]["uid"] for c in sc.constraint_ctl.constraints] == [ln._uid]
     finally:

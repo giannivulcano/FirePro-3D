@@ -16,8 +16,7 @@ from firepro3d.axis_picker import pick_axis
 from firepro3d.dwg_converter import append_geom_to_path
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                                    PolylineItem, RectangleItem,
-                                   ReferenceLineItem, RegularPolygonItem,
-                                   SplineItem)
+                                   RegularPolygonItem, SplineItem)
 from firepro3d.gridline import GridlineItem
 from firepro3d.underlay_snap_index import UnderlaySnapIndex
 from firepro3d.wall import WallSegment
@@ -52,6 +51,13 @@ def _ends(pick):
             (round(pick.p2.x(), 2), round(pick.p2.y(), 2))}
 
 
+def _refline(p1, p2):
+    """A reference line: a flagged LineItem (reference-geometry RG1)."""
+    ln = LineItem(p1, p2)
+    ln.reference = True
+    return ln
+
+
 def _closed_poly():
     pl = PolylineItem(QPointF(300, 0))
     pl.append_point(QPointF(400, 0))
@@ -63,8 +69,8 @@ def _closed_poly():
 STRAIGHT = {
     "line": (lambda: LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines",
              QPointF(50, 3), {(0.0, 0.0), (100.0, 0.0)}),
-    "refline": (lambda: ReferenceLineItem(QPointF(0, 0), QPointF(100, 0)),
-                "_reference_lines", QPointF(50, -3), {(0.0, 0.0), (100.0, 0.0)}),
+    "refline": (lambda: _refline(QPointF(0, 0), QPointF(100, 0)),
+                "_draw_lines", QPointF(50, -3), {(0.0, 0.0), (100.0, 0.0)}),
     "rect_edge": (lambda: RectangleItem(QPointF(600, 0), QPointF(700, -50)),
                   "_draw_rects", QPointF(650, -48), {(600.0, -50.0), (700.0, -50.0)}),
     # The generator walks a polyline's vertex chain only; the closing edge of a

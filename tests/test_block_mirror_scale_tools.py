@@ -237,7 +237,7 @@ def test_mirror_of_a_grounded_block_still_copies(qapp):
 def test_mirror_remaps_a_block_line_horizontal_and_keeps_the_d30_rule(qapp, axis_kind, kept):
     """A Horizontal between a block's insertion point and a line follows the
     copies across a vertical axis and is dropped across a 45 degree one (D30)."""
-    from firepro3d.geometry_2d import ReferenceLineItem
+    from firepro3d.geometry_2d import LineItem
     from tests._modify_tools_helpers import add_primitive
     view, scene = make_view(role="block_editor", scale=1.0)
     try:
@@ -245,9 +245,10 @@ def test_mirror_remaps_a_block_line_horizontal_and_keeps_the_d30_rule(qapp, axis
             _axis_line(scene)
             at = None
         else:
-            rl = ReferenceLineItem(QPointF(0, 100), QPointF(200, 300))
+            rl = LineItem(QPointF(0, 100), QPointF(200, 300))
+            rl.reference = True                  # reference line (RG1)
             scene.addItem(rl)
-            scene._reference_lines.append(rl)
+            scene._draw_lines.append(rl)
             at = QPointF(100, 200)
         inst = _block(scene, at=(-150.0, 0.0))
         line, _ = add_primitive(scene, "line")            # (0,0)-(100,0), selected

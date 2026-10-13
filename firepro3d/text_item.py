@@ -262,6 +262,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # surface lands in a later containment task.
     delete_requested = pyqtSignal(object)
 
+    # Text has no reference form (reference-geometry design AC10).
+    _REFERENCE_CAPABLE = False
+
     _ALIGN = {
         "L": Qt.AlignmentFlag.AlignLeft,
         "C": Qt.AlignmentFlag.AlignCenter,

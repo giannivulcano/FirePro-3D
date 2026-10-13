@@ -5,7 +5,7 @@ See docs/specs/parametric-constraint-system.md D4, D24 and §6.5.
 from PyQt6.QtCore import QPointF
 
 from firepro3d.block_definition import BlockDefinition
-from firepro3d.geometry_2d import LineItem, ReferenceLineItem
+from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.text_item import TextItem, TextAnnotationData
 
@@ -110,7 +110,8 @@ def test_create_from_selection_uses_bbox_centre_and_keeps_plan_position(qapp):
 def test_create_from_selection_centre_ignores_scaffolding(qapp):
     proj = Model_Space()
     a = LineItem(QPointF(100, 100), QPointF(300, 100))
-    ref = ReferenceLineItem(QPointF(5000, 5000), QPointF(6000, 5000))
+    ref = LineItem(QPointF(5000, 5000), QPointF(6000, 5000))
+    ref.reference = True                     # scaffolding (RG1 / RG11)
     w = _editor(proj)
     w.seed_from_selection([a.to_dict(), ref.to_dict()], source_items=[])
     s = w.editor_scene._draw_lines[0]

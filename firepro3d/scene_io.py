@@ -374,7 +374,7 @@ class SceneIOMixin:
 
         # --- Construction geometry + standalone model text: forbidden loose
         # content (containment C8) — read-but-discard silently.  The restore
-        # loops for polylines / draw_* / reference_lines / polygons / texts are
+        # loops for polylines / draw_* / legacy reference_lines / polygons / texts are
         # dropped; the single info line below reports the total dropped count.
 
         # --- Gridlines ---
@@ -512,7 +512,6 @@ class SceneIOMixin:
         self._polylines = []
         self._polyline_active = None
         self._draw_lines = []
-        self._reference_lines = []
         self._draw_rects = []
         self._draw_circles = []
         self._draw_arcs = []

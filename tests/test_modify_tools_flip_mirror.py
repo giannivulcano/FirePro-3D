@@ -17,7 +17,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.cad_math import CAD_Math
-from firepro3d.geometry_2d import CircleItem, ReferenceLineItem
+from firepro3d.geometry_2d import CircleItem, LineItem
 from firepro3d.halo import halo_scene_path
 from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
                                          ignore_os_mouse)
@@ -48,10 +48,22 @@ def _nothing_to(tool):
 def _axis_line(scene, x=AXIS_X):
     """A vertical reference line x = *x* (y -500..500): the edge picked as axis.
     Added BEFORE ``add_primitive`` so it is part of the undo baseline."""
-    rl = ReferenceLineItem(QPointF(x, -500), QPointF(x, 500))
+    rl = _refline(QPointF(x, -500), QPointF(x, 500))
     scene.addItem(rl)
-    scene._reference_lines.append(rl)
+    scene._draw_lines.append(rl)
     return rl.to_dict()
+
+
+def _refline(p1, p2):
+    """A reference line: a flagged LineItem in ``_draw_lines`` (RG1)."""
+    rl = LineItem(p1, p2)
+    rl.reference = True
+    return rl
+
+
+def _lines(scene):
+    """The scene's normal lines (the reference axis shares ``_draw_lines``)."""
+    return [ln for ln in scene._draw_lines if not ln.reference]
 
 
 def _own(scene, attr, axis_d):
@@ -98,7 +110,7 @@ def test_flip_reflects_in_place_one_undo_selects_original(qapp):
         assert scene.mode in (None, "select")
         assert item.isSelected() and item.opacity() == pytest.approx(1.0)
         scene.undo()
-        assert grips(scene._draw_lines[0]) == LINE0
+        assert grips(_lines(scene)[0]) == LINE0
     finally:
         close_view(view, scene)
 
@@ -112,7 +124,7 @@ def test_mirror_adds_reflected_copy_and_selects_it(qapp):
         scene._modify_ctl.start("mirror")
         assert item.opacity() == pytest.approx(0.35)
         _hover_and_click(view)
-        lines = scene._draw_lines
+        lines = _lines(scene)
         assert len(lines) == 2                                            # [RED]
         copy = next(ln for ln in lines if ln is not item)
         assert grips(item) == LINE0                       # original untouched
@@ -121,7 +133,7 @@ def test_mirror_adds_reflected_copy_and_selects_it(qapp):
         assert item.opacity() == pytest.approx(1.0)
         assert scene._undo_pos == p0 + 1
         scene.undo()
-        assert len(scene._draw_lines) == 1
+        assert len(_lines(scene)) == 1
     finally:
         close_view(view, scene)
 
@@ -261,7 +273,7 @@ def test_esc_is_a_no_op(qapp, tool):
         assert scene._mirror_axis is not None
         QTest.keyClick(view.viewport(), Qt.Key.Key_Escape)
         assert scene.mode in (None, "select")
-        assert grips(item) == LINE0 and len(scene._draw_lines) == 1
+        assert grips(item) == LINE0 and len(_lines(scene)) == 1
         assert scene._undo_pos == p0
         assert scene._mirror_axis is None and not scene._move_ghost
         assert item.opacity() == pytest.approx(1.0)
@@ -305,9 +317,9 @@ def test_axis_step_has_no_cursor_snap_or_align(qapp):
 def test_hover_paints_the_axis_and_the_reflected_ghost(qapp):
     view, scene = make_view(scale=1.0)
     try:
-        rl = ReferenceLineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
+        rl = _refline(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
         scene.addItem(rl)
-        scene._reference_lines.append(rl)
+        scene._draw_lines.append(rl)
         line, _ = add_primitive(scene, "line")            # (0,0)-(100,0)
         # Lift it off y = 0: the Block Editor's non-printing constraint X axis
         # runs through the origin (parametric-constraint-system.md D3/D27), so a
@@ -379,9 +391,10 @@ def test_block_only_selection_is_accepted(qapp, tool):
 def _short_axis(scene):
     """A short vertical reference line x = AXIS_X (y -50..50): the infinite
     painted axis then crosses empty canvas at y in [-280, -100)."""
-    rl = ReferenceLineItem(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
+    rl = _refline(QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))
     scene.addItem(rl)
-    scene._reference_lines.append(rl)
+    scene._draw_lines.append(rl)
+    return rl
 
 
 _AXIS_BAND = [QPointF(AXIS_X, y) for y in range(-280, -100)]
@@ -509,8 +522,7 @@ def test_axis_whose_source_was_removed_never_commits(qapp, tool):
     with the refusal hint."""
     view, scene = make_view(scale=1.0)
     try:
-        _short_axis(scene)
-        rl = scene._reference_lines[-1]
+        rl = _short_axis(scene)
         item, _ = add_primitive(scene, "line")
         p0 = scene._undo_pos
         msgs = _capture_status(scene)
@@ -547,7 +559,7 @@ def test_mirror_copy_that_fails_to_rebuild_counts_as_skipped(qapp, monkeypatch):
         msgs = _capture_status(scene)
         scene._modify_ctl.start("mirror")
         _hover_and_click(view)
-        assert len(scene._draw_lines) == 2 and len(scene._draw_circles) == 1
+        assert len(_lines(scene)) == 2 and len(scene._draw_circles) == 1
         assert "Mirrored 1 item(s) (1 skipped)" in msgs                   # [RED]
     finally:
         close_view(view, scene)

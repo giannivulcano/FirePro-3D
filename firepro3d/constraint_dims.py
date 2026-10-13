@@ -31,7 +31,7 @@ def readout_key(item, h) -> str | None:
     from .geometry_2d import LineItem, PolylineItem, RectangleItem
     if not isinstance(h, str):
         return None
-    if isinstance(item, LineItem):                 # covers ReferenceLineItem
+    if isinstance(item, LineItem):                 # reference lines too (RG1)
         return "length" if h == "edge" else None
     if isinstance(item, RectangleItem):
         return _RECT_KEYS.get(h)

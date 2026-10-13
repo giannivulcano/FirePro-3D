@@ -28,7 +28,7 @@ from .dxf_import_worker import DxfImportWorker
 from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .geometry_2d import (
-    PolylineItem, LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem,
+    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .text_item import TextItem, TextAnnotationData, editing_text_item
@@ -249,8 +249,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._polyline_active: "PolylineItem | None" = None   # in-progress polyline
         self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # shared close-cue ring (DD8: spline/polyline/floor/roof)
         # Draw geometry (Sprint G)
+        # Reference lines are flagged LineItems here too (design RG1).
         self._draw_lines: list[LineItem] = []
-        self._reference_lines: list[ReferenceLineItem] = []
         self._block_definitions: dict = {}   # id -> BlockDefinition (flyweight registry)
         # The registry fronts _block_definitions (resolution / dependency /
         # cycle / invalidation choke point — nested blocks D3). A Block Editor
@@ -959,7 +959,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Map each geometry type to the list that tracks it
         type_to_list = {
             PolylineItem:        self._polylines,
-            ReferenceLineItem:   self._reference_lines,   # subclass — must precede LineItem
             LineItem:            self._draw_lines,
             RectangleItem:       self._draw_rects,
             CircleItem:          self._draw_circles,
@@ -2853,7 +2852,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # ── Draw geometry ──────────────────────────────────────────────
             "polylines":          [pl.to_dict() for pl in self._polylines],
             "draw_lines":         [l.to_dict()  for l in self._draw_lines],
-            "reference_lines":    [r.to_dict()  for r in self._reference_lines],
             "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
@@ -2980,11 +2978,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_lines.clear()
 
-            for item in list(self._reference_lines):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._reference_lines.clear()
-
             for item in list(self._draw_rects):
                 if item.scene() is self:
                     self.removeItem(item)
@@ -3069,10 +3062,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(li)
                 self._draw_lines.append(li)
 
+            # Legacy snapshot key (RG3): reference lines load as flagged
+            # LineItems (a ``reference_line`` record sets ``reference``).
             for d in state.get("reference_lines", []):
-                rli = ReferenceLineItem.from_dict(d)
+                rli = LineItem.from_dict(d)
                 self.addItem(rli)
-                self._reference_lines.append(rli)
+                self._draw_lines.append(rli)
 
             for d in state.get("draw_rectangles", []):
                 ri = RectangleItem.from_dict(d)
@@ -6455,19 +6450,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return gl
         tmpl = self._get_geometry_template()
         _c, _lw = self._geom_color_lw()
-        # draw_line ←/→ variant: "reference" builds a non-printing ReferenceLine
-        # into _reference_lines; "line" (default) builds a normal LineItem. Only
-        # applies in draw_line mode (draw_gridline returns above).
-        if getattr(self, "_draw_line_variant", "line") == "reference":
-            item = ReferenceLineItem(anchor, tip, _c, _lw)
-            self.addItem(item)
-            self._reference_lines.append(item)
-        else:
-            item = LineItem(anchor, tip, _c, _lw)
-            from .stroke_style import apply_current
-            apply_current(item, self)  # WM1: the draw tool's current
-            self.addItem(item)
-            self._draw_lines.append(item)
+        item = LineItem(anchor, tip, _c, _lw)
+        from .stroke_style import apply_current
+        apply_current(item, self)  # WM1: the draw tool's current
+        self.addItem(item)
+        self._draw_lines.append(item)
         self.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         return item
@@ -7715,7 +7702,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for pipe in self.sprinkler_system.pipes:
             if getattr(pipe, "level", None) == level_name:
                 result.append(pipe)
-        for lst in [self._polylines, self._draw_lines, self._reference_lines,
+        for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._draw_ellipses, self._draw_splines, self._draw_polygons,
                     self._gridlines,
@@ -8125,7 +8112,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # TextItem "text") — scene-tools.md I1.
     _GEOM_TYPE_REGISTRY = {
         "draw_line":      (LineItem, "_draw_lines"),
-        "reference_line": (ReferenceLineItem, "_reference_lines"),
+        "reference_line": (LineItem, "_draw_lines"),   # legacy record (RG3)
         "polyline":       (PolylineItem, "_polylines"),
         "draw_rectangle": (RectangleItem, "_draw_rects"),
         "draw_circle":    (CircleItem, "_draw_circles"),

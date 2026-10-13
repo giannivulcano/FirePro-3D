@@ -27,7 +27,7 @@ def _halo_trace_path_local(item):
     if isinstance(item, QGraphicsPathItem):
         p = item.path()
         return p if not p.isEmpty() else item.shape()
-    # Line items (LineItem, ReferenceLine, Pipe): the bare segment.
+    # Line items (LineItem -- reference lines too -- and Pipe): the bare segment.
     if isinstance(item, QGraphicsLineItem):
         ln = item.line()
         p = QPainterPath(ln.p1())
