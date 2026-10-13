@@ -690,6 +690,7 @@ def test_e2e_cs3b_segment_midpoint_save_close_reopen(win_with_editor):
     (pl2,) = [p for p in sc2._polylines if p._uid == upl]
     (ln2,) = [l for l in sc2._draw_lines if l._uid == uln]
     assert [c.type for c in sc2.constraint_ctl.active()] == ["coincident"]
+    assert _handles(sc2.constraint_ctl.constraints[0]) == {(upl, "m0"), (uln, "p1")}
     assert (ln2._pt1.x(), ln2._pt1.y()) == pytest.approx(_seg_mid(pl2, 0), abs=1e-6)
 
 
@@ -709,6 +710,9 @@ def test_e2e_cs3b_undo_redo_of_a_midpoint_coincident(win_with_editor):
     _ctrl(view, Qt.Key.Key_Z)
     assert sc.constraint_ctl.constraints == []
     assert (cur()._pt1.x(), cur()._pt1.y()) == pytest.approx((90.0, -60.0), abs=1e-6)
+    (pl1,) = [p for p in sc._polylines if p._uid == upl]
+    assert [(p.x(), p.y()) for p in pl1._points] == pytest.approx(
+        [(40.0, 40.0), (140.0, 40.0), (140.0, 140.0)], abs=1e-6)
     _ctrl(view, Qt.Key.Key_Y)
     (c,) = sc.constraint_ctl.constraints
     assert "m0" in {r["h"] for r in c.refs}
