@@ -812,3 +812,48 @@ def test_e2e_partly_locked_rect_corner_slides_and_keeps_the_opposite_corner(win_
     assert (tl.x(), tl.y()) == pytest.approx((30.0, 0.0), abs=1.0)
     assert tl.y() == pytest.approx(0.0, abs=1e-6)
     assert (br.x(), br.y()) == pytest.approx((br0.x(), br0.y()), abs=1e-6)
+
+
+def _e2e_text(sc, x, y):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    t = TextItem(TextAnnotationData(text="Tag", x=x, y=y, height_mm=10.0, wrap_width_mm=80.0))
+    sc.addItem(t); sc._texts.append(t)
+    return t
+
+
+def test_e2e_cs3c_text_bottom_mid_undo_redo_save_close_reopen(win_with_editor):
+    """G6 (CS3c AC1/AC8): pick text.bm then a line end through the real view;
+    undo removes the record, redo restores it; the record survives commit /
+    close / reopen and the reopened text still satisfies it."""
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    view = w.view
+    t = _e2e_text(sc, 40.0, 40.0)
+    ln = _line(sc, (200, -60), (260, -120))
+    ut, uln = t._uid, ln._uid
+    bm0 = t.grip_points()[5]
+    sc.push_undo_state()
+    _pick(win, (bm0.x(), bm0.y()), (200, -60))           # text bm, then ln.p1
+    (c,) = sc.constraint_ctl.constraints
+    assert _handles(c) == {(ut, "bm"), (uln, "p1")}
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    _ctrl(view, Qt.Key.Key_Y)
+    (c,) = sc.constraint_ctl.constraints
+    assert _handles(c) == {(ut, "bm"), (uln, "p1")}
+    sc.clearSelection()
+    defn = w.commit_block("cs3c-e2e", "L", "S")
+    assert defn is not None
+    assert [{(r["uid"], r["h"]) for r in d["refs"]} for d in defn.constraints] == [
+        {(ut, "bm"), (uln, "p1")}]
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    (t2,) = [x for x in sc2._texts if x._uid == ut]
+    (ln2,) = [x for x in sc2._draw_lines if x._uid == uln]
+    assert [k.type for k in sc2.constraint_ctl.active()] == ["coincident"]
+    bm = t2.grip_points()[5]
+    assert (bm.x(), bm.y()) == pytest.approx((ln2._pt1.x(), ln2._pt1.y()), abs=1e-6)
+
