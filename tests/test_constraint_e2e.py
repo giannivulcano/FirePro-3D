@@ -739,9 +739,22 @@ def test_e2e_d17_move_of_a_fully_defined_text_is_refused(win_with_editor):
     sc = win._active_scene()
     t = TextItem(TextAnnotationData(text="A", x=30.0, y=40.0, height_mm=20.0))
     sc.addItem(t); sc._texts.append(t)
-    _pick(win, (0, 0), (30, 40))                        # origin, then the text's ins
+    _pick(win, (0, 0), (30, 40))                        # origin, then the text's tl
     assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]
+    assert {r.get("h") for r in sc.constraint_ctl.constraints[0].refs} == {None, "tl"}
     assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    # CS3c (VC5): text now has 2 size DOF -- tl alone no longer fully defines
+    # it; tr's x and bl's y go onto fixed line ends (width 200, height 100).
+    ctl = sc.constraint_ctl
+    for a, b, hv in (((0, 0), (200, 0), "horizontal"), ((0, 0), (0, 100), "vertical")):
+        ln = _line(sc, a, b)
+        ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+        ctl.add(hv, [{"uid": ln._uid, "h": "edge"}])
+        ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
+        ctl.add("vertical" if hv == "horizontal" else "horizontal",
+                [{"uid": t._uid, "h": "tr" if hv == "horizontal" else "bl"},
+                 {"uid": ln._uid, "h": "p2"}])
+    assert ctl.item_state_text(t._uid)[1] == "defined"
     msgs = []
     sc._show_status = lambda m, *a, **k: msgs.append(m)
     sc.clearSelection(); t.setSelected(True); QApplication.processEvents()
@@ -799,3 +812,55 @@ def test_e2e_partly_locked_rect_corner_slides_and_keeps_the_opposite_corner(win_
     assert (tl.x(), tl.y()) == pytest.approx((30.0, 0.0), abs=1.0)
     assert tl.y() == pytest.approx(0.0, abs=1e-6)
     assert (br.x(), br.y()) == pytest.approx((br0.x(), br0.y()), abs=1e-6)
+
+
+def _e2e_text(sc, x, y):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    t = TextItem(TextAnnotationData(text="Tag", x=x, y=y, height_mm=10.0, wrap_width_mm=80.0))
+    sc.addItem(t); sc._texts.append(t)
+    return t
+
+
+def test_e2e_cs3c_text_bottom_mid_undo_redo_save_close_reopen(win_with_editor):
+    """G6 (CS3c AC1/AC8): pick text.bm then a line end through the real view;
+    undo removes the record, redo restores it; the record survives commit /
+    close / reopen and the reopened text still satisfies it."""
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    view = w.view
+    t = _e2e_text(sc, 40.0, 40.0)
+    ln = _line(sc, (200, -60), (260, -120))
+    ut, uln = t._uid, ln._uid
+    bm0 = t.grip_points()[5]
+    sc.push_undo_state()
+    _pick(win, (bm0.x(), bm0.y()), (200, -60))           # text bm, then ln.p1
+    (c,) = sc.constraint_ctl.constraints
+    assert _handles(c) == {(ut, "bm"), (uln, "p1")}
+    bm = t.grip_points()[5]                              # live: satisfied now
+    assert (bm.x(), bm.y()) == pytest.approx((ln._pt1.x(), ln._pt1.y()), abs=1e-6)
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    (tu,) = [x for x in sc._texts if x._uid == ut]       # undo restores geometry
+    (lu,) = [x for x in sc._draw_lines if x._uid == uln]
+    bu = tu.grip_points()[5]
+    assert (bu.x(), bu.y()) == pytest.approx((bm0.x(), bm0.y()), abs=1e-6)
+    assert (lu._pt1.x(), lu._pt1.y()) == pytest.approx((200.0, -60.0), abs=1e-6)
+    _ctrl(view, Qt.Key.Key_Y)
+    (c,) = sc.constraint_ctl.constraints
+    assert _handles(c) == {(ut, "bm"), (uln, "p1")}
+    sc.clearSelection()
+    defn = w.commit_block("cs3c-e2e", "L", "S")
+    assert defn is not None
+    assert [{(r["uid"], r["h"]) for r in d["refs"]} for d in defn.constraints] == [
+        {(ut, "bm"), (uln, "p1")}]
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    (t2,) = [x for x in sc2._texts if x._uid == ut]
+    (ln2,) = [x for x in sc2._draw_lines if x._uid == uln]
+    assert [k.type for k in sc2.constraint_ctl.active()] == ["coincident"]
+    bm = t2.grip_points()[5]
+    assert (bm.x(), bm.y()) == pytest.approx((ln2._pt1.x(), ln2._pt1.y()), abs=1e-6)
+

@@ -421,7 +421,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         auto-grows with content but never shrinks below the stored height.
         """
         content = super().boundingRect()
-        width = content.width()
+        # The exact wrap width (CS3c): the document lays out on a 1/64 grid
+        # (a 199.99 wrap reports 199.984375), which would leave a constrained
+        # box edge off its target. textWidth() is always set (_apply_format).
+        tw = self.textWidth()
+        width = tw if tw > 0 else content.width()
         scale = self.scale() or 1.0
         box_h_mm = self._data.box_height_mm
         if box_h_mm > 0 and scale > 0:

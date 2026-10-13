@@ -13,6 +13,7 @@ import math
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF
 
+from .constants import MIN_TEXT_WRAP_WIDTH_MM
 from .geometry_2d import ARC_MIN_RADIUS, CIRCLE_MIN_RADIUS, RECT_MIN_SIZE
 from .sketch_solver import ANG_SCALE, CurveExpr, PointExpr, raw_point, register_point_family
 
@@ -93,6 +94,9 @@ GRIP_HANDLES = {
     "arc": {0: "center", 1: "start", 2: "end"},
     "draw_ellipse": {0: "center"},
 }
+# CS3c: text grips 0=TL .. 8=Centre (text_item.py grip protocol) carry the
+# rectangle's names -- one map.
+GRIP_HANDLES["text"] = GRIP_HANDLES["draw_rectangle"]
 # Rect handle -> (sign of local u, sign of local v); v is Qt Y-down LOCAL, so
 # "top" (v = -h/2) is the local min-y edge (§5.3).
 _RECT_LOCAL = {"tl": (-1, -1), "tm": (0, -1), "tr": (1, -1), "rm": (1, 0),
@@ -185,6 +189,11 @@ class _Adapter:
     def mid_names(self, item) -> frozenset:
         """CS3b: the point handles that are edge midpoints (pick markers
         paint them as triangles); none by default."""
+        return frozenset()
+
+    def hidden_names(self, item) -> frozenset:
+        """CS3c: point handles that stay valid (old records solve) but are
+        never offered as pick candidates -- text ``ins``. None by default."""
         return frozenset()
 
     def grip_handle(self, item, index: int):
@@ -553,7 +562,7 @@ class _PolygonAdapter(_CenterRotAdapter):
 
 
 class _InsAdapter(_Adapter):
-    """Text (``pos()``) / nested block instance (``block_pos()``): only ``ins``."""
+    """Nested block instance (``block_pos()``): only ``ins``."""
 
     def __init__(self, key):
         self.type_key = key
@@ -562,8 +571,6 @@ class _InsAdapter(_Adapter):
         return 2
 
     def read(self, it):
-        if self.type_key == "text":
-            return [it.pos().x(), it.pos().y()]
         return [float(c) for c in it.block_pos()]
 
     def grip_handle(self, it, index):
@@ -573,11 +580,125 @@ class _InsAdapter(_Adapter):
         return {"ins": raw_point(off, off + 1)}
 
     def write(self, it, v):
-        if self.type_key == "text":
-            it.setPos(float(v[0]), float(v[1]))
-            it.sync_data_from_item()
+        it.set_block_pos(float(v[0]), float(v[1]))
+
+
+def _text_point_fn(su, sv, th):
+    """``_rect_point_fn`` over cx cy w h with the text's rotation *th* held
+    constant (CS3c: rotation is never a variable)."""
+    f = _rect_point_fn(su, sv)
+
+    def fn(v):
+        p, dp = f(np.append(np.asarray(v, dtype=float), th))
+        return p, dp[:, :4]
+    return fn
+
+
+def _text_ins_fn(v):
+    """CS3c AC4: legacy ``ins`` == ``pos()`` == centre - (w/2, h/2) -- the
+    box rotates about its centre, so pos is unrotated. Exact for the at-rest
+    centre pivot (pivot None); a transient explicit pivot is canonicalised to
+    None by the first write."""
+    cx, cy, w, h = v
+    return (np.array([cx - w / 2.0, cy - h / 2.0]),
+            np.array([[1.0, 0.0, -0.5, 0.0], [0.0, 1.0, 0.0, -0.5]]))
+
+
+def _content_height_at(it, w_local: float) -> float:
+    """The text's content height (local units) if wrapped at *w_local* --
+    laid out on a clone, the item untouched (P4-probed: equals the real
+    ``_box_rect_local`` height after ``setTextWidth``)."""
+    doc = it.document().clone()
+    doc.setTextWidth(w_local)
+    return doc.size().height()
+
+
+class _TextBoxAdapter(_Adapter):
+    """CS3c: vars cx cy w h, all SCENE units (box centre; w -> wrap width,
+    h -> box height; local box size x ``scale()`` -- 1 in the editor).
+    Handles = the rectangle's (``tl``..``center`` + edges) through the text's
+    constant rotation, plus the hidden legacy ``ins``. Write-back
+    canonicalises the pivot to the centre (identical geometry), like the
+    rectangle."""
+
+    type_key = "text"
+
+    def nvars(self, it):
+        return 4
+
+    def read(self, it):
+        r = it._box_rect_local()
+        s = it.scale() or 1.0
+        c = it.mapToScene(r.center())
+        return [c.x(), c.y(), r.width() * s, r.height() * s]
+
+    def size_floors(self, it):
+        return {2: MIN_TEXT_WRAP_WIDTH_MM, 3: 0.0}
+
+    def struct_key(self, it):
+        """The rotation is baked into the handle fns (D18 build cache)."""
+        return (self.type_key, 4, float(it._angle))
+
+    def points(self, it, off):
+        idx = tuple(range(off, off + 4))
+        th = math.radians(it._angle)
+        out = {name: PointExpr(idx=idx, fn=_text_point_fn(su, sv, th))
+               for name, (su, sv) in _RECT_LOCAL.items()}
+        out["ins"] = PointExpr(idx=idx, fn=_text_ins_fn)
+        return out
+
+    def edges(self, it, off):
+        p = self.points(it, off)
+        return {e: (p[a], p[b]) for e, (a, b) in _RECT_EDGES.items()}
+
+    def mid_names(self, it):
+        return frozenset(("tm", "rm", "bm", "lm"))
+
+    def hidden_names(self, it):
+        return frozenset(("ins",))
+
+    def collapses(self, it, old, new):
+        """D29 width floor, plus AC3: a solve that changed the size and leaves
+        the box shorter than its text re-wrapped at the solved width. Sizes
+        are settled first (review I1): solver noise the write would drop
+        (an auto-width box sits exactly at its idealWidth, so -1e-8 re-wraps
+        a word) is never a collapse."""
+        if super().collapses(it, old, new):
+            return True
+        n = self.settled(it, old, new)
+        w, h = n[2], n[3]
+        if w == float(old[2]) and h == float(old[3]):
+            return False
+        s = it.scale() or 1.0
+        # An unmoved width re-wraps at the item's own textWidth: w / s can
+        # land 1 ulp under it at scale != 1, and Qt truncates to 1/64.
+        w_local = it.textWidth() if w == float(old[2]) else w / s
+        return _content_height_at(it, w_local) * s > h + DEGEN_EPS
+
+    def write(self, it, v):
+        cx, cy, w, h = (float(t) for t in v)
+        o = self.read(it)
+        s = it.scale() or 1.0
+        it.prepareGeometryChange()
+        w_moved = abs(w - o[2]) > POS_WRITE_TOL
+        h_moved = abs(h - o[3]) > POS_WRITE_TOL
+        if w_moved:
+            w = max(w, MIN_TEXT_WRAP_WIDTH_MM)
+            it.setTextWidth(w / s)
+            it._data.wrap_width_mm = w
         else:
-            it.set_block_pos(float(v[0]), float(v[1]))
+            w = o[2]                      # sub-tolerance noise never shifts pos
+        if not h_moved:
+            h = o[3]
+        if w_moved or h_moved:
+            # Freeze the solved height (an auto box would otherwise re-fit
+            # the re-wrapped content and drift its bottom edge / centre).
+            it._data.box_height_mm = h
+        if it._pivot is not None:
+            it.set_angle(it._angle, None)
+        it.setPos(cx - w / 2.0, cy - h / 2.0)
+        it.sync_data_from_item()
+        it.update()
 
 
 def _registry():
@@ -598,7 +719,7 @@ def _registry():
         EllipseItem: _CenterRotAdapter(
             "draw_ellipse", ("_rx", "_ry", "_rotation_deg"),
             {"_rx": _AXIS_MIN, "_ry": _AXIS_MIN}),
-        TextItem: _InsAdapter("text"),
+        TextItem: _TextBoxAdapter(),
         BlockInstance: _InsAdapter("block_instance"),
     }
 
