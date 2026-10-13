@@ -135,8 +135,9 @@ def test_rect_derived_grip_pins_every_var(qapp):
 
 # ── analytic derivatives == finite differences ──────────────────────────────
 
-@pytest.mark.parametrize("key", ["rect", "rect_rotated", "arc", "line", "circle",
-                                 "polyline_closed", "polygon", "polygon_circ", "ellipse"])
+@pytest.mark.parametrize("key", ["rect", "rect_rotated", "arc", "line", "reference_line",
+                                 "circle", "polyline", "polyline_closed", "polygon",
+                                 "polygon_circ", "ellipse"])
 def test_derivatives_match_finite_differences(qapp, key):
     it = _MAKERS[key]()
     ad = adapter_for(it)
@@ -256,6 +257,53 @@ def test_polygon_vertices_are_its_grip_points(qapp, sides, rot, inscribed):
 def test_polygon_vertex_grip_pins_every_var(qapp):
     it = _MAKERS["polygon"]()
     assert adapter_for(it).pin_vars(it, 3) == (0, 1, 2, 3)
+
+
+# ── CS3b: edge midpoints (derived point handles) ───────────────────────────
+
+def _avg(p, q):
+    return QPointF((p.x() + q.x()) / 2.0, (p.y() + q.y()) / 2.0)
+
+
+def _expected_mids(key, it):
+    """Ground truth from the item's OWN grip_points (never the adapter)."""
+    g = it.grip_points()
+    if key in ("line", "reference_line"):
+        return {"mid": _avg(g[0], g[2])}
+    if key.startswith("polyline"):
+        n = len(it._points)
+        out = {f"m{i}": _avg(g[i], g[i + 1]) for i in range(n - 1)}
+        if it.is_closed():
+            out[f"m{n - 1}"] = _avg(g[n - 1], g[0])
+        return out
+    n = it._sides                                        # polygon: grip i+1 = v_i
+    return {f"m{k}": _avg(g[k + 1], g[(k + 1) % n + 1]) for k in range(n)}
+
+
+@pytest.mark.parametrize("key", ["line", "reference_line", "polyline", "polyline_closed",
+                                 "polygon", "polygon_circ"])
+def test_edge_midpoints_are_the_middle_of_their_edges(qapp, key):
+    it = _MAKERS[key]()
+    ad = adapter_for(it)
+    x = np.array(ad.read(it))
+    pts = ad.points(it, 0)
+    want = _expected_mids(key, it)
+    assert set(ad.mid_names(it)) == set(want)
+    for name, q in want.items():
+        assert _close(_pt(pts[name], x), q), name
+    # derived, not a grip: no grip index maps to a midpoint
+    assert not any(ad.grip_handle(it, i) in want for i in range(len(it.grip_points())))
+
+
+def test_rect_edge_midpoints_are_its_tm_rm_bm_lm(qapp):
+    r = _rotated_rect()
+    assert set(adapter_for(r).mid_names(r)) == {"tm", "rm", "bm", "lm"}
+
+
+def test_non_edge_items_have_no_midpoints(qapp):
+    for key in ("circle", "arc", "ellipse", "text", "block"):
+        it = _MAKERS[key]()
+        assert adapter_for(it).mid_names(it) == frozenset(), key
 
 
 # ── write-back moves the item's own observable geometry ─────────────────────
