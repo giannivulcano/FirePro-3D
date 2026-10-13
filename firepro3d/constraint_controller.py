@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 from PyQt6 import sip
 from PyQt6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
-from PyQt6.QtGui import QPen
+from PyQt6.QtGui import QPen, QPolygonF
 
 from . import sketch_model as sm
 from . import theme as _theme
@@ -193,7 +193,8 @@ class PickState:
         self.hover_kind: str | None = None      # "point" / "edge" / "curve" / "axis"
 
     def _candidates(self):
-        """``(kind, ref, a, b)`` scene-space: point ``(p, None)``, edge
+        """``(kind, ref, a, b)`` scene-space: point ``(p, None | "mid")``
+        (``"mid"`` = an edge midpoint, CS3b), edge
         ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``."""
         coincident = self.ctype == "coincident"
         for it in self.ctl.items():
@@ -202,8 +203,11 @@ class PickState:
                 continue
             ad = adapter_for(it)
             x = np.array(ad.read(it), dtype=float)
+            mids = ad.mid_names(it)
             for name, e in ad.points(it, 0).items():
-                yield "point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]), None
+                # CS3b: b = "mid" tags an edge midpoint (a triangle marker).
+                yield ("point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]),
+                       "mid" if name in mids else None)
             for name, (a, b) in ad.edges(it, 0).items():
                 yield ("edge", {"uid": uid, "h": name},
                        QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
@@ -284,8 +288,8 @@ class PickState:
 
     def paint(self, painter, view, t) -> None:
         """Hover / picked edge, curve and axis glow, then the markers: hollow
-        ``muted`` squares, filled ``accent`` for the hovered (enlarged) and
-        already-picked handles."""
+        ``muted`` squares (triangles for edge midpoints, CS3b), filled
+        ``accent`` for the hovered (enlarged) and already-picked handles."""
         half = M.CONSTRAINT_PICK_MARKER_HALF_PX
         cands = list(self._candidates())
         o = QPointF(view.mapFromScene(QPointF(0.0, 0.0)))
@@ -309,7 +313,7 @@ class PickState:
             else:
                 painter.drawLine(QPointF(o.x() + 0.5, vpr.top()),
                                  QPointF(o.x() + 0.5, vpr.bottom()))
-        for kind, ref, a, _b in cands:
+        for kind, ref, a, tag in cands:
             if kind != "point":
                 continue
             hov = ref == self.hover
@@ -318,7 +322,12 @@ class PickState:
             p = QPointF(view.mapFromScene(a))
             painter.setPen(QPen(t.color("accent" if on else "muted"), 1.3))
             painter.setBrush(t.color("accent" if on else "surface"))
-            painter.drawRect(QRectF(p.x() - s, p.y() - s, 2 * s, 2 * s))
+            if tag == "mid":                          # CS3b: edge midpoint
+                painter.drawPolygon(QPolygonF([QPointF(p.x(), p.y() - s),
+                                               QPointF(p.x() + s, p.y() + s),
+                                               QPointF(p.x() - s, p.y() + s)]))
+            else:
+                painter.drawRect(QRectF(p.x() - s, p.y() - s, 2 * s, 2 * s))
 
 
 class ConstraintController:

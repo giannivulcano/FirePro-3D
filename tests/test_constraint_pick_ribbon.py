@@ -278,7 +278,7 @@ def test_pick_mode_one_edge_by_posted_click(win_with_editor):
     sc.clearSelection()
     _btn(win, "Horizontal").click()
     v = _view(win)
-    _click(v, _vp(v, 100, 75))                    # mid-edge, far from the ends
+    _click(v, _vp(v, 50, 67.5))   # on the edge, away from its ends and its midpoint (CS3b)
     assert abs(b._pt1.y() - b._pt2.y()) < 1e-6
     assert [c.refs for c in sc.constraint_ctl.constraints] == [
         [{"uid": b._uid, "h": "edge"}]]
@@ -430,6 +430,38 @@ def test_pick_markers_paint_hollow_and_hover_filled(win_with_editor):
     assert _dist(_px(hov, dpr, end.x() - 1, end.y()), t.color("accent")) <= 30
 
 
+def test_cs3b_midpoint_marker_is_a_triangle_and_fills_on_hover(win_with_editor):
+    """CS3b: an edge midpoint's pick marker is a hollow triangle (apex up,
+    inside the point square's box): the square's top-left corner pixel is
+    drawn at an endpoint but NOT at the midpoint, the apex is drawn."""
+    win = win_with_editor
+    sc = _editor_scene(win)
+    v = _view(win)
+    ln = _line(sc, (40, 60), (240, 60))
+    sc.clearSelection()
+    t = th.detect()
+    half = 4                                             # CONSTRAINT_PICK_MARKER_HALF_PX
+    mid, end = _vp(v, 140, 60), _vp(v, 240, 60)
+    _move(v, _vp(v, 0, -200))
+    before, dpr = _grab(v)
+    _btn(win, "Horizontal").click()
+    _move(v, _vp(v, 0, -200))
+    img, dpr = _grab(v)
+    muted = t.color("muted")
+    corner_end = _px(img, dpr, end.x() - half, end.y() - half)
+    corner_mid = _px(img, dpr, mid.x() - half, mid.y() - half)
+    corner_mid0 = _px(before, dpr, mid.x() - half, mid.y() - half)
+    apex = _px(img, dpr, mid.x(), mid.y() - half)
+    apex0 = _px(before, dpr, mid.x(), mid.y() - half)
+    assert _dist(corner_end, muted) <= 60                # square at the endpoint
+    assert _dist(corner_mid, corner_mid0) <= 20          # no square corner at the mid
+    assert _dist(apex, muted) < _dist(apex0, muted)      # the triangle's apex is drawn
+    _move(v, mid)
+    assert sc.constraint_ctl.pick.hover == {"uid": ln._uid, "h": "mid"}
+    hov, dpr = _grab(v)
+    assert _dist(_px(hov, dpr, mid.x(), mid.y() + 1), t.color("accent")) <= 30
+
+
 def test_edge_hover_glows_before_the_first_point_pick(win_with_editor):
     win = win_with_editor
     sc = _editor_scene(win)
@@ -437,15 +469,15 @@ def test_edge_hover_glows_before_the_first_point_pick(win_with_editor):
     ln = _line(sc, (40, 60), (240, 60))
     sc.clearSelection()
     t = th.detect()
-    mid = _vp(v, 140, 60)
+    q = _vp(v, 90, 60)                        # off the midpoint (CS3b: points win there)
     _btn(win, "Horizontal").click()
     _move(v, _vp(v, 0, -200))
     base, dpr = _grab(v)
-    _move(v, mid + type(mid)(0, 3))           # 3 px off the edge (tol 6)
+    _move(v, q + type(q)(0, 3))               # 3 px off the edge (tol 6)
     assert sc.constraint_ctl.pick.hover == {"uid": ln._uid, "h": "edge"}
     img, dpr = _grab(v)
-    off = _px(img, dpr, mid.x(), mid.y() + 2)
-    off0 = _px(base, dpr, mid.x(), mid.y() + 2)
+    off = _px(img, dpr, q.x(), q.y() + 2)
+    off0 = _px(base, dpr, q.x(), q.y() + 2)
     assert _dist(off, t.color("accent")) + 60 < _dist(off0, t.color("accent"))
 
 

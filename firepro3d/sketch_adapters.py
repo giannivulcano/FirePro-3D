@@ -448,11 +448,7 @@ class _PolylineAdapter(_Adapter):
 
     def edges(self, it, off):
         p = self.points(it, off)
-        n = len(it._points)
-        out = {f"s{i}": (p[f"v{i}"], p[f"v{i + 1}"]) for i in range(n - 1)}
-        if it.is_closed():
-            out[f"s{n - 1}"] = (p[f"v{n - 1}"], p["v0"])
-        return out
+        return {f"s{i}": (p[f"v{i}"], p[f"v{j}"]) for i, j in self._seg_pairs(it)}
 
     def collapses(self, it, old, new):
         """D29 + D36: any segment (the closing one too) shrunk to zero length."""
