@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; Trim/Extend/Break/Fillet/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
-last-verified: 2026-10-12  # block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
-verified-commit: fb928260   # block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-10-13  # reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: bfef1e34   # reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -246,8 +246,9 @@ Join / Explode — D14.)*
 ## 3. Primitive × tool coverage matrix
 
 Primitive classes (grepped, `geometry_2d.py` + `text_item.py`; the nine 2D
-primitives of `2d-geometry.md` plus the `ReferenceLineItem` subclass):
-`LineItem`, `ReferenceLineItem(LineItem)`, `PolylineItem` (open / closed),
+primitives of `2d-geometry.md`; a reference-flagged shape is the same class, not a
+subclass):
+`LineItem`, `PolylineItem` (open / closed),
 `RectangleItem`, `CircleItem`, `ArcItem`, `RegularPolygonItem`, `EllipseItem`,
 `SplineItem`, `TextItem`.
 
@@ -306,20 +307,17 @@ picked as the *cutting edge*), **PARTIAL 4**, SUPPORTED 42.
 
 ### 3.1 isinstance-dispatch ordering hazards
 
-- `ReferenceLineItem` subclasses `LineItem`. Every `isinstance(item, LineItem)`
-  branch that **creates** a new item (`make_offset_item`, `_apply_mirror`
-  — retired in the P1 batch; Flip / Mirror use the per-item `manip_reflect`,
-  which keeps the subclass —,
-  `_break_item`, `_break_at_point`, `join_selected_items`) emits a plain
-  `LineItem` into `_draw_lines`, and the removal half only checks
-  `_draw_lines` — a broken/joined reference line is **left behind in
-  `_reference_lines`** after `removeItem`. `paste_items` gets it right (the
-  `"reference_line"` type key, not isinstance). Per
-  `project_subclass_isinstance_dispatch_ordering`, a ReferenceLine branch must
-  precede LineItem wherever the result type matters.
+- **RESOLVED (reference geometry, 2026-10-13).** `ReferenceLineItem` and
+  `_reference_lines` are retired: a reference line is a plain `LineItem` with the
+  `reference` / `printed` flags (`2d-geometry.md` §1), so there is no subclass to
+  dispatch before `LineItem`. The derive paths (`_break_item`, `_break_at_point`,
+  geometry Explode) carry the flags through `stroke_style.copy_style` (RG14); Offset
+  (`_clone`) and Flip / Mirror (`manip_reflect`) keep them; **Join** (RG16) makes the
+  joined polyline reference only when every input is reference, printed only when every
+  input is printed, otherwise a normal polyline. Nothing is left behind in a list.
 - `_press_offset_side` / the Enter-commit twin re-dispatch the *new* item by
   isinstance to pick the per-type list (a hand-copied chain in two places);
-  neither lists `RegularPolygonItem`/`TextItem`/`ReferenceLineItem`.
+  neither lists `RegularPolygonItem`/`TextItem`.
 - `_family_key_for` (ribbon) and `_find_entity_at` (context menu) enumerate
   primitives independently; `_find_entity_at` omits Ellipse/Spline.
 
@@ -492,7 +490,7 @@ questions. Available HUD schemas today (`dynamic_input.SCHEMAS`):
 | DV11 | ~~Scale: no commit path~~ **RESOLVED 2026-10-01 (P1 batch):** legacy `scale` retired; Scale rebuilt per D17 | §1.1-2 | — |
 | DV12 | Move tool skips Text; Paste/Duplicate/Array drop Text | §1.1-4/5 [probe] | missing |
 | DV13 | `numericInputRequested` never emitted; `complete_numeric_input` dead | §1.1-2 | dead code |
-| DV14 | ReferenceLine subclass dispatch: new items are plain Lines; originals left in `_reference_lines` after break/join | §3.1 | wrong result |
+| DV14 | ~~ReferenceLine subclass dispatch: new items are plain Lines; originals left in `_reference_lines` after break/join~~ **RESOLVED 2026-10-13** — the subclass and list are retired; Break / Explode carry the flag via `copy_style`, Join follows RG16 | §3.1 | wrong result |
 | DV15 | ~~Align pushes undo before mutating~~ **RESOLVED 2026-10-02 (CS1):** `_execute_align` moves inside `ConstraintController.edit`, then pushes once | §1.1-7 | — |
 | DV16 | All modify modes are enterable in the plan scene (none is in `_LOOSE_AUTHORING_MODES`). C1 forbids loose-geometry *authoring* there; modify tools on block instances / walls / pipes are a separate question | [probe: move/rotate/offset/trim/mirror/paste accepted with `scene_role="plan"`] | open question (milestone 2). *P1 batch: Shift+F / Shift+I / Shift+S also reach the plan scene; there they act only on the 2D primitives (pipes, nodes, walls, gridlines… are skipped / refused by capability, `nothing_to_hint`).* |
 | DV17 | *(introduced by the P1 batch, accepted)* Polar Array dims the variant-independent copyable set at `start("array")`, so items Polar skips (Nodes — a Sprinkler resolves to its Node — and copyable items without `manip_rotate`) stay dimmed during the gesture (restored on exit) | `start()` dims `_array_copyable(sel)` | cosmetic (D11) |
@@ -835,8 +833,8 @@ gates passed 2026-09-25: ghost = **B** (original dimmed to 35 %, HALO defaults
   central tab is a Paper tab (so a hidden plan scene is never driven). Align
   re-bound to Shift+L; Ctrl+M branch deleted; Ctrl+X added; Ctrl+D fixed.
 - **Offset math** — `tool_geometry.offset_item(item, signed_d) -> item | None`,
-  one branch per primitive per D9 (subclass-before-base: `ReferenceLineItem`
-  before `LineItem`). The closed-polyline case uses `Model_Space._inset_polygon`
+  one branch per primitive per D9 (a reference-flagged shape offsets through its own
+  class branch and keeps its flags). The closed-polyline case uses `Model_Space._inset_polygon`
   **promoted into `tool_geometry`** (one implementation, two callers). `None` =
   degenerate (too-large inward offset). Style copy (colour, linetype, fill,
   level) is part of `offset_item`. Cursor distance = `distance_to_item` (true

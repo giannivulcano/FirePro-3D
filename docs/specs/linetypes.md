@@ -1,7 +1,7 @@
 ---
 status: partial          # ET1 BUILT 2026-10-10 (end sizing: Fixed only, per-end Scale, On screen, Model scale + line override, editors at the drawing scale, zoom hook, tooltip wrap -- see "ET1"); LT5 BUILT 2026-10-08 (end capability: end types as blocks, per-line + linetype-default ends, Fixed / Line weight sizing, trim, mirror, closing clears ends, End type mode, End Types folder, integrity); WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); LT6–LT8, WM3 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
-last-verified: 2026-10-12  # block mirror/scale Account: H3-a map_piece maps any similarity (radii × √|det|, reflection negates the sweep, direction kept; signed-sweep point_at / split / tangent_at); LT5 how: ends under a reflecting RenderOp.mapped toggle mirrored, no swap; WM2 row order (Rotation, Mirrored, Scale, then Linetype / Weight); LT3 guard list; prior placement batch Account: LT1 H5 + LT3-6 placement-ghost pointers to block-system Decision 8; prior disk-scan Account: H3-g / H3-i / LT4-10 pointers to block-system "Library on disk" (flags read from each file; capability_folder.read_meta); prior ET1 Account (ET1 section as built: ET1-1..10, how, guards, residuals; LT5-4 / D-L8b / LTS-9f / LTS-7 amendment pointers; applies-to ET1 seams); prior LT5 Account (LT5 section as built: LT5-1..15, how, guards; D-L7 / D-L8b / D-L23e / LTS-9f amendment pointers; applies-to LT5 seams); prior WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
-verified-commit: fb928260   # block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointers only; prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior e221ca0e ET1 Account (feat/et1-end-sizing); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
+last-verified: 2026-10-13  # reference geometry Account (LT2-1 / copy_style / paint notes: reference-flagged shapes replace ReferenceLineItem; LT4-4 readers + lock + users_in skip reference items, RG15); prior 2026-10-12 block mirror/scale Account: H3-a map_piece maps any similarity (radii × √|det|, reflection negates the sweep, direction kept; signed-sweep point_at / split / tangent_at); LT5 how: ends under a reflecting RenderOp.mapped toggle mirrored, no swap; WM2 row order (Rotation, Mirrored, Scale, then Linetype / Weight); LT3 guard list; prior placement batch Account: LT1 H5 + LT3-6 placement-ghost pointers to block-system Decision 8; prior disk-scan Account: H3-g / H3-i / LT4-10 pointers to block-system "Library on disk" (flags read from each file; capability_folder.read_meta); prior ET1 Account (ET1 section as built: ET1-1..10, how, guards, residuals; LT5-4 / D-L8b / LTS-9f / LTS-7 amendment pointers; applies-to ET1 seams); prior LT5 Account (LT5 section as built: LT5-1..15, how, guards; D-L7 / D-L8b / D-L23e / LTS-9f amendment pointers; applies-to LT5 seams); prior WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
+verified-commit: bfef1e34   # reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointers only; prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior e221ca0e ET1 Account (feat/et1-end-sizing); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
   - firepro3d/crisp_stroke.py        # MW — split_axis / SplitCache / stroke / stroke_cached, the crisp H/V axis-split (H-MW-f)
   - firepro3d/settings/panes.py      # MW: UIPane "Model line weight scale" row only (rest owned by settings-dialog.md)
@@ -590,8 +590,10 @@ pre-existing crash blocks model text in viewports — filed) · T7
 - **LT2-1 Record.** The 8 stroke primitives (Polyline, Line, Rectangle,
   Circle, Arc, RegularPolygon, Ellipse, Spline) carry
   `style: {linetype, weight, start, finish, colour}`. `TextItem` (own
-  `border_weight`) and `ReferenceLineItem` (fixed reference style + its paper
-  rule) do **not**.
+  `border_weight`) do **not**. A **reference-flagged** shape (`reference`, any of the 8)
+  keeps its record but draws the fixed hairline-dashed reference look instead — no linetype
+  pieces, ends or fill, the record untouched so a flip back restores it
+  (`2d-geometry.md` §1; `ReferenceLineItem` is retired).
   - `linetype` = `"continuous"` (reserved keyword — never a block, never
     "missing") | `"by_block"` | a linetype block id (LT4+). LT7's shipped
     "Continuous" entry is a picker label for the keyword.
@@ -673,7 +675,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
   migration is key-presence driven; load never reads the version). Shipped
   `.fpdb`s are not rewritten.
 - **H-b `copy_style(src, dst, *, fresh_ends=())`** in `stroke_style.py` — deep
-  copy of `src.style` (no-op for Text / ReferenceLine); `fresh_ends` names the
+  copy of `src.style` (no-op for Text); it also carries the `reference` / `printed` flags
+  (and gives a reference destination the Reference Geometry colour) when both sides are
+  reference-capable (RG14); `fresh_ends` names the
   ends reset to `by_linetype` per LT2-3. Replaces the explicit
   `color=`/`lineweight=` copies at the `scene_tools` derive sites and the
   polyline → line swap; dict round-trips (`_clone`, `_spline_copy`, paste,
@@ -1134,6 +1138,10 @@ and the RenderOp fields are additive.
   a linetype editor DISPLAYS what the next draw gets — Continuous and the
   linetype's dash Weight (the current Weight when there is no single dash
   weight) — with both rows locked; the stored current is untouched (WM-10).)*
+  *(Reference geometry, 2026-10-13: a reference-flagged item is excluded from the linetype
+  readers — `LinetypeDef.from_block`, `content_end`, `linetype_authoring._plain_lines` — and
+  from the content lock, whose kept style record no lock may rewrite; `linetype_users_in` /
+  `end_users_in` skip it too (RG15). Design: `docs/superpowers/specs/2026-10-13-reference-geometry-design.md`.)*
 - **LT4-5 Off while used** (Q5). Turning Linetype off is refused while any line
   uses the block (definitions, plan, an open Block Editor) — same data and
   wording family as delete; checked at the toggle and again at save.
@@ -1767,8 +1775,8 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   from the diagnostics is untinted (`SketchDiag.state` reads unknown uids as
   "free"). The tint is applied to a **painter-local pen copy** in the stroke
   draw (`draw_split` / `paint_stroke`) — never `setPen`, so it can't leak into
-  `to_dict`, the panel or scene-tool pen copies (Δ2; a reference line's
-  colour lives only in its pen). `BlockInstance` applies it to **stroke ops
+  `to_dict`, the panel or scene-tool pen copies (Δ2; a reference item's
+  colour is derived per paint from its display colour, never saved — RG5). `BlockInstance` applies it to **stroke ops
   only**, ahead of selection. `tint_color` reads a uid→state map memoised per
   diagnostics result (Δ5 — `diagnostics()` rebuilds its key over every item,
   so per-item calls would be O(n²) per frame); when a new result is first
@@ -1815,7 +1823,7 @@ Contract-retired + rewritten (LTS-5 retires the Scale seed):
   change (real joins, closing joint). `SplitCache` hits on an equal raw 2×2
   first; `xf_key` canonicalises exact signed-permutation 2×2s.
   `LineItem` draws through an analytic fast path (no path / cache). Placement
-  ghosts and unstyled items (reference lines) draw unsplit with the pen copy.
+  ghosts and reference-flagged items draw unsplit with the pen copy.
   Linetype dashes use a pose-keyed LRU (`linetype_render._DASH_SPLITS`).
   Block ops compose the pose once per paint (`BlockInstance._PoseXf`).
   Underlays split inside `_UnderlayPathItem.paint`; the split is **seeded at

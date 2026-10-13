@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-12  # block mirror/scale Account (pointer only: §1.2 block instances carry their own reflect / scale hooks → block-system "Instance pose"); prior LT5 Account (pointer only: ends, closing clears ends, reflect mirrored → linetypes.md LT5); prior LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
-verified-commit: fb928260   # block mirror/scale Account (pointer); prior 220b5b55 LT5 Account (pointer); prior be7c88a LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-13  # reference geometry Account (RG1-RG18 landed: reference/printed flag model replaces ReferenceLineItem in §1; §3.6 distinguished; §4 authoring-scene wording, Space reference toggle, arc flip to Shift+Space, line variant retired; §6 keys + legacy read; §7 Reference Geometry category); prior 2026-10-12 block mirror/scale Account (pointer only: §1.2 block instances carry their own reflect / scale hooks → block-system "Instance pose"); prior LT5 Account (pointer only: ends, closing clears ends, reflect mirrored → linetypes.md LT5); prior LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: bfef1e34   # reference geometry Account; prior fb928260 block mirror/scale Account (pointer); prior 220b5b55 LT5 Account (pointer); prior be7c88a LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -23,8 +23,8 @@ related-contract: model-space-containment-contract.md   # LANDED: primitives are
 > elevation-z-ordering have left `Geometry2DMixin` (C3 — see `block-system.md` +
 > `view-relationships.md §7.3` for the instance-level model). **Text is a first-class 2D
 > primitive** (the 9th) with a data model unified with paper annotation — `TextItem` in
-> `text_item.py` (C5). The 2D-geometry tools live only in the **Block Editor** and **Paper
-> Space** contexts; the Create tab is dissolved (C7 — `ribbon-bar.md`). The containment
+> `text_item.py` (C5). The 2D-geometry tools live only in `block_editor`-role scenes (the **Block Editor** and
+> schematic editors; §4); the Create tab is dissolved (C7 — `ribbon-bar.md`). The containment
 > invariants live once in `model-space-containment-contract.md` (Rule A); this spec links to
 > the C-numbers and owns the primitive mechanics.
 
@@ -49,8 +49,8 @@ backlog "Spec session: construction geometry system"). Seeded from the 2026-08-2
 ## 1. Scope & item models
 
 **Eight primitive types** live in `geometry_2d.py`, all built on `Geometry2DMixin` +
-`DisplayableItemMixin` + a Qt base (`ReferenceLineItem` is a non-printing variant of `LineItem`,
-listed separately below). **Text is the 9th primitive** (C5) — `TextItem` in `text_item.py`,
+`DisplayableItemMixin` + a Qt base. Any of the eight can be a **reference** shape — a flag, not a
+class (below). **Text is the 9th primitive** (C5) — `TextItem` in `text_item.py`,
 sharing `Geometry2DMixin` but with its own renderer + data model unified with paper annotation
 (governed here for its primitive-family membership; the text data model + paper affordances are in
 `paper-space.md`).
@@ -58,7 +58,6 @@ sharing `Geometry2DMixin` but with its own renderer + data model unified with pa
 | Class | Base | Shape |
 |---|---|---|
 | `LineItem` | `QGraphicsLineItem` | finite 2-point line |
-| `ReferenceLineItem` | `LineItem` | **non-printing** finite reference/construction line (per-item `printed` flag) |
 | `PolylineItem` | `QGraphicsPathItem` | multi-segment polyline, **open or closed** |
 | `RectangleItem` | `QGraphicsRectItem` | axis-aligned local rect + rotation as data (`_angle`/`_pivot`); every consumer must honour it — `mapToScene`/`mapFromScene`/`mapToParent`/`mapRectToScene` are overridden, and block compile / explode / offset go through the rotated corners; Flip / Mirror / Scale go through the per-item `manip_reflect` / `manip_scale_about` (§1.2) |
 | `CircleItem` | `QGraphicsEllipseItem` | centre + radius |
@@ -77,27 +76,44 @@ sharing `Geometry2DMixin` but with its own renderer + data model unified with pa
 > is zoom-invariant, block-editor text scales with the scene. See `model-space-containment-contract.md`
 > C5 + `paper-space.md`.
 
-**`ReferenceLineItem` (task D, 2026-09-16)** — a non-printing finite reference /
-construction line. Subclasses `LineItem`, so it inherits grips, manipulator
-transforms, translate/rotate, **and SNAP participation** for free (the snap
-engine matches `isinstance(item, LineItem)`); edits/selects/deletes identically
-to a line. Differences:
-- Always rendered in the width-1 dashed reference style; tracked in its own
-  `scene._reference_lines` list (serialized under `"reference_lines"` in `.fpd`,
-  undo capture/restore, and paste — type `"reference_line"`; `_remove_item_from_lists`
-  routes it via `type_to_list` **before** `LineItem`, subclass-ordered).
-- Per-item **`printed` flag, default False.** `printed=False` → excluded from
-  paper-space plots (`paper_display.apply_paper_overrides` hides `printed is False`
-  during the render pass) AND from a block's rendered/exploded output — it is
-  still **saved** in the block definition as scaffolding and re-seeded on reopen
-  (parametric-constraint-system.md D23; `block_definition.is_scaffold` gates the
-  compile and `block_explode`); `printed=True` → plots dashed at the "Reference
-  Lines" paper weight + renders in the block. Edited via a **`ToggleSwitch`** ("toggle" property-field type).
-- Own **"Reference Lines"** Display-Manager category (colour + show/hide-all;
-  `display_manager._CATEGORIES` + `_items_for_category_static`;
-  `paper_display._category_for_item` maps it before `LineItem`). Level-scoped;
-  plan-only (no elevation/3D). Placement: a `draw_line` ←/→ variant
-  (Line ↔ Reference Line, `_draw_line_variant`) building via `_make_line_like`.
+**Reference geometry (flag model, 2026-10-13; design `docs/superpowers/specs/2026-10-13-reference-geometry-design.md`
+RG1–RG18 owns the rationale).** Non-printing construction scaffolding is a pair of flags on
+`Geometry2DMixin` — **`reference`** and **`printed`** — on all eight shape classes; `TextItem`
+has no reference form (`_REFERENCE_CAPABLE = False`). `ReferenceLineItem` and
+`scene._reference_lines` are **retired**: a reference shape stays in its own class list and
+keeps its class, so snap, align, grips, manipulator and the constraint adapters (matched by
+exact class) treat it like its normal class. Contract:
+- **Records.** A reference shape saves under its own type with `"reference": true` and
+  `"printed": <bool>`; both keys are written **only when `reference` is on** (normal records
+  unchanged). A legacy `reference_line` record loads as a `LineItem` with `reference=True` and
+  its `printed` kept, on every load path (definition primitive factory, schematic
+  materialize, undo restore, `_add_from_dict`, clipboard).
+- **Look.** A reference item paints one fixed look: cosmetic width-1 dashed pen in its display
+  colour (derived per paint, never written into saved data — `_reference_pen`), no linetype
+  pieces, no end blocks, no fill; its selection highlight stays dashed. The style record and fill
+  data are kept untouched, so flipping back restores them. `_draws_fill()` (fill_type set and not
+  reference) gates every fill paint, the `shape()` interior hit area and the HALO area;
+  `is_fillable()` is unchanged (it answers "has a closed path").
+- **Printed.** `printed=False` (default) → scaffolding: **saved** in the block / schematic and
+  re-seeded on reopen, never rendered in placed instances, Explode or sheet output
+  (`paper_display.apply_paper_overrides` hides `printed is False`; one predicate
+  `block_definition.is_scaffold` (record) / `is_scaffold_item` (live) gates compile, Explode,
+  text snap boxes, the scaffold-only Save refusal, seed centre and extents —
+  `parametric-constraint-system.md` D23). `printed=True` → renders in instances (an unstyled
+  dashed stroke op) and plots with the canvas pen.
+- **Panel.** Every shape shows a **Reference** toggle; when on, a **Printed** toggle shows and the
+  stroke / fill rows hide. A flip is one undo step (coalesced across a multi-target commit). A flip to
+  reference remembers the prior display colour (transient) and the flip back restores it (RG17).
+- **Colour.** Every path that creates or loads a reference item gives it the Reference Geometry
+  category colour (`refresh_category_display`) — placement stamp, panel flip, derive pieces
+  (`copy_style`), paste / duplicate / array / mirror / offset / explode, schematic materialize,
+  undo restore (RG18).
+- **Dependencies & derive.** A reference record's linetype / end ids / hatch pattern are not
+  dependencies (`block_registry.prim_refs` skips them; RG15). Break / geometry Explode / Offset /
+  Mirror carry the flags (`stroke_style.copy_style`); **Join** yields a reference polyline only when
+  every input is reference, printed only when every input is printed (RG14, RG16).
+- Placement: **Space** toggles reference in the 8 shape tools (§4). Display: own **"Reference
+  Geometry"** Display-Manager category (§7). Plan-only (no elevation/3D).
   Supersedes the removed AutoCAD-style `ConstructionLine` xline.
 
 ### 1.1 `Geometry2DMixin` (the shared contract)
@@ -137,7 +153,8 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
   **Superseded for the 8 stroke primitives by LT2 (2026-10-04):** the px
   `lineweight` / `color` keys are replaced by a `style` record and the pen is
   derived at paint — see [`linetypes.md`](linetypes.md) "LT2" (LT2-1–LT2-4,
-  H-a–H-c). ReferenceLineItem / TextItem are unchanged.
+  H-a–H-c). TextItem is unchanged; a reference-flagged shape keeps its record but paints
+  the fixed reference look instead (§1 above).
   **LT3 (2026-10-05):** the 8 styled classes expose `stroke_pieces()` and route their stroke +
   selection highlight through the linetype renderer (`Geometry2DMixin._paint_routed_stroke`); the
   panel Linetype row lists linetypes and the Weight row gains **By Linetype** — contract in
@@ -150,8 +167,7 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
 
 ### 1.2 Per-item reflect / scale (scene-tools P1 batch DD1, as-built 2026-10-01)
 
-Each of the **eight** `geometry_2d.py` primitive classes (`LineItem` — inherited by
-`ReferenceLineItem` — `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem`,
+Each of the **eight** `geometry_2d.py` primitive classes (`LineItem`, `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem`,
 `RegularPolygonItem`, `EllipseItem`, `SplineItem`) defines two baked, in-place transforms:
 
 - **`manip_reflect(p1, p2)`** — mirror across the **infinite** line through `p1`–`p2`;
@@ -163,14 +179,14 @@ carry their own `manip_reflect` / `manip_scale_about` (`block-system.md` "Instan
 (tool behaviour, refusals and undo are owned by `scene-tools.md` — Rule A). The methods only
 mutate geometry (`setPath`/`setLine`/`setRect` + `set_angle`); manipulator rebake, reselect and
 the undo push are the caller's duty. Both hooks change geometry only: style (colour,
-lineweight, fill, RefLine `printed` / dash) is never touched, so **lineweights never scale**.
+lineweight, fill, the `reference` / `printed` flags) is never touched, so **lineweights never scale**.
 The scale hook is deliberately **not** named `manip_scale`:
 that name makes the selection manipulator treat an item as box-resizable
 (`item_capabilities`, `selection-manipulator.md`).
 
 | Primitive | `manip_reflect` (θ = the axis' Y-up heading, `arc_math.yup_angle`) | `manip_scale_about` |
 |---|---|---|
-| Line / RefLine, Polyline | every point mirrored; RefLine keeps type / `printed` / dashed pen; the polyline `_closed` flag + fill are kept | every point scaled |
+| Line, Polyline | every point mirrored; the `reference` / `printed` flags are kept; the polyline `_closed` flag + fill are kept | every point scaled |
 | Rectangle | origin mirrored; angle → `2θ − angle`, **folded into [0°, 180°)**; the local rect is flipped top-for-bottom, or left-for-right when the heading is folded by 180° (same footprint) — an axis-aligned rect mirrored across an axis-aligned line stays at angle 0, so the redundant manipulator frame stays suppressed; pivot semantics kept | origin + local rect scaled; angle + pivot semantics kept |
 | Circle | centre mirrored; radius kept | centre scaled; radius × factor via `set_radius` (**1 mm floor**) |
 | Arc | centre mirrored; reflection reverses orientation, so the old end becomes the new start: start → `2θ − (start + span)`, **span kept** (stored CCW, span > 0) | centre scaled; radius × factor (**0.01 mm floor**); angles kept |
@@ -384,9 +400,11 @@ Guards: `tests/test_block_curve_import.py`.
 
 ## 3.6 Reference lines (placement + selection guides) — invariant
 
-A **reference line** is the canonical dashed guide the 2D-geometry tools use to
+A **reference line** *here* is the canonical dashed guide the 2D-geometry tools use to
 show *defining geometry* — axes, radii, control polygons, the centre→endpoint / sweep
-radials. **One visual style, used everywhere:** a **cosmetic width-1 dashed pen
+radials. It is a transient/paint-time guide, **not** an item and **not** the saved
+**reference geometry** of §1 (a `reference`-flagged shape), though a reference-flagged shape
+reuses this same dashed look. **One visual style, used everywhere:** a **cosmetic width-1 dashed pen
 in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 `setCosmetic(True)`). The scene-side factory `Model_Space._make_ref_line()` /
 `_make_ref_circle()` (z = 200) builds the placement-time guides; each item's
@@ -433,9 +451,10 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 > → **Placement is authoring-context only (C1/C7, landed).** 2D-geometry placement **does not occur
 > in the plan Model Space** — the plan scene's `set_mode` refuses the loose primitives via the
 > `scene_role`/`authoring_allowed()` gate (`model-space-containment-contract.md` C1). The tools run in
-> the **Block Editor** scene (`Model_Space(scene_role="block_editor")`) and the **Paper Space** context;
-> the Create tab is dissolved (`ribbon-bar.md`). The dispatch-table + placement mechanics described
-> below are shared machinery, now exercised in those authoring contexts (not the plan scene). Legacy
+> `Model_Space(scene_role="block_editor")` scenes only — the **Block Editor** and the
+> **schematic editors**; `PaperScene` has no 2D draw tools. The Create tab is dissolved
+> (`ribbon-bar.md`). The dispatch-table + placement mechanics described
+> below are shared machinery, exercised in those authoring scenes (not the plan scene). Legacy
 > loose plan-scene geometry is clean-dropped on load (C8).
 
 Placement is **single-placement** for 2D geometry + Architecture (user,
@@ -490,7 +509,9 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
 
 - **Line/rect/circle/arc:** see the per-mode handlers in
   `geometry_drawing_controller.py`. Rectangle & Arc expose ←/→ placement variants
-  (a Ctrl/Shift/Alt/Meta-modified arrow does **not** cycle the variant). The
+  (a Ctrl/Shift/Alt/Meta-modified arrow does **not** cycle the variant); the Line tool has
+  **no** variants (the Line / Reference Line ←/→ variant and `_draw_line_variant` are retired —
+  the ←/→ slot is free for the deferred Line+Polyline cycle tool). The
   polygon keeps a rotate step on the shared **"rotation"** schema; the rectangle
   has **no** rotate step (its angle comes from the first side — below).
 - **Rectangle — 3-click base → side → depth (2026-09-23; shared by 2D rect, wall
@@ -521,18 +542,19 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   `line` HUD from A, Ctrl angle-constrains, chord < 0.5 mm rejected) → the
   **centre**, which is constrained to the chord's perpendicular bisector (the
   cursor is projected onto it). The default is the **minor** arc, bulging away
-  from the centre's side of the chord; **Space** toggles minor ↔ major (reset per
-  placement); with the centre on the chord (semicircle) the last non-zero side is
-  kept. *Center / Start* sweep **CCW** from the start by default; **Space** at the
-  span step toggles **CCW ↔ CW** (2026-10-02; `Model_Space._draw_arc_cw`, reset per
+  from the centre's side of the chord; **Shift+Space** (at the centre step) toggles minor ↔ major
+  (reset per placement); with the centre on the chord (semicircle) the last non-zero side is
+  kept. *Center / Start* sweep **CCW** from the start by default; **Shift+Space** at the
+  span step toggles **CCW ↔ CW** (2026-10-02, moved from Space to Shift+Space 2026-10-13 —
+  plain Space there now toggles reference, below; `Model_Space._draw_arc_cw`, reset per
   placement — step-0 click, commit, mode teardown, scene reset). The preview, the
   click commit and the `arc_span` seed all read one signed span,
   `GeometryDrawingController._arc_span_to` (CCW `(0, 360]`, CW `(−360, 0]`); the
   commit hands the signed span to `ArcItem`, which stores it CCW (below). The HUD
   **Span / Arc stay unsigned magnitudes** (the SPAN convention,
   `units-and-formatting.md`): the seed reads `|span|`, and a typed Span sweeps that
-  magnitude in the live direction (`_arc_end_point_for_span`). Space before the
-  span step cycles nothing. **90° snap (2026-09-24):** for the mouse preview and click commit, when
+  magnitude in the live direction (`_arc_end_point_for_span`). Shift+Space before the
+  last step cycles nothing. **90° snap (2026-09-24):** for the mouse preview and click commit, when
   the centre's signed bisector distance |t| is within the OSNAP aperture of the
   half-chord h (the radials C→A and C→B perpendicular), |t| is pinned to h (sign
   kept) so the arc is exactly 90° minor / 270° major. The window is
@@ -550,6 +572,18 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   (start += span, span = −span). Grips: centre / start / end — their drag
   semantics (centre: bisector slide; ends: slide along the circle) are owned by
   `selection-manipulator.md` (U3 ArcItem).
+- **Space toggles reference placement (RG6–RG8, 2026-10-13).** In the 8 shape tools
+  (`Model_Space._REFERENCE_MODES`: line, polyline, rectangle, circle, arc, polygon, ellipse,
+  spline; none in the text tool) **Space** flips one placement-scoped flag,
+  `Model_Space._place_reference`, via `cycle_placement_ambiguity` → `_toggle_place_reference`
+  (still gated by `is_input_mode()`, so Space types into a focused HUD field). The flag is reset
+  on any mode change (commit, Esc, tool switch, scene reset — re-entering the same tool keeps an
+  in-progress placement's state) and stamped on the new item at each commit
+  (`_stamp_place_reference`, which also gives it the Reference Geometry colour); a polyline chain
+  keeps it until the chain completes (a 2-vertex finish commits a reference line). The ghosts take
+  the Reference Geometry colour (`recolour_ghosts`) and the footer instruction gains a
+  " (Reference)" suffix on the new `Model_Space.instructionDisplay` signal (`instructionChanged`
+  stays the raw text). Shift+Space elsewhere in the draw modes does nothing.
 - **Placement selection (no accumulation):** every primitive is
   `setSelected(True)` on commit, and the commit **clears the prior selection
   first** so placing several in a row leaves only the last-placed item selected
@@ -622,7 +656,8 @@ Every item type persists through **both** hand-written serializers (memory: dual
 serialization): `_capture_network`/`_restore_network` (undo) **and** `scene_io.py`
 (file), plus copy/paste dispatch and the clipboard-ghost ctors. Serialized dicts are
 **level-less** (C3) — no `level`/`level_offset_mm` keys (the `layer` tag + `fill` block
-persist). These lists live/serialize in the **Block Editor** authoring scene; in the
+persist). The `reference` / `printed` keys are written only when `reference` is on, and the
+legacy `reference_line` record type is read-only (loads as a flagged `LineItem`; §1). These lists live/serialize in the **Block Editor** authoring scene; in the
 **plan** scene they are permanently empty (loose geometry is gated out by C1 and
 clean-dropped on load by C8), so the primitives no longer participate in the plan-scene
 level-visibility / elevation-z / 3D-projection passes (those readers were deleted in the
@@ -634,8 +669,12 @@ still threads the collect helpers that enumerate the sibling lists: `_items_on_l
 ## 7. Display
 
 The **"2D Geometry"** Display-Manager category owns colour / visibility / opacity
-for all the 2D-geometry item types (mirrors Design Area; no per-category line-weight yet).
-Fill is a per-item property, independent of the category.
+for all the **non-reference** 2D-geometry item types (mirrors Design Area; no per-category
+line-weight yet). Fill is a per-item property, independent of the category. Reference-flagged
+shapes (§1) belong to their own **"Reference Geometry"** category (colour + show/hide-all across
+every 2D class list; renamed from "Reference Lines" — saved QSettings and a project's
+`display_settings["Reference Lines"]` migrate to the new key); `paper_display._category_for_item`
+checks the `reference` flag first.
 
 ## 8. Selection dimension readouts (as-built 2026-09-24, `feat/selection-dim-readouts`)
 
@@ -653,7 +692,7 @@ They are the **single** mutation path shared by the readout HUD and the property
 
 | Primitive | Readouts (`field` / prefix) | Typed setter + anchor | Floor / range |
 |---|---|---|---|
-| `LineItem` (incl. `ReferenceLineItem`) | Length | `set_length` — keeps `pt1`, moves `pt2` along the direction | > 0 |
+| `LineItem` (reference-flagged lines too) | Length | `set_length` — keeps `pt1`, moves `pt2` along the direction | > 0 |
 | `RectangleItem` | Width (local x), Height (local y); labels outside the local bottom / right edges | `set_width` / `set_height` — keep the left / bottom edge (local frame) | > 0 |
 | `CircleItem` | R (single radial, centre → local +x) | `set_radius` — keeps the centre | ≥ 1 mm |
 | `ArcItem` | Angle (included span, on a dashed reference arc between the radials) + R (start radial) | `set_span` — keeps centre / radius / start, end moves CCW; `set_radius` — keeps centre + angles | 0 < span < 360; r ≥ 0.01 mm |

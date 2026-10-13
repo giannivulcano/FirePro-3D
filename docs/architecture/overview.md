@@ -49,7 +49,8 @@ requestPropertyUpdate = pyqtSignal(object)       # property panel refresh
 cursorMoved = pyqtSignal(str)                     # status bar coordinate display
 underlaysChanged = pyqtSignal()                   # underlay list changed (browser / Underlay Manager refresh)
 modeChanged = pyqtSignal(str)                     # status bar mode indicator
-instructionChanged = pyqtSignal(str)              # step-by-step tool instructions
+instructionChanged = pyqtSignal(str)              # step-by-step tool instructions (raw text)
+instructionDisplay = pyqtSignal(str)              # decorated instruction for the footer
 sceneModified = pyqtSignal()                      # dirty flag / undo state
 radiationConfirm = pyqtSignal()                   # Enter during radiation selection
 radiationCancel = pyqtSignal()                    # Escape during radiation selection
@@ -165,7 +166,7 @@ Model_Space uses a `self.mode` string to track the current interactive tool. Mou
 - 2D modify tools (move, rotate, scale, flip / mirror, offset, array, copy / paste …) -- modes, entry points and behaviour owned by [`scene-tools.md`](../specs/scene-tools.md)
 - `"set_scale"` -- two-point calibration
 
-The `modeChanged` signal notifies the status bar, and `instructionChanged` provides step-by-step guidance text.
+The `modeChanged` signal notifies the status bar, and `instructionChanged` provides step-by-step guidance text (raw); `instructionDisplay` re-emits it, decorated for the footer (the 2D placement " (Reference)" cue -- [`2d-geometry.md`](../specs/2d-geometry.md) §4).
 
 ## Undo/redo
 

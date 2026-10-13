@@ -15,7 +15,7 @@
 - `firepro3d/roof.py` -- Roof polygons
 - `firepro3d/wall_opening.py` -- Door and window openings in walls
 - `firepro3d/gridline.py` -- Structural gridlines (`GridlineItem`, `GridBubble`)
-- `firepro3d/geometry_2d.py` -- Lines, reference lines, polylines, rectangles, circles, arcs, ellipses, splines, regular polygons
+- `firepro3d/geometry_2d.py` -- Lines, polylines, rectangles, circles, arcs, ellipses, splines, regular polygons
 - `firepro3d/text_item.py` -- The unified `TextItem` (model, paper and block text)
 - `firepro3d/block_definition.py`, `firepro3d/block_instance.py` -- Block flyweight (definition + placed instance)
 - `firepro3d/detail_view.py` -- Detail markers (`DetailMarker`, `DetailViewManager`)
@@ -218,8 +218,8 @@ Drafting primitives defined in `geometry_2d.py`:
 - `LineItem`, `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem`,
   `EllipseItem`, `SplineItem`, `RegularPolygonItem` -- basic shapes (closed
   shapes carry the fill properties above)
-- `ReferenceLineItem` -- reference line (a `LineItem` subclass; replaces the
-  retired `ConstructionLine`)
+- Any of these shapes can be a **reference** (non-printing scaffolding) via a flag, not a
+  subclass -- the model is owned by [`2d-geometry.md`](../specs/2d-geometry.md) §1
 
 These are drawn with Display Manager colour/lineweight (the per-item layer
 system was removed) and participate in the snap engine. Mechanics are owned by
