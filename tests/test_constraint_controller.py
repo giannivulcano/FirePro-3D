@@ -1927,3 +1927,48 @@ def test_d4_migrated_definition_with_coincident_to_origin_opens_satisfied(qapp):
     assert (l._pt2.x(), l._pt2.y()) == pytest.approx((100.0, 50.0), abs=1e-9)
     assert sc.constraint_ctl.red == set()
     assert [c.id for c in sc.constraint_ctl.active()] == ["c-o"]
+
+# ── CS3c: text as a rectangle ───────────────────────────────────────────────
+
+def _box_text(sc, x=0.0, y=0.0, wrap=120.0, s="Tag"):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    t = TextItem(TextAnnotationData(text=s, x=x, y=y, height_mm=10.0, wrap_width_mm=wrap))
+    sc.addItem(t); sc._texts.append(t)
+    return t
+
+
+def test_cs3c_pick_candidates_offer_text_box_not_ins(qapp):
+    """G7: pick mode offers the 9 box points (edge mids tagged "mid") + 4
+    edges of a text, never the hidden ins."""
+    from firepro3d.constraint_controller import PickState
+    sc = _scene()
+    t = _box_text(sc)
+    ps = PickState(sc.constraint_ctl, "coincident")
+    pts = {c[1]["h"]: c[3] for c in ps._candidates()
+           if c[0] == "point" and c[1].get("uid") == t._uid}
+    edges = {c[1]["h"] for c in ps._candidates()
+             if c[0] == "edge" and c[1].get("uid") == t._uid}
+    assert set(pts) == {"tl", "tm", "tr", "rm", "br", "bm", "bl", "lm", "center"}
+    assert {h for h, tag in pts.items() if tag == "mid"} == {"tm", "rm", "bm", "lm"}
+    assert edges == {"top", "right", "bottom", "left"}
+
+
+def test_cs3c_smart_dimension_refuses_text_size(qapp):
+    """G5 (AC6): a text edge, or two handles of one text, is refused with a
+    status; a text point + other geometry is still dimensioned."""
+    from firepro3d.constraint_controller import DIM_TEXT_STATUS
+    sc = _scene()
+    t = _box_text(sc)
+    ln = _line(sc, (300, 0), (400, 0))
+    msgs = []
+    sc.constraint_ctl._status = lambda m, *a, **k: msgs.append(m)
+    ctl = sc.constraint_ctl
+    assert ctl.add("dim_distance", [{"uid": t._uid, "h": "top"}]) is None
+    assert msgs[-1] == DIM_TEXT_STATUS
+    assert ctl.add("dim_distance", [{"uid": t._uid, "h": "tl"},
+                                    {"uid": t._uid, "h": "br"}]) is None
+    assert msgs[-1] == DIM_TEXT_STATUS
+    assert ctl.constraints == []
+    c = ctl.add("dim_distance", [{"uid": t._uid, "h": "center"},
+                                 {"uid": ln._uid, "h": "p1"}])
+    assert c is not None and c.type == "dim_distance"

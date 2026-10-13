@@ -158,6 +158,7 @@ DIM_SUPPRESSED_HINT = "Suppressed dimension -- unsuppress it to edit"
 DIM_REPEAT_STATUS = "Already dimensioned"                                # D56
 DIM_RECT_REPEAT_STATUS = ("Already dimensioned -- a rectangle's opposite sides "
                           "share one {}")                                # D56
+DIM_TEXT_STATUS = "Text boxes can't be dimensioned yet"                 # CS3c AC6
 
 
 def _xy(p) -> tuple[float, float]:
@@ -204,7 +205,10 @@ class PickState:
             ad = adapter_for(it)
             x = np.array(ad.read(it), dtype=float)
             mids = ad.mid_names(it)
+            hidden = ad.hidden_names(it)
             for name, e in ad.points(it, 0).items():
+                if name in hidden:                    # CS3c: legacy text ins
+                    continue
                 # CS3b: b = "mid" tags an edge midpoint (a triangle marker).
                 yield ("point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]),
                        "mid" if name in mids else None)
@@ -1338,6 +1342,17 @@ class ConstraintController:
                 self.red.add(c.id)
 
     # ── model ops ────────────────────────────────────────────────────────
+    def _sizes_a_text(self, refs) -> bool:
+        """CS3c AC6: a dim on a text edge, or between two handles of one
+        text, would size the box -- refused until text dims ship."""
+        by = self.item_by_uid()
+        texts = [r.get("uid") for r in refs if isinstance(r, dict)
+                 and isinstance(by.get(r.get("uid")), TextItem)]
+        if any(r.get("h") in ("top", "right", "bottom", "left") for r in refs
+               if isinstance(r, dict) and r.get("uid") in texts):
+            return True
+        return len(texts) == 2 and texts[0] == texts[1]
+
     def add(self, ctype: str, refs: list, *, value: float | None = None):
         """Add a constraint and apply it (D22 least change).
 
@@ -1364,6 +1379,9 @@ class ConstraintController:
                 refs = [edge]                   # an edge's own ends == that edge
         c = sm.Constraint.new(ctype, refs)
         if ctype in sm.VALUED:
+            if self._sizes_a_text(c.refs):
+                self._status(DIM_TEXT_STATUS)
+                return None
             m = self.measure(c)
             c.value = value if value is not None else m
             if m is not None and m <= DEGEN_EPS:
