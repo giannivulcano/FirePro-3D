@@ -213,3 +213,75 @@ def test_paper_category_for_reference_shape(qapp):
     assert _category_for_item(c) == "Construction"
     c.reference = True
     assert _category_for_item(c) == "Reference Geometry"
+
+
+# ── Review fix round: linetype readers, hidden-fill hit test, lock (F1-F3) ──
+
+def _lt_editor(*lines, refs=(), length=12.0):
+    """A linetype Block Editor (repeat capability) with normal on-axis
+    dashes *lines* and on-axis reference lines *refs* ((a, b, printed))."""
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.model_space import Model_Space
+    proj = Model_Space()
+    w = BlockEditorWidget(proj)
+    for a, b in lines:
+        w._add_primitive(LineItem(QPointF(a, 0), QPointF(b, 0)))
+    for a, b, printed in refs:
+        rl = LineItem(QPointF(a, 0), QPointF(b, 0))
+        rl.reference, rl.printed = True, printed
+        w._add_primitive(rl)
+    sc = w.editor_scene
+    sc.set_block_capability(("repeat", {"length": length, "size": "drafting"}))
+    return proj, w, sc
+
+
+def _reading(w):
+    from firepro3d.linetype_pattern import content_end
+    from firepro3d.linetype_render import LinetypeDef
+    defn = w.editor_scene.capability_frame_item().scratch_definition()
+    lt = LinetypeDef.from_block(defn)
+    return (lt.dashes, lt.dots, lt.period), content_end(defn.primitives)
+
+
+@pytest.mark.parametrize("printed", [False, True])
+def test_reference_line_is_never_a_linetype_mark(qapp, printed):
+    from firepro3d import linetype_authoring as la
+    _, w0, sc0 = _lt_editor((0, 6))
+    _, w1, sc1 = _lt_editor((0, 6), refs=[(0, 11, printed), (7, 7, printed)])
+    assert _reading(w1) == _reading(w0)                 # dashes, dots, content end
+    ref_lines = [l for l in sc1._draw_lines if l.reference]
+    assert len(ref_lines) == 2
+    assert not set(ref_lines) & set(la._plain_lines(sc1))
+    assert [l for l, _ in la.axis_items(sc1)] == [l for l in sc1._draw_lines
+                                                  if not l.reference]
+    assert la.current_rows(sc1) == la.current_rows(sc0)
+
+
+def test_hidden_fill_is_not_clickable_or_a_halo_area(qapp):
+    from firepro3d.halo import halo_is_area
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    normal, ref = CircleItem(QPointF(0, 0), 50.0), CircleItem(QPointF(300, 0), 50.0)
+    for c in (normal, ref):
+        c.fill_type = "solid"
+        s.addItem(c); s._draw_circles.append(c)
+    ref.reference = True
+    assert normal.shape().contains(QPointF(0, 0)) and halo_is_area(normal)
+    assert not ref.shape().contains(QPointF(300, 0))
+    assert not halo_is_area(ref)
+
+
+def test_content_lock_never_rewrites_a_reference_style(qapp):
+    from firepro3d import stroke_style as ss
+    from tests.lt3_support import hidden
+    proj, w, sc = _lt_editor((0, 6))
+    lt_id = hidden(proj)
+    rl = LineItem(QPointF(0, 5), QPointF(4, 5))
+    rl.reference = True
+    rl.style["linetype"] = lt_id
+    w._add_primitive(rl)
+    before = dict(rl.style)
+    sc.push_undo_state()                    # pre_capture applies the lock
+    live = next(l for l in sc._draw_lines if l.reference)
+    assert live.style["linetype"] == lt_id != ss.CONTINUOUS
+    assert live.style == before

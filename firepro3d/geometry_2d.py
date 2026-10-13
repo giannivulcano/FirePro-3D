@@ -1394,7 +1394,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 path = path.united(cp)
@@ -2019,7 +2019,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(cp)
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(cp)
         if self._angle != 0.0:
             path = self._rotation_transform().map(path)
@@ -2360,7 +2360,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(cp)
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(cp)
         return path
 
@@ -2718,7 +2718,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 path = path.united(cp)
@@ -3007,7 +3007,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(self.get_closed_path())
         return path
 
@@ -3281,7 +3281,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(self.get_closed_path())
         return path
 
@@ -3719,7 +3719,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 path = path.united(cp)

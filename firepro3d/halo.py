@@ -101,9 +101,14 @@ def halo_is_area(item) -> bool:
     ``QPainterPath.contains`` implicitly closes open paths, so it must not be
     used for them.
     """
-    fill = getattr(item, "fill_type", None)
-    if fill is not None and fill != "none":
-        return True
+    draws_fill = getattr(item, "_draws_fill", None)
+    if callable(draws_fill):                  # 2D primitives: a hidden fill
+        if draws_fill():                      # (reference, RG4) is no area
+            return True
+    else:
+        fill = getattr(item, "fill_type", None)
+        if fill is not None and fill != "none":
+            return True
     if getattr(item, "HALO_AREA", False):
         return True
     if callable(getattr(item, "halo_trace_path", None)):

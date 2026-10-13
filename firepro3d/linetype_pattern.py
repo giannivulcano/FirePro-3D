@@ -69,13 +69,14 @@ def content_end(prim_dicts) -> float:
     """Unclamped far end of the axis Lines (LT4-9 grow-to-fit); 0 when none.
 
     Args:
-        prim_dicts: Block primitive dicts; only on-axis ``draw_line`` count.
+        prim_dicts: Block primitive dicts; only on-axis ``draw_line`` count
+            (never a reference line, printed or not -- RG1).
 
     Returns:
         The largest axis-Line x (may exceed the frame length), or 0.0.
     """
     return axis_end((p["pt1"], p["pt2"]) for p in prim_dicts
-                    if p.get("type") == "draw_line")
+                    if p.get("type") == "draw_line" and not p.get("reference"))
 
 
 def axis_end(segments) -> float:

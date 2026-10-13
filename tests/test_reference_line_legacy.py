@@ -90,10 +90,15 @@ def test_paper_export_excludes_non_printed_includes_printed(shown_model_view):
     plain = LineItem(QPointF(0, 100), QPointF(100, 100))     # printed attr False
     for it in (off, on, plain):
         scene.addItem(it); scene._draw_lines.append(it)
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    text = TextItem(TextAnnotationData(text="T", x=0.0, y=200.0, height_mm=20.0))
+    assert text.printed is False                             # carries the attr too
+    scene.addItem(text); scene._texts.append(text)
     saved = paper_display.apply_paper_overrides(scene, QRectF(-1000, -1000, 3000, 3000))
     assert off.isVisible() is False, "non-printing reference line must be excluded from plots"
     assert on.isVisible() is True, "printed reference line must plot"
     assert plain.isVisible() is True, "a normal line always plots"
+    assert text.isVisible() is True, "text always plots (no reference form, AC10)"
     paper_display.restore_model_display(saved)
     assert off.isVisible() is True, "visibility must be restored after the render pass"
 
