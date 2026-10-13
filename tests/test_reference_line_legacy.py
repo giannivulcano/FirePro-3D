@@ -10,7 +10,6 @@ Manager category. Placement (Space toggle) is covered with Task 5's tests.
 
 from __future__ import annotations
 
-import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d.geometry_2d import LineItem
@@ -137,7 +136,6 @@ def test_reference_geometry_display_category(shown_model_view):
     assert rl not in display_manager._items_for_category_static(scene, "2D Geometry")
 
 
-@pytest.mark.xfail(strict=True, reason="Printed panel row lands with plan Task 6 (RG10)")
 def test_printed_property_uses_toggle_field():
     rl = _ref(QPointF(0, 0), QPointF(10, 0))
     props = rl.get_properties()

@@ -94,7 +94,9 @@ def halo_scene_path(item, scene_scale=None):
 def halo_is_area(item) -> bool:
     """True when a cursor INSIDE the item's trace is a direct hit (distance 0).
 
-    Areas: filled 2D geometry (``fill_type != "none"``), classes flagged
+    Areas: 2D primitives whose fill paints (``_draws_fill()`` -- a reference
+    item's hidden fill is not an area, RG4), other items with
+    ``fill_type != "none"``, classes flagged
     ``HALO_AREA = True`` (the list is owned by selection-mode.md §4.1), and any
     item whose trace falls back to ``shape()`` (text boxes, SVG, blocks).
     Open geometry (lines, arcs, unfilled outlines) is measured to its stroke —

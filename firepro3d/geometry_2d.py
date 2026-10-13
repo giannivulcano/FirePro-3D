@@ -874,7 +874,13 @@ class Geometry2DMixin:
     def _geom2d_properties(self) -> dict:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
         props: dict = {}
-        if self.style is not None:
+        if self._REFERENCE_CAPABLE:
+            # RG10: Reference toggle; while on, Printed shows and the stroke /
+            # fill rows hide (the record is kept for the flip back, RG4).
+            props["Reference"] = {"type": "toggle", "value": bool(self.reference)}
+            if self.reference:
+                props["Printed"] = {"type": "toggle", "value": bool(self.printed)}
+        if self.style is not None and not self.reference:
             from .hatch_patterns import picker_exclude
             sc = self.scene()
             in_end = getattr(sc, "block_end", None) is not None
@@ -886,7 +892,7 @@ class Geometry2DMixin:
                 ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc),
                 drawing_scale=sm.drawing_scale if sm is not None else None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
-        if self.is_fillable():
+        if self.is_fillable() and not self.reference:
             props["Fill"] = {"type": "enum",
                              "options": ["none", "solid", "hatch"],
                              "value": self.fill_type}
@@ -918,6 +924,9 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
+        if self._REFERENCE_CAPABLE and key in ("Reference", "Printed"):
+            self._dim_edit(lambda v: self._set_reference_flag(key, v), value)
+            return True
         if self.style is not None and key in _END_ROW_KEYS:
             self._set_end_from_panel(key, value)
             return True
@@ -962,6 +971,32 @@ class Geometry2DMixin:
             self.update()
             return True
         return False
+
+    def _set_reference_flag(self, key: str, on) -> None:
+        """Panel flip (RG10): one undo step via ``_dim_edit``; the item takes
+        its new category's display values; ends / badge leave or re-enter the
+        bounds and a hidden fill leaves ``shape()`` (prepareGeometryChange).
+
+        A reference item never resolves its linetype (RG4), so its stale
+        missing-linetype badge / tooltip are cleared here; the next normal
+        paint re-derives them after a flip back.
+        """
+        on = bool(on)
+        self.prepareGeometryChange()
+        if key == "Reference":
+            self.reference = on
+            if not on:
+                self.printed = False
+            else:
+                self._lt_missing = None
+                if self._lt_tip_id is not None:
+                    from .linetype_render import sync_missing_tooltip
+                    sync_missing_tooltip(self, None)
+            from .display_manager import refresh_category_display
+            refresh_category_display(self)
+        else:
+            self.printed = on and self.reference
+        self.update()
 
     def _geom2d_to_dict(self, d: dict) -> dict:
         """Stamp mixin fields onto *d* and return it (level-less — C3)."""
