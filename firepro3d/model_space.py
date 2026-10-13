@@ -1243,7 +1243,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # keeps its reference state too.
         if mode != self.mode:
             self._place_reference = False
-        self._refresh_ref_colour()
+        if mode in self._REFERENCE_MODES:
+            self._refresh_ref_colour()      # the Space toggle refreshes too
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         if hasattr(self, 'pipeNodeHighlight'):
@@ -1962,6 +1963,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if d.id in nested_ids(u):
                 return None
             for p in u.primitives:
+                if p.get("reference"):
+                    continue                      # RG15: a hidden ref is no user
                 st = p.get("style")
                 if isinstance(st, dict) and any(
                         isinstance(st.get(w), dict)
@@ -2065,6 +2068,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 nesters.append(uid)
             if any(isinstance(p.get("style"), dict)
                    and p["style"].get("linetype") == d.id
+                   and not p.get("reference")          # RG15
                    for p in u.primitives):
                 line_users.append(u.name)
             if any(p.get("type") == NESTED_TYPE
@@ -5520,12 +5524,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                               lineweight=getattr(pl, "_lineweight",
                                                  pl.pen().widthF()))
             from .stroke_style import copy_style
+            # RG6: copy_style carries the reference flag and its colour, so a
+            # 2-vertex reference chain commits a reference line.
             copy_style(pl, placed)
-            # RG6: a 2-vertex reference chain commits a reference line.
-            if pl.reference:
-                placed.reference = True
-                from .display_manager import refresh_category_display
-                refresh_category_display(placed)
             if pl._display_overrides:
                 placed._display_overrides = dict(pl._display_overrides)
             self.removeItem(pl)
@@ -8248,6 +8249,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         self.addItem(item)
         getattr(self, attr).append(item)
+        if getattr(item, "reference", False):        # RG18: the category colour
+            from .display_manager import refresh_category_display
+            refresh_category_display(item)
         return item
 
     def _clipboard_item_dicts(self, items) -> list:

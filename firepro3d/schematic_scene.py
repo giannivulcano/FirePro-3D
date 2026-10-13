@@ -38,6 +38,9 @@ def add_primitive(scene, item) -> None:
     list_attr = _CLS_TO_LIST.get(type(item))
     if list_attr is not None:
         getattr(scene, list_attr).append(item)
+    if getattr(item, "reference", False):            # RG18: the category colour
+        from .display_manager import refresh_category_display
+        refresh_category_display(item)
 
 
 def materialize_primitives(scene, prim_dicts) -> None:

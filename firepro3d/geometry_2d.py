@@ -37,6 +37,7 @@ from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
+_NO_PRIOR = object()      # "no display colour remembered" (RG17), distinct from None
 # End-slot values that are never an end-block id (stroke_style.is_end_ref):
 # the LT5 _item_ends fast-path gate.
 _NON_ID_ENDS = frozenset((*END_KEYWORDS, BY_BLOCK, ""))
@@ -169,6 +170,9 @@ class Geometry2DMixin:
         # record is kept while reference is on (RG4) so flipping back restores it.
         self.reference: bool = False
         self.printed: bool = False
+        # RG17: the display colour held before a panel flip to Reference
+        # (transient, never serialized); _NO_PRIOR = nothing remembered.
+        self._pre_reference_colour = _NO_PRIOR
         self.fill_type: str = "none"          # "none" | "solid" | "hatch"
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
         self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
@@ -986,16 +990,23 @@ class Geometry2DMixin:
             return                              # no-op flip: nothing to refresh
         self.prepareGeometryChange()
         if key == "Reference":
-            self.reference = on
-            if not on:
-                self.printed = False
-            else:
+            from .display_manager import refresh_category_display
+            if on:
+                self._pre_reference_colour = getattr(self, "_display_color", None)
+                self.reference = True
                 self._lt_missing = None
                 if self._lt_tip_id is not None:
                     from .linetype_render import sync_missing_tooltip
                     sync_missing_tooltip(self, None)
-            from .display_manager import refresh_category_display
-            refresh_category_display(self)
+                refresh_category_display(self)
+            else:
+                self.reference = False
+                self.printed = False
+                refresh_category_display(self)      # visibility / opacity
+                prior = self._pre_reference_colour
+                if prior is not _NO_PRIOR:          # RG17: exactly as before
+                    self._display_color = prior
+                self._pre_reference_colour = _NO_PRIOR
         else:
             self.printed = on and self.reference
         self.update()

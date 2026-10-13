@@ -170,6 +170,16 @@ class SceneTools:
         lw = items[0].pen().widthF()
         pl = PolylineItem(chain[0], color=color, lineweight=lw)
         copy_style(items[0], pl)
+        # RG16: reference only if every joined item is; printed only if every
+        # joined item is printed (selection order does not decide).
+        all_ref = all(getattr(i, "reference", False) for i in items)
+        pl.reference = all_ref
+        pl.printed = all_ref and all(getattr(i, "printed", False) for i in items)
+        if all_ref or getattr(items[0], "reference", False):
+            # re-take the right category colour: copy_style refreshed from
+            # items[0] alone, which a normal result must not keep
+            from .display_manager import refresh_category_display
+            refresh_category_display(pl)
         for end, (src, rev) in (("start", head_src), ("finish", tail_src)):
             src_st = getattr(src, "style", None)
             if src_st is not None and pl.style is not None:

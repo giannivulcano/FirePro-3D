@@ -496,10 +496,6 @@ _GHOSTS = {
 }
 
 
-# Ghosts rebuilt / re-penned on every mouse move (a pre-move assert is moot).
-_REBUILT_PER_MOVE = {"draw_arc_span", "polygon", "draw_spline"}
-
-
 @pytest.mark.parametrize("case", list(_GHOSTS))
 def test_space_recolours_each_tools_ghost(shown_model_view, case):
     from firepro3d.display_manager import _read_category_from_settings
@@ -517,16 +513,14 @@ def test_space_recolours_each_tools_ghost(shown_model_view, case):
         assert get(scene) is not None, case
         assert get(scene).pen().color().name() == geo, case
     _key(view, Qt.Key.Key_Space)
-    if case not in _REBUILT_PER_MOVE:     # F5: recoloured at once, no move
-        for get in getters:
-            assert get(scene).pen().color().name() == ref, case
+    for get in getters:                   # F5: recoloured at once, no move
+        assert get(scene).pen().color().name() == ref, case
     _move(view, 160, 230)                 # a move re-pens / rebuilds ghosts
     for get in getters:
         assert get(scene).pen().color().name() == ref, case
     _key(view, Qt.Key.Key_Space)
-    if case not in _REBUILT_PER_MOVE:
-        for get in getters:
-            assert get(scene).pen().color().name() == geo, case
+    for get in getters:
+        assert get(scene).pen().color().name() == geo, case
     _move(view, 150, 220)
     for get in getters:
         assert get(scene).pen().color().name() == geo, case

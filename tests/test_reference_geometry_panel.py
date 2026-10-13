@@ -109,6 +109,9 @@ def _scratch_display_keys():
 
 def test_panel_flip_takes_the_new_category_colour(shown_model_view,
                                                  _scratch_display_keys):
+    """REWRITTEN for RG17 (seam review): the flip ON takes the Reference
+    Geometry colour; the flip back no longer takes the 2D Geometry colour --
+    it restores the prior display state (None stays None)."""
     view, scene = shown_model_view
     st = QSettings("GV", "FirePro3D")
     st.setValue("display/Reference Geometry/color", "#777777")
@@ -119,7 +122,47 @@ def test_panel_flip_takes_the_new_category_colour(shown_model_view,
     assert c._display_color == "#777777"
     assert c._reference_pen().color() == QColor("#777777")
     c.set_property("Reference", False)
-    assert c._display_color == "#eeeeee"
+    assert c._display_color is None                  # RG17: prior state back
+
+
+@pytest.mark.parametrize("prior", [None, "#123456"])
+def test_flip_back_restores_the_prior_display_colour(
+        shown_model_view, _scratch_display_keys, prior):
+    """RG17 / AC5: on -> off renders exactly as before; _display_color is
+    the prior value again (None stays None, a set colour comes back)."""
+    from tests.test_reference_geometry import _render_item
+    view, scene = shown_model_view
+    st = QSettings("GV", "FirePro3D")
+    st.setValue("display/Reference Geometry/color", "#777777")
+    st.setValue("display/2D Geometry/color", "#eeeeee")
+    c = CircleItem(QPointF(0, 0), 40.0)
+    c.style["colour"] = "#ab12cd"
+    c._display_color = prior
+    scene.addItem(c); scene._draw_circles.append(c)
+    scene.removeItem(c)
+    before = _render_item(c)
+    scene.addItem(c)
+    c.set_property("Reference", True)
+    assert c._display_color == "#777777"
+    c.set_property("Reference", False)
+    assert c._display_color == prior
+    scene.removeItem(c)
+    assert _render_item(c) == before                 # same pixels as before
+
+
+def test_flip_back_survives_undo_redo(shown_model_view, _scratch_display_keys):
+    view, scene = shown_model_view
+    QSettings("GV", "FirePro3D").setValue("display/Reference Geometry/color",
+                                          "#777777")
+    c = CircleItem(QPointF(0, 0), 50.0)
+    scene.addItem(c); scene._draw_circles.append(c)
+    scene.push_undo_state()
+    c.set_property("Reference", True)
+    c.set_property("Reference", False)
+    scene.undo(); scene.undo()
+    assert scene._draw_circles[-1].reference is False
+    scene.redo()
+    assert scene._draw_circles[-1].reference is True
 
 
 # -- Review Minor: stale missing-linetype tooltip on a flip -------------------

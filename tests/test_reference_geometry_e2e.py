@@ -87,7 +87,7 @@ def test_g3_schematic_paper_pass_drops_scaffold_keeps_printed(qapp):
     assert _lit_count(_render(s)) > 0
 
 
-def test_g7_display_manager_colour_reaches_the_canvas(qapp, _scratch_display_keys):
+def test_g7_unit_refresh_category_display_colour_reaches_the_canvas(qapp, _scratch_display_keys):
     from firepro3d.display_manager import refresh_category_display
     from tests.test_reference_geometry import _render_item
     st = QSettings("GV", "FirePro3D")
@@ -172,3 +172,87 @@ def test_reference_line_is_not_a_linetype_or_end_user(qapp):
     ref.reference = False
     assert set(linetype_users_in(sc, "lt-x")) == {ref, norm}
     assert set(end_users_in(sc, "end-x")) == {ref, norm}
+
+
+# -- seam fix round S1 (RG18): load / copy paths take the Reference colour ----
+
+def _red_px(scene, rect=QRectF(-80, -80, 160, 160), size=160):
+    scene.clearSelection()                               # no selection paint
+    scene.constraint_ctl.show_status = False             # no D39 constraint tint
+    img = QImage(size, size, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, size, size), rect)
+    p.end()
+    # antialiased red-on-black keeps green / blue near 0 at any coverage
+    return sum(1 for x in range(size) for y in range(size)
+               if img.pixelColor(x, y).red() > 80
+               and img.pixelColor(x, y).green() * 4 < img.pixelColor(x, y).red()
+               and img.pixelColor(x, y).blue() * 4 < img.pixelColor(x, y).red())
+
+
+def test_s1_block_editor_reopen_seeds_a_reference_circle_in_the_category_colour(
+        qapp, _scratch_display_keys):
+    from firepro3d.model_space import Model_Space
+    from firepro3d.block_definition import BlockDefinition
+    from tests.test_block_definition_constraints import _editor
+    QSettings("GV", "FirePro3D").setValue("display/Reference Geometry/color",
+                                          "#ff0000")
+    proj = Model_Space()
+    ref = CircleItem(QPointF(0, 0), 50.0)
+    ref.reference = True
+    defn = proj.commit_block_definition(
+        block_id=None, name="S1", library="L", series="S",
+        primitives=[ref.to_dict()], origin=(0.0, 0.0), place_instance=False)
+    w = _editor(proj)
+    w.seed_from_definition(BlockDefinition.from_dict(defn.to_dict()))
+    seeded = w.editor_scene._draw_circles
+    assert len(seeded) == 1 and seeded[0].reference
+    assert _red_px(w.editor_scene) > 20                  # the ring is red
+
+
+def test_s1_paste_of_a_reference_circle_renders_in_the_category_colour(
+        qapp, _scratch_display_keys):
+    from firepro3d.model_space import Model_Space
+    QSettings("GV", "FirePro3D").setValue("display/Reference Geometry/color",
+                                          "#ff0000")
+    sc = Model_Space(scene_role="block_editor")
+    ref = CircleItem(QPointF(0, 0), 50.0)
+    ref.reference = True
+    sc.addItem(ref); sc._draw_circles.append(ref)
+    recs = sc._clipboard_item_dicts([ref])
+    sc.removeItem(ref); sc._draw_circles.remove(ref)     # only the paste draws
+    new = sc.paste_items(QPointF(0, 0), data=recs)
+    assert len(new) == 1 and new[0].reference
+    assert _red_px(sc) > 20                              # the pasted ring is red
+
+
+# -- seam fix round S5 (RG15): hidden refs are not counted in refusal text ----
+
+def test_s5_end_delete_refusal_counts_the_normal_line_not_the_reference(qapp):
+    from firepro3d.model_space import Model_Space
+    from tests.test_lt5_integrity import _arrow, _host, _rec
+    ms = Model_Space()
+    e = _arrow(ms)
+    ref = _rec(e.id)
+    ref["reference"] = True
+    _host(ms, _rec(e.id), ref)
+    assert ms.block_users_message(e.id) == (
+        "“Arrow” is used by 1 line — change their ends first.")
+
+
+def test_s5_linetype_refusal_ignores_a_reference_line_in_a_nesting_host(qapp):
+    from firepro3d.model_space import Model_Space
+    from tests.lt3_support import make_linetype
+    from tests.test_lt5_integrity import _host, _rec
+    ms = Model_Space()
+    lt = make_linetype("Hidden")
+    ms.register_block_definition(lt)
+    ref = _rec(linetype=lt.id)
+    ref["reference"] = True
+    nested = {"type": "block_instance", "block_id": lt.id, "pos": [0.0, 0.0]}
+    host = _host(ms, nested, ref, name="Nester")
+    users = ms.block_registry.users_of(lt.id)
+    assert users == {host.id}
+    # only a hidden reference line names the linetype: pure nesting wording
+    assert ms._linetype_users_message(lt, users) is None
