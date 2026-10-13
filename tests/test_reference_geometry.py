@@ -419,7 +419,7 @@ def test_reference_toggle_appends_instruction_suffix(qapp):
     from firepro3d.model_space import Model_Space
     s = Model_Space(scene_role="block_editor")
     msgs: list[str] = []
-    s.instructionChanged.connect(msgs.append)
+    s.instructionDisplay.connect(msgs.append)
     s.set_mode("draw_circle")
     base = msgs[-1]
     s.cycle_placement_ambiguity()
@@ -496,6 +496,10 @@ _GHOSTS = {
 }
 
 
+# Ghosts rebuilt / re-penned on every mouse move (a pre-move assert is moot).
+_REBUILT_PER_MOVE = {"draw_arc_span", "polygon", "draw_spline"}
+
+
 @pytest.mark.parametrize("case", list(_GHOSTS))
 def test_space_recolours_each_tools_ghost(shown_model_view, case):
     from firepro3d.display_manager import _read_category_from_settings
@@ -513,10 +517,16 @@ def test_space_recolours_each_tools_ghost(shown_model_view, case):
         assert get(scene) is not None, case
         assert get(scene).pen().color().name() == geo, case
     _key(view, Qt.Key.Key_Space)
+    if case not in _REBUILT_PER_MOVE:     # F5: recoloured at once, no move
+        for get in getters:
+            assert get(scene).pen().color().name() == ref, case
     _move(view, 160, 230)                 # a move re-pens / rebuilds ghosts
     for get in getters:
         assert get(scene).pen().color().name() == ref, case
     _key(view, Qt.Key.Key_Space)
+    if case not in _REBUILT_PER_MOVE:
+        for get in getters:
+            assert get(scene).pen().color().name() == geo, case
     _move(view, 150, 220)
     for get in getters:
         assert get(scene).pen().color().name() == geo, case
@@ -536,3 +546,132 @@ def test_mid_chain_toggle_and_two_vertex_finish_commit_a_reference_line(
     line = scene._draw_lines[-1]
     assert isinstance(line, LineItem) and line.reference is True
     assert scene._place_reference is False
+
+
+# -- B6 fix round: F1 (re-entering the tool keeps the reference state) --------
+
+def _reenter(scene, mode):
+    """What the ribbon / shortcut does when the active tool is pressed again."""
+    scene.set_mode(mode)
+
+
+def test_reentering_polyline_keeps_the_chain_reference(shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    scene.set_mode("polyline")
+    _click(view, 0, 0); _click(view, 300, 0)
+    _key(view, Qt.Key.Key_Space)
+    _reenter(scene, "polyline")
+    assert scene._place_reference is True
+    _click(view, 300, 300)
+    _key(view, Qt.Key.Key_Return)
+    pl = scene._polylines[-1]
+    assert isinstance(pl, PolylineItem) and pl.reference is True
+
+
+def test_reentering_polyline_two_vertices_commits_a_reference_line(
+        shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    n = len(scene._draw_lines)
+    scene.set_mode("polyline")
+    _click(view, 0, 0); _click(view, 300, 0)
+    _key(view, Qt.Key.Key_Space)
+    _reenter(scene, "polyline")
+    _key(view, Qt.Key.Key_Return)
+    assert len(scene._draw_lines) == n + 1
+    line = scene._draw_lines[-1]
+    assert isinstance(line, LineItem) and line.reference is True
+
+
+def test_reentering_draw_line_keeps_reference_state_and_ghost(
+        shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    msgs: list[str] = []
+    scene.instructionDisplay.connect(msgs.append)
+    scene.set_mode("draw_line")
+    _click(view, 0, 0)
+    _key(view, Qt.Key.Key_Space)
+    _reenter(scene, "draw_line")
+    assert scene._place_reference is True
+    _click(view, 300, 0)
+    line = scene._draw_lines[-1]
+    assert isinstance(line, LineItem) and line.reference is True
+
+
+# -- F2: the " (Reference)" cue is tied to the state, not one prompt ----------
+
+def test_reference_suffix_survives_the_next_prompt(shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    msgs: list[str] = []
+    scene.instructionDisplay.connect(msgs.append)
+    scene.set_mode("draw_circle")
+    assert not msgs[-1].endswith(" (Reference)")
+    _key(view, Qt.Key.Key_Space)
+    assert msgs[-1].endswith(" (Reference)")
+    _click(view, 0, 0)                       # next prompt (radius)
+    assert msgs[-1].endswith(" (Reference)")
+    _key(view, Qt.Key.Key_Space)             # off
+    assert not msgs[-1].endswith(" (Reference)")
+    _click(view, 300, 0)                     # commit; mode resets
+    assert not any(m.endswith(" (Reference)") for m in msgs[-1:])
+
+
+def test_non_reference_mode_never_gets_the_suffix(qapp):
+    from firepro3d.model_space import Model_Space
+    s = Model_Space(scene_role="block_editor")
+    msgs: list[str] = []
+    s.instructionDisplay.connect(msgs.append)
+    s._place_reference = True            # stale flag must not decorate
+    s.set_mode("select")
+    s.instructionChanged.emit("Pick something")
+    assert msgs[-1] == "Pick something"
+
+
+# -- F3 / F4 ------------------------------------------------------------------
+
+def test_ghost_colour_does_not_hit_qsettings_per_call(shown_model_view,
+                                                       monkeypatch):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    scene.set_mode("draw_line")
+    _key(view, Qt.Key.Key_Space)
+    import firepro3d.display_manager as dm
+    calls = []
+    real = dm._read_category_from_settings
+    monkeypatch.setattr(dm, "_read_category_from_settings",
+                        lambda *a, **k: calls.append(a) or real(*a, **k))
+    for _ in range(5):
+        scene._geom_ctl._ghost_colour()
+    assert calls == []
+
+
+def test_clear_prunes_removed_ghosts(shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    scene.set_mode("draw_circle")
+    _click(view, 0, 0)
+    assert scene._draw_circle_preview in scene._geom_ctl._ghosts
+    scene.set_mode("select")
+    assert scene._geom_ctl._ghosts == []
+
+
+def test_toggle_recolours_the_line_rubber_band_at_once(shown_model_view):
+    """F5: ``preview_pipe`` is re-penned per move and never tracked, so the
+    immediate recolour on toggle is the ``recolour_ghosts`` draw_line branch
+    alone (no mouse move in between)."""
+    from firepro3d.display_manager import _read_category_from_settings
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    ref = QColor(_read_category_from_settings("Reference Geometry")["color"]).name()
+    geo = QColor(scene._geom_color_lw()[0]).name()
+    scene.set_mode("draw_line")
+    _click(view, 0, 0)
+    _move(view, 150, 220)
+    assert scene.preview_pipe.pen().color().name() == geo
+    assert scene.cycle_placement_ambiguity() is True
+    assert scene.preview_pipe.pen().color().name() == ref
+    assert scene.cycle_placement_ambiguity() is True
+    assert scene.preview_pipe.pen().color().name() == geo

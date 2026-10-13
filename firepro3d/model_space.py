@@ -168,6 +168,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
     modeChanged = pyqtSignal(str)      # emits mode name for status bar instructions
+    instructionDisplay = pyqtSignal(str)  # instructionChanged + " (Reference)" cue (RG8)
     instructionChanged = pyqtSignal(str)  # emits step-by-step instruction text
     sceneModified = pyqtSignal()          # emitted on every push_undo_state
     radiationConfirm = pyqtSignal()       # Enter pressed during radiation selection
@@ -295,6 +296,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # live instruction line so the toggle can append " (Reference)".
         self._place_reference: bool = False
         self._last_instruction: str = ""
+        self._ref_colour: str = ""        # cached Reference Geometry colour
         self.instructionChanged.connect(self._remember_instruction)
         self._draw_rect_anchor: "QPointF | None" = None       # first click for rectangle
         self._draw_circle_center: "QPointF | None" = None     # first click for circle
@@ -1237,7 +1239,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # RG6: every mode change ends the placement's reference state --
         # commit (_end_placement_switch), Esc, tool switch, scene reset
         # (set_mode(None)) all pass here; refused switches return above.
-        self._place_reference = False
+        # Re-entering the *same* tool keeps an in-progress placement, so it
+        # keeps its reference state too.
+        if mode != self.mode:
+            self._place_reference = False
+        self._refresh_ref_colour()
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         if hasattr(self, 'pipeNodeHighlight'):
@@ -4376,8 +4382,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     })
 
     def _remember_instruction(self, text) -> None:
-        """``instructionChanged`` slot: the live instruction line (RG8)."""
+        """``instructionChanged`` slot (RG8): remember the raw line and emit
+        the footer text on ``instructionDisplay``, with the " (Reference)"
+        cue while placing reference geometry."""
         self._last_instruction = text if isinstance(text, str) else ""
+        if self._place_reference and self.mode in self._REFERENCE_MODES:
+            self.instructionDisplay.emit(self._last_instruction + " (Reference)")
+        else:
+            self.instructionDisplay.emit(self._last_instruction)
+
+    def _refresh_ref_colour(self) -> None:
+        """Cache the Reference Geometry colour (one QSettings read per
+        toggle / mode entry, not per mouse move)."""
+        from .display_manager import _read_category_from_settings
+        self._ref_colour = _read_category_from_settings(
+            "Reference Geometry")["color"]
 
     def _stamp_place_reference(self, item) -> None:
         """Commit-time stamp (RG6): the new primitive takes the placement's
@@ -4404,10 +4423,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pl.reference = self._place_reference       # chain keeps it (RG6)
             from .display_manager import refresh_category_display
             refresh_category_display(pl)
+        self._refresh_ref_colour()
         self._geom_ctl.recolour_ghosts()
-        base = (self._last_instruction or "").removesuffix(" (Reference)")
-        self.instructionChanged.emit(
-            base + (" (Reference)" if self._place_reference else ""))
+        self.instructionChanged.emit(self._last_instruction)
         return True
 
     def _cycle_opening_alignment(self, *args, **kwargs):  # shell → FeaturePlacementController (slice 11, C2)
@@ -5504,7 +5522,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .stroke_style import copy_style
             copy_style(pl, placed)
             # RG6: a 2-vertex reference chain commits a reference line.
-            self._stamp_place_reference(placed)
+            if pl.reference:
+                placed.reference = True
+                from .display_manager import refresh_category_display
+                refresh_category_display(placed)
             if pl._display_overrides:
                 placed._display_overrides = dict(pl._display_overrides)
             self.removeItem(pl)

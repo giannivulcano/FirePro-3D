@@ -73,8 +73,7 @@ class GeometryDrawingController:
         reference geometry (RG8), else the geometry colour."""
         s = self._scene
         if s._place_reference:
-            from .display_manager import _read_category_from_settings
-            return _read_category_from_settings("Reference Geometry")["color"]
+            return s._ref_colour
         return s._geom_color_lw()[0]
 
     @staticmethod
@@ -201,6 +200,8 @@ class GeometryDrawingController:
             s._spline_points = []
             self._cancel_spline_preview()
             self._clear_spline_ref_poly()
+        # Drop ghosts removed above; a same-mode set_mode keeps the survivors.
+        self._ghosts = [g for g in self._ghosts if self._is_live_ghost(g, s)]
 
     # ── Line (shared with draw_gridline; the item factory _make_line_like
     #    stays scene-side because it builds a GridlineItem in gridline mode) ────
@@ -1164,7 +1165,7 @@ class GeometryDrawingController:
 
         The stored centre/radius/start° plus the typed span (an unsigned
         magnitude) give a bearing ``start° ± span`` (Y-up; minus while the
-        Space toggle has the sweep CW), projected onto the radius circle.  Feeds
+        Shift+Space toggle has the sweep CW), projected onto the radius circle.  Feeds
         ``_commit_draw_arc_at``, which re-derives the span from this point, so
         the Dynamic Input span and the mouse third click share one commit.
         """
