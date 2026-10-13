@@ -1,7 +1,7 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); model-surface inline edit LANDED 2026-09-23 (feat/model-text-inline-edit); style presets/SHX/overrides deferred
-last-verified: 2026-10-07  # MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
-verified-commit: 736cf5e3  # MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
+last-verified: 2026-10-13  # CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
+verified-commit: 503c6959  # CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -160,6 +160,8 @@ existing bake-at-rest rotation `save()/restore()` block), when `data.border`:
    `Qt.PenStyle` / dash pattern; `NoBrush`.
 3. The frame path is inside the same rotation transform as the text, so it
    tracks the box on rotate.
+
+**Box rect (`_box_rect_local`, CS3c 2026-10-13):** width = the exact `textWidth()` (the wrap width) — never `document().size()`, which QTextDocument quantizes to a 1/64 grid (a 199.99 wrap reports 199.984375); height = `max(content height, box_height_mm / scale)`. In the Block Editor the constraint solver drives this box (wrap width, box height) — owned by `parametric-constraint-system.md` D59.
 
 `boundingRect`/`shape` already pad for the grip halo and cover the full box, so
 the stroked border needs no extra bounds growth (its half-weight is ≤ the grip
