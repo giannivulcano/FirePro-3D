@@ -74,6 +74,8 @@ reference rectangle (envelope) or reference arc is impossible.
 | RG13 | **Display Manager:** category "Reference Lines" → **"Reference Geometry"** (colour + show/hide all), collecting every flagged item across the 2D lists; "2D Geometry" excludes flagged items. One-shot QSettings migration copies `display/Reference Lines/*` (incl. `default_*`) to the new key, mirroring `_migrate_opening_split`; a project's `display_settings["Reference Lines"]` seeds the new entry, mirroring `_project_entry`. | User 2026-10-13. |
 | RG14 | **Break / Explode / Offset / Mirror / copy carry the flag:** `stroke_style.copy_style`'s callers in `scene_tools.py` (Break, geometry Explode) copy `reference` + `printed` to the pieces; `_clone` / `to_dict` round-trips already carry it. | Fixes the pre-existing Break bug (pieces became printable plain lines and the original stayed in `_reference_lines`). |
 
+| RG15 | **Hidden refs are not dependencies:** `block_registry.prim_refs` skips the `style.linetype`, explicit end ids and hatch `fill.pattern` of a `reference` record — nothing a reference shape does not draw is bundled, purge-protected, invalidated or cycle-checked. Flipping a shape back to normal after its linetype / pattern was purged shows the existing missing-linetype / missing-pattern badge until one is picked. | User 2026-10-13 (Unit A review follow-up). The retired `ReferenceLineItem` was unstyled and never added refs; without this a scaffold line could trip `would_cycle` inside its own linetype's editor. |
+
 ## Acceptance Criteria
 
 - [ ] AC1 Space toggles reference while placing any of the 8 shape primitives in the Block Editor and in a schematic editor; each placement starts normal; the ghost uses the reference colour and the instruction line says "(Reference)".
