@@ -837,8 +837,15 @@ def test_e2e_cs3c_text_bottom_mid_undo_redo_save_close_reopen(win_with_editor):
     _pick(win, (bm0.x(), bm0.y()), (200, -60))           # text bm, then ln.p1
     (c,) = sc.constraint_ctl.constraints
     assert _handles(c) == {(ut, "bm"), (uln, "p1")}
+    bm = t.grip_points()[5]                              # live: satisfied now
+    assert (bm.x(), bm.y()) == pytest.approx((ln._pt1.x(), ln._pt1.y()), abs=1e-6)
     _ctrl(view, Qt.Key.Key_Z)
     assert sc.constraint_ctl.constraints == []
+    (tu,) = [x for x in sc._texts if x._uid == ut]       # undo restores geometry
+    (lu,) = [x for x in sc._draw_lines if x._uid == uln]
+    bu = tu.grip_points()[5]
+    assert (bu.x(), bu.y()) == pytest.approx((bm0.x(), bm0.y()), abs=1e-6)
+    assert (lu._pt1.x(), lu._pt1.y()) == pytest.approx((200.0, -60.0), abs=1e-6)
     _ctrl(view, Qt.Key.Key_Y)
     (c,) = sc.constraint_ctl.constraints
     assert _handles(c) == {(ut, "bm"), (uln, "p1")}

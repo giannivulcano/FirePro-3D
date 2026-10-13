@@ -670,7 +670,10 @@ class _TextBoxAdapter(_Adapter):
         if w == float(old[2]) and h == float(old[3]):
             return False
         s = it.scale() or 1.0
-        return _content_height_at(it, w / s) * s > h + DEGEN_EPS
+        # An unmoved width re-wraps at the item's own textWidth: w / s can
+        # land 1 ulp under it at scale != 1, and Qt truncates to 1/64.
+        w_local = it.textWidth() if w == float(old[2]) else w / s
+        return _content_height_at(it, w_local) * s > h + DEGEN_EPS
 
     def write(self, it, v):
         cx, cy, w, h = (float(t) for t in v)
@@ -678,11 +681,16 @@ class _TextBoxAdapter(_Adapter):
         s = it.scale() or 1.0
         it.prepareGeometryChange()
         w_moved = abs(w - o[2]) > POS_WRITE_TOL
+        h_moved = abs(h - o[3]) > POS_WRITE_TOL
         if w_moved:
             w = max(w, MIN_TEXT_WRAP_WIDTH_MM)
             it.setTextWidth(w / s)
             it._data.wrap_width_mm = w
-        if w_moved or abs(h - o[3]) > POS_WRITE_TOL:
+        else:
+            w = o[2]                      # sub-tolerance noise never shifts pos
+        if not h_moved:
+            h = o[3]
+        if w_moved or h_moved:
             # Freeze the solved height (an auto box would otherwise re-fit
             # the re-wrapped content and drift its bottom edge / centre).
             it._data.box_height_mm = h

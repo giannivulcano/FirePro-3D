@@ -633,3 +633,25 @@ def test_text_box_write_back_clears_an_explicit_pivot_without_moving(qapp):
     for a, b2 in zip(before, t.grip_points()):
         assert _qclose(a, b2)
 
+
+def test_text_box_size_write_and_taller_box_at_paper_scale(qapp):
+    """Review (fix round): at scale != 1 a size write round-trips in scene
+    units, and making a box taller (width unchanged) is never a collapse --
+    the unmoved width re-wraps at the item's own textWidth, not w / s (which
+    can land 1 ulp under it; Qt truncates to 1/64)."""
+    t = TextItem(TextAnnotationData(text="Wm Wm Wm iiiii", x=12.0, y=-7.0,
+                                    height_mm=7.1))
+    t._force_device_independent = True
+    t._apply_format()
+    s = t.scale()
+    assert s != 1.0
+    ad = adapter_for(t)
+    old = np.array(ad.read(t))
+    taller = old + np.array([0.0, 0.0, 0.0, 5.0])
+    assert not ad.collapses(t, old, taller)
+    new = old + np.array([1.0, -1.0, 6.0, 9.0])
+    ad.write(t, new)
+    assert np.allclose(ad.read(t), new, atol=1e-6)
+    assert t._data.wrap_width_mm == pytest.approx(new[2])
+    assert t._data.box_height_mm == pytest.approx(new[3])
+
