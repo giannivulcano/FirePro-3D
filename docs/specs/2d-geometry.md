@@ -17,8 +17,8 @@ related-contract: model-space-containment-contract.md   # LANDED: primitives are
 # 2D Geometry System
 
 > **Containment contract landed (C1/C3/C5/C7).** As-built: the 2D primitives are
-> **Block-definition-local and level-less** — authored inside a Block definition (or Paper
-> Space), never placed loose in Model Space (C1). **Level scope lives on the placed Block
+> **Block-definition-local and level-less** — authored inside a Block definition (Block Editor
+> and schematic-editor scenes; Paper Space holds sheet text, not shape primitives), never placed loose in Model Space (C1). **Level scope lives on the placed Block
 > instance**, not the primitive: `level`/`_level_offset_mm`/`z_range_mm`/`Z_CAT_CONSTRUCTION`/
 > elevation-z-ordering have left `Geometry2DMixin` (C3 — see `block-system.md` +
 > `view-relationships.md §7.3` for the instance-level model). **Text is a first-class 2D
@@ -86,7 +86,8 @@ exact class) treat it like its normal class. Contract:
 - **Records.** A reference shape saves under its own type with `"reference": true` and
   `"printed": <bool>`; both keys are written **only when `reference` is on** (normal records
   unchanged). A legacy `reference_line` record loads as a `LineItem` with `reference=True` and
-  its `printed` kept, on every load path (definition primitive factory, schematic
+  its `printed` kept, on every authoring-scene load path — the plan-scene `.fpd` loader
+  clean-drops loose geometry (C8) — (definition primitive factory, schematic
   materialize, undo restore, `_add_from_dict`, clipboard).
 - **Look.** A reference item paints one fixed look: cosmetic width-1 dashed pen in its display
   colour (derived per paint, never written into saved data — `_reference_pen`), no linetype
@@ -109,8 +110,9 @@ exact class) treat it like its normal class. Contract:
   (`copy_style`), paste / duplicate / array / mirror / offset / explode, schematic materialize,
   undo restore (RG18).
 - **Dependencies & derive.** A reference record's linetype / end ids / hatch pattern are not
-  dependencies (`block_registry.prim_refs` skips them; RG15). Break / geometry Explode / Offset /
-  Mirror carry the flags (`stroke_style.copy_style`); **Join** yields a reference polyline only when
+  dependencies (`block_registry.prim_refs` skips them; RG15). Break / geometry Explode carry the
+  flags via `stroke_style.copy_style`; Offset / Mirror copies keep them (`to_dict` →
+  `_add_from_dict`; Flip / Mirror in place via `manip_reflect`); **Join** yields a reference polyline only when
   every input is reference, printed only when every input is printed (RG14, RG16).
 - Placement: **Space** toggles reference in the 8 shape tools (§4). Display: own **"Reference
   Geometry"** Display-Manager category (§7). Plan-only (no elevation/3D).
@@ -674,7 +676,7 @@ line-weight yet). Fill is a per-item property, independent of the category. Refe
 shapes (§1) belong to their own **"Reference Geometry"** category (colour + show/hide-all across
 every 2D class list; renamed from "Reference Lines" — saved QSettings and a project's
 `display_settings["Reference Lines"]` migrate to the new key); `paper_display._category_for_item`
-checks the `reference` flag first.
+checks the `reference` flag before the 2D-class checks.
 
 ## 8. Selection dimension readouts (as-built 2026-09-24, `feat/selection-dim-readouts`)
 

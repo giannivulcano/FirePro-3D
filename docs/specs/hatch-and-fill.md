@@ -191,8 +191,8 @@ until that doc is approved.
 - **D-A4** A pick fills exactly the clicked connected face; anything inside any
   closed island stays empty (no island-style option).
 - **D-A5** Boundary candidates: visible 2D primitives + block geometry in the
-  same container. Ignored: text, other regions, reference-flagged shapes (intent — the
-  region-candidate filter does not read the flag yet),
+  same container. Ignored: text, other regions, reference-flagged shapes (Filled Regions
+  are unbuilt — the candidate filter must skip `reference`-flagged shapes when it is built),
   viewport contents and frames, hidden items.
 - **D-A6** Gaps ≤ 1 mm (container units) count as closed; otherwise hover shows
   a red "Not enclosed" hint and nothing is created (leak highlight nice-to-have).

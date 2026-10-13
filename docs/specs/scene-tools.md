@@ -257,7 +257,7 @@ Per-item protocol available on **every** 2D primitive: `to_dict`/`from_dict`,
 (Y-up CCW+, internally `rotate_point(…, -angle)`), `grip_points`/`apply_grip`,
 `manip_handles`. No primitive has an `offset`, `mirror` or `scale` method;
 `manip_scale` exists on `TextItem` only. *(P1 batch: the eight
-`geometry_2d.py` primitive classes — ReferenceLine inherits Line's — now carry
+`geometry_2d.py` primitive classes now carry
 `manip_reflect(p1, p2)` and `manip_scale_about(base, f)`; Text does not.
 Block instances carry their own since 2026-10-12 — `block-system.md`
 "Instance pose: mirror & scale".)*
@@ -445,7 +445,9 @@ questions. Available HUD schemas today (`dynamic_input.SCHEMAS`):
 - **Open:** Q-O1 ellipse/spline offset result type; Q-O2 polygon offset result
   type; Q-O3 "through point" vs fixed distance; Q-O4 sticky last distance;
   Q-O5 corner join style for polylines (miter vs round/arc like AutoCAD);
-  Q-O6 ReferenceLine offset stays a ReferenceLine.
+  ~~Q-O6 ReferenceLine offset stays a ReferenceLine.~~ RESOLVED 2026-10-13 (reference geometry,
+  `bfef1e34`): Offset clones via `to_dict` / `_add_from_dict`, so the copy keeps `reference` /
+  `printed` (§3.1).
 
 ### 5.8 Array
 - **As-built (unreachable):** modal `ArrayDialog`; linear (rows, cols, x/y
@@ -484,7 +486,7 @@ questions. Available HUD schemas today (`dynamic_input.SCHEMAS`):
 | DV5 | Duplicate: dead mode behind Ctrl+D + context menu; ribbon = +10/+10 instant | §1.1-6 [probe] | brief divergence |
 | DV6 | Legacy rotate: visual-CW sense for a Y-up CCW angle, arc start inconsistent, 5 types skipped, rect→polyline, absolute-heading angle | §3 [probe] | wrong result |
 | DV7 | ~~Rotation-convention violations around arcs: mirror, trim, break, break-at-point, fillet, line×arc intersection, extend-to-arc all use Y-down `atan2` against Y-up `ArcItem` angles~~ **RESOLVED 2026-10-01 (P1 batch):** the 13 live sites (`scene_tools.py` break ×2 circle, break-at-point circle + arc, trim circle ×2 + arc ×2; `tool_geometry.py` fillet ×2, extend line-arc + polyline-arc; `geometry_intersect.line_arc_intersections`) use `arc_math.yup_angle`; the mirror arc branch was retired with `_apply_mirror` (D16) | §3 adjacent [probe]; guards `tests/test_arc_convention_tools.py` | — |
-| DV8 | Offset: no polygon/ellipse/spline; closed-polyline seam; circle radius pen-inflated (pinned by `test_scene_tools.py::test_circle_offset_*`, which assert the `boundingRect()/2` radius — a test enshrining the defect); ReferenceLine → Line; false "Tab" instruction | §3, §1.1-2 [probe] | wrong result |
+| DV8 | Offset: no polygon/ellipse/spline; closed-polyline seam; circle radius pen-inflated (pinned by `test_scene_tools.py::test_circle_offset_*`, which assert the `boundingRect()/2` radius — a test enshrining the defect); ~~ReferenceLine → Line~~ (resolved 2026-10-13: the copy keeps the reference flags, §3.1); false "Tab" instruction | §3, §1.1-2 [probe] | wrong result |
 | DV9 | Array: dialog unreachable; polar stacks polygons/splines, mis-rotates rects/arcs, ignores `rotate_items`, CW sense, centre Y in raw scene coords | §3, §5.8 [probe] | wrong result |
 | DV10 | ~~Mirror: entry clears the selection → never produces anything; arc reflect wrong; closed polylines open~~ **RESOLVED 2026-10-01 (P1 batch):** legacy `mirror` retired; Flip / Mirror rebuilt per D16 | §1.1-3, §3 [probe] | — |
 | DV11 | ~~Scale: no commit path~~ **RESOLVED 2026-10-01 (P1 batch):** legacy `scale` retired; Scale rebuilt per D17 | §1.1-2 | — |
