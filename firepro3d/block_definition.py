@@ -19,7 +19,7 @@ from .block_pose import pose_matrix, valid_scale
 from .constants import BLOCK_VARIANT_CACHE_MAX
 
 from .geometry_2d import (
-    LineItem, ReferenceLineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+    LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .end_render import SCREEN_FIXED
@@ -29,7 +29,7 @@ from .text_item import TextItem
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
 _PRIMITIVE_FACTORY = {
     "draw_line": LineItem,
-    "reference_line": ReferenceLineItem,
+    "reference_line": LineItem,          # legacy record: a reference line (RG3)
     "draw_rectangle": RectangleItem,
     "draw_circle": CircleItem,
     "arc": ArcItem,
@@ -44,15 +44,30 @@ _NESTED_TYPE = "block_instance"
 
 
 def is_scaffold(prim: dict) -> bool:
-    """A non-printed reference line: saved + re-seeded, never rendered (D23).
+    """A non-printed reference primitive: saved + re-seeded, never rendered (D23, RG11).
 
     Args:
         prim: A definition primitive dict.
 
     Returns:
-        True for a ``reference_line`` record whose ``printed`` flag is unset.
+        True for a ``reference`` record (or a legacy ``reference_line`` record)
+        whose ``printed`` flag is unset.
     """
-    return prim.get("type") == "reference_line" and not prim.get("printed", False)
+    ref = prim.get("reference", prim.get("type") == "reference_line")
+    return bool(ref) and not prim.get("printed", False)
+
+
+def is_scaffold_item(item) -> bool:
+    """Live-item twin of :func:`is_scaffold` (RG11).
+
+    Args:
+        item: A scene item (any type; non-2D items are never scaffolding).
+
+    Returns:
+        True for a reference item whose ``printed`` flag is unset.
+    """
+    return bool(getattr(item, "reference", False)) and not getattr(item, "printed", False)
+
 
 _PLACEHOLDER_COLOR = "#c0392b"      # BlockInstance orphan placeholder colour
 _PLACEHOLDER_MM = 200.0
@@ -129,7 +144,10 @@ def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
 
     The clip is the item's closed path through its pos/rotation, origin-relative;
     the pattern origin is the container origin (definition (0,0) -> (-ox, -oy)).
+    A reference item never fills (RG4).
     """
+    if getattr(item, "reference", False):
+        return []
     f = prim.get("fill")
     if not isinstance(f, dict) or f.get("type", "none") == "none":
         return []
@@ -580,6 +598,9 @@ class BlockDefinition:
                                                 float(item._angle))))
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
+            if getattr(item, "reference", False):     # printed reference (RG4)
+                ops.append(RenderOp(STROKE, path, pen=item._reference_pen()))
+                continue
             st = getattr(item, "style", None)
             pieces, lt, ends = (), None, None
             if st is not None and hasattr(item, "stroke_pieces"):

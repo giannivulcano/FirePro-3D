@@ -37,6 +37,7 @@ from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
 from .view_scale import scene_hit_width
 
 _DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
+_NO_PRIOR = object()      # "no display colour remembered" (RG17), distinct from None
 # End-slot values that are never an end-block id (stroke_style.is_end_ref):
 # the LT5 _item_ends fast-path gate.
 _NON_ID_ENDS = frozenset((*END_KEYWORDS, BY_BLOCK, ""))
@@ -165,13 +166,20 @@ class Geometry2DMixin:
         # creation, carried by to_dict/from_dict (undo, load, editor seed);
         # copy paths mint a new one at Model_Space._add_from_dict.
         self._uid: str = uuid.uuid4().hex
+        # Reference geometry (design RG1): non-printing scaffolding. The style
+        # record is kept while reference is on (RG4) so flipping back restores it.
+        self.reference: bool = False
+        self.printed: bool = False
+        # RG17: the display colour held before a panel flip to Reference
+        # (transient, never serialized); _NO_PRIOR = nothing remembered.
+        self._pre_reference_colour = _NO_PRIOR
         self.fill_type: str = "none"          # "none" | "solid" | "hatch"
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
         self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
         # fill colour lives in DisplayableItemMixin._display_fill_color
         # Stroke style record (linetypes.md LT2-1): the source of truth for
         # linetype / weight / ends / authored colour. None on unstyled
-        # subclasses (ReferenceLineItem, TextItem). Set by _init_stroke.
+        # subclasses (TextItem). Set by _init_stroke.
         self.style: dict | None = None
         # True while a placement ghost pen owns the pen (PolylineItem).
         self._ghost_pen: bool = False
@@ -190,8 +198,10 @@ class Geometry2DMixin:
         self._end_split_cache = None
         self._screen_ends = False    # last model paint drew a Fixed-size end (ET1 spec C)
 
-    # Unstyled subclasses (ReferenceLineItem) set this False (LT2-1).
+    # Unstyled subclasses set this False (LT2-1).
     _STYLED = True
+    # Text has no reference form (design AC10); the 8 shape primitives do.
+    _REFERENCE_CAPABLE = True
 
     def _init_stroke(self, color, lineweight: float = 1.0) -> None:
         """Set the record from the constructor colour and the initial pen.
@@ -241,7 +251,7 @@ class Geometry2DMixin:
         # decided by a registry lookup (right before the first paint; a
         # resolving linetype keeps the Continuous bounds -- manipulator frame,
         # copy base point). Flips are announced by BlockRegistry.invalidate.
-        if self.style is not None:
+        if self.style is not None and not self.reference:
             ref = self.style.get("linetype")
             if is_linetype_ref(ref):
                 sc = self.scene()
@@ -263,8 +273,14 @@ class Geometry2DMixin:
 
         Returns:
             The LT3-8 ``ResolvedStroke`` (None for unstyled items) -- resolved
-            once per paint and handed to ``_paint_routed_stroke``.
+            once per paint and handed to ``_paint_routed_stroke``. None for a
+            reference item too (RG4): its derived hairline dash pen takes the
+            plain path -- no linetype pieces, ends or crisp split.
         """
+        if self.reference and not self._ghost_pen:
+            if not paper_pass_active() or self.pen().isCosmetic():
+                self.setPen(self._reference_pen())     # derived per paint (RG5)
+            return None
         dc = getattr(self, "_display_color", None)
         if self.style is None:
             if dc:
@@ -285,7 +301,10 @@ class Geometry2DMixin:
         return rs
 
     def _resolved_stroke(self):
-        """LT3-8 cascade for this primitive (None for unstyled items)."""
+        """LT3-8 cascade for this primitive (None for unstyled and reference
+        items -- RG4)."""
+        if self.reference:
+            return None
         st = self.style
         if st is None:
             return None
@@ -294,6 +313,25 @@ class Geometry2DMixin:
             sc = self.scene()
             reg = getattr(sc, "block_registry", None) if sc is not None else None
         return resolve_stroke(st, reg)
+
+    def _reference_pen(self) -> QPen:
+        """The reference look (RG4): cosmetic hairline dash in the display
+        colour (Reference Geometry category), else the authored colour.
+
+        Derived per call -- never written into the style record (RG5).
+        """
+        dc = getattr(self, "_display_color", None)
+        st = self.style
+        colour = dc or (st["colour"] if st is not None else self.pen().color().name())
+        pen = QPen(QColor(colour))
+        pen.setWidthF(1.0)
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        return pen
+
+    def _draws_fill(self) -> bool:
+        """Fill paints only on a non-reference item with a fill (RG4)."""
+        return getattr(self, "fill_type", "none") != "none" and not self.reference
 
     def _lt_args(self) -> dict:
         """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
@@ -354,6 +392,8 @@ class Geometry2DMixin:
         if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
+            if self.reference:
+                highlight.setStyle(Qt.PenStyle.DashLine)   # RG4: stays dashed
             painter.setPen(highlight)
             draw_highlight(painter)
         return False
@@ -392,7 +432,7 @@ class Geometry2DMixin:
         ``ResolvedStroke`` when the caller has one.
         """
         st = self.style
-        if st is None or self._ghost_pen:
+        if st is None or self._ghost_pen or self.reference:
             return NO_ENDS
         # Hot (every paint + boundingRect): inline, no helper calls. A slot
         # names an end only via a visible end-block id (is_end_ref); without
@@ -560,7 +600,8 @@ class Geometry2DMixin:
         if not pen.isCosmetic():
             super().paint(painter, option, widget)
             return
-        if self._CRISP_LINE and not self._ghost_pen and self.style is not None:
+        if (self._CRISP_LINE and not self._ghost_pen and self.style is not None
+                and not self.reference):
             # One straight segment (MW-13 fast path): classify analytically
             # from the line and the painter's 2x2 -- no path, split or cache.
             # Exactly axis (split_axis's rule, inlined: hot) draws aliased;
@@ -585,10 +626,10 @@ class Geometry2DMixin:
             return
         painter.save()
         try:
-            if self._ghost_pen or self.style is None:
-                # Not weight-mapped (placement ghosts; unstyled reference
-                # lines): outside MW-7's scope, so unsplit -- but still the
-                # pen copy, so a painter-local tint reaches them (MW-12).
+            if self._ghost_pen or self.style is None or self.reference:
+                # Not weight-mapped (placement ghosts; reference items, RG4):
+                # outside MW-7's scope, so unsplit -- but still the pen
+                # copy, so a painter-local tint reaches them (MW-12).
                 _cs.stroke(painter, self._crisp_base_path(), pen, None)
             else:
                 _cs.stroke_cached(self._mw_split_cache, painter,
@@ -837,7 +878,13 @@ class Geometry2DMixin:
     def _geom2d_properties(self) -> dict:
         # Level-less (containment C3): no Level / Level Offset / Elevation rows.
         props: dict = {}
-        if self.style is not None:
+        if self._REFERENCE_CAPABLE:
+            # RG10: Reference toggle; while on, Printed shows and the stroke /
+            # fill rows hide (the record is kept for the flip back, RG4).
+            props["Reference"] = {"type": "toggle", "value": bool(self.reference)}
+            if self.reference:
+                props["Printed"] = {"type": "toggle", "value": bool(self.printed)}
+        if self.style is not None and not self.reference:
             from .hatch_patterns import picker_exclude
             sc = self.scene()
             in_end = getattr(sc, "block_end", None) is not None
@@ -849,7 +896,7 @@ class Geometry2DMixin:
                 ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc),
                 drawing_scale=sm.drawing_scale if sm is not None else None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
-        if self.is_fillable():
+        if self.is_fillable() and not self.reference:
             props["Fill"] = {"type": "enum",
                              "options": ["none", "solid", "hatch"],
                              "value": self.fill_type}
@@ -881,6 +928,9 @@ class Geometry2DMixin:
 
     def _geom2d_set(self, key: str, value) -> bool:
         """Handle a property set for mixin-owned keys.  Returns True if consumed."""
+        if self._REFERENCE_CAPABLE and key in ("Reference", "Printed"):
+            self._dim_edit(lambda v: self._set_reference_flag(key, v), value)
+            return True
         if self.style is not None and key in _END_ROW_KEYS:
             self._set_end_from_panel(key, value)
             return True
@@ -926,6 +976,41 @@ class Geometry2DMixin:
             return True
         return False
 
+    def _set_reference_flag(self, key: str, on) -> None:
+        """Panel flip (RG10): one undo step via ``_dim_edit``; the item takes
+        its new category's display values; ends / badge leave or re-enter the
+        bounds and a hidden fill leaves ``shape()`` (prepareGeometryChange).
+
+        A reference item never resolves its linetype (RG4), so its stale
+        missing-linetype badge / tooltip are cleared here; the next normal
+        paint re-derives them after a flip back.
+        """
+        on = bool(on)
+        if key == "Reference" and on == bool(self.reference):
+            return                              # no-op flip: nothing to refresh
+        self.prepareGeometryChange()
+        if key == "Reference":
+            from .display_manager import refresh_category_display
+            if on:
+                self._pre_reference_colour = getattr(self, "_display_color", None)
+                self.reference = True
+                self._lt_missing = None
+                if self._lt_tip_id is not None:
+                    from .linetype_render import sync_missing_tooltip
+                    sync_missing_tooltip(self, None)
+                refresh_category_display(self)
+            else:
+                self.reference = False
+                self.printed = False
+                refresh_category_display(self)      # visibility / opacity
+                prior = self._pre_reference_colour
+                if prior is not _NO_PRIOR:          # RG17: exactly as before
+                    self._display_color = prior
+                self._pre_reference_colour = _NO_PRIOR
+        else:
+            self.printed = on and self.reference
+        self.update()
+
     def _geom2d_to_dict(self, d: dict) -> dict:
         """Stamp mixin fields onto *d* and return it (level-less — C3)."""
         d["uid"] = self._uid
@@ -943,6 +1028,9 @@ class Geometry2DMixin:
                 "color":   self._display_fill_color or "#888888",
                 "opacity": self.fill_opacity,
             }
+        if self.reference:
+            d["reference"] = True
+            d["printed"] = bool(self.printed)
         return d
 
     def _geom2d_from_dict(self, data: dict):
@@ -954,6 +1042,11 @@ class Geometry2DMixin:
         uid = data.get("uid")
         if uid:
             self._uid = str(uid)
+        # RG3: a legacy ``reference_line`` record is a reference line.
+        legacy_ref = data.get("type") == "reference_line"
+        self.reference = (bool(data.get("reference", legacy_ref))
+                          and self._REFERENCE_CAPABLE)
+        self.printed = bool(data.get("printed", False)) if self.reference else False
         if self._STYLED and self.style is not None:
             from .stroke_style import default_style, normalize_style
             # Always a fresh record (never the caller's dict), independent of
@@ -1326,7 +1419,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         # Derive the pen from the style record (+ display colour).
         rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
@@ -1349,7 +1442,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 path = path.united(cp)
@@ -1507,8 +1600,8 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
 
     def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
         """Baked mirror of both endpoints across the infinite line p1-p2 (DD1).
-        Inherited by ``ReferenceLineItem`` (type, printed flag and the dashed
-        reference pen are kept: the item is edited in place)."""
+        A reference line keeps its ``reference`` / ``printed`` flags (the
+        item is edited in place)."""
         if _degenerate_axis(p1, p2):
             return              # zero-length axis: no-op, never half-applied
         from .cad_math import CAD_Math
@@ -1560,90 +1653,6 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         return stroker.createStroke(path)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ReferenceLineItem — non-printing finite reference/construction line
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ReferenceLineItem(LineItem):
-    """A finite 2-point *reference* line: a non-printing drafting aid.
-
-    Subclasses :class:`LineItem`, inheriting all grip/manipulator/translate/
-    rotate behaviour AND snap participation for free (the snap engine matches
-    ``isinstance(item, LineItem)``). Differences:
-
-    * Always rendered in the canonical width-1 dashed reference style.
-    * Carries a per-item ``printed`` flag (default False). ``printed=False``
-      excludes it from paper-space plots/exports AND from a block's rendered
-      / exploded output (pure scaffolding — still saved in the definition and
-      re-seeded on reopen, D23); ``printed=True`` graduates it to real
-      output geometry (still dashed).
-    * Its own "Reference Lines" Display-Manager category.
-    """
-
-    # Unstyled (LT2-1): fixed reference style, keeps color/lineweight keys.
-    _STYLED = False
-
-    def __init__(self, pt1: QPointF, pt2: QPointF,
-                 color: str | QColor = "#ffffff", lineweight: float = 1.0,
-                 printed: bool = False):
-        super().__init__(pt1, pt2, color, lineweight)
-        self.printed = bool(printed)
-        # Canonical reference-line style: width-1 dashed cosmetic, geom colour.
-        pen = QPen(QColor(color) if isinstance(color, str) else color)
-        pen.setWidthF(1.0)
-        pen.setCosmetic(True)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        self.setPen(pen)
-
-    # ── Properties ────────────────────────────────────────────────────────────
-
-    def get_properties(self) -> dict:
-        props = {
-            "Type": {"type": "label", "value": "Reference Line"},
-            "Colour": {"type": "label", "value": self.pen().color().name()},
-            "Length": {"type": "dimension", "value": self._fmt(self.line().length()),
-                       "value_mm": self.line().length(), "minimum": 0.0},
-            "Printed": {"type": "toggle", "value": bool(self.printed)},
-        }
-        props.update(self._geom2d_properties())
-        return props
-
-    def set_property(self, key: str, value):
-        if key == "Printed":
-            self.printed = bool(value)
-            self.update()
-            return
-        if key == "Length":
-            v = self._parse_dim(value)
-            if v is not None and v > 0:
-                self._dim_edit(self.set_length, v)
-            return
-        if self._geom2d_set(key, value):
-            return
-
-    # ── Serialisation ──────────────────────────────────────────────────────────
-
-    def to_dict(self) -> dict:
-        d = {
-            "type":        "reference_line",
-            "pt1":         [self._pt1.x(), self._pt1.y()],
-            "pt2":         [self._pt2.x(), self._pt2.y()],
-            "color":       self.pen().color().name(),
-            "lineweight":  self.pen().widthF(),
-            "printed":     bool(self.printed),
-        }
-        return self._geom2d_to_dict(d)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "ReferenceLineItem":
-        pt1 = QPointF(data["pt1"][0], data["pt1"][1])
-        pt2 = QPointF(data["pt2"][0], data["pt2"][1])
-        obj = cls(pt1, pt2, data.get("color", "#ffffff"),
-                  data.get("lineweight", 1.0), data.get("printed", False))
-        obj._geom2d_from_dict(data)
-        return obj
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1996,7 +2005,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             if self._angle != 0.0:
                 painter.setWorldTransform(self._rotation_transform(), True)
             # Draw fill FIRST (behind the outline).
-            if getattr(self, "fill_type", "none") != "none":
+            if self._draws_fill():
                 cp = self.get_closed_path()
                 if cp is not None:
                     from .displayable_item import draw_fill
@@ -2058,7 +2067,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(cp)
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(cp)
         if self._angle != 0.0:
             path = self._rotation_transform().map(path)
@@ -2360,7 +2369,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         # Derive the pen from the style record (+ display colour).
         rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
@@ -2399,7 +2408,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(cp)
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(cp)
         return path
 
@@ -2706,7 +2715,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         # Derive the pen from the style record (+ display colour).
         rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline); only applies when arc is closed
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
@@ -2757,7 +2766,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 path = path.united(cp)
@@ -3019,7 +3028,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         rs = self._sync_stroke_pen()
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
@@ -3046,7 +3055,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(self.get_closed_path())
         return path
 
@@ -3292,7 +3301,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         rs = self._sync_stroke_pen()
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
@@ -3320,7 +3329,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             path = path.united(self.get_closed_path())
         return path
 
@@ -3727,7 +3736,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         rs = self._sync_stroke_pen()
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 from .displayable_item import draw_fill
@@ -3758,7 +3767,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
         path = stroker.createStroke(self.path())
-        if getattr(self, "fill_type", "none") != "none":
+        if self._draws_fill():
             cp = self.get_closed_path()
             if cp is not None:
                 path = path.united(cp)

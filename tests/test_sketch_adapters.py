@@ -13,7 +13,7 @@ from PyQt6.QtCore import QPointF
 
 from firepro3d.block_instance import BlockInstance
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem,
-                                   RectangleItem, ReferenceLineItem, RegularPolygonItem,
+                                   RectangleItem, RegularPolygonItem,
                                    SplineItem)
 from firepro3d.sketch_adapters import ANG_W, GRIP_HANDLES, W_SIZE, adapter_for
 from firepro3d.sketch_solver import ANG_SCALE
@@ -48,9 +48,16 @@ def _rotated_rect():
     return r
 
 
+def _reference_line():
+    """A reference line: a flagged LineItem (reference-geometry RG1)."""
+    ln = LineItem(QPointF(0, 0), QPointF(40, 10))
+    ln.reference = True
+    return ln
+
+
 _MAKERS = {
     "line": lambda: LineItem(QPointF(0, 0), QPointF(40, 10)),
-    "reference_line": lambda: ReferenceLineItem(QPointF(0, 0), QPointF(40, 10)),
+    "reference_line": _reference_line,
     "circle": lambda: CircleItem(QPointF(5, 5), 20),
     "rect": lambda: RectangleItem(QPointF(0, 0), QPointF(50, 30)),
     "rect_rotated": _rotated_rect,
@@ -424,9 +431,13 @@ def test_spline_is_excluded(qapp):
     assert adapter_for(s) is None
 
 
-def test_reference_line_gets_its_own_type_key(qapp):
-    assert adapter_for(_MAKERS["reference_line"]()).type_key == "reference_line"
-    assert adapter_for(_MAKERS["line"]()).type_key == "draw_line"
+def test_reference_line_uses_the_line_adapter(qapp):
+    # RG1: a reference line is a flagged LineItem -- the exact-class registry
+    # hands it the line adapter (AC7: constraints like its normal class).
+    rl = _MAKERS["reference_line"]()
+    assert rl.reference is True
+    assert adapter_for(rl).type_key == "draw_line"
+    assert adapter_for(rl) is adapter_for(_MAKERS["line"]())
 
 
 def test_type_keys_match_to_dict(qapp):

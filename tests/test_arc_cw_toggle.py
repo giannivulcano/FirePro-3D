@@ -1,6 +1,8 @@
-"""Space flips the sweep direction in the Center / Start arc variants.
+"""Shift+Space flips the sweep direction in the Center / Start arc variants.
 
-User 2026-10-01 (P1): at the span step Space toggles CCW <-> CW, reset per
+User 2026-10-01 (P1): at the span step the flip toggles CCW <-> CW, reset per
+placement.  Reference geometry RG7 (2026-10-13) moved the flip to Shift+Space
+(plain Space toggles reference placement in every 2D tool).  Reset per
 placement, like the End Points minor/major toggle.  The ``arc_span`` HUD stays
 an unsigned magnitude swept in the live direction (2026-10-02 ruling).
 """
@@ -65,7 +67,7 @@ def _assert_cw_270(arc):
 
 def test_center_space_sweeps_cw(scene):
     _arm_span_step(scene)
-    assert scene.cycle_placement_ambiguity() is True
+    assert scene.cycle_placement_ambiguity(reverse=True) is True
     _press(scene, 0, -100)
     _assert_cw_270(_placed(scene))
 
@@ -75,7 +77,7 @@ def test_start_variant_space_sweeps_cw(qapp):
     _press(s, 100, 0)          # start point
     _press(s, 0, 0)            # centre
     assert s._draw_arc_step == 2
-    assert s.cycle_placement_ambiguity() is True
+    assert s.cycle_placement_ambiguity(reverse=True) is True
     _press(s, 0, -100)
     _assert_cw_270(_placed(s))
 
@@ -90,15 +92,15 @@ def test_default_stays_ccw(scene):
 
 def test_space_twice_returns_to_ccw(scene):
     _arm_span_step(scene)
-    assert scene.cycle_placement_ambiguity() is True
-    assert scene.cycle_placement_ambiguity() is True
+    assert scene.cycle_placement_ambiguity(reverse=True) is True
+    assert scene.cycle_placement_ambiguity(reverse=True) is True
     _press(scene, 0, -100)
     assert _placed(scene)._span_deg == pytest.approx(90.0)
 
 
 def test_direction_resets_per_placement(scene):
     _arm_span_step(scene)
-    scene.cycle_placement_ambiguity()
+    scene.cycle_placement_ambiguity(reverse=True)
     _press(scene, 0, -100)                         # CW commit
     assert scene.mode == "select"                  # one-shot: back to Select
     scene.set_mode("draw_arc")                     # the user re-arms the tool
@@ -110,7 +112,7 @@ def test_direction_resets_per_placement(scene):
 
 def test_typed_span_sweeps_in_live_direction(scene):
     _arm_span_step(scene)
-    scene.cycle_placement_ambiguity()
+    scene.cycle_placement_ambiguity(reverse=True)
     assert scene._geom_ctl._apply_arc_dynamic_input({"span_deg": 45.0})
     arc = _placed(scene)
     assert arc._span_deg == pytest.approx(45.0)
@@ -123,22 +125,22 @@ def test_hud_seed_is_unsigned_magnitude_in_live_direction(scene):
     scene.publish_placement_state(scene._draw_arc_center, QPointF(0, -100))
     seed = scene._plc._transform_seed_values(SCHEMAS["arc_span"])
     assert seed["Span"] == pytest.approx(90.0)
-    scene.cycle_placement_ambiguity()
+    scene.cycle_placement_ambiguity(reverse=True)
     seed = scene._plc._transform_seed_values(SCHEMAS["arc_span"])
     assert seed["Span"] == pytest.approx(270.0)
     assert seed["ArcLength"] == pytest.approx(math.radians(270.0) * 100.0)
 
 
-def test_space_before_span_step_cycles_nothing(scene):
+def test_shift_space_before_span_step_cycles_nothing(scene):
     _press(scene, 0, 0)
     assert scene._draw_arc_step == 1
-    assert scene.cycle_placement_ambiguity() is False
+    assert scene.cycle_placement_ambiguity(reverse=True) is False
 
 
-def test_space_key_event_flips_direction(scene):
+def test_shift_space_key_event_flips_direction(scene):
     _arm_span_step(scene)
     ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space,
-                   Qt.KeyboardModifier.NoModifier)
+                   Qt.KeyboardModifier.ShiftModifier)
     scene.keyPressEvent(ev)
     assert ev.isAccepted()
     _press(scene, 0, -100)

@@ -663,7 +663,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._on_paper_modified)
         self.scene.radiationConfirm.connect(self._radiation_on_confirm)
         self.scene.radiationCancel.connect(self._radiation_on_cancel)
-        self.scene.instructionChanged.connect(self.footer.set_instruction)
+        self.scene.instructionDisplay.connect(self.footer.set_instruction)
         self.scene.openViewRequested.connect(self._on_open_view_requested)
         self.scene.warningIssued.connect(self._on_warning_issued)
         self.scene.confirmRequested.connect(self._on_confirm_requested)
@@ -4924,7 +4924,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         sc.sceneModified.connect(self._sync_capability_buttons)
         # Footer readouts: per-step/variant instruction (corner/centre,
         # polygon sides, "pick opposite corner", …), live coordinates, warnings.
-        sc.instructionChanged.connect(self.footer.set_instruction)
+        sc.instructionDisplay.connect(self.footer.set_instruction)
         sc.cursorMoved.connect(self.footer.set_coord)
         sc.warningIssued.connect(self._on_warning_issued)
         # Keep the shared footer SNAP/ALIGN pills (and the inline osnap bar's

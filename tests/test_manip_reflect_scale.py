@@ -20,7 +20,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d.cad_math import CAD_Math
-from firepro3d.geometry_2d import ArcItem, RectangleItem, ReferenceLineItem
+from firepro3d.geometry_2d import ArcItem, LineItem, RectangleItem
 from firepro3d.halo import halo_scene_path
 from tests._modify_tools_helpers import PRIMITIVES
 
@@ -86,7 +86,8 @@ def test_reflect_outline_is_the_mirror_image(scene, name, axis):
     item.manip_reflect(QPointF(p1), QPointF(p2))
     _assert_same_outline(
         [CAD_Math.mirror_point(p, p1, p2) for p in before], item)    # [RED]
-    assert type(item) is cls                     # type kept (RefLine stays one)
+    assert type(item) is cls                     # type kept
+    assert item.to_dict().get("reference") == d0.get("reference")   # flag kept
     assert item.pen().widthF() == lw             # lineweight never changes
     d1 = item.to_dict()
     assert d1["type"] == d0["type"]
@@ -141,9 +142,11 @@ def test_plain_rect_reflected_axis_aligned_stays_unrotated(scene):
 
 def test_reference_line_stays_a_reference_line(scene):
     rl = _make(scene, "refline")
+    rl.printed = True
     rl.manip_reflect(QPointF(0, 50), QPointF(10, 50))
-    assert type(rl) is ReferenceLineItem                             # [RED]
-    assert rl.to_dict()["type"] == "reference_line"
+    # RG1 / RG2: edited in place -- still a LineItem flagged reference.
+    assert type(rl) is LineItem and rl.reference and rl.printed      # [RED]
+    assert rl.to_dict()["type"] == "draw_line"
     assert [(round(p.x(), 6), round(p.y(), 6)) for p in rl.grip_points()] == [
         (0.0, 100.0), (50.0, 100.0), (100.0, 100.0)]
 

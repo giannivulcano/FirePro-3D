@@ -5,13 +5,15 @@ from PyQt6.QtCore import QEvent, QObject, QPointF
 
 from firepro3d.geometry_2d import (
     ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem, RectangleItem,
-    ReferenceLineItem, RegularPolygonItem, SplineItem,
+    RegularPolygonItem, SplineItem,
 )
 from firepro3d.text_item import TextAnnotationData, TextItem
 
 # name -> (factory, scene list attribute)
 def _line():      return LineItem(QPointF(0, 0), QPointF(100, 0))
-def _refline():   return ReferenceLineItem(QPointF(0, 0), QPointF(100, 0))
+def _refline():
+    # A reference line is a flagged LineItem (reference-geometry RG1).
+    ln = LineItem(QPointF(0, 0), QPointF(100, 0)); ln.reference = True; return ln
 def _poly_open():
     p = PolylineItem(QPointF(0, 0)); p.append_point(QPointF(100, 0)); p.append_point(QPointF(100, -100)); return p
 def _poly_closed():
@@ -30,7 +32,7 @@ def _text_rot():
 
 PRIMITIVES = {
     "line": (_line, "_draw_lines"),
-    "refline": (_refline, "_reference_lines"),
+    "refline": (_refline, "_draw_lines"),
     "polyline_open": (_poly_open, "_polylines"),
     "polyline_closed": (_poly_closed, "_polylines"),
     "rect": (_rect, "_draw_rects"),

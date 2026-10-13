@@ -92,8 +92,8 @@ class LinetypeDef:
         length = float(rep["length"])
         dashes, dots, weights = [], [], []
         for prim in defn.primitives:
-            if prim.get("type") != "draw_line":
-                continue
+            if prim.get("type") != "draw_line" or prim.get("reference"):
+                continue          # reference lines are never marks (RG1)
             (x1, y1), (x2, y2) = prim["pt1"], prim["pt2"]
             role = axis_role((x1 - ox, y1 - oy), (x2 - ox, y2 - oy), length)
             if role is None:

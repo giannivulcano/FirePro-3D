@@ -503,11 +503,12 @@ def test_tinted_reference_line_keeps_its_dashes(be, themed):
     """User, 2026-10-02 (CS2 smoke): reference lines must keep looking like
     reference lines -- the tint follows their dash pattern (dash lengths in
     px unchanged), so the line reads blue AND dashed."""
-    from firepro3d.geometry_2d import ReferenceLineItem
+    from firepro3d.geometry_2d import LineItem
     v, sc = be
     t = themed
-    rl = ReferenceLineItem(QPointF(-300, -150), QPointF(0, -150))
-    sc.addItem(rl); sc._reference_lines.append(rl)
+    rl = LineItem(QPointF(-300, -150), QPointF(0, -150))
+    rl.reference = True                       # reference line (RG1)
+    sc.addItem(rl); sc._draw_lines.append(rl)
     sc.clearSelection()
     img, dpr = _grab(v)
     a, b = v.mapFromScene(QPointF(-290, -150)), v.mapFromScene(QPointF(-10, -150))

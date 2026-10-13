@@ -9,16 +9,15 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QRectF
 
-from .block_definition import _PRIMITIVE_FACTORY
+from .block_definition import _PRIMITIVE_FACTORY, is_scaffold_item
 from .geometry_2d import (
     ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem, RectangleItem,
-    ReferenceLineItem, RegularPolygonItem, SplineItem,
+    RegularPolygonItem, SplineItem,
 )
 from .text_item import TextItem
 
 _CLS_TO_LIST = {
-    # Subclass before base (lookup is exact type(item), but keep the guard order).
-    ReferenceLineItem: "_reference_lines",
+    # Reference shapes stay in their class's list (design RG1).
     LineItem: "_draw_lines", RectangleItem: "_draw_rects",
     CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
     EllipseItem: "_draw_ellipses",
@@ -27,7 +26,7 @@ _CLS_TO_LIST = {
     TextItem: "_texts",
 }
 
-# gather order: drawn primitives + text, then nested blocks, then reference lines
+# gather order: drawn primitives + text (reference shapes included), then nested blocks
 _PRIMITIVE_LISTS = ("_draw_lines", "_draw_rects", "_draw_circles",
                     "_draw_arcs", "_draw_ellipses", "_draw_splines",
                     "_polylines", "_draw_polygons", "_texts")
@@ -39,6 +38,9 @@ def add_primitive(scene, item) -> None:
     list_attr = _CLS_TO_LIST.get(type(item))
     if list_attr is not None:
         getattr(scene, list_attr).append(item)
+    if getattr(item, "reference", False):            # RG18: the category colour
+        from .display_manager import refresh_category_display
+        refresh_category_display(item)
 
 
 def materialize_primitives(scene, prim_dicts) -> None:
@@ -62,18 +64,17 @@ def materialize_primitives(scene, prim_dicts) -> None:
 
 def materialized_items(scene) -> list:
     """The scene's construction primitives in stable order (tracking lists,
-    then nested blocks, then reference lines)."""
+    then nested blocks)."""
     items = []
     for attr in _PRIMITIVE_LISTS:
         items.extend(getattr(scene, attr))
     items.extend(getattr(scene, "_block_instances", []))
-    items.extend(getattr(scene, "_reference_lines", []))
     return items
 
 
 def clear_materialized(scene) -> None:
     """Remove every materialized item from *scene* (rebuild-in-place)."""
-    for attr in _PRIMITIVE_LISTS + ("_reference_lines",):
+    for attr in _PRIMITIVE_LISTS:
         lst = getattr(scene, attr)
         for it in list(lst):
             if it.scene() is scene:
@@ -86,11 +87,6 @@ def clear_materialized(scene) -> None:
 _DEFAULT_EXTENT = QRectF(0, 0, 1000, 1000)   # the plan / elevation empty rule
 _EXTENT_PAD_FRAC = 0.02    # per side, of the larger extent dimension
 _EXTENT_PAD_MIN_MM = 1.0   # so edge strokes are never half-clipped
-
-
-def _is_scaffold(item) -> bool:
-    """A non-printed reference line is scaffolding (D23) -- never extent."""
-    return isinstance(item, ReferenceLineItem) and not getattr(item, "printed", False)
 
 
 class SchematicSceneManager:
@@ -171,7 +167,7 @@ class SchematicSceneManager:
             return None
         from .geometry_import import geometric_bounds
         rect = geometric_bounds([it for it in materialized_items(sc)
-                                 if not _is_scaffold(it)])
+                                 if not is_scaffold_item(it)])   # D23 / RG11
         if rect is None:
             return QRectF(_DEFAULT_EXTENT)
         pad = max(_EXTENT_PAD_MIN_MM,

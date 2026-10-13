@@ -2,7 +2,7 @@
 from PyQt6.QtCore import QPointF
 
 from firepro3d.block_definition import BlockDefinition
-from firepro3d.geometry_2d import LineItem, ReferenceLineItem
+from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.text_item import TextItem
 
@@ -24,8 +24,10 @@ def test_every_primitive_gets_a_uid_and_round_trips(qapp):
     legacy = {k: v for k, v in d.items() if k != "uid"}
     assert len(LineItem.from_dict(legacy)._uid) == 32      # legacy: minted on build
     assert LineItem(QPointF(0, 0), QPointF(1, 0))._uid != ln._uid
-    rl = ReferenceLineItem.from_dict(ReferenceLineItem(QPointF(0, 0), QPointF(1, 1)).to_dict())
-    assert rl.to_dict()["uid"] == rl._uid
+    src = LineItem(QPointF(0, 0), QPointF(1, 1))
+    src.reference = True                                   # reference line (RG1)
+    rl = LineItem.from_dict(src.to_dict())
+    assert rl.reference and rl.to_dict()["uid"] == rl._uid == src._uid
 
 
 def test_text_uid_round_trips(qapp):

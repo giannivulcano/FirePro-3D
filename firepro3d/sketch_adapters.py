@@ -87,7 +87,6 @@ def _mid(a: PointExpr, b: PointExpr) -> PointExpr:
 # grip_handle().
 GRIP_HANDLES = {
     "draw_line": {0: "p1", 2: "p2"},
-    "reference_line": {0: "p1", 2: "p2"},
     "draw_rectangle": {0: "tl", 1: "tm", 2: "tr", 3: "rm", 4: "br",
                        5: "bm", 6: "bl", 7: "lm", 8: "center"},
     "draw_circle": {0: "center"},
@@ -704,12 +703,11 @@ class _TextBoxAdapter(_Adapter):
 def _registry():
     from .block_instance import BlockInstance
     from .geometry_2d import (_AXIS_MIN, ArcItem, CircleItem, EllipseItem, LineItem,
-                              PolylineItem, RectangleItem, ReferenceLineItem,
+                              PolylineItem, RectangleItem,
                               RegularPolygonItem)
     from .text_item import TextItem
     return {
         LineItem: _LineAdapter("draw_line"),
-        ReferenceLineItem: _LineAdapter("reference_line"),
         RectangleItem: _RectAdapter(),
         CircleItem: _CircleAdapter(),
         ArcItem: _ArcAdapter(),

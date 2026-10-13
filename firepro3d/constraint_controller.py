@@ -36,7 +36,7 @@ from .text_item import TextItem
 from .theme import M
 
 # Model_Space tracking lists whose items can carry constraints (§5.1).
-_PARTICIPATING = ("_draw_lines", "_reference_lines", "_draw_rects", "_draw_circles",
+_PARTICIPATING = ("_draw_lines", "_draw_rects", "_draw_circles",
                   "_draw_arcs", "_draw_ellipses", "_polylines", "_draw_polygons",
                   "_texts", "_block_instances")
 # D39 / MW-12: state -> theme token for the paint-time tint (H-MW-g).
@@ -1688,7 +1688,7 @@ class ConstraintController:
         Returns:
             The refs to add, or None when the selection is not valid for it.
         """
-        from .geometry_2d import LineItem      # covers ReferenceLineItem
+        from .geometry_2d import LineItem      # reference lines too (RG1)
         try:
             sel = self._scene.selectedItems()
         except RuntimeError:

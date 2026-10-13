@@ -278,12 +278,13 @@ def test_undo_snapshot_holds_capture_and_undo_restores_it(qapp):
 
 def test_commit_reflect_flip_enters_edit_before_undo_push(qapp):
     from firepro3d.axis_picker import AxisPick
-    from firepro3d.geometry_2d import ReferenceLineItem
+    from firepro3d.geometry_2d import LineItem
     sc, rec, ln = _editor_scene()
     try:
-        rl = ReferenceLineItem(QPointF(200, -500), QPointF(200, 500))
+        rl = LineItem(QPointF(200, -500), QPointF(200, 500))
+        rl.reference = True                   # reference axis (RG1)
         sc.addItem(rl)
-        sc._reference_lines.append(rl)
+        sc._draw_lines.append(rl)
         sc.mode = "flip"
         sc._selected_items = [ln]
         sc._mirror_axis = AxisPick(QPointF(200, -500), QPointF(200, 500), rl, 90.0)

@@ -16,7 +16,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import tool_geometry as tg
-from firepro3d.geometry_2d import ReferenceLineItem
+from firepro3d.geometry_2d import LineItem
 from tests._modify_tools_helpers import PRIMITIVES
 
 
@@ -29,6 +29,7 @@ def test_line_parallel_same_type(qapp):
         src = _make(name)
         new = tg.offset_item(src, 10.0)
         assert type(new) is type(src)                                  # [RED] refline
+        assert new.reference is src.reference          # RG1: flag, not class
         a, b = new.grip_points()[0], new.grip_points()[-1]
         assert abs(abs(a.y()) - 10.0) < 1e-6 and abs(abs(b.y()) - 10.0) < 1e-6
 
@@ -37,7 +38,7 @@ def test_refline_keeps_printed_flag(qapp):
     src = _make("refline")
     src.printed = True
     new = tg.offset_item(src, 10.0)
-    assert isinstance(new, ReferenceLineItem) and new.printed is True
+    assert isinstance(new, LineItem) and new.reference and new.printed is True
 
 
 def test_circle_radius_is_geometric_not_pen_inflated(qapp):

@@ -16,19 +16,12 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
 
 from .model_space import Model_Space
 from .model_view import Model_View
-from .geometry_2d import ReferenceLineItem
-from .block_definition import is_scaffold
+from .block_definition import is_scaffold, is_scaffold_item
 from . import geometry_import
 from .house_dialog import HouseDialog
 
 from . import schematic_scene
 from .schematic_scene import _CLS_TO_LIST  # noqa: F401 (moved; re-exported)
-
-
-def _is_scaffold_item(item) -> bool:
-    """Live-item twin of ``block_definition.is_scaffold``: a non-printed
-    reference line is scaffolding (D23) — saved, but never block geometry."""
-    return isinstance(item, ReferenceLineItem) and not getattr(item, "printed", False)
 
 
 _SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice
@@ -596,7 +589,7 @@ class BlockEditorWidget(QWidget):
         # The base is the centre of the REAL geometry: non-printed reference
         # lines are scaffolding (D23), not block geometry, so they are left out
         # of the bbox (a plan selection carries none today; explicit anyway).
-        real = [it for it in self.gather_primitives() if not _is_scaffold_item(it)]
+        real = [it for it in self.gather_primitives() if not is_scaffold_item(it)]
         rect = geometry_import.geometric_bounds(real)
         c = rect.center() if rect is not None else QPointF(0.0, 0.0)
         self._seed_base = QPointF(c)
@@ -653,7 +646,7 @@ class BlockEditorWidget(QWidget):
         if why is not None:
             sc._show_status(why, 5000)
             return False
-        real = [it for it in self.gather_primitives() if not _is_scaffold_item(it)]
+        real = [it for it in self.gather_primitives() if not is_scaffold_item(it)]
         if kind == "tile":
             from .tile_frame import seed_tile
             sc.set_block_capability(("tile", seed_tile(real)))
@@ -843,7 +836,7 @@ class BlockEditorWidget(QWidget):
         return path
 
     def _has_geometry(self, parent) -> bool:
-        if any(not _is_scaffold_item(it) for it in self.gather_primitives()):
+        if any(not is_scaffold_item(it) for it in self.gather_primitives()):
             return True   # scaffolding alone is not geometry (D23)
         from .themed_message import themed_info
         themed_info(parent or self,

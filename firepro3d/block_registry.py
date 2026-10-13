@@ -41,12 +41,16 @@ def prim_refs(primitives) -> set[str]:
     ``style.linetype`` block id is one too (linetypes.md H3-h); the
     ``continuous`` / ``by_block`` keywords are not. A start / finish end id
     is one as well (LT5 Q13); the ``none`` / ``by_linetype`` keywords are not.
+    A ``reference`` record draws none of its linetype / ends / hatch, so
+    those hidden refs are not dependencies (reference geometry RG15).
     """
     out = set()
     for p in primitives:
         if p.get("type") == NESTED_TYPE and p.get("block_id"):
             out.add(p["block_id"])
             out |= override_refs(p.get("overrides"))[1]      # WM2 H4
+        if p.get("reference"):
+            continue                              # RG15: hidden refs
         f = p.get("fill")
         if isinstance(f, dict) and f.get("type") == "hatch":
             ref = canonical_ref(f.get("pattern"))
@@ -72,6 +76,8 @@ def linetype_users_in(scene, block_id: str) -> list:
         return []
     out = []
     for item in tools._all_geometry_items():
+        if getattr(item, "reference", False):
+            continue                  # RG15: a reference shape's style is hidden
         st = getattr(item, "style", None)
         if isinstance(st, dict) and st.get("linetype") == block_id:
             out.append(item)
@@ -113,6 +119,8 @@ def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
                 lt_ids.add(i)
     out = []
     for item in tools._all_geometry_items():
+        if getattr(item, "reference", False):
+            continue                  # RG15: a reference shape's style is hidden
         st = getattr(item, "style", None)
         if not isinstance(st, dict):
             continue

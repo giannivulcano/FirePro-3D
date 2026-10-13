@@ -462,11 +462,13 @@ def test_g2_rotated_rect_30_edges_stay_antialiased(be):
 
 def test_unstyled_reference_line_stays_unsplit(be):
     # MW-7 scope: only weight-mapped strokes go crisp. A reference line
-    # (unstyled, fixed 1 px dashed) half-covering two rows keeps its AA.
-    from firepro3d.geometry_2d import ReferenceLineItem
+    # (fixed 1 px dashed reference pen, RG4) half-covering two rows keeps
+    # its AA -- the reference paint takes the unsplit branch.
+    from firepro3d.geometry_2d import LineItem
     v, sc = be
     y = boundary_y(v, 40.0) + 0.3
-    ln = ReferenceLineItem(QPointF(20, y), QPointF(150, y), color=INK)
+    ln = LineItem(QPointF(20, y), QPointF(150, y), color=INK)
+    ln.reference = True
     sc.addItem(ln)
     img, dpr = grab(v)
     partial = 0

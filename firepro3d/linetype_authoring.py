@@ -16,7 +16,8 @@ _TOL = lp._TOL
 def _plain_lines(scene):
     """Editor Lines that can be pattern marks (never reference lines)."""
     from .geometry_2d import LineItem
-    return [l for l in scene._draw_lines if type(l) is LineItem]
+    return [l for l in scene._draw_lines
+            if type(l) is LineItem and not l.reference]      # RG1
 
 
 def axis_items(scene):
@@ -257,10 +258,12 @@ def set_default_end_from_label(scene, which: str, label) -> bool:
 
 
 def _styled_items(scene) -> list:
-    """The scene's styled geometry primitives."""
+    """The scene's styled geometry primitives -- never a reference item,
+    whose kept style record no lock may rewrite (RG4)."""
     tools = getattr(scene, "_tools", None)
     items = tools._all_geometry_items() if tools is not None else []
-    return [it for it in items if isinstance(getattr(it, "style", None), dict)]
+    return [it for it in items if isinstance(getattr(it, "style", None), dict)
+            and not getattr(it, "reference", False)]
 
 
 def _non_continuous(scene):

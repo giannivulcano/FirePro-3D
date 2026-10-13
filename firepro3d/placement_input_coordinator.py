@@ -44,12 +44,6 @@ class PlacementInputCoordinator:
                                            _ARC_VARIANT_ENDPOINTS)
 
         self._PLACEMENT_VARIANTS = {
-            "draw_line": [
-                ("Line", "Pick first point",
-                 lambda s: setattr(s, "_draw_line_variant", "line")),
-                ("Reference Line", "Pick reference start point",
-                 lambda s: setattr(s, "_draw_line_variant", "reference")),
-            ],
             "draw_arc": [
                 ("Center Point Arc", "Select center point to begin",
                  lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
@@ -1081,7 +1075,7 @@ class PlacementInputCoordinator:
             # or a typed Span commits.  Without this the readout sits at 0 the
             # whole span step (a transform has no cursor-derived inverse).
             # ArcLength stays in scene units; ``set_values`` converts it to mm.
-            # Unsigned magnitude in the live (Space-toggled) direction.
+            # Unsigned magnitude in the live (Shift+Space-toggled) direction.
             point = self.get_resolved_point()
             if point is None or self._scene._draw_arc_center is None:
                 return {"Span": 0.0, "ArcLength": 0.0}

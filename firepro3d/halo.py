@@ -27,7 +27,7 @@ def _halo_trace_path_local(item):
     if isinstance(item, QGraphicsPathItem):
         p = item.path()
         return p if not p.isEmpty() else item.shape()
-    # Line items (LineItem, ReferenceLine, Pipe): the bare segment.
+    # Line items (LineItem -- reference lines too -- and Pipe): the bare segment.
     if isinstance(item, QGraphicsLineItem):
         ln = item.line()
         p = QPainterPath(ln.p1())
@@ -94,16 +94,23 @@ def halo_scene_path(item, scene_scale=None):
 def halo_is_area(item) -> bool:
     """True when a cursor INSIDE the item's trace is a direct hit (distance 0).
 
-    Areas: filled 2D geometry (``fill_type != "none"``), classes flagged
+    Areas: 2D primitives whose fill paints (``_draws_fill()`` -- a reference
+    item's hidden fill is not an area, RG4), other items with
+    ``fill_type != "none"``, classes flagged
     ``HALO_AREA = True`` (the list is owned by selection-mode.md §4.1), and any
     item whose trace falls back to ``shape()`` (text boxes, SVG, blocks).
     Open geometry (lines, arcs, unfilled outlines) is measured to its stroke —
     ``QPainterPath.contains`` implicitly closes open paths, so it must not be
     used for them.
     """
-    fill = getattr(item, "fill_type", None)
-    if fill is not None and fill != "none":
-        return True
+    draws_fill = getattr(item, "_draws_fill", None)
+    if callable(draws_fill):                  # 2D primitives: a hidden fill
+        if draws_fill():                      # (reference, RG4) is no area
+            return True
+    else:
+        fill = getattr(item, "fill_type", None)
+        if fill is not None and fill != "none":
+            return True
     if getattr(item, "HALO_AREA", False):
         return True
     if callable(getattr(item, "halo_trace_path", None)):

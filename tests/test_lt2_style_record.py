@@ -107,8 +107,7 @@ from PyQt6.QtCore import QPointF  # noqa: E402
 from PyQt6.QtGui import QPen  # noqa: E402
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem,  # noqa: E402
                                    LineItem, PolylineItem, RectangleItem,
-                                   ReferenceLineItem, RegularPolygonItem,
-                                   SplineItem)
+                                   RegularPolygonItem, SplineItem)
 from firepro3d.block_definition import _PRIMITIVE_FACTORY  # noqa: E402
 
 
@@ -135,11 +134,17 @@ def test_every_styled_class_round_trips_style(qapp):
         assert back.style["colour"] == "#ff0000"
 
 
-def test_reference_line_and_text_have_no_style(qapp):
-    rl = ReferenceLineItem(QPointF(0, 0), QPointF(1, 0))
-    assert rl.style is None
+def test_text_has_no_style_and_a_reference_line_keeps_one(qapp):
+    # Reference geometry RG1 / RG3: a legacy ``reference_line`` record loads
+    # as a STYLED LineItem flagged ``reference`` (its record kept, RG4).
+    legacy = {"type": "reference_line", "pt1": [0, 0], "pt2": [1, 0],
+              "color": "#888888", "lineweight": 1.0}
+    rl = _PRIMITIVE_FACTORY[legacy["type"]].from_dict(legacy)
+    assert type(rl) is LineItem and rl.reference is True
+    assert rl.style == ss.default_style("#888888")
     d = rl.to_dict()
-    assert "style" not in d and d["lineweight"] == 1.0
+    assert d["style"] == ss.default_style("#888888")
+    assert "lineweight" not in d and "color" not in d
 
 
 def test_legacy_dict_loads_continuous_by_block(qapp):

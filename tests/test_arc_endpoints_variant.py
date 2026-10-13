@@ -49,9 +49,9 @@ def test_default_minor_bulges_away_from_centre_side(scene):
     assert arc.arc_midpoint().y() < 0.0            # bulges up (away)
 
 
-def test_space_toggles_major(scene):
+def test_shift_space_toggles_major(scene):          # RG7: flip on Shift+Space
     _press(scene, 0, 0); _press(scene, 100, 0)
-    assert scene.cycle_placement_ambiguity() is True
+    assert scene.cycle_placement_ambiguity(reverse=True) is True
     _press(scene, 50, 40)
     arc = _placed(scene)
     assert arc._span_deg > 180.0
@@ -128,7 +128,7 @@ def test_near_90_centre_snaps_to_exact_quarter(scene):
 
 def test_near_90_major_snaps_to_exact_270(scene):
     _press(scene, 0, 0); _press(scene, 100, 0)
-    assert scene.cycle_placement_ambiguity() is True
+    assert scene.cycle_placement_ambiguity(reverse=True) is True
     _press(scene, 50, 47)
     assert _placed(scene)._span_deg == pytest.approx(270.0, abs=1e-9)
 

@@ -4,7 +4,7 @@ import math
 import pytest
 from PyQt6.QtCore import QPointF, QRectF
 
-from firepro3d.geometry_2d import LineItem, ReferenceLineItem
+from firepro3d.geometry_2d import LineItem
 from firepro3d.selection_readouts import DimSpec, readout_text
 from firepro3d.scale_manager import ScaleManager
 
@@ -30,7 +30,8 @@ def test_line_set_length_keeps_pt1(qapp):
 
 
 def test_reference_line_inherits_length(qapp):
-    rl = ReferenceLineItem(QPointF(0, 0), QPointF(0, 100))
+    rl = LineItem(QPointF(0, 0), QPointF(0, 100))
+    rl.reference = True                       # reference line (RG1)
     assert _by_key(rl)["length"].value == pytest.approx(100.0)
 
 
