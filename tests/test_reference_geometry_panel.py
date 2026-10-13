@@ -249,3 +249,43 @@ def test_hidden_fill_never_hit_tests_on_any_closed_shape(qapp, name):
     item.reference = True
     assert not item.shape().contains(inside)
     assert not halo_is_area(item)
+
+
+# -- Unit C review follow-ups: no-op flips are no-ops ------------------------
+
+def test_noop_reference_flip_pushes_no_undo_step(shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    a = CircleItem(QPointF(0, 0), 50.0)
+    b = CircleItem(QPointF(100, 0), 20.0)
+    b.reference = True
+    for it in (a, b):
+        scene.addItem(it); scene._draw_circles.append(it)
+    scene.push_undo_state()
+    pos0 = scene._undo_pos
+    a.set_property("Reference", False)          # already normal
+    b.set_property("Reference", True)           # already reference
+    assert scene._undo_pos == pos0
+    assert a.reference is False and b.reference is True
+
+
+def test_printed_on_a_non_reference_item_is_a_noop(shown_model_view):
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    a = CircleItem(QPointF(0, 0), 50.0)
+    scene.addItem(a); scene._draw_circles.append(a)
+    scene.push_undo_state()
+    pos0 = scene._undo_pos
+    a.set_property("Printed", True)
+    assert a.printed is False and scene._undo_pos == pos0
+
+
+def test_noop_reference_flip_leaves_a_directly_set_display_colour(qapp):
+    c = CircleItem(QPointF(0, 0), 50.0)
+    c._display_color = "#123456"                # set directly, not an override
+    c._set_reference_flag("Reference", False)   # no-op: already normal
+    assert c._display_color == "#123456"
+    c.reference = True
+    c._display_color = "#654321"
+    c._set_reference_flag("Reference", True)
+    assert c._display_color == "#654321"

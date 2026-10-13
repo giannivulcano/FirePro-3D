@@ -982,6 +982,8 @@ class Geometry2DMixin:
         paint re-derives them after a flip back.
         """
         on = bool(on)
+        if key == "Reference" and on == bool(self.reference):
+            return                              # no-op flip: nothing to refresh
         self.prepareGeometryChange()
         if key == "Reference":
             self.reference = on

@@ -231,6 +231,11 @@ def copy_style(src, dst, *, fresh_ends=()) -> None:
             and getattr(dst, "_REFERENCE_CAPABLE", False)):
         dst.reference = bool(getattr(src, "reference", False))   # RG14
         dst.printed = bool(getattr(src, "printed", False))
+        if dst.reference:
+            # A derived piece takes the Reference Geometry display colour now,
+            # not at the next Display Manager re-apply (lazy: avoids a cycle).
+            from .display_manager import refresh_category_display
+            refresh_category_display(dst)
     st = getattr(src, "style", None)
     if st is None or getattr(dst, "style", None) is None:
         return

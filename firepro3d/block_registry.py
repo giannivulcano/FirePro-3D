@@ -76,6 +76,8 @@ def linetype_users_in(scene, block_id: str) -> list:
         return []
     out = []
     for item in tools._all_geometry_items():
+        if getattr(item, "reference", False):
+            continue                  # RG15: a reference shape's style is hidden
         st = getattr(item, "style", None)
         if isinstance(st, dict) and st.get("linetype") == block_id:
             out.append(item)
@@ -117,6 +119,8 @@ def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
                 lt_ids.add(i)
     out = []
     for item in tools._all_geometry_items():
+        if getattr(item, "reference", False):
+            continue                  # RG15: a reference shape's style is hidden
         st = getattr(item, "style", None)
         if not isinstance(st, dict):
             continue
