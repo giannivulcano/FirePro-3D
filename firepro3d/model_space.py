@@ -5524,11 +5524,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                               lineweight=getattr(pl, "_lineweight",
                                                  pl.pen().widthF()))
             from .stroke_style import copy_style
-            # RG6: copy_style carries the reference flag and its colour, so a
-            # 2-vertex reference chain commits a reference line.
-            copy_style(pl, placed)
+            # Overrides first, so copy_style's reference-colour refresh honours
+            # them. RG6: copy_style carries the reference flag and its colour,
+            # so a 2-vertex reference chain commits a reference line.
             if pl._display_overrides:
                 placed._display_overrides = dict(pl._display_overrides)
+            copy_style(pl, placed)
             self.removeItem(pl)
             if pl in self._polylines:
                 self._polylines.remove(pl)

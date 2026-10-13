@@ -168,8 +168,13 @@ def _scratch_display_keys():
     st.sync()
 
 
+@pytest.mark.parametrize("second_ref, want_ref, want_colour", [
+    (False, False, "#00ff00"),      # reference first + normal: no leak (RG16)
+    (True, True, "#ff0000"),        # all reference: the reference colour
+])
 def test_join_with_a_normal_input_leaves_no_reference_colour(
-        editor_scene, _scratch_display_keys):
+        editor_scene, _scratch_display_keys, monkeypatch, second_ref,
+        want_ref, want_colour):
     from PyQt6.QtCore import QSettings
     st = QSettings("GV", "FirePro3D")
     st.setValue("display/Reference Geometry/color", "#ff0000")
@@ -177,11 +182,16 @@ def test_join_with_a_normal_input_leaves_no_reference_colour(
     scene = editor_scene
     a = _add_line(scene, _flag(LineItem(QPointF(0, 0), QPointF(100, 0)),
                                True, False))
-    b = _add_line(scene, LineItem(QPointF(100, 0), QPointF(100, 80)))
+    b = _add_line(scene, _flag(LineItem(QPointF(100, 0), QPointF(100, 80)),
+                               second_ref, False))
     a.setSelected(True); b.setSelected(True)
+    # Pin items[0] = the reference line: copy_style then paints the reference
+    # colour onto the result, which RG16 must undo for a normal join.
+    monkeypatch.setattr(scene, "selectedItems", lambda: [a, b])
     scene._tools.join_selected_items()
     pl = scene._polylines[0]
-    assert not pl.reference and pl._display_color != "#ff0000"
+    assert pl.reference is want_ref
+    assert pl._display_color == want_colour
 
 
 # -- seam fix round S4 (AC11): Offset and Mirror copies carry the flags -------

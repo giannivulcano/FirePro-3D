@@ -160,9 +160,13 @@ def test_flip_back_survives_undo_redo(shown_model_view, _scratch_display_keys):
     c.set_property("Reference", True)
     c.set_property("Reference", False)
     scene.undo(); scene.undo()
-    assert scene._draw_circles[-1].reference is False
+    back = scene._draw_circles[-1]
+    assert back.reference is False
+    assert back._display_color != "#777777"           # not left in the ref colour
     scene.redo()
-    assert scene._draw_circles[-1].reference is True
+    redone = scene._draw_circles[-1]
+    assert redone.reference is True
+    assert redone._display_color == "#777777"         # restore re-applies RG18
 
 
 # -- Review Minor: stale missing-linetype tooltip on a flip -------------------
