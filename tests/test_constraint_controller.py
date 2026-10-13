@@ -1223,6 +1223,7 @@ def test_polygon_handles_are_pick_candidates(qapp):
                                                             "horizontal")._candidates()
              if r.get("uid") == p._uid}
     assert names == ({("point", "center")} | {("point", f"v{i}") for i in range(5)}
+                     | {("point", f"m{i}") for i in range(5)}        # CS3b edge midpoints
                      | {("edge", f"s{i}") for i in range(5)})
 
 

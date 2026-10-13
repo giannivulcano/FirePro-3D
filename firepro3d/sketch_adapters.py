@@ -56,6 +56,30 @@ def _seg_collapses(o, n, i: int, j: int) -> bool:
                     float(n[2 * j + 1]) - float(n[2 * i + 1]))
     return ln <= DEGEN_EPS < lo
 
+
+def _mid(a: PointExpr, b: PointExpr) -> PointExpr:
+    """CS3b: the derived midpoint ``(a + b) / 2`` of two handle exprs -- not a
+    solver variable. Its deps are the union of both ends' deps; ``fn`` maps
+    the sub-vector ``x[idx]`` onto each end and halves the summed Jacobians."""
+    idx = tuple(sorted(set(a.deps) | set(b.deps)))
+    col = {d: k for k, d in enumerate(idx)}
+
+    def _end(e, v):
+        sel = [col[d] for d in e.deps]
+        if e.raw is not None:
+            return np.array(v[sel], dtype=float), np.eye(2), sel
+        p, dp = e.fn(v[sel])
+        return p, dp, sel
+
+    def fn(v):
+        pa, da, sa = _end(a, v)
+        pb, db, sb = _end(b, v)
+        dp = np.zeros((2, len(idx)))
+        dp[:, sa] += 0.5 * da
+        dp[:, sb] += 0.5 * db
+        return 0.5 * (pa + pb), dp
+    return PointExpr(idx=idx, fn=fn)
+
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
 # Polyline (i -> v<i>), polygon (0 -> center, i -> v<i-1>, D33) and text /
 # block instance (move grip -> ins) are computed by their adapters'
@@ -158,6 +182,11 @@ class _Adapter:
         circle / arc only; point-on-curve uses the FULL circle)."""
         return {}
 
+    def mid_names(self, item) -> frozenset:
+        """CS3b: the point handles that are edge midpoints (pick markers
+        paint them as triangles); none by default."""
+        return frozenset()
+
     def grip_handle(self, item, index: int):
         return GRIP_HANDLES.get(self.type_key, {}).get(index)
 
@@ -176,7 +205,8 @@ class _Adapter:
 
 
 class _LineAdapter(_Adapter):
-    """vars x1 y1 x2 y2; handles ``p1`` ``p2`` + edge ``edge``."""
+    """vars x1 y1 x2 y2; handles ``p1`` ``p2``, the derived midpoint ``mid``
+    (CS3b) + edge ``edge``."""
 
     def __init__(self, key):
         self.type_key = key
@@ -188,7 +218,11 @@ class _LineAdapter(_Adapter):
         return [it._pt1.x(), it._pt1.y(), it._pt2.x(), it._pt2.y()]
 
     def points(self, it, off):
-        return {"p1": raw_point(off, off + 1), "p2": raw_point(off + 2, off + 3)}
+        p1, p2 = raw_point(off, off + 1), raw_point(off + 2, off + 3)
+        return {"p1": p1, "p2": p2, "mid": _mid(p1, p2)}
+
+    def mid_names(self, it):
+        return frozenset(("mid",))
 
     def edges(self, it, off):
         p = self.points(it, off)
@@ -269,6 +303,10 @@ class _RectAdapter(_Adapter):
     def edges(self, it, off):
         p = self.points(it, off)
         return {e: (p[a], p[b]) for e, (a, b) in _RECT_EDGES.items()}
+
+    def mid_names(self, it):
+        """CS3b: the edge midpoints already exist as §5.3 handles."""
+        return frozenset(("tm", "rm", "bm", "lm"))
 
     def write(self, it, v):
         cx, cy, w, h, th = (float(t) for t in v)
@@ -373,7 +411,8 @@ class _ArcAdapter(_Adapter):
 
 
 class _PolylineAdapter(_Adapter):
-    """2 vars per vertex; ``v<i>`` + segments ``s<i>`` (closing one if closed)."""
+    """2 vars per vertex; ``v<i>`` + segments ``s<i>`` (closing one if closed)
+    + each segment's derived midpoint ``m<i>`` (CS3b)."""
 
     type_key = "polyline"
 
@@ -389,26 +428,32 @@ class _PolylineAdapter(_Adapter):
     def grip_handle(self, it, index):
         return f"v{index}" if 0 <= index < len(it._points) else None
 
-    def points(self, it, off):
-        return {f"v{i}": raw_point(off + 2 * i, off + 2 * i + 1)
-                for i in range(len(it._points))}
-
-    def edges(self, it, off):
-        p = self.points(it, off)
-        n = len(it._points)
-        out = {f"s{i}": (p[f"v{i}"], p[f"v{i + 1}"]) for i in range(n - 1)}
-        if it.is_closed():
-            out[f"s{n - 1}"] = (p[f"v{n - 1}"], p["v0"])
-        return out
-
-    def collapses(self, it, old, new):
-        """D29 + D36: any segment (the closing one too) shrunk to zero length."""
+    def _seg_pairs(self, it):
+        """``(i, j)`` vertex pairs of every segment ``s<i>`` (closing one too)."""
         n = len(it._points)
         pairs = [(i, i + 1) for i in range(n - 1)]
         if it.is_closed() and n > 2:
             pairs.append((n - 1, 0))
+        return pairs
+
+    def points(self, it, off):
+        out = {f"v{i}": raw_point(off + 2 * i, off + 2 * i + 1)
+               for i in range(len(it._points))}
+        for i, j in self._seg_pairs(it):
+            out[f"m{i}"] = _mid(out[f"v{i}"], out[f"v{j}"])
+        return out
+
+    def mid_names(self, it):
+        return frozenset(f"m{i}" for i, _j in self._seg_pairs(it))
+
+    def edges(self, it, off):
+        p = self.points(it, off)
+        return {f"s{i}": (p[f"v{i}"], p[f"v{j}"]) for i, j in self._seg_pairs(it)}
+
+    def collapses(self, it, old, new):
+        """D29 + D36: any segment (the closing one too) shrunk to zero length."""
         return super().collapses(it, old, new) or any(
-            _seg_collapses(old, new, i, j) for i, j in pairs)
+            _seg_collapses(old, new, i, j) for i, j in self._seg_pairs(it))
 
     def write(self, it, v):
         it._points = [QPointF(float(v[2 * i]), float(v[2 * i + 1]))
@@ -478,7 +523,8 @@ def _poly_vertex_fn(k: int, n: int, inscribed: bool):
 class _PolygonAdapter(_CenterRotAdapter):
     """D33: ``center`` + vertices ``v0..v(n-1)`` and edges ``s<i>`` = ``v<i>``
     -> ``v<i+1>`` (the closing ``s<n-1>`` included), derived from the centre,
-    R and rotation; grip 0 -> ``center``, grip i (1..n) -> ``v<i-1>`` (§5.3)."""
+    R and rotation; grip 0 -> ``center``, grip i (1..n) -> ``v<i-1>`` (§5.3).
+    CS3b: each edge's derived midpoint ``m<i>``."""
 
     def grip_handle(self, it, index):
         if index == 0:
@@ -494,7 +540,12 @@ class _PolygonAdapter(_CenterRotAdapter):
         out = {"center": raw_point(off, off + 1)}
         for k in range(n):
             out[f"v{k}"] = PointExpr(idx=idx, fn=_poly_vertex_fn(k, n, it._inscribed))
+        for k in range(n):
+            out[f"m{k}"] = _mid(out[f"v{k}"], out[f"v{(k + 1) % n}"])
         return out
+
+    def mid_names(self, it):
+        return frozenset(f"m{k}" for k in range(it._sides))
 
     def edges(self, it, off):
         p, n = self.points(it, off), it._sides

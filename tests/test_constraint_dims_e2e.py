@@ -33,7 +33,7 @@ def test_e2e_tool_pick_edge_type_value_drives_and_drag_holds(win_with_editor):
     w._block_mode_buttons["constrain_dim_distance"].click()
     QApplication.processEvents()
     assert sc.mode == "constrain_dim_distance"
-    _click(v, v.mapFromScene(QPointF(150, 0)))                     # the edge
+    _click(v, v.mapFromScene(QPointF(75, 0)))      # the edge, off its midpoint (CS3b)
     assert sc.readouts.is_editing()                                # D50 HUD
     _type(sc, "Length", "250")
     assert _len(ln) == pytest.approx(250.0, abs=1e-6)

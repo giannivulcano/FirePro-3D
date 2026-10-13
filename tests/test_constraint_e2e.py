@@ -607,6 +607,131 @@ def test_e2e_undo_redo_of_a_coincident_add(win_with_editor):
     assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]
 
 
+# ── CS3b edge midpoints (real window, real ribbon, posted picks) ─────────────
+
+def _line_mid(ln):
+    return ((ln._pt1.x() + ln._pt2.x()) / 2.0, (ln._pt1.y() + ln._pt2.y()) / 2.0)
+
+
+def _handles(c):
+    return {(r.get("uid"), r.get("h")) for r in c.refs}
+
+
+def test_e2e_cs3b_line_midpoint_coincident_follows_an_end_drag(win_with_editor):
+    from firepro3d.geometry_2d import CircleItem
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    ln = _line(sc, (20, 50), (220, 50))
+    circ = CircleItem(QPointF(120, -80), 30); sc.addItem(circ); sc._draw_circles.append(circ)
+    _pick(win, (120, 50), (120, -80))                    # the line's middle, the centre
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "coincident"
+    assert _handles(c) == {(ln._uid, "mid"), (circ._uid, "center")}
+    assert (circ._center.x(), circ._center.y()) == pytest.approx(_line_mid(ln), abs=1e-6)
+    sc.clearSelection(); ln.setSelected(True); QApplication.processEvents()
+    p2 = QPointF(ln._pt2)
+    _drag(view, p2, p2 + QPointF(0, 60))                 # the p2 grip
+    assert ln._pt2.y() == pytest.approx(p2.y() + 60, abs=1.0)
+    assert (circ._center.x(), circ._center.y()) == pytest.approx(_line_mid(ln), abs=1e-6)
+
+
+def test_e2e_cs3b_polygon_edge_midpoint_carries_a_point(win_with_editor):
+    from firepro3d.geometry_2d import RegularPolygonItem
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    poly = RegularPolygonItem(QPointF(-150, 100), sides=4, radius_mm=40.0, rotation_deg=0.0)
+    sc.addItem(poly); sc._draw_polygons.append(poly)
+    g = poly.grip_points()                               # v0 = g[1], v1 = g[2]
+    m0 = ((g[1].x() + g[2].x()) / 2.0, (g[1].y() + g[2].y()) / 2.0)
+    ln = _line(sc, (-300, -100), (-250, -150))
+    _pick(win, m0, (-300, -100))
+    (c,) = sc.constraint_ctl.constraints
+    assert _handles(c) == {(poly._uid, "m0"), (ln._uid, "p1")}
+    sc.clearSelection(); poly.setSelected(True); QApplication.processEvents()
+    c0 = QPointF(poly._center)
+    _drag(view, c0, c0 + QPointF(50, 30))                # the centre grip
+    assert poly._center.x() == pytest.approx(c0.x() + 50, abs=1.0)
+    g = poly.grip_points()
+    want = ((g[1].x() + g[2].x()) / 2.0, (g[1].y() + g[2].y()) / 2.0)
+    assert (ln._pt1.x(), ln._pt1.y()) == pytest.approx(want, abs=1e-6)
+
+
+def _polyline(sc, *pts):
+    from firepro3d.geometry_2d import PolylineItem
+    pl = PolylineItem(QPointF(*pts[0]))
+    for p in pts[1:]:
+        pl.append_point(QPointF(*p))
+    sc.addItem(pl); sc._polylines.append(pl)
+    return pl
+
+
+def _seg_mid(pl, i):
+    a, b = pl._points[i], pl._points[i + 1]
+    return ((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
+
+
+def test_e2e_cs3b_segment_midpoint_save_close_reopen(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    pl = _polyline(sc, (40, 40), (140, 40), (140, 140))
+    ln = _line(sc, (90, -60), (30, -120))
+    _pick(win, (90, 40), (90, -60))                      # m0, then ln.p1
+    upl, uln = pl._uid, ln._uid
+    sc.clearSelection()
+    defn = w.commit_block("cs3b-e2e", "L", "S")
+    assert defn is not None
+    assert [{(r["uid"], r["h"]) for r in c["refs"]} for c in defn.constraints] == [
+        {(upl, "m0"), (uln, "p1")}]
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    (pl2,) = [p for p in sc2._polylines if p._uid == upl]
+    (ln2,) = [l for l in sc2._draw_lines if l._uid == uln]
+    assert [c.type for c in sc2.constraint_ctl.active()] == ["coincident"]
+    assert _handles(sc2.constraint_ctl.constraints[0]) == {(upl, "m0"), (uln, "p1")}
+    assert (ln2._pt1.x(), ln2._pt1.y()) == pytest.approx(_seg_mid(pl2, 0), abs=1e-6)
+
+
+def test_e2e_cs3b_undo_redo_of_a_midpoint_coincident(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    pl = _polyline(sc, (40, 40), (140, 40), (140, 140))
+    ln = _line(sc, (90, -60), (30, -120))
+    upl, uln = pl._uid, ln._uid
+    sc.push_undo_state()
+
+    def cur():
+        (l,) = [x for x in sc._draw_lines if x._uid == uln]
+        return l
+    _pick(win, (90, 40), (90, -60))
+    assert len(sc.constraint_ctl.constraints) == 1
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    assert (cur()._pt1.x(), cur()._pt1.y()) == pytest.approx((90.0, -60.0), abs=1e-6)
+    (pl1,) = [p for p in sc._polylines if p._uid == upl]
+    assert [(p.x(), p.y()) for p in pl1._points] == pytest.approx(
+        [(40.0, 40.0), (140.0, 40.0), (140.0, 140.0)], abs=1e-6)
+    _ctrl(view, Qt.Key.Key_Y)
+    (c,) = sc.constraint_ctl.constraints
+    assert "m0" in {r["h"] for r in c.refs}
+    (pl2,) = [p for p in sc._polylines if p._uid == upl]
+    assert (cur()._pt1.x(), cur()._pt1.y()) == pytest.approx(_seg_mid(pl2, 0), abs=1e-6)
+
+
+def test_e2e_cs3b_midpoint_on_its_own_edge_is_refused(win_with_editor):
+    """D44 reuse: a line's midpoint on its own edge holds by construction."""
+    from firepro3d.constraint_controller import TRIVIAL_STATUS
+    win = win_with_editor
+    sc = win._active_scene()
+    ln = _line(sc, (20, 50), (220, 50))
+    _pick(win, (120, 50), (60, 50))                      # mid, then its own edge
+    assert sc.constraint_ctl.constraints == []
+    assert win.statusBar().currentMessage() == TRIVIAL_STATUS
+    assert (ln._pt1.x(), ln._pt2.x()) == (20.0, 220.0)
+
+
 def test_e2e_d17_move_of_a_fully_defined_text_is_refused(win_with_editor):
     from firepro3d.constraint_controller import GROUNDED_STATUS
     from firepro3d.text_item import TextAnnotationData, TextItem
