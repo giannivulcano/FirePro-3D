@@ -1487,7 +1487,11 @@ def test_item_states_free_defined_conflict(qapp):
     assert ctl.diagnostics().state(r._uid) == "conflict"
 
 
-def test_fully_defined_text_ins_at_origin(qapp):
+def test_cs3c_g4_legacy_ins_record_still_solves(qapp):
+    """G4 (CS3c AC4; replaces the pre-CS3c "text ins at origin = fully
+    defined" test -- text gained 2 size DOF): old Horizontal / Vertical
+    (text.ins, origin) records keep solving -- pos() lands on the origin --
+    and leave the size free (2 DOF)."""
     from firepro3d.text_item import TextAnnotationData, TextItem
     sc = _scene()
     t = TextItem(TextAnnotationData(text="A", x=30.0, y=40.0, height_mm=20.0))
@@ -1496,8 +1500,9 @@ def test_fully_defined_text_ins_at_origin(qapp):
     O = {"ref": "origin"}
     ctl.add("horizontal", [{"uid": t._uid, "h": "ins"}, O])
     ctl.add("vertical", [{"uid": t._uid, "h": "ins"}, O])
-    assert ctl.diagnostics().state(t._uid) == "defined"
-    assert ctl.sketch_state() == ("Fully defined", "defined")
+    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert ctl.diagnostics().state(t._uid) == "free"
+    assert ctl.sketch_state() == ("Under-defined · 2 DOF", "free")
 
 
 def test_line_both_ends_to_origin_collapses_red(qapp):
@@ -1814,11 +1819,31 @@ def _text(sc, x, y):
     return t
 
 
+def _ground_line(sc, a, b):
+    """A fully defined line a -> b (a on the origin): Coincident + H/V + dim."""
+    ln = _line(sc, a, b)
+    ctl = sc.constraint_ctl
+    ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+    ctl.add("horizontal" if a[1] == b[1] else "vertical", [{"uid": ln._uid, "h": "edge"}])
+    ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
+    assert ctl.diagnostics().state(ln._uid) == "defined"
+    return ln
+
+
 def _grounded_text(sc):
+    """CS3c (VC5 -- before CS3c a text was fully defined by its ins alone; it
+    now has 2 size DOF): tl on the origin, tr's x on a fixed line end (width),
+    bl's y on another (height) -> 4 independent rows, fully defined."""
     t = _text(sc, 30.0, 40.0)
-    assert sc.constraint_ctl.add("coincident", [{"uid": t._uid, "h": "ins"},
-                                                {"ref": "origin"}]) is not None
-    assert sc.constraint_ctl.item_state_text(t._uid)[1] == "defined"
+    ctl = sc.constraint_ctl
+    lx = _ground_line(sc, (0, 0), (200, 0))
+    ly = _ground_line(sc, (0, 0), (0, 100))
+    assert ctl.add("coincident", [{"uid": t._uid, "h": "tl"}, {"ref": "origin"}]) is not None
+    assert ctl.add("vertical", [{"uid": t._uid, "h": "tr"},
+                                {"uid": lx._uid, "h": "p2"}]) is not None
+    assert ctl.add("horizontal", [{"uid": t._uid, "h": "bl"},
+                                  {"uid": ly._uid, "h": "p2"}]) is not None
+    assert ctl.item_state_text(t._uid)[1] == "defined"
     return t
 
 
@@ -1829,8 +1854,12 @@ def test_move_items_refuses_a_fully_defined_selection(qapp):
     msgs = []
     sc._show_status = lambda m, *a, **k: msgs.append(m)
     sc._selected_items = [t]
+    # CS3c: tl is a derived handle now (a row, not a substitution), so the
+    # grounding solve lands within LIN_TOL; the refusal itself moves nothing.
+    p0 = (t.pos().x(), t.pos().y())
+    assert p0 == pytest.approx((0.0, 0.0), abs=1e-6)
     assert sc.move_items(QPointF(25, 0)) is False
-    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-9)
+    assert (t.pos().x(), t.pos().y()) == pytest.approx(p0, abs=1e-9)
     assert msgs[-1] == GROUNDED_STATUS
 
 
@@ -1879,11 +1908,13 @@ def test_rotate_commit_refuses_and_pushes_no_undo(qapp):
     sc.push_undo_state()
     n = len(sc._undo_stack)
     angle0 = t._angle
+    p0 = (t.pos().x(), t.pos().y())          # CS3c: grounded within LIN_TOL
+    assert p0 == pytest.approx((0.0, 0.0), abs=1e-6)
     sc._selected_items = [t]
     sc._rotate_pivot = QPointF(100, 100)
     assert sc._modify_ctl.commit_rotate(45.0) is False
     assert len(sc._undo_stack) == n
-    assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-9)
+    assert (t.pos().x(), t.pos().y()) == pytest.approx(p0, abs=1e-9)
     assert t._angle == angle0
 
 
@@ -1963,12 +1994,61 @@ def test_cs3c_smart_dimension_refuses_text_size(qapp):
     msgs = []
     sc.constraint_ctl._status = lambda m, *a, **k: msgs.append(m)
     ctl = sc.constraint_ctl
+    sc.push_undo_state()
+    n_undo = len(sc._undo_stack)
     assert ctl.add("dim_distance", [{"uid": t._uid, "h": "top"}]) is None
     assert msgs[-1] == DIM_TEXT_STATUS
     assert ctl.add("dim_distance", [{"uid": t._uid, "h": "tl"},
                                     {"uid": t._uid, "h": "br"}]) is None
     assert msgs[-1] == DIM_TEXT_STATUS
     assert ctl.constraints == []
+    assert len(sc._undo_stack) == n_undo           # refusal pushes no undo
     c = ctl.add("dim_distance", [{"uid": t._uid, "h": "center"},
                                  {"uid": ln._uid, "h": "p1"}])
     assert c is not None and c.type == "dim_distance"
+
+def test_cs3c_g1_text_width_follows_fixed_points(qapp):
+    """G1 (AC2): tl on the origin, tr on a FIXED point 200 mm along X -> the
+    box is driven to 200 mm wide: wrap width written, cap height untouched."""
+    sc = _scene()
+    ln = _ground_line(sc, (0, 0), (200, 0))
+    t = _box_text(sc, 0.0, 0.0, wrap=120.0)
+    ctl = sc.constraint_ctl
+    ctl.add("coincident", [{"uid": t._uid, "h": "tl"}, {"ref": "origin"}])
+    c = ctl.add("coincident", [{"uid": t._uid, "h": "tr"}, {"uid": ln._uid, "h": "p2"}])
+    assert c is not None and c.id not in ctl.red
+    g = t.grip_points()
+    assert (g[0].x(), g[0].y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert (g[2].x(), g[2].y()) == pytest.approx((200.0, 0.0), abs=1e-6)
+    assert t._data.wrap_width_mm == pytest.approx(200.0, abs=1e-6)
+    assert t._data.height_mm == 10.0
+
+
+def test_cs3c_g2_rotated_text_centre_on_circle_centre(qapp):
+    """G2: a rotated text's centre lands on a grounded circle centre; the
+    angle is never driven."""
+    from firepro3d.geometry_2d import CircleItem
+    sc = _scene()
+    t = _box_text(sc, 50.0, 60.0)
+    t.set_angle(30.0)
+    circ = CircleItem(QPointF(-80, 40), 25); sc.addItem(circ); sc._draw_circles.append(circ)
+    sc.constraint_ctl.add("coincident", [{"uid": circ._uid, "h": "center"}, {"ref": "origin"}])
+    c = sc.constraint_ctl.add("coincident", [{"uid": t._uid, "h": "center"},
+                                             {"uid": circ._uid, "h": "center"}])
+    assert c is not None and c.id not in sc.constraint_ctl.red
+    g8 = t.grip_points()[8]
+    assert (g8.x(), g8.y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    assert t._data.angle == 30.0
+
+
+def test_cs3c_g3_box_shorter_than_its_text_is_a_conflict(qapp):
+    """G3 (AC3): Horizontal(tl, bl) asks for a zero-height box -- shorter than
+    its text -> conflict: red, nothing written."""
+    sc = _scene()
+    t = _box_text(sc, 0.0, 0.0, wrap=40.0, s="several words that wrap over lines")
+    ctl = sc.constraint_ctl
+    before = (dict(t._data.to_dict()), (t.pos().x(), t.pos().y()))
+    c = ctl.add("horizontal", [{"uid": t._uid, "h": "tl"}, {"uid": t._uid, "h": "bl"}])
+    assert c is not None and c.id in ctl.red
+    assert (dict(t._data.to_dict()), (t.pos().x(), t.pos().y())) == before
+    assert ctl.diagnostics().state(t._uid) == "conflict"

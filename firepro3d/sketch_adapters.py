@@ -93,11 +93,10 @@ GRIP_HANDLES = {
     "draw_circle": {0: "center"},
     "arc": {0: "center", 1: "start", 2: "end"},
     "draw_ellipse": {0: "center"},
-    # CS3c: text grips 0=TL .. 8=Centre (text_item.py grip protocol) carry
-    # the rectangle's names.
-    "text": {0: "tl", 1: "tm", 2: "tr", 3: "rm", 4: "br",
-             5: "bm", 6: "bl", 7: "lm", 8: "center"},
 }
+# CS3c: text grips 0=TL .. 8=Centre (text_item.py grip protocol) carry the
+# rectangle's names -- one map.
+GRIP_HANDLES["text"] = GRIP_HANDLES["draw_rectangle"]
 # Rect handle -> (sign of local u, sign of local v); v is Qt Y-down LOCAL, so
 # "top" (v = -h/2) is the local min-y edge (§5.3).
 _RECT_LOCAL = {"tl": (-1, -1), "tm": (0, -1), "tr": (1, -1), "rm": (1, 0),
@@ -597,7 +596,9 @@ def _text_point_fn(su, sv, th):
 
 def _text_ins_fn(v):
     """CS3c AC4: legacy ``ins`` == ``pos()`` == centre - (w/2, h/2) -- the
-    box rotates about its centre (pivot None), so pos is unrotated."""
+    box rotates about its centre, so pos is unrotated. Exact for the at-rest
+    centre pivot (pivot None); a transient explicit pivot is canonicalised to
+    None by the first write."""
     cx, cy, w, h = v
     return (np.array([cx - w / 2.0, cy - h / 2.0]),
             np.array([[1.0, 0.0, -0.5, 0.0], [0.0, 1.0, 0.0, -0.5]]))
@@ -613,11 +614,12 @@ def _content_height_at(it, w_local: float) -> float:
 
 
 class _TextBoxAdapter(_Adapter):
-    """CS3c: vars cx cy w h (scene box centre; w -> wrap width, h -> box
-    height, local units == mm in the editor). Handles = the rectangle's
-    (``tl``..``center`` + edges) through the text's constant rotation, plus
-    the hidden legacy ``ins``. Write-back canonicalises the pivot to the
-    centre (identical geometry), like the rectangle."""
+    """CS3c: vars cx cy w h, all SCENE units (box centre; w -> wrap width,
+    h -> box height; local box size x ``scale()`` -- 1 in the editor).
+    Handles = the rectangle's (``tl``..``center`` + edges) through the text's
+    constant rotation, plus the hidden legacy ``ins``. Write-back
+    canonicalises the pivot to the centre (identical geometry), like the
+    rectangle."""
 
     type_key = "text"
 
@@ -626,12 +628,12 @@ class _TextBoxAdapter(_Adapter):
 
     def read(self, it):
         r = it._box_rect_local()
+        s = it.scale() or 1.0
         c = it.mapToScene(r.center())
-        return [c.x(), c.y(), r.width(), r.height()]
+        return [c.x(), c.y(), r.width() * s, r.height() * s]
 
     def size_floors(self, it):
-        s = it.scale() or 1.0
-        return {2: MIN_TEXT_WRAP_WIDTH_MM / s, 3: 0.0}
+        return {2: MIN_TEXT_WRAP_WIDTH_MM, 3: 0.0}
 
     def struct_key(self, it):
         """The rotation is baked into the handle fns (D18 build cache)."""
@@ -657,13 +659,18 @@ class _TextBoxAdapter(_Adapter):
 
     def collapses(self, it, old, new):
         """D29 width floor, plus AC3: a solve that changed the size and leaves
-        the box shorter than its text re-wrapped at the solved width."""
+        the box shorter than its text re-wrapped at the solved width. Sizes
+        are settled first (review I1): solver noise the write would drop
+        (an auto-width box sits exactly at its idealWidth, so -1e-8 re-wraps
+        a word) is never a collapse."""
         if super().collapses(it, old, new):
             return True
-        w, h = float(new[2]), float(new[3])
-        if abs(w - float(old[2])) <= 1e-9 and abs(h - float(old[3])) <= 1e-9:
+        n = self.settled(it, old, new)
+        w, h = n[2], n[3]
+        if w == float(old[2]) and h == float(old[3]):
             return False
-        return _content_height_at(it, w) > h + DEGEN_EPS
+        s = it.scale() or 1.0
+        return _content_height_at(it, w / s) * s > h + DEGEN_EPS
 
     def write(self, it, v):
         cx, cy, w, h = (float(t) for t in v)
@@ -672,13 +679,13 @@ class _TextBoxAdapter(_Adapter):
         it.prepareGeometryChange()
         w_moved = abs(w - o[2]) > POS_WRITE_TOL
         if w_moved:
-            w = max(w, MIN_TEXT_WRAP_WIDTH_MM / s)
-            it.setTextWidth(w)
-            it._data.wrap_width_mm = w * s
+            w = max(w, MIN_TEXT_WRAP_WIDTH_MM)
+            it.setTextWidth(w / s)
+            it._data.wrap_width_mm = w
         if w_moved or abs(h - o[3]) > POS_WRITE_TOL:
             # Freeze the solved height (an auto box would otherwise re-fit
             # the re-wrapped content and drift its bottom edge / centre).
-            it._data.box_height_mm = h * s
+            it._data.box_height_mm = h
         if it._pivot is not None:
             it.set_angle(it._angle, None)
         it.setPos(cx - w / 2.0, cy - h / 2.0)

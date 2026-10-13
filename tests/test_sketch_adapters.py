@@ -550,7 +550,13 @@ def test_text_box_collapse_floors(qapp):
     assert not ad.collapses(t, old, np.array([cx + 9, cy, w, h]))          # move only
     assert not ad.collapses(t, old, np.array([cx, cy, w, h + 10]))         # taller: fine
     assert ad.collapses(t, old, np.array([cx, cy, w, h - 2.0]))            # shorter than text
-    assert ad.collapses(t, old, np.array([cx, cy, MIN_TEXT_WRAP_WIDTH_MM - 1, h]))
+    # width floor alone (review M7): one short word, a tall box -> only the
+    # D29 width floor can fire
+    s1 = _text(wrap=60.0, s="A")
+    ad1 = adapter_for(s1)
+    o1 = np.array(ad1.read(s1))
+    assert ad1.collapses(s1, o1, np.array([o1[0], o1[1], MIN_TEXT_WRAP_WIDTH_MM - 1, o1[3] + 500]))
+    assert not ad1.collapses(s1, o1, np.array([o1[0], o1[1], MIN_TEXT_WRAP_WIDTH_MM + 1, o1[3] + 500]))
     # narrower: content re-wraps taller than the unchanged h
     assert ad.collapses(t, old, np.array([cx, cy, 15.0, h]))
     # narrower but with room: a tall box absorbs the re-wrap
@@ -564,3 +570,66 @@ def test_text_box_struct_key_carries_the_angle(qapp):
     k0 = ad.struct_key(t)
     t.set_angle(10.0)
     assert ad.struct_key(t) != k0
+
+
+@pytest.mark.parametrize("w", [199.99, 37.3, 120.0])
+def test_text_box_width_is_the_exact_wrap_width(qapp, w):
+    """CS3c: the box is exactly its wrap width -- QTextDocument lays out on a
+    1/64 grid (199.99 -> 199.984375), which would leave a constrained edge
+    off by up to 1/64 mm. Ground truth: the item's own grip span."""
+    t = _text(wrap=60.0)
+    t.setTextWidth(w)
+    g = t.grip_points()
+    assert g[2].x() - g[0].x() == pytest.approx(w, abs=1e-9)
+
+
+def test_text_box_solver_noise_on_auto_width_is_not_a_collapse(qapp):
+    """Review I1: an auto-width box sits exactly at its idealWidth; -1e-8 of
+    solver noise (D34's stiff pass) would re-wrap a word -- settled first, it
+    is no size change at all."""
+    t = TextItem(TextAnnotationData(text="hello world", x=0.0, y=0.0, height_mm=3.0))
+    ad = adapter_for(t)
+    old = np.array(ad.read(t))
+    for d in (-1e-8, -5e-8, -9e-8):              # below POS_WRITE_TOL (1e-7)
+        new = old.copy(); new[2] += d; new[0] += 3.0
+        assert not ad.collapses(t, old, new), d
+
+
+def test_text_box_handles_at_paper_scale(qapp):
+    """Review I2: on a scaled (device-independent) text every var is in scene
+    units -- handles == the item's own grips, and a move-only write moves the
+    centre by exactly the solved delta."""
+    t = _text(20.0)
+    t._force_device_independent = True
+    t._apply_format()
+    assert t.scale() != 1.0
+    ad = adapter_for(t)
+    x = np.array(ad.read(t))
+    pts = ad.points(t, 0)
+    g = t.grip_points()
+    for i, name in GRIP_HANDLES["draw_rectangle"].items():
+        assert _close(_pt(pts[name], x), g[i], tol=1e-6), (i, name)
+    ad.write(t, x + np.array([4.0, -2.0, 0.0, 0.0]))
+    assert _close((x[0] + 4.0, x[1] - 2.0), t.grip_points()[8])
+
+
+def test_text_box_grips_pin_every_var(qapp):
+    """AC5 (review M2): every text grip is a derived handle -> pins all 4."""
+    t = _text(15.0)
+    ad = adapter_for(t)
+    for i in (0, 1, 3, 8):
+        assert ad.pin_vars(t, i) == (0, 1, 2, 3), i
+
+
+def test_text_box_write_back_clears_an_explicit_pivot_without_moving(qapp):
+    """Review M3: a transient explicit pivot is canonicalised to the centre;
+    the grips do not move."""
+    t = _text()
+    t.set_angle(30.0, QPointF(0.0, 0.0))
+    before = [QPointF(p) for p in t.grip_points()]
+    ad = adapter_for(t)
+    ad.write(t, np.array(ad.read(t)))
+    assert t._pivot is None
+    for a, b2 in zip(before, t.grip_points()):
+        assert _qclose(a, b2)
+

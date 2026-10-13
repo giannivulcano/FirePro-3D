@@ -739,9 +739,22 @@ def test_e2e_d17_move_of_a_fully_defined_text_is_refused(win_with_editor):
     sc = win._active_scene()
     t = TextItem(TextAnnotationData(text="A", x=30.0, y=40.0, height_mm=20.0))
     sc.addItem(t); sc._texts.append(t)
-    _pick(win, (0, 0), (30, 40))                        # origin, then the text's ins
+    _pick(win, (0, 0), (30, 40))                        # origin, then the text's tl
     assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]
+    assert {r.get("h") for r in sc.constraint_ctl.constraints[0].refs} == {None, "tl"}
     assert (t.pos().x(), t.pos().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    # CS3c (VC5): text now has 2 size DOF -- tl alone no longer fully defines
+    # it; tr's x and bl's y go onto fixed line ends (width 200, height 100).
+    ctl = sc.constraint_ctl
+    for a, b, hv in (((0, 0), (200, 0), "horizontal"), ((0, 0), (0, 100), "vertical")):
+        ln = _line(sc, a, b)
+        ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+        ctl.add(hv, [{"uid": ln._uid, "h": "edge"}])
+        ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
+        ctl.add("vertical" if hv == "horizontal" else "horizontal",
+                [{"uid": t._uid, "h": "tr" if hv == "horizontal" else "bl"},
+                 {"uid": ln._uid, "h": "p2"}])
+    assert ctl.item_state_text(t._uid)[1] == "defined"
     msgs = []
     sc._show_status = lambda m, *a, **k: msgs.append(m)
     sc.clearSelection(); t.setSelected(True); QApplication.processEvents()
