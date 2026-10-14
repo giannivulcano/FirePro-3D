@@ -173,6 +173,53 @@ def test_d83_missed_segment_extends_from_its_near_end_to_the_vertex(be):
     assert math.hypot(s.x() - C.x(), s.y() - C.y()) > r > 0     # passes through the arc
 
 
+def _segments_cover_vertex_to_arc(v, V, up, deg, seg, e):
+    """Every point of the arm from the vertex to the arc lies on the segment
+    or on a dashed run (sampled at 2 px)."""
+    (C, r, _st, _sp), = e.graphic.arcs
+    vp = v.viewportTransform()
+    a, b = vp.map(up(seg[0], deg)), vp.map(up(seg[1], deg))
+    Vp = vp.map(V)
+    ux, uy = (a.x() - Vp.x()), (a.y() - Vp.y())
+    n = math.hypot(ux, uy); ux, uy = ux / n, uy / n
+
+    def on(p, s, t):
+        dx, dy = t.x() - s.x(), t.y() - s.y()
+        L2 = dx * dx + dy * dy
+        k = ((p[0] - s.x()) * dx + (p[1] - s.y()) * dy) / L2
+        q = (s.x() + k * dx, s.y() + k * dy)
+        return -0.02 <= k <= 1.02 and math.hypot(p[0] - q[0], p[1] - q[1]) < 0.6
+    runs = [(a, b)] + list(e.graphic.dashed)
+    for i in range(1, int(r // 2)):
+        p = (Vp.x() + ux * 2 * i, Vp.y() + uy * 2 * i)
+        assert any(on(p, s, t) for s, t in runs), f"gap at {2 * i} px from the vertex"
+
+
+def test_d83_near_side_segment_short_of_a_dragged_arc_is_bridged_both_ways(be):
+    """Edge B (40..90 mm from the vertex) inside an arc dragged out to 150 mm:
+    dashes fill vertex..40 and 90..150 (smoke 2026-10-14)."""
+    v, sc = be
+    up, V, _e = _off_vertex(sc, v, 270)
+    ctl = sc.constraint_ctl
+    (c,) = [k for k in ctl.constraints if k.type == "dim_angle"]
+    c.label = {"radius": 150.0}
+    e = cd.entry_for(v, ctl, c)
+    _segments_cover_vertex_to_arc(v, V, up, 320, (40, 90), e)
+    _segments_cover_vertex_to_arc(v, V, up, 220, (140, 200), e)
+
+
+def test_d83_segment_reaching_the_arc_still_runs_to_the_vertex(be):
+    """Edge A (140..200 mm) with the arc dragged to 170 mm: the segment meets
+    the arc, and a dash still bridges vertex..140."""
+    v, sc = be
+    up, V, _e = _off_vertex(sc, v, 270)
+    ctl = sc.constraint_ctl
+    (c,) = [k for k in ctl.constraints if k.type == "dim_angle"]
+    c.label = {"radius": 170.0}
+    e = cd.entry_for(v, ctl, c)
+    _segments_cover_vertex_to_arc(v, V, up, 220, (140, 200), e)
+
+
 def test_d83_opposite_side_segment_runs_through_the_vertex_to_the_arc(be):
     """Cursor on the 40 deg side: edge A (at 220 deg) lies behind the vertex,
     the dashed line goes from its near end through the vertex to the arc."""

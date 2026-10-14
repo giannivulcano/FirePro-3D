@@ -248,18 +248,26 @@ def _angle_arc(view, g: DimGeom, helper, radius=None):
         n = math.hypot(*d)
         ux, uy = d[0] / n, d[1] / n
         r_mm = r_px / s
-        P = (V.x() + ux * r_mm, V.y() + uy * r_mm)
         # Signed distance of each segment end along the arm from the vertex.
         ends = sorted(seg, key=lambda q: (q.x() - V.x()) * ux + (q.y() - V.y()) * uy)
         lo = (ends[0].x() - V.x()) * ux + (ends[0].y() - V.y()) * uy
         hi = (ends[1].x() - V.x()) * ux + (ends[1].y() - V.y()) * uy
         tol = 1e-6 * max(r_mm, 1.0)
-        if lo - tol <= r_mm <= hi + tol:
-            continue                                  # the segment reaches the arc
-        if lo > r_mm:                                 # D83: beyond the arc -> to the vertex
-            dashed.append((_to_vp(view, ends[0]), C))
-        else:                                         # short of it / the far side -> to the arc
-            dashed.append((_to_vp(view, ends[1]), _to_vp(view, QPointF(*P))))
+
+        def at(t, ux=ux, uy=uy):
+            return _to_vp(view, QPointF(V.x() + ux * t, V.y() + uy * t))
+        # D83 (smoke 2026-10-14): dash every part of the arm from the vertex
+        # (t = 0) to the arc (t = r) the segment [lo, hi] does not cover, and
+        # bridge a segment lying wholly beyond the arc or behind the vertex.
+        if lo > r_mm + tol:                           # beyond the arc
+            dashed.append((at(lo), C))
+        elif hi < -tol:                               # behind the vertex
+            dashed.append((at(hi), at(r_mm)))
+        else:
+            if lo > tol:                              # gap: vertex .. segment
+                dashed.append((C, at(lo)))
+            if hi < r_mm - tol:                       # gap: segment .. arc
+                dashed.append((at(hi), at(r_mm)))
     return start, span, r_px, dashed
 
 
