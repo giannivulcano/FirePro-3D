@@ -1102,6 +1102,10 @@ class ConstraintController:
         items = list(items)
         scaled = (self._scale_dims(items, scale)
                   if scale is not None and items and self.enabled else [])
+        # CS4b D65: anchors before the untouched early exit -- a Reference /
+        # suppressed / red dim is not 'active' but still has to follow.
+        anchors = (self._dim_anchors(items)
+                   if point_map is not None and items and self.enabled else [])
         if not items or not self.enabled or not self.touches(items):
             try:
                 yield
@@ -1109,16 +1113,11 @@ class ConstraintController:
                 for c, v in scaled:
                     c.value = v
                 raise
+            self._carry_dim_labels(anchors, point_map)
             return
         snap = self._snapshot(items)
         poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
-        anchors = []
-        if point_map is not None:                     # CS4b D65
-            uids = {getattr(i, "_uid", None) for i in items} - {None}
-            by = self.item_by_uid()
-            anchors = [(c, p) for c in self.constraints
-                       for p in (self._dim_anchor(c, by, uids),) if p is not None]
         try:
             yield
         except BaseException:
@@ -1158,13 +1157,58 @@ class ConstraintController:
         return QPointF((a.x() + b.x()) / 2 + n[0] * off,
                        (a.y() + b.y()) / 2 + n[1] * off)
 
+    def _dim_anchors(self, items) -> list:
+        """``[(dim, dim-line anchor, measured-edge middle)]`` for the placed
+        dims internal to *items* (D65), read before a transform."""
+        uids = {getattr(i, "_uid", None) for i in items} - {None}
+        by = self.item_by_uid()
+        out = []
+        for c in self.constraints:
+            p = self._dim_anchor(c, by, uids)
+            if p is not None:
+                a, b = self.dim_ends(c, by)
+                out.append((c, p, QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)))
+        return out
+
+    def _refit_edge(self, c, target, by) -> None:
+        """D65: a single-edge dim moves to the same-measure edge of its item
+        (a rect's opposite side, any polygon side, D56) whose middle is
+        nearest *target* -- a reflection can swap which handle names the
+        mirrored edge, and the dim must keep measuring that edge."""
+        from .constraint_dims import measure_key
+        refs = c.refs if isinstance(c.refs, list) else []
+        if len(refs) != 1 or not isinstance(refs[0], dict) or sm.is_ground(refs[0]):
+            return
+        uid = refs[0].get("uid")
+        it = by.get(uid)
+        ad = adapter_for(it) if it is not None else None
+        key = measure_key(c, by)
+        if ad is None or key is None:
+            return
+        best, best_d = None, None
+        for name in ad.edges(it, 0):
+            cand = sm.Constraint.new(c.type, [{"uid": uid, "h": name}])
+            if measure_key(cand, by) != key:
+                continue
+            e = self.dim_ends(cand, by)
+            if e is None:
+                continue
+            m = QPointF((e[0].x() + e[1].x()) / 2, (e[0].y() + e[1].y()) / 2)
+            d = math.hypot(m.x() - target.x(), m.y() - target.y())
+            if best_d is None or d < best_d:
+                best, best_d = name, d
+        if best is not None and best != refs[0].get("h"):
+            c.refs = [{"uid": uid, "h": best}]
+
     def _carry_dim_labels(self, anchors, point_map) -> None:
-        """Re-derive each anchored dim's offset from its mapped anchor (D65)."""
+        """Re-fit each anchored dim to its mapped edge and re-derive its offset
+        from its mapped anchor (D65)."""
         from . import dim_graphics as dg
         if not anchors:
             return
         by = self.item_by_uid()
-        for c, p in anchors:
+        for c, p, m in anchors:
+            self._refit_edge(c, point_map(m), by)
             e = self.dim_ends(c, by)
             if e is not None:
                 c.label = dg.with_offset(c.label, dg.signed_offset(
@@ -2219,11 +2263,15 @@ class ConstraintController:
         for src in cons:
             anchor = (self._dim_anchor(src, by, src_uids)
                       if point_map is not None else None)
+            if anchor is not None:
+                sa, sb = self.dim_ends(src, by)
+                mid = QPointF((sa.x() + sb.x()) / 2, (sa.y() + sb.y()) / 2)
             for c in sm.remap_for_copy([src], uid_map):
                 if not self._valid(c, by):
                     c.raw, c.invalid = c.to_dict(), True
                 elif anchor is not None:            # CS4b D65: mirrored place
                     from . import dim_graphics as dg
+                    self._refit_edge(c, point_map(mid), by)
                     e = self.dim_ends(c, by)
                     if e is not None:
                         c.label = dg.with_offset(c.label, dg.signed_offset(

@@ -744,3 +744,56 @@ def test_grip_style_edit_and_auto_dims_keep_their_offset(be):
         ln2.manip_rotate(90.0, QPointF(0, 200))
     assert dg.offset_of(c.label) == pytest.approx(-40.0)
     assert c2.label is None
+
+
+def test_flip_and_scale_carry_a_placed_reference_dim(be):
+    """A Reference dim is the only constraint on its line (not 'active'): it
+    is still carried (D65) -- (150, -40) -> flip y = 10 -> (150, 60), then
+    scale x2 about the origin -> (300, 120)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    ctl.set_driving(c.id, False)
+    sc.mode = "flip"
+    sc._selected_items = [ln]
+    sc._mirror_axis = _hx_axis(sc, 10.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(0, 0)
+    assert sc._modify_ctl.commit_scale(2.0) is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(300, 120))))
+
+
+def test_flipped_rect_dim_measures_the_mirrored_edge(be):
+    """Rect y in [0, 100], width dim on its top edge 40 above. Flip across
+    y = 200 puts the rect at y in [300, 400]; the old top edge's image is
+    y = 400 and the dim line lands at y = 440 -- its witness lines span only
+    the 40 px offset (+ ext - gap), never the rect's height."""
+    v, sc = be; ctl = sc.constraint_ctl
+    r = _rect(sc, (0, 0), (300, 100))
+    c = ctl.add("dim_distance", [E(r, "top")], label={"offset": -40.0})
+    sc.mode = "flip"
+    sc._selected_items = [r]
+    sc._mirror_axis = _hx_axis(sc, 200.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 440))))
+    (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == c.id]
+    (ws, we), _w2 = e.graphic.witness
+    assert abs(we.y() - ws.y()) == pytest.approx(40 + K.DIM_WITNESS_EXT_PX - K.DIM_WITNESS_GAP_PX, abs=1.0)
+
+
+def test_mirror_copied_rect_dim_measures_the_mirrored_edge(be):
+    """As the flip guard, for the Mirror tool's copy (paste_records path)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    r = _rect(sc, (0, 0), (300, 100))
+    c = ctl.add("dim_distance", [E(r, "top")], label={"offset": -40.0})
+    sc.mode = "mirror"
+    sc._selected_items = [r]
+    sc._mirror_axis = _hx_axis(sc, 200.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    (cc,) = [d for d in ctl.constraints if d.type == "dim_distance" and d.id != c.id]
+    assert _close(_dim_mid_vp(v, ctl, cc.id), QPointF(v.mapFromScene(QPointF(150, 440))))
+    (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == cc.id]
+    (ws, we), _w2 = e.graphic.witness
+    assert abs(we.y() - ws.y()) == pytest.approx(40 + K.DIM_WITNESS_EXT_PX - K.DIM_WITNESS_GAP_PX, abs=1.0)

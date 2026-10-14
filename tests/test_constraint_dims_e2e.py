@@ -199,6 +199,79 @@ def test_e2e_click_on_dim_line_selects_without_moving(win_with_editor):
     assert dg.offset_of(c.label) == pytest.approx(-40.0) and len(sc._undo_stack) == n
 
 
+
+def _esc(v):
+    """A real Escape key on the shown editor view (the window QShortcut route)."""
+    v.activateWindow()
+    v.setFocus()
+    QApplication.processEvents()
+    assert QApplication.activeWindow() is v.window(), "MainWindow not active"
+    QTest.keyClick(v.viewport(), Qt.Key.Key_Escape)
+    QApplication.processEvents()
+
+
+def test_e2e_real_esc_drops_pending_then_one_point_then_ends_the_tool(win_with_editor):
+    w = win_with_editor
+    ed = w._test_editor
+    sc, v = ed.editor_scene, ed.view
+    _line(sc, (0, 0), (300, 0))
+    w._block_mode_buttons["constrain_dim_distance"].click()
+    QApplication.processEvents()
+    _click(v, v.mapFromScene(QPointF(75, 0)))       # edge -> pending placement
+    assert sc.constraint_ctl.pick.pending is not None
+    _esc(v)
+    assert sc.mode == "constrain_dim_distance"
+    assert sc.constraint_ctl.pick.pending is None
+    _click(v, v.mapFromScene(QPointF(0, 0)))        # one point picked
+    assert len(sc.constraint_ctl.pick.picks) == 1
+    _esc(v)
+    assert sc.mode == "constrain_dim_distance" and not sc.constraint_ctl.pick.picks
+    _esc(v)                                          # nothing picked: tool ends
+    assert sc.mode == "select" and sc.constraint_ctl.pick is None
+    assert sc.constraint_ctl.constraints == []
+
+
+def test_e2e_preview_follows_the_cursor_pixel(win_with_editor):
+    from firepro3d import theme as th
+    w = win_with_editor
+    ed = w._test_editor
+    sc, v = ed.editor_scene, ed.view
+    _line(sc, (0, 0), (300, 0))
+    w._block_mode_buttons["constrain_dim_distance"].click()
+    QApplication.processEvents()
+    _click(v, v.mapFromScene(QPointF(75, 0)))
+    NB = Qt.MouseButton.NoButton
+    _send(v, QEvent.Type.MouseMove, QPointF(v.mapFromScene(QPointF(150, -60))), NB, NB)
+    v.viewport().repaint()
+    QApplication.processEvents()
+    img = v.viewport().grab().toImage()
+    dpr = img.devicePixelRatio()
+    want = th.detect().color("dimension")
+    p = QPointF(v.mapFromScene(QPointF(60, -60)))
+    hit = any(
+        sum(abs(a - b) for a, b in zip(
+            img.pixelColor(int((p.x() + dx) * dpr), int((p.y() + dy) * dpr)).getRgb()[:3],
+            want.getRgb()[:3])) < 60
+        for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+    assert hit                                       # preview dim line at y = -60
+    assert sc.constraint_ctl.constraints == []       # nothing added yet
+
+
+def test_e2e_a_tiny_press_move_does_not_move_the_dim(win_with_editor):
+    w = win_with_editor
+    sc, v = w._test_editor.editor_scene, w._test_editor.view
+    ln, c = _placed(sc, -40.0)
+    n = len(sc._undo_stack)
+    L, NB = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    va = QPointF(v.mapFromScene(QPointF(60, -40)))
+    _send(v, QEvent.Type.MouseMove, va, NB, NB)
+    _send(v, QEvent.Type.MouseButtonPress, va, L, L)
+    _send(v, QEvent.Type.MouseMove, va + QPointF(0, 1), NB, L)   # under the drag distance
+    _send(v, QEvent.Type.MouseButtonRelease, va + QPointF(0, 1), L, NB)
+    assert dg.offset_of(c.label) == pytest.approx(-40.0)
+    assert len(sc._undo_stack) == n and sc.constraint_ctl.selected_id == c.id
+
+
 # -- panel ---------------------------------------------------------------------
 
 def test_e2e_panel_value_and_driving(win_with_editor):
