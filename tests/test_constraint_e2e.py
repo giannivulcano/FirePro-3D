@@ -864,3 +864,84 @@ def test_e2e_cs3c_text_bottom_mid_undo_redo_save_close_reopen(win_with_editor):
     bm = t2.grip_points()[5]
     assert (bm.x(), bm.y()) == pytest.approx((ln2._pt1.x(), ln2._pt1.y()), abs=1e-6)
 
+
+# ── CS6 Concentric §11 #2-#4 (real window, real ribbon, posted events) ───────
+
+def _circ(sc, c, r):
+    from firepro3d.geometry_2d import CircleItem
+    it = CircleItem(QPointF(*c), r); sc.addItem(it); sc._draw_circles.append(it)
+    return it
+
+
+def _concentric_by_selection(win, a, b):
+    sc = win._active_scene()
+    sc.clearSelection(); a.setSelected(True); b.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons["Concentric"].click()
+    QApplication.processEvents()
+
+
+def test_e2e_concentric_follows_a_centre_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _circ(sc, (0, 0), 80); b = _circ(sc, (30, 10), 30)
+    _concentric_by_selection(win, a, b)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["concentric"]
+    sc.clearSelection(); a.setSelected(True); QApplication.processEvents()
+    c0 = QPointF(a._center)
+    _drag(view, c0, c0 + QPointF(-50, 40))               # a's centre grip
+    assert a._center.x() == pytest.approx(c0.x() - 50, abs=1.0)
+    assert (b._center.x(), b._center.y()) == pytest.approx((a._center.x(), a._center.y()), abs=1e-6)
+    assert (a._radius, b._radius) == pytest.approx((80, 30), abs=1e-9)
+
+
+def test_e2e_concentric_save_close_reopen_and_frozen_instance(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    a = _circ(sc, (0, 0), 60); b = _circ(sc, (20, 0), 20)
+    _concentric_by_selection(win, a, b)
+    ua, ub = a._uid, b._uid
+    sc.clearSelection()
+    defn = w.commit_block("cs6-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {c._uid: c for c in sc2._draw_circles}
+    assert (by[ua]._center.x(), by[ua]._center.y()) == pytest.approx((10.0, 0.0), abs=1e-6)
+    assert (by[ub]._center.x(), by[ub]._center.y()) == pytest.approx((10.0, 0.0), abs=1e-6)
+    assert [c.type for c in sc2.constraint_ctl.active()] == ["concentric"]
+    assert [c["type"] for c in defn.constraints] == ["concentric"]
+    inst = win.scene.place_block_instance(defn.id, (0, 0))
+    try:
+        ops = inst.render_ops()
+        r = ops[0].path.boundingRect()
+        for op in ops[1:]:
+            r = r.united(op.path.boundingRect())
+        # Solved: both rings share one centre, so the union is the r=60 ring.
+        assert (r.width(), r.height()) == pytest.approx((120.0, 120.0), abs=1e-6)
+    finally:
+        win.scene.remove_block_instance(inst)
+
+
+def test_e2e_undo_redo_of_a_concentric_add(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _circ(sc, (0, 0), 60); b = _circ(sc, (20, 0), 20)
+    ub = b._uid
+    sc.push_undo_state()
+
+    def cur():
+        (c,) = [x for x in sc._draw_circles if x._uid == ub]
+        return c
+    _concentric_by_selection(win, a, b)
+    assert cur()._center.x() == pytest.approx(10.0, abs=1e-6)
+    _ctrl(view, Qt.Key.Key_Z)
+    assert cur()._center.x() == pytest.approx(20.0, abs=1e-6)
+    assert sc.constraint_ctl.constraints == []
+    _ctrl(view, Qt.Key.Key_Y)
+    assert cur()._center.x() == pytest.approx(10.0, abs=1e-6)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["concentric"]
+
