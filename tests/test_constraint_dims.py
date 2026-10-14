@@ -661,3 +661,86 @@ def test_dirty_rect_covers_every_painted_dim_pixel(be):
     finally:
         QSettings("GV", "FirePro3D").remove(K.DIM_TERMINATOR_KEY)
         os.remove(path)
+
+
+# -- CS4b D65: placed dims through rotate / flip / mirror / scale --------------
+
+from firepro3d.axis_picker import AxisPick  # noqa: E402
+
+
+def _dim_mid_vp(v, ctl, cid):
+    (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == cid]
+    g = e.graphic
+    return QPointF((g.a.x() + g.b.x()) / 2, (g.a.y() + g.b.y()) / 2)
+
+
+def _close(p, q, tol=1.0):
+    return abs(p.x() - q.x()) <= tol and abs(p.y() - q.y()) <= tol
+
+
+def _hx_axis(sc, y):
+    rl = LineItem(QPointF(-500, y), QPointF(800, y))
+    rl.reference = True
+    sc.addItem(rl); sc._draw_lines.append(rl)
+    return AxisPick(QPointF(-500, y), QPointF(800, y), rl, 0.0)
+
+
+def test_rotate_commit_carries_a_placed_dim_round(be):
+    """Rotate 90 deg (Y-up CCW) about the origin maps scene (x, y) -> (y, -x):
+    the dim-line middle (150, -40) lands at (-40, -150)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc._selected_items = [ln]
+    sc._rotate_pivot = QPointF(0, 0)
+    assert sc._modify_ctl.commit_rotate(90.0) is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(-40, -150))))
+
+
+def test_flip_mirrors_a_placed_dim_to_the_other_side(be):
+    """Reflection across y = 10 maps (x, y) -> (x, 20 - y): (150, -40) -> (150, 60)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc.mode = "flip"
+    sc._selected_items = [ln]
+    sc._mirror_axis = _hx_axis(sc, 10.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
+
+
+def test_mirror_copy_dim_lands_on_the_mirrored_side(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc.mode = "mirror"
+    sc._selected_items = [ln]
+    sc._mirror_axis = _hx_axis(sc, 10.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    (copy_c,) = [d for d in ctl.constraints if d.type == "dim_distance" and d.id != c.id]
+    assert _close(_dim_mid_vp(v, ctl, copy_c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, -40))))
+
+
+def test_scale_commit_scales_a_placed_dim_offset(be):
+    """Scale x2 about the origin: (150, -40) -> (300, -80)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(0, 0)
+    assert sc._modify_ctl.commit_scale(2.0) is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(300, -80))))
+
+
+def test_grip_style_edit_and_auto_dims_keep_their_offset(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    ln2 = _line(sc, (0, 200), (300, 200))
+    c2 = ctl.add("dim_distance", [E(ln2)])                       # auto
+    with ctl.edit([ln, ln2]):                                    # no point_map (box resize etc.)
+        ln.manip_rotate(90.0, QPointF(0, 0))
+        ln2.manip_rotate(90.0, QPointF(0, 200))
+    assert dg.offset_of(c.label) == pytest.approx(-40.0)
+    assert c2.label is None

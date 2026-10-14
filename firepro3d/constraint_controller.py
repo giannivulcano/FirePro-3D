@@ -1077,7 +1077,8 @@ class ConstraintController:
 
     # ── edit seams (§8) ──────────────────────────────────────────────────
     @contextlib.contextmanager
-    def edit(self, items, *, typed: bool = False, scale: float | None = None):
+    def edit(self, items, *, typed: bool = False, scale: float | None = None,
+             point_map=None):
         """Wrap a typed / panel / transform mutation of *items*.
 
         The mutated items' new values become ``W_EDIT`` goals and the rest
@@ -1094,6 +1095,9 @@ class ConstraintController:
         (rotation, mirrored, scale). *scale* (D54, the Scale tool
         only): every driving dim whose refs all lie inside *items* is
         multiplied by it before the solve and restored on a rollback.
+        *point_map* (CS4b D65 -- Rotate / Flip / Scale only): a scene-point
+        mapper equal to the tool's transform; every placed dim internal to
+        *items* keeps its place by carrying a point on its dim line through it.
         """
         items = list(items)
         scaled = (self._scale_dims(items, scale)
@@ -1109,6 +1113,12 @@ class ConstraintController:
         snap = self._snapshot(items)
         poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
+        anchors = []
+        if point_map is not None:                     # CS4b D65
+            uids = {getattr(i, "_uid", None) for i in items} - {None}
+            by = self.item_by_uid()
+            anchors = [(c, p) for c in self.constraints
+                       for p in (self._dim_anchor(c, by, uids),) if p is not None]
         try:
             yield
         except BaseException:
@@ -1125,7 +1135,41 @@ class ConstraintController:
             for c, v in scaled:
                 c.value = v
             self._report_conflict(reassert=True)
+        else:
+            self._carry_dim_labels(anchors, point_map)
         self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
+
+    def _dim_anchor(self, c, by, uids):
+        """CS4b D65: the scene point mid-way along placed dim *c*'s dim line
+        when its refs all lie inside *uids* (no ground refs), else None."""
+        from . import dim_graphics as dg
+        if c.type != "dim_distance" or c.inert:
+            return None
+        off = dg.offset_of(c.label)
+        us = _safe_ref_uids(c)
+        if (off is None or not us or not us <= uids or not isinstance(c.refs, list)
+                or any(sm.is_ground(r) for r in c.refs)):
+            return None
+        e = self.dim_ends(c, by)
+        n = dg.unit_normal(*e) if e is not None else None
+        if n is None:
+            return None
+        a, b = e
+        return QPointF((a.x() + b.x()) / 2 + n[0] * off,
+                       (a.y() + b.y()) / 2 + n[1] * off)
+
+    def _carry_dim_labels(self, anchors, point_map) -> None:
+        """Re-derive each anchored dim's offset from its mapped anchor (D65)."""
+        from . import dim_graphics as dg
+        if not anchors:
+            return
+        by = self.item_by_uid()
+        for c, p in anchors:
+            e = self.dim_ends(c, by)
+            if e is not None:
+                c.label = dg.with_offset(c.label, dg.signed_offset(
+                    e[0], e[1], point_map(p)))
+        self._label_gen += 1
 
     def _scale_dims(self, items, factor) -> list:
         """D54: ``[(dim, old value)]`` for the driving dims internal to *items*
@@ -2125,7 +2169,7 @@ class ConstraintController:
                         and r.get("uid") in uids for r in c.refs)]
 
     def paste_records(self, records, uid_map: dict, mirror_axis=None,
-                      rotation_deg=None) -> None:
+                      rotation_deg=None, point_map=None) -> None:
         """Remap copied constraints onto the new items' uids (no undo push).
 
         Only constraints internal to the copied set survive (§8, via
@@ -2147,6 +2191,9 @@ class ConstraintController:
             uid_map: Source primitive uid -> new copy's uid.
             mirror_axis: ``(p1, p2)`` QPointFs of a Mirror's axis, else None.
             rotation_deg: The copy's rotation (Polar Array), else None.
+            point_map: CS4b D65 (Mirror): the reflection as a scene-point
+                mapper; a copied placed dim gets the offset that puts it at
+                its source's mirrored place.
         """
         if not self.enabled or not isinstance(records, list) or not records:
             return                              # (clipboard JSON is untrusted)
@@ -2167,12 +2214,22 @@ class ConstraintController:
         if not keep_hv:
             cons = [c for c in cons if c.type not in ("horizontal", "vertical")]
         by = self.item_by_uid()
+        src_uids = set(uid_map)
         new = []
-        for c in sm.remap_for_copy(cons, uid_map):
-            if not self._valid(c, by):
-                c.raw, c.invalid = c.to_dict(), True
-            self.constraints.append(c)
-            new.append(c)
+        for src in cons:
+            anchor = (self._dim_anchor(src, by, src_uids)
+                      if point_map is not None else None)
+            for c in sm.remap_for_copy([src], uid_map):
+                if not self._valid(c, by):
+                    c.raw, c.invalid = c.to_dict(), True
+                elif anchor is not None:            # CS4b D65: mirrored place
+                    from . import dim_graphics as dg
+                    e = self.dim_ends(c, by)
+                    if e is not None:
+                        c.label = dg.with_offset(c.label, dg.signed_offset(
+                            e[0], e[1], point_map(anchor)))
+                self.constraints.append(c)
+                new.append(c)
         # D38: a copied constraint the copied geometry does not satisfy (e.g.
         # a source's red one) is red on the copy too -- never active-unapplied
         # (review I-1).
