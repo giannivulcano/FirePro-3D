@@ -441,3 +441,128 @@ def test_invalid_cs5_records_load_inert(qapp):
     for i, b in enumerate(bad):
         ctl.load([dict(b, id=f"b{i}")])
         assert ctl.constraints[0].inert, bad[i]
+
+
+# -- VC9 I-1: reflection with a ground-axis ref (D76 / D81), real Flip path -------
+
+def _flip_across(sc, items, a, b):
+    """Drive the real Flip tool (commit_reflect -> ctl.edit(point_map=...))."""
+    from firepro3d.axis_picker import AxisPick
+    rl = LineItem(QPointF(*a), QPointF(*b))
+    rl.reference = True
+    sc.addItem(rl); sc._draw_lines.append(rl)
+    sc.mode = "flip"
+    sc._selected_items = list(items)
+    sc._mirror_axis = AxisPick(QPointF(*a), QPointF(*b), rl, 0.0)
+    return sc._modify_ctl.commit_reflect()
+
+
+_AXIS_FLIPS = [(ax, mirror) for ax in ("x_axis", "y_axis") for mirror in ("horizontal", "vertical")]
+
+
+@pytest.mark.parametrize("ax,mirror", _AXIS_FLIPS)
+def test_flip_keeps_edge_axis_angle(qapp, ax, mirror):
+    sc = _sc(); ctl = sc.constraint_ctl
+    ln = _add(sc, LineItem(QPointF(0, 0), QPointF(100, -100)), "_draw_lines")
+    refs = [R(ln, "edge"), {"ref": ax}]
+    p = QPointF(60, -20) if ax == "x_axis" else QPointF(20, -60)
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, p)
+    c = ctl.add("dim_angle", refs, helper=h)
+    v0 = c.value
+    line = ((-500, 0), (800, 0)) if mirror == "horizontal" else ((0, -500), (0, 800))
+    assert _flip_across(sc, [ln], *line)
+    exp = (100, 100) if mirror == "horizontal" else (-100, -100)
+    assert (ln._pt2.x(), ln._pt2.y()) == pytest.approx(exp, abs=1e-5)   # landed
+    assert (ln._pt1.x(), ln._pt1.y()) == pytest.approx((0, 0), abs=1e-5)
+    assert c.id not in ctl.red
+    assert ctl.measure(c) == pytest.approx(c.value, abs=1e-6) and c.value == pytest.approx(v0)
+
+
+@pytest.mark.parametrize("ax,mirror", _AXIS_FLIPS)
+def test_flip_keeps_mid_axis_point_line(qapp, ax, mirror):
+    sc = _sc(); ctl = sc.constraint_ctl
+    if ax == "x_axis":
+        ln = _add(sc, LineItem(QPointF(0, -60), QPointF(100, -60)), "_draw_lines")
+    else:
+        ln = _add(sc, LineItem(QPointF(60, 0), QPointF(60, -100)), "_draw_lines")
+    t, refs = ctl.dim_precheck([R(ln, "edge"), {"ref": ax}])
+    assert t == "dim_point_line"
+    c = ctl.add(t, refs)
+    v0 = c.value
+    line = ((-500, 0), (800, 0)) if mirror == "horizontal" else ((0, -500), (0, 800))
+    p1, p2 = (ln._pt1.x(), ln._pt1.y()), (ln._pt2.x(), ln._pt2.y())
+    if mirror == "horizontal":
+        exp = ((p1[0], -p1[1]), (p2[0], -p2[1]))
+    else:
+        exp = ((-p1[0], p1[1]), (-p2[0], p2[1]))
+    assert _flip_across(sc, [ln], *line)
+    assert (ln._pt1.x(), ln._pt1.y(), ln._pt2.x(), ln._pt2.y()) == pytest.approx(
+        (*exp[0], *exp[1]), abs=1e-5)
+    assert c.id not in ctl.red
+    assert ctl.measure(c) == pytest.approx(c.value, abs=1e-6) and c.value == pytest.approx(v0)
+
+
+def test_red_angle_dragged_to_a_satisfied_sector_rejoins(qapp):
+    """VC9 M-1: a red angle dim swung to the sector its value now matches is
+    re-checked on release (D37) -- one undo step, no longer red."""
+    sc = _sc(); ctl = sc.constraint_ctl
+    l1 = _add(sc, LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(0, 0), QPointF(50, -86.6025403784)), "_draw_lines")
+    assert ctl.add("horizontal", [R(l1, "edge")]) is not None
+    ax = [R(l2, "edge"), {"ref": "x_axis"}]
+    h0, _ = cd.placement_for(ctl, "dim_angle", ax, QPointF(40, -10))
+    assert ctl.add("dim_angle", ax, helper=h0).value == pytest.approx(60.0, abs=1e-6)
+    refs = [R(l1, "edge"), R(l2, "edge")]
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, QPointF(60, -20))    # the 60 sector
+    c = ctl.add("dim_angle", refs, value=120.0, helper=h)                # conflicts: 60 held
+    assert c.id in ctl.red
+    n = len(sc._undo_stack)
+    assert ctl.drag_dim_to_scene(c.id, QPointF(-60, -20))                # the 120 sector
+    assert ctl.measure(c) == pytest.approx(120.0, abs=1e-6)
+    assert ctl.end_dim_drag()
+    assert c.id not in ctl.red
+    assert len(sc._undo_stack) == n + 1
+
+
+# -- VC9 Task 6 review: pick-flow polish --------------------------------------
+
+def _pick_view(sc):
+    from firepro3d.model_view import Model_View
+    v = Model_View(sc)
+    v.resize(800, 600)
+    v.resetTransform()
+    v.centerOn(100, 0)
+    return v
+
+
+def test_pick_hover_glows_the_second_edge_while_extending(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    l1 = _add(sc, LineItem(QPointF(0, 0), QPointF(200, 0)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(0, 0), QPointF(100, -100)), "_draw_lines")
+    v = _pick_view(sc)
+    ctl.begin_pick("dim_distance")
+    ctl.pick_press(v, QPointF(v.mapFromScene(QPointF(150, 0))))      # edge 1 -> pending + extend
+    p = ctl.pick
+    assert p.extend and p.pending == [R(l1, "edge")]
+    vp = QPointF(v.mapFromScene(QPointF(30, -30)))                    # on edge 2
+    ctl.pick_hover(v, vp)
+    assert p.hover == R(l2, "edge") and p.hover_kind == "edge"
+    assert p.cursor == vp                                             # the preview still follows
+    ctl.pick_press(v, vp)                                             # -> angle path
+    assert not p.extend and p.pending_type == "dim_angle"
+    assert p.hover is None and p.hover_kind is None                   # no stale glow
+
+
+def test_circle_centre_does_not_offer_its_own_outline(qapp):
+    from firepro3d.constraint_controller import PickState
+    sc = _sc(); ctl = sc.constraint_ctl
+    circ = _add(sc, CircleItem(QPointF(0, 0), 40), "_draw_circles")
+    arc = _add(sc, ArcItem(QPointF(300, 0), 40, 20, 120), "_draw_arcs")
+    ps = PickState(ctl, "dim_distance")
+    ps.picks, ps.kinds = [R(circ, "center")], ["point"]
+    curves = {(r["uid"]) for k, r, _a, _b in ps._candidates() if k == "curve" and ps._allowed(k, r)}
+    assert circ._uid not in curves
+    assert "arc" in ps.status() and "pick the arc for its angle" in ps.status()
+    ps.picks = [R(arc, "center")]
+    curves = {(r["uid"]) for k, r, _a, _b in ps._candidates() if k == "curve" and ps._allowed(k, r)}
+    assert curves == {arc._uid}

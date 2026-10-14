@@ -16,6 +16,8 @@ from typing import Callable
 
 import numpy as np
 
+from .sketch_model import AXIS_DIRS
+
 LIN_TOL = 1e-6          # D18 linear residual bar (mm)
 ANG_SCALE = 1000.0      # angular rows are multiplied by this (§7.2)
 MAX_ITERS = 25
@@ -935,9 +937,6 @@ def build_dim_arc_angle(cid: str, ends, sys: System, value: float = 0.0) -> None
     sys.rows.append(Row(cid, (ts, te), fn))
 
 
-_AXIS_DIRS = {"x_axis": (1.0, 0.0), "y_axis": (0.0, 1.0)}
-
-
 def _angle(value: float, s1: float, s2: float, sign: float, axis=None):
     """D80: ``ANG_SCALE·wrap(atan2(cross(u, v), dot(u, v)) − σθ)`` with
     ``u = s1·(b1 − a1)``, ``v = s2·(b2 − a2)`` (or ``s2·axis``)."""
@@ -970,7 +969,7 @@ def build_dim_angle(cid: str, ends, sys: System, value: float = 0.0,
     sign = float(h.get("sign", 1))
     e1, e2 = ends
     if isinstance(e2, str):
-        _point_row(cid, (e1[0], e1[1]), (), _angle(value, s1, s2, sign, _AXIS_DIRS[e2]), sys)
+        _point_row(cid, (e1[0], e1[1]), (), _angle(value, s1, s2, sign, AXIS_DIRS[e2]), sys)
     else:
         _point_row(cid, (e1[0], e1[1], e2[0], e2[1]), (), _angle(value, s1, s2, sign), sys)
 

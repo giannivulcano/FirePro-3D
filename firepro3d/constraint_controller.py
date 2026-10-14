@@ -167,8 +167,6 @@ def _angle_helper_ok(h) -> bool:
             and s in (1, -1) and not isinstance(s, bool))
 
 
-_AXIS_D = {"x_axis": (1.0, 0.0), "y_axis": (0.0, 1.0)}
-
 PICK_SAME_POINT_STATUS = "Pick a different point"
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
@@ -270,8 +268,11 @@ class PickState:
             if kind == "point":
                 return True
             p0 = self.picks[0]
-            return (kind == "curve" and isinstance(ref, dict)
-                    and p0.get("h") == "center" and p0.get("uid") == ref.get("uid"))
+            if not (kind == "curve" and isinstance(ref, dict)
+                    and p0.get("h") == "center" and p0.get("uid") == ref.get("uid")):
+                return False
+            from .geometry_2d import ArcItem        # a circle's centre + its own outline is no dim
+            return isinstance(self.ctl.item_by_uid().get(ref.get("uid")), ArcItem)
         if self.ctype != "coincident":
             return kind == "point" or (kind == "edge" and not self.picks)
         return kind == "point" or not self.picks or self.kinds[0] == "point"
@@ -1185,7 +1186,7 @@ class ConstraintController:
         snap = self._snapshot(items)
         poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
-        flipped = (self._flip_dim_signs(items)
+        flipped = (self._flip_dim_signs(items, point_map)
                    if point_map is not None and _is_reflection(point_map) else [])
         try:
             yield
@@ -1209,30 +1210,59 @@ class ConstraintController:
             self._carry_dim_labels(anchors, point_map)
         self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
 
-    def _flip_dim_signs(self, items) -> list:
+    def _flip_dim_signs(self, items, point_map=None) -> list:
         """D76: negate σ of every angle dim (and ``side`` of every point-line
         dim, D81) internal to *items* -- a reflection mirrors the sector /
-        side -- BEFORE the solve, so it keeps its value."""
+        side -- BEFORE the solve, so it keeps its value.
+
+        A dim whose second ref is a ground axis is not reflected with its
+        edge: with ``d`` the axis direction *point_map* sends it to, a mirror
+        parallel to the axis (``d = +axis``) negates as above; perpendicular
+        (``d = -axis``) the angle also negates ``dirs[1]`` (the fixed ray
+        flips relative to the mirrored edge) and a point-line ``side`` is
+        unchanged (cross(Rp, d) = cross(p, d)); oblique leaves the helper
+        alone -- a measure to a fixed axis is not preserved (conflict, like
+        H / V under D30).
+
+        Returns:
+            ``[(constraint, original helper deep copy)]`` for
+            :meth:`_unflip_dim_signs`.
+        """
         uids = {getattr(i, "_uid", None) for i in items} - {None}
         out = []
         for c in self.constraints:
             us = _safe_ref_uids(c)
             if c.inert or not us or not us <= uids:
                 continue
-            if c.type == "dim_angle" and _angle_helper_ok(c.helper):
+            angle = c.type == "dim_angle" and _angle_helper_ok(c.helper)
+            pline = (c.type == "dim_point_line" and isinstance(c.helper, dict)
+                     and c.helper.get("side") in (1, -1))
+            if not (angle or pline):
+                continue
+            rel = 1                                   # +1 axis kept, -1 reversed, 0 oblique
+            g = c.refs[1] if len(c.refs) == 2 else None
+            if isinstance(g, dict) and g.get("ref") in sm.AXIS_DIRS and point_map is not None:
+                ax, ay = sm.AXIS_DIRS[g["ref"]]
+                o, q = point_map(QPointF(0.0, 0.0)), point_map(QPointF(ax, ay))
+                dx, dy = q.x() - o.x(), q.y() - o.y()
+                n = math.hypot(dx, dy) or 1.0
+                dot = (dx * ax + dy * ay) / n
+                rel = 1 if dot > 1.0 - 1e-9 else -1 if dot < -1.0 + 1e-9 else 0
+            if rel == 0:
+                continue
+            out.append((c, copy.deepcopy(c.helper)))
+            if angle:
                 c.helper["sign"] = -c.helper["sign"]
-                out.append(c)
-            elif (c.type == "dim_point_line" and isinstance(c.helper, dict)
-                    and c.helper.get("side") in (1, -1)):
+                if rel < 0:
+                    c.helper["dirs"][1] = -c.helper["dirs"][1]
+            elif rel > 0:
                 c.helper["side"] = -c.helper["side"]
-                out.append(c)
         return out
 
     @staticmethod
     def _unflip_dim_signs(flipped) -> None:
-        for c in flipped:
-            key = "sign" if c.type == "dim_angle" else "side"
-            c.helper[key] = -c.helper[key]
+        for c, helper in flipped:
+            c.helper = helper
 
     def _dim_anchor(self, c, by, uids):
         """CS4b D65: the scene point mid-way along placed dim *c*'s dim line
@@ -1661,7 +1691,7 @@ class ConstraintController:
         if g is None:
             return 1
         if g[0] == "axis":
-            d, o = _AXIS_D[g[1]], QPointF(0.0, 0.0)
+            d, o = sm.AXIS_DIRS[g[1]], QPointF(0.0, 0.0)
         else:
             d = (g[1][1].x() - g[1][0].x(), g[1][1].y() - g[1][0].y())
             o = g[1][0]
@@ -1924,6 +1954,7 @@ class ConstraintController:
         """D81: translate the second edge (the point's edge; raw ends only)
         along the line's normal so the distance reads *v*; else None."""
         from types import SimpleNamespace
+        from .constraint_dims import mid_edge_name
         by = self.item_by_uid()
         pref = c.refs[0]
         it = by.get(pref.get("uid")) if isinstance(pref, dict) else None
@@ -1931,9 +1962,7 @@ class ConstraintController:
         if ad is None:
             return None
         h = pref.get("h")
-        edge = ("edge" if h == "mid" else
-                f"s{h[1:]}" if isinstance(h, str) and h.startswith("m") and h[1:].isdigit()
-                else None)
+        edge = mid_edge_name(h)
         ends = ad.edges(it, 0).get(edge) if edge else None
         if ends is None or ends[0].raw is None or ends[1].raw is None:
             return None
@@ -2075,6 +2104,8 @@ class ConstraintController:
             return
         if p.pending is not None:                  # CS4b D63: live preview follows
             p.cursor = QPointF(vp_pt)
+            if p.extend:                           # CS5 D69: the 2nd edge / axis glows
+                p.hover_at(view, vp_pt)
             self._repaint()
             return
         before = (p.hover_kind, p.hover)
@@ -2113,6 +2144,7 @@ class ConstraintController:
                         return False
                     p.pending_type, p.pending = hit
                     p.extend, p.cursor = False, QPointF(vp_pt)
+                    p.hover = p.hover_kind = None
                     self._scene.instructionChanged.emit(p.status())
                     self._repaint()
                     return False
@@ -2259,6 +2291,10 @@ class ConstraintController:
             return False
         if d[3]:
             self._label_gen += 1
+            c = self.find(d[0])
+            if (c is not None and c.type == "dim_angle"
+                    and (c.helper, c.value) != (d[1][1], d[1][2])):
+                self._recheck_red()        # D37: a swung sector can satisfy a red dim
             self._scene.push_undo_state()
             self._repaint()
         return True

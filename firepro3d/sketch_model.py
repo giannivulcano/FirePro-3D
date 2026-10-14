@@ -104,6 +104,10 @@ def icon_for(ctype: str) -> str:
     return spec.icon if spec is not None else NEUTRAL_ICON
 
 
+#: Direction of each ground axis (both pass through the origin) -- the one home.
+AXIS_DIRS = {"x_axis": (1.0, 0.0), "y_axis": (0.0, 1.0)}
+
+
 def is_ground(ref: dict) -> bool:
     """Whether a ref points at a ground (origin/axis) rather than a primitive.
 

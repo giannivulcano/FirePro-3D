@@ -106,10 +106,7 @@ def measure_key(c, by):
         # measure, so the point ref's midpoint handle maps back to its edge.
         p, e = refs
         if not sm.is_ground(p):
-            h = p.get("h")
-            p = {"uid": p.get("uid"), "h": _MID_EDGE.get(h) or (
-                f"s{h[1:]}" if isinstance(h, str) and h.startswith("m") and h[1:].isdigit()
-                else h)}
+            p = {"uid": p.get("uid"), "h": mid_edge_name(p.get("h")) or p.get("h")}
         return ("point_line", frozenset((_point_id(p), _point_id(e))))
     if len(refs) == 2:
         return frozenset((_point_id(refs[0]), _point_id(refs[1])))
@@ -132,7 +129,6 @@ def measure_key(c, by):
     return ("uid", uid, h)
 
 
-_MID_EDGE = {"mid": "edge", "tm": "top", "rm": "right", "bm": "bottom", "lm": "left"}
 _DIM_READOUT_KEYS = ("length", "width", "height", "radius", "r1", "r2", "angle")
 
 
@@ -424,9 +420,6 @@ def edit_entry(view, ctl, c):
     return ReadoutEntry(item=None, spec=e.spec, layout=e.layout) if e is not None else None
 
 
-_AXIS_DIR = {"x_axis": (1.0, 0.0), "y_axis": (0.0, 1.0)}
-
-
 @dataclass
 class DimGeom:
     """Scene geometry one dim measures (CS5). ``kind``: ``"linear"`` (a, b),
@@ -485,7 +478,7 @@ def dim_geom(ctl, c, by=None, held=None) -> DimGeom | None:
         a1, b1 = gs[0][1]
         d1 = (b1.x() - a1.x(), b1.y() - a1.y())
         if gs[1][0] == "axis":
-            q, d2, seg2 = (0.0, 0.0), _AXIS_DIR[gs[1][1]], None
+            q, d2, seg2 = (0.0, 0.0), sm.AXIS_DIRS[gs[1][1]], None
         elif gs[1][0] == "edge":
             a2, b2 = gs[1][1]
             q, d2, seg2 = (a2.x(), a2.y()), (b2.x() - a2.x(), b2.y() - a2.y()), (a2, b2)
@@ -556,6 +549,21 @@ def edge_mid_name(h) -> str | None:
     return f"m{h[1:]}" if h.startswith("s") and h[1:].isdigit() else None
 
 
+_MID_TO_EDGE = {m: e for e, m in _EDGE_MID.items()}
+
+
+def mid_edge_name(h) -> str | None:
+    """Reverse of :func:`edge_mid_name`: midpoint handle *h* -> its edge
+    handle (``mid`` -> ``edge``, ``m<i>`` -> ``s<i>``, ``tm`` / ``rm`` /
+    ``bm`` / ``lm`` -> ``top`` / ``right`` / ``bottom`` / ``left``); None
+    when *h* is not a midpoint handle."""
+    if not isinstance(h, str):
+        return None
+    if h in _MID_TO_EDGE:
+        return _MID_TO_EDGE[h]
+    return f"s{h[1:]}" if h.startswith("m") and h[1:].isdigit() else None
+
+
 def _parallel_refs(refs, by):
     """D81: ``[second edge's midpoint, first edge | axis]`` when the two
     picked edges (or the edge and the axis) are parallel, else None."""
@@ -566,7 +574,7 @@ def _parallel_refs(refs, by):
     a1, b1 = g1[1]
     d1 = (b1.x() - a1.x(), b1.y() - a1.y())
     if g2[0] == "axis":
-        d2 = _AXIS_DIR[g2[1]]
+        d2 = sm.AXIS_DIRS[g2[1]]
     elif g2[0] == "edge":
         a2, b2 = g2[1]
         d2 = (b2.x() - a2.x(), b2.y() - a2.y())
