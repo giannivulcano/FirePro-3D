@@ -225,6 +225,8 @@ class PickState:
                        QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
             if coincident:
                 for name, cv in ad.curves(it, 0).items():
+                    if name in hidden:                # CS5 D79: defining circles
+                        continue
                     yield ("curve", {"uid": uid, "h": name},
                            QPointF(*cv.center.eval(x)[0]), (float(x[cv.r]), it))
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None

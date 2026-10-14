@@ -162,3 +162,19 @@ def test_polygon_hidden_radius_curve_and_arc_span(qapp):
     assert ad.curves(pg, 0)["radius"].r == 2 and "radius" in ad.hidden_names(pg)
     arc = ArcItem(QPointF(0, 0), 50, 20, 120)
     assert adapter_for(arc).curves(arc, 7)["curve"].span == (10, 11)
+
+
+def test_coincident_pick_never_offers_hidden_defining_curves(qapp):
+    """T2 review: polygon ``radius`` / ellipse ``rx`` ``ry`` curves are hidden
+    from every pick mode (D79) -- Coincident only sees circle / arc curves."""
+    from firepro3d.constraint_controller import PickState
+    from firepro3d.geometry_2d import CircleItem, EllipseItem, RegularPolygonItem
+    from firepro3d.model_space import Model_Space
+    sc = Model_Space(scene_role="block_editor")
+    for it, lst in ((RegularPolygonItem(QPointF(0, 0), 6, 60.0), "_draw_polygons"),
+                    (EllipseItem(QPointF(300, 0), 80, 45, 15), "_draw_ellipses"),
+                    (CircleItem(QPointF(600, 0), 30), "_draw_circles")):
+        sc.addItem(it); getattr(sc, lst).append(it)
+    curves = {r["h"] for kind, r, _a, _b in PickState(sc.constraint_ctl, "coincident")._candidates()
+              if kind == "curve"}
+    assert curves == {"curve"}
