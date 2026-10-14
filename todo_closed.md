@@ -194,6 +194,12 @@
   - Details: found by the nested-blocks VC9 seam probe 2026-09-30, PROVEN PRE-EXISTING (branch touches neither `paper_display.py` nor `BlockInstance._display_pen_color`): white-pen block ops plot white-on-white, plain and nested alike. Apply the paper white→black display rule to BlockInstance ops. `block_instance.py`, `paper_display.py`. Memory: paper white/invisible render class.
   - Build: absorbed into LT1 (user choice in the LT1 grill Q3, phase-drift logged) -- the paper Blocks category forces the category colour onto block stroke + text ops in B&W/Custom; guard `tests/test_lt1_block_paper.py::test_white_block_plots_black_in_bw_authored_in_full_color`.
 
+## Block Editor constraint system — CS6 Concentric — 2026-10-14
+
+- [x] [type:feature] CS6 — Concentric [P1] [subject:CAD] [done:2026-10-14]
+  - Details: spec §7.3 (substituted). Depends CS5.
+  - Built: `feat/cs6-concentric` (base `0853bb9e`; feature/Medium, FP3 deltas as FP1 rulings R1-R4; inline, per-task reviews; 0.40.0). `build_concentric` = Coincident on the two centres; picks curve + curve | curve + point (circle / arc outlines only, R1), stored curve-first; two selected circles / arcs add at once (R3, a lone line never enables it -- review fix); own-centre refused, shared centres amber (R4); one glyph up-right of the shared centre (R2); small Concentric button after Coincident. Guards RED-proven via red-proof.ps1 (7 proofs). VC6: 9 chunks, 9156 passed; 3 pre-existing shortcut fails + host-load perf bars proven at base. User smoke passed.
+
 ## Block Editor constraint system — CS5 Smart Dimension radial / angular — 2026-10-14
 
 - [x] [type:feature] CS5 — Smart Dimension: radius / diameter / angle [P1] [subject:CAD] [done:2026-10-14]
