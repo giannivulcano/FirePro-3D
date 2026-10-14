@@ -890,6 +890,18 @@ def build_point_on_curve(cid: str, ends, sys: System) -> None:
         _point_row(cid, (p, a, b), (), _on_line, sys)
 
 
+def _centre(e) -> PointExpr:
+    """A Concentric end's centre: a curve's ``center``, or the point itself."""
+    return e.center if isinstance(e, CurveExpr) else e
+
+
+def build_concentric(cid: str, ends, sys: System) -> None:
+    """Concentric (pinned CS6, 2026-10-14): ``refs`` = [curve, curve | point],
+    stored curve-first. The two centres are equal in X and Y -- Coincident on
+    the centres (raw/raw alias, raw/origin fix, a derived centre a row each)."""
+    build_coincident(cid, tuple(_centre(e) for e in ends), sys)
+
+
 def _distance(value: float):
     """``‖b − a‖ − D`` over P = (a, b); a zero-length pair has no direction
     (residual ``−D``, zero gradient -- like ``_on_line``'s guard)."""
@@ -1002,6 +1014,7 @@ def build_dim_point_line(cid: str, ends, sys: System, value: float = 0.0,
 
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
+            "concentric": build_concentric,
             "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
             "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
             "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}

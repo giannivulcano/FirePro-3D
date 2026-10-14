@@ -820,6 +820,51 @@ def test_point_on_circle_solve_lands_on_the_circle():
     assert abs(np.hypot(*(p - c)) - r) < 1e-6
 
 
+# ── CS6 Concentric (§7.3: c1 - c2, substituted) ──────────────────────────────
+
+def _circ(i):
+    """A raw circle: centre (x[i], x[i+1]), radius x[i+2]."""
+    return ss.CurveExpr(center=ss.raw_point(i, i + 1), r=i + 2)
+
+
+def test_concentric_raw_centres_alias_both_axes():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 5.0, 7.0, 20.0]))
+    ss.BUILDERS["concentric"]("k", (_circ(0), _circ(3)), s)
+    assert sorted((i, j) for i, j, _c in s.aliases) == [(0, 3), (1, 4)]
+    assert s.rows == [] and s.fixes == []
+
+
+def test_concentric_curve_and_origin_fixes_the_centre():
+    s = ss.System(x=np.array([4.0, -3.0, 10.0]))
+    ss.BUILDERS["concentric"]("k", (_circ(0), ss.const_point(0, 0)), s)
+    assert sorted((i, v) for i, v, _c in s.fixes) == [(0, 0.0), (1, 0.0)]
+
+
+def test_concentric_derived_centre_rows_zero_when_met_and_fd_jacobian():
+    rng = np.random.default_rng(6)
+    for _ in range(10):
+        s = ss.System(x=rng.uniform(-50, 50, 6))
+        ss.BUILDERS["concentric"](
+            "k", (ss.CurveExpr(center=_derived_point(0), r=2), ss.raw_point(4, 5)), s)
+        assert len(s.rows) == 2
+        for row in s.rows:
+            _fd_check(row, s.x)
+        cx, cy, r, th = s.x[:4]                       # _derived_point's own formula
+        s.x[4], s.x[5] = cx + r * math.cos(th), cy - r * math.sin(th)
+        assert all(abs(row.fn(s.x)[0]) < 1e-9 for row in s.rows)
+        s.x[4] += 3.0
+        assert any(abs(row.fn(s.x)[0]) > 1e-6 for row in s.rows)
+
+
+def test_concentric_removes_two_dof_and_solve_lands_concentric():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 6.0, -4.0, 20.0]))
+    ss.BUILDERS["concentric"]("k", (_circ(0), _circ(3)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 6 - 2
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
+    assert res.converged
+    assert np.allclose(res.x, [3.0, -2.0, 10.0, 3.0, -2.0, 20.0])   # D22 mean centre
+
+
 # ── CS4: dim_distance (‖b − a‖ − D) ──────────────────────────────────────────
 
 def _fd(row, x, h=1e-6):
