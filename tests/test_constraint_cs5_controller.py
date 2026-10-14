@@ -1,4 +1,5 @@
 """CS5 controller guards (D71-D77, D81): real Block Editor scenes, real solve."""
+import copy
 import math
 
 import pytest
@@ -566,3 +567,38 @@ def test_circle_centre_does_not_offer_its_own_outline(qapp):
     ps.picks = [R(arc, "center")]
     curves = {(r["uid"]) for k, r, _a, _b in ps._candidates() if k == "curve" and ps._allowed(k, r)}
     assert curves == {arc._uid}
+
+
+# -- user ruling 2026-10-14: an OBLIQUE Flip of an axis dim is refused -----------
+
+def _pts(ln):
+    return (ln._pt1.x(), ln._pt1.y(), ln._pt2.x(), ln._pt2.y())
+
+
+def test_oblique_flip_of_point_line_to_axis_is_refused(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    ln = _add(sc, LineItem(QPointF(0, -60), QPointF(100, -60)), "_draw_lines")
+    t, refs = ctl.dim_precheck([R(ln, "edge"), {"ref": "x_axis"}])
+    c = ctl.add(t, refs)
+    assert t == "dim_point_line"
+    before, helper, v0 = _pts(ln), dict(c.helper), c.value
+    _flip_across(sc, [ln], (-500, -500), (800, 800))             # y = x (scene)
+    assert _pts(ln) == pytest.approx(before, abs=1e-9)           # rolled back exactly
+    assert c.helper == helper and c.value == v0
+    assert c.id not in ctl.red
+    assert ctl.measure(c) == pytest.approx(v0, abs=1e-6)
+
+
+def test_oblique_flip_of_edge_axis_angle_is_refused(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    ln = _add(sc, LineItem(QPointF(0, 0), QPointF(100, -100)), "_draw_lines")
+    refs = [R(ln, "edge"), {"ref": "x_axis"}]
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, QPointF(60, -20))
+    c = ctl.add("dim_angle", refs, helper=h)
+    before, helper, v0 = _pts(ln), copy.deepcopy(c.helper), c.value
+    k = 500.0
+    _flip_across(sc, [ln], (-k * math.cos(math.radians(30)), k * math.sin(math.radians(30))),
+                 (k * math.cos(math.radians(30)), -k * math.sin(math.radians(30))))
+    assert _pts(ln) == pytest.approx(before, abs=1e-9)
+    assert c.helper == helper and c.value == v0
+    assert c.id not in ctl.red

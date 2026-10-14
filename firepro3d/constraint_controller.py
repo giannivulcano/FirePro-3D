@@ -1186,8 +1186,9 @@ class ConstraintController:
         snap = self._snapshot(items)
         poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
-        flipped = (self._flip_dim_signs(items, point_map)
-                   if point_map is not None and _is_reflection(point_map) else [])
+        flipped, refuse = (self._flip_dim_signs(items, point_map)
+                           if point_map is not None and _is_reflection(point_map)
+                           else ([], False))
         try:
             yield
         except BaseException:
@@ -1196,7 +1197,7 @@ class ConstraintController:
             self._unflip_dim_signs(flipped)
             raise
         pins = self._typed_pins(items, snap) if typed else None
-        if not self._solve(edited=items, typed=pins):
+        if refuse or not self._solve(edited=items, typed=pins):
             self._restore(snap)
             for it, r, mir, sc in poses:   # pose parts outside the solver vars (DD8)
                 it.set_block_rotation(r)
@@ -1221,15 +1222,16 @@ class ConstraintController:
         (``d = -axis``) the angle also negates ``dirs[1]`` (the fixed ray
         flips relative to the mirrored edge) and a point-line ``side`` is
         unchanged (cross(Rp, d) = cross(p, d)); oblique leaves the helper
-        alone -- a measure to a fixed axis is not preserved (conflict, like
-        H / V under D30).
+        alone -- a measure to a fixed axis is not preserved, so the edit is
+        REFUSED (user ruling 2026-10-14): *refuse* makes :meth:`edit` roll
+        back as for a failed solve.
 
         Returns:
-            ``[(constraint, original helper deep copy)]`` for
-            :meth:`_unflip_dim_signs`.
+            ``([(constraint, original helper deep copy)], refuse)`` -- the
+            first for :meth:`_unflip_dim_signs`.
         """
         uids = {getattr(i, "_uid", None) for i in items} - {None}
-        out = []
+        out, refuse = [], False
         for c in self.constraints:
             us = _safe_ref_uids(c)
             if c.inert or not us or not us <= uids:
@@ -1249,6 +1251,7 @@ class ConstraintController:
                 dot = (dx * ax + dy * ay) / n
                 rel = 1 if dot > 1.0 - 1e-9 else -1 if dot < -1.0 + 1e-9 else 0
             if rel == 0:
+                refuse = True
                 continue
             out.append((c, copy.deepcopy(c.helper)))
             if angle:
@@ -1257,7 +1260,7 @@ class ConstraintController:
                     c.helper["dirs"][1] = -c.helper["dirs"][1]
             elif rel > 0:
                 c.helper["side"] = -c.helper["side"]
-        return out
+        return out, refuse
 
     @staticmethod
     def _unflip_dim_signs(flipped) -> None:
