@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-10-09  # SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
-verified-commit: 3f31e0af   # SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-10-14  # clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: 9a9b2d9d   # clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -29,6 +29,9 @@ SEH bug #371).
   `paths/block_dir` (and, since SV3, `paths/schematic_dir` — the schematic templates
   folder is a second on-disk root the Save-as-Template / New Schematic flows write)
   at a fresh per-test temp dir. See Invariant 7.
+- **`_fake_clipboard`** (autouse) + **`FakeClipboard`** — an in-memory stand-in
+  patched over `QApplication.clipboard` and `QGuiApplication.clipboard` for every
+  test. Opt out with `@pytest.mark.real_clipboard`. See Invariant 12.
 - **`real_qsettings`** — yields the unpatched `QSettings` class so a test can read
   the REAL registry (only the isolation guard test needs this).
 - *(retired 2026-09-26: `tmp_settings` and the per-file `isolated_settings` /
@@ -177,6 +180,21 @@ SEH bug #371).
     `USERPROFILE` / `HOME` at a scratch dir (and commit outside that environment — the
     override also hides the user's git identity). Never delete a real `recovery.FPD`
     without asking the user.
+
+12. **Tests never depend on the OS clipboard.** The Windows clipboard refuses writes
+    (ACCESS_DENIED) while another process holds it, so every test gets a fresh
+    in-memory `FakeClipboard` (`text` / `setText` / `clear` / `dataChanged`, emitted
+    synchronously) in place of `QApplication.clipboard()` and
+    `QGuiApplication.clipboard()`. The only test that needs the real one is a Qt text
+    control's own Ctrl+C / Ctrl+V (it never goes through Python) and carries
+    `@pytest.mark.real_clipboard`; it still fails while the OS clipboard is held. A
+    test that must simulate a dead clipboard patches the accessors itself
+    (`dead_clip`) and layers over the fake. **The fixture owns a private
+    `pytest.MonkeyPatch()` — never request the shared `monkeypatch` fixture from an
+    autouse fixture:** that sets `monkeypatch` up before every test's own fixtures and
+    tears it down after them, so a test that patches a method its fixture's teardown
+    calls errors at teardown (`test_selection_readouts_fixes`). Guard:
+    `tests/test_fake_clipboard.py`.
 
 ## Known native-crash families
 
