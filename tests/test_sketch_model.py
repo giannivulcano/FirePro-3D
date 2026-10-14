@@ -7,17 +7,18 @@ def test_catalogue_declares_every_session_type():
     assert {"horizontal", "vertical", "coincident", "point_on_curve", "concentric",
             "symmetric", "fix", "parallel", "perpendicular", "equal", "tangent",
             "midpoint", "collinear", "dim_distance", "dim_point_line",
-            "dim_radius", "dim_diameter", "dim_angle"} == names
+            "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle"} == names
 
 
-def test_built_types_after_cs4():
+def test_built_types_after_cs5():
     assert [t for t, s in sm.REGISTRY.items() if s.implemented] == [
-        "horizontal", "vertical", "coincident", "point_on_curve", "dim_distance"]
+        "horizontal", "vertical", "coincident", "point_on_curve", "dim_distance",
+        "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle", "dim_point_line"]
 
 
 def test_valued_types_are_the_dims():
     assert sm.VALUED == {"dim_distance", "dim_radius", "dim_diameter",
-                         "dim_angle", "dim_point_line"}
+                         "dim_angle", "dim_arc_angle", "dim_point_line"}
 
 
 def test_vertical_accepts_edge_or_two_points():
