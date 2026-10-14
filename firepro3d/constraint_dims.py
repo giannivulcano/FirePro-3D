@@ -133,7 +133,7 @@ def measure_key(c, by):
 
 
 _MID_EDGE = {"mid": "edge", "tm": "top", "rm": "right", "bm": "bottom", "lm": "left"}
-_DIM_READOUT_KEYS =("length", "width", "height", "radius", "r1", "r2", "angle")
+_DIM_READOUT_KEYS = ("length", "width", "height", "radius", "r1", "r2", "angle")
 
 
 def is_dim_readout(key) -> bool:
@@ -201,7 +201,7 @@ def _radial_points(g: DimGeom, angle):
         # Inscribed: vertices at rot + k*step (radius R). Circumscribed: the
         # side midpoints at rot + k*step (apothem) -- the radius curve's r.
         base = it._rotation_deg
-        dirs =[base + k * 360.0 / it._sides for k in range(it._sides)]
+        dirs = [base + k * 360.0 / it._sides for k in range(it._sides)]
     elif isinstance(it, EllipseItem):
         off = 0.0 if g.h == "rx" else 90.0
         dirs = [it._rotation_deg + off, it._rotation_deg + off + 180.0]

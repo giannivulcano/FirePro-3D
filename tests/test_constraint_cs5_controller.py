@@ -386,7 +386,7 @@ def test_dim_text_prefixes_and_reference_parentheses(qapp):
     assert ctl.dim_text(a).endswith("(60°)")
     ctl.set_driving(r.id, False)
     t = ctl.dim_text(r)
-    assert "Ø (" in t or t.endswith(")")
+    assert t == "Smart Dimension · (Ø 60.000 mm)"
 
 
 def test_adapter_show_as_and_angle_value_field(qapp):
@@ -411,6 +411,8 @@ def test_adapter_show_as_and_angle_value_field(qapp):
     a = ctl.add("dim_angle", refs, helper=h)
     v = ConstraintAdapter(ctl, a).get_properties()["Value"]
     assert v["type"] == "string" and v["suffix"] == "°"
+    ConstraintAdapter(ctl, a).set_property("Value", "75")
+    assert ctl.measure(a) == pytest.approx(75.0, abs=1e-6)
 
 
 def test_invalid_cs5_records_load_inert(qapp):

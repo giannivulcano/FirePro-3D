@@ -5148,10 +5148,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
-        _editor_only(b_d, "Smart Dimension (D) — dimension a line's length or "
-                          "the distance between two points (pick an edge or 2 "
-                          "points, then click to place), then type the value "
-                          "to drive it")
+        _editor_only(b_d, "Smart Dimension (D) — dimension an edge's length, "
+                          "two points' distance, a circle's Ø, an arc's R or "
+                          "sweep, a polygon's or ellipse's R, or the angle "
+                          "between two edges / an edge and an axis")
         _editor_only(b_h, "Horizontal — make the selected line horizontal, "
                           "or pick 2 points / 1 edge")
         _editor_only(b_v, "Vertical — make the selected line vertical, "
@@ -5193,7 +5193,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         if ctype == "dim_distance":
             # D50 + CS4b D63: tool-first; one selected line skips straight to
-            # the placement click; any other selection just clears.
+            # the placement click (CS5 D78: so does one selected circle / arc);
+            # any other selection just clears.
             refs = ctl.selection_refs(ctype)
             sc.clearSelection()
             sc.set_mode(mode)

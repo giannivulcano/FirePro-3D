@@ -222,13 +222,17 @@ class PickState:
         self.hover_kind: str | None = None      # "point" / "edge" / "curve" / "axis"
         self.pending: list | None = None         # CS4b D63: dim refs awaiting placement
         self.pending_type: str | None = None     # CS5 D69: the pending dim's record type
+        self.extend = False                      # CS5 D69: after an edge, an edge / axis click takes the angle path
         self.cursor: QPointF | None = None       # last hover (viewport px) for the preview
 
     def _candidates(self):
         """``(kind, ref, a, b)`` scene-space: point ``(p, None | "mid")``
         (``"mid"`` = an edge midpoint, CS3b), edge
-        ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``."""
-        coincident = self.ctype == "coincident"
+        ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``.
+        Curves + axes are offered to Coincident and (CS5) Smart Dimension;
+        hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
+        ``ry``) never."""
+        curvy = self.ctype in ("coincident", "dim_distance")
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -246,18 +250,28 @@ class PickState:
             for name, (a, b) in ad.edges(it, 0).items():
                 yield ("edge", {"uid": uid, "h": name},
                        QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
-            if coincident:
+            if curvy:
                 for name, cv in ad.curves(it, 0).items():
                     if name in hidden:                # CS5 D79: defining circles
                         continue
                     yield ("curve", {"uid": uid, "h": name},
                            QPointF(*cv.center.eval(x)[0]), (float(x[cv.r]), it))
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
-        if coincident:
+        if curvy:
             yield "axis", {"ref": "x_axis"}, None, None
             yield "axis", {"ref": "y_axis"}, None, None
 
-    def _allowed(self, kind: str) -> bool:
+    def _allowed(self, kind: str, ref=None) -> bool:
+        if self.ctype == "dim_distance":                      # CS5 D69
+            if self.extend:                                   # after an edge
+                return kind in ("edge", "axis") and ref != (self.pending or [None])[0]
+            if not self.picks:
+                return kind in ("point", "edge", "curve")
+            if kind == "point":
+                return True
+            p0 = self.picks[0]
+            return (kind == "curve" and isinstance(ref, dict)
+                    and p0.get("h") == "center" and p0.get("uid") == ref.get("uid"))
         if self.ctype != "coincident":
             return kind == "point" or (kind == "edge" and not self.picks)
         return kind == "point" or not self.picks or self.kinds[0] == "point"
@@ -292,10 +306,10 @@ class PickState:
     def hover_at(self, view, vp_pt) -> dict | None:
         """Nearest allowed candidate: points (point tol) > edges / curves
         (edge tol) > axes (edge tol)."""
-        if self.pending is not None:             # D63: placing -- no marker hover
+        if self.pending is not None and not self.extend:     # D63: placing
             self.hover = self.hover_kind = None
             return None
-        cands = [c for c in self._candidates() if self._allowed(c[0])]
+        cands = [c for c in self._candidates() if self._allowed(c[0], c[1])]
         o = view.mapFromScene(QPointF(0.0, 0.0))
         best = None
         for kinds, tol in ((("point",), M.CONSTRAINT_PICK_POINT_TOL_PX),
@@ -324,10 +338,18 @@ class PickState:
             what = ("pick a point" if n and self.kinds[0] != "point" else
                     "pick a point, then a point, edge, circle/arc or axis")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
-        if self.ctype == "dim_distance":         # CS4b D63
+        if self.ctype == "dim_distance":                      # CS4b D63 / CS5 D78
             if self.pending is not None:
+                if self.extend:
+                    return (f"{label}: click to place, or pick a 2nd edge / axis "
+                            f"for an angle · Esc to cancel")
+                if self.pending_type == "dim_angle":
+                    return f"{label}: click a sector to place the angle · Esc to cancel"
                 return f"{label}: click to place the dimension · Esc to cancel"
-            return f"{label}: pick an edge or 2 points ({n}/2) · Esc to cancel"
+            if n and self.picks[0].get("h") == "center":
+                return f"{label}: pick the arc for its angle, or a point ({n}/2) · Esc to cancel"
+            return (f"{label}: pick an edge, a circle / arc, or 2 points ({n}/2)"
+                    f" · Esc to cancel")
         return f"{label}: pick 2 points or 1 edge ({n}/2) · Esc to cancel"
 
     def paint(self, painter, view, t) -> None:
@@ -339,7 +361,9 @@ class PickState:
         o = QPointF(view.mapFromScene(QPointF(0.0, 0.0)))
         vpr = QRectF(view.viewport().rect())
         for kind, ref, a, b in cands:
-            if kind == "point" or not (ref == self.hover or ref in self.picks):
+            glow = (ref == self.hover or ref in self.picks
+                    or (self.extend and self.pending and ref == self.pending[0]))
+            if kind == "point" or not glow:
                 continue
             pen = QPen(t.color("accent", M.CONSTRAINT_PICK_EDGE_GLOW_ALPHA),
                        M.CONSTRAINT_PICK_EDGE_GLOW_W_PX)
@@ -2064,23 +2088,42 @@ class ConstraintController:
         H / V: an edge (only offered before the first point pick) completes
         at once; points accumulate to two. Coincident (CS3): two picks, at
         least one a point; two points add ``coincident``, a point plus an
-        edge / curve / axis adds ``point_on_curve`` stored point-first. A
-        second pick naming the same handle is refused with the status "Pick a
-        different point" (§7.3 Horizontal).
+        edge / curve / axis adds ``point_on_curve`` stored point-first.
+        Smart Dimension (CS4b D63 / CS5 D69): an edge or a curve, or two
+        picks, is classified (``classify_dim``) and then waits for the
+        placement click; after a lone edge, a click on another edge or an
+        axis takes the angle path instead. A second pick naming the same
+        handle is refused with "Pick a different point" (§7.3 Horizontal).
 
         Returns:
-            True when the constraint was added (the session has ended).
+            True when the constraint was added (the session has ended, or a
+            dim was placed and the tool stays live).
         """
         p = self.pick
         if p is None:
             return False
-        if p.pending is not None:                  # CS4b D63: the placement click
-            return self._place_dim(view, vp_pt)
+        if p.pending is not None:
+            if p.extend:                               # CS5 D69: an edge / axis -> angle
+                ref = p.hover_at(view, vp_pt)
+                if ref is not None:
+                    hit = self.dim_precheck([p.pending[0], ref])
+                    if hit is None:
+                        self.pick = PickState(self, p.ctype)
+                        self._repaint()
+                        return False
+                    p.pending_type, p.pending = hit
+                    p.extend, p.cursor = False, QPointF(vp_pt)
+                    self._scene.instructionChanged.emit(p.status())
+                    self._repaint()
+                    return False
+            return self._place_dim(view, vp_pt)        # CS4b D63: the placement click
         ref = p.hover_at(view, vp_pt)
         if ref is None:
             return False
         ctype = p.ctype
-        if ctype != "coincident" and p.hover_kind == "edge":
+        dim = ctype == "dim_distance"
+        if (dim and not p.picks and p.hover_kind in ("edge", "curve")) or (
+                not dim and ctype != "coincident" and p.hover_kind == "edge"):
             refs = [ref]
         else:
             if ref in p.picks:
@@ -2098,13 +2141,14 @@ class ConstraintController:
                     refs.reverse()
                 both_points = p.kinds[0] == p.kinds[1] == "point"
                 ctype = "coincident" if both_points else "point_on_curve"
-        if ctype == "dim_distance":                # CS4b D63: placement next
+        if dim:                                    # CS4b D63 / CS5: placement next
             hit = self.dim_precheck(refs)
             if hit is None:
                 self.pick = PickState(self, ctype)  # refused: start over, tool live
                 self._repaint()
                 return False
             p.pending_type, p.pending = hit
+            p.extend = p.pending_type == "dim_distance" and len(p.pending) == 1
             p.cursor = QPointF(vp_pt)
             self._scene.instructionChanged.emit(p.status())
             self._repaint()
@@ -2139,6 +2183,7 @@ class ConstraintController:
         if hit is None:
             return False
         p.pending_type, p.pending = hit
+        p.extend = False                           # a selected line skips straight to placement
         self._scene.instructionChanged.emit(p.status())
         self._repaint()
         return True
@@ -2239,7 +2284,7 @@ class ConstraintController:
         Returns:
             The refs to add, or None when the selection is not valid for it.
         """
-        from .geometry_2d import LineItem      # reference lines too (RG1)
+        from .geometry_2d import ArcItem, CircleItem, LineItem  # reference lines too (RG1)
         try:
             sel = self._scene.selectedItems()
         except RuntimeError:
@@ -2247,6 +2292,10 @@ class ConstraintController:
         if (len(sel) == 1 and isinstance(sel[0], LineItem)
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "edge"}]
+        if (ctype == "dim_distance" and len(sel) == 1
+                and isinstance(sel[0], (CircleItem, ArcItem))
+                and getattr(sel[0], "_uid", None) is not None):
+            return [{"uid": sel[0]._uid, "h": "curve"}]        # CS5 D78
         return None
 
     # ── property panel (§10, D11/D27) ────────────────────────────────────
