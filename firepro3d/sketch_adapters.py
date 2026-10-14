@@ -91,7 +91,7 @@ GRIP_HANDLES = {
                        5: "bm", 6: "bl", 7: "lm", 8: "center"},
     "draw_circle": {0: "center"},
     "arc": {0: "center", 1: "start", 2: "end"},
-    "draw_ellipse": {0: "center"},
+    "draw_ellipse": {0: "center", 1: "a0", 2: "a1", 3: "b0", 4: "b1"},
 }
 # CS3c: text grips 0=TL .. 8=Centre (text_item.py grip protocol) carry the
 # rectangle's names -- one map.
@@ -406,7 +406,8 @@ class _ArcAdapter(_Adapter):
         return {"center": raw_point(off, off + 1), "start": end(3), "end": end(4)}
 
     def curves(self, it, off):
-        return {"curve": CurveExpr(center=raw_point(off, off + 1), r=off + 2)}
+        return {"curve": CurveExpr(center=raw_point(off, off + 1), r=off + 2,
+                                   span=(off + 3, off + 4))}
 
     def write(self, it, v):
         cx, cy, r, ts, te = (float(t) for t in v)
@@ -558,6 +559,52 @@ class _PolygonAdapter(_CenterRotAdapter):
     def edges(self, it, off):
         p, n = self.points(it, off), it._sides
         return {f"s{k}": (p[f"v{k}"], p[f"v{(k + 1) % n}"]) for k in range(n)}
+
+    def curves(self, it, off):
+        """CS5 D79: the defining circle (R = circumradius, or the apothem when
+        circumscribed) -- the polygon R dim's handle; hidden from picks."""
+        return {"radius": CurveExpr(center=raw_point(off, off + 1), r=off + 2)}
+
+    def hidden_names(self, it):
+        return frozenset(("radius",))
+
+
+def _ell_axis_fn(which: int, sgn: float):
+    """CS5 D70: an ellipse axis end over (cx, cy, rx, ry, rot) -- exactly
+    ``EllipseItem._axis_endpoint``: rx along rot (which 0), ry along
+    rot + 90° (which 1); *sgn* -1 = the opposite end."""
+    def fn(v):
+        cx, cy, rx, ry, rot = v
+        a = rot + (math.pi / 2.0 if which else 0.0)
+        c, s = math.cos(a), math.sin(a)
+        r = ry if which else rx
+        dp = np.zeros((2, 5))
+        dp[0, 0] = dp[1, 1] = 1.0
+        dp[0, 2 + which], dp[1, 2 + which] = sgn * c, -sgn * s
+        dp[0, 4], dp[1, 4] = -sgn * r * s, -sgn * r * c
+        return np.array([cx + sgn * r * c, cy - sgn * r * s]), dp
+    return fn
+
+
+class _EllipseAdapter(_CenterRotAdapter):
+    """vars cx cy rx ry rot; ``center`` + derived axis ends ``a0 a1 b0 b1``
+    (D70) + hidden curves ``rx`` / ``ry`` (the R1 / R2 dim handles, D79)."""
+
+    _ENDS = {"a0": (0, 1.0), "a1": (0, -1.0), "b0": (1, 1.0), "b1": (1, -1.0)}
+
+    def points(self, it, off):
+        idx = tuple(range(off, off + 5))
+        out = {"center": raw_point(off, off + 1)}
+        for name, (which, sgn) in self._ENDS.items():
+            out[name] = PointExpr(idx=idx, fn=_ell_axis_fn(which, sgn))
+        return out
+
+    def curves(self, it, off):
+        c = raw_point(off, off + 1)
+        return {"rx": CurveExpr(center=c, r=off + 2), "ry": CurveExpr(center=c, r=off + 3)}
+
+    def hidden_names(self, it):
+        return frozenset(("rx", "ry"))
 
 
 class _InsAdapter(_Adapter):
@@ -714,7 +761,7 @@ def _registry():
         PolylineItem: _PolylineAdapter(),
         RegularPolygonItem: _PolygonAdapter(
             "polygon", ("_radius_mm", "_rotation_deg"), {"_radius_mm": _AXIS_MIN}),
-        EllipseItem: _CenterRotAdapter(
+        EllipseItem: _EllipseAdapter(
             "draw_ellipse", ("_rx", "_ry", "_rotation_deg"),
             {"_rx": _AXIS_MIN, "_ry": _AXIS_MIN}),
         TextItem: _TextBoxAdapter(),

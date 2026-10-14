@@ -197,11 +197,11 @@ def be(qapp):
     QApplication.processEvents()
 
 
-def test_dim_label_shows_with_nothing_selected_and_picks(be):
+def test_dim_label_shows_on_its_geometry_selection_and_picks_d82(be):
     v, sc = be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (300, 0))
     c = ctl.add("dim_distance", [E(ln)])
-    sc.clearSelection()
+    ln.setSelected(True)  # D82: a dim shows on its geometry's selection
     ents = cd.dim_entries(v, ctl)
     assert [e.cid for e in ents] == [c.id]
     assert cp.dim_at(v, ctl, ents[0].layout.center) == c.id
@@ -213,7 +213,7 @@ def test_dim_text_in_the_dimension_colour_pixel(be):
     v, sc = be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (300, 0))
     ctl.add("dim_distance", [E(ln)])
-    sc.clearSelection()
+    ln.setSelected(True)  # D82: a dim shows on its geometry's selection
     (e,) = cd.dim_entries(v, ctl)
     v.viewport().repaint(); QApplication.processEvents()
     img = v.viewport().grab().toImage(); dpr = img.devicePixelRatio()
@@ -242,9 +242,9 @@ def test_reference_text_is_parenthesised_and_muted(be):
 
 
 def test_no_transient_linear_readouts_d57(be):
-    """D57 (smoke ruling 2026-10-03): Smart Dimension owns lengths -- the
-    selection readouts no longer show length / width / height / segment;
-    angular + radius readouts stay until CS5."""
+    """D57 (smoke ruling 2026-10-03) + CS5 D68: Smart Dimension owns every
+    measure -- the selection readouts no longer show length / width / height /
+    segment, and (retired from 'stay until CS5') no radius / angle either."""
     from firepro3d.geometry_2d import ArcItem, PolylineItem
     v, sc = be
     ln = _line(sc, (0, 0), (300, 0))
@@ -260,8 +260,7 @@ def test_no_transient_linear_readouts_d57(be):
     keys = sorted(s.key for _i, s in sc.readouts.entries())
     assert not any(k in ("length", "width", "height") or k.startswith("seg:")
                    for k in keys)
-    assert "radius" in keys and "angle" in keys          # arc keeps its readouts
-    assert "ang:1" in keys                               # polyline vertex angle stays
+    assert keys == []                                    # D68: none at all
 
 
 def test_dim_hud_commit_drives_the_constraint(be):
@@ -414,7 +413,7 @@ def test_short_edge_dim_is_still_pickable_f7(be):
     v, sc = be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (25, 0))                        # label wider than the edge
     c = ctl.add("dim_distance", [E(ln)])
-    sc.clearSelection()
+    ln.setSelected(True)  # D82: a dim shows on its geometry's selection
     (e,) = cd.dim_entries(v, ctl)
     assert not e.layout.fits
     assert cp.dim_at(v, ctl, e.layout.center) == c.id
@@ -521,7 +520,7 @@ def test_placed_dim_draws_dim_line_and_witness_lines_pixel(be):
     v, sc = be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (300, 0))
     ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})   # n=(0,1): -40 = above
-    sc.clearSelection()
+    ln.setSelected(True)  # D82: a dim shows on its geometry's selection
     img, dpr = _grab(v)
     want = th.detect().color("dimension")
     assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(60, -40))), want)    # dim line
@@ -543,7 +542,7 @@ def test_dim_line_picks_the_dim_a_witness_line_does_not(be):
     v, sc = be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (300, 0))
     c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
-    sc.clearSelection()
+    ln.setSelected(True)  # D82: a dim shows on its geometry's selection
     assert cp.dim_at(v, ctl, QPointF(v.mapFromScene(QPointF(60, -40)))) == c.id
     assert cp.dim_at(v, ctl, QPointF(v.mapFromScene(QPointF(0, -20)))) is None
 
@@ -613,7 +612,7 @@ def test_placed_dim_pixels_in_both_themes(themed_be):
     v, sc, t = themed_be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (300, 0))
     ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
-    sc.clearSelection()
+    ln.setSelected(True)  # D82: a dim shows on its geometry's selection
     img, dpr = _grab(v)
     want = t.color("dimension")
     assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(60, -40))), want)     # dim line
@@ -645,7 +644,7 @@ def test_dirty_rect_covers_every_painted_dim_pixel(be):
         v, sc = be; ctl = sc.constraint_ctl
         ln = _line(sc, (0, 0), (300, 0))
         ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
-        sc.clearSelection()
+        ln.setSelected(True)  # D82: a dim shows on its geometry's selection
         img, dpr = _grab(v)
         want = th.detect().color("dimension")
         r = cp.dirty_rect(v, ctl)

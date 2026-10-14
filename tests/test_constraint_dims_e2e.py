@@ -97,6 +97,7 @@ def test_e2e_two_points_then_place_esc_drops_only_the_pending_dim(win_with_edito
     _place(v, 100, -150)
     QTest.keyClick(sc.readouts.hud.editor("Distance"), Qt.Key.Key_Escape)
     sc.set_mode("select")
+    a.setSelected(True)          # D82: a dim shows on its geometry's selection
     QApplication.processEvents()
     ctl = sc.constraint_ctl
     (e,) = cd.dim_entries(v, ctl)
@@ -148,7 +149,7 @@ def _placed(sc, off):
     c = sc.constraint_ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}],
                               label={"offset": off})
     sc.set_mode("select")
-    sc.clearSelection()
+    ln.setSelected(True)         # D82: a dim shows on its geometry's selection
     QApplication.processEvents()
     return ln, c
 

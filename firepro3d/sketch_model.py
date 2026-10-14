@@ -15,7 +15,14 @@ GROUNDS = ("origin", "x_axis", "y_axis")
 # Types whose record carries a numeric ``value`` the residual reads (§6.3):
 # the controller passes it to the builder and drops Reference dims (D7/D52).
 VALUED = frozenset({"dim_distance", "dim_radius", "dim_diameter", "dim_angle",
-                    "dim_point_line"})
+                    "dim_arc_angle", "dim_point_line"})
+# D76: lengths scale with the Scale tool; angles never do.
+LENGTH_DIMS = frozenset({"dim_distance", "dim_radius", "dim_diameter", "dim_point_line"})
+# Drawn / placed / dragged as a linear dim (D60-D66; D81 parallel edges).
+LINEAR_DIMS = frozenset({"dim_distance", "dim_point_line"})
+ANGLE_DIMS = frozenset({"dim_angle", "dim_arc_angle"})
+# D77: an angle value must be < this (degrees); a length is only > 0.
+VALUE_MAX = {"dim_angle": 180.0, "dim_arc_angle": 360.0}
 _KNOWN = frozenset(("id", "type", "refs", "value", "driving", "enabled", "helper", "label"))
 
 
@@ -29,6 +36,7 @@ class ConstraintType(str, Enum):
     DIM_RADIUS = "dim_radius"
     DIM_DIAMETER = "dim_diameter"
     DIM_ANGLE = "dim_angle"
+    DIM_ARC_ANGLE = "dim_arc_angle"     # CS5 D79: an arc's sweep
     CONCENTRIC = "concentric"
     SYMMETRIC = "symmetric"
     FIX = "fix"
@@ -61,9 +69,10 @@ REGISTRY: dict[str, TypeSpec] = {
     "coincident": TypeSpec("Coincident", (("point", "point"),), 2, True),
     "point_on_curve": TypeSpec("Coincident", (("point", "edge"), ("point", "curve"), ("point", "axis")), 1, True),
     "dim_distance": TypeSpec("Smart Dimension", (("edge",), ("point", "point")), 1, True),
-    "dim_radius": TypeSpec("Smart Dimension", (("curve",),), 1),
-    "dim_diameter": TypeSpec("Smart Dimension", (("curve",),), 1),
-    "dim_angle": TypeSpec("Smart Dimension", (("edge", "edge"), ("edge", "axis")), 1),
+    "dim_radius": TypeSpec("Smart Dimension", (("curve",),), 1, True),
+    "dim_diameter": TypeSpec("Smart Dimension", (("curve",),), 1, True),
+    "dim_angle": TypeSpec("Smart Dimension", (("edge", "edge"), ("edge", "axis")), 1, True),
+    "dim_arc_angle": TypeSpec("Smart Dimension", (("curve",),), 1, True),
     "concentric": TypeSpec("Concentric", (("curve", "curve"), ("curve", "point")), 2),
     "symmetric": TypeSpec("Symmetric", (("point", "point", "edge"), ("point", "point", "axis")), 2),
     "fix": TypeSpec("Fix", (("point",),), 2),
@@ -73,7 +82,7 @@ REGISTRY: dict[str, TypeSpec] = {
     "tangent": TypeSpec("Tangent", (("edge", "curve"), ("curve", "curve")), 1),
     "midpoint": TypeSpec("Midpoint", (("point", "edge"),), 2),
     "collinear": TypeSpec("Collinear", (("edge", "edge"),), 2),
-    "dim_point_line": TypeSpec("Smart Dimension", (("point", "edge"),), 1),
+    "dim_point_line": TypeSpec("Smart Dimension", (("point", "edge"), ("point", "axis")), 1, True),
 }
 
 
@@ -93,6 +102,10 @@ def icon_for(ctype: str) -> str:
     """
     spec = REGISTRY.get(ctype)
     return spec.icon if spec is not None else NEUTRAL_ICON
+
+
+#: Direction of each ground axis (both pass through the origin) -- the one home.
+AXIS_DIRS = {"x_axis": (1.0, 0.0), "y_axis": (0.0, 1.0)}
 
 
 def is_ground(ref: dict) -> bool:

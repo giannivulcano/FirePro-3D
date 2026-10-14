@@ -16,6 +16,8 @@ from typing import Callable
 
 import numpy as np
 
+from .sketch_model import AXIS_DIRS
+
 LIN_TOL = 1e-6          # D18 linear residual bar (mm)
 ANG_SCALE = 1000.0      # angular rows are multiplied by this (§7.2)
 MAX_ITERS = 25
@@ -127,9 +129,12 @@ def const_point(px: float, py: float) -> PointExpr:
 @dataclass(frozen=True)
 class CurveExpr:
     """A circle / arc's FULL circle for point-on-curve (§7.3, CS3): its
-    ``center`` PointExpr and the radius variable index ``r``."""
+    ``center`` PointExpr and the radius variable index ``r``. An arc also
+    carries ``span`` = its (θs, θe) variable indices (CS5 D79, the sweep
+    dim); a polygon / ellipse "defining circle" carries none."""
     center: PointExpr
     r: int
+    span: tuple | None = None
 
 
 POINT_FAMILIES: dict = {}
@@ -907,6 +912,96 @@ def build_dim_distance(cid: str, ends, sys: System, value: float = 0.0) -> None:
     _point_row(cid, (a, b), (), _distance(value), sys)
 
 
+def build_dim_radius(cid: str, ends, sys: System, value: float = 0.0) -> None:
+    """CS5 D79: ``refs`` = ``[curve]``; the radius variable is substituted
+    (``r := R``)."""
+    sys.fixes.append((ends.r, float(value), cid))
+
+
+def build_dim_diameter(cid: str, ends, sys: System, value: float = 0.0) -> None:
+    """CS5 D79: ``r := D / 2``."""
+    sys.fixes.append((ends.r, float(value) / 2.0, cid))
+
+
+def build_dim_arc_angle(cid: str, ends, sys: System, value: float = 0.0) -> None:
+    """CS5 D79: an arc's sweep -- one row ``ANG_SCALE·((θe − θs) − θ)``,
+    ``value`` in degrees."""
+    if ends.span is None:
+        raise ValueError("dim_arc_angle needs an arc curve")
+    ts, te = ends.span
+    th = math.radians(float(value))
+
+    def fn(x):
+        return (ANG_SCALE * (float(x[te]) - float(x[ts]) - th),
+                np.array([-ANG_SCALE, ANG_SCALE]))
+    sys.rows.append(Row(cid, (ts, te), fn))
+
+
+def _angle(value: float, s1: float, s2: float, sign: float, axis=None):
+    """D80: ``ANG_SCALE·wrap(atan2(cross(u, v), dot(u, v)) − σθ)`` with
+    ``u = s1·(b1 − a1)``, ``v = s2·(b2 − a2)`` (or ``s2·axis``)."""
+    th = math.radians(float(value)) * sign
+
+    def f(P, _E):
+        k = len(P)
+        u = s1 * (P[1] - P[0])
+        v = s2 * (np.asarray(axis, dtype=float) if axis is not None else P[3] - P[2])
+        nu, nv = float(u @ u), float(v @ v)
+        if nu < _EPS_LEN ** 2 or nv < _EPS_LEN ** 2:
+            return 0.0, np.zeros((k, 2)), np.zeros(0)
+        phi = math.atan2(u[0] * v[1] - u[1] * v[0], float(u @ v))
+        d = (phi - th + math.pi) % (2.0 * math.pi) - math.pi
+        du = np.array([u[1], -u[0]]) / nu
+        dv = np.array([-v[1], v[0]]) / nv
+        g = [-s1 * du, s1 * du]
+        if axis is None:
+            g += [-s2 * dv, s2 * dv]
+        return ANG_SCALE * d, ANG_SCALE * np.array(g), np.zeros(0)
+    return f
+
+
+def build_dim_angle(cid: str, ends, sys: System, value: float = 0.0,
+                    helper=None) -> None:
+    """CS5 D72/D80: ``refs`` = ``[edge, edge | axis]``; ``helper`` =
+    ``{"dirs": [s1, s2], "sign": σ}`` (the controller validates it)."""
+    h = helper or {}
+    s1, s2 = (float(s) for s in h.get("dirs", (1, 1)))
+    sign = float(h.get("sign", 1))
+    e1, e2 = ends
+    if isinstance(e2, str):
+        _point_row(cid, (e1[0], e1[1]), (), _angle(value, s1, s2, sign, AXIS_DIRS[e2]), sys)
+    else:
+        _point_row(cid, (e1[0], e1[1], e2[0], e2[1]), (), _angle(value, s1, s2, sign), sys)
+
+
+def build_dim_point_line(cid: str, ends, sys: System, value: float = 0.0,
+                         helper=None) -> None:
+    """CS5 D81 (§7.3 point-line): ``refs`` = ``[point, edge | axis]``;
+    ``helper`` = ``{"side": ±1}``. Edge: one row ``cross(p − a, d)/‖d‖ − s·D``
+    (``_on_line``'s signed distance); axis: the point's y (X axis) or x (Y
+    axis) ``:= s·D`` via ``_axis_equal`` against a constant (substituted when
+    the point is raw)."""
+    s = float((helper or {}).get("side", 1))
+    p, t = ends
+    if isinstance(t, str):
+        k = 1 if t == "x_axis" else 0
+        # Same convention as an edge from the origin along +X / +Y:
+        # cross(p, d) = -p.y (x_axis, d = (1, 0)), +p.x (y_axis, d = (0, 1)).
+        target = -s * float(value) if t == "x_axis" else s * float(value)
+        c = [0.0, 0.0]
+        c[k] = target
+        _axis_equal(k, cid, (p, const_point(*c)), sys)
+        return
+    a, b = t
+
+    def f(P, E):
+        r, dP, dE = _on_line(P, E)
+        return r - s * float(value), dP, dE
+    _point_row(cid, (p, a, b), (), f, sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
-            "dim_distance": build_dim_distance}
+            "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
+            "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
+            "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}
