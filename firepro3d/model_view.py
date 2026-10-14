@@ -995,6 +995,8 @@ class Model_View(QGraphicsView):
             cid = constraint_paint.glyph_at(self, ctl, QPointF(event.pos()))
             if cid is not None:
                 ctl.select(cid)
+                if constraint_paint.dim_at(self, ctl, QPointF(event.pos())) == cid:
+                    ctl.begin_dim_drag(cid, QPointF(event.pos()))   # CS4b D64
                 event.accept()
                 return True
             ctl.clear_selected()
@@ -1020,6 +1022,33 @@ class Model_View(QGraphicsView):
         except Exception:
             import logging
             logging.getLogger(__name__).exception("dim double-click failed")
+            return False
+
+    def _dim_drag_move(self, event) -> bool:
+        """CS4b D64: an armed dim drag follows the cursor. Never raises."""
+        try:
+            ctl = getattr(self.scene(), "constraint_ctl", None)
+            if ctl is None or getattr(ctl, "dim_drag", None) is None:
+                return False
+            if not (event.buttons() & Qt.MouseButton.LeftButton):
+                ctl.end_dim_drag()
+                return False
+            ctl.dim_drag_to(self, QPointF(event.pos()))
+            event.accept()
+            return True
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("dim drag failed")
+            return False
+
+    def _dim_drag_release(self) -> bool:
+        """CS4b D64: end an armed dim drag (one undo step when it moved)."""
+        try:
+            ctl = getattr(self.scene(), "constraint_ctl", None)
+            return ctl is not None and ctl.end_dim_drag()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("dim drag release failed")
             return False
 
     def _constraint_glyph_hover(self, sc, event) -> bool:
@@ -1050,6 +1079,8 @@ class Model_View(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         self._last_vp_pos = event.pos()   # used by drawForeground for dim HUD
+        if self._dim_drag_move(event):
+            return
         if getattr(self, "_rb_active", False):
             # Live scene-drawn band: extend it and repaint. No live preselection
             # preview (user decision 2026-09-24 — recomputing rubber_band_hits
@@ -1109,6 +1140,10 @@ class Model_View(QGraphicsView):
                 self.viewport().update()
 
     def mouseReleaseEvent(self, event):
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self._dim_drag_release()):
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
             sc = self.scene()
@@ -1332,6 +1367,15 @@ class Model_View(QGraphicsView):
             # whatever else the key is bound to.
             if (sc is not None and hasattr(sc, "begin_dynamic_input")
                     and sc.begin_dynamic_input()):
+                event.accept()
+                return
+        if (event.modifiers() == Qt.KeyboardModifier.NoModifier
+                and event.key() == Qt.Key.Key_D):
+            # CS4b D63: bare D = the Smart Dimension button, Block Editor only.
+            ctl = getattr(self.scene(), "constraint_ctl", None)
+            fn = getattr(self.window(), "_be_constrain", None)
+            if ctl is not None and ctl.enabled and callable(fn):
+                fn("dim_distance", True)
                 event.accept()
                 return
         if (event.modifiers() == Qt.KeyboardModifier.NoModifier

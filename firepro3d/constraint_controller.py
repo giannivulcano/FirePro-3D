@@ -174,6 +174,12 @@ def _seg_dist(p, a, b) -> float:
     return math.hypot(p.x() - ax - t * dx, p.y() - ay - t * dy)
 
 
+def _vp_to_scene(view, vp_pt) -> QPointF:
+    """Exact scene point of a viewport-px point (no int rounding)."""
+    inv, _ok = view.viewportTransform().inverted()
+    return inv.map(QPointF(vp_pt))
+
+
 class PickState:
     """D21 hover-marker pick mode for one constraint type.
 
@@ -192,6 +198,8 @@ class PickState:
         self.kinds: list[str] = []
         self.hover: dict | None = None
         self.hover_kind: str | None = None      # "point" / "edge" / "curve" / "axis"
+        self.pending: list | None = None         # CS4b D63: dim refs awaiting placement
+        self.cursor: QPointF | None = None       # last hover (viewport px) for the preview
 
     def _candidates(self):
         """``(kind, ref, a, b)`` scene-space: point ``(p, None | "mid")``
@@ -259,6 +267,9 @@ class PickState:
     def hover_at(self, view, vp_pt) -> dict | None:
         """Nearest allowed candidate: points (point tol) > edges / curves
         (edge tol) > axes (edge tol)."""
+        if self.pending is not None:             # D63: placing -- no marker hover
+            self.hover = self.hover_kind = None
+            return None
         cands = [c for c in self._candidates() if self._allowed(c[0])]
         o = view.mapFromScene(QPointF(0.0, 0.0))
         best = None
@@ -288,6 +299,10 @@ class PickState:
             what = ("pick a point" if n and self.kinds[0] != "point" else
                     "pick a point, then a point, edge, circle/arc or axis")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
+        if self.ctype == "dim_distance":         # CS4b D63
+            if self.pending is not None:
+                return f"{label}: click to place the dimension · Esc to cancel"
+            return f"{label}: pick an edge or 2 points ({n}/2) · Esc to cancel"
         return f"{label}: pick 2 points or 1 edge ({n}/2) · Esc to cancel"
 
     def paint(self, painter, view, t) -> None:
@@ -332,6 +347,9 @@ class PickState:
                                                QPointF(p.x() - s, p.y() + s)]))
             else:
                 painter.drawRect(QRectF(p.x() - s, p.y() - s, 2 * s, 2 * s))
+        if self.pending is not None and self.cursor is not None:
+            from .constraint_dims import paint_preview      # CS4b D63
+            paint_preview(painter, view, self.ctl, self.pending, self.cursor, t)
 
 
 class ConstraintController:
@@ -368,6 +386,7 @@ class ConstraintController:
         self._scene_gen = 0
         self._sel_gen = 0
         self._label_gen = 0     # CS4b: a dim offset change (frame key, no diag recompute)
+        self.dim_drag = None    # CS4b D64: [cid, old label, press vp, moved]
         self._frames: dict = {}                # id(view) -> (key, _Frame)
         self._drag_extra: list = []            # body-drag selection items outside the ctx
         # Zero-arg callbacks run when the constraint selection / list changes
@@ -1382,20 +1401,11 @@ class ConstraintController:
                 refs = [edge]                   # an edge's own ends == that edge
         c = sm.Constraint.new(ctype, refs)
         if ctype in sm.VALUED:
-            if self._sizes_a_text(c.refs):
-                self._status(DIM_TEXT_STATUS)
+            refusal = self._dim_refusal(c)
+            if refusal is not None:
+                self._status(refusal)
                 return None
-            m = self.measure(c)
-            c.value = value if value is not None else m
-            if m is not None and m <= DEGEN_EPS:
-                self._status(DIM_ZERO_STATUS)
-                return None
-            rep = self._repeats_a_dim(c)
-            if rep is not None:                       # D56: one dim per measure
-                self._status(DIM_RECT_REPEAT_STATUS.format(rep[2])
-                             if isinstance(rep, tuple) and rep[0] == "rect"
-                             else DIM_REPEAT_STATUS)
-                return None
+            c.value = value if value is not None else self.measure(c)
             if label is not None:
                 c.label = copy.deepcopy(label)           # CS4b D62 placement
         if not self._valid(c):
@@ -1465,6 +1475,40 @@ class ConstraintController:
         if len(gs) == 2 and all(g is not None and g[0] == "point" for g in gs):
             return gs[0][1], gs[1][1]
         return None
+
+    def _dim_refusal(self, c) -> str | None:
+        """The add-time refusal status of dim *c* -- D59 text sizing, a zero
+        distance, a D56 repeat -- or None. CS4b D63 runs it before placement."""
+        if self._sizes_a_text(c.refs):
+            return DIM_TEXT_STATUS
+        m = self.measure(c)
+        if m is not None and m <= DEGEN_EPS:
+            return DIM_ZERO_STATUS
+        rep = self._repeats_a_dim(c)
+        if rep is not None:                       # D56: one dim per measure
+            return (DIM_RECT_REPEAT_STATUS.format(rep[2])
+                    if isinstance(rep, tuple) and rep[0] == "rect"
+                    else DIM_REPEAT_STATUS)
+        return None
+
+    def dim_precheck(self, refs):
+        """CS4b D63: the refs a dim would be added on (an edge's own ends are
+        that edge, D56), or None with the refusal status posted -- so a
+        refused pick never asks for a placement click."""
+        from .constraint_dims import edge_for_points
+        edge = edge_for_points(refs, self.item_by_uid())
+        if edge is not None:
+            refs = [edge]
+        c = sm.Constraint.new("dim_distance", refs)
+        refusal = self._dim_refusal(c)
+        if refusal is None:
+            c.value = self.measure(c)
+            if c.value is None or not self._valid(c):
+                refusal = INVALID_STATUS
+        if refusal is not None:
+            self._status(refusal)
+            return None
+        return refs
 
     def _repeats_a_dim(self, c):
         """D56 (smoke ruling 2026-10-03): *c* measures exactly what an
@@ -1631,6 +1675,10 @@ class ConstraintController:
         p = self.pick
         if p is None:
             return
+        if p.pending is not None:                  # CS4b D63: live preview follows
+            p.cursor = QPointF(vp_pt)
+            self._repaint()
+            return
         before = (p.hover_kind, p.hover)
         p.hover_at(view, vp_pt)
         if (p.hover_kind, p.hover) != before:
@@ -1652,6 +1700,8 @@ class ConstraintController:
         p = self.pick
         if p is None:
             return False
+        if p.pending is not None:                  # CS4b D63: the placement click
+            return self._place_dim(view, vp_pt)
         ref = p.hover_at(view, vp_pt)
         if ref is None:
             return False
@@ -1674,17 +1724,120 @@ class ConstraintController:
                     refs.reverse()
                 both_points = p.kinds[0] == p.kinds[1] == "point"
                 ctype = "coincident" if both_points else "point_on_curve"
-        if ctype == "dim_distance":            # D50: the tool stays live
-            self.pick = PickState(self, ctype)
-            c = self.add(ctype, refs)
-            self._scene.instructionChanged.emit(self.pick.status())
+        if ctype == "dim_distance":                # CS4b D63: placement next
+            refs = self.dim_precheck(refs)
+            if refs is None:
+                self.pick = PickState(self, ctype)  # refused: start over, tool live
+                self._repaint()
+                return False
+            p.pending, p.cursor = refs, QPointF(vp_pt)
+            self._scene.instructionChanged.emit(p.status())
             self._repaint()
-            if c is not None and c.driving:
-                self.open_dim_edit(c.id, view)
-            return True
+            return False
         self.pick = None
         self._scene.set_mode("select")
         self.add(ctype, refs)
+        return True
+
+    def _place_dim(self, view, vp_pt) -> bool:
+        """D63: store the cursor's offset, add the dim, open the HUD (D50)."""
+        from . import dim_graphics as dg
+        p = self.pick
+        refs = p.pending
+        ends = self.dim_ends(sm.Constraint.new(p.ctype, refs))
+        label = (dg.with_offset(None, dg.signed_offset(ends[0], ends[1],
+                                                       _vp_to_scene(view, vp_pt)))
+                 if ends is not None else None)
+        self.pick = PickState(self, p.ctype)       # D50: the tool stays live
+        c = self.add(p.ctype, refs, label=label)
+        self._scene.instructionChanged.emit(self.pick.status())
+        self._repaint()
+        if c is not None and c.driving:
+            self.open_dim_edit(c.id, view)
+        return True
+
+    def begin_dim_placement(self, refs) -> bool:
+        """D63: a selected line skips to the placement click. False when
+        refused (status posted) or no Smart Dimension session is running."""
+        p = self.pick
+        if p is None or p.ctype != "dim_distance":
+            return False
+        refs = self.dim_precheck(refs)
+        if refs is None:
+            return False
+        p.pending = refs
+        self._scene.instructionChanged.emit(p.status())
+        self._repaint()
+        return True
+
+    def reset_dim_pick(self) -> bool:
+        """D63 Esc: drop a half-made dim (picks or a pending placement), keep
+        the tool live. False when there was nothing to drop."""
+        p = self.pick
+        if (p is None or p.ctype != "dim_distance"
+                or (not p.picks and p.pending is None)):
+            return False
+        self.pick = PickState(self, p.ctype)
+        self._scene.instructionChanged.emit(self.pick.status())
+        self._repaint()
+        return True
+
+    # ── dim drag (CS4b D64) ───────────────────────────────────────────────
+    def begin_dim_drag(self, cid, vp_pt) -> None:
+        """Arm a select-mode drag of dim *cid* (moves only past the drag
+        distance, so a click just selects)."""
+        c = self.find(cid)
+        if c is None or c.inert or c.type != "dim_distance":
+            return
+        self.dim_drag = [cid, copy.deepcopy(c.label), QPointF(vp_pt), False]
+
+    def dim_drag_to(self, view, vp_pt) -> bool:
+        """Follow the cursor: the dim's offset = the cursor's signed distance
+        from its points. True while a drag is armed."""
+        from PyQt6.QtWidgets import QApplication
+        from . import dim_graphics as dg
+        d = self.dim_drag
+        if d is None:
+            return False
+        c = self.find(d[0])
+        if c is None:
+            self.dim_drag = None
+            return False
+        if not d[3]:
+            if ((QPointF(vp_pt) - d[2]).manhattanLength()
+                    < QApplication.startDragDistance()):
+                return True
+            d[3] = True
+        ends = self.dim_ends(c)
+        if ends is not None:
+            c.label = dg.with_offset(c.label, dg.signed_offset(
+                ends[0], ends[1], _vp_to_scene(view, vp_pt)))
+            self._label_gen += 1
+            self._repaint()
+        return True
+
+    def end_dim_drag(self) -> bool:
+        """Release: one undo step when the dim moved. True when a drag was armed."""
+        d, self.dim_drag = self.dim_drag, None
+        if d is None:
+            return False
+        if d[3]:
+            self._label_gen += 1
+            self._scene.push_undo_state()
+            self._repaint()
+        return True
+
+    def cancel_dim_drag(self) -> bool:
+        """Esc mid-drag: restore the offset. True only when a moving drag was
+        undone (an armed, unmoved press lets Esc deselect as usual)."""
+        d, self.dim_drag = self.dim_drag, None
+        if d is None or not d[3]:
+            return False
+        c = self.find(d[0])
+        if c is not None:
+            c.label = d[1]
+        self._label_gen += 1
+        self._repaint()
         return True
 
     def selection_refs(self, ctype: str):

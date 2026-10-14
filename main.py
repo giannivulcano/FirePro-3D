@@ -4399,10 +4399,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
         if sc.mode == "pipe" and sc.cancel_pipe_placement():
             return
+        # CS4b D63/D64: Esc drops only a half-made or dragged dim (tool stays).
+        ctl = getattr(sc, "constraint_ctl", None)
+        if ctl is not None and (ctl.cancel_dim_drag() or ctl.reset_dim_pick()):
+            return
         sc.set_mode("select")      # also ends a constraint pick session (D21)
         sc.clearSelection()
         # A selected constraint (glyph / panel row, D11) drops like a selection.
-        ctl = getattr(sc, "constraint_ctl", None)
         if ctl is not None:
             ctl.clear_selected()
         self.view_3d.cancel_interaction()
@@ -5145,9 +5148,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
-        _editor_only(b_d, "Smart Dimension — dimension a line's length or the "
-                          "distance between two points (pick an edge or 2 "
-                          "points), then type the value to drive it")
+        _editor_only(b_d, "Smart Dimension (D) — dimension a line's length or "
+                          "the distance between two points (pick an edge or 2 "
+                          "points, then click to place), then type the value "
+                          "to drive it")
         _editor_only(b_h, "Horizontal — make the selected line horizontal, "
                           "or pick 2 points / 1 edge")
         _editor_only(b_v, "Vertical — make the selected line vertical, "
@@ -5188,15 +5192,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._sync_mode_buttons(sc.mode)
             return
         if ctype == "dim_distance":
-            # D50: tool-first; one selected line is dimensioned at once (HUD
-            # open), any other selection just clears; the tool stays live.
+            # D50 + CS4b D63: tool-first; one selected line skips straight to
+            # the placement click; any other selection just clears.
             refs = ctl.selection_refs(ctype)
             sc.clearSelection()
             sc.set_mode(mode)
             if refs is not None:
-                c = ctl.add(ctype, refs)
-                if c is not None and c.driving:
-                    ctl.open_dim_edit(c.id, self._active_view())
+                ctl.begin_dim_placement(refs)
             self._sync_mode_buttons(sc.mode)
             return
         refs = ctl.selection_refs(ctype)
