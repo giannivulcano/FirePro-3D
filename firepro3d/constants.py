@@ -347,11 +347,22 @@ SELDIM_LABEL_OFFSET_PX = 6       # every linear label sits this far off its line
 SELDIM_ARC_LABEL_GAP_PX = 4      # angular label clears its reference arc by this
 SELDIM_ARC_REF_FRAC = 0.19       # reference-arc radius as a fraction of the leg
 SELDIM_ARC_REF_MIN_PX = 25       # ...but never smaller than this on screen
-SELDIM_ARROW_PX = 7              # reference-arc arrowhead length
-SELDIM_ARROW_HALF_W_PX = 2.5     # reference-arc arrowhead half-width
+SELDIM_ARROW_PX = 7.5            # fallback terminator length (3 mm x DIM_TERM_PX_PER_MM); dirty-pad budget
+SELDIM_ARROW_HALF_W_PX = 1.25    # fallback terminator half-width (3:1, CS4b D61)
 SELDIM_DASH = (4, 3)             # dash pattern (px) — matches selection guides
 SELDIM_FIT_MARGIN_PX = 4         # a linear label must fit its segment + this
 SELDIM_PICK_PAD_PX = 3           # label hit-rect grows by this on each side
+# CS4b Smart Dimension graphics (parametric-constraint-system.md D60-D66), viewport px.
+DIM_WITNESS_GAP_PX = 3.0          # witness line starts this far off the measured point
+DIM_WITNESS_EXT_PX = 4.0          # ... and runs this far past the dim line
+DIM_TEXT_GAP_PX = 3.0             # value text clears the dim line by this
+DIM_AUTO_OFFSET_PX = 14.0         # D62: a dim with no stored offset sits this far off
+DIM_FIT_PAD_PX = 8.0              # D66: text + both terminators must fit the dim line + this
+DIM_SHORT_LEADER_PX = 12.0        # D66: outside terminators sit on stubs this long
+DIM_TERM_PX_PER_MM = 2.5          # D61: terminator end block, px per authored mm
+DIM_TERM_FALLBACK_MM = (3.0, 1.0) # D61: built-in terminator length x width (mm, 3:1)
+DIM_TERMINATOR_KEY = "dimension/terminator"   # D61: QSettings -- End Types end name
+DIM_TERMINATOR_DEFAULT = "Arrow"
 # Dirty-region pad around painted readouts: covers the hover glow (half the
 # traced width + the blur radius) and the arc arrowheads, + 2 px antialias.
 SELDIM_DIRTY_PAD_PX = int(max(HALO_TRACE_WIDTH_PX / 2 + HALO_GLOW_PX,
