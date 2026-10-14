@@ -168,6 +168,7 @@ def _angle_helper_ok(h) -> bool:
 
 
 PICK_SAME_POINT_STATUS = "Pick a different point"
+PICK_SAME_CURVE_STATUS = "Pick a different circle/arc"     # CS6 (same curve twice)
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
 DIM_ZERO_STATUS = "Pick two separate points"
@@ -230,7 +231,7 @@ class PickState:
         Curves + axes are offered to Coincident and (CS5) Smart Dimension;
         hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
         ``ry``) never."""
-        curvy = self.ctype in ("coincident", "dim_distance")
+        curvy = self.ctype in ("coincident", "dim_distance", "concentric")
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -273,6 +274,10 @@ class PickState:
                 return False
             from .geometry_2d import ArcItem        # a circle's centre + its own outline is no dim
             return isinstance(self.ctl.item_by_uid().get(ref.get("uid")), ArcItem)
+        if self.ctype == "concentric":                        # CS6
+            if kind not in ("curve", "point"):
+                return False
+            return not self.picks or kind == "curve" or self.kinds[0] == "curve"
         if self.ctype != "coincident":
             return kind == "point" or (kind == "edge" and not self.picks)
         return kind == "point" or not self.picks or self.kinds[0] == "point"
@@ -338,6 +343,10 @@ class PickState:
         if self.ctype == "coincident":
             what = ("pick a point" if n and self.kinds[0] != "point" else
                     "pick a point, then a point, edge, circle/arc or axis")
+            return f"{label}: {what} ({n}/2) · Esc to cancel"
+        if self.ctype == "concentric":                        # CS6
+            what = ("pick a circle/arc" if n and self.kinds[0] != "curve" else
+                    "pick a circle/arc, then a circle/arc or point")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
         if self.ctype == "dim_distance":                      # CS4b D63 / CS5 D78
             if self.pending is not None:
@@ -710,11 +719,13 @@ class ConstraintController:
         its items (a line's own end on its edge, an arc's own end on its
         curve, the origin on an axis) adds nothing -- refused at add. Probed
         numerically: three positive perturbations of every variable (keeps
-        radii positive) all leave every row at zero."""
-        if c.type != "point_on_curve":
+        radii positive) all leave every row at zero. CS6: a concentric whose
+        every equality is a self-alias (a circle / arc with its own centre)
+        is refused the same way."""
+        if c.type not in ("point_on_curve", "concentric"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
-        if sys_.aliases or sys_.fixes:
+        if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
             return False
         rng = np.random.default_rng(0)
         for _ in range(3):
@@ -2194,7 +2205,8 @@ class ConstraintController:
             refs = [ref]
         else:
             if ref in p.picks:
-                self._status(PICK_SAME_POINT_STATUS)
+                self._status(PICK_SAME_CURVE_STATUS if p.hover_kind == "curve"
+                             else PICK_SAME_POINT_STATUS)
                 return False
             p.picks.append(ref)
             p.kinds.append(p.hover_kind)
@@ -2208,6 +2220,8 @@ class ConstraintController:
                     refs.reverse()
                 both_points = p.kinds[0] == p.kinds[1] == "point"
                 ctype = "coincident" if both_points else "point_on_curve"
+            elif ctype == "concentric" and p.kinds[0] != "curve":
+                refs.reverse()                      # stored curve-first (CS6 pin)
         if dim:                                    # CS4b D63 / CS5: placement next
             hit = self.dim_precheck(refs)
             if hit is None:
@@ -2348,7 +2362,9 @@ class ConstraintController:
         return True
 
     def selection_refs(self, ctype: str):
-        """D21 selection-first: one selected line / reference line -> ``[edge]``.
+        """D21 selection-first: one selected line / reference line -> ``[edge]``;
+        CS5 one circle / arc -> ``[curve]`` (Smart Dimension); CS6 two
+        circles / arcs -> ``[curve, curve]`` (Concentric).
 
         Returns:
             The refs to add, or None when the selection is not valid for it.
@@ -2358,13 +2374,18 @@ class ConstraintController:
             sel = self._scene.selectedItems()
         except RuntimeError:
             return None
-        if (len(sel) == 1 and isinstance(sel[0], LineItem)
+        if (ctype != "concentric" and len(sel) == 1        # CS6 R3: never a line
+                and isinstance(sel[0], LineItem)
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "edge"}]
         if (ctype == "dim_distance" and len(sel) == 1
                 and isinstance(sel[0], (CircleItem, ArcItem))
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "curve"}]        # CS5 D78
+        if (ctype == "concentric" and len(sel) == 2
+                and all(isinstance(s, (CircleItem, ArcItem))
+                        and getattr(s, "_uid", None) is not None for s in sel)):
+            return [{"uid": s._uid, "h": "curve"} for s in sel]   # CS6 R3
         return None
 
     # ── property panel (§10, D11/D27) ────────────────────────────────────
@@ -2659,8 +2680,8 @@ class ConstraintController:
         across a horizontal / vertical axis; any other rotation or mirror axis
         drops them (no H<->V swap), and the copy keeps its transformed
         geometry (it is not re-solved). Translation-only copies keep
-        everything. Coincident / point-on-curve are kept under every
-        transform (CS3). (The Symmetric rule lands with its session.)
+        everything. Coincident / point-on-curve / Concentric are kept under
+        every transform (CS3, CS6). (The Symmetric rule lands with its session.)
 
         Args:
             records: ``internal_records`` output (constraint dicts).

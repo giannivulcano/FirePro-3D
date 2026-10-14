@@ -2053,3 +2053,89 @@ def test_cs3c_g3_box_shorter_than_its_text_is_a_conflict(qapp):
     assert c is not None and c.id in ctl.red
     assert (dict(t._data.to_dict()), (t.pos().x(), t.pos().y())) == before
     assert ctl.diagnostics().state(t._uid) == "conflict"
+
+
+# ── CS6 Concentric ───────────────────────────────────────────────────────────
+
+def test_concentric_two_circles_least_change(qapp):
+    sc = _scene()
+    a = _circle(sc, (0, 0), 50); b = _circle(sc, (20, -10), 20)
+    c = sc.constraint_ctl.add("concentric", [{"uid": a._uid, "h": "curve"},
+                                             {"uid": b._uid, "h": "curve"}])
+    assert c is not None and c.id not in sc.constraint_ctl.red
+    assert (a._center.x(), a._center.y()) == pytest.approx((10.0, -5.0), abs=1e-6)
+    assert (b._center.x(), b._center.y()) == pytest.approx((10.0, -5.0), abs=1e-6)
+    assert (a._radius, b._radius) == (50, 20)
+
+
+def test_concentric_arc_and_line_end(qapp):
+    sc = _scene()
+    arc = _arc(sc, (100, 0), 40, 10.0, 60.0)
+    ln = _line(sc, (0, 0), (60, 30))
+    assert sc.constraint_ctl.add("concentric", [{"uid": arc._uid, "h": "curve"},
+                                                {"uid": ln._uid, "h": "p2"}]) is not None
+    assert (arc._center.x(), arc._center.y()) == pytest.approx((ln._pt2.x(), ln._pt2.y()), abs=1e-6)
+
+
+def test_concentric_with_its_own_centre_is_refused(qapp):
+    from firepro3d.constraint_controller import TRIVIAL_STATUS
+    sc = _scene()
+    a = _circle(sc, (0, 0), 50)
+    msgs = _status(sc)                       # existing helper: captures _show_status
+    assert sc.constraint_ctl.add("concentric", [{"uid": a._uid, "h": "curve"},
+                                                {"uid": a._uid, "h": "center"}]) is None
+    assert sc.constraint_ctl.constraints == [] and msgs[-1] == TRIVIAL_STATUS
+
+
+def test_concentric_on_already_shared_centres_is_redundant(qapp):
+    from firepro3d.constraint_controller import REDUNDANT_STATUS
+    sc = _scene()
+    a = _circle(sc, (0, 0), 50); b = _circle(sc, (0, 0), 20)
+    ctl = sc.constraint_ctl
+    ctl.add("coincident", [{"uid": a._uid, "h": "center"}, {"uid": b._uid, "h": "center"}])
+    msgs = _status(sc)
+    k = ctl.add("concentric", [{"uid": a._uid, "h": "curve"}, {"uid": b._uid, "h": "curve"}])
+    assert k is not None and k.id in ctl.diagnostics().redundant and ctl.red == set()
+    assert msgs[-1] == REDUNDANT_STATUS                      # D42
+
+
+def test_concentric_selection_refs_two_circles_or_arcs_only(qapp):
+    sc = _scene()
+    a = _circle(sc, (0, 0), 50); b = _arc(sc, (200, 0), 40, 10.0, 60.0)
+    ln = _line(sc, (0, 100), (50, 150))
+    ctl = sc.constraint_ctl
+    a.setSelected(True); b.setSelected(True)
+    refs = ctl.selection_refs("concentric")
+    assert sorted(r["uid"] for r in refs) == sorted([a._uid, b._uid])
+    assert all(r["h"] == "curve" for r in refs)
+    b.setSelected(False)
+    assert ctl.selection_refs("concentric") is None          # one circle
+    ln.setSelected(True)
+    assert ctl.selection_refs("concentric") is None          # circle + line
+    a.setSelected(False)
+    assert ctl.selection_refs("concentric") is None          # a lone line (R3)
+    assert ctl.selection_refs("horizontal") == [{"uid": ln._uid, "h": "edge"}]
+
+
+def test_concentric_pick_offers_curves_and_points_never_edges_or_axes(qapp):
+    from firepro3d.constraint_controller import PickState
+    sc = _scene()
+    _circle(sc, (0, 0), 50); _line(sc, (100, 0), (200, 0))
+    p = PickState(sc.constraint_ctl, "concentric")
+    kinds = {k for k, r, _a, _b in p._candidates() if p._allowed(k, r)}
+    assert kinds == {"curve", "point"}
+    p.picks, p.kinds = [{"uid": "x", "h": "p1"}], ["point"]       # a point first
+    assert {k for k, r, _a, _b in p._candidates() if p._allowed(k, r)} == {"curve"}
+
+
+def test_mirrored_and_scaled_copies_keep_concentric(qapp):
+    sc = _scene()
+    a = _circle(sc, (0, 0), 50); b = _circle(sc, (0, 0), 20)
+    ctl = sc.constraint_ctl
+    ctl.add("concentric", [{"uid": a._uid, "h": "curve"}, {"uid": b._uid, "h": "curve"}])
+    recs = ctl.internal_records([a, b])
+    a2 = _circle(sc, (300, 0), 50); b2 = _circle(sc, (300, 0), 20)
+    ctl.paste_records(recs, {a._uid: a2._uid, b._uid: b2._uid},
+                      mirror_axis=(QPointF(150, 0), QPointF(160, 37)))
+    assert [c.type for c in ctl.constraints_on(a2)] == ["concentric"]
+    assert not any(c.invalid for c in ctl.constraints_on(a2))

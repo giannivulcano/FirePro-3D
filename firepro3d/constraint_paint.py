@@ -122,7 +122,15 @@ def _away(dx, dy, mid, cen) -> tuple[float, float]:
 
 def _anchor(view, c, by, held=None) -> QPointF | None:
     """Viewport-px centre of *c*'s glyph: 12 px off its geometry (plus half
-    the box) on the side away from the entity centroid (D27)."""
+    the box) on the side away from the entity centroid (D27). CS6: a
+    Concentric sits diagonally up-right of its first (curve) ref's centre."""
+    if c.type == "concentric":
+        g = _ref_geom(c.refs[0], by, held) if c.refs else None
+        if g is None or g[0] not in ("curve", "point"):
+            return None
+        ctr = QPointF(view.mapFromScene(g[1][0] if g[0] == "curve" else g[1]))
+        k = (M.CONSTRAINT_GLYPH_OFFSET_PX + _box_px() / 2.0) / math.sqrt(2.0)
+        return QPointF(ctr.x() + k, ctr.y() - k)
     geoms = [(r, _ref_geom(r, by, held)) for r in c.refs]
     geoms = [(r, g) for r, g in geoms if g is not None and g[0] in ("point", "edge")]
     if c.type in ("coincident", "point_on_curve"):

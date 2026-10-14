@@ -73,7 +73,7 @@ REGISTRY: dict[str, TypeSpec] = {
     "dim_diameter": TypeSpec("Smart Dimension", (("curve",),), 1, True),
     "dim_angle": TypeSpec("Smart Dimension", (("edge", "edge"), ("edge", "axis")), 1, True),
     "dim_arc_angle": TypeSpec("Smart Dimension", (("curve",),), 1, True),
-    "concentric": TypeSpec("Concentric", (("curve", "curve"), ("curve", "point")), 2),
+    "concentric": TypeSpec("Concentric", (("curve", "curve"), ("curve", "point")), 2, True),
     "symmetric": TypeSpec("Symmetric", (("point", "point", "edge"), ("point", "point", "axis")), 2),
     "fix": TypeSpec("Fix", (("point",),), 2),
     "parallel": TypeSpec("Parallel", (("edge", "edge"),), 1),
