@@ -244,7 +244,7 @@ def _type_length(view, sc, item, text):
     item.setSelected(True)
     QApplication.processEvents()
     # D31 seam guard through the readout HUD (pre-D57 line readout opt-in).
-    sc.readouts.show_edge_lengths = True
+    sc.readouts.show_dim_readouts = True
     lay = next(e for e in sc.readouts.layouts(view) if e.spec.key == "length")
     _click(view, lay.layout.center)                    # click the label
     assert sc.readouts.is_editing()

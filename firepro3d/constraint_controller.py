@@ -149,6 +149,26 @@ def _safe_ref_uids(c) -> set | None:
         return None
 
 
+def _is_reflection(point_map) -> bool:
+    """Whether *point_map* reverses orientation (Flip / Mirror)."""
+    o = point_map(QPointF(0.0, 0.0))
+    x = point_map(QPointF(1.0, 0.0))
+    y = point_map(QPointF(0.0, 1.0))
+    return ((x.x() - o.x()) * (y.y() - o.y()) - (x.y() - o.y()) * (y.x() - o.x())) < 0.0
+
+
+def _angle_helper_ok(h) -> bool:
+    """D72: ``{"dirs": [±1, ±1], "sign": ±1}`` exactly."""
+    if not isinstance(h, dict):
+        return False
+    d, s = h.get("dirs"), h.get("sign")
+    return (isinstance(d, list) and len(d) == 2
+            and all(x in (1, -1) and not isinstance(x, bool) for x in d)
+            and s in (1, -1) and not isinstance(s, bool))
+
+
+_AXIS_D = {"x_axis": (1.0, 0.0), "y_axis": (0.0, 1.0)}
+
 PICK_SAME_POINT_STATUS = "Pick a different point"
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
@@ -159,6 +179,8 @@ DIM_REPEAT_STATUS = "Already dimensioned"                                # D56
 DIM_RECT_REPEAT_STATUS = ("Already dimensioned -- a rectangle's opposite sides "
                           "share one {}")                                # D56
 DIM_TEXT_STATUS = "Text boxes can't be dimensioned yet"                 # CS3c AC6
+DIM_ANGLE_ZERO_STATUS = "Pick an edge with length"                          # D77
+DIM_COLLINEAR_STATUS = "Lines are collinear -- nothing to dimension"        # D77/D81
 
 
 def _xy(p) -> tuple[float, float]:
@@ -199,6 +221,7 @@ class PickState:
         self.hover: dict | None = None
         self.hover_kind: str | None = None      # "point" / "edge" / "curve" / "axis"
         self.pending: list | None = None         # CS4b D63: dim refs awaiting placement
+        self.pending_type: str | None = None     # CS5 D69: the pending dim's record type
         self.cursor: QPointF | None = None       # last hover (viewport px) for the preview
 
     def _candidates(self):
@@ -351,7 +374,9 @@ class PickState:
                 painter.drawRect(QRectF(p.x() - s, p.y() - s, 2 * s, 2 * s))
         if self.pending is not None and self.cursor is not None:
             from .constraint_dims import paint_preview      # CS4b D63
-            paint_preview(painter, view, self.ctl, self.pending, self.cursor, t)
+            paint_preview(painter, view, self.ctl,
+                          (self.pending_type or "dim_distance", self.pending),
+                          self.cursor, t)
 
 
 class ConstraintController:
@@ -632,12 +657,25 @@ class ConstraintController:
             return False
         if by is None:
             by = self.item_by_uid()
-        if c.type in sm.VALUED:                 # §6.3: a dim needs D > 0
+        if c.type in sm.VALUED:                 # §6.3: a dim needs D > 0 (D77 max)
             v = c.value
             if (isinstance(v, bool) or not isinstance(v, (int, float))
-                    or not math.isfinite(v) or v <= 0.0):
+                    or not math.isfinite(v) or v <= 0.0
+                    or v >= sm.VALUE_MAX.get(c.type, math.inf)):
                 return False
+        if c.type == "dim_angle" and not _angle_helper_ok(c.helper):
+            return False
+        if c.type == "dim_point_line" and not (
+                isinstance(c.helper, dict) and c.helper.get("side") in (1, -1)
+                and not isinstance(c.helper.get("side"), bool)):
+            return False
         kinds = tuple(self._ref_kind(r, by) for r in c.refs)
+        if c.type == "dim_arc_angle" and None not in kinds:
+            r0 = c.refs[0]
+            it = by.get(r0.get("uid"))
+            cv = adapter_for(it).curves(it, 0).get(r0.get("h")) if it is not None else None
+            if cv is None or cv.span is None:
+                return False
         return None not in kinds and kinds in spec.patterns
 
     def _identically_satisfied(self, c) -> bool:
@@ -680,7 +718,8 @@ class ConstraintController:
         builds (a drag session uses :meth:`_build_fresh`)."""
         by = self.item_by_uid()
         try:
-            key = (tuple((c.id, c.type, repr(c.refs), c.value, c.driving) for c in cons),
+            key = (tuple((c.id, c.type, repr(c.refs), c.value, c.driving, repr(c.helper))
+                         for c in cons),
                    tuple((u, id(by[u]), adapter_for(by[u]).struct_key(by[u]))
                          for c in cons for u in (_safe_ref_uids(c) or ())))
         except KeyError:
@@ -710,6 +749,8 @@ class ConstraintController:
         sys_ = System(x=np.array(x, dtype=float))
         for c in cons:
             kw = {"value": float(c.value)} if c.type in sm.VALUED else {}
+            if c.type in ("dim_angle", "dim_point_line"):
+                kw["helper"] = c.helper
             BUILDERS[c.type](c.id, self._ends(c, slots), sys_, **kw)
         return sys_, slots, np.array(w, dtype=float)
 
@@ -1120,11 +1161,14 @@ class ConstraintController:
         snap = self._snapshot(items)
         poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
+        flipped = (self._flip_dim_signs(items)
+                   if point_map is not None and _is_reflection(point_map) else [])
         try:
             yield
         except BaseException:
             for c, v in scaled:
                 c.value = v
+            self._unflip_dim_signs(flipped)
             raise
         pins = self._typed_pins(items, snap) if typed else None
         if not self._solve(edited=items, typed=pins):
@@ -1135,17 +1179,56 @@ class ConstraintController:
                 it.set_block_scale(sc)
             for c, v in scaled:
                 c.value = v
+            self._unflip_dim_signs(flipped)
             self._report_conflict(reassert=True)
         else:
             self._carry_dim_labels(anchors, point_map)
         self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
 
+    def _flip_dim_signs(self, items) -> list:
+        """D76: negate σ of every angle dim (and ``side`` of every point-line
+        dim, D81) internal to *items* -- a reflection mirrors the sector /
+        side -- BEFORE the solve, so it keeps its value."""
+        uids = {getattr(i, "_uid", None) for i in items} - {None}
+        out = []
+        for c in self.constraints:
+            us = _safe_ref_uids(c)
+            if c.inert or not us or not us <= uids:
+                continue
+            if c.type == "dim_angle" and _angle_helper_ok(c.helper):
+                c.helper["sign"] = -c.helper["sign"]
+                out.append(c)
+            elif (c.type == "dim_point_line" and isinstance(c.helper, dict)
+                    and c.helper.get("side") in (1, -1)):
+                c.helper["side"] = -c.helper["side"]
+                out.append(c)
+        return out
+
+    @staticmethod
+    def _unflip_dim_signs(flipped) -> None:
+        for c in flipped:
+            key = "sign" if c.type == "dim_angle" else "side"
+            c.helper[key] = -c.helper[key]
+
     def _dim_anchor(self, c, by, uids):
         """CS4b D65: the scene point mid-way along placed dim *c*'s dim line
-        when its refs all lie inside *uids* (no ground refs), else None."""
+        when its refs all lie inside *uids* (no ground refs), else None.
+        CS5 D76: a radial dim's anchor is its leader's hit point on the
+        curve. A point-line dim is carried like a distance dim (D81)."""
         from . import dim_graphics as dg
-        if c.type != "dim_distance" or c.inert:
+        if c.type not in ("dim_distance", "dim_point_line", "dim_radius",
+                          "dim_diameter") or c.inert:
             return None
+        if c.type in ("dim_radius", "dim_diameter"):
+            from .constraint_dims import _radial_points, dim_geom
+            lab = c.label if isinstance(c.label, dict) else {}
+            ang = lab.get("angle")
+            us = _safe_ref_uids(c)
+            if (isinstance(ang, bool) or not isinstance(ang, (int, float))
+                    or not us or not us <= uids):
+                return None
+            g = dim_geom(self, c, by)
+            return _radial_points(g, float(ang))[0] if g is not None else None
         off = dg.offset_of(c.label)
         us = _safe_ref_uids(c)
         if (off is None or not us or not us <= uids or not isinstance(c.refs, list)
@@ -1160,16 +1243,22 @@ class ConstraintController:
                        (a.y() + b.y()) / 2 + n[1] * off)
 
     def _dim_anchors(self, items) -> list:
-        """``[(dim, dim-line anchor, measured-edge middle)]`` for the placed
-        dims internal to *items* (D65), read before a transform."""
+        """``[(dim, anchor, middle)]`` for the placed dims internal to
+        *items* (D65 / CS5 D76), read before a transform: a linear dim's
+        dim-line anchor + measured-edge middle; a radial dim's leader hit
+        (middle unused, None)."""
         uids = {getattr(i, "_uid", None) for i in items} - {None}
         by = self.item_by_uid()
         out = []
         for c in self.constraints:
             p = self._dim_anchor(c, by, uids)
-            if p is not None:
+            if p is None:
+                continue
+            if c.type in sm.LINEAR_DIMS:
                 a, b = self.dim_ends(c, by)
                 out.append((c, p, QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)))
+            else:
+                out.append((c, p, None))
         return out
 
     def _refit_edge(self, c, target, by) -> None:
@@ -1203,13 +1292,22 @@ class ConstraintController:
             c.refs = [{"uid": uid, "h": best}]
 
     def _carry_dim_labels(self, anchors, point_map) -> None:
-        """Re-fit each anchored dim to its mapped edge and re-derive its offset
-        from its mapped anchor (D65)."""
+        """Re-fit each anchored linear dim to its mapped edge and re-derive
+        its offset from its mapped anchor (D65); re-aim each radial leader at
+        its mapped hit point (CS5 D76)."""
         from . import dim_graphics as dg
+        from .constraint_dims import dim_geom
         if not anchors:
             return
         by = self.item_by_uid()
         for c, p, m in anchors:
+            if c.type not in sm.LINEAR_DIMS:
+                g = dim_geom(self, c, by)
+                if g is not None:
+                    q = point_map(p)
+                    c.label = {**(c.label or {}), "angle": math.degrees(math.atan2(
+                        -(q.y() - g.centre.y()), q.x() - g.centre.x()))}
+                continue
             self._refit_edge(c, point_map(m), by)
             e = self.dim_ends(c, by)
             if e is not None:
@@ -1223,7 +1321,7 @@ class ConstraintController:
         uids = {getattr(i, "_uid", None) for i in items} - {None}
         out = []
         for c in self.constraints:
-            if (c.type not in sm.VALUED or c.inert or not c.driving
+            if (c.type not in sm.LENGTH_DIMS or c.inert or not c.driving
                     or c.value is None):
                 continue
             us = _safe_ref_uids(c)
@@ -1464,14 +1562,16 @@ class ConstraintController:
         return len(texts) == 2 and texts[0] == texts[1]
 
     def add(self, ctype: str, refs: list, *, value: float | None = None,
-            label: dict | None = None):
+            label: dict | None = None, helper: dict | None = None):
         """Add a constraint and apply it (D22 least change).
 
-        A dim (``sm.VALUED``) takes *value*, else its current measured length
+        A dim (``sm.VALUED``) takes *value*, else its current measure
         (D50); two coincident points are refused (status "Pick two separate
         points"); a dim that would be redundant at creation is admitted as
         Reference (D52, status). *label* is a dim's placement record
-        (CS4b D62, ``{"offset": mm}``); None = auto.
+        (CS4b D62, ``{"offset": mm}``; CS5 D74 ``{"angle": deg}``); None =
+        auto. *helper* is the record's helper (D72 angle sector
+        ``{"dirs", "sign"}``; D81 point-line ``{"side"}``).
 
         A conflicting constraint is still admitted (D9) and the geometry holds
         its last good state (D10). Pushes one undo step.
@@ -1490,6 +1590,10 @@ class ConstraintController:
             if edge is not None:
                 refs = [edge]                   # an edge's own ends == that edge
         c = sm.Constraint.new(ctype, refs)
+        if helper is not None:
+            c.helper = copy.deepcopy(helper)
+        if ctype == "dim_point_line" and helper is None:
+            c.helper = {"side": self._point_line_side(c)}
         if ctype in sm.VALUED:
             refusal = self._dim_refusal(c)
             if refusal is not None:
@@ -1520,6 +1624,25 @@ class ConstraintController:
         elif c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)   # D42
         return c
+
+    def _point_line_side(self, c) -> int:
+        """D81: the ``side`` (±1) whose signed distance (``_on_line``'s
+        ``cross(p - a, d)``) the current geometry has; +1 when degenerate."""
+        from .constraint_paint import _ref_geom
+        e = self.dim_ends(c)
+        if e is None:
+            return 1
+        p = e[1]
+        g = _ref_geom(c.refs[1], self.item_by_uid())
+        if g is None:
+            return 1
+        if g[0] == "axis":
+            d, o = _AXIS_D[g[1]], QPointF(0.0, 0.0)
+        else:
+            d = (g[1][1].x() - g[1][0].x(), g[1][1].y() - g[1][0].y())
+            o = g[1][0]
+        cr = (p.x() - o.x()) * d[1] - (p.y() - o.y()) * d[0]
+        return 1 if cr >= 0 else -1
 
     def delete(self, ids) -> int:
         """Delete constraints by id (geometry untouched); one undo step."""
@@ -1562,18 +1685,51 @@ class ConstraintController:
         gs = [_ref_geom(r, by, held) for r in c.refs]
         if len(gs) == 1 and gs[0] is not None and gs[0][0] == "edge":
             return gs[0][1]
-        if len(gs) == 2 and all(g is not None and g[0] == "point" for g in gs):
+        if c.type == "dim_distance" and len(gs) == 2 and all(
+                g is not None and g[0] == "point" for g in gs):
             return gs[0][1], gs[1][1]
+        if (c.type == "dim_point_line" and len(gs) == 2 and gs[0] is not None
+                and gs[0][0] == "point" and gs[1] is not None):
+            p = gs[0][1]
+            if gs[1][0] == "axis":
+                foot = (QPointF(p.x(), 0.0) if gs[1][1] == "x_axis"
+                        else QPointF(0.0, p.y()))
+                return foot, p
+            if gs[1][0] == "edge":
+                a, b = gs[1][1]
+                dx, dy = b.x() - a.x(), b.y() - a.y()
+                L2 = dx * dx + dy * dy
+                if L2 < 1e-18:
+                    return None
+                t = ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / L2
+                return QPointF(a.x() + t * dx, a.y() + t * dy), p
         return None
+
+    @staticmethod
+    def _edge_len(ref, by) -> float:
+        from .constraint_paint import _ref_geom
+        g = _ref_geom(ref, by)
+        if g is None or g[0] != "edge":
+            return math.inf
+        a, b = g[1]
+        return math.hypot(b.x() - a.x(), b.y() - a.y())
 
     def _dim_refusal(self, c) -> str | None:
         """The add-time refusal status of dim *c* -- D59 text sizing, a zero
         distance, a D56 repeat -- or None. CS4b D63 runs it before placement."""
         if self._sizes_a_text(c.refs):
             return DIM_TEXT_STATUS
+        if c.type == "dim_angle":
+            from .constraint_dims import dim_geom
+            by = self.item_by_uid()
+            if any(isinstance(r, dict) and not sm.is_ground(r)
+                   and self._edge_len(r, by) <= DEGEN_EPS for r in c.refs):
+                return DIM_ANGLE_ZERO_STATUS
+            if dim_geom(self, c, by) is None:
+                return INVALID_STATUS        # parallel pairs never get here (D81)
         m = self.measure(c)
-        if m is not None and m <= DEGEN_EPS:
-            return DIM_ZERO_STATUS
+        if c.type in sm.LENGTH_DIMS and m is not None and m <= DEGEN_EPS:
+            return DIM_COLLINEAR_STATUS if c.type == "dim_point_line" else DIM_ZERO_STATUS
         rep = self._repeats_a_dim(c)
         if rep is not None:                       # D56: one dim per measure
             return (DIM_RECT_REPEAT_STATUS.format(rep[2])
@@ -1582,14 +1738,26 @@ class ConstraintController:
         return None
 
     def dim_precheck(self, refs):
-        """CS4b D63: the refs a dim would be added on (an edge's own ends are
-        that edge, D56), or None with the refusal status posted -- so a
-        refused pick never asks for a placement click."""
-        from .constraint_dims import edge_for_points
-        edge = edge_for_points(refs, self.item_by_uid())
-        if edge is not None:
-            refs = [edge]
-        c = sm.Constraint.new("dim_distance", refs)
+        """CS4b D63 / CS5 D69: ``(record type, refs)`` a Smart Dimension pick
+        would add (an edge's own ends are that edge, D56; polygon / ellipse
+        centre picks become R dims), or None with the refusal status posted
+        -- so a refused pick never asks for a placement click."""
+        from .constraint_dims import classify_dim, edge_for_points
+        by = self.item_by_uid()
+        hit = classify_dim(refs, by)
+        if hit is None:
+            self._status(INVALID_STATUS)
+            return None
+        ctype, refs = hit
+        if ctype == "dim_distance":
+            edge = edge_for_points(refs, by)
+            if edge is not None:
+                refs = [edge]
+        c = sm.Constraint.new(ctype, refs)
+        if ctype == "dim_angle":
+            c.helper = {"dirs": [1, 1], "sign": 1}
+        elif ctype == "dim_point_line":
+            c.helper = {"side": self._point_line_side(c)}
         refusal = self._dim_refusal(c)
         if refusal is None:
             c.value = self.measure(c)
@@ -1598,7 +1766,7 @@ class ConstraintController:
         if refusal is not None:
             self._status(refusal)
             return None
-        return refs
+        return ctype, refs
 
     def _repeats_a_dim(self, c):
         """D56 (smoke ruling 2026-10-03): *c* measures exactly what an
@@ -1614,17 +1782,24 @@ class ConstraintController:
         key = measure_key(c, by)
         if key is None:
             return None
-        hit = any(d.type == c.type and is_dim(d) and measure_key(d, by) == key
+        hit = any(is_dim(d) and d.id != c.id and measure_key(d, by) == key
                   for d in self.constraints)
         return key if hit else None
 
     def measure(self, c) -> float | None:
-        """The geometry's current length for a distance dim (Reference text)."""
-        e = self.dim_ends(c)
-        if e is None:
+        """The geometry's current measure for any dim (mm, or degrees for
+        angles; a Ø is twice the radius) -- the Reference text (D52)."""
+        from .constraint_dims import angle_value, dim_geom
+        g = dim_geom(self, c)
+        if g is None:
             return None
-        a, b = e
-        return math.hypot(b.x() - a.x(), b.y() - a.y())
+        if g.kind == "linear":
+            return math.hypot(g.b.x() - g.a.x(), g.b.y() - g.a.y())
+        if g.kind == "radial":
+            return 2.0 * g.r if c.type == "dim_diameter" else g.r
+        if g.kind == "sweep":
+            return g.span_deg
+        return angle_value(g, c.helper) if _angle_helper_ok(c.helper) else None
 
     def set_value(self, cid: str, value: float) -> bool:
         """Drive a dim to *value* mm (D53/D55). An edge with a readout moves by
@@ -1642,10 +1817,14 @@ class ConstraintController:
             return False
         if not math.isfinite(v) or v <= 0.0:
             return False
+        if v >= sm.VALUE_MAX.get(c.type, math.inf):    # D77: angle range
+            return False
         if (c.value is not None and c.id not in self.red
                 and math.isclose(v, c.value, rel_tol=1e-12, abs_tol=1e-9)):
             return True                            # F5: unchanged -- no undo step
-        hit = readout_for(self, c)
+        hit = (self._angle_apply(c) if c.type == "dim_angle" else
+               self._pl_apply(c) if c.type == "dim_point_line" else
+               readout_for(self, c))
         old, was_red = c.value, c.id in self.red
         items = [hit[0]] if hit is not None else []
         snap = self._snapshot(items)
@@ -1671,6 +1850,111 @@ class ConstraintController:
             return False
         self._committed()
         return True
+
+    def _angle_apply(self, c):
+        """D73: ``(item, spec-like)`` whose ``apply(v)`` rotates the moving
+        edge (the second; the edge itself for an edge + axis) about its end
+        nearer the vertex so the angle reads *v*, or None (least change) when
+        that edge has no raw end."""
+        from types import SimpleNamespace
+        from .constraint_dims import dim_geom
+        by = self.item_by_uid()
+        g = dim_geom(self, c, by)
+        if g is None or not _angle_helper_ok(c.helper):
+            return None
+        axis = g.seg2 is None
+        mref = c.refs[0] if axis else c.refs[1]
+        it = by.get(mref.get("uid"))
+        ad = adapter_for(it) if it is not None else None
+        if ad is None:
+            return None
+        ea, eb = ad.edges(it, 0)[mref["h"]]
+        if ea.raw is None or eb.raw is None:
+            return None
+        s1, s2 = (float(s) for s in c.helper["dirs"])
+        sign = float(c.helper["sign"])
+        V = g.vertex
+        fixed = (s2 * g.d2[0], s2 * g.d2[1]) if axis else (s1 * g.d1[0], s1 * g.d1[1])
+        sm_ = s1 if axis else s2
+
+        def apply(v):
+            th = math.radians(float(v)) * sign * (-1.0 if axis else 1.0)
+            fx, fy = fixed
+            n = math.hypot(fx, fy)
+            ux, uy = fx / n, fy / n
+            dx, dy = ux * math.cos(th) - uy * math.sin(th), ux * math.sin(th) + uy * math.cos(th)
+            vals = list(ad.read(it))
+            pa = (vals[ea.raw[0]], vals[ea.raw[1]]); pb = (vals[eb.raw[0]], vals[eb.raw[1]])
+            near_a = math.hypot(pa[0] - V.x(), pa[1] - V.y()) <= math.hypot(pb[0] - V.x(), pb[1] - V.y())
+            L = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+            # oriented edge direction (b - a) must equal sm_ * (dx, dy)
+            ox, oy = sm_ * dx * L, sm_ * dy * L
+            if near_a:
+                vals[eb.raw[0]], vals[eb.raw[1]] = pa[0] + ox, pa[1] + oy
+            else:
+                vals[ea.raw[0]], vals[ea.raw[1]] = pb[0] - ox, pb[1] - oy
+            ad.write(it, vals)
+        return it, SimpleNamespace(apply=apply)
+
+    def _pl_apply(self, c):
+        """D81: translate the second edge (the point's edge; raw ends only)
+        along the line's normal so the distance reads *v*; else None."""
+        from types import SimpleNamespace
+        by = self.item_by_uid()
+        pref = c.refs[0]
+        it = by.get(pref.get("uid")) if isinstance(pref, dict) else None
+        ad = adapter_for(it) if it is not None else None
+        if ad is None:
+            return None
+        h = pref.get("h")
+        edge = ("edge" if h == "mid" else
+                f"s{h[1:]}" if isinstance(h, str) and h.startswith("m") and h[1:].isdigit()
+                else None)
+        ends = ad.edges(it, 0).get(edge) if edge else None
+        if ends is None or ends[0].raw is None or ends[1].raw is None:
+            return None
+        e = self.dim_ends(c, by)
+        if e is None:
+            return None
+        foot, p = e
+        n = math.hypot(p.x() - foot.x(), p.y() - foot.y())
+        if n < 1e-12:
+            return None
+        ux, uy = (p.x() - foot.x()) / n, (p.y() - foot.y()) / n
+
+        def apply(v):
+            dlt = float(v) - n
+            vals = list(ad.read(it))
+            for r in (ends[0].raw, ends[1].raw):
+                vals[r[0]] += ux * dlt
+                vals[r[1]] += uy * dlt
+            ad.write(it, vals)
+        return it, SimpleNamespace(apply=apply)
+
+    def set_dim_kind(self, cid: str, ctype: str) -> bool:
+        """D71: switch a circle / arc radial dim between ``dim_radius`` and
+        ``dim_diameter`` -- value doubled / halved, placement + geometry kept,
+        one undo step. False when *cid* is not such a dim or already *ctype*."""
+        from .geometry_2d import ArcItem, CircleItem
+        c = self.find(cid)
+        if (c is None or c.inert or ctype not in ("dim_radius", "dim_diameter")
+                or c.type not in ("dim_radius", "dim_diameter") or c.type == ctype):
+            return False
+        it = self.item_by_uid().get(c.refs[0].get("uid"))
+        if not isinstance(it, (CircleItem, ArcItem)):
+            return False
+        c.type = ctype
+        if c.value is not None:
+            c.value = c.value * (2.0 if ctype == "dim_diameter" else 0.5)
+        self._label_gen += 1
+        self._committed()
+        return True
+
+    def can_toggle_kind(self, c) -> bool:
+        """D71: a circle / arc radial dim offers Radius / Diameter."""
+        from .geometry_2d import ArcItem, CircleItem
+        it = self.item_by_uid().get(c.refs[0].get("uid")) if c.refs else None
+        return isinstance(it, (CircleItem, ArcItem))
 
     def open_dim_edit(self, cid: str, view) -> bool:
         """Open the readout HUD on a driving dim (D50/D51); a Reference dim
@@ -1815,12 +2099,13 @@ class ConstraintController:
                 both_points = p.kinds[0] == p.kinds[1] == "point"
                 ctype = "coincident" if both_points else "point_on_curve"
         if ctype == "dim_distance":                # CS4b D63: placement next
-            refs = self.dim_precheck(refs)
-            if refs is None:
+            hit = self.dim_precheck(refs)
+            if hit is None:
                 self.pick = PickState(self, ctype)  # refused: start over, tool live
                 self._repaint()
                 return False
-            p.pending, p.cursor = refs, QPointF(vp_pt)
+            p.pending_type, p.pending = hit
+            p.cursor = QPointF(vp_pt)
             self._scene.instructionChanged.emit(p.status())
             self._repaint()
             return False
@@ -1831,15 +2116,13 @@ class ConstraintController:
 
     def _place_dim(self, view, vp_pt) -> bool:
         """D63: store the cursor's offset, add the dim, open the HUD (D50)."""
-        from . import dim_graphics as dg
+        from .constraint_dims import placement_for
         p = self.pick
         refs = p.pending
-        ends = self.dim_ends(sm.Constraint.new(p.ctype, refs))
-        label = (dg.with_offset(None, dg.signed_offset(ends[0], ends[1],
-                                                       _vp_to_scene(view, vp_pt)))
-                 if ends is not None else None)
+        ctype = p.pending_type or p.ctype
+        helper, label = placement_for(self, ctype, refs, _vp_to_scene(view, vp_pt))
         self.pick = PickState(self, p.ctype)       # D50: the tool stays live
-        c = self.add(p.ctype, refs, label=label)
+        c = self.add(ctype, refs, label=label, helper=helper or None)
         self._scene.instructionChanged.emit(self.pick.status())
         self._repaint()
         if c is not None and c.driving:
@@ -1852,10 +2135,10 @@ class ConstraintController:
         p = self.pick
         if p is None or p.ctype != "dim_distance":
             return False
-        refs = self.dim_precheck(refs)
-        if refs is None:
+        hit = self.dim_precheck(refs)
+        if hit is None:
             return False
-        p.pending = refs
+        p.pending_type, p.pending = hit
         self._scene.instructionChanged.emit(p.status())
         self._repaint()
         return True
@@ -1875,35 +2158,53 @@ class ConstraintController:
     # ── dim drag (CS4b D64) ───────────────────────────────────────────────
     def begin_dim_drag(self, cid, vp_pt) -> None:
         """Arm a select-mode drag of dim *cid* (moves only past the drag
-        distance, so a click just selects)."""
+        distance, so a click just selects). An arc sweep never moves (D75)."""
         c = self.find(cid)
-        if c is None or c.inert or c.type != "dim_distance":
+        if (c is None or c.inert or c.type == "dim_arc_angle"
+                or not sm.REGISTRY[c.type].implemented):
             return
-        self.dim_drag = [cid, copy.deepcopy(c.label), QPointF(vp_pt), False]
+        self.dim_drag = [cid, (copy.deepcopy(c.label), copy.deepcopy(c.helper), c.value),
+                         QPointF(vp_pt), False]
 
     def dim_drag_to(self, view, vp_pt) -> bool:
-        """Follow the cursor: the dim's offset = the cursor's signed distance
-        from its points. True while a drag is armed."""
+        """Follow the cursor (D64 offset / D72 sector / D74 leader angle).
+        True while a drag is armed."""
         from PyQt6.QtWidgets import QApplication
-        from . import dim_graphics as dg
         d = self.dim_drag
         if d is None:
-            return False
-        c = self.find(d[0])
-        if c is None:
-            self.dim_drag = None
             return False
         if not d[3]:
             if ((QPointF(vp_pt) - d[2]).manhattanLength()
                     < QApplication.startDragDistance()):
                 return True
-            d[3] = True
-        ends = self.dim_ends(c)
-        if ends is not None:
-            c.label = dg.with_offset(c.label, dg.signed_offset(
-                ends[0], ends[1], _vp_to_scene(view, vp_pt)))
-            self._label_gen += 1
-            self._repaint()
+        self.drag_dim_to_scene(d[0], _vp_to_scene(view, vp_pt))
+        return True
+
+    def drag_dim_to_scene(self, cid, p) -> bool:
+        """The drag update at scene point *p* (headless seam). An angle's new
+        sector is re-measured (geometry never moves, D72)."""
+        from .constraint_dims import placement_for
+        c = self.find(cid)
+        if c is None:
+            self.dim_drag = None
+            return False
+        if self.dim_drag is None or self.dim_drag[0] != cid:
+            self.begin_dim_drag(cid, QPointF())
+            if self.dim_drag is None:
+                return False
+        self.dim_drag[3] = True
+        helper, label = placement_for(self, c.type, c.refs, p)
+        if c.type == "dim_angle":
+            if helper and helper != c.helper:
+                c.helper = helper
+                m = self.measure(c)
+                if m is not None and c.driving:
+                    c.value = m
+                self._commit_gen += 1
+        elif label is not None:
+            c.label = {**(c.label if isinstance(c.label, dict) else {}), **label}
+        self._label_gen += 1
+        self._repaint()
         return True
 
     def end_dim_drag(self) -> bool:
@@ -1918,15 +2219,17 @@ class ConstraintController:
         return True
 
     def cancel_dim_drag(self) -> bool:
-        """Esc mid-drag: restore the offset. True only when a moving drag was
-        undone (an armed, unmoved press lets Esc deselect as usual)."""
+        """Esc mid-drag: restore label / sector / value. True only when a
+        moving drag was undone (an armed, unmoved press lets Esc deselect as
+        usual)."""
         d, self.dim_drag = self.dim_drag, None
         if d is None or not d[3]:
             return False
         c = self.find(d[0])
         if c is not None:
-            c.label = d[1]
+            c.label, c.helper, c.value = d[1]
         self._label_gen += 1
+        self._commit_gen += 1
         self._repaint()
         return True
 
@@ -2032,13 +2335,22 @@ class ConstraintController:
                     empty="No constraints on this entity")
 
     def dim_text(self, c) -> str:
-        """Panel row text of a dim: ``Smart Dimension · 300.0 mm`` (a
-        Reference dim: its measured length in parentheses)."""
+        """Panel row text of a dim: ``Smart Dimension · 300.0 mm`` /
+        ``R 12.5`` / ``Ø 25`` / ``60°`` (a Reference dim: the measure in
+        parentheses)."""
+        from .scale_manager import ScaleManager
+        from .constraint_dims import readout_for
         smgr = getattr(self._scene, "scale_manager", None)
         v = c.value if c.driving else self.measure(c)
         if v is None:
             return c.label_text
-        s = smgr.format_length(v) if smgr is not None else f"{v:.1f} mm"
+        if c.type in sm.ANGLE_DIMS:
+            s = ScaleManager.format_span(v)
+        else:
+            s = smgr.format_length(v) if smgr is not None else f"{v:.1f} mm"
+            hit = readout_for(self, c) if c.type != "dim_distance" else None
+            if hit is not None and hit[1].prefix:
+                s = f"{hit[1].prefix} {s}"
         return f"{c.label_text} · {s if c.driving else f'({s})'}"
 
     def _hover_row(self, cid, on) -> None:
@@ -2265,13 +2577,13 @@ class ConstraintController:
         for src in cons:
             anchor = (self._dim_anchor(src, by, src_uids)
                       if point_map is not None else None)
-            if anchor is not None:
+            if anchor is not None and src.type in sm.LINEAR_DIMS:
                 sa, sb = self.dim_ends(src, by)
                 mid = QPointF((sa.x() + sb.x()) / 2, (sa.y() + sb.y()) / 2)
             for c in sm.remap_for_copy([src], uid_map):
                 if not self._valid(c, by):
                     c.raw, c.invalid = c.to_dict(), True
-                elif anchor is not None:            # CS4b D65: mirrored place
+                elif anchor is not None and src.type in sm.LINEAR_DIMS:  # D65
                     from . import dim_graphics as dg
                     self._refit_edge(c, point_map(mid), by)
                     e = self.dim_ends(c, by)
@@ -2280,6 +2592,15 @@ class ConstraintController:
                             e[0], e[1], point_map(anchor)))
                 self.constraints.append(c)
                 new.append(c)
+        if point_map is not None and _is_reflection(point_map):
+            for c in new:                      # D76 / D81: a mirrored copy keeps
+                if c.inert:                    # its value on the mirrored sector
+                    continue
+                if c.type == "dim_angle" and _angle_helper_ok(c.helper):
+                    c.helper["sign"] = -c.helper["sign"]
+                elif c.type == "dim_point_line" and isinstance(c.helper, dict) \
+                        and c.helper.get("side") in (1, -1):
+                    c.helper["side"] = -c.helper["side"]
         # D38: a copied constraint the copied geometry does not satisfy (e.g.
         # a source's red one) is red on the copy too -- never active-unapplied
         # (review I-1).
@@ -2321,11 +2642,18 @@ class ConstraintAdapter:
             smgr = getattr(self.ctl._scene, "scale_manager", None)
             v = c.value if c.driving else self.ctl.measure(c)
             v = float(v) if v is not None else 0.0
-            fmt = smgr.format_length(v) if smgr is not None else f"{v:.1f} mm"
-            props["Value"] = ({"type": "dimension", "value": fmt, "value_mm": v,
-                               "minimum": 0.0}
-                              if c.driving else {"type": "label", "value": f"({fmt})"})
+            if c.type in sm.ANGLE_DIMS:
+                props["Value"] = ({"type": "string", "value": f"{v:.2f}", "suffix": "°"}
+                                  if c.driving else {"type": "label", "value": f"({v:.2f}°)"})
+            else:
+                fmt = smgr.format_length(v) if smgr is not None else f"{v:.1f} mm"
+                props["Value"] = ({"type": "dimension", "value": fmt, "value_mm": v,
+                                   "minimum": 0.0}
+                                  if c.driving else {"type": "label", "value": f"({fmt})"})
             props["Driving"] = {"type": "bool", "value": bool(c.driving)}
+            if c.type in ("dim_radius", "dim_diameter") and self.ctl.can_toggle_kind(c):
+                props["Show as"] = {"type": "enum", "options": ["Radius", "Diameter"],
+                                    "value": "Diameter" if c.type == "dim_diameter" else "Radius"}
         return props
 
     def set_property(self, key, value) -> None:
@@ -2339,3 +2667,6 @@ class ConstraintAdapter:
                 pass
         elif key == "Driving" and c is not None:
             self.ctl.set_driving(c.id, bool(value))
+        elif key == "Show as" and c is not None:
+            self.ctl.set_dim_kind(c.id, "dim_diameter" if value == "Diameter"
+                                  else "dim_radius")

@@ -156,11 +156,10 @@ class SelectionReadoutController:
     Readouts are painted overlay records, never ``QGraphicsItem``s.
     """
 
-    # D57 (smoke ruling 2026-10-03): Smart Dimension owns edge lengths in the
-    # Block Editor, so the transient length / width / height / segment
-    # readouts are off; angular + radius readouts stay until CS5. The
-    # readout machinery itself is unchanged (its tests opt back in).
-    show_edge_lengths = False
+    # D57 + CS5 D68: Smart Dimension owns every measure in the Block Editor,
+    # so every transient dim readout is off; tests of the readout machinery
+    # opt back in.
+    show_dim_readouts = False
 
     def __init__(self, scene):
         self._scene = scene
@@ -220,7 +219,7 @@ class SelectionReadoutController:
         live = getattr(self._scene, "_live_manip", None)
         manip = live() if callable(live) else None
         dragging = manip is not None and manip.is_dragging()
-        from .constraint_dims import is_edge_readout
+        from .constraint_dims import is_dim_readout
         out = []
         for it in self._scene.selectedItems():
             fn = getattr(it, "dimension_specs", None)
@@ -230,10 +229,9 @@ class SelectionReadoutController:
             t = manip.held_delta(it) if dragging else None
             if t is not None and not t.isIdentity():
                 specs = [map_spec(s, t) for s in specs]
-            # D57 (smoke ruling 2026-10-03): Smart Dimension owns edge lengths;
-            # angular + radius readouts stay until CS5.
+            # D57 / CS5 D68: Smart Dimension owns every measure.
             out.extend((it, s) for s in specs
-                       if self.show_edge_lengths or not is_edge_readout(s.key))
+                       if self.show_dim_readouts or not is_dim_readout(s.key))
         return out
 
     def layouts(self, view) -> list[ReadoutEntry]:

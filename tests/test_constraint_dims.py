@@ -242,9 +242,9 @@ def test_reference_text_is_parenthesised_and_muted(be):
 
 
 def test_no_transient_linear_readouts_d57(be):
-    """D57 (smoke ruling 2026-10-03): Smart Dimension owns lengths -- the
-    selection readouts no longer show length / width / height / segment;
-    angular + radius readouts stay until CS5."""
+    """D57 (smoke ruling 2026-10-03) + CS5 D68: Smart Dimension owns every
+    measure -- the selection readouts no longer show length / width / height /
+    segment, and (retired from 'stay until CS5') no radius / angle either."""
     from firepro3d.geometry_2d import ArcItem, PolylineItem
     v, sc = be
     ln = _line(sc, (0, 0), (300, 0))
@@ -260,8 +260,7 @@ def test_no_transient_linear_readouts_d57(be):
     keys = sorted(s.key for _i, s in sc.readouts.entries())
     assert not any(k in ("length", "width", "height") or k.startswith("seg:")
                    for k in keys)
-    assert "radius" in keys and "angle" in keys          # arc keeps its readouts
-    assert "ang:1" in keys                               # polyline vertex angle stays
+    assert keys == []                                    # D68: none at all
 
 
 def test_dim_hud_commit_drives_the_constraint(be):
