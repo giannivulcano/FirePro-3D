@@ -168,6 +168,7 @@ def _angle_helper_ok(h) -> bool:
 
 
 PICK_SAME_POINT_STATUS = "Pick a different point"
+PICK_SAME_CURVE_STATUS = "Pick a different circle/arc"     # CS6 (same curve twice)
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
 DIM_ZERO_STATUS = "Pick two separate points"
@@ -2204,7 +2205,8 @@ class ConstraintController:
             refs = [ref]
         else:
             if ref in p.picks:
-                self._status(PICK_SAME_POINT_STATUS)
+                self._status(PICK_SAME_CURVE_STATUS if p.hover_kind == "curve"
+                             else PICK_SAME_POINT_STATUS)
                 return False
             p.picks.append(ref)
             p.kinds.append(p.hover_kind)
@@ -2372,7 +2374,8 @@ class ConstraintController:
             sel = self._scene.selectedItems()
         except RuntimeError:
             return None
-        if (len(sel) == 1 and isinstance(sel[0], LineItem)
+        if (ctype != "concentric" and len(sel) == 1        # CS6 R3: never a line
+                and isinstance(sel[0], LineItem)
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "edge"}]
         if (ctype == "dim_distance" and len(sel) == 1

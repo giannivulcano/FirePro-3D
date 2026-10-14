@@ -712,6 +712,23 @@ def test_concentric_enable_tracks_selection(win_with_editor, qapp):
     ln = _line(sc, (0, 100), (50, 150)); ln.setSelected(True)
     qapp.processEvents(); win._refresh_constrain_buttons()
     assert not b.isEnabled()                                 # + a line
+    sc.clearSelection(); ln.setSelected(True)
+    qapp.processEvents(); win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                 # a lone line (R3)
+    b.click(); qapp.processEvents()                          # a disabled click adds nothing
+    assert sc.constraint_ctl.constraints == []
+
+
+def test_concentric_same_circle_twice_says_pick_a_different_circle(win_with_editor):
+    from firepro3d.constraint_controller import PICK_SAME_CURVE_STATUS
+    win = win_with_editor
+    sc = _editor_scene(win)
+    _circle(sc, (0, 0), 60)
+    _btn(win, "Concentric").click()
+    _pick(win, (-60, 0), (60, 0))                            # the same outline twice
+    assert sc.constraint_ctl.constraints == []
+    assert win.statusBar().currentMessage() == PICK_SAME_CURVE_STATUS
+    assert sc.mode == "constrain_concentric"
 
 
 def test_concentric_selection_first_adds_at_once(win_with_editor, qapp):

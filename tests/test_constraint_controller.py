@@ -2112,6 +2112,9 @@ def test_concentric_selection_refs_two_circles_or_arcs_only(qapp):
     assert ctl.selection_refs("concentric") is None          # one circle
     ln.setSelected(True)
     assert ctl.selection_refs("concentric") is None          # circle + line
+    a.setSelected(False)
+    assert ctl.selection_refs("concentric") is None          # a lone line (R3)
+    assert ctl.selection_refs("horizontal") == [{"uid": ln._uid, "h": "edge"}]
 
 
 def test_concentric_pick_offers_curves_and_points_never_edges_or_axes(qapp):
