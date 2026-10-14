@@ -127,6 +127,7 @@ def test_e2e_drag_sector_one_undo_step_and_save_reopen(win_with_editor):
     _at(v, 110, 0); _at(v, 50, -86.6025403784); _place(v, 60, -20)
     sc.readouts.cancel_edit()
     sc.set_mode("select"); QApplication.processEvents()
+    l1.setSelected(True); QApplication.processEvents()   # D82: a dim shows on its geometry's selection
     (d,) = sc.constraint_ctl.constraints
     assert d.value == pytest.approx(60.0, abs=1e-6)
     from firepro3d.constraint_paint import _frame
@@ -173,3 +174,39 @@ def test_e2e_selected_circle_shows_no_readout_pixels(win_with_editor):
         assert _label_ink(v, sc, c) > 0
     finally:
         sc.readouts.show_dim_readouts = False
+
+
+def _dim_ink(v, lay):
+    """Count dimension-colour pixels across the dim label's box."""
+    from firepro3d import theme as th
+    v.viewport().repaint(); QApplication.processEvents()
+    img = v.viewport().grab().toImage()
+    dpr = img.devicePixelRatio()
+    want = th.detect().color("dimension")
+    n = 0
+    for dx in range(-int(lay.width / 2) - 2, int(lay.width / 2) + 3):
+        for dy in range(-8, 9):
+            q = img.pixelColor(int((lay.center.x() + dx) * dpr),
+                               int((lay.center.y() + dy) * dpr))
+            n += (abs(q.red() - want.red()) + abs(q.green() - want.green())
+                  + abs(q.blue() - want.blue())) < 60
+    return n
+
+
+def test_e2e_d82_dim_pixels_appear_only_with_its_geometry_selected(win_with_editor):
+    w = win_with_editor; ed = w._test_editor; sc, v = ed.editor_scene, ed.view
+    ln = _line(sc, (0, 0), (300, 0))
+    _tool(w)
+    _at(v, 75, 0); _place(v, 150, -50)
+    sc.readouts.cancel_edit()
+    (d,) = sc.constraint_ctl.constraints
+    from firepro3d.constraint_dims import dim_entries
+    (full,) = dim_entries(v, sc.constraint_ctl)          # the layout, shown or not
+    sc.set_mode("select"); sc.clearSelection(); QApplication.processEvents()
+    assert _dim_ink(v, full.layout) == 0                  # D82: nothing selected -> no dim
+    ln.setSelected(True); QApplication.processEvents()
+    assert _dim_ink(v, full.layout) > 5                   # positive control
+    sc.clearSelection(); QApplication.processEvents()
+    assert _dim_ink(v, full.layout) == 0
+    _tool(w)
+    assert _dim_ink(v, full.layout) > 5                   # the tool live shows every dim

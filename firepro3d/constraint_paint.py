@@ -180,6 +180,26 @@ def visible_constraints(ctl, sel_uids) -> list:
             and (c.id == ctl.selected_id or (_safe_ref_uids(c) or set()) & sel_uids)]
 
 
+def dim_tool_live(ctl) -> bool:
+    """Whether the Smart Dimension tool is running (a ``dim_distance`` pick)."""
+    p = getattr(ctl, "pick", None)
+    return p is not None and getattr(p, "ctype", None) == "dim_distance"
+
+
+def visible_dim_ids(ctl, sel_uids) -> set:
+    """D82: ids of the dims drawn (and picked) in select mode -- one whose
+    referenced item (by uid; ground refs are no item) or the dim itself is
+    selected; every dim under Show Constraints (D32's override) or while the
+    Smart Dimension tool is live."""
+    from .constraint_controller import _safe_ref_uids
+    from .constraint_dims import is_dim
+    dims = [c for c in ctl.constraints if is_dim(c)]
+    if ctl.show_all or dim_tool_live(ctl):
+        return {c.id for c in dims}
+    return {c.id for c in dims
+            if c.id == ctl.selected_id or (_safe_ref_uids(c) or set()) & sel_uids}
+
+
 def _selected_uids(ctl) -> set:
     try:
         sel = ctl._scene.selectedItems()
@@ -204,7 +224,8 @@ def _frame_key(view, ctl) -> tuple:
     t = view.viewportTransform()
     vp = view.viewport()
     return (ctl._scene_gen, ctl._sel_gen, ctl.show_all, ctl.selected_id,
-            getattr(ctl, "pick", None) is None, id(ctl.constraints),
+            getattr(ctl, "pick", None) is None, dim_tool_live(ctl),   # D82
+            id(ctl.constraints),
             len(ctl.constraints), vp.width(), vp.height(),
             t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy(),
             ctl._commit_gen,            # CS4: a dim value / driving / red change
@@ -239,7 +260,10 @@ def _compute_layouts(view, ctl) -> _Frame:
     if not cons and not has_dims:
         return _Frame(None, held, [])
     by = ctl.item_by_uid()
-    dims = dim_entries(view, ctl, by, held) if has_dims else []
+    dims = []
+    if has_dims:                               # D82: dims follow the selection
+        ids = visible_dim_ids(ctl, _selected_uids(ctl))
+        dims = dim_entries(view, ctl, by, held, only=ids) if ids else []
     return _Frame(by, held, _layout(view, cons, by, held) if cons else [], dims)
 
 
@@ -458,7 +482,7 @@ def paint(painter: QPainter, view, ctl) -> None:
                 ir = r.adjusted(pad, pad, -pad, -pad).toRect()
                 painter.drawPixmap(ir, icon.pixmap(ir.size()))
             painter.setOpacity(1.0)
-        if fr.dims:                                # D51: always, pick mode included
+        if fr.dims:                                # D82: selected / Show / tool live
             from .constraint_dims import paint_dims
             paint_dims(painter, view, ctl, fr.dims, t)
         pick = getattr(ctl, "pick", None)

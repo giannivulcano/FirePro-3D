@@ -214,8 +214,16 @@ def _radial_points(g: DimGeom, angle):
     return hit, far
 
 
-def _angle_arc(view, g: DimGeom, helper):
-    """D75: ``(start_deg, span_deg, r_px, dashed)`` of an angle dim."""
+def stored_radius(label) -> float | None:
+    """D84: the scene-mm arc radius in a dim's ``label``, or None (auto)."""
+    r = label.get("radius") if isinstance(label, dict) else None
+    ok = isinstance(r, (int, float)) and not isinstance(r, bool) and math.isfinite(r)
+    return float(r) if ok and r > 1e-6 else None
+
+
+def _angle_arc(view, g: DimGeom, helper, radius=None):
+    """D75 / D83 / D84: ``(start_deg, span_deg, r_px, dashed)`` of an angle
+    dim; *radius* = the stored scene-mm arc radius (None = auto)."""
     s1, s2 = (float(s) for s in helper["dirs"])
     u = (s1 * g.d1[0], s1 * g.d1[1]); v = (s2 * g.d2[0], s2 * g.d2[1])
     au, av = _yup_deg(*u), _yup_deg(*v)
@@ -231,19 +239,27 @@ def _angle_arc(view, g: DimGeom, helper):
     probe = _to_vp(view, QPointF(V.x() + 1.0, V.y()))
     s = max(math.hypot(probe.x() - C.x(), probe.y() - C.y()), 1e-9)
     from .constants import SELDIM_ARC_REF_FRAC, SELDIM_ARC_REF_MIN_PX
-    r_px = max(float(SELDIM_ARC_REF_MIN_PX), SELDIM_ARC_REF_FRAC * min(legs) * s)
+    r_px = (radius * s if radius is not None else
+            max(float(SELDIM_ARC_REF_MIN_PX), SELDIM_ARC_REF_FRAC * min(legs) * s))
     dashed = []
     for seg, d in ((g.seg1, u), (g.seg2, v)):
         if seg is None:
             continue
         n = math.hypot(*d)
-        P = (V.x() + d[0] / n * r_px / s, V.y() + d[1] / n * r_px / s)
-        a, b = seg
-        dx, dy = b.x() - a.x(), b.y() - a.y()
-        t = ((P[0] - a.x()) * dx + (P[1] - a.y()) * dy) / (dx * dx + dy * dy)
-        if not -1e-9 <= t <= 1 + 1e-9:
-            near = a if t < 0 else b
-            dashed.append((_to_vp(view, near), _to_vp(view, QPointF(*P))))
+        ux, uy = d[0] / n, d[1] / n
+        r_mm = r_px / s
+        P = (V.x() + ux * r_mm, V.y() + uy * r_mm)
+        # Signed distance of each segment end along the arm from the vertex.
+        ends = sorted(seg, key=lambda q: (q.x() - V.x()) * ux + (q.y() - V.y()) * uy)
+        lo = (ends[0].x() - V.x()) * ux + (ends[0].y() - V.y()) * uy
+        hi = (ends[1].x() - V.x()) * ux + (ends[1].y() - V.y()) * uy
+        tol = 1e-6 * max(r_mm, 1.0)
+        if lo - tol <= r_mm <= hi + tol:
+            continue                                  # the segment reaches the arc
+        if lo > r_mm:                                 # D83: beyond the arc -> to the vertex
+            dashed.append((_to_vp(view, ends[0]), C))
+        else:                                         # short of it / the far side -> to the arc
+            dashed.append((_to_vp(view, ends[1]), _to_vp(view, QPointF(*P))))
     return start, span, r_px, dashed
 
 
@@ -288,7 +304,8 @@ def entry_for(view, ctl, c, by=None, held=None, smgr=None, ed=None, tlen=7.5,
         gr = dg.layout_dim(view, a, b, dg.offset_of(c.label), text, away=away, tlen=tlen)
         return DimEntry(c.id, spec, gr.label, gr, ed, reach)
     if g.kind == "angle":
-        start, span, r_px, dashed = _angle_arc(view, g, c.helper)
+        start, span, r_px, dashed = _angle_arc(view, g, c.helper,
+                                               stored_radius(c.label))
         spec = DimSpec(kind="angular", key=c.id, field="Angle", prefix="",
                        value=float(shown), field_kind="span", apply=lambda _v: None,
                        maximum=180.0 - 1e-6, center=g.vertex, start_deg=start,
@@ -299,7 +316,9 @@ def entry_for(view, ctl, c, by=None, held=None, smgr=None, ed=None, tlen=7.5,
         C0 = _to_vp(view, g.centre)
         C1 = _to_vp(view, QPointF(g.centre.x() + 1.0, g.centre.y()))
         px_per_mm = max(math.hypot(C1.x() - C0.x(), C1.y() - C0.y()), 1e-9)
-        r_px = max(float(SELDIM_ARC_REF_MIN_PX), SELDIM_ARC_REF_FRAC * g.r * px_per_mm)
+        rs = stored_radius(c.label)                        # D84
+        r_px = (rs * px_per_mm if rs is not None else
+                max(float(SELDIM_ARC_REF_MIN_PX), SELDIM_ARC_REF_FRAC * g.r * px_per_mm))
         start, span, dashed = g.start_deg, g.span_deg, []
     if spec is None:                       # no readout spec to carry (radial / sweep)
         return None
@@ -320,11 +339,11 @@ def entry_for(view, ctl, c, by=None, held=None, smgr=None, ed=None, tlen=7.5,
     return DimEntry(c.id, spec, gr.label, gr, ed, reach)
 
 
-def dim_entries(view, ctl, by=None, held=None) -> list:
+def dim_entries(view, ctl, by=None, held=None, only=None) -> list:
     """Every built dim laid out in *view* (D48/D51: always, any selection;
     CS4b D60-D62 linear, CS5 D74/D75 radial and angular). A driving dim shows
     its value (D18: never a different number); a Reference one the measure
-    in parentheses."""
+    in parentheses. *only*: a set of dim ids to lay out (D82 visibility)."""
     from . import dim_graphics as dg
     if not ctl.enabled:
         return []
@@ -334,7 +353,7 @@ def dim_entries(view, ctl, by=None, held=None) -> list:
     tlen, reach = dg.terminator_length_px(ed), dg.terminator_reach_px(ed)
     out = []
     for c in ctl.constraints:
-        if not is_dim(c):
+        if not is_dim(c) or (only is not None and c.id not in only):
             continue
         e = entry_for(view, ctl, c, by, held, smgr, ed, tlen, reach)
         if e is not None:
@@ -520,7 +539,8 @@ def _yup_deg(dx, dy) -> float:
 
 def placement_for(ctl, ctype, refs, p):
     """``(helper, label)`` a placement / drag at scene point *p* gives a dim
-    of *ctype* on *refs* (D62 offset, D72 sector, D74 leader angle)."""
+    of *ctype* on *refs* (D62 offset, D72 sector, D74 leader angle, D84
+    angle / sweep radius)."""
     from . import dim_graphics as dg
     c = sm.Constraint.new(ctype, refs)
     g = dim_geom(ctl, c)
@@ -530,8 +550,11 @@ def placement_for(ctl, ctype, refs, p):
         return {}, dg.with_offset(None, dg.signed_offset(g.a, g.b, p))
     if g.kind == "radial":
         return {}, {"angle": _yup_deg(p.x() - g.centre.x(), p.y() - g.centre.y())}
-    if g.kind == "angle":
-        return sector_helper(g, p), None
+    if g.kind == "angle":                                  # D72 sector + D84 radius
+        return sector_helper(g, p), {"radius": math.hypot(
+            p.x() - g.vertex.x(), p.y() - g.vertex.y())}
+    if g.kind == "sweep":                                  # D84
+        return {}, {"radius": math.hypot(p.x() - g.centre.x(), p.y() - g.centre.y())}
     return {}, None
 
 

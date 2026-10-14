@@ -515,10 +515,12 @@ class ConstraintController:
     def _on_selection_changed(self) -> None:
         """An item selection clears the selected constraint. A Qt slot: a
         dying scene still emits, so bail when its wrapper is gone; never raises."""
-        self._sel_gen += 1                     # D32 visibility follows the selection
+        self._sel_gen += 1                     # D32 / D82 visibility follows the selection
         try:
             if sip.isdeleted(self._scene):
                 return
+            if any(c.type in sm.VALUED for c in self.constraints):
+                self._repaint()                # D82: dims appear / vanish with it
             if self.selected_id is not None and self._scene.selectedItems():
                 self.selected_id = None
                 self._repaint()
@@ -1170,6 +1172,8 @@ class ConstraintController:
         items = list(items)
         scaled = (self._scale_dims(items, scale)
                   if scale is not None and items and self.enabled else [])
+        radii = (self._scale_radii(items, scale)         # D84
+                 if scale is not None and items and self.enabled else [])
         # CS4b D65: anchors before the untouched early exit -- a Reference /
         # suppressed / red dim is not 'active' but still has to follow.
         anchors = (self._dim_anchors(items)
@@ -1180,6 +1184,7 @@ class ConstraintController:
             except BaseException:
                 for c, v in scaled:
                     c.value = v
+                self._unscale_radii(radii)
                 raise
             self._carry_dim_labels(anchors, point_map)
             return
@@ -1194,6 +1199,7 @@ class ConstraintController:
         except BaseException:
             for c, v in scaled:
                 c.value = v
+            self._unscale_radii(radii)
             self._unflip_dim_signs(flipped)
             raise
         pins = self._typed_pins(items, snap) if typed else None
@@ -1205,6 +1211,7 @@ class ConstraintController:
                 it.set_block_scale(sc)
             for c, v in scaled:
                 c.value = v
+            self._unscale_radii(radii)
             self._unflip_dim_signs(flipped)
             self._report_conflict(reassert=True)
         else:
@@ -1387,6 +1394,31 @@ class ConstraintController:
                 out.append((c, c.value))
                 c.value = c.value * float(factor)
         return out
+
+    def _scale_radii(self, items, factor) -> list:
+        """D84: ``[(dim, old label)]`` for the placed angle / arc-sweep dims
+        whose item refs all lie in *items*, each ``label.radius`` multiplied
+        by *factor* (Rotate / Flip / Mirror leave it: distance-invariant)."""
+        from .constraint_dims import stored_radius
+        uids = {getattr(i, "_uid", None) for i in items} - {None}
+        out = []
+        for c in self.constraints:
+            if c.type not in ("dim_angle", "dim_arc_angle") or c.inert:
+                continue
+            r = stored_radius(c.label)
+            us = _safe_ref_uids(c)
+            if r is not None and us and us <= uids:
+                out.append((c, copy.deepcopy(c.label)))
+                c.label = {**c.label, "radius": r * float(factor)}
+        if out:
+            self._label_gen += 1
+        return out
+
+    def _unscale_radii(self, radii) -> None:
+        for c, lab in radii:
+            c.label = lab
+        if radii:
+            self._label_gen += 1
 
     @staticmethod
     def _typed_pins(items, snap) -> dict:
@@ -2238,10 +2270,9 @@ class ConstraintController:
     # ── dim drag (CS4b D64) ───────────────────────────────────────────────
     def begin_dim_drag(self, cid, vp_pt) -> None:
         """Arm a select-mode drag of dim *cid* (moves only past the drag
-        distance, so a click just selects). An arc sweep never moves (D75)."""
+        distance, so a click just selects). An arc sweep moves in radius (D84)."""
         c = self.find(cid)
-        if (c is None or c.inert or c.type == "dim_arc_angle"
-                or c.type not in sm.VALUED):
+        if c is None or c.inert or c.type not in sm.VALUED:
             return
         self.dim_drag = [cid, (copy.deepcopy(c.label), copy.deepcopy(c.helper), c.value),
                          QPointF(vp_pt), False]
@@ -2274,14 +2305,13 @@ class ConstraintController:
                 return False
         self.dim_drag[3] = True
         helper, label = placement_for(self, c.type, c.refs, p)
-        if c.type == "dim_angle":
-            if helper and helper != c.helper:
-                c.helper = helper
-                m = self.measure(c)
-                if m is not None and c.driving:
-                    c.value = m
-                self._commit_gen += 1
-        elif label is not None:
+        if c.type == "dim_angle" and helper and helper != c.helper:
+            c.helper = helper
+            m = self.measure(c)
+            if m is not None and c.driving:
+                c.value = m
+            self._commit_gen += 1
+        if label is not None:
             c.label = {**(c.label if isinstance(c.label, dict) else {}), **label}
         self._label_gen += 1
         self._repaint()

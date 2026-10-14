@@ -123,7 +123,9 @@ def test_block_editor_selection_shows_no_readouts(qapp, make):
     assert sc.readouts.entries()
 
 
-def test_off_vertex_angle_extension_reaches_the_arc(qapp):
+def test_off_vertex_angle_extension_runs_to_the_vertex(qapp):
+    """D83 (amends D75): the dashed extension of a segment the arc misses runs
+    from its nearer end to the VERTEX, through the arc."""
     from firepro3d.model_view import Model_View
     sc = _sc(); ctl = sc.constraint_ctl
     V = QPointF(0, -70)
@@ -142,7 +144,8 @@ def test_off_vertex_angle_extension_reaches_the_arc(qapp):
     (C, r, _st, _sp), = e.graphic.arcs
     assert e.graphic.dashed                                   # edge A is missed
     s, t = e.graphic.dashed[0]
-    assert math.hypot(t.x() - C.x(), t.y() - C.y()) == pytest.approx(r, abs=0.6)
+    assert (t.x(), t.y()) == pytest.approx((C.x(), C.y()), abs=0.6)   # the vertex
+    assert math.hypot(s.x() - C.x(), s.y() - C.y()) > r                # passes the arc
     A1 = v.viewportTransform().map(up(140, 220))
     assert (s.x(), s.y()) == pytest.approx((A1.x(), A1.y()), abs=0.6)
     v.close()
