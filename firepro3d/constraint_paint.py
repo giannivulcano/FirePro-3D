@@ -207,7 +207,8 @@ def _frame_key(view, ctl) -> tuple:
             getattr(ctl, "pick", None) is None, id(ctl.constraints),
             len(ctl.constraints), vp.width(), vp.height(),
             t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy(),
-            ctl._commit_gen)            # CS4: a dim value / driving / red change
+            ctl._commit_gen,            # CS4: a dim value / driving / red change
+            ctl._label_gen)             # CS4b: a dim offset change (drag, transform)
 
 
 def _frame(view, ctl) -> _Frame:
@@ -301,16 +302,16 @@ def _grip_under(view, ctl, vp_pt) -> bool:
 
 
 def dim_at(view, ctl, vp_pt) -> str | None:
-    """Constraint id of the dim label under *vp_pt* (viewport px), or None.
-    A manipulator grip under the point wins."""
+    """Constraint id of the dim under *vp_pt* (viewport px) -- its label, dim
+    line or terminators (CS4b D64), never a witness line -- or None. A
+    manipulator grip under the point wins."""
     if not ctl.enabled or not ctl.constraints:
         return None
-    from dataclasses import replace
-    from .readout_paint import hit_layout
+    from .dim_graphics import hit_dim
     p = QPointF(vp_pt)
     for e in reversed(_frame(view, ctl).dims):
         # D51: drawn even when it overhangs its edge, so it picks too (F7).
-        if hit_layout(replace(e.layout, fits=True), p):
+        if hit_dim(e.graphic, p):
             return None if _grip_under(view, ctl, p) else e.cid
     return None
 

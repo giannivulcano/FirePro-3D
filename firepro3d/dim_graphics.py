@@ -226,6 +226,12 @@ def terminator_length_px(ed) -> float:
 _MISSING = object()
 
 
+def _crisp(p) -> QPointF:
+    """*p* snapped to its pixel's centre, so a 1 px line covers whole pixels
+    instead of two half-tone rows (the glyph-box half-px inset idiom)."""
+    return QPointF(math.floor(p.x()) + 0.5, math.floor(p.y()) + 0.5)
+
+
 def paint_terminator(painter, tip, outward, colour, ed=_MISSING) -> None:
     """One terminator at viewport *tip*, +X along unit *outward* (D61)."""
     if ed is _MISSING:
@@ -260,7 +266,7 @@ def paint_dim(painter, g: DimGraphic, colour, th, ed=_MISSING) -> None:
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     for s, e in g.witness + g.segments:
-        painter.drawLine(s, e)
+        painter.drawLine(_crisp(s), _crisp(e))
     for tip, u in g.terms:
         paint_terminator(painter, tip, u, colour, ed)
     paint_readout(painter, g.label, th, color=colour)

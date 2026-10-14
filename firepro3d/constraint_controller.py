@@ -367,6 +367,7 @@ class ConstraintController:
         # bumped on every scene change / item-selection change.
         self._scene_gen = 0
         self._sel_gen = 0
+        self._label_gen = 0     # CS4b: a dim offset change (frame key, no diag recompute)
         self._frames: dict = {}                # id(view) -> (key, _Frame)
         self._drag_extra: list = []            # body-drag selection items outside the ctx
         # Zero-arg callbacks run when the constraint selection / list changes
@@ -1353,13 +1354,15 @@ class ConstraintController:
             return True
         return len(texts) == 2 and texts[0] == texts[1]
 
-    def add(self, ctype: str, refs: list, *, value: float | None = None):
+    def add(self, ctype: str, refs: list, *, value: float | None = None,
+            label: dict | None = None):
         """Add a constraint and apply it (D22 least change).
 
         A dim (``sm.VALUED``) takes *value*, else its current measured length
         (D50); two coincident points are refused (status "Pick two separate
         points"); a dim that would be redundant at creation is admitted as
-        Reference (D52, status).
+        Reference (D52, status). *label* is a dim's placement record
+        (CS4b D62, ``{"offset": mm}``); None = auto.
 
         A conflicting constraint is still admitted (D9) and the geometry holds
         its last good state (D10). Pushes one undo step.
@@ -1393,6 +1396,8 @@ class ConstraintController:
                              if isinstance(rep, tuple) and rep[0] == "rect"
                              else DIM_REPEAT_STATUS)
                 return None
+            if label is not None:
+                c.label = copy.deepcopy(label)           # CS4b D62 placement
         if not self._valid(c):
             self._status(INVALID_STATUS)
             return None
