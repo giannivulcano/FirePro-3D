@@ -19,6 +19,7 @@ from PyQt6.QtGui import QPainterPath, QTransform
 
 from .cad_math import CAD_Math
 from .constants import ARRAY_GHOST_FULL_MAX
+from .constraint_dims import point_map_like
 from .gridline import GridlineItem
 from .handle_snap import HandleSnapSession
 from .scale_manager import ScaleManager
@@ -1000,7 +1001,8 @@ class ModifyToolsController:
             self._end_refused(items)
             return False
         # Constraint seam (§8): solved on exit, before the undo push.
-        with s.constraint_ctl.edit(targets):
+        with s.constraint_ctl.edit(targets, point_map=point_map_like(   # CS4b D65
+                lambda it: it.manip_rotate(float(delta_deg), QPointF(pivot)))):
             for it in targets:
                 it.manip_rotate(float(delta_deg), QPointF(pivot))
         for it in targets:
@@ -1156,7 +1158,8 @@ class ModifyToolsController:
             # ConstraintController.paste_records).
             s.constraint_ctl.paste_records(
                 s.constraint_ctl.internal_records(targets), uid_map,
-                mirror_axis=(p1, p2))
+                mirror_axis=(p1, p2),
+                point_map=point_map_like(lambda it: it.manip_reflect(p1, p2)))  # D65
         else:
             # D45 (2026-10-12 ruling): only a fully defined BLOCK refuses a
             # Flip -- its mirror / rotation live outside the solver; grounded
@@ -1165,7 +1168,8 @@ class ModifyToolsController:
             if s.constraint_ctl.refuse_grounded(flip_refusal_targets(targets)):
                 self._end_refused(items)
                 return False
-            with s.constraint_ctl.edit(targets):
+            with s.constraint_ctl.edit(targets, point_map=point_map_like(   # CS4b D65
+                    lambda it: it.manip_reflect(p1, p2))):
                 for it in targets:
                     it.manip_reflect(p1, p2)
             result = list(targets)
@@ -1293,7 +1297,9 @@ class ModifyToolsController:
         if s.constraint_ctl.refuse_grounded(targets):          # D17 (CS3)
             self._end_refused(items)
             return False
-        with s.constraint_ctl.edit(targets, scale=factor):     # D54: inside dims scale
+        with s.constraint_ctl.edit(                            # D54: inside dims scale
+                targets, scale=factor, point_map=point_map_like(   # CS4b D65
+                    lambda it: it.manip_scale_about(QPointF(base), factor))):
             for it in targets:
                 it.manip_scale_about(QPointF(base), factor)
         if targets:

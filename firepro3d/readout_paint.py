@@ -15,8 +15,7 @@ from PyQt6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen
 
 from . import theme as _theme
 from .constants import (SELDIM_ARC_LABEL_GAP_PX, SELDIM_ARC_REF_FRAC,
-                        SELDIM_ARC_REF_MIN_PX, SELDIM_ARROW_HALF_W_PX,
-                        SELDIM_ARROW_PX, SELDIM_DASH, SELDIM_FIT_MARGIN_PX,
+                        SELDIM_ARC_REF_MIN_PX, SELDIM_DASH, SELDIM_FIT_MARGIN_PX,
                         SELDIM_FONT_PX, SELDIM_LABEL_OFFSET_PX,
                         SELDIM_PICK_PAD_PX)
 
@@ -153,21 +152,13 @@ def _paint_arc(painter: QPainter, lay: ReadoutLayout, color: QColor) -> None:
     arc.arcMoveTo(rect, lay.start_deg)
     arc.arcTo(rect, lay.start_deg, lay.span_deg)
     painter.drawPath(arc)
-    # solid arrowheads at both ends, pointing outward along the arc
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(color)
+    # D61 (CS4b): the dim terminator at both ends, pointing outward along the arc
+    from .dim_graphics import paint_terminator
     for deg, sgn in ((lay.start_deg, -1.0), (lay.start_deg + lay.span_deg, 1.0)):
         a = math.radians(deg)
         tip = QPointF(C.x() + r * math.cos(a), C.y() - r * math.sin(a))
         # CCW tangent on screen at Y-up angle a is (-sin a, -cos a)
-        tx, ty = -math.sin(a) * sgn, -math.cos(a) * sgn
-        bx, by = tip.x() - tx * SELDIM_ARROW_PX, tip.y() - ty * SELDIM_ARROW_PX
-        nx, ny = -ty * SELDIM_ARROW_HALF_W_PX, tx * SELDIM_ARROW_HALF_W_PX
-        head = QPainterPath(tip)
-        head.lineTo(bx + nx, by + ny)
-        head.lineTo(bx - nx, by - ny)
-        head.closeSubpath()
-        painter.drawPath(head)
+        paint_terminator(painter, tip, (-math.sin(a) * sgn, -math.cos(a) * sgn), color)
 
 
 def paint_readout(painter: QPainter, lay: ReadoutLayout, th, color=None) -> None:

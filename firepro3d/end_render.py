@@ -277,6 +277,13 @@ def _draw_end(painter, ed: EndDef, t: QTransform, k: float, pen: QPen,
         painter.restore()
 
 
+def paint_end_at(painter, ed: EndDef, at, outward, k: float, pen: QPen) -> None:
+    """Draw end type *ed* alone at *at*, +X along unit *outward*, *k* painter
+    units per authored unit -- no stroke, trims or badges (CS4b D61: Smart
+    Dimension terminators and the angular readout arcs)."""
+    _draw_end(painter, ed, _frame_xf(at, outward, k, False), k, pen, None)
+
+
 def paint_ends(painter, pieces, ends, pen, *, printed: float, screen=None,
                scene=None, badges: bool = True) -> bool:
     """Draw each resolved end of *pieces* (painter-local) with *pen*.

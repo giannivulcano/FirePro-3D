@@ -174,6 +174,12 @@ def _seg_dist(p, a, b) -> float:
     return math.hypot(p.x() - ax - t * dx, p.y() - ay - t * dy)
 
 
+def _vp_to_scene(view, vp_pt) -> QPointF:
+    """Exact scene point of a viewport-px point (no int rounding)."""
+    inv, _ok = view.viewportTransform().inverted()
+    return inv.map(QPointF(vp_pt))
+
+
 class PickState:
     """D21 hover-marker pick mode for one constraint type.
 
@@ -192,6 +198,8 @@ class PickState:
         self.kinds: list[str] = []
         self.hover: dict | None = None
         self.hover_kind: str | None = None      # "point" / "edge" / "curve" / "axis"
+        self.pending: list | None = None         # CS4b D63: dim refs awaiting placement
+        self.cursor: QPointF | None = None       # last hover (viewport px) for the preview
 
     def _candidates(self):
         """``(kind, ref, a, b)`` scene-space: point ``(p, None | "mid")``
@@ -259,6 +267,9 @@ class PickState:
     def hover_at(self, view, vp_pt) -> dict | None:
         """Nearest allowed candidate: points (point tol) > edges / curves
         (edge tol) > axes (edge tol)."""
+        if self.pending is not None:             # D63: placing -- no marker hover
+            self.hover = self.hover_kind = None
+            return None
         cands = [c for c in self._candidates() if self._allowed(c[0])]
         o = view.mapFromScene(QPointF(0.0, 0.0))
         best = None
@@ -288,6 +299,10 @@ class PickState:
             what = ("pick a point" if n and self.kinds[0] != "point" else
                     "pick a point, then a point, edge, circle/arc or axis")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
+        if self.ctype == "dim_distance":         # CS4b D63
+            if self.pending is not None:
+                return f"{label}: click to place the dimension · Esc to cancel"
+            return f"{label}: pick an edge or 2 points ({n}/2) · Esc to cancel"
         return f"{label}: pick 2 points or 1 edge ({n}/2) · Esc to cancel"
 
     def paint(self, painter, view, t) -> None:
@@ -332,6 +347,9 @@ class PickState:
                                                QPointF(p.x() - s, p.y() + s)]))
             else:
                 painter.drawRect(QRectF(p.x() - s, p.y() - s, 2 * s, 2 * s))
+        if self.pending is not None and self.cursor is not None:
+            from .constraint_dims import paint_preview      # CS4b D63
+            paint_preview(painter, view, self.ctl, self.pending, self.cursor, t)
 
 
 class ConstraintController:
@@ -367,6 +385,8 @@ class ConstraintController:
         # bumped on every scene change / item-selection change.
         self._scene_gen = 0
         self._sel_gen = 0
+        self._label_gen = 0     # CS4b: a dim offset change (frame key, no diag recompute)
+        self.dim_drag = None    # CS4b D64: [cid, old label, press vp, moved]
         self._frames: dict = {}                # id(view) -> (key, _Frame)
         self._drag_extra: list = []            # body-drag selection items outside the ctx
         # Zero-arg callbacks run when the constraint selection / list changes
@@ -1057,7 +1077,8 @@ class ConstraintController:
 
     # ── edit seams (§8) ──────────────────────────────────────────────────
     @contextlib.contextmanager
-    def edit(self, items, *, typed: bool = False, scale: float | None = None):
+    def edit(self, items, *, typed: bool = False, scale: float | None = None,
+             point_map=None):
         """Wrap a typed / panel / transform mutation of *items*.
 
         The mutated items' new values become ``W_EDIT`` goals and the rest
@@ -1074,10 +1095,17 @@ class ConstraintController:
         (rotation, mirrored, scale). *scale* (D54, the Scale tool
         only): every driving dim whose refs all lie inside *items* is
         multiplied by it before the solve and restored on a rollback.
+        *point_map* (CS4b D65 -- Rotate / Flip / Scale only): a scene-point
+        mapper equal to the tool's transform; every placed dim internal to
+        *items* keeps its place by carrying a point on its dim line through it.
         """
         items = list(items)
         scaled = (self._scale_dims(items, scale)
                   if scale is not None and items and self.enabled else [])
+        # CS4b D65: anchors before the untouched early exit -- a Reference /
+        # suppressed / red dim is not 'active' but still has to follow.
+        anchors = (self._dim_anchors(items)
+                   if point_map is not None and items and self.enabled else [])
         if not items or not self.enabled or not self.touches(items):
             try:
                 yield
@@ -1085,6 +1113,7 @@ class ConstraintController:
                 for c, v in scaled:
                     c.value = v
                 raise
+            self._carry_dim_labels(anchors, point_map)
             return
         snap = self._snapshot(items)
         poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
@@ -1105,7 +1134,86 @@ class ConstraintController:
             for c, v in scaled:
                 c.value = v
             self._report_conflict(reassert=True)
+        else:
+            self._carry_dim_labels(anchors, point_map)
         self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
+
+    def _dim_anchor(self, c, by, uids):
+        """CS4b D65: the scene point mid-way along placed dim *c*'s dim line
+        when its refs all lie inside *uids* (no ground refs), else None."""
+        from . import dim_graphics as dg
+        if c.type != "dim_distance" or c.inert:
+            return None
+        off = dg.offset_of(c.label)
+        us = _safe_ref_uids(c)
+        if (off is None or not us or not us <= uids or not isinstance(c.refs, list)
+                or any(sm.is_ground(r) for r in c.refs)):
+            return None
+        e = self.dim_ends(c, by)
+        n = dg.unit_normal(*e) if e is not None else None
+        if n is None:
+            return None
+        a, b = e
+        return QPointF((a.x() + b.x()) / 2 + n[0] * off,
+                       (a.y() + b.y()) / 2 + n[1] * off)
+
+    def _dim_anchors(self, items) -> list:
+        """``[(dim, dim-line anchor, measured-edge middle)]`` for the placed
+        dims internal to *items* (D65), read before a transform."""
+        uids = {getattr(i, "_uid", None) for i in items} - {None}
+        by = self.item_by_uid()
+        out = []
+        for c in self.constraints:
+            p = self._dim_anchor(c, by, uids)
+            if p is not None:
+                a, b = self.dim_ends(c, by)
+                out.append((c, p, QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)))
+        return out
+
+    def _refit_edge(self, c, target, by) -> None:
+        """D65: a single-edge dim moves to the same-measure edge of its item
+        (a rect's opposite side, any polygon side, D56) whose middle is
+        nearest *target* -- a reflection can swap which handle names the
+        mirrored edge, and the dim must keep measuring that edge."""
+        from .constraint_dims import measure_key
+        refs = c.refs if isinstance(c.refs, list) else []
+        if len(refs) != 1 or not isinstance(refs[0], dict) or sm.is_ground(refs[0]):
+            return
+        uid = refs[0].get("uid")
+        it = by.get(uid)
+        ad = adapter_for(it) if it is not None else None
+        key = measure_key(c, by)
+        if ad is None or key is None:
+            return
+        best, best_d = None, None
+        for name in ad.edges(it, 0):
+            cand = sm.Constraint.new(c.type, [{"uid": uid, "h": name}])
+            if measure_key(cand, by) != key:
+                continue
+            e = self.dim_ends(cand, by)
+            if e is None:
+                continue
+            m = QPointF((e[0].x() + e[1].x()) / 2, (e[0].y() + e[1].y()) / 2)
+            d = math.hypot(m.x() - target.x(), m.y() - target.y())
+            if best_d is None or d < best_d:
+                best, best_d = name, d
+        if best is not None and best != refs[0].get("h"):
+            c.refs = [{"uid": uid, "h": best}]
+
+    def _carry_dim_labels(self, anchors, point_map) -> None:
+        """Re-fit each anchored dim to its mapped edge and re-derive its offset
+        from its mapped anchor (D65)."""
+        from . import dim_graphics as dg
+        if not anchors:
+            return
+        by = self.item_by_uid()
+        for c, p, m in anchors:
+            self._refit_edge(c, point_map(m), by)
+            e = self.dim_ends(c, by)
+            if e is not None:
+                c.label = dg.with_offset(c.label, dg.signed_offset(
+                    e[0], e[1], point_map(p)))
+        self._label_gen += 1
 
     def _scale_dims(self, items, factor) -> list:
         """D54: ``[(dim, old value)]`` for the driving dims internal to *items*
@@ -1353,13 +1461,15 @@ class ConstraintController:
             return True
         return len(texts) == 2 and texts[0] == texts[1]
 
-    def add(self, ctype: str, refs: list, *, value: float | None = None):
+    def add(self, ctype: str, refs: list, *, value: float | None = None,
+            label: dict | None = None):
         """Add a constraint and apply it (D22 least change).
 
         A dim (``sm.VALUED``) takes *value*, else its current measured length
         (D50); two coincident points are refused (status "Pick two separate
         points"); a dim that would be redundant at creation is admitted as
-        Reference (D52, status).
+        Reference (D52, status). *label* is a dim's placement record
+        (CS4b D62, ``{"offset": mm}``); None = auto.
 
         A conflicting constraint is still admitted (D9) and the geometry holds
         its last good state (D10). Pushes one undo step.
@@ -1379,20 +1489,13 @@ class ConstraintController:
                 refs = [edge]                   # an edge's own ends == that edge
         c = sm.Constraint.new(ctype, refs)
         if ctype in sm.VALUED:
-            if self._sizes_a_text(c.refs):
-                self._status(DIM_TEXT_STATUS)
+            refusal = self._dim_refusal(c)
+            if refusal is not None:
+                self._status(refusal)
                 return None
-            m = self.measure(c)
-            c.value = value if value is not None else m
-            if m is not None and m <= DEGEN_EPS:
-                self._status(DIM_ZERO_STATUS)
-                return None
-            rep = self._repeats_a_dim(c)
-            if rep is not None:                       # D56: one dim per measure
-                self._status(DIM_RECT_REPEAT_STATUS.format(rep[2])
-                             if isinstance(rep, tuple) and rep[0] == "rect"
-                             else DIM_REPEAT_STATUS)
-                return None
+            c.value = value if value is not None else self.measure(c)
+            if label is not None:
+                c.label = copy.deepcopy(label)           # CS4b D62 placement
         if not self._valid(c):
             self._status(INVALID_STATUS)
             return None
@@ -1460,6 +1563,40 @@ class ConstraintController:
         if len(gs) == 2 and all(g is not None and g[0] == "point" for g in gs):
             return gs[0][1], gs[1][1]
         return None
+
+    def _dim_refusal(self, c) -> str | None:
+        """The add-time refusal status of dim *c* -- D59 text sizing, a zero
+        distance, a D56 repeat -- or None. CS4b D63 runs it before placement."""
+        if self._sizes_a_text(c.refs):
+            return DIM_TEXT_STATUS
+        m = self.measure(c)
+        if m is not None and m <= DEGEN_EPS:
+            return DIM_ZERO_STATUS
+        rep = self._repeats_a_dim(c)
+        if rep is not None:                       # D56: one dim per measure
+            return (DIM_RECT_REPEAT_STATUS.format(rep[2])
+                    if isinstance(rep, tuple) and rep[0] == "rect"
+                    else DIM_REPEAT_STATUS)
+        return None
+
+    def dim_precheck(self, refs):
+        """CS4b D63: the refs a dim would be added on (an edge's own ends are
+        that edge, D56), or None with the refusal status posted -- so a
+        refused pick never asks for a placement click."""
+        from .constraint_dims import edge_for_points
+        edge = edge_for_points(refs, self.item_by_uid())
+        if edge is not None:
+            refs = [edge]
+        c = sm.Constraint.new("dim_distance", refs)
+        refusal = self._dim_refusal(c)
+        if refusal is None:
+            c.value = self.measure(c)
+            if c.value is None or not self._valid(c):
+                refusal = INVALID_STATUS
+        if refusal is not None:
+            self._status(refusal)
+            return None
+        return refs
 
     def _repeats_a_dim(self, c):
         """D56 (smoke ruling 2026-10-03): *c* measures exactly what an
@@ -1626,6 +1763,10 @@ class ConstraintController:
         p = self.pick
         if p is None:
             return
+        if p.pending is not None:                  # CS4b D63: live preview follows
+            p.cursor = QPointF(vp_pt)
+            self._repaint()
+            return
         before = (p.hover_kind, p.hover)
         p.hover_at(view, vp_pt)
         if (p.hover_kind, p.hover) != before:
@@ -1647,6 +1788,8 @@ class ConstraintController:
         p = self.pick
         if p is None:
             return False
+        if p.pending is not None:                  # CS4b D63: the placement click
+            return self._place_dim(view, vp_pt)
         ref = p.hover_at(view, vp_pt)
         if ref is None:
             return False
@@ -1669,17 +1812,120 @@ class ConstraintController:
                     refs.reverse()
                 both_points = p.kinds[0] == p.kinds[1] == "point"
                 ctype = "coincident" if both_points else "point_on_curve"
-        if ctype == "dim_distance":            # D50: the tool stays live
-            self.pick = PickState(self, ctype)
-            c = self.add(ctype, refs)
-            self._scene.instructionChanged.emit(self.pick.status())
+        if ctype == "dim_distance":                # CS4b D63: placement next
+            refs = self.dim_precheck(refs)
+            if refs is None:
+                self.pick = PickState(self, ctype)  # refused: start over, tool live
+                self._repaint()
+                return False
+            p.pending, p.cursor = refs, QPointF(vp_pt)
+            self._scene.instructionChanged.emit(p.status())
             self._repaint()
-            if c is not None and c.driving:
-                self.open_dim_edit(c.id, view)
-            return True
+            return False
         self.pick = None
         self._scene.set_mode("select")
         self.add(ctype, refs)
+        return True
+
+    def _place_dim(self, view, vp_pt) -> bool:
+        """D63: store the cursor's offset, add the dim, open the HUD (D50)."""
+        from . import dim_graphics as dg
+        p = self.pick
+        refs = p.pending
+        ends = self.dim_ends(sm.Constraint.new(p.ctype, refs))
+        label = (dg.with_offset(None, dg.signed_offset(ends[0], ends[1],
+                                                       _vp_to_scene(view, vp_pt)))
+                 if ends is not None else None)
+        self.pick = PickState(self, p.ctype)       # D50: the tool stays live
+        c = self.add(p.ctype, refs, label=label)
+        self._scene.instructionChanged.emit(self.pick.status())
+        self._repaint()
+        if c is not None and c.driving:
+            self.open_dim_edit(c.id, view)
+        return True
+
+    def begin_dim_placement(self, refs) -> bool:
+        """D63: a selected line skips to the placement click. False when
+        refused (status posted) or no Smart Dimension session is running."""
+        p = self.pick
+        if p is None or p.ctype != "dim_distance":
+            return False
+        refs = self.dim_precheck(refs)
+        if refs is None:
+            return False
+        p.pending = refs
+        self._scene.instructionChanged.emit(p.status())
+        self._repaint()
+        return True
+
+    def reset_dim_pick(self) -> bool:
+        """D63 Esc: drop a half-made dim (picks or a pending placement), keep
+        the tool live. False when there was nothing to drop."""
+        p = self.pick
+        if (p is None or p.ctype != "dim_distance"
+                or (not p.picks and p.pending is None)):
+            return False
+        self.pick = PickState(self, p.ctype)
+        self._scene.instructionChanged.emit(self.pick.status())
+        self._repaint()
+        return True
+
+    # ── dim drag (CS4b D64) ───────────────────────────────────────────────
+    def begin_dim_drag(self, cid, vp_pt) -> None:
+        """Arm a select-mode drag of dim *cid* (moves only past the drag
+        distance, so a click just selects)."""
+        c = self.find(cid)
+        if c is None or c.inert or c.type != "dim_distance":
+            return
+        self.dim_drag = [cid, copy.deepcopy(c.label), QPointF(vp_pt), False]
+
+    def dim_drag_to(self, view, vp_pt) -> bool:
+        """Follow the cursor: the dim's offset = the cursor's signed distance
+        from its points. True while a drag is armed."""
+        from PyQt6.QtWidgets import QApplication
+        from . import dim_graphics as dg
+        d = self.dim_drag
+        if d is None:
+            return False
+        c = self.find(d[0])
+        if c is None:
+            self.dim_drag = None
+            return False
+        if not d[3]:
+            if ((QPointF(vp_pt) - d[2]).manhattanLength()
+                    < QApplication.startDragDistance()):
+                return True
+            d[3] = True
+        ends = self.dim_ends(c)
+        if ends is not None:
+            c.label = dg.with_offset(c.label, dg.signed_offset(
+                ends[0], ends[1], _vp_to_scene(view, vp_pt)))
+            self._label_gen += 1
+            self._repaint()
+        return True
+
+    def end_dim_drag(self) -> bool:
+        """Release: one undo step when the dim moved. True when a drag was armed."""
+        d, self.dim_drag = self.dim_drag, None
+        if d is None:
+            return False
+        if d[3]:
+            self._label_gen += 1
+            self._scene.push_undo_state()
+            self._repaint()
+        return True
+
+    def cancel_dim_drag(self) -> bool:
+        """Esc mid-drag: restore the offset. True only when a moving drag was
+        undone (an armed, unmoved press lets Esc deselect as usual)."""
+        d, self.dim_drag = self.dim_drag, None
+        if d is None or not d[3]:
+            return False
+        c = self.find(d[0])
+        if c is not None:
+            c.label = d[1]
+        self._label_gen += 1
+        self._repaint()
         return True
 
     def selection_refs(self, ctype: str):
@@ -1967,7 +2213,7 @@ class ConstraintController:
                         and r.get("uid") in uids for r in c.refs)]
 
     def paste_records(self, records, uid_map: dict, mirror_axis=None,
-                      rotation_deg=None) -> None:
+                      rotation_deg=None, point_map=None) -> None:
         """Remap copied constraints onto the new items' uids (no undo push).
 
         Only constraints internal to the copied set survive (§8, via
@@ -1989,6 +2235,9 @@ class ConstraintController:
             uid_map: Source primitive uid -> new copy's uid.
             mirror_axis: ``(p1, p2)`` QPointFs of a Mirror's axis, else None.
             rotation_deg: The copy's rotation (Polar Array), else None.
+            point_map: CS4b D65 (Mirror): the reflection as a scene-point
+                mapper; a copied placed dim gets the offset that puts it at
+                its source's mirrored place.
         """
         if not self.enabled or not isinstance(records, list) or not records:
             return                              # (clipboard JSON is untrusted)
@@ -2009,12 +2258,26 @@ class ConstraintController:
         if not keep_hv:
             cons = [c for c in cons if c.type not in ("horizontal", "vertical")]
         by = self.item_by_uid()
+        src_uids = set(uid_map)
         new = []
-        for c in sm.remap_for_copy(cons, uid_map):
-            if not self._valid(c, by):
-                c.raw, c.invalid = c.to_dict(), True
-            self.constraints.append(c)
-            new.append(c)
+        for src in cons:
+            anchor = (self._dim_anchor(src, by, src_uids)
+                      if point_map is not None else None)
+            if anchor is not None:
+                sa, sb = self.dim_ends(src, by)
+                mid = QPointF((sa.x() + sb.x()) / 2, (sa.y() + sb.y()) / 2)
+            for c in sm.remap_for_copy([src], uid_map):
+                if not self._valid(c, by):
+                    c.raw, c.invalid = c.to_dict(), True
+                elif anchor is not None:            # CS4b D65: mirrored place
+                    from . import dim_graphics as dg
+                    self._refit_edge(c, point_map(mid), by)
+                    e = self.dim_ends(c, by)
+                    if e is not None:
+                        c.label = dg.with_offset(c.label, dg.signed_offset(
+                            e[0], e[1], point_map(anchor)))
+                self.constraints.append(c)
+                new.append(c)
         # D38: a copied constraint the copied geometry does not satisfy (e.g.
         # a source's red one) is red on the copy too -- never active-unapplied
         # (review I-1).

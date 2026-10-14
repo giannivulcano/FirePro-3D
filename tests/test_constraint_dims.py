@@ -493,3 +493,307 @@ def test_constraint_pick_modes_do_not_snap(be, mode):
     assert (out.x(), out.y()) == (raw.x(), raw.y())
     assert sc._snap_result is None
     sc.set_mode("select")
+
+
+# -- CS4b D60-D62/D64: drawn dims, legacy auto, dim-line pick -----------------
+
+from firepro3d import dim_graphics as dg  # noqa: E402
+from firepro3d import constants as K  # noqa: E402
+
+
+def _near(img, dpr, vp, want, r=1):
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            q = img.pixelColor(int((vp.x() + dx) * dpr), int((vp.y() + dy) * dpr))
+            if (abs(q.red() - want.red()) + abs(q.green() - want.green())
+                    + abs(q.blue() - want.blue())) < 60:
+                return True
+    return False
+
+
+def _grab(v):
+    v.viewport().repaint(); QApplication.processEvents()
+    img = v.viewport().grab().toImage()
+    return img, img.devicePixelRatio()
+
+
+def test_placed_dim_draws_dim_line_and_witness_lines_pixel(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})   # n=(0,1): -40 = above
+    sc.clearSelection()
+    img, dpr = _grab(v)
+    want = th.detect().color("dimension")
+    assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(60, -40))), want)    # dim line
+    assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(0, -20))), want)     # witness
+    assert not _near(img, dpr, QPointF(v.mapFromScene(QPointF(150, -20))), want)
+
+
+def test_dim_without_a_label_draws_at_the_auto_offset(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)])
+    assert c.label is None
+    (e,) = cd.dim_entries(v, ctl)
+    A0 = QPointF(v.mapFromScene(QPointF(0, 0)))
+    assert e.graphic.a.y() == pytest.approx(A0.y() - K.DIM_AUTO_OFFSET_PX, abs=1e-6)
+
+
+def test_dim_line_picks_the_dim_a_witness_line_does_not(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc.clearSelection()
+    assert cp.dim_at(v, ctl, QPointF(v.mapFromScene(QPointF(60, -40)))) == c.id
+    assert cp.dim_at(v, ctl, QPointF(v.mapFromScene(QPointF(0, -20)))) is None
+
+
+def test_two_point_dim_has_no_dashed_point_to_point_line(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    a = _line(sc, (0, -100), (0, -50)); b = _line(sc, (200, -100), (200, -50))
+    ctl.add("dim_distance", [E(a, "p1"), E(b, "p1")], label={"offset": -40.0})
+    sc.clearSelection()
+    img, dpr = _grab(v)
+    muted = th.detect().color("muted")
+    # a 40 px run along the old dashed line (dash 6 / gap 4): any dash hits
+    assert not any(_near(img, dpr, QPointF(v.mapFromScene(QPointF(x, -100))), muted, r=0)
+                   for x in range(80, 121))
+
+
+def test_placed_offset_round_trips_save_reopen(qapp):
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    project = Model_Space()
+    ln = LineItem(QPointF(0, 0), QPointF(300, 0))
+    defn = BlockDefinition.new(
+        name="B", library="L", series="S", primitives=[ln.to_dict()], origin=(0.0, 0.0),
+        constraints=[{"id": "d1", "type": "dim_distance", "value": 300.0,
+                      "driving": True, "refs": [{"uid": ln._uid, "h": "edge"}],
+                      "label": {"offset": -40.0}},
+                     {"id": "d2", "type": "dim_distance", "value": 300.0,
+                      "driving": False, "refs": [{"uid": ln._uid, "h": "p2"},
+                                                 {"ref": "origin"}]}])
+    project.register_block_definition(defn)
+    w = BlockEditorWidget(project)
+    w.seed_from_definition(defn)
+    ctl = w.editor_scene.constraint_ctl
+    assert dg.offset_of(ctl.find("d1").label) == -40.0
+    assert ctl.find("d2").label is None                            # legacy = auto
+    out = {r["id"]: r for r in ctl.to_records()}
+    assert out["d1"]["label"] == {"offset": -40.0} and "label" not in out["d2"]
+
+
+@pytest.fixture(params=["DARK", "LIGHT"])
+def themed_be(request, qapp, monkeypatch):
+    """(view, scene, theme): a shown Block Editor view at 1 px / mm painting
+    the theme's canvas ground (the test_readout_paint pattern)."""
+    from PyQt6.QtGui import QBrush, QColor
+    t = getattr(th, request.param)
+    monkeypatch.setattr(th, "detect", lambda: t)
+    sc = Model_Space(scene_role="block_editor")
+    sc.scale_manager = ScaleManager()
+    sc.setBackgroundBrush(QBrush(QColor(t.canvas_bg)))
+    v = Model_View(sc)
+    v.resize(800, 600)
+    v.show()
+    QTest.qWaitForWindowExposed(v)
+    v.resetTransform()
+    v.centerOn(150, 0)
+    sc.set_mode("select")
+    QApplication.processEvents()
+    yield v, sc, t
+    sc.clearSelection()
+    sc.cleanup()
+    v.close()
+    v.deleteLater()
+    QApplication.processEvents()
+
+
+def test_placed_dim_pixels_in_both_themes(themed_be):
+    v, sc, t = themed_be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc.clearSelection()
+    img, dpr = _grab(v)
+    want = t.color("dimension")
+    assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(60, -40))), want)     # dim line
+    assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(300, -20))), want)    # witness
+    assert not _near(img, dpr, QPointF(v.mapFromScene(QPointF(150, -20))), want)
+
+
+def test_dirty_rect_covers_every_painted_dim_pixel(be):
+    """The repaint region holds the whole drawn dim, a wide terminator too
+    (an 8 mm bar pointing outward = 20 px past each dim-line end, beyond
+    the glow pad; the label and witness lines never reach there)."""
+    import json
+    import os
+    from PyQt6.QtCore import QSettings
+    from firepro3d.app_data import end_types_dir
+    d = end_types_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, "Wide.fpdb")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"schema": 1, "id": "widebar01", "version": 1, "name": "Wide",
+                   "library": "System", "series": "End Types",
+                   "scale_mode": "real_size", "origin": [0.0, 0.0], "attributes": [],
+                   "primitives": [{"type": "polyline", "closed": True, "uid": "wb1",
+                                   "points": [[0, -1], [8, -1], [8, 1], [0, 1]],
+                                   "fill": {"type": "solid", "opacity": 1.0}}],
+                   "end": {"trim": 0.0}}, fh)
+    QSettings("GV", "FirePro3D").setValue(K.DIM_TERMINATOR_KEY, "Wide")
+    try:
+        v, sc = be; ctl = sc.constraint_ctl
+        ln = _line(sc, (0, 0), (300, 0))
+        ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+        sc.clearSelection()
+        img, dpr = _grab(v)
+        want = th.detect().color("dimension")
+        r = cp.dirty_rect(v, ctl)
+        inked = 0
+        for x in range(0, v.viewport().width(), 1):
+            for y in range(150, 330):
+                q = img.pixelColor(int(x * dpr), int(y * dpr))
+                if (abs(q.red() - want.red()) + abs(q.green() - want.green())
+                        + abs(q.blue() - want.blue())) < 60:
+                    inked += 1
+                    assert r.contains(x, y), (x, y, r)
+        assert inked > 50
+    finally:
+        QSettings("GV", "FirePro3D").remove(K.DIM_TERMINATOR_KEY)
+        os.remove(path)
+
+
+# -- CS4b D65: placed dims through rotate / flip / mirror / scale --------------
+
+from firepro3d.axis_picker import AxisPick  # noqa: E402
+
+
+def _dim_mid_vp(v, ctl, cid):
+    (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == cid]
+    g = e.graphic
+    return QPointF((g.a.x() + g.b.x()) / 2, (g.a.y() + g.b.y()) / 2)
+
+
+def _close(p, q, tol=1.0):
+    return abs(p.x() - q.x()) <= tol and abs(p.y() - q.y()) <= tol
+
+
+def _hx_axis(sc, y):
+    rl = LineItem(QPointF(-500, y), QPointF(800, y))
+    rl.reference = True
+    sc.addItem(rl); sc._draw_lines.append(rl)
+    return AxisPick(QPointF(-500, y), QPointF(800, y), rl, 0.0)
+
+
+def test_rotate_commit_carries_a_placed_dim_round(be):
+    """Rotate 90 deg (Y-up CCW) about the origin maps scene (x, y) -> (y, -x):
+    the dim-line middle (150, -40) lands at (-40, -150)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc._selected_items = [ln]
+    sc._rotate_pivot = QPointF(0, 0)
+    assert sc._modify_ctl.commit_rotate(90.0) is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(-40, -150))))
+
+
+def test_flip_mirrors_a_placed_dim_to_the_other_side(be):
+    """Reflection across y = 10 maps (x, y) -> (x, 20 - y): (150, -40) -> (150, 60)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc.mode = "flip"
+    sc._selected_items = [ln]
+    sc._mirror_axis = _hx_axis(sc, 10.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
+
+
+def test_mirror_copy_dim_lands_on_the_mirrored_side(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc.mode = "mirror"
+    sc._selected_items = [ln]
+    sc._mirror_axis = _hx_axis(sc, 10.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    (copy_c,) = [d for d in ctl.constraints if d.type == "dim_distance" and d.id != c.id]
+    assert _close(_dim_mid_vp(v, ctl, copy_c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, -40))))
+
+
+def test_scale_commit_scales_a_placed_dim_offset(be):
+    """Scale x2 about the origin: (150, -40) -> (300, -80)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(0, 0)
+    assert sc._modify_ctl.commit_scale(2.0) is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(300, -80))))
+
+
+def test_grip_style_edit_and_auto_dims_keep_their_offset(be):
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    ln2 = _line(sc, (0, 200), (300, 200))
+    c2 = ctl.add("dim_distance", [E(ln2)])                       # auto
+    with ctl.edit([ln, ln2]):                                    # no point_map (box resize etc.)
+        ln.manip_rotate(90.0, QPointF(0, 0))
+        ln2.manip_rotate(90.0, QPointF(0, 200))
+    assert dg.offset_of(c.label) == pytest.approx(-40.0)
+    assert c2.label is None
+
+
+def test_flip_and_scale_carry_a_placed_reference_dim(be):
+    """A Reference dim is the only constraint on its line (not 'active'): it
+    is still carried (D65) -- (150, -40) -> flip y = 10 -> (150, 60), then
+    scale x2 about the origin -> (300, 120)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    ln = _line(sc, (0, 0), (300, 0))
+    c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+    ctl.set_driving(c.id, False)
+    sc.mode = "flip"
+    sc._selected_items = [ln]
+    sc._mirror_axis = _hx_axis(sc, 10.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
+    sc._selected_items = [ln]
+    sc._scale_base = QPointF(0, 0)
+    assert sc._modify_ctl.commit_scale(2.0) is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(300, 120))))
+
+
+def test_flipped_rect_dim_measures_the_mirrored_edge(be):
+    """Rect y in [0, 100], width dim on its top edge 40 above. Flip across
+    y = 200 puts the rect at y in [300, 400]; the old top edge's image is
+    y = 400 and the dim line lands at y = 440 -- its witness lines span only
+    the 40 px offset (+ ext - gap), never the rect's height."""
+    v, sc = be; ctl = sc.constraint_ctl
+    r = _rect(sc, (0, 0), (300, 100))
+    c = ctl.add("dim_distance", [E(r, "top")], label={"offset": -40.0})
+    sc.mode = "flip"
+    sc._selected_items = [r]
+    sc._mirror_axis = _hx_axis(sc, 200.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 440))))
+    (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == c.id]
+    (ws, we), _w2 = e.graphic.witness
+    assert abs(we.y() - ws.y()) == pytest.approx(40 + K.DIM_WITNESS_EXT_PX - K.DIM_WITNESS_GAP_PX, abs=1.0)
+
+
+def test_mirror_copied_rect_dim_measures_the_mirrored_edge(be):
+    """As the flip guard, for the Mirror tool's copy (paste_records path)."""
+    v, sc = be; ctl = sc.constraint_ctl
+    r = _rect(sc, (0, 0), (300, 100))
+    c = ctl.add("dim_distance", [E(r, "top")], label={"offset": -40.0})
+    sc.mode = "mirror"
+    sc._selected_items = [r]
+    sc._mirror_axis = _hx_axis(sc, 200.0)
+    assert sc._modify_ctl.commit_reflect() is True
+    (cc,) = [d for d in ctl.constraints if d.type == "dim_distance" and d.id != c.id]
+    assert _close(_dim_mid_vp(v, ctl, cc.id), QPointF(v.mapFromScene(QPointF(150, 440))))
+    (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == cc.id]
+    (ws, we), _w2 = e.graphic.witness
+    assert abs(we.y() - ws.y()) == pytest.approx(40 + K.DIM_WITNESS_EXT_PX - K.DIM_WITNESS_GAP_PX, abs=1.0)

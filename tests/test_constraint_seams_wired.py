@@ -38,7 +38,8 @@ class _RecCtl:
         self.events: list = []
 
     @contextlib.contextmanager
-    def edit(self, items, *, typed=False, scale=None):   # typed: D31; scale: CS4 D54
+    def edit(self, items, *, typed=False, scale=None,
+             point_map=None):    # typed: D31; scale: CS4 D54; point_map: CS4b D65
         items = list(items)
         self.events.append(("edit_enter", items, [_geo(it) for it in items]))
         yield
@@ -84,7 +85,8 @@ class _RecCtl:
     def internal_records(self, items):
         return []
 
-    def paste_records(self, records, uid_map, mirror_axis=None):
+    def paste_records(self, records, uid_map, mirror_axis=None, rotation_deg=None,
+                      point_map=None):
         self.events.append(("paste_records", list(records or [])))
 
     def kinds(self):
