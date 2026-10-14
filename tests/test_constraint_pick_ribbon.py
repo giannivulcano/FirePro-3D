@@ -21,7 +21,8 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
-                    "Show Constraints", "Constraint Status", "Delete Constraints"}
+                    "Concentric", "Show Constraints", "Constraint Status",
+                    "Delete Constraints"}
 
 
 @pytest.fixture(scope="module")
@@ -187,7 +188,7 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",
-            "Coincident"}                              # no greyed placeholders (D15)
+            "Coincident", "Concentric"}                # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -686,3 +687,77 @@ def test_two_non_points_are_never_paired(win_with_editor):
     assert sc.constraint_ctl.constraints == []
     assert sc.mode == "constrain_coincident"
     assert instr[-1] == "Coincident: pick a point (1/2) · Esc to cancel"
+
+
+# ── CS6 Concentric ───────────────────────────────────────────────────────────
+
+def _circle(sc, c, r):
+    it = CircleItem(QPointF(*c), r)
+    sc.addItem(it); sc._draw_circles.append(it)
+    return it
+
+
+def test_concentric_enable_tracks_selection(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    b = _btn(win, "Concentric")
+    assert b.toolTip()
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                     # pick mode
+    a = _circle(sc, (0, 0), 50); c2 = _circle(sc, (200, 0), 20)
+    a.setSelected(True); qapp.processEvents(); win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                 # one circle
+    c2.setSelected(True); qapp.processEvents(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                     # two circles: selection-first
+    ln = _line(sc, (0, 100), (50, 150)); ln.setSelected(True)
+    qapp.processEvents(); win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                 # + a line
+
+
+def test_concentric_selection_first_adds_at_once(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _circle(sc, (0, 0), 50); c2 = _circle(sc, (40, 20), 20)
+    a.setSelected(True); c2.setSelected(True); qapp.processEvents()
+    _btn(win, "Concentric").click(); qapp.processEvents()
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "concentric"
+    assert (a._center.x(), a._center.y()) == pytest.approx((c2._center.x(), c2._center.y()), abs=1e-6)
+
+
+def test_concentric_pick_point_first_stores_curve_first(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    circ = _circle(sc, (0, 0), 60)
+    ln = _line(sc, (150, 20), (220, 70))
+    instr = []
+    sc.instructionChanged.connect(instr.append)
+    try:
+        _btn(win, "Concentric").click()
+        QApplication.processEvents()
+        assert sc.mode == "constrain_concentric"
+        assert instr[-1] == ("Concentric: pick a circle/arc, then a circle/arc "
+                             "or point (0/2) · Esc to cancel")
+        _pick(win, (150, 20))                                # ln.p1
+        assert instr[-1] == "Concentric: pick a circle/arc (1/2) · Esc to cancel"
+        _pick(win, (0, -60))                                 # top of the outline
+    finally:
+        sc.instructionChanged.disconnect(instr.append)
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "concentric"
+    assert c.refs == [{"uid": circ._uid, "h": "curve"}, {"uid": ln._uid, "h": "p1"}]
+    assert (circ._center.x(), circ._center.y()) == pytest.approx((ln._pt1.x(), ln._pt1.y()), abs=1e-6)
+    assert sc.mode == "select"
+
+
+def test_concentric_pick_circle_then_arc(win_with_editor):
+    from firepro3d.geometry_2d import ArcItem
+    win = win_with_editor
+    sc = _editor_scene(win)
+    circ = _circle(sc, (0, 0), 60)
+    arc = ArcItem(QPointF(250, 0), 40, 0.0, 180.0); sc.addItem(arc); sc._draw_arcs.append(arc)
+    _btn(win, "Concentric").click()
+    _pick(win, (-60, 0), (250, -40))                         # circle left, arc top
+    (c,) = sc.constraint_ctl.constraints
+    assert c.refs == [{"uid": circ._uid, "h": "curve"}, {"uid": arc._uid, "h": "curve"}]
+    assert (circ._center.x(), circ._center.y()) == pytest.approx((arc._center.x(), arc._center.y()), abs=1e-6)

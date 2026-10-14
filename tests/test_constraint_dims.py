@@ -482,7 +482,8 @@ def test_rect_opposite_side_status_names_the_shared_width(qapp):
 
 
 @pytest.mark.parametrize("mode", ["constrain_dim_distance", "constrain_horizontal",
-                                  "constrain_vertical", "constrain_coincident"])
+                                  "constrain_vertical", "constrain_coincident",
+                                  "constrain_concentric"])
 def test_constraint_pick_modes_do_not_snap(be, mode):
     v, sc = be
     _line(sc, (0, 0), (300, 0))

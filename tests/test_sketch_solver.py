@@ -834,6 +834,13 @@ def test_concentric_raw_centres_alias_both_axes():
     assert s.rows == [] and s.fixes == []
 
 
+def test_concentric_curve_and_raw_point_alias_the_centre():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 5.0, 7.0]))
+    ss.BUILDERS["concentric"]("k", (_circ(0), ss.raw_point(3, 4)), s)
+    assert sorted((i, j) for i, j, _c in s.aliases) == [(0, 3), (1, 4)]
+    assert s.rows == [] and s.fixes == []
+
+
 def test_concentric_curve_and_origin_fixes_the_centre():
     s = ss.System(x=np.array([4.0, -3.0, 10.0]))
     ss.BUILDERS["concentric"]("k", (_circ(0), ss.const_point(0, 0)), s)

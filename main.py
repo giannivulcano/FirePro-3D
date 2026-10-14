@@ -2582,6 +2582,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constrain_horizontal": "Horizontal",
         "constrain_vertical": "Vertical",
         "constrain_coincident": "Coincident",
+        "constrain_concentric": "Concentric",
         "constrain_dim_distance": "Smart Dimension",
     }
 
@@ -5096,7 +5097,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
         # Constraint Status (the DOF badge lives in the panel, D40/D41);
-        # CS4 Smart Dimension (large, tool-first, D50).
+        # CS4 Smart Dimension (large, tool-first, D50); CS6 Concentric.
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_d = gc.add_large_button(
@@ -5119,6 +5120,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("coincident", checked),
             checkable=True)
         self._block_mode_buttons["constrain_coincident"] = b_c
+        b_cc = gc.add_small_button(
+            "Concentric", self._modify_icon(icon_for("concentric")),
+            lambda checked: self._be_constrain("concentric", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_concentric"] = b_cc
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5145,6 +5151,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Horizontal": b_h,
                                       "Vertical": b_v,
                                       "Coincident": b_c,
+                                      "Concentric": b_cc,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -5158,6 +5165,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                           "or pick 2 points / 1 edge")
         _editor_only(b_c, "Coincident — join two points, or put a point on an "
                           "edge, circle/arc or the X/Y axis (pick both)")
+        _editor_only(b_cc, "Concentric — give the two selected circles/arcs one "
+                           "centre, or pick a circle/arc and a circle/arc or point")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -5206,7 +5215,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if refs is not None:
             ctl.add(ctype, refs)
         elif sc.selectedItems():
-            sc._show_status("Select one line, or nothing to pick points / an edge",
+            sc._show_status("Select two circles/arcs, or nothing to pick"
+                            if ctype == "concentric" else
+                            "Select one line, or nothing to pick points / an edge",
                             4000)
         else:
             sc.set_mode(mode)
@@ -5243,7 +5254,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _refresh_constrain_buttons(self) -> None:
         """Enable state of the Constrain / Inspect buttons (D12).
 
-        Horizontal: enabled with nothing selected (pick mode) or a valid
+        Horizontal / Vertical / Concentric: enabled with nothing selected (pick mode) or a valid
         selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
         D32 show-all override. No-op with no editor tab current (the page's
@@ -5262,7 +5273,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except RuntimeError:
             return
         from firepro3d import sketch_model as sm
-        for ctype in ("horizontal", "vertical"):
+        for ctype in ("horizontal", "vertical", "concentric"):
             b = btns.get(sm.REGISTRY[ctype].label)
             if b is not None and not sip.isdeleted(b):
                 b.setEnabled(not sel or ctl.selection_refs(ctype) is not None)

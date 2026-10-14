@@ -1,6 +1,8 @@
 """constraint_paint — axes, glyph placement / hit / pixels, glyph hover glow,
 glyph select, grip precedence and Delete (parametric-constraint-system.md
 D3/D4, D11, D27, §10). Shown views, posted mouse events, pixel sampling."""
+import math
+
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QColor, QMouseEvent
@@ -559,3 +561,32 @@ def test_point_on_curve_glyph_anchors_at_the_point_and_glows_the_circle(be):
     r, o = path.boundingRect(), QPointF(v.mapFromScene(circ._center))
     assert r.left() == pytest.approx(o.x() - circ._radius, abs=1.0)
     assert r.height() == pytest.approx(2 * circ._radius, abs=1.0)
+
+
+# ── CS6 Concentric glyph (R2: beside the shared centre) ─────────────────────
+
+def test_concentric_glyph_sits_up_right_of_the_shared_centre_and_paints(be, themed):
+    from firepro3d.geometry_2d import CircleItem
+    v, sc = be
+    # Off the origin (its cross / axes would paint near the glyph) and with
+    # radii well past the glyph's ~37 px reach, so only the icon can light
+    # the glyph box.
+    a = CircleItem(QPointF(150, 100), 80); sc.addItem(a); sc._draw_circles.append(a)
+    b = CircleItem(QPointF(150, 100), 150); sc.addItem(b); sc._draw_circles.append(b)
+    ctl = sc.constraint_ctl
+    c = ctl.add("concentric", [{"uid": a._uid, "h": "curve"}, {"uid": b._uid, "h": "curve"}])
+    assert c is not None
+    ctl.show_all = True
+    QApplication.processEvents()
+    lays = dict(cp.glyph_layouts(v, ctl))
+    assert c.id in lays
+    r = lays[c.id]
+    o = v.mapFromScene(QPointF(150, 100))
+    d = (M.CONSTRAINT_GLYPH_OFFSET_PX + r.width() / 2.0) / math.sqrt(2.0)
+    assert abs(r.center().x() - (o.x() + d)) <= 1        # screen right
+    assert abs(r.center().y() - (o.y() - d)) <= 1        # screen up
+    img, dpr = _grab(v)
+    bg = _px(img, dpr, o.x() - 60, o.y() + 5)            # empty canvas inside the ring
+    inside = [_px(img, dpr, x, y) for x in range(int(r.left()) + 2, int(r.right()) - 1)
+              for y in range(int(r.top()) + 2, int(r.bottom()) - 1)]
+    assert any(_dist(p, bg) > 60 for p in inside)        # the icon actually painted
