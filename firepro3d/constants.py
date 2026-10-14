@@ -362,6 +362,8 @@ DIM_TERM_PX_PER_MM = 2.5          # D61: terminator end block, px per authored m
 DIM_TERM_FALLBACK_MM = (3.0, 1.0) # D61: built-in terminator length x width (mm, 3:1)
 DIM_TERMINATOR_KEY = "dimension/terminator"   # D61: QSettings -- End Types end name
 DIM_TERMINATOR_DEFAULT = "Arrow"
+DIM_LEADER_SHOULDER_PX = 18.0     # CS5 D74: a radial leader runs this far past the curve
+DIM_EXT_DASH = (4.0, 3.0)         # CS5 D75: dashed muted extension to an angle arc
 # Dirty-region pad around painted readouts: covers the hover glow (half the
 # traced width + the blur radius) and the arc arrowheads, + 2 px antialias.
 SELDIM_DIRTY_PAD_PX = int(max(HALO_TRACE_WIDTH_PX / 2 + HALO_GLOW_PX,

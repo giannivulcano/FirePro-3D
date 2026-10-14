@@ -11,15 +11,17 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainterPath, QPen
 
-from .constants import (DIM_AUTO_OFFSET_PX, DIM_FIT_PAD_PX, DIM_SHORT_LEADER_PX,
+from .constants import (DIM_AUTO_OFFSET_PX, DIM_EXT_DASH, DIM_FIT_PAD_PX,
+                        DIM_LEADER_SHOULDER_PX, DIM_SHORT_LEADER_PX,
                         DIM_TERM_FALLBACK_MM, DIM_TERM_PX_PER_MM,
                         DIM_TERMINATOR_DEFAULT, DIM_TERMINATOR_KEY,
-                        DIM_TEXT_GAP_PX, DIM_WITNESS_EXT_PX, DIM_WITNESS_GAP_PX)
+                        DIM_TEXT_GAP_PX, DIM_WITNESS_EXT_PX, DIM_WITNESS_GAP_PX,
+                        SELDIM_ARC_LABEL_GAP_PX)
 from .readout_paint import (ReadoutLayout, _half_extent, _text_size, _to_vp,
                             hit_layout, label_path, readable_deg)
 from .theme import M
@@ -73,6 +75,9 @@ class DimGraphic:
         terms: ``[(tip, (ux, uy))]`` -- terminator tip + outward unit vector.
         label: The value text layout.
         inside: Terminators + text fit between the witness lines (D66).
+        arcs: ``[(C, r_px, start_deg, span_deg)]`` -- solid arcs, Y-up degrees
+            about viewport point C (CS5 D75 angular dim).
+        dashed: ``[(start, end)]`` -- muted dashed extension lines (D75).
     """
     a: QPointF
     b: QPointF
@@ -81,6 +86,8 @@ class DimGraphic:
     terms: list
     label: ReadoutLayout
     inside: bool
+    arcs: list = field(default_factory=list)
+    dashed: list = field(default_factory=list)
 
 
 def layout_dim(view, a, b, offset, text, away=None, tlen=7.5) -> DimGraphic:
@@ -150,6 +157,52 @@ def layout_dim(view, a, b, offset, text, away=None, tlen=7.5) -> DimGraphic:
                       ReadoutLayout(text, c, ang, w, h, inside), inside)
 
 
+def layout_radial(view, centre, hit, text, far=None, tlen=7.5) -> DimGraphic:
+    """CS5 D74: a radial leader from *centre* (or the diameter's *far* hit)
+    through the curve point *hit*, run ``DIM_LEADER_SHOULDER_PX`` past it,
+    text aligned along it beyond; a terminator at *hit* (and at *far*)."""
+    C, H = _to_vp(view, centre), _to_vp(view, hit)
+    w, h = _text_size(text)
+    ux, uy = H.x() - C.x(), H.y() - C.y()
+    L = math.hypot(ux, uy)
+    if L < _EPS:
+        return DimGraphic(H, H, [], [], [], ReadoutLayout(text, H, 0.0, w, h, False), False)
+    ux, uy = ux / L, uy / L
+    S = DIM_LEADER_SHOULDER_PX
+    E = QPointF(H.x() + ux * S, H.y() + uy * S)
+    start = _to_vp(view, far) if far is not None else C
+    terms = [(H, (ux, uy))]
+    if far is not None:
+        terms.append((start, (-ux, -uy)))
+    ang = readable_deg(math.degrees(math.atan2(uy, ux)))
+    k = DIM_TEXT_GAP_PX + w / 2.0
+    c = QPointF(E.x() + ux * k, E.y() + uy * k)
+    return DimGraphic(start, E, [], [(start, E)], terms,
+                      ReadoutLayout(text, c, ang, w, h, True), True)
+
+
+def layout_arc_dim(view, centre, r_px, start_deg, span_deg, text, dashed=()) -> DimGraphic:
+    """CS5 D75: the readout-look angular dim -- an arc of *r_px* about
+    scene *centre* from *start_deg* over *span_deg* (Y-up), terminators at
+    both ends, text on the bisector just outside (as ``layout_angular``)."""
+    C = _to_vp(view, centre)
+    w, h = _text_size(text)
+    mid = math.radians(start_deg + span_deg / 2.0)
+    ux, uy = math.cos(mid), -math.sin(mid)
+    ang = readable_deg(math.degrees(math.atan2(ux, -uy)))
+    dist = r_px + SELDIM_ARC_LABEL_GAP_PX + _half_extent(ux, uy, ang, w, h)
+    c = QPointF(C.x() + ux * dist, C.y() + uy * dist)
+    terms = []
+    for deg, sgn in ((start_deg, -1.0), (start_deg + span_deg, 1.0)):
+        a = math.radians(deg)
+        terms.append((QPointF(C.x() + r_px * math.cos(a), C.y() - r_px * math.sin(a)),
+                      (-math.sin(a) * sgn, -math.cos(a) * sgn)))
+    return DimGraphic(terms[0][0], terms[1][0], [], [], terms,
+                      ReadoutLayout(text, c, ang, w, h, True), True,
+                      arcs=[(C, float(r_px), float(start_deg), float(span_deg))],
+                      dashed=list(dashed))
+
+
 def _seg_dist(p, a, b) -> float:
     ax, ay, bx, by = a.x(), a.y(), b.x(), b.y()
     dx, dy = bx - ax, by - ay
@@ -166,6 +219,11 @@ def hit_dim(g: DimGraphic, vp_pt, tol=None) -> bool:
     p = QPointF(vp_pt)
     if hit_layout(replace(g.label, fits=True), p):
         return True
+    for C, r, st, sp in g.arcs:
+        if abs(math.hypot(p.x() - C.x(), p.y() - C.y()) - r) <= tol:
+            a = math.degrees(math.atan2(-(p.y() - C.y()), p.x() - C.x()))
+            if (a - st) % 360.0 <= sp:
+                return True
     return any(_seg_dist(p, s, e) <= tol for s, e in g.segments)
 
 
@@ -173,10 +231,13 @@ def bounds(g: DimGraphic, reach: float = 7.5) -> QRectF:
     """Viewport bounds of every part of *g* (repaint region); *reach* =
     :func:`terminator_reach_px` -- how far a terminator spreads from its tip."""
     out = label_path(g.label).boundingRect()
-    pts = [g.a, g.b] + [q for seg in g.witness + g.segments for q in seg]
+    pts = ([g.a, g.b] + [q for seg in g.witness + g.segments for q in seg]
+           + [q for seg in g.dashed for q in seg])
     r = reach + 1.0                                   # + the 1 px stroke
     for q in pts:
         out = out.united(QRectF(q.x() - r, q.y() - r, 2 * r, 2 * r))
+    for C, rr, _st, _sp in g.arcs:
+        out = out.united(QRectF(C.x() - rr - r, C.y() - rr - r, 2 * (rr + r), 2 * (rr + r)))
     return out
 
 
@@ -315,8 +376,21 @@ def paint_dim(painter, g: DimGraphic, colour, th, ed=_MISSING) -> None:
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for s, e in g.witness + g.segments:
             painter.drawLine(*_crisp_seg(s, e, dpr))
+        for C, r, st, sp in g.arcs:
+            rect = QRectF(C.x() - r, C.y() - r, 2 * r, 2 * r)
+            arc = QPainterPath()
+            arc.arcMoveTo(rect, st)
+            arc.arcTo(rect, st, sp)
+            painter.drawPath(arc)
         for tip, u in g.terms:
             paint_terminator(painter, _crisp_tip(tip, u, dpr), u, colour, ed)
+        if g.dashed:
+            dp = QPen(th.color("muted"), 1.0)
+            dp.setCosmetic(True)
+            dp.setDashPattern([float(d) for d in DIM_EXT_DASH])
+            painter.setPen(dp)
+            for s, e in g.dashed:
+                painter.drawLine(s, e)
     finally:
         painter.restore()
     paint_readout(painter, g.label, th, color=colour)
