@@ -63,6 +63,58 @@ def qapp():
     # process and Qt dislikes repeated QApplication creation.
 
 
+class FakeClipboard(_QtCore.QObject):
+    """In-memory stand-in for ``QApplication.clipboard()``.
+
+    The Windows clipboard refuses writes (ACCESS_DENIED) whenever another
+    process holds it, which failed ~59 copy / cut / paste tests per run. The
+    app's own copy path reads its write back, so a faithful fake only needs
+    ``text`` / ``setText`` / ``clear`` and ``dataChanged``.
+    """
+    dataChanged = _QtCore.pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._text = ""
+
+    def text(self, *a):
+        return self._text
+
+    def setText(self, text, *a):
+        self._text = text
+        self.dataChanged.emit()
+
+    def clear(self, *a):
+        self.setText("")
+
+
+@pytest.fixture(autouse=True)
+def _fake_clipboard(request):
+    """Every test gets a fresh in-memory clipboard instead of the OS one.
+
+    Opt out with ``@pytest.mark.real_clipboard`` for a test that needs the real
+    clipboard (a Qt text control's own Ctrl+C / Ctrl+V never goes through
+    Python). A test that patches the accessors itself (``dead_clip``) layers on
+    top of this and is undone first.
+    """
+    if request.node.get_closest_marker("real_clipboard"):
+        yield None
+        return
+    from PyQt6.QtGui import QGuiApplication
+    clip = FakeClipboard()
+    # Its OWN MonkeyPatch, never the shared ``monkeypatch`` fixture: requesting
+    # that from an autouse fixture sets it up before every test's own fixtures,
+    # so it would be torn down AFTER them and a test that patches a method its
+    # fixture's teardown calls (test_selection_readouts_fixes) would break.
+    mp = pytest.MonkeyPatch()
+    mp.setattr(QApplication, "clipboard", staticmethod(lambda: clip))
+    mp.setattr(QGuiApplication, "clipboard", staticmethod(lambda: clip))
+    try:
+        yield clip
+    finally:
+        mp.undo()
+
+
 @pytest.fixture(autouse=True)
 def _preserve_snap_globals():
     """Snapshot/restore the snap-engine tunable module globals around every

@@ -552,6 +552,7 @@ def test_middle_click_pan_does_not_commit_edit(be):
 
 # ── Coverage gap (b): clipboard while editing must not touch the scene ──────
 
+@pytest.mark.real_clipboard
 def test_ctrl_c_ctrl_v_while_editing_leave_scene_untouched(be):
     """Coverage gap (b): Ctrl+C / Ctrl+V while editing are the text control's
     own clipboard ops (spec: 'Ctrl+A/C/X/V act on text') — they must not
