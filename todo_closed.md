@@ -194,6 +194,12 @@
   - Details: found by the nested-blocks VC9 seam probe 2026-09-30, PROVEN PRE-EXISTING (branch touches neither `paper_display.py` nor `BlockInstance._display_pen_color`): white-pen block ops plot white-on-white, plain and nested alike. Apply the paper white→black display rule to BlockInstance ops. `block_instance.py`, `paper_display.py`. Memory: paper white/invisible render class.
   - Build: absorbed into LT1 (user choice in the LT1 grill Q3, phase-drift logged) -- the paper Blocks category forces the category colour onto block stroke + text ops in B&W/Custom; guard `tests/test_lt1_block_paper.py::test_white_block_plots_black_in_bw_authored_in_full_color`.
 
+## Block Editor constraint system — CS5 Smart Dimension radial / angular — 2026-10-14
+
+- [x] [type:feature] CS5 — Smart Dimension: radius / diameter / angle [P1] [subject:CAD] [done:2026-10-14]
+  - Built: `feat/cs5-smart-dim-radial-angular` (spec D67-D84). Circle Ø / arc R (radial leader, R/Ø panel toggle), arc sweep (`dim_arc_angle`, new type), polygon R + ellipse R1/R2 (hidden defining curves, ellipse axis ends a0 a1 b0 b1), edge-edge / edge-axis angle (sector by placement, D80 residual), parallel edges -> linear `dim_point_line` (D81, user plan-gate ruling), every Block Editor readout retired (D68), transforms (D76 incl. axis-dim reflection; oblique refused), smoke rulings D82 dims on selection (all while the tool is live), D83 extensions to the vertex, D84 angle radius placement/drag. User smoke passed 2026-10-14 (two rounds). VC6: full suite chunked; only proven pre-existing / unproven-intermittent failures (filed).
+  - Details: spec §7.3 (atan2 angle residual, from refs[0] to refs[1] CCW Y-up). Depends CS4. **Scope added at the CS4 smoke (user, 2026-10-03):** ellipse semi-axis dims (rx / ry — the R1 / R2 readouts; needs a new catalogue type), and retire the radius / angle transient readouts once dims cover them (as D57 did for edge lengths — `SelectionReadoutController.show_edge_lengths` is the precedent). Reuse `constraint_dims` (readout mapping, `measure_key`, label paint) and, since CS4b (2026-10-14), `dim_graphics` (witness / dim-line layout, end-type terminators, `hit_dim`, `label.offset` placement + D65 transform carry) so angle / radius dims draw and place the CS4b way.
+
 ## Block Editor constraint system — CS4b Smart Dimension drawing + placement — 2026-10-14
 
 - [x] [type:feature] CS4b — Linear Smart Dimensions drawn with witness + dimension lines, 3-click placement [P1] [subject:CAD] [done:2026-10-14]
