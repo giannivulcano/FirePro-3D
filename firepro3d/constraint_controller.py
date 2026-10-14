@@ -1211,7 +1211,7 @@ class ConstraintController:
             self._carry_dim_labels(anchors, point_map)
         self._commit_gen += 1          # diagnostics recompute; no red re-check (D37)
 
-    def _flip_dim_signs(self, items, point_map=None) -> list:
+    def _flip_dim_signs(self, items, point_map=None) -> tuple:
         """D76: negate σ of every angle dim (and ``side`` of every point-line
         dim, D81) internal to *items* -- a reflection mirrors the sector /
         side -- BEFORE the solve, so it keeps its value.
