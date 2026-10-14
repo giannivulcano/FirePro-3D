@@ -121,7 +121,7 @@ def _write_end(name, pts, closed=True):
            "scale_mode": "real_size", "origin": [0.0, 0.0], "attributes": [],
            "primitives": [{"type": "polyline", "points": pts, "closed": closed,
                            "uid": f"u{abs(hash(name)) % 10**8:08d}",
-                           "fill": {"type": "solid"}}],
+                           "fill": {"type": "solid", "opacity": 1.0}}],
            "end": {"trim": 0.0}}
     path = os.path.join(d, f"{name}.fpdb")
     with open(path, "w", encoding="utf-8") as fh:
@@ -201,3 +201,45 @@ def test_angular_readout_arc_draws_the_terminator(qapp):
         assert dark > 100
     finally:
         os.remove(path)
+
+
+def test_positive_offset_and_short_stubs(view):
+    v = view
+    A0 = _vp(v, 0, 0)
+    g = dg.layout_dim(v, QPointF(0, 0), QPointF(200, 0), 25.0, "200", tlen=7.5)
+    assert g.a.y() == pytest.approx(A0.y() + 25, abs=1e-6)          # below
+    assert g.witness[0][1].y() == pytest.approx(A0.y() + 29, abs=1e-6)
+    assert g.label.center.y() > g.a.y()                            # text below too
+    s = dg.layout_dim(v, QPointF(0, 0), QPointF(10, 0), -20.0, "10", tlen=7.5)
+    (s0, e0), mid, (s2, e2) = s.segments
+    assert e0 == s.a and s2 == s.b
+    assert s0.x() == pytest.approx(s.a.x() - K.DIM_SHORT_LEADER_PX)
+    assert e2.x() == pytest.approx(s.b.x() + K.DIM_SHORT_LEADER_PX)
+
+
+@pytest.fixture
+def wide_end(qapp):
+    """A real Arrow plus a 2 x 6 mm 'Wide' bar in the End Types folder."""
+    paths = [_write_end("Arrow", [[0.0, 0.0], [-3.0, -0.5], [-3.0, 0.5]]),
+             _write_end("Wide", [[0, -3], [-2, -3], [-2, 3], [0, 3]])]
+    yield
+    QSettings("GV", "FirePro3D").remove(K.DIM_TERMINATOR_KEY)
+    for p in paths:
+        os.remove(p)
+
+
+def test_the_setting_selects_the_named_end(wide_end):
+    QSettings("GV", "FirePro3D").setValue(K.DIM_TERMINATOR_KEY, "Wide")
+    ed = dg.terminator_def()
+    assert ed is not None and ed.bounds == pytest.approx((-2.0, -3.0, 0.0, 3.0))
+    x0, x1, y0, y1 = _footprint(ed)
+    assert (y1 - y0 + 1) >= 14                          # 6 mm x 2.5 = 15 px tall
+    assert dg.terminator_reach_px(ed) == pytest.approx(7.5)
+
+
+def test_a_rewritten_end_file_is_reread(wide_end):
+    assert dg.terminator_def().bounds == pytest.approx((-3.0, -0.5, 0.0, 0.5))
+    import time
+    time.sleep(0.05)
+    _write_end("Arrow", [[0.0, 0.0], [-4.0, -1.0], [-4.0, 1.0]])
+    assert dg.terminator_def().bounds == pytest.approx((-4.0, -1.0, 0.0, 1.0))

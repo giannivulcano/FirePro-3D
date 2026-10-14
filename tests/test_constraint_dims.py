@@ -619,3 +619,45 @@ def test_placed_dim_pixels_in_both_themes(themed_be):
     assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(60, -40))), want)     # dim line
     assert _near(img, dpr, QPointF(v.mapFromScene(QPointF(300, -20))), want)    # witness
     assert not _near(img, dpr, QPointF(v.mapFromScene(QPointF(150, -20))), want)
+
+
+def test_dirty_rect_covers_every_painted_dim_pixel(be):
+    """The repaint region holds the whole drawn dim, a wide terminator too
+    (an 8 mm bar pointing outward = 20 px past each dim-line end, beyond
+    the glow pad; the label and witness lines never reach there)."""
+    import json
+    import os
+    from PyQt6.QtCore import QSettings
+    from firepro3d.app_data import end_types_dir
+    d = end_types_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, "Wide.fpdb")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"schema": 1, "id": "widebar01", "version": 1, "name": "Wide",
+                   "library": "System", "series": "End Types",
+                   "scale_mode": "real_size", "origin": [0.0, 0.0], "attributes": [],
+                   "primitives": [{"type": "polyline", "closed": True, "uid": "wb1",
+                                   "points": [[0, -1], [8, -1], [8, 1], [0, 1]],
+                                   "fill": {"type": "solid", "opacity": 1.0}}],
+                   "end": {"trim": 0.0}}, fh)
+    QSettings("GV", "FirePro3D").setValue(K.DIM_TERMINATOR_KEY, "Wide")
+    try:
+        v, sc = be; ctl = sc.constraint_ctl
+        ln = _line(sc, (0, 0), (300, 0))
+        ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
+        sc.clearSelection()
+        img, dpr = _grab(v)
+        want = th.detect().color("dimension")
+        r = cp.dirty_rect(v, ctl)
+        inked = 0
+        for x in range(0, v.viewport().width(), 1):
+            for y in range(150, 330):
+                q = img.pixelColor(int(x * dpr), int(y * dpr))
+                if (abs(q.red() - want.red()) + abs(q.green() - want.green())
+                        + abs(q.blue() - want.blue())) < 60:
+                    inked += 1
+                    assert r.contains(x, y), (x, y, r)
+        assert inked > 50
+    finally:
+        QSettings("GV", "FirePro3D").remove(K.DIM_TERMINATOR_KEY)
+        os.remove(path)

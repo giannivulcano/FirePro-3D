@@ -348,7 +348,6 @@ SELDIM_ARC_LABEL_GAP_PX = 4      # angular label clears its reference arc by thi
 SELDIM_ARC_REF_FRAC = 0.19       # reference-arc radius as a fraction of the leg
 SELDIM_ARC_REF_MIN_PX = 25       # ...but never smaller than this on screen
 SELDIM_ARROW_PX = 7.5            # fallback terminator length (3 mm x DIM_TERM_PX_PER_MM); dirty-pad budget
-SELDIM_ARROW_HALF_W_PX = 1.25    # fallback terminator half-width (3:1, CS4b D61)
 SELDIM_DASH = (4, 3)             # dash pattern (px) — matches selection guides
 SELDIM_FIT_MARGIN_PX = 4         # a linear label must fit its segment + this
 SELDIM_PICK_PAD_PX = 3           # label hit-rect grows by this on each side

@@ -143,11 +143,15 @@ def edge_for_points(refs, by):
 @dataclass
 class DimEntry:
     """One dim laid out for a view: its id, the readout spec (HUD field +
-    typed setter), the value label layout, and the drawn graphic (CS4b D60)."""
+    typed setter), the value label layout, the drawn graphic (CS4b D60) and
+    the frame's terminator (``EndDef`` or None = the built-in one, resolved
+    once per frame build) with its repaint reach in px."""
     cid: str
     spec: object
     layout: object
     graphic: object
+    term: object = None
+    reach: float = 7.5
 
 
 def dim_entries(view, ctl, by=None, held=None) -> list:
@@ -160,8 +164,10 @@ def dim_entries(view, ctl, by=None, held=None) -> list:
     if not ctl.enabled:
         return []
     by = ctl.item_by_uid() if by is None else by
+    from .geometry_2d import LineItem
     smgr = getattr(ctl._scene, "scale_manager", None)
-    tlen = dg.terminator_length_px(dg.terminator_def())
+    ed = dg.terminator_def()
+    tlen, reach = dg.terminator_length_px(ed), dg.terminator_reach_px(ed)
     out = []
     for c in ctl.constraints:
         if c.type != "dim_distance" or c.inert:
@@ -172,7 +178,10 @@ def dim_entries(view, ctl, by=None, held=None) -> list:
         a, b = ends
         r0 = c.refs[0] if len(c.refs) == 1 else None
         it0 = by.get(r0.get("uid")) if isinstance(r0, dict) else None
-        away = it0.sceneBoundingRect().center() if it0 is not None else None
+        # D62 auto side: away from a shape's centre; a line's centre lies on
+        # its own edge, so a line (like a two-point dim) takes screen-up.
+        away = (it0.sceneBoundingRect().center()
+                if it0 is not None and not isinstance(it0, LineItem) else None)
         hit = readout_for(ctl, c, by)
         if hit is not None:
             it, spec = hit
@@ -185,12 +194,12 @@ def dim_entries(view, ctl, by=None, held=None) -> list:
                            apply=lambda _v: None, a=a, b=b, away=away)
         measured = math.hypot(b.x() - a.x(), b.y() - a.y())
         shown = c.value if (c.driving and c.value is not None) else measured
-        spec = replace(spec, value=float(shown))
+        spec = replace(spec, value=float(shown), a=a, b=b)   # HUD spec = drawn points
         text = readout_text(spec, smgr)
         if not c.driving:
             text = f"({text})"
         g = dg.layout_dim(view, a, b, dg.offset_of(c.label), text, away=away, tlen=tlen)
-        out.append(DimEntry(c.id, spec, g.label, g))
+        out.append(DimEntry(c.id, spec, g.label, g, ed, reach))
     return out
 
 
@@ -220,21 +229,19 @@ def paint_dims(painter, view, ctl, dims, t) -> None:
     editing = ro.editing_key() if ro is not None else None
     by_id = {c.id: c for c in ctl.constraints}
     diag = ctl.diagnostics()
-    ed = dg.terminator_def()
     for e in dims:
         c = by_id.get(e.cid)
         if c is None or editing == ("dim", e.cid):
             continue
-        dg.paint_dim(painter, e.graphic, dim_colour(ctl, c, diag, t), t, ed)
+        dg.paint_dim(painter, e.graphic, dim_colour(ctl, c, diag, t), t, e.term)
 
 
 def dims_rect(view, dims) -> QRectF:
     """Viewport bounds of every drawn dim."""
     from . import dim_graphics as dg
-    tlen = dg.terminator_length_px(dg.terminator_def())
     out = QRectF()
     for e in dims:
-        out = out.united(dg.bounds(e.graphic, tlen))
+        out = out.united(dg.bounds(e.graphic, e.reach))
     return out
 
 

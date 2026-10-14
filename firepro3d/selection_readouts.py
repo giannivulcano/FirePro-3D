@@ -339,16 +339,21 @@ class SelectionReadoutController:
         from .constants import SELDIM_DIRTY_PAD_PX as pad
         from .readout_paint import label_path
         out = QRectF()
+        arcs = False
         for e in entries:
             lay = e.layout
             if not lay.fits:
                 continue
             out = out.united(label_path(lay).boundingRect())
             if lay.arc_center is not None:
+                arcs = True
                 C, r = lay.arc_center, lay.arc_radius_px
                 out = out.united(QRectF(C.x() - r, C.y() - r, 2 * r, 2 * r))
         if out.isEmpty():
             return QRect()
+        if arcs:                       # CS4b D61: the arc terminator may be a wide end
+            from .dim_graphics import terminator_def, terminator_reach_px
+            pad = max(pad, int(math.ceil(terminator_reach_px(terminator_def()))) + 2)
         return out.adjusted(-pad, -pad, pad, pad).toAlignedRect()
 
     def refresh(self) -> None:

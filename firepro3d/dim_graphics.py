@@ -121,6 +121,8 @@ def layout_dim(view, a, b, offset, text, away=None, tlen=7.5) -> DimGraphic:
     sgn = 1.0 if d_px >= 0 else -1.0
     ox, oy = vx * sgn, vy * sgn                            # away from the geometry
     witness = []
+    # D66: no witness lines at offset 0 -- nor whenever the dim line sits
+    # within the witness gap, where a witness would be shorter than its gap.
     if abs(d_px) > DIM_WITNESS_GAP_PX:
         for P0 in (A0, B0):
             witness.append((
@@ -167,12 +169,14 @@ def hit_dim(g: DimGraphic, vp_pt, tol=None) -> bool:
     return any(_seg_dist(p, s, e) <= tol for s, e in g.segments)
 
 
-def bounds(g: DimGraphic, tlen: float = 7.5) -> QRectF:
-    """Viewport bounds of every part of *g* (repaint region)."""
+def bounds(g: DimGraphic, reach: float = 7.5) -> QRectF:
+    """Viewport bounds of every part of *g* (repaint region); *reach* =
+    :func:`terminator_reach_px` -- how far a terminator spreads from its tip."""
     out = label_path(g.label).boundingRect()
     pts = [g.a, g.b] + [q for seg in g.witness + g.segments for q in seg]
+    r = reach + 1.0                                   # + the 1 px stroke
     for q in pts:
-        out = out.united(QRectF(q.x() - tlen, q.y() - tlen, 2 * tlen, 2 * tlen))
+        out = out.united(QRectF(q.x() - r, q.y() - r, 2 * r, 2 * r))
     return out
 
 
@@ -223,13 +227,52 @@ def terminator_length_px(ed) -> float:
     return max(-ed.bounds[0], ed.bounds[2], 0.0) * DIM_TERM_PX_PER_MM
 
 
+def terminator_reach_px(ed) -> float:
+    """How far a terminator spreads from its tip in any direction, px (the
+    repaint pad -- a wide end reaches further sideways than back)."""
+    if ed is None:
+        L, W = DIM_TERM_FALLBACK_MM
+        return max(L, W / 2.0) * DIM_TERM_PX_PER_MM
+    return max(abs(v) for v in ed.bounds) * DIM_TERM_PX_PER_MM
+
+
 _MISSING = object()
 
 
-def _crisp(p) -> QPointF:
-    """*p* snapped to its pixel's centre, so a 1 px line covers whole pixels
-    instead of two half-tone rows (the glyph-box half-px inset idiom)."""
-    return QPointF(math.floor(p.x()) + 0.5, math.floor(p.y()) + 0.5)
+def _snap(v: float, dpr: float) -> float:
+    """*v* (logical px) moved to its device pixel's centre."""
+    return (math.floor(v * dpr) + 0.5) / dpr
+
+
+def _crisp_seg(s, e, dpr: float):
+    """An axis-aligned segment with its cross coordinate on a device pixel
+    centre, so a 1 px line covers whole pixels instead of two half-tone rows
+    (the glyph-box half-px inset idiom); diagonals are left alone (they are
+    anti-aliased anyway, and per-end snapping would tilt short ones)."""
+    if abs(e.y() - s.y()) < 1e-6:
+        y = _snap(s.y(), dpr)
+        return QPointF(s.x(), y), QPointF(e.x(), y)
+    if abs(e.x() - s.x()) < 1e-6:
+        x = _snap(s.x(), dpr)
+        return QPointF(x, s.y()), QPointF(x, e.y())
+    return s, e
+
+
+def _crisp_tip(tip, outward, dpr: float) -> QPointF:
+    """A terminator tip snapped like the axis-aligned dim line it sits on."""
+    ux, uy = outward
+    if abs(uy) < 1e-6:
+        return QPointF(tip.x(), _snap(tip.y(), dpr))
+    if abs(ux) < 1e-6:
+        return QPointF(_snap(tip.x(), dpr), tip.y())
+    return QPointF(tip)
+
+
+def _dpr(painter) -> float:
+    try:
+        return float(painter.device().devicePixelRatioF()) or 1.0
+    except Exception:
+        return 1.0
 
 
 def paint_terminator(painter, tip, outward, colour, ed=_MISSING) -> None:
@@ -258,15 +301,22 @@ def paint_terminator(painter, tip, outward, colour, ed=_MISSING) -> None:
 def paint_dim(painter, g: DimGraphic, colour, th, ed=_MISSING) -> None:
     """D60: witness lines, dim line, terminators, then the text -- all in
     *colour* (viewport px; the painter is reset)."""
+    from PyQt6.QtGui import QPainter
     from .readout_paint import paint_readout
     if ed is _MISSING:
         ed = terminator_def()
-    pen = QPen(colour, 1.0)
-    pen.setCosmetic(True)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    for s, e in g.witness + g.segments:
-        painter.drawLine(_crisp(s), _crisp(e))
-    for tip, u in g.terms:
-        paint_terminator(painter, tip, u, colour, ed)
+    dpr = _dpr(painter)
+    painter.save()
+    try:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(colour, 1.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for s, e in g.witness + g.segments:
+            painter.drawLine(*_crisp_seg(s, e, dpr))
+        for tip, u in g.terms:
+            paint_terminator(painter, _crisp_tip(tip, u, dpr), u, colour, ed)
+    finally:
+        painter.restore()
     paint_readout(painter, g.label, th, color=colour)
