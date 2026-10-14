@@ -256,3 +256,186 @@ def test_rotate_carries_the_radial_leader(qapp):
     with ctl.edit([c], point_map=rot90):
         c._center = rot90(c._center); c.set_radius(c._radius)
     assert d.label["angle"] == pytest.approx(100.0, abs=1e-6)
+
+
+# ── CS5 T4-5 review fix round ───────────────────────────────────────────
+
+
+def _flip(p):
+    return QPointF(p.x(), -p.y())
+
+
+def _mirror_copy(sc, ctl, srcs, make_copies):
+    """Mirror-copy *srcs* across the X axis the way the Mirror tool does:
+    reflected copies exist, then paste_records gets the reflection."""
+    copies = make_copies()
+    uid_map = {s._uid: c._uid for s, c in zip(srcs, copies)}
+    n = len(ctl.constraints)
+    ctl.paste_records(ctl.internal_records(srcs), uid_map,
+                      mirror_axis=(QPointF(0, 0), QPointF(1, 0)), point_map=_flip)
+    return ctl.constraints[n:]
+
+
+def test_mirror_copy_mirrors_the_radial_leader(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    c = _add(sc, CircleItem(QPointF(100, 50), 30), "_draw_circles")
+    ctl.add("dim_diameter", [R(c, "curve")], label={"angle": 10.0})
+    (new,) = _mirror_copy(sc, ctl, [c], lambda: [
+        _add(sc, CircleItem(QPointF(100, -50), 30), "_draw_circles")])
+    assert new.type == "dim_diameter" and not new.inert
+    assert new.label["angle"] == pytest.approx(-10.0, abs=1e-6)
+    assert new.id not in ctl.red
+
+
+def test_mirror_copy_of_angle_and_point_line_keeps_value(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    l1 = _add(sc, LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(0, 0), QPointF(50, -86.6025403784)), "_draw_lines")
+    m1 = _add(sc, LineItem(QPointF(0, 200), QPointF(100, 200)), "_draw_lines")
+    m2 = _add(sc, LineItem(QPointF(20, 150), QPointF(120, 150)), "_draw_lines")
+    refs = [R(l1, "edge"), R(l2, "edge")]
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, QPointF(60, -20))
+    ang = ctl.add("dim_angle", refs, helper=h)
+    t, prefs = ctl.dim_precheck([R(m1, "edge"), R(m2, "edge")])
+    pl = ctl.add(t, prefs)
+    srcs = [l1, l2, m1, m2]
+
+    def copies():
+        return [_add(sc, LineItem(_flip(s._pt1), _flip(s._pt2)), "_draw_lines")
+                for s in srcs]
+    new = _mirror_copy(sc, ctl, srcs, copies)
+    assert {x.type for x in new} == {"dim_angle", "dim_point_line"}
+    pairs = zip(sorted(new, key=lambda x: x.type), sorted((ang, pl), key=lambda x: x.type))
+    for x, src in pairs:
+        assert not x.inert and x.id not in ctl.red
+        assert ctl.measure(x) == pytest.approx(ctl.measure(src), abs=1e-6)
+
+
+def test_polar_array_copy_turns_the_radial_leader(qapp):
+    from firepro3d.constraint_dims import point_map_like
+    sc = _sc(); ctl = sc.constraint_ctl
+    c = _add(sc, CircleItem(QPointF(100, 0), 30), "_draw_circles")
+    ctl.add("dim_diameter", [R(c, "curve")], label={"angle": 10.0})
+    centre = QPointF(0, 0)
+    turn = 90.0
+    # exactly the Polar Array tool's calls (ModifyToolsController.commit_array)
+    records = sc._clipboard_item_dicts([c])
+    cons = ctl.internal_records([c])
+    new = sc.paste_items(QPointF(0, 0), data=records, constraints=cons,
+                         rotation_deg=turn) or []
+    with ctl.edit(new):
+        for it in new:
+            it.manip_rotate(turn, QPointF(centre))
+    (copy,) = [x for x in new if isinstance(x, CircleItem)]
+    d2 = [x for x in ctl.constraints if x.refs[0].get("uid") == copy._uid]
+    assert len(d2) == 1
+    # ground truth: the source's hit point carried by the tool's own rotate
+    a = math.radians(10.0)
+    hit = QPointF(100 + 30 * math.cos(a), -30 * math.sin(a))
+    q = point_map_like(lambda it: it.manip_rotate(turn, QPointF(centre)))(hit)
+    want = math.degrees(math.atan2(-(q.y() - copy._center.y()), q.x() - copy._center.x()))
+    assert (d2[0].label["angle"] - want + 180.0) % 360.0 - 180.0 == pytest.approx(0.0, abs=1e-6)
+
+
+def test_cancel_dim_drag_restores_sector_value_and_label(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    l1 = _add(sc, LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(0, 0), QPointF(50, -86.6025403784)), "_draw_lines")
+    refs = [R(l1, "edge"), R(l2, "edge")]
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, QPointF(60, -20))
+    c = ctl.add("dim_angle", refs, helper=h)
+    v0, h0, l0 = c.value, dict(c.helper), c.label
+    assert ctl.drag_dim_to_scene(c.id, QPointF(-60, -20))
+    assert c.value == pytest.approx(120.0, abs=1e-6) and c.helper != h0
+    assert ctl.cancel_dim_drag()
+    assert c.value == pytest.approx(v0) and c.helper == h0 and c.label == l0
+    circ = _add(sc, CircleItem(QPointF(300, 0), 30), "_draw_circles")
+    d = ctl.add("dim_diameter", [R(circ, "curve")], label={"angle": 10.0})
+    assert ctl.drag_dim_to_scene(d.id, QPointF(300, 100))
+    assert d.label["angle"] != 10.0
+    assert ctl.cancel_dim_drag() and d.label == {"angle": 10.0}
+
+
+def test_begin_dim_drag_ignores_non_dims(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    ln = _add(sc, LineItem(QPointF(0, 0), QPointF(100, 10)), "_draw_lines")
+    h = ctl.add("horizontal", [R(ln, "edge")])
+    ctl.begin_dim_drag(h.id, QPointF(0, 0))
+    assert ctl.dim_drag is None
+
+
+def test_dim_text_prefixes_and_reference_parentheses(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    c = _add(sc, CircleItem(QPointF(0, 0), 30), "_draw_circles")
+    e = _add(sc, EllipseItem(QPointF(300, 0), 80, 45, 15), "_draw_ellipses")
+    arc = _add(sc, ArcItem(QPointF(0, 1200), 20, 0, 90), "_draw_arcs")
+    l1 = _add(sc, LineItem(QPointF(0, 500), QPointF(100, 500)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(0, 500), QPointF(50, 500 - 86.6025403784)), "_draw_lines")
+    r = ctl.add("dim_radius", [R(c, "curve")])
+    ctl.set_dim_kind(r.id, "dim_diameter")
+    r1 = ctl.add("dim_radius", [R(e, "rx")])
+    rr = ctl.add("dim_radius", [R(arc, "curve")])
+    refs = [R(l1, "edge"), R(l2, "edge")]
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, QPointF(60, 480))
+    a = ctl.add("dim_angle", refs, helper=h)
+    assert ctl.dim_text(r).startswith("Smart Dimension · Ø ")
+    assert ctl.dim_text(r1).startswith("Smart Dimension · R1 ")
+    assert ctl.dim_text(rr).startswith("Smart Dimension · R ")
+    assert ctl.dim_text(a).endswith("60°")
+    ctl.set_driving(a.id, False)
+    assert ctl.dim_text(a).endswith("(60°)")
+    ctl.set_driving(r.id, False)
+    t = ctl.dim_text(r)
+    assert "Ø (" in t or t.endswith(")")
+
+
+def test_adapter_show_as_and_angle_value_field(qapp):
+    from firepro3d.constraint_controller import ConstraintAdapter
+    sc = _sc(); ctl = sc.constraint_ctl
+    c = _add(sc, CircleItem(QPointF(0, 0), 30), "_draw_circles")
+    pg = _add(sc, RegularPolygonItem(QPointF(300, 0), 6, 60.0), "_draw_polygons")
+    e = _add(sc, EllipseItem(QPointF(600, 0), 80, 45, 15), "_draw_ellipses")
+    dc = ctl.add("dim_radius", [R(c, "curve")])
+    dp = ctl.add("dim_radius", [R(pg, "radius")])
+    de = ctl.add("dim_radius", [R(e, "rx")])
+    props = ConstraintAdapter(ctl, dc).get_properties()
+    assert props["Show as"] == {"type": "enum", "options": ["Radius", "Diameter"],
+                                "value": "Radius"}
+    assert "Show as" not in ConstraintAdapter(ctl, dp).get_properties()
+    assert "Show as" not in ConstraintAdapter(ctl, de).get_properties()
+    ConstraintAdapter(ctl, dc).set_property("Show as", "Diameter")
+    assert dc.type == "dim_diameter" and dc.value == pytest.approx(60.0)
+    l1, l2 = _vee(sc)
+    refs = [R(l1, "edge"), R(l2, "edge")]
+    h, _ = cd.placement_for(ctl, "dim_angle", refs, QPointF(30, -30))
+    a = ctl.add("dim_angle", refs, helper=h)
+    v = ConstraintAdapter(ctl, a).get_properties()["Value"]
+    assert v["type"] == "string" and v["suffix"] == "°"
+
+
+def test_invalid_cs5_records_load_inert(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    l1 = _add(sc, LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(0, 50), QPointF(100, 50)), "_draw_lines")
+    l3, l4 = _vee(sc)
+    ci = _add(sc, CircleItem(QPointF(500, 0), 30), "_draw_circles")
+    ar = _add(sc, ArcItem(QPointF(800, 0), 30, 0, 90), "_draw_arcs")
+    good = [
+        {"type": "dim_point_line", "refs": [R(l2, "mid"), R(l1, "edge")],
+         "value": 50.0, "helper": {"side": 1}},
+        {"type": "dim_arc_angle", "refs": [R(ar, "curve")], "value": 90.0},
+        {"type": "dim_angle", "refs": [R(l3, "edge"), R(l4, "edge")], "value": 90.0,
+         "helper": {"dirs": [1, 1], "sign": -1}},
+    ]
+    ctl.load([dict(g, id=f"g{i}") for i, g in enumerate(good)])
+    assert [x.inert for x in ctl.constraints] == [False, False, False]
+    bad = [
+        dict(good[0], helper={"side": 2}),
+        dict(good[0], helper={"side": True}),
+        dict(good[1], refs=[R(ci, "curve")]),
+        dict(good[1], value=360.0),
+        dict(good[2], value=180.0),
+    ]
+    for i, b in enumerate(bad):
+        ctl.load([dict(b, id=f"b{i}")])
+        assert ctl.constraints[0].inert, bad[i]

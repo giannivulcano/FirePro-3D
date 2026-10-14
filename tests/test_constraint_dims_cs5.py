@@ -157,3 +157,52 @@ def test_polyline_corner_readout_retired(qapp):
     assert sc.readouts.entries() == []
     sc.readouts.show_dim_readouts = True             # machinery opt-in still works
     assert any(s.key.startswith("ang:") for _i, s in sc.readouts.entries())
+
+
+# ── CS5 T4-5 review fix round ───────────────────────────────────────────
+
+
+def _polygon_hit(inscribed):
+    sc = _sc(); ctl = sc.constraint_ctl
+    pg = _add(sc, RegularPolygonItem(QPointF(5, 7), 6, 60.0, 17.0, inscribed),
+              "_draw_polygons")
+    c = sm.Constraint.new("dim_radius", [R(pg, "radius")])
+    g = cd.dim_geom(ctl, c)
+    return pg, cd._radial_points(g, 20.0)[0]
+
+
+def test_circumscribed_polygon_leader_hits_a_side_midpoint(qapp):
+    pg, hit = _polygon_hit(False)
+    vs = pg.vertices()
+    mids = [QPointF((vs[k].x() + vs[(k + 1) % 6].x()) / 2,
+                    (vs[k].y() + vs[(k + 1) % 6].y()) / 2) for k in range(6)]
+    assert min(math.hypot(hit.x() - m.x(), hit.y() - m.y()) for m in mids) < 1e-6
+
+
+def test_inscribed_polygon_leader_hits_a_vertex(qapp):
+    pg, hit = _polygon_hit(True)
+    assert min(math.hypot(hit.x() - v.x(), hit.y() - v.y()) for v in pg.vertices()) < 1e-6
+
+
+def test_point_line_key_ignores_pick_order(qapp):
+    sc = _sc(); ctl = sc.constraint_ctl
+    l1 = _add(sc, LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines")
+    l2 = _add(sc, LineItem(QPointF(20, -50), QPointF(120, -50)), "_draw_lines")
+    t, refs = ctl.dim_precheck([R(l1, "edge"), R(l2, "edge")])
+    assert ctl.add(t, refs) is not None
+    msgs = []
+    ctl._status = msgs.append
+    assert ctl.dim_precheck([R(l2, "edge"), R(l1, "edge")]) is None
+    assert msgs and "Already dimensioned" in msgs[-1]
+
+
+def test_entry_for_without_a_readout_spec_is_none(qapp):
+    from firepro3d.model_view import Model_View
+    sc = _sc(); ctl = sc.constraint_ctl
+    c = _add(sc, CircleItem(QPointF(0, 0), 30), "_draw_circles")
+    d = ctl.add("dim_diameter", [R(c, "curve")], label={"angle": 20.0})
+    v = Model_View(sc)
+    assert cd.entry_for(v, ctl, d) is not None
+    c.dimension_specs = lambda: []
+    assert cd.entry_for(v, ctl, d) is None
+    v.close()

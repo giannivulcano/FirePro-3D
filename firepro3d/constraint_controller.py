@@ -2161,7 +2161,7 @@ class ConstraintController:
         distance, so a click just selects). An arc sweep never moves (D75)."""
         c = self.find(cid)
         if (c is None or c.inert or c.type == "dim_arc_angle"
-                or not sm.REGISTRY[c.type].implemented):
+                or c.type not in sm.VALUED):
             return
         self.dim_drag = [cid, (copy.deepcopy(c.label), copy.deepcopy(c.helper), c.value),
                          QPointF(vp_pt), False]
@@ -2583,6 +2583,21 @@ class ConstraintController:
             for c in sm.remap_for_copy([src], uid_map):
                 if not self._valid(c, by):
                     c.raw, c.invalid = c.to_dict(), True
+                elif anchor is not None and src.type in ("dim_radius", "dim_diameter"):
+                    from .constraint_dims import dim_geom        # D76: leader mirrored
+                    g = dim_geom(self, c, by)
+                    if g is not None:
+                        q = point_map(anchor)
+                        c.label = {**(c.label or {}), "angle": math.degrees(math.atan2(
+                            -(q.y() - g.centre.y()), q.x() - g.centre.x()))}
+                elif (rotation_deg is not None and point_map is None
+                        and src.type in ("dim_radius", "dim_diameter")
+                        and isinstance(c.label, dict)
+                        and isinstance(c.label.get("angle"), (int, float))
+                        and not isinstance(c.label.get("angle"), bool)):
+                    # D76: the Polar Array turns the copy by *rotation_deg*
+                    # (Y-up CCW, == manip_rotate's argument); so does its leader.
+                    c.label = {**c.label, "angle": c.label["angle"] + float(rotation_deg)}
                 elif anchor is not None and src.type in sm.LINEAR_DIMS:  # D65
                     from . import dim_graphics as dg
                     self._refit_edge(c, point_map(mid), by)

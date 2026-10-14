@@ -102,7 +102,15 @@ def measure_key(c, by):
     if c.type == "dim_angle" and len(refs) == 2:
         return ("angle", frozenset(_point_id(r) for r in refs))       # any sector
     if c.type == "dim_point_line" and len(refs) == 2:                 # D81
-        return ("point_line", _point_id(refs[0]), _point_id(refs[1]))
+        # Unordered: the same parallel pair picked either way round is one
+        # measure, so the point ref's midpoint handle maps back to its edge.
+        p, e = refs
+        if not sm.is_ground(p):
+            h = p.get("h")
+            p = {"uid": p.get("uid"), "h": _MID_EDGE.get(h) or (
+                f"s{h[1:]}" if isinstance(h, str) and h.startswith("m") and h[1:].isdigit()
+                else h)}
+        return ("point_line", frozenset((_point_id(p), _point_id(e))))
     if len(refs) == 2:
         return frozenset((_point_id(refs[0]), _point_id(refs[1])))
     if len(refs) != 1 or sm.is_ground(refs[0]):
@@ -124,7 +132,8 @@ def measure_key(c, by):
     return ("uid", uid, h)
 
 
-_DIM_READOUT_KEYS = ("length", "width", "height", "radius", "r1", "r2", "angle")
+_MID_EDGE = {"mid": "edge", "tm": "top", "rm": "right", "bm": "bottom", "lm": "left"}
+_DIM_READOUT_KEYS =("length", "width", "height", "radius", "r1", "r2", "angle")
 
 
 def is_dim_readout(key) -> bool:
@@ -189,8 +198,10 @@ def _radial_points(g: DimGeom, angle):
     from .geometry_2d import ArcItem, EllipseItem, RegularPolygonItem
     it, c = g.item, g.centre
     if isinstance(it, RegularPolygonItem):
-        base = it._rotation_deg + (0.0 if it._inscribed else 180.0 / it._sides)
-        dirs = [base + k * 360.0 / it._sides for k in range(it._sides)]
+        # Inscribed: vertices at rot + k*step (radius R). Circumscribed: the
+        # side midpoints at rot + k*step (apothem) -- the radius curve's r.
+        base = it._rotation_deg
+        dirs =[base + k * 360.0 / it._sides for k in range(it._sides)]
     elif isinstance(it, EllipseItem):
         off = 0.0 if g.h == "rx" else 90.0
         dirs = [it._rotation_deg + off, it._rotation_deg + off + 180.0]
@@ -294,6 +305,8 @@ def entry_for(view, ctl, c, by=None, held=None, smgr=None, ed=None, tlen=7.5,
         px_per_mm = max(math.hypot(C1.x() - C0.x(), C1.y() - C0.y()), 1e-9)
         r_px = max(float(SELDIM_ARC_REF_MIN_PX), SELDIM_ARC_REF_FRAC * g.r * px_per_mm)
         start, span, dashed = g.start_deg, g.span_deg, []
+    if spec is None:                       # no readout spec to carry (radial / sweep)
+        return None
     text = readout_text(replace(spec, value=float(shown)), smgr)
     if not c.driving:
         text = f"({text})"
