@@ -70,13 +70,36 @@ def test_arc_dim_paints_solid_arc_and_dashed_muted_extension(view):
     g = dg.layout_arc_dim(view, QPointF(0, 0), 40.0, 0.0, 90.0, "90\u00b0",
                           dashed=[(QPointF(C.x() + 90, C.y() + 0.5),
                                    QPointF(C.x() + 50, C.y() + 0.5))])
-    col = QColor("#b48cff")
+    col = QColor("#ff0000")             # far from both themes' muted token
     img = _paint(g, col)
     a = math.radians(30)
-    px = img.pixelColor(int(C.x() + 40 * math.cos(a)), int(C.y() - 40 * math.sin(a)))
-    assert px.blue() > 120 and px.red() > 90            # the arc in the dim colour
+    ax, ay = int(C.x() + 40 * math.cos(a)), int(C.y() - 40 * math.sin(a))
+    near = [img.pixelColor(ax + i, ay + j) for i in (-1, 0, 1) for j in (-1, 0, 1)]
+    best = max(near, key=lambda q: q.red())
+    assert best.red() > 120 and best.green() < 60 and best.blue() < 60   # arc: dim colour
     muted = th.detect().color("muted")
     hits = [img.pixelColor(x, int(C.y() + 0.5)) for x in range(int(C.x()) + 52, int(C.x()) + 88)]
     lit = [q for q in hits if q.value() > 40]
     assert lit and len(lit) < len(hits)                  # dashed: some lit, some gaps
-    assert all(abs(q.red() - muted.red()) < 60 for q in lit)
+    brightest = max(lit, key=lambda q: q.value())
+    assert abs(brightest.blue() - muted.blue()) < 30     # muted, never the dim red
+    assert abs(brightest.green() - muted.green()) < 30
+
+
+def test_arc_end_terminators_point_outward_along_the_arc(view):
+    g = dg.layout_arc_dim(view, QPointF(0, 0), 40.0, 0.0, 90.0, "90°")
+    (t0, u0), (t1, u1) = g.terms
+    assert u0 == pytest.approx((0.0, 1.0), abs=1e-9)     # at 0 deg: points down (CW, away)
+    assert u1 == pytest.approx((-1.0, 0.0), abs=1e-9)    # at 90 deg: points left (CCW, away)
+    assert t1.y() < t0.y()
+
+
+def test_arc_hit_across_zero_degrees(view):
+    C = QPointF(view.mapFromScene(QPointF(0, 0)))
+    g = dg.layout_arc_dim(view, QPointF(0, 0), 40.0, 330.0, 60.0, "60°")
+
+    def at(deg):
+        r = math.radians(deg)
+        return QPointF(C.x() + 40 * math.cos(r), C.y() - 40 * math.sin(r))
+    assert dg.hit_dim(g, at(350)) and dg.hit_dim(g, at(10))
+    assert not dg.hit_dim(g, at(180))
