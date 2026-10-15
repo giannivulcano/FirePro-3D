@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS10 Perpendicular — 2026-10-15
+
+- [x] [type:feature] CS10 — Perpendicular [P1] [subject:CAD] [done:2026-10-15]
+  - Details: spec §7.3 (normalized dot). Depends CS9.
+  - Built: `feat/cs10-perpendicular` (base `d60fe0de`; feature/Medium, FP3 deltas as FP1 rulings PP1-PP4 + probe-driven PP5/PP6; inline, per-task reviews). Edge + edge or edge + X / Y axis (edge-first; axis = V / H on the edge, PP1); one glyph per edge (PP3); two selected lines add at once, nothing selected -> pick mode, rect / square-polygon adjacent sides refused as by-construction, opposite sides red (PP4); small Perpendicular button after Parallel. P4 probe: the spec's normalized-dot row (and CS9's sine row) has a zero gradient at the opposite relation and endpoint least change shrinks lines -> two near-parallel lines went red. PP5: both angular rows are now `ANG_SCALE · wrap_π(atan2(cross, dot) − offset)` and a rotate-first pass (`_rotate_first`, temporary length-holding `dim_distance` rows via `_solve(hold=)`, plain-solve fallback) turns edges keeping their lengths; PP6: Parallel gets both (CS9 behaviour change, phase-drift logged). Guards RED-proven via red-proof.ps1 (9 proofs, 32 guards). Keep-green: 845 passed; only the filed host-load D18 perf bars failed, equally at base `d60fe0de` in 2 interleaved pairs. User smoke passed.
+
 ## Block Editor constraint system — nested block handles — 2026-10-15
 
 - [x] [type:feature] Nested block primitives participate in constraints like loose primitives (edges, vertices, midpoints, origin, arcs) [P1] [subject:CAD] [done:2026-10-15]
