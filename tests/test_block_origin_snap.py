@@ -16,7 +16,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d.block_definition import BlockDefinition
-from tests._snap_polish_helpers import close_view, dwell, make_view, move
+from tests._snap_polish_helpers import click, close_view, dwell, make_view, move
 
 _INS = (100.0, 80.0)      # on-screen: make_view shows -400..400 x -300..300
 
@@ -63,8 +63,8 @@ def test_hover_snaps_to_an_off_geometry_block_origin(qapp, role, mode):
         close_view(view, scene)
 
 
-# ALIGN arms only in ``_ALIGN_PLACEMENT_MODES`` (place_block is not one), so
-# the plan case acquires while placing a wall.
+# The plan case acquires while placing a wall (it predates place_block
+# joining ``_ALIGN_PLACEMENT_MODES``; that case has its own guard below).
 @pytest.mark.parametrize("role,mode", [("plan", "wall"), ("block_editor", "draw_line")])
 def test_align_dwell_on_an_off_geometry_block_origin_tracks_its_axes(qapp, role, mode):
     view, scene, _inst = _view_with_block(role, mode)
@@ -122,5 +122,25 @@ def test_block_origin_inside_its_geometry_still_snaps_to_the_instance(qapp):
         res = scene._snap_result
         assert res is not None and res.snap_type == "midpoint"
         assert _at(res.point, *_INS) and res.source_item is inst
+    finally:
+        close_view(view, scene)
+
+
+def test_align_arms_and_places_while_placing_a_block(qapp):
+    view, scene, _inst = _view_with_block("plan", "place_block")
+    try:
+        assert scene._align_active_item is not None                      # [RED]
+        assert view._mode_wants_crosshair("place_block") is False  # cursor kept (user 2026-10-15)
+        dwell(view, QPointF(_INS[0] + 1.0, _INS[1] + 1.0))   # acquire the origin
+        target = QPointF(_INS[0] - 300.0, _INS[1] + 4.0)     # near its H ray
+        move(view, target)
+        res = scene._align_result
+        assert res is not None and res.snap_type == "align_path"
+        assert _at(res.point, _INS[0] - 300.0, _INS[1], 0.5)
+        before = set(map(id, scene._block_instances))
+        click(view, target)
+        new = [i for i in scene._block_instances if id(i) not in before]
+        assert len(new) == 1
+        assert _at(QPointF(*new[0].block_pos()), _INS[0] - 300.0, _INS[1], 0.5)
     finally:
         close_view(view, scene)
