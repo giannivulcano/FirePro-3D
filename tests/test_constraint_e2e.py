@@ -1149,3 +1149,64 @@ def test_e2e_coincident_picked_on_a_nested_handle_survives_reopen(win_with_edito
     assert [x.type for x in sc2.constraint_ctl.active()] == ["coincident"]
     t3 = oracle(i2, 60.0, -80.0)
     assert math.hypot(l2._pt1.x() - t3.x(), l2._pt1.y() - t3.y()) < 1e-6
+
+
+# -- CS10 Perpendicular §11 #2-#5 (real window, real ribbon, posted events) -----
+
+def _cos(a, b):
+    u = (a._pt2.x() - a._pt1.x(), a._pt2.y() - a._pt1.y())
+    v = (b._pt2.x() - b._pt1.x(), b._pt2.y() - b._pt1.y())
+    return (u[0] * v[0] + u[1] * v[1]) / (math.hypot(*u) * math.hypot(*v))
+
+
+def test_e2e_perpendicular_on_near_parallel_lines_survives_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _ln(sc, (-100, -60), (100, -60)); b = _ln(sc, (-100, 60), (100, 75))
+    lb = math.hypot(200, 15)
+    _click_btn(win, "Perpendicular", a, b)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["perpendicular"]
+    assert abs(_cos(a, b)) < 1e-9                                       # PP5: turned, not red
+    assert math.hypot(b._pt2.x() - b._pt1.x(), b._pt2.y() - b._pt1.y()) == pytest.approx(lb, abs=1e-6)
+    sc.clearSelection(); a.setSelected(True); QApplication.processEvents()
+    p0 = QPointF(a._pt2)
+    _drag(view, p0, p0 + QPointF(0, 70))
+    assert abs(_cos(a, b)) < 1e-9
+
+
+def test_e2e_perpendicular_save_close_reopen_undo_redo(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene; view = w.view
+    a = _ln(sc, (-80, 0), (80, 0)); b = _ln(sc, (0, 20), (20, 120))
+    sc.push_undo_state()
+    _click_btn(win, "Perpendicular", a, b)
+    assert len(sc.constraint_ctl.constraints) == 1
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    _ctrl(view, Qt.Key.Key_Y)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["perpendicular"]
+    ua, ub = a._uid, b._uid
+    sc.clearSelection()
+    defn = w.commit_block("cs10-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {ln._uid: ln for ln in sc2._draw_lines}
+    assert [c.type for c in sc2.constraint_ctl.active()] == ["perpendicular"]
+    assert abs(_cos(by[ua], by[ub])) < 1e-9
+
+
+def test_e2e_perpendicular_conflict_red_and_held(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    a = _ln(sc, (-80, 0), (80, 0)); b = _ln(sc, (-80, 60), (80, 60))
+    sc.constraint_ctl.add("horizontal", [{"uid": a._uid, "h": "edge"}])
+    sc.constraint_ctl.add("horizontal", [{"uid": b._uid, "h": "edge"}])
+    before = [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)]
+    _click_btn(win, "Perpendicular", a, b)
+    c = sc.constraint_ctl.constraints[-1]
+    assert c.type == "perpendicular" and c.id in sc.constraint_ctl.red
+    assert [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)] == before
