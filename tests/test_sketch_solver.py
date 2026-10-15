@@ -1075,6 +1075,10 @@ def test_parallel_row_is_ang_scaled_sine():
     s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 3.0]))   # 90 deg
     ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
     assert abs(s.rows[0].fn(s.x)[0]) == pytest.approx(ss.ANG_SCALE)
+    c, si = math.cos(math.radians(30)), math.sin(math.radians(30))   # 30 deg, lengths 10 / 7
+    s2 = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 1.0, 1.0, 1.0 + 7 * c, 1.0 + 7 * si]))
+    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s2)
+    assert s2.rows[0].fn(s2.x)[0] == pytest.approx(ss.ANG_SCALE * 0.5)
 
 
 def test_parallel_zero_length_edge_gives_zero_row():
