@@ -24,6 +24,7 @@ shared by :func:`dirty_rect`, :func:`paint` and :func:`glyph_at`.
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
 from PyQt6.QtCore import QPointF, QRect, QRectF, Qt
@@ -65,8 +66,9 @@ def _ref_geom(ref, by, held=None):
     Returns:
         ``("point", QPointF)``, ``("edge", (QPointF, QPointF))``,
         ``("curve", (QPointF centre, float r))`` (CS3: a circle / arc's full
-        circle), ``("axis", "x_axis" | "y_axis")`` or None when it does not
-        resolve.
+        circle), ``("axis", "x_axis" | "y_axis")``, ``("item", [geoms])``
+        (CS8: a whole item -- its edges + visible curves, else its points)
+        or None when it does not resolve.
     """
     if not isinstance(ref, dict):
         return None
@@ -88,6 +90,13 @@ def _ref_geom(ref, by, held=None):
     def _p(e):
         q = QPointF(*e.eval(x)[0])
         return t.map(q) if t is not None else q
+    if h == sm.HANDLE_ITEM:                       # CS8: the item's own refs
+        hid = ad.hidden_names(it)
+        subs = [{"uid": ref["uid"], "h": n} for n in ad.edges(it, 0)]
+        subs += [{"uid": ref["uid"], "h": n} for n in ad.curves(it, 0) if n not in hid]
+        if not subs:
+            subs = [{"uid": ref["uid"], "h": n} for n in ad.points(it, 0) if n not in hid]
+        return "item", [g for g in (_ref_geom(s, by, held) for s in subs) if g is not None]
     pts = ad.points(it, 0)
     if h in pts:
         return "point", _p(pts[h])
@@ -166,6 +175,45 @@ def _anchor(view, c, by, held=None) -> QPointF | None:
                       if cen is not None else (0.0, 1.0))
             nx, ny = _away(dx, dy, mid, cen) if math.hypot(dx, dy) > 1e-6 else (0.0, 1.0)
     return QPointF(mid.x() + nx * d, mid.y() + ny * d)
+
+
+def _up_right(view, scene_pt) -> QPointF:
+    """The D86 offset: diagonally up-right of *scene_pt* (viewport px)."""
+    ctr = QPointF(view.mapFromScene(scene_pt))
+    k = (M.CONSTRAINT_GLYPH_OFFSET_PX + _box_px() / 2.0) / math.sqrt(2.0)
+    return QPointF(ctr.x() + k, ctr.y() - k)
+
+
+def _ref_anchor(view, ref, by, held=None) -> QPointF | None:
+    """One ref's own glyph anchor (CS7 S3 / CS8 FP3p): a curve -> up-right
+    of its centre (SP2); a whole item -> its ``edge`` anchor (line /
+    reference line), else up-right of its bounding rect's top-right; a point
+    or edge -> the standard single-ref :func:`_anchor`."""
+    g = _ref_geom(ref, by, held)
+    if g is None:
+        return None
+    if g[0] == "curve":
+        return _up_right(view, g[1][0])
+    if g[0] == "item":
+        it = by.get(ref.get("uid"))
+        ad = adapter_for(it) if it is not None else None
+        if ad is not None and "edge" in ad.edges(it, 0):
+            return _anchor(view, SimpleNamespace(type="", refs=[{**ref, "h": "edge"}]),
+                           by, held)
+        return _up_right(view, it.sceneBoundingRect().topRight()) if it is not None else None
+    return _anchor(view, SimpleNamespace(type="", refs=[ref]), by, held)
+
+
+def _anchors(view, c, by, held=None) -> list:
+    """Every glyph anchor of *c*: Symmetric one per paired ref (S3), Fix
+    its one ref, any other type its single :func:`_anchor`."""
+    if c.type == "symmetric":
+        out = [_ref_anchor(view, r, by, held) for r in c.refs[:2]]
+    elif c.type == "fix":
+        out = [_ref_anchor(view, c.refs[0], by, held)] if c.refs else []
+    else:
+        out = [_anchor(view, c, by, held)]
+    return [a for a in out if a is not None]
 
 
 # ── D32 visibility + the per-frame cache (VC9 F3) ───────────────────────────
@@ -282,17 +330,16 @@ def _layout(view, cons, by, held) -> list:
     out, used = [], {}
     for c in cons:
         try:
-            anchor = _anchor(view, c, by, held)
+            anchors = _anchors(view, c, by, held)
         except Exception:                      # malformed (inert) record
-            anchor = None
-        if anchor is None:
-            continue
-        key = (round(anchor.x()), round(anchor.y()))
-        k = used.get(key, 0)
-        used[key] = k + 1
-        x = round(anchor.x() - box / 2.0) + k * (box + M.CONSTRAINT_GLYPH_GAP_PX)
-        y = round(anchor.y() - box / 2.0)
-        out.append((c.id, QRectF(x, y, box, box)))
+            anchors = []
+        for anchor in anchors:                 # CS7 S3: Symmetric has two
+            key = (round(anchor.x()), round(anchor.y()))
+            k = used.get(key, 0)
+            used[key] = k + 1
+            x = round(anchor.x() - box / 2.0) + k * (box + M.CONSTRAINT_GLYPH_GAP_PX)
+            y = round(anchor.y() - box / 2.0)
+            out.append((c.id, QRectF(x, y, box, box)))
     return out
 
 
@@ -399,26 +446,31 @@ def _refs_path(view, refs, by, vp, o, held=None) -> QPainterPath:
             g = None
         if g is None:
             continue
-        kind, val = g
-        if kind == "point":
-            path.addEllipse(QPointF(view.mapFromScene(val)),
-                            M.CONSTRAINT_GLOW_POINT_R_PX, M.CONSTRAINT_GLOW_POINT_R_PX)
-        elif kind == "edge":
-            path.moveTo(QPointF(view.mapFromScene(val[0])))
-            path.lineTo(QPointF(view.mapFromScene(val[1])))
-        elif kind == "curve":
-            cen, rad = val
-            vc = QPointF(view.mapFromScene(cen))
-            rim = QPointF(view.mapFromScene(QPointF(cen.x() + rad, cen.y())))
-            rp = math.hypot(rim.x() - vc.x(), rim.y() - vc.y())
-            path.addEllipse(vc, rp, rp)
-        elif val == "x_axis":
-            path.moveTo(vp.left(), o.y() + 0.5)
-            path.lineTo(vp.right(), o.y() + 0.5)
-        else:
-            path.moveTo(o.x() + 0.5, vp.top())
-            path.lineTo(o.x() + 0.5, vp.bottom())
+        for kind, val in (g[1] if g[0] == "item" else [g]):   # CS8: glow the whole item
+            _add_geom(path, view, kind, val, vp, o)
     return path
+
+
+def _add_geom(path, view, kind, val, vp, o) -> None:
+    """Append one :func:`_ref_geom` result to the glow *path* (viewport px)."""
+    if kind == "point":
+        path.addEllipse(QPointF(view.mapFromScene(val)),
+                        M.CONSTRAINT_GLOW_POINT_R_PX, M.CONSTRAINT_GLOW_POINT_R_PX)
+    elif kind == "edge":
+        path.moveTo(QPointF(view.mapFromScene(val[0])))
+        path.lineTo(QPointF(view.mapFromScene(val[1])))
+    elif kind == "curve":
+        cen, rad = val
+        vc = QPointF(view.mapFromScene(cen))
+        rim = QPointF(view.mapFromScene(QPointF(cen.x() + rad, cen.y())))
+        rp = math.hypot(rim.x() - vc.x(), rim.y() - vc.y())
+        path.addEllipse(vc, rp, rp)
+    elif val == "x_axis":
+        path.moveTo(vp.left(), o.y() + 0.5)
+        path.lineTo(vp.right(), o.y() + 0.5)
+    else:
+        path.moveTo(o.x() + 0.5, vp.top())
+        path.lineTo(o.x() + 0.5, vp.bottom())
 
 
 def _paint_axes(painter, view, t) -> None:
