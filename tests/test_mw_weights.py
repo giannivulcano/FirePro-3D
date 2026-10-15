@@ -12,6 +12,7 @@ from PyQt6.QtCore import QSettings
 
 from firepro3d import paper_display as pd
 from firepro3d.paper_display import LineWeightDef
+from tests._mainwindow_helpers import dispose_main_window
 
 _NEW = [("Thinnest", 0.18), ("Thinner", 0.25), ("Thin", 0.35),
         ("Thick", 0.50), ("Thickest", 0.70)]
@@ -181,9 +182,7 @@ def test_factor_restored_on_startup(qapp, tmp_path, monkeypatch):
     try:
         assert pd.model_weight_factor() == 12.5
     finally:
-        w._modified = False
-        w.close()
-        w.deleteLater()
+        dispose_main_window(w)
 
 
 # -- MW-6 extended to the saved / applied current weight (2026-10-06 ruling)

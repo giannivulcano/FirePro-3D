@@ -12,6 +12,7 @@ from firepro3d.paper_space import (
     PaperScene, PaperSpaceWidget, Sheet, TextAnnotationData, ViewResolver,
 )
 from firepro3d.paper_commands import AddTextAnnotationCommand
+from tests._mainwindow_helpers import dispose_main_window
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -132,9 +133,7 @@ def _mw(qapp):
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
-    win._modified = False  # never let teardown hit the unsaved-changes prompt
-    win.close()
-    win.deleteLater()
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

@@ -18,6 +18,7 @@ from firepro3d.modify_tools_controller import ModifyToolsController
 from main import MainWindow
 from tests._modify_tools_helpers import ignore_os_mouse
 from tests._snap_polish_helpers import click
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture(scope="module")
@@ -36,9 +37,7 @@ def _main_window_singleton(qapp, tmp_path_factory):
         win.show()
         QTest.qWaitForWindowExposed(win)
         yield win
-        win._modified = False
-        win.close()
-        win.deleteLater()
+        dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

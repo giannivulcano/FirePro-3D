@@ -11,6 +11,7 @@ import pytest
 
 from firepro3d.paper_space import PaperSpaceWidget, Sheet, SheetManager
 from firepro3d.project_browser import _ROLE_NAME
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture()
@@ -28,8 +29,7 @@ def mw(qapp):
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
     w = main_mod.MainWindow()
     yield w
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

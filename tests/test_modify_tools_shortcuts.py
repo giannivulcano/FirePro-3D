@@ -18,6 +18,7 @@ _main_module.View3D = View3D
 from firepro3d import snap_engine
 from firepro3d.geometry_2d import LineItem
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 
 EXPECTED = {
     "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste", "Shift+D": "duplicate",
@@ -43,9 +44,7 @@ def _main_window_singleton(qapp, tmp_path_factory):
         win.show()
         QTest.qWaitForWindowExposed(win)
         yield win
-        win._modified = False
-        win.close()
-        win.deleteLater()
+        dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
