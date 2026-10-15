@@ -1093,6 +1093,8 @@ def build_fix(cid: str, ends, sys: System, helper=None) -> None:
     constant); the origin adds nothing (refused at add as trivial)."""
     v0 = [float(v) for v in (helper or {}).get("v0", ())]
     if isinstance(ends, ItemExpr):
+        if len(v0) != len(ends.idx):              # stale record: pin nothing
+            return
         for i, v in zip(ends.idx, v0):
             sys.fixes.append((i, v, cid))
         return

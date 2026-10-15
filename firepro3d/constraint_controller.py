@@ -606,15 +606,22 @@ class ConstraintController:
     def active(self) -> list:
         """Solvable constraints: enabled, built and valid (not inert), not red
         (D37), refs resolve."""
-        by = set(self.item_by_uid())
+        items = self.item_by_uid()
+        by = set(items)
         out = []
         for c in self.constraints:
             if (not c.enabled or c.inert or c.id in self.red
                     or (c.type in sm.VALUED and not c.driving)):    # D7/D52 Reference
                 continue
             uids = _safe_ref_uids(c)
-            if uids is not None and uids <= by:
-                out.append(c)
+            if uids is None or not uids <= by:
+                continue
+            # CS8 FP2p (review I1): a whole-item Fix whose v0 no longer
+            # matches the item's variable count (a polyline vertex added /
+            # removed in-session) sits out -- it must never pin shifted vars.
+            if c.type == "fix" and not self._fix_helper_ok(c, items):
+                continue
+            out.append(c)
         return out
 
     def constrained_uids(self) -> set:
@@ -1809,8 +1816,9 @@ class ConstraintController:
         return None if e is None else [float(v) for v in e.eval(x)[0]]
 
     def _symmetric_swap(self, refs):
-        """CS7 SP1: for an edge pair, True when a1's mirror image is nearer
-        b2 than a2 (the ends pair crossed); None for point / curve pairs."""
+        """CS7 SP1: for an edge pair, True when the ends pair crossed --
+        ``|M(a1)-b2| + |M(b1)-a2| < |M(a1)-a2| + |M(b1)-b2|`` (both ends,
+        review M1); a tie keeps them straight. None for point / curve pairs."""
         from .constraint_paint import _ref_geom
         if len(refs) != 3:
             return None
@@ -1819,19 +1827,21 @@ class ConstraintController:
         if (g1 is None or g2 is None or ga is None
                 or g1[0] != "edge" or g2[0] != "edge"):
             return None
-        a1 = g1[1][0]
-        if ga[0] == "axis":
-            m = (QPointF(a1.x(), -a1.y()) if ga[1] == "x_axis"
-                 else QPointF(-a1.x(), a1.y()))
-        else:
+        def mirror(pt):
+            if ga[0] == "axis":
+                return ((pt.x(), -pt.y()) if ga[1] == "x_axis"
+                        else (-pt.x(), pt.y()))
             p, q = ga[1]
             dx, dy = q.x() - p.x(), q.y() - p.y()
             L2 = dx * dx + dy * dy
-            t = 0.0 if L2 < 1e-18 else ((a1.x() - p.x()) * dx + (a1.y() - p.y()) * dy) / L2
-            f = QPointF(p.x() + t * dx, p.y() + t * dy)
-            m = QPointF(2 * f.x() - a1.x(), 2 * f.y() - a1.y())
-        a2, b2 = g2[1]
-        return math.dist(_xy(m), _xy(b2)) < math.dist(_xy(m), _xy(a2))
+            t = 0.0 if L2 < 1e-18 else ((pt.x() - p.x()) * dx + (pt.y() - p.y()) * dy) / L2
+            fx, fy = p.x() + t * dx, p.y() + t * dy
+            return (2 * fx - pt.x(), 2 * fy - pt.y())
+        (a1, b1), (a2, b2) = g1[1], g2[1]
+        ma, mb = mirror(a1), mirror(b1)
+        straight = math.dist(ma, _xy(a2)) + math.dist(mb, _xy(b2))
+        crossed = math.dist(ma, _xy(b2)) + math.dist(mb, _xy(a2))
+        return crossed < straight
 
     def add_fixes(self, refs) -> list:
         """CS8 F2: Fix each ref (whole selected items) -- ONE undo step."""
@@ -1844,6 +1854,8 @@ class ConstraintController:
             self._committed(skip=tuple(c.id for c in out))
             if any(c.id in self.red for c in out):
                 self._report_conflict()
+            elif any(c.id in self.diagnostics().redundant for c in out):
+                self._status(REDUNDANT_STATUS)   # D42 (review M2)
         return out
 
     def _point_line_side(self, c) -> int:

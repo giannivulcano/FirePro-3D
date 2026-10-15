@@ -244,3 +244,74 @@ def test_begin_symmetric_axis_prefills_the_pair(qapp):
     assert ctl.begin_symmetric_axis([P(a, "edge"), P(b, "edge")])
     assert ctl.pick.kinds == ["edge", "edge"]
     assert ctl.pick.status().startswith("Symmetric: pick the axis")
+
+
+# -- T1-T3 review round (I1, M1, M2, M3) ----------------------------------------
+
+def test_stale_whole_item_fix_sits_out_after_a_vertex_is_removed(qapp):
+    """Review I1: a whole-item Fix whose v0 no longer matches the item's
+    variable count never pins shifted variables (FP2p)."""
+    from firepro3d.geometry_2d import PolylineItem
+    sc = _scene()
+    pl = PolylineItem(QPointF(0, 0))
+    for q in (QPointF(100, 30), QPointF(200, 0)):
+        pl.append_point(q)
+    sc.addItem(pl); sc._polylines.append(pl)
+    ctl = sc.constraint_ctl
+    ctl.add("fix", [{"uid": pl._uid, "h": "item"}])
+    pl._points.pop(1); pl._rebuild_path()             # a vertex removed in-session
+    h = ctl.add("horizontal", [{"uid": pl._uid, "h": "s0"}])
+    assert h is not None and h.id not in ctl.red
+    assert pl._points[0].y() == pytest.approx(pl._points[1].y(), abs=1e-6)
+
+
+def test_symmetric_swap_uses_both_ends(qapp):
+    """Review M1: a short pair edge whose a1 mirror sits nearer the wrong
+    end is still paired by the total of both ends."""
+    sc = _scene()
+    a = _line(sc, (-10, 0), (-100, 0))                # long edge, a.p1 near the axis
+    b = _line(sc, (12, 0), (5, 0))                    # short edge, reversed
+    c = sc.constraint_ctl.add("symmetric", [P(a, "edge"), P(b, "edge"), {"ref": "y_axis"}])
+    # by ends: a.p1 (-10) <-> b.p1 (12) and a.p2 (-100) <-> b.p2 (5) total 2+95;
+    # crossed: a.p1 <-> b.p2 (5 off) and a.p2 <-> b.p1 (88 off) total 93 -> crossed.
+    assert c.helper == {"swap": True}
+
+
+def test_symmetric_edge_pair_needs_a_bool_swap(qapp):
+    sc = _scene()
+    a = _line(sc, (-30, 0), (-10, 20)); b = _line(sc, (10, 20), (30, 0))
+    ctl = sc.constraint_ctl
+    ctl.load([{"id": "s1", "type": "symmetric",
+               "refs": [P(a, "edge"), P(b, "edge"), {"ref": "y_axis"}], "helper": {}},
+              {"id": "s2", "type": "symmetric",
+               "refs": [P(a, "edge"), P(b, "edge"), {"ref": "y_axis"}],
+               "helper": {"swap": 1}}])
+    assert all(c.inert for c in ctl.constraints)
+
+
+def test_add_fixes_posts_redundant_status(qapp):
+    from firepro3d.constraint_controller import REDUNDANT_STATUS
+    sc = _scene()
+    a = _line(sc, (0, 0), (10, 0))
+    ctl = sc.constraint_ctl
+    ctl.add("fix", [P(a, "item")])
+    msgs = _status(sc)
+    ctl.add_fixes([P(a, "item")])
+    assert msgs[-1] == REDUNDANT_STATUS
+
+
+def test_mirrored_copy_of_a_symmetric_pair_is_satisfied(qapp):
+    """Review M3: the mirrored copy keeps the pairing and is not red."""
+    sc = _scene()
+    ax = _line(sc, (0, -50), (0, 50))
+    a = _line(sc, (-30, 0), (-10, 20)); b = _line(sc, (10, 20), (30, 0))
+    ctl = sc.constraint_ctl
+    ctl.add("symmetric", [P(a, "edge"), P(b, "edge"), P(ax, "edge")])
+    recs = ctl.internal_records([ax, a, b])
+    # the copies are the sources mirrored across x = 150
+    ax2 = _line(sc, (300, -50), (300, 50))
+    a2 = _line(sc, (330, 0), (310, 20)); b2 = _line(sc, (290, 20), (270, 0))
+    ctl.paste_records(recs, {ax._uid: ax2._uid, a._uid: a2._uid, b._uid: b2._uid},
+                      mirror_axis=(QPointF(150, -10), QPointF(150, 10)))
+    (c2,) = ctl.constraints_on(a2)
+    assert c2.type == "symmetric" and c2.id not in ctl.red

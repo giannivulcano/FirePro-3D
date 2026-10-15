@@ -1000,6 +1000,20 @@ def test_symmetric_dof_removed_points_2_edges_4_curves_3():
     assert ss.NumpySolver().diagnose(s3).dof == 6 - 3
 
 
+@pytest.mark.parametrize("axis", ["edge", "x_axis", "y_axis"])
+def test_symmetric_derived_points_fd_jacobian(axis):
+    """Review M3: derived (row-path) a / b / axis ends, every row form."""
+    rng = np.random.default_rng(13)
+    for _ in range(8):
+        x = rng.uniform(5, 50, 12)                    # a 0..3, b 4..7, axis 8..11
+        s = ss.System(x=x)
+        ax = (_derived_point(8), ss.raw_point(10, 11)) if axis == "edge" else axis
+        ss.BUILDERS["symmetric"]("s", (_derived_point(0), _derived_point(4), ax), s)
+        assert len(s.rows) == 2 and not s.aliases
+        for row in s.rows:
+            _fd_check(row, s.x)
+
+
 def test_fix_raw_point_fixes_both_axes():
     s = ss.System(x=np.array([5.0, 9.0]))
     ss.BUILDERS["fix"]("f", ss.raw_point(0, 1), s, helper={"v0": [5.0, 9.0]})
