@@ -47,6 +47,13 @@ def _instance(sc, pos=(40.0, 20.0), rot=0.0, mirrored=False, scale=1.0):
     return d, inst
 
 
+def _with_uids(d):
+    """Give every record of *d* a stable ``uid`` (editor-authored records have
+    them; the Snap helper's hand-written ones are positional ``#i``) so that
+    deleting one record cannot re-point another record's handle names."""
+    d.set_primitives([{**r, "uid": f"u{i}"} for i, r in enumerate(d.primitives)])
+
+
 def _near(p: QPointF, q: QPointF, tol=1e-5) -> bool:
     return math.hypot(p.x() - q.x(), p.y() - q.y()) <= tol
 
@@ -194,3 +201,79 @@ def test_typed_rotation_on_a_constrained_instance_is_exact_or_rolled_back(qapp):
     with ctl.edit([inst], typed=True):
         inst.set_property("Rotation", 10.0)
     assert inst.block_rotation() == pytest.approx(10.0)
+
+
+# ── Task 6 guards: NB4 re-validation, NB6 Fix migration ──────────────────────
+
+def test_deleted_child_primitive_makes_the_constraint_inert_and_undo_revives(qapp):
+    """NB4 / AC4: drop L1 from the child definition -> the parent constraint
+    on L1:p1 is inert (Unsupported, out of DOF, kept verbatim); putting the
+    primitives back revives it."""
+    sc = _scene()
+    d, inst = _instance(sc)
+    _with_uids(d)
+    k0 = _key(d, 0)
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{k0}:p1"}])
+    assert c is not None
+    full = list(d.primitives)
+    d.set_primitives(full[1:])                       # the child edit (another tab / disk)
+    assert [x.id for x in ctl.active()] == []
+    assert c.inert and c.invalid
+    assert ctl.to_records()[0]["refs"][1]["h"] == f"{k0}:p1"   # verbatim
+    assert ctl.kind_text(c) == "Unsupported constraint"      # the panel row name (§6.4)
+    d.set_primitives(full)                           # the child's undo
+    assert [x.id for x in ctl.active()] == [c.id]
+    assert not c.inert and c.raw is None
+
+
+def test_moved_child_primitive_re_solves_at_the_parents_next_edit(qapp):
+    """NB4 / AC4: L1 moves inside the child; the parent's next edit pulls the
+    loose point onto the new handle position."""
+    sc = _scene()
+    d, inst = _instance(sc)
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 0)}:p1"}])
+    assert ctl.add("fix", [{"uid": inst._uid, "h": "item"}])
+    recs = list(d.primitives)
+    recs[0] = {**recs[0], "pt1": [60.0, -120.0]}      # L1.p1 moves 40 mm up (local)
+    d.set_primitives(recs)
+    with ctl.edit([ln]):                              # the next parent edit touching the group
+        ln.translate(1.0, 0.0)                        # (an unrelated item's edit solves its own group only)
+    assert _near(ln._pt1, oracle(inst, 60.0, -120.0))
+
+
+def test_legacy_two_value_instance_fix_migrates_on_load(qapp):
+    """NB6 / AC6: a saved Fix with v0 [x, y] on a block_instance gains the
+    current rotation on load and still pins position + rotation."""
+    sc = _scene()
+    d, inst = _instance(sc, pos=(40.0, 20.0), rot=25.0)
+    ctl = sc.constraint_ctl
+    legacy = [{"id": "f1", "type": "fix", "refs": [{"uid": inst._uid, "h": "item"}],
+               "value": None, "driving": True, "enabled": True,
+               "helper": {"v0": [40.0, 20.0]}}]
+    ctl.load(legacy)
+    (c,) = ctl.constraints
+    assert not c.inert
+    assert c.helper["v0"] == pytest.approx([40.0, 20.0, math.radians(25.0)])
+    assert ctl.to_records()[0]["helper"]["v0"] == pytest.approx([40.0, 20.0, math.radians(25.0)])
+    assert [x.id for x in ctl.active()] == [c.id]
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    # a Coincident onto a nested handle must move the LINE, not the fixed block
+    assert ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 0)}:p1"}])
+    assert inst.block_pos() == (40.0, 20.0) and inst.block_rotation() == pytest.approx(25.0)
+    assert _near(ln._pt1, oracle(inst, 60.0, -80.0))
+
+
+def test_legacy_ins_record_still_loads_and_solves(qapp):
+    sc = _scene()
+    d, inst = _instance(sc)
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    ctl.load([{"id": "h1", "type": "horizontal",
+               "refs": [{"uid": inst._uid, "h": "ins"}, {"uid": ln._uid, "h": "p1"}],
+               "value": None, "driving": True, "enabled": True, "helper": {}}])
+    assert [x.id for x in ctl.active()] == ["h1"]
+    assert ln._pt1.y() == pytest.approx(inst.block_pos()[1])

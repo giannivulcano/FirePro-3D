@@ -151,6 +151,16 @@ def _safe_ref_uids(c) -> set | None:
         return None
 
 
+def _refs_an_instance(c, by) -> bool:
+    """Whether any ref of *c* names a nested block instance (NB4: those are
+    re-validated on every ``active()``; their handles live in a child
+    definition that can change under them)."""
+    for r in c.refs if isinstance(c.refs, list) else ():
+        if isinstance(r, dict) and hasattr(by.get(r.get("uid")), "block_mirrored"):
+            return True
+    return False
+
+
 def _is_reflection(point_map) -> bool:
     """Whether *point_map* reverses orientation (Flip / Mirror)."""
     o = point_map(QPointF(0.0, 0.0))
@@ -622,6 +632,17 @@ class ConstraintController:
         items = self.item_by_uid()
         by = set(items)
         out = []
+        for c in self.constraints:                       # NB4: instance refs re-checked
+            if c.raw is not None and not c.invalid:
+                continue                                 # unknown / unbuilt type: stays verbatim
+            if not _refs_an_instance(c, items):
+                continue
+            ok = self._valid(c, items)
+            if ok and c.invalid:
+                c.invalid, c.raw = False, None           # revived (fields were parsed)
+            elif not ok and not c.invalid:
+                c.raw = c.to_dict()
+                c.invalid = True
         for c in self.constraints:
             if (not c.enabled or c.inert or c.id in self.red
                     or (c.type in sm.VALUED and not c.driving)):    # D7/D52 Reference
@@ -827,6 +848,22 @@ class ConstraintController:
                 return False
         return True
 
+    def _migrate_instance_fix(self, c, by) -> None:
+        """NB6: a whole-item Fix on a nested instance saved before rotation
+        became a variable holds ``v0 = [x, y]``; append the instance's current
+        rotation (radians -- v0 stores adapter variables). Idempotent."""
+        if c.type != "fix" or not isinstance(c.refs, list) or len(c.refs) != 1:
+            return
+        r = c.refs[0]
+        if not isinstance(r, dict) or r.get("h") != sm.HANDLE_ITEM:
+            return
+        it = by.get(r.get("uid"))
+        v0 = c.helper.get("v0") if isinstance(c.helper, dict) else None
+        if (it is None or not hasattr(it, "block_rotation")
+                or not isinstance(v0, list) or len(v0) != 2):
+            return
+        c.helper["v0"] = [float(v0[0]), float(v0[1]), math.radians(it.block_rotation())]
+
     def _adopt(self, record, by) -> sm.Constraint:
         """A stored / pasted record as a Constraint. Unreadable or invalid
         records are kept VERBATIM and inert (never solved, saved as-is, §6.4)."""
@@ -835,6 +872,7 @@ class ConstraintController:
         except Exception:                       # not a dict, unreadable fields
             return sm.Constraint(id=uuid.uuid4().hex, type="", refs=[],
                                  raw=copy.deepcopy(record))
+        self._migrate_instance_fix(c, by)
         if not c.inert and not self._valid(c, by):
             c.raw = copy.deepcopy(record)
             c.invalid = True
