@@ -228,7 +228,7 @@ def test_angle_variables_carry_the_d28_weight(qapp):
     exp = {"rect": [1, 1, W_SIZE, W_SIZE, ANG_W], "arc": [1, 1, W_SIZE, ANG_W, ANG_W],
            "polygon": [1, 1, W_SIZE, ANG_W], "ellipse": [1, 1, W_SIZE, W_SIZE, ANG_W],
            "line": [1, 1, 1, 1], "circle": [1, 1, W_SIZE],
-           "text": [1, 1, W_SIZE, W_SIZE], "block": [1, 1]}   # CS3c: text w / h are sizes
+           "text": [1, 1, W_SIZE, W_SIZE], "block": [1, 1, ANG_W]}   # CS3c: text w / h are sizes; NB1: x y rot
     for key, w in exp.items():
         it = _MAKERS[key]()
         ad = adapter_for(it)
@@ -666,3 +666,97 @@ def test_text_box_size_write_and_taller_box_at_paper_scale(qapp):
     assert t._data.wrap_width_mm == pytest.approx(new[2])
     assert t._data.box_height_mm == pytest.approx(new[3])
 
+
+
+def _snap_instance(pos=(40.0, 20.0), rot=0.0, mirrored=False, scale=1.0):
+    """A Snap-block instance (tests/_block_snap_helpers) in a Block Editor scene."""
+    from firepro3d.model_space import Model_Space
+    from tests._block_snap_helpers import register_snap_block
+    sc = Model_Space(scene_role="block_editor")
+    d = register_snap_block(sc, nested=True)
+    inst = sc.place_block_instance(d.id, pos, rotation=rot, mirrored=mirrored, scale=scale)
+    return sc, d, inst
+
+
+def _key(d, i):
+    return d.primitives[i].get("uid") or f"#{i}"
+
+
+@pytest.mark.parametrize("pose", [((40.0, 20.0), 0.0, False, 1.0),
+                                  ((50.0, -30.0), 90.0, True, 1.5),
+                                  ((-20.0, 10.0), 37.0, False, 0.8)])
+def test_nested_handles_match_the_posed_stand_ins(qapp, pose):
+    """NB2/NB3: every child handle, evaluated at the instance's variables,
+    equals the same handle on the posed snap stand-in (the oracle)."""
+    from tests._block_snap_helpers import oracle, nested_oracle, V_X
+    (x0, y0), rot, mir, s = pose
+    sc, d, inst = _snap_instance((x0, y0), rot, mir, s)
+    ad = adapter_for(inst)
+    assert ad.nvars(inst) == 3 and ad.angle_vars(inst) == (2,)
+    x = np.array(ad.read(inst))
+    assert x[2] == pytest.approx(math.radians(rot))
+    pts = ad.points(inst, 0)
+    # L1 (record 0): p1 (60,-80), mid (120,-80); V (record 1) p2 (120,120)
+    assert _close(_pt(pts[f"{_key(d, 0)}:p1"], x), oracle(inst, 60.0, -80.0))
+    assert _close(_pt(pts[f"{_key(d, 0)}:mid"], x), oracle(inst, 120.0, -80.0))
+    assert _close(_pt(pts[f"{_key(d, 1)}:p2"], x), oracle(inst, V_X, 120.0))
+    # the nested Inner circle's centre (20, 0) in Inner-local coords
+    inner = d._resolve_nested(d.primitives[5])
+    ik = f"{_key(d, 5)}/{inner.primitives[0].get('uid') or '#0'}"
+    assert _close(_pt(pts[f"{ik}:center"], x), nested_oracle(inst, 20.0, 0.0))
+    # the nested record's origin
+    assert _close(_pt(pts[f"{_key(d, 5)}:ins"], x), nested_oracle(inst, 0.0, 0.0))
+    # ins unchanged
+    assert _close(_pt(pts["ins"], x), QPointF(x0, y0))
+    # edges and curves
+    a, b = ad.edges(inst, 0)[f"{_key(d, 0)}:edge"]
+    assert _close(_pt(a, x), oracle(inst, 60.0, -80.0)) and _close(_pt(b, x), oracle(inst, 180.0, -80.0))
+    cv = ad.curves(inst, 0)[f"{_key(d, 2)}:curve"]
+    assert cv.r is None and cv.r_const == pytest.approx(40.0 * s)
+    assert _close(_pt(cv.center, x), oracle(inst, 100.0, 60.0))
+    assert f"{_key(d, 0)}:mid" in ad.mid_names(inst)
+    assert "ins" not in ad.hidden_names(inst)
+
+
+def test_pose_family_matches_the_per_point_fn(qapp):
+    from firepro3d.sketch_adapters import _pose_point_fn
+    from firepro3d.sketch_solver import POINT_FAMILIES
+    rng = np.random.default_rng(3)
+    V = rng.uniform(-50, 50, (6, 3))
+    P = rng.uniform(-40, 40, (6, 2))
+    pts, dp = POINT_FAMILIES["pose"](V, P)
+    for k in range(6):
+        p, d1 = _pose_point_fn(float(P[k, 0]), float(P[k, 1]))(V[k])
+        assert np.allclose(pts[k], p) and np.allclose(dp[k], d1)
+
+
+def test_pose_point_jacobian_is_the_finite_difference(qapp):
+    from firepro3d.sketch_adapters import _pose_point_fn
+    fn = _pose_point_fn(12.0, -7.0)
+    v = np.array([3.0, -4.0, 0.7])
+    p, dp = fn(v)
+    for j in range(3):
+        e = np.zeros(3); e[j] = 1e-6
+        num = (fn(v + e)[0] - fn(v - e)[0]) / 2e-6
+        assert np.allclose(dp[:, j], num, atol=1e-5)
+
+
+def test_nested_write_sets_pos_and_rotation_only_when_moved(qapp):
+    sc, d, inst = _snap_instance(rot=30.0)
+    ad = adapter_for(inst)
+    x = list(ad.read(inst))
+    ad.write(inst, [x[0] + 5.0, x[1], x[2]])            # rotation untouched
+    assert inst.block_pos() == (45.0, 20.0) and inst.block_rotation() == 30.0
+    ad.write(inst, [x[0], x[1], math.radians(45.0)])
+    assert inst.block_rotation() == pytest.approx(45.0)
+
+
+def test_nested_struct_key_changes_when_the_child_definition_changes(qapp):
+    sc, d, inst = _snap_instance()
+    ad = adapter_for(inst)
+    k0 = ad.struct_key(inst)
+    n0 = len(ad.points(inst, 0))
+    d.set_primitives(d.primitives[:1])                   # drop everything but L1
+    assert ad.struct_key(inst) != k0
+    assert len(ad.points(inst, 0)) < n0
+    assert ad.pin_vars(inst, 0) == (0, 1)                # the move grip pins x, y

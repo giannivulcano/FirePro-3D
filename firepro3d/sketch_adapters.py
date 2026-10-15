@@ -607,26 +607,138 @@ class _EllipseAdapter(_CenterRotAdapter):
         return frozenset(("rx", "ry"))
 
 
-class _InsAdapter(_Adapter):
-    """Nested block instance (``block_pos()``): only ``ins``."""
+def _pose_point_fn(u: float, v: float):
+    """A nested block's local point (u, v) under its pose vars (x, y, th):
+    ``p = (x + u·cosθ + v·sinθ, y − u·sinθ + v·cosθ)`` -- the rectangle
+    formula (``_rect_point_fn``) with the local offset baked (NB9)."""
+    def fn(w):
+        x, y, th = w
+        c, s = math.cos(th), math.sin(th)
+        return (np.array([x + u * c + v * s, y - u * s + v * c]),
+                np.array([[1.0, 0.0, -u * s + v * c],
+                          [0.0, 1.0, -u * c - v * s]]))
+    return fn
+
+
+def _pose_point_batch(V, P):
+    """Batched ``_pose_point_fn``: V (k, 3) = x y th, P (k, 2) = u v."""
+    x, y, th = V.T
+    u, v = P.T
+    c, s = np.cos(th), np.sin(th)
+    pts = np.stack([x + u * c + v * s, y - u * s + v * c], axis=1)
+    dp = np.zeros((len(V), 2, 3))
+    dp[:, 0, 0] = 1.0
+    dp[:, 0, 2] = -u * s + v * c
+    dp[:, 1, 1] = 1.0
+    dp[:, 1, 2] = -u * c - v * s
+    return pts, dp
+
+
+register_point_family("pose", _pose_point_batch)
+
+
+class _NestedHandles:
+    """A nested instance's handle table in its LOCAL (unrotated) frame:
+    ``points[name] = (u, v)``, ``edges[name] = ((u, v), (u, v))``,
+    ``curves[name] = ((u, v), r)``, plus the midpoint / hidden name sets."""
+    __slots__ = ("points", "edges", "curves", "mids", "hidden")
+
+    def __init__(self):
+        self.points, self.edges, self.curves = {}, {}, {}
+        self.mids, self.hidden = set(), set()
+
+
+def _nested_table(inst) -> _NestedHandles:
+    """The table of *inst* (NB2/NB3), memoised on (compiled ops identity,
+    mirrored, scale) -- the ``snap_primitives`` idiom: a child-definition edit
+    recompiles the ops, so the table rebuilds without explicit invalidation.
+    Built from the snap stand-ins at the identity-rotation pose (origin
+    shift, mirror and scale already baked; rotation is the expression's)."""
+    from .block_snap_geometry import posed_primitives
+    ops = inst.render_ops()
+    mir, s = bool(inst.block_mirrored()), float(inst.block_scale())
+    c = getattr(inst, "_nested_handles_cache", None)
+    if c is not None and c[0] is ops and c[1] == mir and c[2] == s:
+        return c[3]
+    t = _NestedHandles()
+    prims, origins = posed_primitives(inst.definition(), (0.0, 0.0, 0.0, mir, s), paths=True)
+    for path, child in prims:
+        ad = adapter_for(child)
+        if ad is None:
+            continue
+        x = np.array(ad.read(child), dtype=float)
+        for n, e in ad.points(child, 0).items():
+            t.points[f"{path}:{n}"] = tuple(float(c) for c in e.eval(x)[0])
+        for n, (a, b) in ad.edges(child, 0).items():
+            t.edges[f"{path}:{n}"] = (tuple(float(c) for c in a.eval(x)[0]),
+                                      tuple(float(c) for c in b.eval(x)[0]))
+        for n, cv in ad.curves(child, 0).items():
+            t.curves[f"{path}:{n}"] = (tuple(float(c) for c in cv.center.eval(x)[0]),
+                                       float(x[cv.r]))
+        t.mids.update(f"{path}:{n}" for n in ad.mid_names(child))
+        t.hidden.update(f"{path}:{n}" for n in ad.hidden_names(child))
+    for path, (u, v) in origins:
+        t.points[f"{path}:ins"] = (float(u), float(v))
+    inst._nested_handles_cache = (ops, mir, s, t)
+    return t
+
+
+class _NestedAdapter(_Adapter):
+    """Nested block instance: vars x y th (th = Y-up CCW radians, an angle
+    var -- NB1); ``ins`` raw + every child handle of the local table posed
+    through ``_pose_point_fn`` (NB2/NB3). Mirror and scale are constants."""
 
     def __init__(self, key):
         self.type_key = key
 
     def nvars(self, it):
-        return 2
+        return 3
 
     def read(self, it):
-        return [float(c) for c in it.block_pos()]
+        x, y = it.block_pos()
+        return [float(x), float(y), math.radians(it.block_rotation())]
+
+    def angle_vars(self, it):
+        return (2,)
 
     def grip_handle(self, it, index):
         return "ins"
 
+    def struct_key(self, it):
+        return (self.type_key, 3, id(it.render_ops()),
+                bool(it.block_mirrored()), float(it.block_scale()))
+
+    @staticmethod
+    def _posed(off, uv):
+        u, v = uv
+        return PointExpr(idx=(off, off + 1, off + 2), fn=_pose_point_fn(u, v),
+                         fam=("pose", (u, v)))
+
     def points(self, it, off):
-        return {"ins": raw_point(off, off + 1)}
+        out = {"ins": raw_point(off, off + 1)}
+        for name, uv in _nested_table(it).points.items():
+            out[name] = self._posed(off, uv)
+        return out
+
+    def edges(self, it, off):
+        return {name: (self._posed(off, a), self._posed(off, b))
+                for name, (a, b) in _nested_table(it).edges.items()}
+
+    def curves(self, it, off):
+        return {name: CurveExpr(center=self._posed(off, c), r=None, r_const=r)
+                for name, (c, r) in _nested_table(it).curves.items()}
+
+    def mid_names(self, it):
+        return frozenset(_nested_table(it).mids)
+
+    def hidden_names(self, it):
+        return frozenset(_nested_table(it).hidden)
 
     def write(self, it, v):
-        it.set_block_pos(float(v[0]), float(v[1]))
+        x, y, th = (float(t) for t in v)
+        it.set_block_pos(x, y)
+        if abs(th - math.radians(it.block_rotation())) > ANG_WRITE_TOL:
+            it.set_block_rotation(math.degrees(th))
 
 
 def _text_point_fn(su, sv, th):
@@ -765,7 +877,7 @@ def _registry():
             "draw_ellipse", ("_rx", "_ry", "_rotation_deg"),
             {"_rx": _AXIS_MIN, "_ry": _AXIS_MIN}),
         TextItem: _TextBoxAdapter(),
-        BlockInstance: _InsAdapter("block_instance"),
+        BlockInstance: _NestedAdapter("block_instance"),
     }
 
 
