@@ -120,3 +120,77 @@ def test_symmetric_of_a_nested_curve_and_a_loose_circle_is_refused(qapp):
                               {"uid": axis._uid, "h": "edge"}])
     assert c is None
     assert INVALID_STATUS in msgs
+
+
+# ── Task 5 guards: solving ───────────────────────────────────────────────────
+
+def test_coincident_to_a_nested_arc_centre_moves_the_block(qapp):
+    """AC1: loose p1 -> nested circle C centre (100, 60); the loose line is
+    W_EDIT-free so the lighter block moves (least change on both)."""
+    sc = _scene()
+    d, inst = _instance(sc, pos=(40.0, 20.0))
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("coincident", [{"uid": ln._uid, "h": "p1"},
+                               {"uid": inst._uid, "h": f"{_key(d, 2)}:center"}])
+    assert c is not None and c.id in {x.id for x in ctl.active()} and c.id not in ctl.red
+    assert _near(ln._pt1, oracle(inst, 100.0, 60.0))
+    assert inst.block_pos() != (40.0, 20.0)                      # the block moved
+
+
+def test_coincident_to_a_grandchild_centre_and_a_nested_origin(qapp):
+    """AC1 depth: the Inner circle centre (grandchild) and the nested record's
+    origin are both targets."""
+    from tests._block_snap_helpers import nested_oracle
+    sc = _scene()
+    d, inst = _instance(sc)
+    inner = d._resolve_nested(d.primitives[5])
+    ik = f"{_key(d, 5)}/{inner.primitives[0].get('uid') or '#0'}"
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{ik}:center"}])
+    assert _near(ln._pt1, nested_oracle(inst, 20.0, 0.0))
+    ln2 = _line(sc, (300.0, 200.0), (400.0, 200.0))
+    assert ctl.add("coincident", [{"uid": ln2._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 5)}:ins"}])
+    assert _near(ln2._pt1, nested_oracle(inst, 0.0, 0.0))
+
+
+def test_parallel_to_a_nested_edge_rotates_the_block(qapp):
+    """AC2: Fix the loose line; Parallel(loose edge, nested L1 edge) can only
+    be met by rotating the instance (rotation is a variable, NB1)."""
+    sc = _scene()
+    d, inst = _instance(sc, pos=(40.0, 20.0), rot=0.0)
+    ln = _line(sc, (300.0, 300.0), (400.0, 400.0))               # 45 deg in Y-down scene
+    ctl = sc.constraint_ctl
+    assert ctl.add("fix", [{"uid": ln._uid, "h": "item"}])
+    c = ctl.add("parallel", [{"uid": ln._uid, "h": "edge"},
+                             {"uid": inst._uid, "h": f"{_key(d, 0)}:edge"}])
+    assert c is not None and c.id not in ctl.red
+    a, b = oracle(inst, 60.0, -80.0), oracle(inst, 180.0, -80.0)
+    d1 = (ln._pt2.x() - ln._pt1.x(), ln._pt2.y() - ln._pt1.y())
+    d2 = (b.x() - a.x(), b.y() - a.y())
+    cross = d1[0] * d2[1] - d1[1] * d2[0]
+    assert abs(cross) / (math.hypot(*d1) * math.hypot(*d2)) < 1e-6
+    assert abs(inst.block_rotation()) > 1.0                         # it rotated
+    assert (ln._pt1, ln._pt2) == (QPointF(300.0, 300.0), QPointF(400.0, 400.0))
+
+
+def test_typed_rotation_on_a_constrained_instance_is_exact_or_rolled_back(qapp):
+    """AC2 / D31: with Parallel(nested edge, X axis) the instance cannot turn;
+    a typed Rotation 10 rolls back with the conflict status; with the Parallel
+    deleted it is honoured exactly."""
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    sc = _scene()
+    d, inst = _instance(sc, rot=0.0)
+    ctl = sc.constraint_ctl
+    c = ctl.add("parallel", [{"uid": inst._uid, "h": f"{_key(d, 0)}:edge"}, {"ref": "x_axis"}])
+    assert c is not None and c.id not in ctl.red
+    msgs = _status(sc)
+    with ctl.edit([inst], typed=True):
+        inst.set_property("Rotation", 10.0)
+    assert inst.block_rotation() == pytest.approx(0.0)
+    assert any(CONFLICT_STATUS in m for m in msgs)
+    ctl.delete([c.id])
+    with ctl.edit([inst], typed=True):
+        inst.set_property("Rotation", 10.0)
+    assert inst.block_rotation() == pytest.approx(10.0)
