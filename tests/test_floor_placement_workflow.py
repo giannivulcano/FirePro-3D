@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
 from firepro3d.dynamic_input import SCHEMAS
+from tests._mainwindow_helpers import dispose_main_window
 
 
 class _MoveEventStub:
@@ -182,8 +183,7 @@ def mw(qapp, tmp_path, monkeypatch):
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
     w = main_mod.MainWindow()
     yield w
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

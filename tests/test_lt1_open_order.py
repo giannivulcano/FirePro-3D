@@ -20,6 +20,7 @@ from firepro3d import paper_display as pd
 from firepro3d.paper_display import LineWeightDef
 from firepro3d.underlay import Underlay
 from firepro3d.underlay_cache import cache_dir_for_project, write_cache
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture
@@ -33,8 +34,7 @@ def main_window(qapp, tmp_path, monkeypatch):
                         lambda self: None)
     w = MainWindow()
     yield w
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
 
 
 def test_open_bakes_underlay_with_files_table(main_window, tmp_path):

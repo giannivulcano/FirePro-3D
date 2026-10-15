@@ -14,6 +14,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QToolButton
 
 from firepro3d import snap_engine
+from tests._mainwindow_helpers import dispose_main_window
 
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
@@ -41,10 +42,7 @@ def mw(qapp, tmp_path_factory):
     QTest.qWait(200)
     yield w
     # A plan selection alive at close kills the process (filed) — clear first.
-    w.scene.clearSelection()
-    w._modified = False
-    w.close()
-    w.deleteLater()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
     qapp.setStyleSheet(prev_qss)
     qapp.setFont(prev_font)

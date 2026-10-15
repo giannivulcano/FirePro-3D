@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 from firepro3d import block_library
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.blocks_browser import BlocksBrowser, _ROLE_ID
+from tests._mainwindow_helpers import dispose_main_window
 
 
 def _def(name="Edit Me", library="Fire", series="Valves"):
@@ -83,9 +84,7 @@ def _main_window_singleton(qapp, tmp_path_factory):
         win.show()
         QTest.qWaitForWindowExposed(win)
         yield win
-        win._modified = False
-        win.close()
-        win.deleteLater()
+        dispose_main_window(win)
 
 
 def test_main_window_edit_block_opens_editor_tab(qapp, _main_window_singleton):
