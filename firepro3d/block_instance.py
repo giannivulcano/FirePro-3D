@@ -19,7 +19,8 @@ import math
 import uuid
 from typing import Callable, Optional
 from PyQt6.QtCore import QRectF, QPointF, Qt
-from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
+from PyQt6.QtGui import (QBrush, QPainterPath, QPainterPathStroker, QPen,
+                         QColor, QPolygonF, QTransform)
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from . import crisp_stroke as _cs
@@ -34,6 +35,7 @@ from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
 from .scale_manager import ScaleManager
+from .view_scale import scene_hit_width
 from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
                            canvas_px, has_ends, is_as_authored, is_end_ref,
                            is_linetype_ref, linetype_block,
@@ -131,6 +133,8 @@ class BlockInstance(QGraphicsObject):
         self._pose_scale = 1.0        # uniform, > 0
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
+        self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
+        self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
@@ -614,10 +618,69 @@ class BlockInstance(QGraphicsObject):
         reg = getattr(sc, "block_registry", None) if sc is not None else None
         return any(linetype_block(i, reg) is None for i in ids)
 
-    def shape(self) -> QPainterPath:
-        # Copy (implicitly shared, O(1)): callers may mutate what shape()
-        # returns; the memoised path must stay intact.
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """HALO / ghost trace: the drawn geometry (selection-mode §4.1).
+
+        Unchanged from the ``shape()`` fallback it replaces (so Move / Paste
+        ghosts and ``distance_to_item`` keep the block's look); its presence
+        makes the block a non-area item -- interior hits come only from
+        :meth:`halo_area_path`.
+        """
         return QPainterPath(self._posed_path())
+
+    def halo_area_path(self) -> QPainterPath:
+        """Closed areas that count as a direct HALO hit.
+
+        Fill / pattern clips (posed like the paint) and text frame boxes
+        (full pose, DD2). Memoised on (compiled ops, full pose).
+        """
+        ops = self.render_ops()
+        key = self._pose_key()
+        c = self._area_cache
+        if c is None or c[0] is not ops or c[1] != key:
+            area = QPainterPath()
+            pose = self.pose_transform()
+            for op in ops:
+                if op.kind in (FILL, PATTERN):
+                    area = area.united(pose.map(op.path))
+            d = self.definition()
+            if d is not None:
+                full = self.full_pose_transform()
+                for box in d.text_snap_points():
+                    p = QPainterPath()
+                    p.addPolygon(QPolygonF([full.map(box[i]) for i in (0, 2, 4, 6)]))
+                    p.closeSubpath()
+                    area = area.united(p)
+            c = self._area_cache = (ops, key, area)
+        return QPainterPath(c[2])
+
+    def shape(self) -> QPainterPath:
+        """Hit shape like loose primitives: the strokes fattened to ~10 px
+        plus the :meth:`halo_area_path` areas -- an empty interior is no hit
+        (click, crossing band). An orphan / empty block keeps its placeholder
+        path. Memoised on (compiled ops, full pose, hit width); returns a
+        copy (callers may mutate it)."""
+        ops = self.render_ops()
+        if not ops:
+            return QPainterPath(self._posed_path(ops))
+        w = scene_hit_width(self, 10.0, 6.0)
+        key = (self._pose_key(), round(w, 6))
+        c = self._shape_cache
+        if c is not None and c[0] is ops and c[1] == key:
+            return QPainterPath(c[2])
+        strokes = QPainterPath()
+        pose = self.pose_transform()
+        for op in ops:
+            if op.kind == STROKE:
+                strokes.addPath(pose.map(op.path))
+        st = QPainterPathStroker()
+        st.setWidth(w)
+        path = st.createStroke(strokes)
+        area = self.halo_area_path()
+        if not area.isEmpty():
+            path = path.united(area)
+        self._shape_cache = (ops, key, path)
+        return QPainterPath(path)
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):

@@ -98,7 +98,9 @@ def halo_is_area(item) -> bool:
     item's hidden fill is not an area, RG4), other items with
     ``fill_type != "none"``, classes flagged
     ``HALO_AREA = True`` (the list is owned by selection-mode.md §4.1), and any
-    item whose trace falls back to ``shape()`` (text boxes, SVG, blocks).
+    item whose trace falls back to ``shape()`` (text boxes, SVG). A block is a
+    composite (``halo_trace_path``) whose filled parts and text boxes come
+    from its ``halo_area_path`` hook (see :func:`halo_pick_distance_px`).
     Open geometry (lines, arcs, unfilled outlines) is measured to its stroke —
     ``QPainterPath.contains`` implicitly closes open paths, so it must not be
     used for them.
@@ -156,6 +158,14 @@ def halo_pick_distance_px(item, cursor_vp, dt) -> float:
         return math.inf
     if halo_is_area(item) and dev.contains(cursor_vp):
         return 0.0
+    area_hook = getattr(item, "halo_area_path", None)
+    if callable(area_hook):                    # composite with filled parts
+        try:
+            area = item.deviceTransform(dt).map(area_hook())
+        except RuntimeError:                   # C++ object deleted mid-hover
+            return math.inf
+        if area.contains(cursor_vp):
+            return 0.0
     cx, cy = cursor_vp.x(), cursor_vp.y()
     best = math.inf
     for poly in dev.toSubpathPolygons():
