@@ -118,3 +118,23 @@ def test_scaffold_only_editor_counts_as_empty(qapp, monkeypatch):
     assert defn is not None and proj._block_definitions == {defn.id: defn}
     assert sorted((p["type"], bool(p.get("reference"))) for p in defn.primitives) == [
         ("draw_line", False), ("draw_line", True)]
+
+
+def test_remap_exploded_rewrites_interior_refs_and_drops_ins_item():
+    from firepro3d import sketch_model as sm
+    cons = [
+        sm.Constraint.new("coincident", [{"uid": "L", "h": "p1"}, {"uid": "I", "h": "A:p2"}]),
+        sm.Constraint.new("coincident", [{"uid": "L", "h": "p1"}, {"uid": "I", "h": "N/B:center"}]),
+        sm.Constraint.new("coincident", [{"uid": "L", "h": "p1"}, {"uid": "I", "h": "N:ins"}]),
+        sm.Constraint.new("horizontal", [{"uid": "I", "h": "ins"}, {"uid": "L", "h": "p1"}]),
+        sm.Constraint.new("fix", [{"uid": "I", "h": "item"}]),
+        sm.Constraint.new("coincident", [{"uid": "L", "h": "p1"}, {"uid": "I", "h": "Z:p1"}]),
+        sm.Constraint.new("horizontal", [{"uid": "L", "h": "edge"}]),
+    ]
+    kept, dropped = sm.remap_exploded(cons, "I", {"A": "a2", "N": "n2"})
+    assert [c.refs[1]["uid"] + ":" + c.refs[1]["h"] for c in kept[:3]] == ["a2:p2", "n2:B:center", "n2:ins"]
+    assert [c.type for c in kept] == ["coincident", "coincident", "coincident", "horizontal"]
+    assert kept[3].refs == [{"uid": "L", "h": "edge"}]
+    assert len(dropped) == 3                      # ins, item, unmapped prefix Z
+    assert sm.split_handle("N/B:center") == ("N/B", "center")
+    assert sm.split_handle("ins") == ("", "ins")

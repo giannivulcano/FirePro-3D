@@ -2311,6 +2311,34 @@ class ConstraintController:
         elif driving and c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)
 
+    def on_items_exploded(self, inst, uid_map: dict) -> int:
+        """NB5: before the explode's cascade -- rewrite this instance's
+        interior refs onto the created items (``sm.remap_exploded``) and drop
+        the rest (``ins`` / ``item`` / unmapped), plus any rewritten record
+        whose target left the scene (a flattened child instance). Returns the
+        drop count (the caller's status)."""
+        uid = getattr(inst, "_uid", None)
+        if uid is None or not self.enabled:
+            return 0
+        kept, dropped = sm.remap_exploded(self.constraints, uid, uid_map)
+        by = set(self.item_by_uid())
+        still = []
+        for c in kept:
+            uids = _safe_ref_uids(c)
+            if not c.inert and uids is not None and not uids <= by:
+                dropped.append(c)
+            else:
+                still.append(c)
+        self.constraints = still
+        if self.selected_id not in {c.id for c in self.constraints}:
+            self.selected_id = None
+        self.red &= {c.id for c in self.constraints}
+        self._build_cache = None
+        if dropped:
+            self._recheck_red()
+        self._commit_gen += 1
+        return len(dropped)
+
     def on_items_removed(self, items) -> int:
         """Cascade-delete constraints touching removed items (caller pushes undo)."""
         uids = {getattr(i, "_uid", None) for i in items}

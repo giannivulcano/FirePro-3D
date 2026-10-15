@@ -277,3 +277,49 @@ def test_legacy_ins_record_still_loads_and_solves(qapp):
                "value": None, "driving": True, "enabled": True, "helper": {}}])
     assert [x.id for x in ctl.active()] == ["h1"]
     assert ln._pt1.y() == pytest.approx(inst.block_pos()[1])
+
+
+# ── Task 7 guards: NB5 Explode ───────────────────────────────────────────────
+
+def test_explode_remaps_interior_refs_and_drops_ins_refs(qapp, monkeypatch):
+    """NB5 / AC5: this level only -- L1:p1 -> the exploded line's p1; the
+    nested Inner record -> the new child instance ("<inner uid>:center");
+    the ins ref drops and is the only one counted; undo restores all."""
+    from firepro3d.constraint_controller import removed_status
+    monkeypatch.setattr("firepro3d.themed_message.themed_choice", lambda *a, **k: "level")
+    sc = _scene()
+    sc.push_undo_state()
+    d, inst = _instance(sc)
+    inner = d._resolve_nested(d.primitives[5])
+    ik = inner.primitives[0].get("uid") or "#0"
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ln2 = _line(sc, (300.0, 200.0), (400.0, 200.0))
+    ln3 = _line(sc, (300.0, 100.0), (400.0, 100.0))
+    ctl = sc.constraint_ctl
+    c1 = ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 0)}:p1"}])
+    c2 = ctl.add("coincident", [{"uid": ln2._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 5)}/{ik}:center"}])
+    c3 = ctl.add("horizontal", [{"uid": inst._uid, "h": "ins"}, {"uid": ln3._uid, "h": "p1"}])
+    assert c1 and c2 and c3
+    p1_before = QPointF(ln._pt1)
+    msgs = _status(sc)
+    sc.clearSelection()
+    inst.setSelected(True)
+    new = sc.explode_selected_blocks()           # nested prompt patched to "level" (monkeypatch above)
+    assert new and inst.scene() is None
+    assert c3 not in ctl.constraints and removed_status(1) in msgs
+    ids = {x.id for x in ctl.active()}
+    assert c1.id in ids and c2.id in ids
+    (child,) = sc._block_instances
+    assert c2.refs[1] == {"uid": child._uid, "h": f"{ik}:center"}
+    new_line = next(it for it in new if isinstance(it, LineItem) and _near(it._pt1, p1_before))
+    assert c1.refs[1] == {"uid": new_line._uid, "h": "p1"}
+    # still solving: drag the exploded line's p2 through the seam, p1 stays coincident
+    with ctl.edit([new_line]):
+        new_line._pt2 = QPointF(new_line._pt2.x() + 10.0, new_line._pt2.y())
+        new_line.setLine(new_line._pt1.x(), new_line._pt1.y(), new_line._pt2.x(), new_line._pt2.y())
+    assert _near(ln._pt1, new_line._pt1)
+    sc.undo()
+    (back,) = sc._block_instances
+    assert back._uid == inst._uid
+    assert sorted(x.type for x in ctl.active()) == ["coincident", "coincident", "horizontal"]
+    assert {x.refs[1].get("uid") for x in ctl.constraints if x.type == "coincident"} == {inst._uid}
