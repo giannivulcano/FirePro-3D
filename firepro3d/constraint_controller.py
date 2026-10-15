@@ -30,8 +30,8 @@ from . import theme as _theme
 from .geometry_2d import SplineItem
 from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
-from .sketch_solver import (BUILDERS, LIN_TOL, NumpySolver, System, W_EDIT, W_PIN,
-                            const_point)
+from .sketch_solver import (BUILDERS, LIN_TOL, ItemExpr, NumpySolver, System, W_EDIT,
+                            W_PIN, const_point)
 from .text_item import TextItem
 from .theme import M
 
@@ -667,6 +667,8 @@ class ConstraintController:
         if it is None or not isinstance(h, str):
             return None
         ad = adapter_for(it)
+        if h == sm.HANDLE_ITEM:                  # CS8: a whole primitive (Fix)
+            return "item" if ad is not None else None
         if h in ad.points(it, 0):
             return "point"
         if h in ad.edges(it, 0):
@@ -705,6 +707,10 @@ class ConstraintController:
                 isinstance(c.helper, dict) and c.helper.get("side") in (1, -1)
                 and not isinstance(c.helper.get("side"), bool)):
             return False
+        if c.type == "fix" and not self._fix_helper_ok(c, by):
+            return False
+        if c.type == "symmetric" and not self._sym_helper_ok(c, by):
+            return False
         kinds = tuple(self._ref_kind(r, by) for r in c.refs)
         if c.type == "dim_arc_angle" and None not in kinds:
             r0 = c.refs[0]
@@ -714,6 +720,29 @@ class ConstraintController:
                 return False
         return None not in kinds and kinds in spec.patterns
 
+    def _fix_helper_ok(self, c, by) -> bool:
+        """CS8 FP2p: ``helper.v0`` = finite floats -- 2 for a point, the
+        adapter's ``nvars`` for a whole item."""
+        h = c.helper if isinstance(c.helper, dict) else {}
+        v0 = h.get("v0")
+        if not isinstance(v0, list) or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool)
+                and math.isfinite(v) for v in v0):
+            return False
+        r = c.refs[0] if c.refs else None
+        if isinstance(r, dict) and r.get("h") == sm.HANDLE_ITEM:
+            it = by.get(r.get("uid"))
+            ad = adapter_for(it) if it is not None else None
+            return ad is not None and len(v0) == ad.nvars(it)
+        return len(v0) == 2
+
+    def _sym_helper_ok(self, c, by) -> bool:
+        """CS7 SP1: an edge pair needs ``helper.swap`` (bool); others any."""
+        kinds = tuple(self._ref_kind(r, by) for r in c.refs[:2])
+        if kinds == ("edge", "edge"):
+            return isinstance(c.helper, dict) and isinstance(c.helper.get("swap"), bool)
+        return True
+
     def _identically_satisfied(self, c) -> bool:
         """CS3 pin: a point_on_curve whose residual is zero for ANY values of
         its items (a line's own end on its edge, an arc's own end on its
@@ -721,8 +750,8 @@ class ConstraintController:
         numerically: three positive perturbations of every variable (keeps
         radii positive) all leave every row at zero. CS6: a concentric whose
         every equality is a self-alias (a circle / arc with its own centre)
-        is refused the same way."""
-        if c.type not in ("point_on_curve", "concentric"):
+        is refused the same way. CS8: a Fix of the origin builds nothing."""
+        if c.type not in ("point_on_curve", "concentric", "fix"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
         if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
@@ -787,7 +816,7 @@ class ConstraintController:
         sys_ = System(x=np.array(x, dtype=float))
         for c in cons:
             kw = {"value": float(c.value)} if c.type in sm.VALUED else {}
-            if c.type in ("dim_angle", "dim_point_line"):
+            if c.type in ("dim_angle", "dim_point_line", "symmetric", "fix"):
                 kw["helper"] = c.helper
             BUILDERS[c.type](c.id, self._ends(c, slots), sys_, **kw)
         return sys_, slots, np.array(w, dtype=float)
@@ -802,6 +831,8 @@ class ConstraintController:
             raise ValueError(f"unknown ground {g!r}")
         it, ad, off = slots[ref["uid"]]
         h = ref["h"]
+        if h == sm.HANDLE_ITEM:                  # CS8: a whole primitive
+            return ItemExpr(idx=tuple(range(off, off + ad.nvars(it))))
         pts = ad.points(it, off)
         if h in pts:
             return pts[h]
@@ -812,7 +843,7 @@ class ConstraintController:
 
     def _ends(self, c, slots):
         res = [self._resolve(r, slots) for r in c.refs]
-        return res[0] if len(res) == 1 else (res[0], res[1])
+        return res[0] if len(res) == 1 else tuple(res)    # CS7: 3 refs
 
     @staticmethod
     def _var_indices(slots, uids) -> list:
@@ -1662,7 +1693,8 @@ class ConstraintController:
         return len(texts) == 2 and texts[0] == texts[1]
 
     def add(self, ctype: str, refs: list, *, value: float | None = None,
-            label: dict | None = None, helper: dict | None = None):
+            label: dict | None = None, helper: dict | None = None,
+            _commit: bool = True):
         """Add a constraint and apply it (D22 least change).
 
         A dim (``sm.VALUED``) takes *value*, else its current measure
@@ -1671,10 +1703,12 @@ class ConstraintController:
         Reference (D52, status). *label* is a dim's placement record
         (CS4b D62, ``{"offset": mm}``; CS5 D74 ``{"angle": deg}``); None =
         auto. *helper* is the record's helper (D72 angle sector
-        ``{"dirs", "sign"}``; D81 point-line ``{"side"}``).
+        ``{"dirs", "sign"}``; D81 point-line ``{"side"}``). A Fix captures
+        ``{"v0"}`` and a two-edge Symmetric ``{"swap"}`` when None (CS7 / CS8).
 
         A conflicting constraint is still admitted (D9) and the geometry holds
-        its last good state (D10). Pushes one undo step.
+        its last good state (D10). Pushes one undo step -- unless *_commit*
+        is False (:meth:`add_fixes` commits a batch once).
 
         Returns:
             The new ``Constraint``, or None when refused: a disabled scene, an
@@ -1694,6 +1728,14 @@ class ConstraintController:
             c.helper = copy.deepcopy(helper)
         if ctype == "dim_point_line" and helper is None:
             c.helper = {"side": self._point_line_side(c)}
+        if ctype == "fix" and helper is None:
+            v0 = self._fix_v0(refs[0] if refs else None)
+            if v0 is not None:
+                c.helper = {"v0": v0}
+        if ctype == "symmetric" and helper is None:
+            swap = self._symmetric_swap(refs)
+            if swap is not None:
+                c.helper = {"swap": swap}
         if ctype in sm.VALUED:
             refusal = self._dim_refusal(c)
             if refusal is not None:
@@ -1712,6 +1754,8 @@ class ConstraintController:
         ok = self._solve(focus=sm.ref_uids(c))
         if not ok:
             self.red.add(c.id)               # D38: the newcomer is the culprit
+        if not _commit:
+            return c
         reference = False
         if ok and ctype in sm.VALUED and c.id in self.diagnostics().redundant:
             c.driving = False                # D52: never over-define at creation
@@ -1724,6 +1768,61 @@ class ConstraintController:
         elif c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)   # D42
         return c
+
+    def _fix_v0(self, ref):
+        """CS8: the values a new Fix holds -- a point's (x, y) or a whole
+        item's adapter variables; None when the ref does not resolve."""
+        if not isinstance(ref, dict):
+            return None
+        if "ref" in ref:
+            return [0.0, 0.0] if ref["ref"] == "origin" else None
+        it = self.item_by_uid().get(ref.get("uid"))
+        ad = adapter_for(it) if it is not None else None
+        if ad is None:
+            return None
+        x = np.array(ad.read(it), dtype=float)
+        if ref.get("h") == sm.HANDLE_ITEM:
+            return [float(v) for v in x]
+        e = ad.points(it, 0).get(ref.get("h"))
+        return None if e is None else [float(v) for v in e.eval(x)[0]]
+
+    def _symmetric_swap(self, refs):
+        """CS7 SP1: for an edge pair, True when a1's mirror image is nearer
+        b2 than a2 (the ends pair crossed); None for point / curve pairs."""
+        from .constraint_paint import _ref_geom
+        if len(refs) != 3:
+            return None
+        by = self.item_by_uid()
+        g1, g2, ga = (_ref_geom(r, by) for r in refs)
+        if (g1 is None or g2 is None or ga is None
+                or g1[0] != "edge" or g2[0] != "edge"):
+            return None
+        a1 = g1[1][0]
+        if ga[0] == "axis":
+            m = (QPointF(a1.x(), -a1.y()) if ga[1] == "x_axis"
+                 else QPointF(-a1.x(), a1.y()))
+        else:
+            p, q = ga[1]
+            dx, dy = q.x() - p.x(), q.y() - p.y()
+            L2 = dx * dx + dy * dy
+            t = 0.0 if L2 < 1e-18 else ((a1.x() - p.x()) * dx + (a1.y() - p.y()) * dy) / L2
+            f = QPointF(p.x() + t * dx, p.y() + t * dy)
+            m = QPointF(2 * f.x() - a1.x(), 2 * f.y() - a1.y())
+        a2, b2 = g2[1]
+        return math.dist(_xy(m), _xy(b2)) < math.dist(_xy(m), _xy(a2))
+
+    def add_fixes(self, refs) -> list:
+        """CS8 F2: Fix each ref (whole selected items) -- ONE undo step."""
+        out = []
+        for r in refs:
+            c = self.add("fix", [r], _commit=False)
+            if c is not None:
+                out.append(c)
+        if out:
+            self._committed(skip=tuple(c.id for c in out))
+            if any(c.id in self.red for c in out):
+                self._report_conflict()
+        return out
 
     def _point_line_side(self, c) -> int:
         """D81: the ``side`` (±1) whose signed distance (``_on_line``'s
@@ -2400,6 +2499,8 @@ class ConstraintController:
             by = self.item_by_uid()
         it = by.get(ref.get("uid"))
         kind = type(it).__name__.removesuffix("Item") if it is not None else "?"
+        if ref.get("h") == sm.HANDLE_ITEM:
+            return kind                               # CS8: a whole item
         return f"{kind} · {ref.get('h', '?')}"
 
     @staticmethod
@@ -2681,7 +2782,9 @@ class ConstraintController:
         drops them (no H<->V swap), and the copy keeps its transformed
         geometry (it is not re-solved). Translation-only copies keep
         everything. Coincident / point-on-curve / Concentric are kept under
-        every transform (CS3, CS6). (The Symmetric rule lands with its session.)
+        every transform (CS3, CS6). Symmetric is kept under every transform
+        (an internal edge axis; an X / Y axis is a ground, so dropped) (CS7);
+        Fix is dropped from every copy (CS8 F3).
 
         Args:
             records: ``internal_records`` output (constraint dicts).
@@ -2700,6 +2803,7 @@ class ConstraintController:
                 cons.append(sm.Constraint.from_dict(r))
             except Exception:
                 continue
+        cons = [c for c in cons if c.type != "fix"]     # CS8 F3: never copied
         keep_hv = True
         if mirror_axis is not None:
             p1, p2 = mirror_axis
