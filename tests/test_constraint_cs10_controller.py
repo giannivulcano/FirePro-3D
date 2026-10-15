@@ -221,6 +221,25 @@ def test_selection_refs_perpendicular_two_lines_only(qapp):
     assert ctl.selection_refs("perpendicular") is None
 
 
+def test_rotate_first_falls_back_to_the_plain_solve_when_turning_cannot_satisfy(qapp):
+    """PP5 fallback (T3 review Minor 2): b's start is fixed and its end rides a
+    fixed horizontal guide, so b can only become vertical by shortening -- the
+    length-holding pass fails and the plain least change still applies it."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    a = _line(sc, (0, 0), (100, 0))
+    guide = _line(sc, (-200, 50), (200, 50))
+    b = _line(sc, (0, 0), (100, 50))
+    ctl.add("fix", [{"uid": a._uid, "h": "item"}])
+    ctl.add("fix", [{"uid": guide._uid, "h": "item"}])
+    ctl.add("fix", [P(b, "p1")])
+    ctl.add("point_on_curve", [P(b, "p2"), P(guide, "edge")])
+    c = ctl.add("perpendicular", [P(a, "edge"), P(b, "edge")])
+    assert c.id not in ctl.red
+    assert abs(_cos(a, b)) < 1e-9
+    assert (b._pt2.x(), b._pt2.y()) == pytest.approx((0.0, 50.0), abs=1e-6)
+
+
 def test_rotate_first_pass_leaves_no_temporary_records(qapp):
     sc = _scene()
     ctl = sc.constraint_ctl
