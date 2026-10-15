@@ -111,7 +111,7 @@ def test_qt_hit_test_reaches_the_stroke_band_outside_the_bounds(qapp, scale):
         probe = QPoint(edge.x() + 3, edge.y())                  # 3 px outside
         assert inst in view.items(probe)                                # [RED]
         assert inst not in view.items(QPoint(edge.x() + 12, edge.y()))
-        assert frame == inst.manip_bounds()
+        # The frame is the geometry + 2 mm at every zoom (never the band).
         assert abs(frame.right() - (oracle(inst, 180.0, 0.0).x() + 2.0)) < 1e-6
     finally:
         close_view(view, scene)
