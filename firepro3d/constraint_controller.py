@@ -2319,16 +2319,23 @@ class ConstraintController:
         elif driving and c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)
 
-    def on_items_exploded(self, inst, uid_map: dict) -> int:
-        """NB5: before the explode's cascade -- rewrite this instance's
-        interior refs onto the created items (``sm.remap_exploded``) and drop
-        the rest (``ins`` / ``item`` / unmapped), plus any rewritten record
-        whose target left the scene (a flattened child instance). Returns the
-        drop count (the caller's status)."""
-        uid = getattr(inst, "_uid", None)
-        if uid is None or not self.enabled:
+    def on_items_exploded(self, pairs) -> int:
+        """NB5: after a whole explode, before its cascade -- for every
+        ``(instance, uid_map)`` pair rewrite that instance's interior refs
+        onto the created items (``sm.remap_exploded``, each pair fed the
+        previous pair's survivors) and drop the rest (``ins`` / ``item`` /
+        unmapped). Only then ONE sweep drops any record whose target left the
+        scene (a flattened child instance), so a constraint spanning two
+        exploded instances is remapped before any is judged. Returns the drop
+        count (the caller's status)."""
+        pairs = [(getattr(i, "_uid", None), m) for i, m in pairs]
+        pairs = [(u, m) for u, m in pairs if u is not None]
+        if not pairs or not self.enabled:
             return 0
-        kept, dropped = sm.remap_exploded(self.constraints, uid, uid_map)
+        kept, dropped = self.constraints, []
+        for uid, uid_map in pairs:
+            kept, d = sm.remap_exploded(kept, uid, uid_map)
+            dropped.extend(d)
         by = set(self.item_by_uid())
         still = []
         for c in kept:

@@ -2521,8 +2521,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return []
         # NB5: interior refs follow the exploded primitives; ins / item refs
         # drop; the cascade then catches nothing further.
-        n = sum(self.constraint_ctl.on_items_exploded(i, maps[i._uid])
-                for i in insts if i.scene() is not self)
+        n = self.constraint_ctl.on_items_exploded(
+            [(i, maps[i._uid]) for i in insts if i.scene() is not self])
         n += self.constraint_ctl.on_items_removed(
             [i for i in insts if i.scene() is not self])
         for it in new:

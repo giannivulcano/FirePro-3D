@@ -104,11 +104,16 @@ def test_driving_radius_dim_on_a_nested_curve_is_refused_reference_measures(qapp
 
 
 def test_dof_of_a_nested_instance_is_three(qapp):
-    """AC7: x y rot."""
+    """AC7: x y rot -- through the editor's own DOF readout."""
     sc = _scene()
     d, inst = _instance(sc)
-    ad = adapter_for(inst)
-    assert ad.nvars(inst) == 3
+    ctl = sc.constraint_ctl
+    assert ctl.sketch_dof() == 3
+    assert ctl.diagnostics().item_dof[inst._uid] == 3
+    assert ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"ref": "origin"}])
+    assert ctl.sketch_dof() == 1                      # rotation left
+    assert ctl.add("fix", [{"uid": inst._uid, "h": "item"}])
+    assert ctl.sketch_dof() == 0
 
 
 def test_symmetric_of_a_nested_curve_and_a_loose_circle_is_refused(qapp):
@@ -454,3 +459,75 @@ def test_handle_kind_membership_parity(qapp):
     assert la.handle_kind(ln, "p1") == "point"
     assert la.handle_kind(ln, "edge") == "edge"
     assert la.handle_kind(ln, "zz") is None
+
+
+def test_explode_two_instances_together_remaps_both(qapp, monkeypatch):
+    """Seam C1: every instance's remap runs before the one left-the-scene
+    sweep, so a constraint spanning both exploded instances survives."""
+    monkeypatch.setattr("firepro3d.themed_message.themed_choice", lambda *a, **k: "level")
+    sc = _scene()
+    sc.push_undo_state()
+    d, a = _instance(sc, pos=(40.0, 20.0))
+    b = sc.place_block_instance(d.id, (600.0, 20.0), rotation=0.0)
+    sc.push_undo_state()
+    k0 = _key(d, 0)
+    la = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    lb = _line(sc, (900.0, 300.0), (1000.0, 300.0))
+    ctl = sc.constraint_ctl
+    c1 = ctl.add("coincident", [{"uid": la._uid, "h": "p1"}, {"uid": a._uid, "h": f"{k0}:p1"}])
+    c2 = ctl.add("coincident", [{"uid": lb._uid, "h": "p1"}, {"uid": b._uid, "h": f"{k0}:p1"}])
+    c3 = ctl.add("coincident", [{"uid": a._uid, "h": f"{k0}:p2"}, {"uid": b._uid, "h": f"{k0}:p1"}])
+    assert c1 and c2 and c3
+    msgs = _status(sc)
+    sc.clearSelection()
+    a.setSelected(True)
+    b.setSelected(True)
+    new = sc.explode_selected_blocks()
+    assert new and a.scene() is None and b.scene() is None
+    assert len(ctl.constraints) == 3
+    live = {it._uid for it in new}
+    for c in (c1, c2, c3):
+        assert all(r["uid"] in live or r["uid"] in (la._uid, lb._uid) for r in c.refs)
+    assert not any("removed" in m for m in msgs)
+    sc.undo()
+    assert {i._uid for i in sc._block_instances} == {a._uid, b._uid}
+    assert len(ctl.constraints) == 3
+    assert {r["uid"] for c in ctl.constraints for r in c.refs} == {
+        la._uid, lb._uid, a._uid, b._uid}
+
+
+def test_point_on_a_nested_circle_lands_at_the_scaled_radius(qapp):
+    """AC8 solve half (a): the constant radius is the scaled child radius."""
+    sc = _scene()
+    d, inst = _instance(sc, scale=1.5)
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("point_on_curve", [{"uid": ln._uid, "h": "p1"},
+                                   {"uid": inst._uid, "h": f"{_key(d, 2)}:curve"}])
+    assert c is not None and c.id not in ctl.red
+    ctr = oracle(inst, 100.0, 60.0)
+    assert math.hypot(ln._pt1.x() - ctr.x(), ln._pt1.y() - ctr.y()) == pytest.approx(60.0, abs=1e-4)
+
+
+def test_concentric_loose_circle_with_a_nested_circle(qapp):
+    """AC8 solve half (b)."""
+    sc = _scene()
+    d, inst = _instance(sc, scale=1.5)
+    loose = _circle(sc, (500.0, 500.0), 15.0)
+    ctl = sc.constraint_ctl
+    c = ctl.add("concentric", [{"uid": loose._uid, "h": "curve"},
+                               {"uid": inst._uid, "h": f"{_key(d, 2)}:curve"}])
+    assert c is not None and c.id not in ctl.red
+    assert _near(loose._center, oracle(inst, 100.0, 60.0), tol=1e-4)
+    assert float(loose._radius) == pytest.approx(15.0)
+
+
+def test_coincident_to_a_nested_edge_midpoint(qapp):
+    """AC1 midpoint."""
+    sc = _scene()
+    d, inst = _instance(sc)
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("coincident", [{"uid": ln._uid, "h": "p1"},
+                                  {"uid": inst._uid, "h": f"{_key(d, 0)}:mid"}])
+    assert _near(ln._pt1, oracle(inst, 120.0, -80.0), tol=1e-4)
