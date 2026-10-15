@@ -1172,6 +1172,7 @@ def test_e2e_perpendicular_on_near_parallel_lines_survives_a_grip_drag(win_with_
     p0 = QPointF(a._pt2)
     _drag(view, p0, p0 + QPointF(0, 70))
     assert abs(_cos(a, b)) < 1e-9
+    assert abs(a._pt2.y() - a._pt1.y()) > 10.0               # it really tilted
 
 
 def test_e2e_perpendicular_save_close_reopen_undo_redo(win_with_editor):
