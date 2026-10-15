@@ -2583,6 +2583,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constrain_vertical": "Vertical",
         "constrain_coincident": "Coincident",
         "constrain_concentric": "Concentric",
+        "constrain_symmetric": "Symmetric",
+        "constrain_fix": "Fix",
         "constrain_dim_distance": "Smart Dimension",
     }
 
@@ -5097,7 +5099,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
         # Constraint Status (the DOF badge lives in the panel, D40/D41);
-        # CS4 Smart Dimension (large, tool-first, D50); CS6 Concentric.
+        # CS4 Smart Dimension (large, tool-first, D50); CS6 Concentric;
+        # CS7 Symmetric; CS8 Fix.
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_d = gc.add_large_button(
@@ -5125,6 +5128,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("concentric", checked),
             checkable=True)
         self._block_mode_buttons["constrain_concentric"] = b_cc
+        b_sy = gc.add_small_button(
+            "Symmetric", self._modify_icon(icon_for("symmetric")),
+            lambda checked: self._be_constrain("symmetric", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_symmetric"] = b_sy
+        b_fx = gc.add_small_button(
+            "Fix", self._modify_icon(icon_for("fix")),
+            lambda checked: self._be_constrain("fix", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_fix"] = b_fx
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5152,6 +5165,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Vertical": b_v,
                                       "Coincident": b_c,
                                       "Concentric": b_cc,
+                                      "Symmetric": b_sy,
+                                      "Fix": b_fx,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -5167,6 +5182,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                           "edge, circle/arc or the X/Y axis (pick both)")
         _editor_only(b_cc, "Concentric — give the two selected circles/arcs one "
                            "centre, or pick a circle/arc and a circle/arc or point")
+        _editor_only(b_sy, "Symmetric — mirror two points, lines or circles/arcs "
+                           "about an edge or the X/Y axis (select 2 + a reference "
+                           "line, select 2 then pick the axis, or pick all three)")
+        _editor_only(b_fx, "Fix — hold the selected items in place, or pick "
+                           "points / edges to fix them one at a time")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -5209,6 +5229,33 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             sc.set_mode(mode)
             if refs is not None:
                 ctl.begin_dim_placement(refs)
+            self._sync_mode_buttons(sc.mode)
+            return
+        if ctype == "symmetric":
+            # CS7 S2: 2 lines / curves + a reference line add at once; the
+            # pair alone waits for the axis pick; nothing selected -> picks.
+            refs = ctl.selection_refs(ctype)
+            if refs is not None and len(refs) == 3:
+                ctl.add(ctype, refs)
+            elif refs is not None:
+                sc.clearSelection()
+                sc.set_mode(mode)
+                ctl.begin_symmetric_axis(refs)
+            elif sc.selectedItems():
+                sc._show_status("Select 2 lines or 2 circles/arcs (+ a reference "
+                                "line as the axis), or nothing to pick", 4000)
+            else:
+                sc.set_mode(mode)
+            self._sync_mode_buttons(sc.mode)
+            return
+        if ctype == "fix":
+            # CS8 F2: every selected item is fixed whole (one undo step);
+            # nothing selected -> a live pick session (each click one Fix).
+            refs = ctl.selection_refs(ctype)
+            if refs is not None:
+                ctl.add_fixes(refs)
+            else:
+                sc.set_mode(mode)
             self._sync_mode_buttons(sc.mode)
             return
         refs = ctl.selection_refs(ctype)
@@ -5254,7 +5301,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _refresh_constrain_buttons(self) -> None:
         """Enable state of the Constrain / Inspect buttons (D12).
 
-        Horizontal / Vertical / Concentric: enabled with nothing selected (pick mode) or a valid
+        Horizontal / Vertical / Concentric / Symmetric / Fix: enabled with nothing selected (pick mode) or a valid
         selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
         D32 show-all override. No-op with no editor tab current (the page's
@@ -5273,7 +5320,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except RuntimeError:
             return
         from firepro3d import sketch_model as sm
-        for ctype in ("horizontal", "vertical", "concentric"):
+        for ctype in ("horizontal", "vertical", "concentric", "symmetric", "fix"):
             b = btns.get(sm.REGISTRY[ctype].label)
             if b is not None and not sip.isdeleted(b):
                 b.setEnabled(not sel or ctl.selection_refs(ctype) is not None)
