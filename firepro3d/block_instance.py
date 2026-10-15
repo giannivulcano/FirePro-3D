@@ -130,6 +130,7 @@ class BlockInstance(QGraphicsObject):
         self._pose_mirrored = False   # local x -> -x, innermost (design DD2)
         self._pose_scale = 1.0        # uniform, > 0
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
+        self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
@@ -396,6 +397,34 @@ class BlockInstance(QGraphicsObject):
         path = self.pose_transform().map(self._local_path())
         self._posed_cache = (ops, pose, path)
         return path
+
+    def _pose_key(self) -> tuple:
+        """The full pose as a cache key (mirror / scale included)."""
+        return (self._pose_x, self._pose_y, self._pose_rot,
+                self._pose_mirrored, self._pose_scale)
+
+    def snap_primitives(self) -> tuple:
+        """Posed scene-space stand-ins of this placement's primitives.
+
+        ``((bounds, item), ...)`` -- *bounds* is the item's scene bounding
+        rect padded by 1 mm (a horizontal line's rect is never empty), used
+        by the snap engine to cull. Nested blocks' primitives included; text
+        and scaffolding excluded (``block_snap_geometry.posed_primitives``).
+        Memoised on (compiled ops, full pose) -- the ``_posed_path`` idiom:
+        a content change compiles a new op list, so no explicit
+        invalidation is needed.
+        """
+        ops = self.render_ops()
+        key = self._pose_key()
+        c = self._snap_prims_cache
+        if c is not None and c[0] is ops and c[1] == key:
+            return c[2]
+        from .block_snap_geometry import posed_primitives
+        items = posed_primitives(self.definition(), key)
+        out = tuple((it.sceneBoundingRect().adjusted(-1.0, -1.0, 1.0, 1.0), it)
+                    for it in items)
+        self._snap_prims_cache = (ops, key, out)
+        return out
 
     def geometric_rect(self) -> QRectF:
         """Pen-free posed geometry bounds (for origin / bbox computations)."""
