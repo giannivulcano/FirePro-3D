@@ -1110,3 +1110,26 @@ def test_parallel_removes_one_dof_and_solve_lands_parallel():
     assert res.converged
     u, v = res.x[2:4] - res.x[0:2], res.x[6:8] - res.x[4:6]
     assert abs(u[0] * v[1] - u[1] * v[0]) / (np.linalg.norm(u) * np.linalg.norm(v)) < 1e-9
+
+
+def test_curve_radius_reads_the_variable_or_the_constant():
+    x = np.array([0.0, 0.0, 7.5])
+    assert ss.curve_radius(ss.CurveExpr(center=ss.raw_point(0, 1), r=2), x) == 7.5
+    assert ss.curve_radius(ss.CurveExpr(center=ss.raw_point(0, 1), r=None, r_const=3.0), x) == 3.0
+
+
+def test_point_on_const_curve_moves_the_point_onto_the_circle():
+    # point p = (x0, x1) free; const circle centre (10, 0) r 5 -> p lands at distance 5
+    sys_ = ss.System(x=np.array([20.0, 0.0]))
+    ss.build_point_on_curve("c", (ss.raw_point(0, 1),
+                                  ss.CurveExpr(center=ss.const_point(10.0, 0.0), r=None, r_const=5.0)), sys_)
+    res = ss.NumpySolver().solve(sys_, sys_.x.copy(), np.ones(2))
+    assert res.converged
+    assert np.hypot(res.x[0] - 10.0, res.x[1]) == pytest.approx(5.0, abs=1e-6)
+
+
+def test_driving_radius_dim_on_a_const_curve_is_refused():
+    sys_ = ss.System(x=np.array([0.0, 0.0]))
+    cv = ss.CurveExpr(center=ss.raw_point(0, 1), r=None, r_const=5.0)
+    with pytest.raises(ValueError):
+        ss.build_dim_radius("d", cv, sys_, value=5.0)
