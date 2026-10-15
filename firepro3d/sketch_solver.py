@@ -1139,7 +1139,8 @@ def _angle_mod_pi(offset: float):
     [−π/2, π/2) -- zero when the edges meet at *offset* or *offset* + π. Linear
     in the angle (as D80), so a Gauss-Newton step from far off -- even exactly
     at the opposite relation -- still turns the edges (the sine / cosine forms
-    had a zero gradient there). A zero-length edge has no direction: a zero row."""
+    had a zero gradient there): exactly the opposite relation gives −π/2, a
+    non-zero row with a gradient. A zero-length edge has no direction: a zero row."""
     def fn(P, _E):
         a1, b1, a2, b2 = P
         u, v = b1 - a1, b2 - a2
@@ -1154,7 +1155,7 @@ def _angle_mod_pi(offset: float):
     return fn
 
 
-_parallel = _angle_mod_pi(0.0)                 # CS9 (row form CS10 PP6)
+_parallel = _angle_mod_pi(0.0)                 # CS9 relation, CS10 PP6 row form
 _perpendicular = _angle_mod_pi(math.pi / 2)    # CS10
 
 

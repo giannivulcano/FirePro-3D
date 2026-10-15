@@ -178,3 +178,18 @@ def test_selection_refs_parallel_two_lines_only(qapp):
     assert all(r["h"] == "edge" for r in ctl.selection_refs("parallel"))
     r = _rect(sc, (100, 100), (140, 130)); r.setSelected(True)
     assert ctl.selection_refs("parallel") is None              # any other selection
+
+
+@pytest.mark.parametrize("b_ends", [((0, 50), (0, 150)),        # exactly perpendicular
+                                    ((0, 50), (17.6, 150)),     # 80 deg
+                                    ((0, 50), (100, 150))])     # 45 deg
+def test_parallel_rotates_and_keeps_lengths(qapp, b_ends):
+    """CS10 PP6: Parallel turns near-perpendicular lines instead of going red
+    or shrinking them."""
+    sc = _scene()
+    a = _line(sc, (0, 0), (100, 0)); b = _line(sc, *b_ends)
+    ln = lambda it: math.hypot(it._pt2.x() - it._pt1.x(), it._pt2.y() - it._pt1.y())
+    la, lb = ln(a), ln(b)
+    c = sc.constraint_ctl.add("parallel", [P(a, "edge"), P(b, "edge")])
+    assert c.id not in sc.constraint_ctl.red and abs(_sin(a, b)) < 1e-9
+    assert ln(a) == pytest.approx(la, abs=1e-6) and ln(b) == pytest.approx(lb, abs=1e-6)

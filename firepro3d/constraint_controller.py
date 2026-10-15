@@ -48,6 +48,10 @@ REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
 PARALLEL_TRIVIAL_STATUS = ("Those edges are already parallel by construction -- "
                            "pick another edge")                 # CS9
+PERPENDICULAR_TRIVIAL_STATUS = ("Those edges are already perpendicular by construction -- "
+                                "pick another edge")            # CS10
+# CS10 PP5 / PP6: types whose add first tries turning the edges (lengths held).
+ROTATE_FIRST = ("parallel", "perpendicular")
 # D17 (CS3); "flipped" since the 2026-10-12 ruling: Flip refuses a fully
 # defined BLOCK instance only (D45; see modify_tools_controller.flip_refusal_targets).
 GROUNDED_STATUS = ("Fully defined geometry can't be moved, rotated, scaled or "
@@ -244,12 +248,13 @@ class PickState:
         (``"mid"`` = an edge midpoint, CS3b), edge
         ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``.
         Curves + axes are offered to Coincident and (CS5) Smart Dimension
-        (and the later curve types); Parallel (CS9) gets the axes only;
+        (and the later curve types); Parallel / Perpendicular (CS9 / CS10)
+        get the axes only;
         hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
         ``ry``) never."""
         curvy = self.ctype in ("coincident", "dim_distance", "concentric",
                                "symmetric", "fix")
-        axes = curvy or self.ctype == "parallel"   # CS9 P1: edges + X / Y axis
+        axes = curvy or self.ctype in ("parallel", "perpendicular")   # CS9 P1 / CS10 PP1
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -303,7 +308,7 @@ class PickState:
             if n == 1:
                 return kind == self.kinds[0]
             return kind in ("edge", "axis")
-        if self.ctype == "parallel":                          # CS9 P1
+        if self.ctype in ("parallel", "perpendicular"):       # CS9 P1 / CS10 PP1
             if kind not in ("edge", "axis"):
                 return False
             return not self.picks or kind == "edge" or self.kinds[0] == "edge"
@@ -388,7 +393,7 @@ class PickState:
                         "curve": "circle/arc"}.get(self.kinds[0], "point")
                 return f"{label}: pick the 2nd {what} (1/3) · Esc to cancel"
             return f"{label}: pick the axis -- an edge or the X/Y axis (2/3) · Esc to cancel"
-        if self.ctype == "parallel":                          # CS9
+        if self.ctype in ("parallel", "perpendicular"):       # CS9 / CS10
             what = ("pick an edge" if n and self.kinds[0] == "axis" else
                     "pick an edge, then an edge or the X/Y axis")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
@@ -832,8 +837,10 @@ class ConstraintController:
         every equality is a self-alias (a circle / arc with its own centre)
         is refused the same way. CS8: a Fix of the origin builds nothing.
         CS9: a Parallel of a rectangle's opposite sides (or a text-box edge
-        and its axis) is parallel for any values."""
-        if c.type not in ("point_on_curve", "concentric", "fix", "parallel"):
+        and its axis) is parallel for any values. CS10: a Perpendicular of a
+        rectangle's / square polygon's adjacent sides."""
+        if c.type not in ("point_on_curve", "concentric", "fix", "parallel",
+                          "perpendicular"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
         if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
@@ -959,7 +966,7 @@ class ConstraintController:
 
     # ── solve + write-back (one write per item, §3) ──────────────────────
     def _solve(self, *, edited=(), pin=None, ctx=None, focus=None,
-               typed=None, reset: bool = False) -> bool:
+               typed=None, reset: bool = False, hold=()) -> bool:
         """One solve + write-back.
 
         Args:
@@ -976,6 +983,8 @@ class ConstraintController:
             reset: A D35 reset frame -- the session-start values are the goals
                 of every item the caller did not move (D18; the snapshot is
                 not rewritten).
+            hold: Temporary records solved with the active set this once
+                (CS10 PP5) -- never stored.
 
         Only the components holding *edited* / *focus* variables are solved
         (§7.2 components). With neither given, every component is; with a
@@ -986,7 +995,7 @@ class ConstraintController:
             True when converged (and written back); False = nothing written.
         """
         if ctx is None:
-            cons = self.active()
+            cons = self.active() + list(hold)
             if not cons:
                 return True
             sys_, slots, base = self._build(cons)
@@ -1853,11 +1862,12 @@ class ConstraintController:
             self._status(INVALID_STATUS)
             return None
         if self._identically_satisfied(c):
-            self._status(PARALLEL_TRIVIAL_STATUS if ctype == "parallel"
-                         else TRIVIAL_STATUS)
+            self._status({"parallel": PARALLEL_TRIVIAL_STATUS,
+                          "perpendicular": PERPENDICULAR_TRIVIAL_STATUS}.get(
+                              ctype, TRIVIAL_STATUS))
             return None
         self.constraints.append(c)
-        ok = self._solve(focus=sm.ref_uids(c))
+        ok = self._rotate_first(c) or self._solve(focus=sm.ref_uids(c))
         if not ok:
             self.red.add(c.id)               # D38: the newcomer is the culprit
         if not _commit:
@@ -1876,6 +1886,27 @@ class ConstraintController:
         elif c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)   # D42
         return c
+
+    def _rotate_first(self, c) -> bool:
+        """CS10 PP5 / PP6: a newly added Parallel / Perpendicular is first
+        solved with each ref edge's current length held (a temporary
+        ``dim_distance`` row per edge), so the edges TURN -- split by least
+        change -- instead of shrinking; the plain endpoint least change can
+        only reach a far-off angle by collapsing an edge. False (nothing
+        written) when the type does not apply, an edge has no length, or that
+        solve fails -- the caller then runs the plain solve."""
+        if c.type not in ROTATE_FIRST:
+            return False
+        holds = []
+        for r in c.refs:
+            if sm.is_ground(r):
+                continue
+            h = sm.Constraint.new("dim_distance", [r])
+            h.value = self.measure(h)
+            if not h.value or h.value <= 0.0:
+                return False
+            holds.append(h)
+        return self._solve(focus=sm.ref_uids(c), hold=holds)
 
     def _fix_v0(self, ref):
         """CS8: the values a new Fix holds -- a point's (x, y) or a whole
@@ -2484,8 +2515,8 @@ class ConstraintController:
                 ctype = "coincident" if both_points else "point_on_curve"
             elif ctype == "concentric" and p.kinds[0] != "curve":
                 refs.reverse()                      # stored curve-first (CS6 pin)
-            elif ctype == "parallel" and p.kinds[0] == "axis":
-                refs.reverse()                      # stored edge-first (CS9)
+            elif ctype in ("parallel", "perpendicular") and p.kinds[0] == "axis":
+                refs.reverse()                      # stored edge-first (CS9 / CS10)
         if dim:                                    # CS4b D63 / CS5: placement next
             hit = self.dim_precheck(refs)
             if hit is None:
@@ -2642,7 +2673,8 @@ class ConstraintController:
         """D21 selection-first: one selected line / reference line -> ``[edge]``;
         CS5 one circle / arc -> ``[curve]`` (Smart Dimension); CS6 two
         circles / arcs -> ``[curve, curve]`` (Concentric); CS9 two lines /
-        reference lines -> ``[edge, edge]`` (Parallel).
+        reference lines -> ``[edge, edge]`` (Parallel); CS10 two lines ->
+        ``[edge, edge]`` (Perpendicular).
 
         Returns:
             The refs to add, or None when the selection is not valid for it.
@@ -2664,7 +2696,7 @@ class ConstraintController:
                 and all(isinstance(s, (CircleItem, ArcItem))
                         and getattr(s, "_uid", None) is not None for s in sel)):
             return [{"uid": s._uid, "h": "curve"} for s in sel]   # CS6 R3
-        if (ctype == "parallel" and len(sel) == 2                 # CS9 P4
+        if (ctype in ("parallel", "perpendicular") and len(sel) == 2   # CS9 P4 / CS10 PP4
                 and all(isinstance(s, LineItem) and getattr(s, "_uid", None) is not None
                         for s in sel)):
             return [{"uid": s._uid, "h": "edge"} for s in sel]
@@ -3003,6 +3035,8 @@ class ConstraintController:
         everything. Coincident / point-on-curve / Concentric are kept under
         every transform (CS3, CS6). Symmetric is kept under every transform
         (an internal edge axis; an X / Y axis is a ground, so dropped) (CS7);
+        Parallel / Perpendicular between two edges are kept under every
+        transform (an axis is a ground, so dropped) (CS9 / CS10);
         Fix is dropped from every copy (CS8 F3).
 
         Args:
