@@ -10,11 +10,18 @@ def test_catalogue_declares_every_session_type():
             "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle"} == names
 
 
-def test_built_types_after_cs8():
+def test_built_types_after_cs9():
     assert [t for t, s in sm.REGISTRY.items() if s.implemented] == [
         "horizontal", "vertical", "coincident", "point_on_curve", "dim_distance",
         "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle", "concentric",
-        "symmetric", "fix", "dim_point_line"]
+        "symmetric", "fix", "parallel", "dim_point_line"]
+
+
+def test_registry_parallel_built():
+    s = sm.REGISTRY["parallel"]
+    assert s.implemented and s.label == "Parallel" and s.dof == 1
+    assert s.patterns == (("edge", "edge"), ("edge", "axis"))
+    assert sm.icon_for("parallel") == "constraint_parallel_icon.svg"
 
 
 def test_registry_symmetric_and_fix_built():
@@ -69,9 +76,9 @@ def test_unknown_or_unbuilt_record_is_inert_and_verbatim():
     assert c.inert
     assert c.to_dict() == raw
     built_later = sm.Constraint.from_dict(
-        {"id": "x2", "type": "parallel",
+        {"id": "x2", "type": "perpendicular",
          "refs": [{"uid": "a", "h": "edge"}, {"uid": "b", "h": "edge"}]})
-    assert built_later.inert          # declared but not implemented (CS9)
+    assert built_later.inert          # declared but not implemented (CS10)
 
 
 def test_registry_coincident_types_built():
