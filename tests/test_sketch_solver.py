@@ -1299,4 +1299,6 @@ def test_equal_two_const_curves_give_a_constant_zero_gradient_row():
     assert not res.converged                                            # E4: different -> red
     s2 = ss.System(x=np.array([1.0, 2.0, 3.0, 4.0]))
     ss.BUILDERS["equal"]("e", (a, ss.CurveExpr(center=ss.raw_point(2, 3), r=None, r_const=40.0)), s2)
-    assert s2.rows[0].fn(s2.x)[0] == 0.0
+    r2, g2 = s2.rows[0].fn(s2.x)
+    assert r2 == 0.0 and not np.any(g2)                                 # identically zero
+    assert ss.NumpySolver().diagnose(s2).redundant == ["e"]
