@@ -1080,14 +1080,22 @@ def test_parallel_row_zero_when_parallel_or_antiparallel_and_fd_jacobian():
         assert abs(row.fn(s.x)[0]) > 1e-3
 
 
-def test_parallel_row_is_ang_scaled_sine():
-    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 3.0]))   # 90 deg
-    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
-    assert abs(s.rows[0].fn(s.x)[0]) == pytest.approx(ss.ANG_SCALE)
+def test_parallel_row_is_ang_scaled_angle_mod_pi():
+    """CS10 PP6: the row is ANG_SCALE x the angle off parallel, wrapped to
+    [-pi/2, pi/2) -- linear in the angle (30 deg -> pi/6), length-free."""
     c, si = math.cos(math.radians(30)), math.sin(math.radians(30))   # 30 deg, lengths 10 / 7
     s2 = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 1.0, 1.0, 1.0 + 7 * c, 1.0 + 7 * si]))
     ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s2)
-    assert s2.rows[0].fn(s2.x)[0] == pytest.approx(ss.ANG_SCALE * 0.5)
+    assert s2.rows[0].fn(s2.x)[0] == pytest.approx(ss.ANG_SCALE * math.pi / 6)
+
+
+def test_parallel_row_has_a_gradient_at_exactly_perpendicular():
+    """CS10 PP6: the shipped sine row had a zero gradient here (no solve)."""
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 3.0]))   # 90 deg
+    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
+    r, g = s.rows[0].fn(s.x)
+    assert abs(r) == pytest.approx(ss.ANG_SCALE * math.pi / 2)
+    assert np.linalg.norm(g) > 1.0
 
 
 def test_parallel_zero_length_edge_gives_zero_row():
@@ -1142,3 +1150,76 @@ def test_driving_radius_dim_on_a_const_curve_is_refused():
     cv = ss.CurveExpr(center=ss.raw_point(0, 1), r=None, r_const=5.0)
     with pytest.raises(ValueError):
         ss.build_dim_radius("d", cv, sys_, value=5.0)
+
+
+# -- CS10 Perpendicular (§7.3; PP1, PP6) ------------------------------------
+
+def test_perpendicular_row_zero_when_perpendicular_either_way_and_fd_jacobian():
+    rng = np.random.default_rng(10)
+    for _ in range(10):
+        x = rng.uniform(-50, 50, 8)
+        s = ss.System(x=x.copy())
+        ss.BUILDERS["perpendicular"]("q", (_edge(0), _edge(4)), s)
+        (row,) = s.rows
+        assert not s.aliases and not s.fixes
+        _fd_check(row, s.x)
+        d1 = s.x[2:4] - s.x[0:2]
+        n1 = np.array([-d1[1], d1[0]])
+        for k in (1.3, -0.6):                            # +90 deg, then -90 deg
+            s.x[6:8] = s.x[4:6] + k * n1
+            assert abs(row.fn(s.x)[0]) < 1e-9
+        s.x[7] += 5.0
+        assert abs(row.fn(s.x)[0]) > 1e-3
+
+
+def test_perpendicular_row_is_angle_off_90_and_has_gradient_when_parallel():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 5.0, 4.0, 5.0]))   # parallel
+    ss.BUILDERS["perpendicular"]("q", (_edge(0), _edge(4)), s)
+    r, g = s.rows[0].fn(s.x)
+    assert abs(r) == pytest.approx(ss.ANG_SCALE * math.pi / 2)
+    assert np.linalg.norm(g) > 1.0
+
+
+def test_perpendicular_zero_length_edge_gives_zero_row():
+    s = ss.System(x=np.array([5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 3.0, 4.0]))
+    ss.BUILDERS["perpendicular"]("q", (_edge(0), _edge(4)), s)
+    r, g = s.rows[0].fn(s.x)
+    assert r == 0.0 and not np.any(g)
+
+
+def test_perpendicular_to_x_axis_aliases_x_like_vertical():
+    s = ss.System(x=np.array([1.0, 2.0, 10.0, 7.0]))
+    ss.BUILDERS["perpendicular"]("q", (_edge(0), "x_axis"), s)
+    assert s.aliases == [(0, 2, "q")] and not s.rows
+
+
+def test_perpendicular_to_y_axis_aliases_y_like_horizontal():
+    s = ss.System(x=np.array([0.0, 2.0, 10.0, 7.0]))
+    ss.BUILDERS["perpendicular"]("q", (_edge(0), "y_axis"), s)
+    assert s.aliases == [(1, 3, "q")] and not s.rows
+
+
+def test_perpendicular_removes_one_dof_and_solve_lands_perpendicular():
+    x = np.array([0.0, 0.0, 100.0, 0.0, 0.0, 50.0, 30.0, 140.0])
+    s = ss.System(x=x.copy())
+    assert ss.NumpySolver().diagnose(s).dof == 8
+    ss.BUILDERS["perpendicular"]("q", (_edge(0), _edge(4)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 7
+    res = ss.NumpySolver().solve(s, x.copy(), np.ones(8))
+    assert res.converged
+    u, v = res.x[2:4] - res.x[0:2], res.x[6:8] - res.x[4:6]
+    assert abs(float(u @ v)) / (np.linalg.norm(u) * np.linalg.norm(v)) < 1e-9
+
+
+def test_perpendicular_with_held_lengths_turns_parallel_lines():
+    """PP5 at solver level: held lengths + the row reach 90 deg from parallel."""
+    x = np.array([0.0, 0.0, 100.0, 0.0, 0.0, 50.0, 100.0, 50.0])
+    s = ss.System(x=x.copy())
+    ss.BUILDERS["perpendicular"]("q", (_edge(0), _edge(4)), s)
+    ss.build_dim_distance("l1", _edge(0), s, value=100.0)
+    ss.build_dim_distance("l2", _edge(4), s, value=100.0)
+    res = ss.NumpySolver().solve(s, x.copy(), np.ones(8))
+    assert res.converged
+    u, v = res.x[2:4] - res.x[0:2], res.x[6:8] - res.x[4:6]
+    assert abs(float(u @ v)) < 1e-6
+    assert np.linalg.norm(u) == pytest.approx(100.0) and np.linalg.norm(v) == pytest.approx(100.0)
