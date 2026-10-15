@@ -11,7 +11,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
 from .block_definition import _nested_pose, is_scaffold
-from .block_pose import is_upright, valid_scale
+from .block_pose import is_upright, pose_matrix, valid_scale
 from .stroke_style import compose_overrides
 
 _NESTED_TYPE = "block_instance"
@@ -45,38 +45,73 @@ def has_nested(instances) -> bool:
     return False
 
 
-def _compose(inst, rec, ox, oy):
-    """Scene pose of a nested record inside a placed instance (design DD9).
+def instance_pose(inst) -> tuple:
+    """``(x, y, rotation, mirrored, scale)`` of a placed instance."""
+    x, y = inst.block_pos()
+    return (x, y, inst.block_rotation(), inst.block_mirrored(),
+            inst.block_scale())
+
+
+def compose_pose(pose, rec, ox, oy) -> tuple:
+    """Scene pose of a nested record inside a host at *pose* (design DD9).
 
     Full matrices, as the compile does (``BlockDefinition._nested_ops``):
-    the record pose, then the definition-origin shift, then the instance's
+    the record pose, then the definition-origin shift, then the host's
     full pose. The position is the composed matrix's translation; rotation,
     mirror and scale come from the closed form below.
 
     Args:
-        inst: The placed host ``BlockInstance``.
+        pose: The host's ``(x, y, rotation, mirrored, scale)``.
         rec: The nested ``block_instance`` record.
         ox: Host definition origin x.
         oy: Host definition origin y.
 
     Returns:
-        ``(pos, kwargs)`` for ``Model_Space.place_block_instance``.
+        The child's ``(x, y, rotation, mirrored, scale)``.
     """
+    hx, hy, hrot, hmir, hs = pose
     t = (_nested_pose(rec) * QTransform.fromTranslate(-ox, -oy)
-         * inst.full_pose_transform())
-    x, y = t.dx(), t.dy()
+         * pose_matrix(hx, hy, hrot, hmir, hs))
     # Closed form for the pose parts (exact -- no atan2 / sqrt noise persisted
     # to the record): M . R(a) = R(-a) . M, so a mirrored host negates the
     # child's rotation and toggles its mirror; scales multiply.
     rr = float(rec.get("rotation", 0.0))
     rm = bool(rec.get("mirrored", False))
     rs = valid_scale(rec.get("scale", 1.0))
-    if inst.block_mirrored():
-        rot, mirrored = inst.block_rotation() - rr, not rm
+    if hmir:
+        rot, mirrored = hrot - rr, not rm
     else:
-        rot, mirrored = inst.block_rotation() + rr, rm
-    return (x, y), {"rotation": rot, "mirrored": mirrored,
-                    "scale": inst.block_scale() * rs}
+        rot, mirrored = hrot + rr, rm
+    return (t.dx(), t.dy(), rot, mirrored, hs * rs)
+
+
+def pose_primitive(item, pose, ox, oy) -> None:
+    """Move a definition-local primitive onto a block pose (design DD9).
+
+    ``P = T . R . S . M``: translate by pos - origin, then about the
+    insertion point reflect across its vertical when mirrored
+    (``manip_reflect`` -- asymmetric end glyphs flip with it), scale
+    (``manip_scale_about``) and rotate (``manip_rotate``, Y-up CCW). Text is
+    not posed here (``_pose_text``).
+
+    Args:
+        item: A non-text 2D primitive (in a scene or scene-free).
+        pose: ``(x, y, rotation, mirrored, scale)``.
+        ox: Definition origin x.
+        oy: Definition origin y.
+    """
+    px, py, rot, mirrored, s = pose
+    pivot = QPointF(px, py)
+    if hasattr(item, "translate"):
+        item.translate(px - ox, py - oy)
+    else:
+        item.manip_translate(px - ox, py - oy)
+    if mirrored:
+        item.manip_reflect(pivot, QPointF(px, py + 1.0))
+    if s != 1.0:
+        item.manip_scale_about(pivot, s)
+    if rot:
+        item.manip_rotate(rot, pivot)
 
 
 def _text_centre(rec) -> QPointF:
@@ -157,14 +192,11 @@ def explode_instances(scene, instances, flatten: bool) -> list:
     """Replace each instance by its definition's contents; returns new items.
 
     Primitives are re-created via ``scene._add_from_dict`` and moved onto the
-    instance's full pose in the order of ``P = T . R . S . M`` (design DD9):
-    translate by pos - origin, then about the insertion point reflect across
-    its vertical when mirrored (``manip_reflect`` -- asymmetric end glyphs
-    flip with it), scale (``manip_scale_about``) and rotate (``manip_rotate``,
-    Y-up CCW). Text has no reflect / scale hooks: its size fields are scaled
+    instance's full pose (``pose_primitive``, design DD9). Text has no
+    reflect / scale hooks: its size fields are scaled
     on the record and ``_pose_text`` seats the readable ``TextItem`` on the
     mapped box centre (design DD6). Nested records become new
-    ``BlockInstance``s at the composed full pose (``_compose``) -- recursively
+    ``BlockInstance``s at the composed full pose (``compose_pose``) -- recursively
     exploded when *flatten*. An instance whose definition is missing, or is
     geom-backed (an imported reference with no authored primitives), is left
     in place. Placement overrides bake onto primitives (WM-11) and compose
@@ -186,16 +218,14 @@ def explode_instances(scene, instances, flatten: bool) -> list:
             continue
         d = inst.definition()
         ox, oy = d.origin
-        px, py = inst.block_pos()
-        rot = inst.block_rotation()
-        mirrored = inst.block_mirrored()
-        s = inst.block_scale()
-        pivot = QPointF(px, py)
+        pose = instance_pose(inst)
+        s = pose[4]
         for rec in d.primitives:
             if rec.get("type") == _NESTED_TYPE:
-                pos, kw = _compose(inst, rec, ox, oy)
+                x, y, *parts = compose_pose(pose, rec, ox, oy)
+                kw = dict(zip(("rotation", "mirrored", "scale"), parts))
                 child = scene.place_block_instance(
-                    rec["block_id"], pos,
+                    rec["block_id"], (x, y),
                     overrides=compose_overrides(inst.overrides,
                                                 rec.get("overrides")),
                     **kw)
@@ -221,16 +251,7 @@ def explode_instances(scene, instances, flatten: bool) -> list:
                 _pose_text(item, inst, c_def, ox, oy)
                 created.append(item)
                 continue
-            if hasattr(item, "translate"):
-                item.translate(px - ox, py - oy)
-            else:
-                item.manip_translate(px - ox, py - oy)
-            if mirrored:
-                item.manip_reflect(pivot, QPointF(px, py + 1.0))
-            if s != 1.0:
-                item.manip_scale_about(pivot, s)
-            if rot:
-                item.manip_rotate(rot, pivot)
+            pose_primitive(item, pose, ox, oy)
             created.append(item)
         scene.remove_block_instance(inst)
     return created

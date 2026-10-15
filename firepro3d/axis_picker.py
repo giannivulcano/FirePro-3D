@@ -26,6 +26,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtWidgets import QGraphicsItem
 
 from .arc_math import yup_angle
+from .block_instance import BlockInstance
 from .geometry_2d import (LineItem, PolylineItem, RectangleItem,
                           RegularPolygonItem, _degenerate_axis)
 from .gridline import GridlineItem
@@ -181,18 +182,21 @@ def pick_axis(scene, cursor: QPointF, tol: float, exclude=None) -> "AxisPick | N
                                                     gl_items, None, ctx):
         if kind != "seg":
             continue                      # circles are never an axis
-        a, b, src, _pk = rec
-        if id(src) in skip or not src.isVisible() or not _is_axis_source(src):
+        a, b, src, pk = rec
+        # A block's segment carries its posed primitive as the key: the
+        # straight-type whitelist judges the primitive, the block is the pick.
+        shape = pk if isinstance(src, BlockInstance) else src
+        if id(src) in skip or not src.isVisible() or not _is_axis_source(shape):
             continue
         consider(a, b, src)
         # The generator walks a polyline's vertex chain only; a closed
         # polyline's closing edge is an edge too (DD2: the selection's own
         # edges count).
-        if (isinstance(src, PolylineItem) and src.is_closed()
-                and id(src) not in closed_done):
-            closed_done.add(id(src))
-            pts = src._points
-            consider(src.mapToScene(pts[-1]), src.mapToScene(pts[0]), src)
+        if (isinstance(shape, PolylineItem) and shape.is_closed()
+                and id(shape) not in closed_done):
+            closed_done.add(id(shape))
+            pts = shape._points
+            consider(shape.mapToScene(pts[-1]), shape.mapToScene(pts[0]), src)
     for a, b, grp in _underlay_segments(scene, rect):
         if id(grp) not in skip:
             consider(a, b, grp)

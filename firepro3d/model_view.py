@@ -133,8 +133,10 @@ class Model_View(QGraphicsView):
         (not insertion) → excluded. Falls back to the CrossCursor map for scenes
         without the set.
         """
+        # place_block shows the Paste-style ghost, so (like paste) no
+        # crosshair, although it is an ALIGN placement mode (user 2026-10-15).
         if mode in (None, "select", "move", "paste", "copy_base", "duplicate",
-                    "rotate", "array", "flip", "mirror", "scale"):
+                    "rotate", "array", "flip", "mirror", "scale", "place_block"):
             return False
         placement = getattr(self.scene(), "_ALIGN_PLACEMENT_MODES", None)
         if placement is not None:

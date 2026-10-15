@@ -187,7 +187,7 @@ def test_every_place_block_instance_site_carries_the_pose():
                 continue
             call = _call_text(src, m.start())
             if f.name == "block_explode.py":
-                # DD9: the nested child splats _compose's decomposed pose
+                # DD9: the nested child splats compose_pose's decomposed pose
                 # (``**kw``) -- never rotation / mirrored / scale one by one.
                 ok = bool(re.search(r"\*\*\w+", call)) and not re.search(
                     r"\b(rotation|mirrored|scale)\s*=", call)

@@ -19,7 +19,8 @@ import math
 import uuid
 from typing import Callable, Optional
 from PyQt6.QtCore import QRectF, QPointF, Qt
-from PyQt6.QtGui import QBrush, QPainterPath, QPen, QColor, QTransform
+from PyQt6.QtGui import (QBrush, QPainterPath, QPainterPathStroker, QPen,
+                         QColor, QPolygonF, QTransform)
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from . import crisp_stroke as _cs
@@ -34,6 +35,7 @@ from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
 from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
 from .scale_manager import ScaleManager
+from .view_scale import scene_hit_width
 from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
                            canvas_px, has_ends, is_as_authored, is_end_ref,
                            is_linetype_ref, linetype_block,
@@ -130,6 +132,9 @@ class BlockInstance(QGraphicsObject):
         self._pose_mirrored = False   # local x -> -x, innermost (design DD2)
         self._pose_scale = 1.0        # uniform, > 0
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
+        self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
+        self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
+        self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
@@ -397,11 +402,60 @@ class BlockInstance(QGraphicsObject):
         self._posed_cache = (ops, pose, path)
         return path
 
+    def _pose_key(self) -> tuple:
+        """The full pose as a cache key (mirror / scale included)."""
+        return (self._pose_x, self._pose_y, self._pose_rot,
+                self._pose_mirrored, self._pose_scale)
+
+    def snap_primitives(self) -> tuple:
+        """Posed scene-space stand-ins of this placement's primitives.
+
+        ``((bounds, item), ...)`` -- *bounds* is the item's scene bounding
+        rect padded by 1 mm (a horizontal line's rect is never empty), used
+        by the snap engine to cull. Nested blocks' primitives included; text
+        and scaffolding excluded (``block_snap_geometry.posed_primitives``).
+        Memoised on (compiled ops, full pose) -- the ``_posed_path`` idiom:
+        a content change compiles a new op list, so no explicit
+        invalidation is needed.
+        """
+        ops = self.render_ops()
+        key = self._pose_key()
+        c = self._snap_prims_cache
+        if c is not None and c[0] is ops and c[1] == key:
+            return c[2]
+        from .block_snap_geometry import posed_primitives
+        items = posed_primitives(self.definition(), key)
+        out = tuple((it.sceneBoundingRect().adjusted(-1.0, -1.0, 1.0, 1.0), it)
+                    for it in items)
+        self._snap_prims_cache = (ops, key, out)
+        return out
+
     def geometric_rect(self) -> QRectF:
         """Pen-free posed geometry bounds (for origin / bbox computations)."""
         return self._posed_path().boundingRect()
 
     def boundingRect(self) -> QRectF:
+        """The frame rect, grown to hold :meth:`shape`'s ~10 px hit band.
+
+        Qt rejects an item by its bounding rect before testing ``shape()``,
+        so the strokes' fattened band (half of ``scene_hit_width``) must fit
+        inside -- zoomed out it outgrows the frame's fixed 2 mm pen margin.
+        The selection frame keeps the un-grown rect (:meth:`manip_bounds`).
+        """
+        r = self._frame_rect()
+        extra = scene_hit_width(self, 10.0, 6.0) / 2.0 - 2.0
+        if extra > 0.0:
+            r = r.adjusted(-extra, -extra, extra, extra)
+        return r
+
+    def manip_bounds(self) -> QRectF:
+        """Scene box the selection frame wraps (selection-manipulator
+        ``manip_bounds``): the frame rect, independent of the hit band."""
+        return self.sceneTransform().mapRect(self._frame_rect())
+
+    def _frame_rect(self) -> QRectF:
+        """Posed geometry + 2 mm pen margin (+ missing-linetype badge and
+        end-glyph pads): the bounds before the hit band."""
         ops = self.render_ops()
         r = self._posed_path(ops).boundingRect()
         m = 2.0  # pen margin (mm)
@@ -585,10 +639,69 @@ class BlockInstance(QGraphicsObject):
         reg = getattr(sc, "block_registry", None) if sc is not None else None
         return any(linetype_block(i, reg) is None for i in ids)
 
-    def shape(self) -> QPainterPath:
-        # Copy (implicitly shared, O(1)): callers may mutate what shape()
-        # returns; the memoised path must stay intact.
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """HALO / ghost trace: the drawn geometry (selection-mode §4.1).
+
+        Unchanged from the ``shape()`` fallback it replaces (so Move / Paste
+        ghosts and ``distance_to_item`` keep the block's look); its presence
+        makes the block a non-area item -- interior hits come only from
+        :meth:`halo_area_path`.
+        """
         return QPainterPath(self._posed_path())
+
+    def halo_area_path(self) -> QPainterPath:
+        """Closed areas that count as a direct HALO hit.
+
+        Fill / pattern clips (posed like the paint) and text frame boxes
+        (full pose, DD2). Memoised on (compiled ops, full pose).
+        """
+        ops = self.render_ops()
+        key = self._pose_key()
+        c = self._area_cache
+        if c is None or c[0] is not ops or c[1] != key:
+            area = QPainterPath()
+            pose = self.pose_transform()
+            for op in ops:
+                if op.kind in (FILL, PATTERN):
+                    area = area.united(pose.map(op.path))
+            d = self.definition()
+            if d is not None:
+                full = self.full_pose_transform()
+                for box in d.text_snap_points():
+                    p = QPainterPath()
+                    p.addPolygon(QPolygonF([full.map(box[i]) for i in (0, 2, 4, 6)]))
+                    p.closeSubpath()
+                    area = area.united(p)
+            c = self._area_cache = (ops, key, area)
+        return QPainterPath(c[2])
+
+    def shape(self) -> QPainterPath:
+        """Hit shape like loose primitives: the strokes fattened to ~10 px
+        plus the :meth:`halo_area_path` areas -- an empty interior is no hit
+        (click, crossing band). An orphan / empty block keeps its placeholder
+        path. Memoised on (compiled ops, full pose, hit width); returns a
+        copy (callers may mutate it)."""
+        ops = self.render_ops()
+        if not ops:
+            return QPainterPath(self._posed_path(ops))
+        w = scene_hit_width(self, 10.0, 6.0)
+        key = (self._pose_key(), round(w, 6))
+        c = self._shape_cache
+        if c is not None and c[0] is ops and c[1] == key:
+            return QPainterPath(c[2])
+        strokes = QPainterPath()
+        pose = self.pose_transform()
+        for op in ops:
+            if op.kind == STROKE:
+                strokes.addPath(pose.map(op.path))
+        st = QPainterPathStroker()
+        st.setWidth(w)
+        path = st.createStroke(strokes)
+        area = self.halo_area_path()
+        if not area.isEmpty():
+            path = path.united(area)
+        self._shape_cache = (ops, key, path)
+        return QPainterPath(path)
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):

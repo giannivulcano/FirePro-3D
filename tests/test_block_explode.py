@@ -386,15 +386,17 @@ class _PlanBlock:
 
 def test_plan_right_click_on_a_block_offers_edit_block_and_opens_its_editor(
         qapp, main_window, monkeypatch):
-    """Guard (a): a block WITH AREA on the plan — a real right-click selects
-    it and shows the entity menu with Edit Block (no Explode); triggering it
-    opens a seeded Block Editor tab for that block."""
+    """Guard (a): a block with a circle on the plan — a real right-click on
+    its stroke selects it and shows the entity menu with Edit Block (no
+    Explode); triggering it opens a seeded Block Editor tab for that block.
+    (Since 2026-10-15 a block's shape is its strokes + fills + text boxes, so
+    the unfilled circle's interior is no longer a hit — click its rim.)"""
     from firepro3d.geometry_2d import CircleItem
     b = _line_def("PlanB", (0, 0), (100, 0),
                   extra=[CircleItem(QPointF(50, 0), 20).to_dict()])
     with _PlanBlock(main_window, b) as pb:
-        assert pb.inst in pb.sc.items(pb.at(50, 10))
-        menu = _plan_right_click(pb.view, pb.at(50, 10), monkeypatch)
+        assert pb.inst in pb.sc.items(pb.at(50, 20))
+        menu = _plan_right_click(pb.view, pb.at(50, 20), monkeypatch)
         assert menu is not None
         acts = {a.text(): a for a in menu.actions()}
         assert "Edit Block" in acts and "Explode" not in acts
@@ -412,11 +414,13 @@ def test_plan_right_click_on_a_block_offers_edit_block_and_opens_its_editor(
 
 def test_plan_right_click_resolves_a_line_only_block_via_nearest_pick(
         qapp, main_window, monkeypatch):
-    """Guard (b): a line-only block (zero-area shape) resolves through the
-    HALO nearest-pick fallback on the plan too."""
+    """Guard (b): a line-only block resolves through the HALO nearest-pick
+    fallback on the plan too. (Since 2026-10-15 a block's shape is its ~10 px
+    stroke band like a loose line's, so the click sits 10 mm off the line --
+    outside that band, inside the 15 px HALO aperture.)"""
     b = _line_def("PlanLine", (0, 0), (100, 0))
     with _PlanBlock(main_window, b) as pb:
-        pt = pb.at(50, 4.0)
+        pt = pb.at(50, 10.0)
         assert pb.inst not in pb.sc.items(pt)                  # only HALO reaches it
         assert pb.sc._find_entity_at(pt) is pb.inst
         menu = _plan_right_click(pb.view, pt, monkeypatch)

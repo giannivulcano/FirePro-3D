@@ -90,7 +90,9 @@ def test_block_with_text_emits_box_points_not_glyph_vertices(qapp):
         coll = eng._collect(inst)
         kinds = [k for k, _p, _n in coll]
         assert kinds.count("endpoint") == 2 + 4        # line ends + text corners, 0 glyph vertices
-        assert kinds.count("midpoint") == 4
+        # text edge mids + the line's own mid (block primitives snap like
+        # loose ones -- full parity ruling 2026-10-14)
+        assert kinds.count("midpoint") == 4 + 1
         assert kinds.count("center") == 1 + 1          # insertion origin + text centre
         # Text TL corner goes through the instance pose: prim (200,300) + insert (1000,0).
         ends = [p for k, p, _n in coll if k == "endpoint"]

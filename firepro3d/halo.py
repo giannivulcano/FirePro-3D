@@ -98,7 +98,9 @@ def halo_is_area(item) -> bool:
     item's hidden fill is not an area, RG4), other items with
     ``fill_type != "none"``, classes flagged
     ``HALO_AREA = True`` (the list is owned by selection-mode.md §4.1), and any
-    item whose trace falls back to ``shape()`` (text boxes, SVG, blocks).
+    item whose trace falls back to ``shape()`` (text boxes, SVG). A block is a
+    composite (``halo_trace_path``) whose filled parts and text boxes come
+    from its ``halo_area_path`` hook (see :func:`halo_pick_distance_px`).
     Open geometry (lines, arcs, unfilled outlines) is measured to its stroke —
     ``QPainterPath.contains`` implicitly closes open paths, so it must not be
     used for them.
@@ -144,18 +146,24 @@ def halo_pick_distance_px(item, cursor_vp, dt) -> float:
     """Screen-px distance from *cursor_vp* (viewport coords) to *item*'s drawn
     trace — the SNAP acceptance model (snapping-engine.md §6.1), judged in
     pixels via ``item.deviceTransform(dt)`` so it is zoom-invariant and correct
-    for ``ItemIgnoresTransformations`` markers. 0.0 inside an area item;
+    for ``ItemIgnoresTransformations`` markers. 0.0 inside an area item, or
+    inside a composite's ``halo_area_path`` (a block's fills and text boxes);
     ``math.inf`` when the item has no traceable geometry.
     """
     scale = max(abs(dt.m11()), abs(dt.m22()), 1e-9)
     try:
-        dev = item.deviceTransform(dt).map(_halo_local(item, scale))
+        xf = item.deviceTransform(dt)
+        dev = xf.map(_halo_local(item, scale))
+        area_hook = getattr(item, "halo_area_path", None)
+        area = xf.map(area_hook()) if callable(area_hook) else None
     except RuntimeError:  # C++ object deleted mid-hover
         return math.inf
     if dev.isEmpty():
         return math.inf
     if halo_is_area(item) and dev.contains(cursor_vp):
         return 0.0
+    if area is not None and area.contains(cursor_vp):
+        return 0.0                             # composite with filled parts
     cx, cy = cursor_vp.x(), cursor_vp.y()
     best = math.inf
     for poly in dev.toSubpathPolygons():
