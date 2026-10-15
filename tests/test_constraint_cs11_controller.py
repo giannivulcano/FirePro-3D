@@ -227,6 +227,22 @@ def test_add_many_equal_chain_is_one_undo_step(qapp):
     assert [round(_len(by[u]), 6) for u in uids] == [100.0, 60.0, 30.0]
 
 
+def test_add_many_skips_a_refused_member_and_keeps_the_rest(qapp):
+    from firepro3d.constraint_controller import EQUAL_TRIVIAL_STATUS
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    msgs = _status(sc)
+    a = _line(sc, (0, 0), (100, 0)); r = _rect(sc, (200, 0), (240, 30))
+    sc.push_undo_state()
+    n0 = sc._undo_pos
+    out = ctl.add_many("equal", [[P(r, "top"), P(r, "bottom")],        # by construction
+                                 [P(a, "edge"), P(r, "left")]])
+    assert [c.refs for c in out] == [[P(a, "edge"), P(r, "left")]]
+    assert sc._undo_pos == n0 + 1
+    assert EQUAL_TRIVIAL_STATUS in msgs
+    assert _len(a) == pytest.approx(r.rect().height(), abs=1e-6)
+
+
 def test_equal_copies_keep_under_mirror_and_rotation(qapp):
     sc = _scene()
     ctl = sc.constraint_ctl
