@@ -109,6 +109,7 @@ class Model_View(QGraphicsView):
             "constrain_fix":          _C.PointingHandCursor,
             "constrain_parallel":     _C.PointingHandCursor,
             "constrain_perpendicular": _C.PointingHandCursor,
+            "constrain_equal":        _C.PointingHandCursor,
             "constrain_dim_distance": _C.PointingHandCursor,
         }
 

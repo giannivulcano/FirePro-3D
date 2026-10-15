@@ -1211,3 +1211,65 @@ def test_e2e_perpendicular_conflict_red_and_held(win_with_editor):
     c = sc.constraint_ctl.constraints[-1]
     assert c.type == "perpendicular" and c.id in sc.constraint_ctl.red
     assert [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)] == before
+
+
+# -- CS11 Equal (real window, real ribbon, posted events) ------------------------
+
+def _L(a):
+    return math.hypot(a._pt2.x() - a._pt1.x(), a._pt2.y() - a._pt1.y())
+
+
+def test_e2e_equal_survives_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _ln(sc, (-100, -60), (100, -60)); b = _ln(sc, (-100, 60), (20, 60))
+    _click_btn(win, "Equal", a, b)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["equal"]
+    assert _L(a) == pytest.approx(_L(b), abs=1e-6)
+    before = _L(b)
+    sc.clearSelection(); a.setSelected(True); QApplication.processEvents()
+    p0 = QPointF(a._pt2)
+    _drag(view, p0, p0 + QPointF(60, 0))
+    assert _L(a) == pytest.approx(_L(b), abs=1e-6)
+    assert _L(b) != pytest.approx(before, abs=1.0)                  # b really followed
+
+
+def test_e2e_equal_chain_undo_redo_save_reopen(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene; view = w.view
+    ls = [_ln(sc, (-80, y), (-80 + L, y)) for y, L in ((0, 160), (40, 100), (80, 40))]
+    sc.push_undo_state()
+    _click_btn(win, "Equal", *ls)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["equal", "equal"]
+    uids = [l._uid for l in ls]
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    by = {ln._uid: ln for ln in sc._draw_lines}                     # undo rebuilds the items
+    assert [round(_L(by[u]), 6) for u in uids] == [160.0, 100.0, 40.0]
+    _ctrl(view, Qt.Key.Key_Y)
+    assert len(sc.constraint_ctl.constraints) == 2
+    sc.clearSelection()
+    defn = w.commit_block("cs11-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {ln._uid: ln for ln in sc2._draw_lines}
+    assert [c.type for c in sc2.constraint_ctl.active()] == ["equal", "equal"]
+    lens = [_L(by[u]) for u in uids]
+    assert max(lens) - min(lens) < 1e-6
+
+
+def test_e2e_equal_conflict_red_and_held(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    a = _ln(sc, (-80, 0), (80, 0)); b = _ln(sc, (-80, 60), (20, 60))
+    sc.constraint_ctl.add("dim_distance", [{"uid": a._uid, "h": "edge"}], value=160.0)
+    sc.constraint_ctl.add("dim_distance", [{"uid": b._uid, "h": "edge"}], value=100.0)
+    before = [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)]
+    _click_btn(win, "Equal", a, b)
+    c = sc.constraint_ctl.constraints[-1]
+    assert c.type == "equal" and c.id in sc.constraint_ctl.red
+    assert [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)] == before

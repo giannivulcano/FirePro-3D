@@ -4818,6 +4818,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "constrain_fix":            "_move_constrain_pick",
         "constrain_parallel":       "_move_constrain_pick",
         "constrain_perpendicular":  "_move_constrain_pick",
+        "constrain_equal":          "_move_constrain_pick",
         "constrain_dim_distance":   "_move_constrain_pick",
     }
 
@@ -5455,6 +5456,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "constrain_fix":            "_press_constrain_pick",
         "constrain_parallel":       "_press_constrain_pick",
         "constrain_perpendicular":  "_press_constrain_pick",
+        "constrain_equal":          "_press_constrain_pick",
         "constrain_dim_distance":   "_press_constrain_pick",
     }
 
