@@ -1019,6 +1019,21 @@ def test_e2e_symmetric_and_fix_save_close_reopen(win_with_editor):
     assert by[ua]._center.y() == pytest.approx(by[ub]._center.y(), abs=1e-6)
     assert float(by[ua]._radius) == pytest.approx(float(by[ub]._radius), abs=1e-6)
     assert sc2.constraint_ctl.diagnostics().state(ua) == "defined"
+    # §11 #3 (T7 review I2): a placed instance renders the solved, frozen
+    # geometry. The Symmetric add moved both rings least-change to
+    # x = +-55, y = 5, r = 15 (mean |x| of 50 / 60, mean r of 20 / 10) before
+    # the Fix froze a: the union is 2 * (55 + 15) wide, 2 * 15 tall.
+    ca, ra = by[ua]._center, float(by[ua]._radius)
+    assert (ca.x(), ca.y(), ra) == pytest.approx((-55.0, 5.0, 15.0), abs=1e-6)
+    inst = win.scene.place_block_instance(defn.id, (0, 0))
+    try:
+        ops = inst.render_ops()
+        r = ops[0].path.boundingRect()
+        for op in ops[1:]:
+            r = r.united(op.path.boundingRect())
+        assert (r.width(), r.height()) == pytest.approx((140.0, 30.0), abs=1e-6)
+    finally:
+        win.scene.remove_block_instance(inst)
 
 
 def test_e2e_undo_redo_of_a_fix_selection(win_with_editor):

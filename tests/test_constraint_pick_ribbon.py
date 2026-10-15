@@ -836,6 +836,23 @@ def test_symmetric_invalid_selection_posts_a_hint(win_with_editor, qapp):
         "or nothing to pick")
 
 
+def test_fix_invalid_selection_posts_a_hint(win_with_editor, qapp):
+    """T7 review I1: a selection holding a non-participating item (a spline,
+    D5) disables Fix and a direct call posts the hint, never a pick."""
+    from firepro3d.geometry_2d import SplineItem
+    win = win_with_editor
+    sc = _editor_scene(win)
+    sp = SplineItem([QPointF(0, 0), QPointF(50, -60), QPointF(100, 0), QPointF(150, -40)])
+    sc.addItem(sp); sc._draw_splines.append(sp)
+    sp.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not _btn(win, "Fix").isEnabled()
+    win._be_constrain("fix", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_fix"
+    assert win.statusBar().currentMessage() == (
+        "Select geometry that can be fixed, or nothing to pick")
+
+
 def test_symmetric_and_fix_enable_state(win_with_editor, qapp):
     win = win_with_editor
     sc = _editor_scene(win)
