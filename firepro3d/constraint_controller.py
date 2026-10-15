@@ -31,7 +31,7 @@ from .geometry_2d import SplineItem
 from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, ItemExpr, NumpySolver, System, W_EDIT,
-                            W_PIN, const_point)
+                            W_PIN, const_point, curve_radius)
 from .text_item import TextItem
 from .theme import M
 
@@ -151,6 +151,16 @@ def _safe_ref_uids(c) -> set | None:
         return None
 
 
+def _refs_an_instance(c, by) -> bool:
+    """Whether any ref of *c* names a nested block instance (NB4: those are
+    re-validated on every ``active()``; their handles live in a child
+    definition that can change under them)."""
+    for r in c.refs if isinstance(c.refs, list) else ():
+        if isinstance(r, dict) and hasattr(by.get(r.get("uid")), "block_mirrored"):
+            return True
+    return False
+
+
 def _is_reflection(point_map) -> bool:
     """Whether *point_map* reverses orientation (Flip / Mirror)."""
     o = point_map(QPointF(0.0, 0.0))
@@ -174,6 +184,8 @@ PICK_SAME_CURVE_STATUS = "Pick a different circle/arc"     # CS6 (same curve twi
 PICK_SAME_EDGE_STATUS = "Pick a different edge"            # CS7 (a pair edge as the axis)
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
+DIM_NESTED_REFERENCE_STATUS = ("Dimension added as Reference -- a nested block's "
+                               "radius is fixed")                    # NB7 ruling
 DIM_ZERO_STATUS = "Pick two separate points"
 DIM_REFERENCE_HINT = "Reference dimension -- set it to Driving to edit"   # D52
 DIM_SUPPRESSED_HINT = "Suppressed dimension -- unsuppress it to edit"
@@ -260,7 +272,7 @@ class PickState:
                     if name in hidden:                # CS5 D79: defining circles
                         continue
                     yield ("curve", {"uid": uid, "h": name},
-                           QPointF(*cv.center.eval(x)[0]), (float(x[cv.r]), it))
+                           QPointF(*cv.center.eval(x)[0]), (curve_radius(cv, x), it))
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
         if axes:
             yield "axis", {"ref": "x_axis"}, None, None
@@ -618,10 +630,22 @@ class ConstraintController:
 
     def active(self) -> list:
         """Solvable constraints: enabled, built and valid (not inert), not red
-        (D37), refs resolve."""
+        (D37), refs resolve. First re-validates instance-ref'd records,
+        flipping ``invalid`` / ``raw`` as the child definition changes (NB4)."""
         items = self.item_by_uid()
         by = set(items)
         out = []
+        for c in self.constraints:                       # NB4: instance refs re-checked
+            if c.raw is not None and not c.invalid:
+                continue                                 # unknown / unbuilt type: stays verbatim
+            if not _refs_an_instance(c, items):
+                continue
+            ok = self._valid(c, items)
+            if ok and c.invalid:
+                c.invalid, c.raw = False, None           # revived (fields were parsed)
+            elif not ok and not c.invalid:
+                c.raw = c.to_dict()
+                c.invalid = True
         for c in self.constraints:
             if (not c.enabled or c.inert or c.id in self.red
                     or (c.type in sm.VALUED and not c.driving)):    # D7/D52 Reference
@@ -711,13 +735,7 @@ class ConstraintController:
         ad = adapter_for(it)
         if h == sm.HANDLE_ITEM:                  # CS8: a whole primitive (Fix)
             return "item" if ad is not None else None
-        if h in ad.points(it, 0):
-            return "point"
-        if h in ad.edges(it, 0):
-            return "edge"
-        if h in ad.curves(it, 0):
-            return "curve"
-        return None
+        return ad.handle_kind(it, h)
 
     def _valid(self, c, by=None) -> bool:
         """Whether a built-type record can be solved here: every uid resolves,
@@ -760,7 +778,27 @@ class ConstraintController:
             cv = adapter_for(it).curves(it, 0).get(r0.get("h")) if it is not None else None
             if cv is None or cv.span is None:
                 return False
+        if c.driving and None not in kinds and self._on_const_curve(c, by):
+            return False                                 # NB7: a fixed radius
+        if c.type == "symmetric" and None not in kinds and kinds[:2] == ("curve", "curve"):
+            for r in c.refs[:2]:                         # NB7: no radius variable to alias
+                it = by.get(r.get("uid"))
+                cv = adapter_for(it).curves(it, 0).get(r.get("h")) if it is not None else None
+                if cv is not None and cv.r is None:
+                    return False
         return None not in kinds and kinds in spec.patterns
+
+    @staticmethod
+    def _on_const_curve(c, by) -> bool:
+        """NB7: whether *c* is a radius / diameter dim on a constant-radius
+        (nested block) curve -- it can only be a Reference."""
+        if c.type not in ("dim_radius", "dim_diameter") or not c.refs:
+            return False
+        r0 = c.refs[0]
+        it = by.get(r0.get("uid")) if isinstance(r0, dict) else None
+        ad = adapter_for(it) if it is not None else None
+        cv = ad.curves(it, 0).get(r0.get("h")) if ad is not None else None
+        return cv is not None and cv.r is None
 
     def _fix_helper_ok(self, c, by) -> bool:
         """CS8 FP2p: ``helper.v0`` = finite floats -- 2 for a point, the
@@ -807,6 +845,25 @@ class ConstraintController:
                 return False
         return True
 
+    def _migrate_instance_fix(self, c, by) -> None:
+        """NB6: a whole-item Fix on a nested instance saved before rotation
+        became a variable holds ``v0 = [x, y]``; append the instance's current
+        rotation (radians -- v0 stores adapter variables). Idempotent."""
+        if c.type != "fix" or not isinstance(c.refs, list) or len(c.refs) != 1:
+            return
+        r = c.refs[0]
+        if not isinstance(r, dict) or r.get("h") != sm.HANDLE_ITEM:
+            return
+        it = by.get(r.get("uid"))
+        v0 = c.helper.get("v0") if isinstance(c.helper, dict) else None
+        if (it is None or not hasattr(it, "block_rotation")
+                or not isinstance(v0, list) or len(v0) != 2):
+            return
+        try:
+            c.helper["v0"] = [float(v0[0]), float(v0[1]), math.radians(it.block_rotation())]
+        except (TypeError, ValueError):
+            return                                   # unreadable: falls through to _valid -> inert (§6.4)
+
     def _adopt(self, record, by) -> sm.Constraint:
         """A stored / pasted record as a Constraint. Unreadable or invalid
         records are kept VERBATIM and inert (never solved, saved as-is, §6.4)."""
@@ -815,6 +872,7 @@ class ConstraintController:
         except Exception:                       # not a dict, unreadable fields
             return sm.Constraint(id=uuid.uuid4().hex, type="", refs=[],
                                  raw=copy.deepcopy(record))
+        self._migrate_instance_fix(c, by)
         if not c.inert and not self._valid(c, by):
             c.raw = copy.deepcopy(record)
             c.invalid = True
@@ -1275,7 +1333,7 @@ class ConstraintController:
             self._carry_dim_labels(anchors, point_map)
             return
         snap = self._snapshot(items)
-        poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
+        poses = [(it, it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
         flipped, refuse = (self._flip_dim_signs(items, point_map)
                            if point_map is not None and _is_reflection(point_map)
@@ -1291,8 +1349,7 @@ class ConstraintController:
         pins = self._typed_pins(items, snap) if typed else None
         if refuse or not self._solve(edited=items, typed=pins):
             self._restore(snap)
-            for it, r, mir, sc in poses:   # pose parts outside the solver vars (DD8)
-                it.set_block_rotation(r)
+            for it, mir, sc in poses:   # pose parts outside the solver vars (DD8; rotation is one -- NB1)
                 it.set_block_mirrored(mir)
                 it.set_block_scale(sc)
             for c, v in scaled:
@@ -1767,6 +1824,7 @@ class ConstraintController:
             edge = edge_for_points(refs, self.item_by_uid())
             if edge is not None:
                 refs = [edge]                   # an edge's own ends == that edge
+        nested_ref = False
         c = sm.Constraint.new(ctype, refs)
         if helper is not None:
             c.helper = copy.deepcopy(helper)
@@ -1786,6 +1844,9 @@ class ConstraintController:
                 self._status(refusal)
                 return None
             c.value = value if value is not None else self.measure(c)
+            if value is None and self._on_const_curve(c, self.item_by_uid()):
+                c.driving = False                        # NB7: only a Reference measures it
+                nested_ref = True
             if label is not None:
                 c.label = copy.deepcopy(label)           # CS4b D62 placement
         if not self._valid(c):
@@ -1808,6 +1869,8 @@ class ConstraintController:
         self._committed(skip=(c.id,))
         if not ok:
             self._report_conflict()          # nothing written: hold last good
+        elif nested_ref:
+            self._status(DIM_NESTED_REFERENCE_STATUS)
         elif reference:
             self._status(DIM_REFERENCE_STATUS)
         elif c.id in self.diagnostics().redundant:
@@ -2010,6 +2073,8 @@ class ConstraintController:
         refusal = self._dim_refusal(c)
         if refusal is None:
             c.value = self.measure(c)
+            if self._on_const_curve(c, by):
+                c.driving = False                        # NB7: a Reference measure
             if c.value is None or not self._valid(c):
                 refusal = INVALID_STATUS
         if refusal is not None:
@@ -2233,6 +2298,10 @@ class ConstraintController:
         if (c is None or c.inert or c.type not in sm.VALUED
                 or c.driving == driving):
             return
+        if driving and self._on_const_curve(c, self.item_by_uid()):
+            self._status(DIM_NESTED_REFERENCE_STATUS)      # NB7 ruling: stays Reference
+            self._refresh_panel()                          # the Driving checkbox re-reads the model
+            return
         c.driving = driving
         bad = False
         if driving:
@@ -2249,6 +2318,41 @@ class ConstraintController:
             self._report_conflict()
         elif driving and c.id in self.diagnostics().redundant:
             self._status(REDUNDANT_STATUS)
+
+    def on_items_exploded(self, pairs) -> int:
+        """NB5: after a whole explode, before its cascade -- for every
+        ``(instance, uid_map)`` pair rewrite that instance's interior refs
+        onto the created items (``sm.remap_exploded``, each pair fed the
+        previous pair's survivors) and drop the rest (``ins`` / ``item`` /
+        unmapped). Only then ONE sweep drops any record whose target left the
+        scene (a flattened child instance), so a constraint spanning two
+        exploded instances is remapped before any is judged. Returns the drop
+        count (the caller's status)."""
+        pairs = [(getattr(i, "_uid", None), m) for i, m in pairs]
+        pairs = [(u, m) for u, m in pairs if u is not None]
+        if not pairs or not self.enabled:
+            return 0
+        kept, dropped = self.constraints, []
+        for uid, uid_map in pairs:
+            kept, d = sm.remap_exploded(kept, uid, uid_map)
+            dropped.extend(d)
+        by = set(self.item_by_uid())
+        still = []
+        for c in kept:
+            uids = _safe_ref_uids(c)
+            if not c.inert and uids is not None and not uids <= by:
+                dropped.append(c)
+            else:
+                still.append(c)
+        self.constraints = still
+        if self.selected_id not in {c.id for c in self.constraints}:
+            self.selected_id = None
+        self.red &= {c.id for c in self.constraints}
+        self._build_cache = None
+        if dropped:
+            self._recheck_red()
+        self._commit_gen += 1
+        return len(dropped)
 
     def on_items_removed(self, items) -> int:
         """Cascade-delete constraints touching removed items (caller pushes undo)."""

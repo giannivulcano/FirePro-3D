@@ -226,3 +226,54 @@ def remap_for_copy(cons, uid_map: dict) -> list:
         n.refs = [{**r, "uid": uid_map[r["uid"]]} for r in c.refs]
         out.append(n)
     return out
+
+
+def split_handle(h: str) -> tuple:
+    """``("<path>", "<handle>")`` of a nested handle name (NB3): the part
+    before the first ``:`` and the rest; a plain handle has path ``""``."""
+    path, sep, name = h.partition(":")
+    return (path, name) if sep else ("", h)
+
+
+def remap_exploded(cons, inst_uid: str, uid_map: dict) -> tuple:
+    """NB5: rewrite refs on the exploded instance *inst_uid* onto the items
+    Explode created. ``uid_map`` = record path -> new uid (a loose primitive
+    or a new child instance). ``"A/B:p1"`` with ``"A"`` mapped becomes
+    ``{"uid": uid_map["A"], "h": "B:p1"}``; the longest mapped prefix wins
+    (under flatten ``"A/B"`` itself is mapped -> bare ``"p1"``). ``ins``,
+    ``item`` and an unmapped prefix have no successor: those constraints
+    drop.
+
+    Returns:
+        ``(kept, dropped)`` -- the rewritten list (other constraints
+        untouched, same order) and the dropped constraints.
+    """
+    kept, dropped = [], []
+    for c in cons:
+        if c.inert or not isinstance(c.refs, list):
+            kept.append(c)
+            continue
+        new_refs, ok = [], True
+        for r in c.refs:
+            if not isinstance(r, dict) or is_ground(r) or r.get("uid") != inst_uid:
+                new_refs.append(r)
+                continue
+            path, name = split_handle(str(r.get("h", "")))
+            segs = path.split("/") if path else []
+            hit = None
+            for k in range(len(segs), 0, -1):
+                key = "/".join(segs[:k])
+                if key in uid_map:
+                    hit = (uid_map[key], "/".join(segs[k:]))
+                    break
+            if hit is None:
+                ok = False
+                break
+            new_uid, rest = hit
+            new_refs.append({**r, "uid": new_uid, "h": f"{rest}:{name}" if rest else name})
+        if ok:
+            c.refs = new_refs
+            kept.append(c)
+        else:
+            dropped.append(c)
+    return kept, dropped

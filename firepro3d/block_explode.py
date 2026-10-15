@@ -18,6 +18,13 @@ _NESTED_TYPE = "block_instance"
 _TEXT_TYPE = "text"
 
 
+def record_key(rec, index: int) -> str:
+    """A primitive record's path segment (NB3): its ``uid``, else
+    ``"#<index>"`` for a legacy record without one."""
+    uid = rec.get("uid")
+    return str(uid) if uid else f"#{index}"
+
+
 def can_explode(inst) -> bool:
     """Whether *inst* resolves to a definition with authored primitives.
 
@@ -188,7 +195,7 @@ def _bake(item, ov) -> None:
         sync()
 
 
-def explode_instances(scene, instances, flatten: bool) -> list:
+def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = None) -> list:
     """Replace each instance by its definition's contents; returns new items.
 
     Primitives are re-created via ``scene._add_from_dict`` and moved onto the
@@ -208,6 +215,10 @@ def explode_instances(scene, instances, flatten: bool) -> list:
         scene: The Block Editor ``Model_Space``.
         instances: ``BlockInstance`` items to explode.
         flatten: Also explode every nested block, recursively.
+        uid_map: When a dict, filled with record path -> new uid for every
+            item this call creates (NB5). One map per exploded instance (the
+            caller loops); records ``_add_from_dict`` skips (scaffolding) get
+            no entry, which is NB5's drop path.
 
     Returns:
         The newly created scene items.
@@ -220,7 +231,8 @@ def explode_instances(scene, instances, flatten: bool) -> list:
         ox, oy = d.origin
         pose = instance_pose(inst)
         s = pose[4]
-        for rec in d.primitives:
+        for i, rec in enumerate(d.primitives):
+            key = record_key(rec, i)
             if rec.get("type") == _NESTED_TYPE:
                 x, y, *parts = compose_pose(pose, rec, ox, oy)
                 kw = dict(zip(("rotation", "mirrored", "scale"), parts))
@@ -229,8 +241,13 @@ def explode_instances(scene, instances, flatten: bool) -> list:
                     overrides=compose_overrides(inst.overrides,
                                                 rec.get("overrides")),
                     **kw)
+                if uid_map is not None:
+                    uid_map[key] = child._uid
                 if flatten:
-                    created.extend(explode_instances(scene, [child], flatten=True))
+                    sub = {} if uid_map is not None else None
+                    created.extend(explode_instances(scene, [child], flatten=True, uid_map=sub))
+                    if sub:
+                        uid_map.update({f"{key}/{k}": v for k, v in sub.items()})
                     if child.scene() is scene:      # unexplodable (missing) — keep it
                         created.append(child)
                 else:
@@ -246,6 +263,8 @@ def explode_instances(scene, instances, flatten: bool) -> list:
             item = scene._add_from_dict(rec)
             if item is None:
                 continue
+            if uid_map is not None:
+                uid_map[key] = item._uid
             _bake(item, inst.overrides)
             if is_text:
                 _pose_text(item, inst, c_def, ox, oy)

@@ -2510,15 +2510,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         before = self._capture_network()
         self.clearSelection()
         try:
-            new = explode_instances(self, insts, flatten)
+            maps = {i._uid: {} for i in insts}
+            new = []
+            for i in insts:
+                new.extend(explode_instances(self, [i], flatten, uid_map=maps[i._uid]))
         except Exception:
             logging.getLogger(__name__).exception("block explode failed; state restored")
             self._restore_network(before)
             self._show_status("Explode failed — nothing was changed", 4000)
             return []
-        # §8: the exploded instances' constraints (on their ``ins``) are
-        # dropped inside the same undo step as the explode.
-        n = self.constraint_ctl.on_items_removed(
+        # NB5: interior refs follow the exploded primitives; ins / item refs
+        # drop; the cascade then catches nothing further.
+        n = self.constraint_ctl.on_items_exploded(
+            [(i, maps[i._uid]) for i in insts if i.scene() is not self])
+        n += self.constraint_ctl.on_items_removed(
             [i for i in insts if i.scene() is not self])
         for it in new:
             it.setSelected(True)

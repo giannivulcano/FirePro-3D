@@ -133,6 +133,7 @@ class BlockInstance(QGraphicsObject):
         self._pose_scale = 1.0        # uniform, > 0
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
+        self._nested_handles_cache = None  # (ops, mirrored, scale, table) — sketch_adapters._nested_table
         self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
