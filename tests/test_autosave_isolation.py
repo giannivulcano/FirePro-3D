@@ -45,13 +45,13 @@ def test_each_test_gets_a_fresh_autosave_dir(_dir_at_module_setup):
 def test_autosave_writes_into_the_temp_dir(qapp, stub_view3d):
     """Real path: a dirty window's timer slot writes the redirected file."""
     before = _home_state()
+    p = MainWindow._autosave_path()
+    assert not _under_home(p)          # refuse to write before checking
     w = MainWindow()
     try:
         w._modified = True
         w._autosave()
-        p = MainWindow._autosave_path()
         assert os.path.isfile(p)
-        assert not _under_home(p)
     finally:
         dispose_main_window(w)
     assert _home_state() == before
@@ -63,6 +63,7 @@ def test_recovery_check_consumes_only_the_redirected_file(
     the redirected one, never the user's real one."""
     before = _home_state()
     p = MainWindow._autosave_path()
+    assert not _under_home(p)          # never plant/consume the real file
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as fh:
         fh.write("{}")
