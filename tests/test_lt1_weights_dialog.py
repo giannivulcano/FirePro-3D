@@ -17,6 +17,7 @@ from firepro3d.display_manager import DisplayManager
 from firepro3d.model_space import Model_Space
 from firepro3d.paper_display import LineWeightDef
 from firepro3d.underlay import Underlay
+from tests._mainwindow_helpers import dispose_main_window
 
 _LW_TAB = 2   # Model=0, Paper Space=1 (insertTab), Line Weights=2 (addTab)
 
@@ -149,10 +150,7 @@ def main_window(qapp):
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
     w = MainWindow()
     yield w
-    w._modified = False
-    w.close()
-    w.deleteLater()
-    qapp.processEvents()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

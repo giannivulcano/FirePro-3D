@@ -3,13 +3,14 @@ import main as _main_module
 from firepro3d.view_3d import View3D          # heavy import required before MainWindow
 _main_module.View3D = View3D                  # inject lazy global (mirrors multiview test)
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture
 def main_window(qapp):
     w = MainWindow()
     yield w
-    w.close()
+    dispose_main_window(w)
 
 
 def test_halo_pill_toggles_scene_flag(main_window):

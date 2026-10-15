@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture(scope="module")
@@ -23,9 +24,7 @@ def _main_window_singleton(qapp, tmp_path_factory):
         win.show()
         QTest.qWaitForWindowExposed(win)
         yield win
-        win._modified = False
-        win.close()
-        win.deleteLater()
+        dispose_main_window(win)
 
 
 @pytest.fixture

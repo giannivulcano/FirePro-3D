@@ -19,6 +19,7 @@ from firepro3d import hatch_render as hr
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import RectangleItem
 from firepro3d.model_space import Model_Space
+from tests._mainwindow_helpers import dispose_main_window
 
 _D = 3.0 * math.sqrt(2.0)       # Diagonal / Cross Hatch cell: 3 mm printed spacing
 
@@ -196,8 +197,7 @@ def mw(qapp, tmp_path, monkeypatch):
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
     w = main_mod.MainWindow()
     yield w
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

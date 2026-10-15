@@ -10,6 +10,7 @@ pre-import View3D, save/restore SNAP_TOLERANCE_PX, clear _modified on teardown.
 from __future__ import annotations
 
 import pytest
+from tests._mainwindow_helpers import dispose_main_window
 from PyQt6.QtTest import QTest
 
 from firepro3d.underlay_manager import UnderlayManagerDialog
@@ -32,10 +33,7 @@ def _main_window_singleton(qapp):
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
-    win._modified = False
-    win.close()
-    win.deleteLater()
-    qapp.processEvents()
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

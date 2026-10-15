@@ -6,6 +6,7 @@ from PyQt6.QtCore import QSettings
 from firepro3d import paper_display as pd
 from firepro3d.model_space import Model_Space
 from firepro3d.paper_display import LineWeightDef
+from tests._mainwindow_helpers import dispose_main_window
 
 
 def _template(defs):
@@ -102,4 +103,4 @@ def test_new_file_resets_project_table_to_template(qapp, monkeypatch):
         w.new_file()
         assert pd.weight_names() == ["NewProjTmpl"]
     finally:
-        w.close()
+        dispose_main_window(w)

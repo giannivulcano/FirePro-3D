@@ -26,6 +26,7 @@ import main as _main_module
 from firepro3d.view_3d import View3D  # heavy import, required before MainWindow()
 _main_module.View3D = View3D
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 
 
 def _armed_line(scene, anchor=QPointF(0, 0), resolved=QPointF(1000, 0)):
@@ -154,9 +155,7 @@ def _main_window_singleton(qapp):
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
-    win._modified = False
-    win.close()
-    win.deleteLater()
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

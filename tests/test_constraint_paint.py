@@ -16,6 +16,7 @@ from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 from firepro3d.scale_manager import ScaleManager
 from firepro3d.theme import M
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture
@@ -320,10 +321,7 @@ def mw(qapp, tmp_path_factory):
         if isinstance(ed, BlockEditorWidget):
             ed.editor_scene.clearSelection()
             w.block_editor_manager.close(ed)
-    w.scene.clearSelection()
-    w._modified = False
-    w.close()
-    w.deleteLater()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
     qapp.setStyleSheet(prev_qss)
     qapp.setFont(prev_font)

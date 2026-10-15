@@ -24,6 +24,7 @@ from firepro3d import snap_engine
 from firepro3d import colour_picker
 from firepro3d.floor_slab import FloorSlab
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37,9 +38,7 @@ def _main_window_singleton(qapp):
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
-    win._modified = False
-    win.close()
-    win.deleteLater()
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

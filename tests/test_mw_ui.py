@@ -17,6 +17,7 @@ from firepro3d.display_manager import DisplayManager
 from firepro3d.model_space import Model_Space
 from firepro3d.paper_display import LineWeightDef
 from firepro3d.underlay import Underlay
+from tests._mainwindow_helpers import dispose_main_window
 
 # Saturated ink: never confusable with a light or dark theme background.
 INK = "#ff00ff"
@@ -46,10 +47,7 @@ def main_window(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
     w = MainWindow()
     yield w
-    w._modified = False
-    w.close()
-    w.deleteLater()
-    qapp.processEvents()
+    dispose_main_window(w)
 
 
 def _live_underlay(w, weight):

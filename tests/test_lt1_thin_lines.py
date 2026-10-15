@@ -21,13 +21,14 @@ from firepro3d import paper_display as pd
 from firepro3d.model_space import Model_Space, underlay_layer_pen
 from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
 from firepro3d.underlay import Underlay
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture
 def main_window(qapp):
     w = MainWindow()
     yield w
-    w.close()
+    dispose_main_window(w)
 
 
 # ── Footer pill + persistence ────────────────────────────────────────────────
@@ -56,7 +57,7 @@ def test_thin_lines_restored_on_startup(qapp):
         assert pd.thin_lines() is True
         assert w.footer.thin_pill.isChecked()
     finally:
-        w.close()
+        dispose_main_window(w)
 
 
 _LINE = {"kind": "line", "x1": 0, "y1": -1500, "x2": 0, "y2": 1500,

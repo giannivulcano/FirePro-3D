@@ -10,6 +10,7 @@ from firepro3d.view_3d import View3D  # heavy import required before MainWindow(
 _main_module.View3D = View3D
 from firepro3d import snap_engine
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 from firepro3d.text_item import TextItem, TextAnnotationData, editing_text_item
 
 
@@ -20,9 +21,7 @@ def win(qapp):
     w.show()
     QTest.qWaitForWindowExposed(w)
     yield w
-    w._modified = False
-    w.close()
-    w.deleteLater()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

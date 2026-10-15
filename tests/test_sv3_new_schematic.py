@@ -7,6 +7,7 @@ import json
 import os
 
 import pytest
+from tests._mainwindow_helpers import dispose_main_window
 from PyQt6.QtCore import QPointF
 
 from firepro3d import app_data, block_library as bl
@@ -128,8 +129,7 @@ def mw(qapp, tmp_path, monkeypatch):
     yield w
     for ed in list(w.block_editor_manager.open_editors()):
         ed._mark_clean()
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

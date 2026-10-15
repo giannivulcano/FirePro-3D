@@ -11,6 +11,7 @@ MainWindow-based (mirrors tests/test_stale_view_tabs.py); these pop a window.
 from __future__ import annotations
 
 import pytest
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture()
@@ -21,8 +22,7 @@ def mw(qapp, tmp_path, monkeypatch):
     main_mod.View3D = View3D
     w = main_mod.MainWindow()
     yield w
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
 
 
 def _plan_view(win, level):

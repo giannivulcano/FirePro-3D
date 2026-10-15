@@ -11,6 +11,7 @@ _main_module.View3D = View3D
 from firepro3d import snap_engine
 from main import MainWindow
 from firepro3d.settings.panes import UIPane, _QSETTINGS_ORG, _QSETTINGS_APP
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture(scope="module")
@@ -21,8 +22,7 @@ def win(qapp):
     QTest.qWaitForWindowExposed(w)
     yield w
     w.showNormal()
-    w.close()
-    w.deleteLater()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved
 
 
@@ -69,8 +69,7 @@ def test_startup_setting_beats_stale_header_toggle_key(qapp):
         assert w._start_fullscreen is True          # what main() applies
         assert not QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).contains("ui/fullscreen")
     finally:
-        w.close()
-        w.deleteLater()
+        dispose_main_window(w)
 
 
 def test_retire_fullscreen_key_folds_into_setting_when_unset():
@@ -138,5 +137,4 @@ def test_restored_geometry_does_not_carry_fullscreen_state(qapp):
         assert w.normalGeometry() == probe.normalGeometry()
         probe.deleteLater()
     finally:
-        w.close()
-        w.deleteLater()
+        dispose_main_window(w)

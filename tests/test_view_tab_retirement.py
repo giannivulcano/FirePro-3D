@@ -12,6 +12,7 @@ from firepro3d.view_3d import View3D
 _main_module.View3D = View3D
 from firepro3d import snap_engine
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture(scope="module")
@@ -21,8 +22,7 @@ def win(qapp):
     w.show()
     QTest.qWaitForWindowExposed(w)
     yield w
-    w.close()
-    w.deleteLater()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved
 
 

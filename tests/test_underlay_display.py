@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import fitz  # PyMuPDF — already a project dependency
 import pytest
+from tests._mainwindow_helpers import dispose_main_window
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter
 from PyQt6.QtWidgets import QGraphicsPathItem
@@ -275,10 +276,7 @@ def _main_window_singleton(qapp):
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
-    win._modified = False
-    win.close()
-    win.deleteLater()
-    qapp.processEvents()
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
