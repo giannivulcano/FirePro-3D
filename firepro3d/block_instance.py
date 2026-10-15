@@ -435,6 +435,27 @@ class BlockInstance(QGraphicsObject):
         return self._posed_path().boundingRect()
 
     def boundingRect(self) -> QRectF:
+        """The frame rect, grown to hold :meth:`shape`'s ~10 px hit band.
+
+        Qt rejects an item by its bounding rect before testing ``shape()``,
+        so the strokes' fattened band (half of ``scene_hit_width``) must fit
+        inside -- zoomed out it outgrows the frame's fixed 2 mm pen margin.
+        The selection frame keeps the un-grown rect (:meth:`manip_bounds`).
+        """
+        r = self._frame_rect()
+        extra = scene_hit_width(self, 10.0, 6.0) / 2.0 - 2.0
+        if extra > 0.0:
+            r = r.adjusted(-extra, -extra, extra, extra)
+        return r
+
+    def manip_bounds(self) -> QRectF:
+        """Scene box the selection frame wraps (selection-manipulator
+        ``manip_bounds``): the frame rect, independent of the hit band."""
+        return self.sceneTransform().mapRect(self._frame_rect())
+
+    def _frame_rect(self) -> QRectF:
+        """Posed geometry + 2 mm pen margin (+ missing-linetype badge and
+        end-glyph pads): the bounds before the hit band."""
         ops = self.render_ops()
         r = self._posed_path(ops).boundingRect()
         m = 2.0  # pen margin (mm)

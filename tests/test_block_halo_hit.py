@@ -92,3 +92,26 @@ def test_crossing_band_inside_the_interior_misses_the_block(qapp):
         assert inst.block_pos() == (40.0, 20.0)       # a band, never a move
     finally:
         close_view(view, scene)
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.1])
+def test_qt_hit_test_reaches_the_stroke_band_outside_the_bounds(qapp, scale):
+    # T5 review: Qt rejects by boundingRect before shape(); the strokes' ~5 px
+    # half-band must fit inside at every zoom, like loose primitives. The
+    # selection frame (manip_bounds) must not grow with it.
+    from PyQt6.QtCore import QPoint
+    view, scene = make_view(role="plan", scale=scale, mode="select")
+    try:
+        d = BlockDefinition.new(name="E", library="L", series="S",
+                                origin=(0.0, 0.0), primitives=list(_PRIMS[:1]))
+        scene.register_block_definition(d)
+        inst = scene.place_block_instance(d.id, (40.0, 20.0))
+        frame = inst.manip_bounds()
+        edge = view.mapFromScene(oracle(inst, 180.0, 0.0))     # right edge
+        probe = QPoint(edge.x() + 3, edge.y())                  # 3 px outside
+        assert inst in view.items(probe)                                # [RED]
+        assert inst not in view.items(QPoint(edge.x() + 12, edge.y()))
+        assert frame == inst.manip_bounds()
+        assert abs(frame.right() - (oracle(inst, 180.0, 0.0).x() + 2.0)) < 1e-6
+    finally:
+        close_view(view, scene)

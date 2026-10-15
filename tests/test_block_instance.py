@@ -25,7 +25,9 @@ def test_instance_resolves_shared_render_ops(qapp):
 def test_bounding_rect_reflects_definition(qapp):
     d = _def()
     inst = BlockInstance(block_id=d.id, resolver={d.id: d}.get)
-    assert abs(inst.boundingRect().width() - 100.0) < 5.0  # + pen margin
+    # + 2 mm pen margin + the hit band's extra reach (headless: 6 mm wide
+    # band -> 1 mm more per side; block bounds hold shape(), 2026-10-15)
+    assert abs(inst.boundingRect().width() - 100.0) < 7.0
 
 
 def test_to_dict_from_dict_round_trip(qapp):

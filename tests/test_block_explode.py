@@ -414,12 +414,13 @@ def test_plan_right_click_on_a_block_offers_edit_block_and_opens_its_editor(
 
 def test_plan_right_click_resolves_a_line_only_block_via_nearest_pick(
         qapp, main_window, monkeypatch):
-    """Guard (b): a line-only block (zero-area shape) resolves through the
-    HALO nearest-pick fallback on the plan too."""
+    """Guard (b): a line-only block resolves for a right-click 4 mm off its
+    line on the plan too. (Since 2026-10-15 a block's shape is its stroke
+    band like a loose line's, so Qt's own hit test may reach it as well --
+    the old zero-area-shape precondition is retired.)"""
     b = _line_def("PlanLine", (0, 0), (100, 0))
     with _PlanBlock(main_window, b) as pb:
         pt = pb.at(50, 4.0)
-        assert pb.inst not in pb.sc.items(pt)                  # only HALO reaches it
         assert pb.sc._find_entity_at(pt) is pb.inst
         menu = _plan_right_click(pb.view, pt, monkeypatch)
         labels = {a.text() for a in menu.actions()}

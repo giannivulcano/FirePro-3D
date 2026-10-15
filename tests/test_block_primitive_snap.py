@@ -46,7 +46,7 @@ def _snap_at(view, scene, p):
 def _samples(inst, step=20.0, skip_r=25.0):
     """Cursor grid over the posed block, minus the insertion origin's reach
     (its CEN exists only on the block; Explode leaves no origin)."""
-    b = inst.sceneBoundingRect().adjusted(-10, -10, 10, 10)
+    b = inst.manip_bounds().adjusted(-10, -10, 10, 10)   # geometry frame, not the hit band
     ox, oy = inst.block_pos()
     pts, y = [], b.top()
     while y <= b.bottom():
