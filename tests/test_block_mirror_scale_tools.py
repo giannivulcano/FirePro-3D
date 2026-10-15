@@ -120,8 +120,10 @@ def test_mirroring_a_mirrored_block_gives_an_unmirrored_copy(qapp):
 
 
 def _ground(scene, inst):
-    c = scene.constraint_ctl.add("coincident", [{"uid": inst._uid, "h": "ins"},
-                                                {"ref": "origin"}])
+    # NB1 (2026-10-15): an instance has x y rot -- a whole-item Fix pins all
+    # three (Coincident ins->origin alone leaves rotation free, so the block
+    # is no longer fully defined by it).
+    c = scene.constraint_ctl.add("fix", [{"uid": inst._uid, "h": "item"}])
     assert c is not None
     return (inst.block_pos(), inst.block_mirrored(), inst.block_rotation())
 

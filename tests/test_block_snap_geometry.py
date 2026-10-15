@@ -153,3 +153,33 @@ def test_a_missing_nested_block_is_skipped(qapp):
     scene.register_block_definition(d)
     inst = scene.place_block_instance(d.id, (0.0, 0.0))
     assert [type(it) for it in _items(inst)] == [LineItem]
+
+
+def test_paths_mode_keys_stand_ins_by_record_uid_and_yields_nested_origins(qapp):
+    from firepro3d.block_snap_geometry import posed_primitives
+    from tests._block_snap_helpers import NEST_REC_POSE, register_snap_block
+    sc = Model_Space(scene_role="block_editor")
+    d = register_snap_block(sc, nested=True)
+    prims, origins = posed_primitives(d, (0.0, 0.0, 0.0, False, 1.0), paths=True)
+    uids = [rec.get("uid") for rec in d.primitives]
+    # the five loose records, keyed by their own uid (positional "#i" only when absent)
+    keys = [p for p, _it in prims]
+    for i, u in enumerate(uids[:5]):
+        assert (u or f"#{i}") in keys
+    # the nested Inner circle is keyed "<rec uid>/<inner circle uid>"
+    inner = d._resolve_nested(d.primitives[5])
+    nest_key = uids[5] or "#5"
+    inner_key = inner.primitives[0].get("uid") or "#0"
+    assert f"{nest_key}/{inner_key}" in keys
+    # the nested record's origin = its record pose position (identity host pose)
+    assert origins == [(nest_key, (NEST_REC_POSE["pos"][0], NEST_REC_POSE["pos"][1]))]
+    # legacy call shape unchanged
+    flat = posed_primitives(d, (0.0, 0.0, 0.0, False, 1.0))
+    assert len(flat) == len(prims)
+
+
+def test_record_key_uid_or_index_fallback():
+    from firepro3d.block_explode import record_key
+    assert record_key({}, 3) == "#3"
+    assert record_key({"uid": ""}, 3) == "#3"
+    assert record_key({"uid": 7}, 3) == "7"

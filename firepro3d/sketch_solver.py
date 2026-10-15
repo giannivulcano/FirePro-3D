@@ -129,12 +129,20 @@ def const_point(px: float, py: float) -> PointExpr:
 @dataclass(frozen=True)
 class CurveExpr:
     """A circle / arc's FULL circle for point-on-curve (§7.3, CS3): its
-    ``center`` PointExpr and the radius variable index ``r``. An arc also
-    carries ``span`` = its (θs, θe) variable indices (CS5 D79, the sweep
-    dim); a polygon / ellipse "defining circle" carries none."""
+    ``center`` PointExpr and the radius -- a variable index ``r``, or (a
+    nested block's curve, whose radius cannot change: NB7) the constant
+    ``r_const`` with ``r=None``. An arc also carries ``span`` = its (θs, θe)
+    variable indices (CS5 D79, the sweep dim); a polygon / ellipse "defining
+    circle" and every nested curve carry none."""
     center: PointExpr
-    r: int
+    r: int | None
     span: tuple | None = None
+    r_const: float | None = None
+
+
+def curve_radius(cv: CurveExpr, x) -> float:
+    """The curve's radius at *x*: ``x[r]``, or ``r_const`` (NB7)."""
+    return float(x[cv.r]) if cv.r is not None else float(cv.r_const)
 
 
 @dataclass(frozen=True)
@@ -870,6 +878,19 @@ def _on_circle(P, E):
     return n - float(E[0]), np.array([u, -u]), np.array([-1.0])
 
 
+def _on_const_circle(r: float):
+    """``|p - c| - r`` with a constant radius (NB7) -- no extra variable."""
+    def f(P, _E):
+        p, c = P
+        v = p - c
+        n = math.hypot(v[0], v[1])
+        if n < 1e-12:
+            return -r, np.zeros((2, 2)), np.zeros(0)
+        u = v / n
+        return n - r, np.array([u, -u]), np.zeros(0)
+    return f
+
+
 def build_coincident(cid: str, ends, sys: System) -> None:
     """Coincident (pinned 2026-10-03, CS3): ``refs`` = [point, point | origin],
     order not significant. Equal X AND Y -- ``_axis_equal`` twice (raw/raw
@@ -890,7 +911,10 @@ def build_point_on_curve(cid: str, ends, sys: System) -> None:
     elif t == "y_axis":
         _axis_equal(0, cid, (p, const_point(0.0, 0.0)), sys)
     elif isinstance(t, CurveExpr):
-        _point_row(cid, (p, t.center), (t.r,), _on_circle, sys)
+        if t.r is None:
+            _point_row(cid, (p, t.center), (), _on_const_circle(float(t.r_const)), sys)
+        else:
+            _point_row(cid, (p, t.center), (t.r,), _on_circle, sys)
     else:
         a, b = t
         _point_row(cid, (p, a, b), (), _on_line, sys)
@@ -933,11 +957,15 @@ def build_dim_distance(cid: str, ends, sys: System, value: float = 0.0) -> None:
 def build_dim_radius(cid: str, ends, sys: System, value: float = 0.0) -> None:
     """CS5 D79: ``refs`` = ``[curve]``; the radius variable is substituted
     (``r := R``)."""
+    if ends.r is None:
+        raise ValueError("a nested block's curve has a fixed radius (NB7)")
     sys.fixes.append((ends.r, float(value), cid))
 
 
 def build_dim_diameter(cid: str, ends, sys: System, value: float = 0.0) -> None:
     """CS5 D79: ``r := D / 2``."""
+    if ends.r is None:
+        raise ValueError("a nested block's curve has a fixed radius (NB7)")
     sys.fixes.append((ends.r, float(value) / 2.0, cid))
 
 
@@ -1073,6 +1101,8 @@ def build_symmetric(cid: str, ends, sys: System, helper=None) -> None:
     curves: centres mirror and radii are equal (aliased)."""
     e1, e2, axis = ends
     if isinstance(e1, CurveExpr):
+        if e1.r is None or e2.r is None:
+            raise ValueError("a nested block's curve has a fixed radius (NB7)")
         _sym_points(cid, e1.center, e2.center, axis, sys)
         sys.aliases.append((e1.r, e2.r, cid))
         return

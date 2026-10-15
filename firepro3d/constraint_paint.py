@@ -34,6 +34,7 @@ from . import sketch_model as sm
 from . import theme as th
 from .icons import DARK, LIGHT, themed_icon
 from .sketch_adapters import adapter_for
+from .sketch_solver import curve_radius
 from .theme import M
 
 
@@ -107,7 +108,7 @@ def _ref_geom(ref, by, held=None):
     crs = ad.curves(it, 0)
     if h in crs:
         cv = crs[h]
-        return "curve", (_p(cv.center), float(x[cv.r]))
+        return "curve", (_p(cv.center), curve_radius(cv, x))
     return None
 
 
@@ -197,7 +198,7 @@ def _ref_anchor(view, ref, by, held=None) -> QPointF | None:
     if g[0] == "item":
         it = by.get(ref.get("uid"))
         ad = adapter_for(it) if it is not None else None
-        if ad is not None and "edge" in ad.edges(it, 0):
+        if ad is not None and ad.handle_kind(it, "edge") == "edge":
             return _anchor(view, SimpleNamespace(type="", refs=[{**ref, "h": "edge"}]),
                            by, held)
         return _up_right(view, it.sceneBoundingRect().topRight()) if it is not None else None
