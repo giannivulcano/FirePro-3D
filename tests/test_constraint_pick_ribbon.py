@@ -21,7 +21,7 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
-                    "Concentric", "Symmetric", "Fix", "Show Constraints",
+                    "Concentric", "Symmetric", "Fix", "Parallel", "Show Constraints",
                     "Constraint Status", "Delete Constraints"}
 
 
@@ -188,7 +188,8 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",
-            "Coincident", "Concentric", "Symmetric", "Fix"}   # no greyed placeholders (D15)
+            "Coincident", "Concentric", "Symmetric", "Fix",
+            "Parallel"}                                       # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -897,7 +898,8 @@ def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
 
 
 @pytest.mark.parametrize("label,mode", [("Symmetric", "constrain_symmetric"),
-                                        ("Fix", "constrain_fix")])
+                                        ("Fix", "constrain_fix"),
+                                        ("Parallel", "constrain_parallel")])
 def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label, mode):
     """T6 review Minor 3: un-toggling a lit button ends its pick session."""
     win = win_with_editor
@@ -908,3 +910,35 @@ def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label,
     _btn(win, label).click(); QApplication.processEvents()
     assert sc.mode in (None, "select") and sc.constraint_ctl.pick is None
     assert not _btn(win, label).isChecked()
+
+
+# -- CS9 Parallel (P4) ---------------------------------------------------------
+
+def test_parallel_enable_state_and_selection_first(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    b = _btn(win, "Parallel")
+    assert b.toolTip()
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                       # nothing: pick mode
+    l1 = _line(sc, (0, 0), (50, 0)); l1.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                   # one line
+    l2 = _line(sc, (0, 50), (50, 80)); l2.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert b.isEnabled()
+    b.click(); qapp.processEvents()
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "parallel"
+    u = (l1._pt2.x() - l1._pt1.x(), l1._pt2.y() - l1._pt1.y())
+    v = (l2._pt2.x() - l2._pt1.x(), l2._pt2.y() - l2._pt1.y())
+    assert abs(u[0] * v[1] - u[1] * v[0]) < 1e-6
+
+
+def test_parallel_invalid_selection_posts_the_hint(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    c = _circle(sc, (0, 0), 10); c.setSelected(True); qapp.processEvents()
+    win._be_constrain("parallel", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_parallel"
+    assert win.statusBar().currentMessage() == "Select two lines, or nothing to pick"

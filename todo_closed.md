@@ -207,6 +207,12 @@
   - Details: found by the nested-blocks VC9 seam probe 2026-09-30, PROVEN PRE-EXISTING (branch touches neither `paper_display.py` nor `BlockInstance._display_pen_color`): white-pen block ops plot white-on-white, plain and nested alike. Apply the paper white→black display rule to BlockInstance ops. `block_instance.py`, `paper_display.py`. Memory: paper white/invisible render class.
   - Build: absorbed into LT1 (user choice in the LT1 grill Q3, phase-drift logged) -- the paper Blocks category forces the category colour onto block stroke + text ops in B&W/Custom; guard `tests/test_lt1_block_paper.py::test_white_block_plots_black_in_bw_authored_in_full_color`.
 
+## Block Editor constraint system — CS9 Parallel — 2026-10-15
+
+- [x] [type:feature] CS9 — Parallel [P1] [subject:CAD] [done:2026-10-15]
+  - Details: spec §7.3 (normalized cross). Depends CS8.
+  - Built: `feat/cs9-parallel` (base `d5f4813b`; feature/Medium, FP3 deltas as FP1 rulings P1-P4; inline, per-task reviews). `build_parallel` = one `ANG_SCALE`-scaled sine row on two edges; edge + X / Y axis = Horizontal / Vertical on the edge (P1). Least change (P2). One glyph beside each edge (P3). Two selected lines add at once; nothing selected -> pick mode (edge, then edge or axis; stored edge-first); any other selection disables the button (P4). Rect opposite sides refused as by-construction parallel. Copies keep edge-edge and drop edge-axis. Small Parallel button after Fix. Guards RED-proven via red-proof.ps1 (8 proofs, 14 guards). VC6: 9 chunks, 9315 passed; failures were the filed Shift+F/I/S shortcut tests (proven at base), host-load perf bars, and the filed sv2 teardown exit 127. User smoke passed.
+
 ## Block Editor constraint system — CS7 Symmetric + CS8 Fix — 2026-10-15
 
 - [x] [type:feature] CS7 — Symmetric (about an edge, X/Y axis, or reference line) [P1] [subject:CAD] [done:2026-10-15]

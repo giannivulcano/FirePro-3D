@@ -1050,3 +1050,63 @@ def test_fix_origin_adds_nothing():
     s = ss.System(x=np.zeros(0))
     ss.BUILDERS["fix"]("f", ss.const_point(0, 0), s, helper={"v0": [0.0, 0.0]})
     assert not s.rows and not s.fixes and not s.aliases
+
+
+# -- CS9 Parallel (§7.3; P1) --------------------------------------------------
+
+def test_parallel_row_zero_when_parallel_or_antiparallel_and_fd_jacobian():
+    rng = np.random.default_rng(9)
+    for _ in range(10):
+        x = rng.uniform(-50, 50, 8)                      # e1 0..3, e2 4..7
+        s = ss.System(x=x.copy())
+        ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
+        (row,) = s.rows
+        assert not s.aliases and not s.fixes
+        _fd_check(row, s.x)
+        d1 = s.x[2:4] - s.x[0:2]
+        for k in (1.7, -0.4):                            # parallel, then anti-parallel
+            s.x[6:8] = s.x[4:6] + k * d1
+            assert abs(row.fn(s.x)[0]) < 1e-9
+        s.x[7] += 5.0
+        assert abs(row.fn(s.x)[0]) > 1e-3
+
+
+def test_parallel_row_is_ang_scaled_sine():
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 3.0]))   # 90 deg
+    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
+    assert abs(s.rows[0].fn(s.x)[0]) == pytest.approx(ss.ANG_SCALE)
+    c, si = math.cos(math.radians(30)), math.sin(math.radians(30))   # 30 deg, lengths 10 / 7
+    s2 = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 1.0, 1.0, 1.0 + 7 * c, 1.0 + 7 * si]))
+    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s2)
+    assert s2.rows[0].fn(s2.x)[0] == pytest.approx(ss.ANG_SCALE * 0.5)
+
+
+def test_parallel_zero_length_edge_gives_zero_row():
+    s = ss.System(x=np.array([5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 3.0, 4.0]))
+    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
+    r, g = s.rows[0].fn(s.x)
+    assert r == 0.0 and not np.any(g)
+
+
+def test_parallel_to_x_axis_aliases_y_like_horizontal():
+    s = ss.System(x=np.array([0.0, 2.0, 10.0, 7.0]))
+    ss.BUILDERS["parallel"]("p", (_edge(0), "x_axis"), s)
+    assert s.aliases == [(1, 3, "p")] and not s.rows
+
+
+def test_parallel_to_y_axis_aliases_x_like_vertical():
+    s = ss.System(x=np.array([1.0, 2.0, 10.0, 7.0]))
+    ss.BUILDERS["parallel"]("p", (_edge(0), "y_axis"), s)
+    assert s.aliases == [(0, 2, "p")] and not s.rows
+
+
+def test_parallel_removes_one_dof_and_solve_lands_parallel():
+    x = np.array([0.0, 0.0, 100.0, 0.0, 0.0, 50.0, 100.0, 80.0])
+    s = ss.System(x=x.copy())
+    assert ss.NumpySolver().diagnose(s).dof == 8
+    ss.BUILDERS["parallel"]("p", (_edge(0), _edge(4)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 7
+    res = ss.NumpySolver().solve(s, x.copy(), np.ones(8))
+    assert res.converged
+    u, v = res.x[2:4] - res.x[0:2], res.x[6:8] - res.x[4:6]
+    assert abs(u[0] * v[1] - u[1] * v[0]) / (np.linalg.norm(u) * np.linalg.norm(v)) < 1e-9

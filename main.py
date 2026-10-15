@@ -2585,6 +2585,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constrain_concentric": "Concentric",
         "constrain_symmetric": "Symmetric",
         "constrain_fix": "Fix",
+        "constrain_parallel": "Parallel",
         "constrain_dim_distance": "Smart Dimension",
     }
 
@@ -5100,7 +5101,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
         # Constraint Status (the DOF badge lives in the panel, D40/D41);
         # CS4 Smart Dimension (large, tool-first, D50); CS6 Concentric;
-        # CS7 Symmetric; CS8 Fix.
+        # CS7 Symmetric; CS8 Fix; CS9 Parallel.
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_d = gc.add_large_button(
@@ -5138,6 +5139,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("fix", checked),
             checkable=True)
         self._block_mode_buttons["constrain_fix"] = b_fx
+        b_pa = gc.add_small_button(
+            "Parallel", self._modify_icon(icon_for("parallel")),
+            lambda checked: self._be_constrain("parallel", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_parallel"] = b_pa
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5167,6 +5173,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Concentric": b_cc,
                                       "Symmetric": b_sy,
                                       "Fix": b_fx,
+                                      "Parallel": b_pa,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -5187,6 +5194,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                            "line, select 2 then pick the axis, or pick all three)")
         _editor_only(b_fx, "Fix — hold the selected items in place, or pick "
                            "points / edges to fix them one at a time")
+        _editor_only(b_pa, "Parallel — make the two selected lines parallel, "
+                           "or pick an edge and an edge or the X/Y axis")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -5265,9 +5274,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if refs is not None:
             ctl.add(ctype, refs)
         elif sc.selectedItems():
-            sc._show_status("Select two circles/arcs, or nothing to pick"
-                            if ctype == "concentric" else
-                            "Select one line, or nothing to pick points / an edge",
+            sc._show_status({"concentric": "Select two circles/arcs, or nothing to pick",
+                             "parallel": "Select two lines, or nothing to pick"}.get(
+                                ctype, "Select one line, or nothing to pick points / an edge"),
                             4000)
         else:
             sc.set_mode(mode)
@@ -5304,8 +5313,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _refresh_constrain_buttons(self) -> None:
         """Enable state of the Constrain / Inspect buttons (D12).
 
-        Horizontal / Vertical / Concentric / Symmetric / Fix: enabled with nothing selected (pick mode) or a valid
-        selection; Delete Constraints: a selected constraint, or selected
+        Horizontal / Vertical / Concentric / Symmetric / Fix / Parallel:
+        enabled with nothing selected (pick mode) or a valid selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
         D32 show-all override. No-op with no editor tab current (the page's
         no-editor state, ``_set_block_editor_context``).
@@ -5323,7 +5332,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except RuntimeError:
             return
         from firepro3d import sketch_model as sm
-        for ctype in ("horizontal", "vertical", "concentric", "symmetric", "fix"):
+        for ctype in ("horizontal", "vertical", "concentric", "symmetric", "fix", "parallel"):
             b = btns.get(sm.REGISTRY[ctype].label)
             if b is not None and not sip.isdeleted(b):
                 b.setEnabled(not sel or ctl.selection_refs(ctype) is not None)

@@ -1103,9 +1103,38 @@ def build_fix(cid: str, ends, sys: System, helper=None) -> None:
     build_coincident(cid, (ends, const_point(v0[0], v0[1])), sys)
 
 
+def _parallel(P, _E):
+    """CS9: ``ANG_SCALE · cross(u, v)/(‖u‖‖v‖)`` (u = b1 − a1, v = b2 − a2)
+    -- the sine of the angle between the edges; zero when parallel or
+    anti-parallel. A zero-length edge has no direction: a zero row."""
+    a1, b1, a2, b2 = P
+    u, v = b1 - a1, b2 - a2
+    nu, nv = math.hypot(u[0], u[1]), math.hypot(v[0], v[1])
+    if nu < _EPS_LEN or nv < _EPS_LEN:
+        return 0.0, np.zeros((4, 2)), np.zeros(0)
+    n = nu * nv
+    r = (u[0] * v[1] - u[1] * v[0]) / n
+    du = np.array([v[1], -v[0]]) / n - r * u / nu ** 2
+    dv = np.array([-u[1], u[0]]) / n - r * v / nv ** 2
+    return ANG_SCALE * r, ANG_SCALE * np.array([-du, du, -dv, dv]), np.zeros(0)
+
+
+def build_parallel(cid: str, ends, sys: System) -> None:
+    """Parallel (CS9, P1): ``refs`` = [edge, edge | axis], stored edge-first.
+    Two edges: one row ``ANG_SCALE · cross(d₁, d₂)/(‖d₁‖‖d₂‖)``; an edge and
+    the X / Y axis: Horizontal / Vertical on the edge (``_axis_equal``,
+    substituted when raw)."""
+    e1, e2 = ends
+    if isinstance(e2, str):
+        _axis_equal(1 if e2 == "x_axis" else 0, cid, e1, sys)
+        return
+    _point_row(cid, (e1[0], e1[1], e2[0], e2[1]), (), _parallel, sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
             "concentric": build_concentric, "symmetric": build_symmetric, "fix": build_fix,
+            "parallel": build_parallel,
             "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
             "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
             "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}
