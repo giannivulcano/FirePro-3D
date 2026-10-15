@@ -46,6 +46,8 @@ CONFLICT_STATUS = "Over-constrained: the change was not applied"
 INVALID_STATUS = "Invalid constraint"
 REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
+PARALLEL_TRIVIAL_STATUS = ("Those edges are already parallel by construction -- "
+                           "pick another edge")                 # CS9
 # D17 (CS3); "flipped" since the 2026-10-12 ruling: Flip refuses a fully
 # defined BLOCK instance only (D45; see modify_tools_controller.flip_refusal_targets).
 GROUNDED_STATUS = ("Fully defined geometry can't be moved, rotated, scaled or "
@@ -234,6 +236,7 @@ class PickState:
         ``ry``) never."""
         curvy = self.ctype in ("coincident", "dim_distance", "concentric",
                                "symmetric", "fix")
+        axes = curvy or self.ctype == "parallel"   # CS9 P1: edges + X / Y axis
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -258,7 +261,7 @@ class PickState:
                     yield ("curve", {"uid": uid, "h": name},
                            QPointF(*cv.center.eval(x)[0]), (float(x[cv.r]), it))
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
-        if curvy:
+        if axes:
             yield "axis", {"ref": "x_axis"}, None, None
             yield "axis", {"ref": "y_axis"}, None, None
 
@@ -287,6 +290,10 @@ class PickState:
             if n == 1:
                 return kind == self.kinds[0]
             return kind in ("edge", "axis")
+        if self.ctype == "parallel":                          # CS9 P1
+            if kind not in ("edge", "axis"):
+                return False
+            return not self.picks or kind == "edge" or self.kinds[0] == "edge"
         if self.ctype == "fix":                               # CS8 FP1p
             return kind in ("point", "edge", "curve")
         if self.ctype != "coincident":
@@ -368,6 +375,10 @@ class PickState:
                         "curve": "circle/arc"}.get(self.kinds[0], "point")
                 return f"{label}: pick the 2nd {what} (1/3) · Esc to cancel"
             return f"{label}: pick the axis -- an edge or the X/Y axis (2/3) · Esc to cancel"
+        if self.ctype == "parallel":                          # CS9
+            what = ("pick an edge" if n and self.kinds[0] == "axis" else
+                    "pick an edge, then an edge or the X/Y axis")
+            return f"{label}: {what} ({n}/2) · Esc to cancel"
         if self.ctype == "fix":                               # CS8 SP3
             return (f"{label}: pick a point, or an edge / circle-arc to fix the "
                     f"whole item · Esc to finish")
@@ -780,8 +791,10 @@ class ConstraintController:
         numerically: three positive perturbations of every variable (keeps
         radii positive) all leave every row at zero. CS6: a concentric whose
         every equality is a self-alias (a circle / arc with its own centre)
-        is refused the same way. CS8: a Fix of the origin builds nothing."""
-        if c.type not in ("point_on_curve", "concentric", "fix"):
+        is refused the same way. CS8: a Fix of the origin builds nothing.
+        CS9: a Parallel of a rectangle's opposite sides (or a text-box edge
+        and its axis) is parallel for any values."""
+        if c.type not in ("point_on_curve", "concentric", "fix", "parallel"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
         if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
@@ -1778,7 +1791,8 @@ class ConstraintController:
             self._status(INVALID_STATUS)
             return None
         if self._identically_satisfied(c):
-            self._status(TRIVIAL_STATUS)
+            self._status(PARALLEL_TRIVIAL_STATUS if ctype == "parallel"
+                         else TRIVIAL_STATUS)
             return None
         self.constraints.append(c)
         ok = self._solve(focus=sm.ref_uids(c))
@@ -2365,6 +2379,8 @@ class ConstraintController:
                 ctype = "coincident" if both_points else "point_on_curve"
             elif ctype == "concentric" and p.kinds[0] != "curve":
                 refs.reverse()                      # stored curve-first (CS6 pin)
+            elif ctype == "parallel" and p.kinds[0] == "axis":
+                refs.reverse()                      # stored edge-first (CS9)
         if dim:                                    # CS4b D63 / CS5: placement next
             hit = self.dim_precheck(refs)
             if hit is None:
@@ -2520,7 +2536,8 @@ class ConstraintController:
     def selection_refs(self, ctype: str):
         """D21 selection-first: one selected line / reference line -> ``[edge]``;
         CS5 one circle / arc -> ``[curve]`` (Smart Dimension); CS6 two
-        circles / arcs -> ``[curve, curve]`` (Concentric).
+        circles / arcs -> ``[curve, curve]`` (Concentric); CS9 two lines /
+        reference lines -> ``[edge, edge]`` (Parallel).
 
         Returns:
             The refs to add, or None when the selection is not valid for it.
@@ -2542,6 +2559,10 @@ class ConstraintController:
                 and all(isinstance(s, (CircleItem, ArcItem))
                         and getattr(s, "_uid", None) is not None for s in sel)):
             return [{"uid": s._uid, "h": "curve"} for s in sel]   # CS6 R3
+        if (ctype == "parallel" and len(sel) == 2                 # CS9 P4
+                and all(isinstance(s, LineItem) and getattr(s, "_uid", None) is not None
+                        for s in sel)):
+            return [{"uid": s._uid, "h": "edge"} for s in sel]
         if ctype == "symmetric":
             return self._symmetric_selection_refs(sel)
         if ctype == "fix":                                    # CS8 F2: each item whole
