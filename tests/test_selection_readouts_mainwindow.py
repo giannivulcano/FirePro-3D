@@ -15,6 +15,7 @@ from firepro3d import snap_engine
 from firepro3d.geometry_2d import LineItem
 from firepro3d.scale_manager import DisplayUnit
 from main import MainWindow
+from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture(scope="module")
@@ -24,9 +25,7 @@ def win(qapp):
     w.show()
     QTest.qWaitForWindowExposed(w)
     yield w
-    w._modified = False
-    w.close()
-    w.deleteLater()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

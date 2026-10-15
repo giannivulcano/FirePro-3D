@@ -11,6 +11,7 @@ from PyQt6.QtCore import QPointF, QSettings
 from PyQt6.QtTest import QTest
 
 from firepro3d.model_space import NO_VIEW_HINT
+from tests._mainwindow_helpers import dispose_main_window
 
 
 def _make_window():
@@ -34,9 +35,7 @@ def mw(qapp, tmp_path, monkeypatch):
     # A plan selection alive at close emits selectionChanged during the
     # scene's destruction into _on_selection_changed_contextual (pre-existing,
     # filed separately) — clear it first so teardown can't abort the process.
-    w.scene.clearSelection()
-    w._modified = False
-    w.close()
+    dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
@@ -119,8 +118,7 @@ def test_open_closed_state_is_remembered_across_windows(mw, qapp):           # g
         win2.view3d_tab.open()
         assert QSettings("GV", "FirePro3D").value("ui/view3d_open", False, type=bool) is True
     finally:
-        win2._modified = False
-        win2.close()
+        dispose_main_window(win2)
 
 
 def test_stale_3d_pick_never_deletes_from_a_plan(mw):                       # guard 3 (D8)
@@ -205,8 +203,7 @@ def test_placeholder_rail_matches_canvas_tab_bar(qapp, tmp_path, monkeypatch):  
             assert rail.height() == bar_h
             assert bottom(rail) == bar_bottom
         finally:
-            win._modified = False
-            win.close()
+            dispose_main_window(win)
     finally:
         qapp.setStyleSheet(old_ss)
         qapp.setFont(old_font)

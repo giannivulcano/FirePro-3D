@@ -11,6 +11,7 @@ from firepro3d import theme as th
 from firepro3d.theme import M
 from firepro3d.ui_kit import LeftTabs, tab_gap_center
 from firepro3d.ribbon_bar import RibbonBar
+from tests._mainwindow_helpers import dispose_main_window
 
 
 def _accent_count(img, xs, ys):
@@ -114,7 +115,6 @@ def test_ribbon_and_canvas_tabs_share_one_height(qapp):
         for l in hdrs:
             assert bottom(l) == divider_y, f"{l.text()} ends at {bottom(l)}, canvas divider {divider_y}"
     finally:
-        win.close()
-        win.deleteLater()
+        dispose_main_window(win)
         qapp.setStyleSheet(old_ss)
         qapp.setFont(old_font)

@@ -1,6 +1,8 @@
 """Guard: the opt-in stub_view3d fixture (#367) makes MainWindow construct a
 windowless _StubView3D instead of the real VTK-backed View3D."""
 
+from tests._mainwindow_helpers import dispose_main_window
+
 
 def _make_mainwindow():
     # Ensure the lazy `global View3D` import in main has run, then build a window.
@@ -18,5 +20,4 @@ def test_stub_view3d_is_installed(qapp, stub_view3d):
         assert isinstance(win.view_3d, stub_view3d)
         assert win.view_3d._plotter is None  # no VTK plotter allocated
     finally:
-        win._modified = False
-        win.close()
+        dispose_main_window(win)
