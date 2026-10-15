@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-15, unbuilt; promoted into parametric-constraint-system.md at Account
+status: current           # BUILT 2026-10-15 (feat/nested-block-constraint-handles, merged b62aab92); promoted into parametric-constraint-system.md D104-D109 — that spec is the one home, this doc is the design record
 last-verified: 2026-10-15
-verified-commit: 1f4cbbcb
+verified-commit: b62aab92
 applies-to:
   - firepro3d/sketch_adapters.py        # _NestedAdapter (replaces _InsAdapter), "pose" point family
   - firepro3d/sketch_solver.py          # CurveExpr.r_const, const-radius consumers
@@ -48,7 +48,7 @@ Ratified at the 2026-10-15 grill (what) and the brainstorm's section approvals (
 | NB4 (→ D106) | **Validity is re-checked on every `active()` call for constraints that reference a `block_instance`:** handle membership on the adapter + REGISTRY pattern; a failing record gets `invalid = True` (raw kept, "Unsupported constraint" row, excluded from DOF); a passing one is revived. Loose-only constraints keep the load-time rule. A moved child handle changes geometry only — the parent re-solves at its next solve (known gap: a child edited in another tab leaves the parent visibly unsatisfied until then; follow-up). |
 | NB5 (→ D107) | **Explode remaps interior refs.** `explode_instances(..., uid_map=)` records `<rec/prim uid> → new uid` (nested records → the new child instance; under flatten the recursion extends the paths). `sketch_model.remap_exploded(cons, inst_uid, uid_map)` rewrites `{"uid": inst, "h": "A/B:p1"}` to `{"uid": uid_map["A"], "h": "B:p1"}` (strip the first path segment; a fully loose target gets a bare handle). Refs on `ins` or `"item"` (Fix) and unmapped prefixes drop the constraint. `Model_Space` calls `constraint_ctl.on_items_exploded(inst, uid_map)` before `on_items_removed`; the status counts only drops; one undo step. |
 | NB6 (→ D108) | **Legacy whole-item Fix migrates:** in `_adopt` (load / undo restore / paste), a `fix` on `{"uid": <block_instance>, "h": "item"}` with a 2-value `helper.v0` gets the instance's current rotation variable appended (radians). Idempotent; saved as 3 values. Other length mismatches keep the CS8 stale guard. |
-| NB7 (→ D109) | **Constant-radius curves.** `CurveExpr` gains `r_const: float | None` (with `r: int | None`); `_on_circle`, `build_point_on_curve`, `build_concentric` (and later Tangent / Equal) read whichever is set. A **driving** `dim_radius` / `dim_diameter` on a const curve is refused at add ("Invalid constraint") and invalid on load; a Reference one measures it. |
+| NB7 (→ D109) | **Constant-radius curves.** `CurveExpr` gains `r_const: float | None` (with `r: int | None`); `_on_circle`, `build_point_on_curve`, `build_concentric` (and later Tangent / Equal) read whichever is set. A **driving** `dim_radius` / `dim_diameter` on a const curve is refused at add ("Invalid constraint") and invalid on load; a Reference one measures it. **Ruling (smoke-time spec gap, 2026-10-15):** Smart Dimension on a nested arc / circle creates the Reference dim with `DIM_NESTED_REFERENCE_STATUS`; Driving-on is refused with the same status; Symmetric of a const curve is invalid. |
 | NB8 | **Pick mode unchanged (D21):** every nested handle shows its resting marker (midpoints as triangles, hidden child handles — polygon `radius`, ellipse `rx` / `ry` — never). |
 | NB9 | **Approach A — composite adapter over stand-ins** (chosen over B "stand-ins as solver items with rigid-link rows" — phantom variables pollute DOF and the D18 drag bar — and C "handle table at definition compile" — couples constraint naming into `block_definition.py`; a later perf migration if measured). |
 
