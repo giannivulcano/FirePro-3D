@@ -110,6 +110,9 @@ def test_parallel_copies_keep_edge_pair_drop_axis(qapp):
     got = ctl.constraints_on(a2)
     assert [c.type for c in got] == ["parallel"] and not got[0].invalid
     assert got[0].refs == [P(a2, "edge"), P(b2, "edge")]
+    a3 = _line(sc, (0, 300), (0, 400)); b3 = _line(sc, (50, 300), (50, 400))
+    ctl.paste_records(recs, {a._uid: a3._uid, b._uid: b3._uid}, rotation_deg=90.0)
+    assert [c.type for c in ctl.constraints_on(a3)] == ["parallel"]   # a rotated copy too
 
 
 def test_parallel_pick_kinds_by_step(qapp):

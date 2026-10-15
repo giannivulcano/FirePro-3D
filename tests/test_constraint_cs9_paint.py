@@ -59,6 +59,8 @@ def test_parallel_shows_one_glyph_beside_each_edge(be):
     rects = _rects(v, ctl, c.id)
     assert len(rects) == 2
     assert _near(rects[0], v, a) and _near(rects[1], v, b)
+    for r in rects:                                    # either glyph picks the constraint
+        assert cp.glyph_at(v, ctl, r.center().toPoint()) == c.id
 
 
 def test_parallel_to_an_axis_shows_one_glyph(be):

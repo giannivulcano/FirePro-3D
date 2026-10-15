@@ -231,7 +231,8 @@ class PickState:
         """``(kind, ref, a, b)`` scene-space: point ``(p, None | "mid")``
         (``"mid"`` = an edge midpoint, CS3b), edge
         ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``.
-        Curves + axes are offered to Coincident and (CS5) Smart Dimension;
+        Curves + axes are offered to Coincident and (CS5) Smart Dimension
+        (and the later curve types); Parallel (CS9) gets the axes only;
         hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
         ``ry``) never."""
         curvy = self.ctype in ("coincident", "dim_distance", "concentric",
