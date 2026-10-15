@@ -443,6 +443,11 @@ def test_handle_kind_membership_parity(qapp):
     assert ad.handle_kind(inst, f"{k}:edge") == "edge"
     assert ad.handle_kind(inst, f"{_key(d, 2)}:curve") == "curve"
     assert ad.handle_kind(inst, "ins") == "point"
+    assert ad.handle_kind(inst, f"{k}:mid") == "point"                 # edge midpoint
+    inner = d._resolve_nested(d.primitives[5])
+    ik = f"{_key(d, 5)}/{inner.primitives[0].get('uid') or '#0'}"
+    assert ad.handle_kind(inst, f"{ik}:center") == "point"             # grandchild path
+    assert ad.handle_kind(inst, f"{_key(d, 5)}:ins") == "point"        # nested origin
     assert ad.handle_kind(inst, f"{k}:zz") is None
     ln = _line(sc, (0.0, 0.0), (10.0, 0.0))
     la = adapter_for(ln)

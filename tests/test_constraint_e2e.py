@@ -1112,3 +1112,40 @@ def test_e2e_parallel_conflict_red_and_held(win_with_editor):
     c = sc.constraint_ctl.constraints[-1]
     assert c.type == "parallel" and c.id in sc.constraint_ctl.red
     assert [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)] == before
+
+
+# -- nested block handles (design NB2 e2e, 2026-10-15) ----------------------
+
+def test_e2e_coincident_picked_on_a_nested_handle_survives_reopen(win_with_editor):
+    """NB2 e2e: the real Coincident button + posted clicks on a loose end and
+    a nested block's line end (D21 pick mode offers interior handles); the
+    record names the path handle; close + reopen re-solves it."""
+    from tests._block_snap_helpers import oracle, register_snap_block
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    d = register_snap_block(sc, nested=False)
+    inst = sc.place_block_instance(d.id, (40.0, 20.0))
+    ln = _line(sc, (-100, -60), (-40, -60))
+    sc.clearSelection()
+    QApplication.processEvents()
+    target = oracle(inst, 60.0, -80.0)                     # L1.p1
+    _pick(win, (-100.0, -60.0), (target.x(), target.y()))  # _pick clicks Coincident itself
+    QApplication.processEvents()
+    ctl = sc.constraint_ctl
+    (c,) = ctl.active()
+    k0 = d.primitives[0].get("uid") or "#0"
+    assert {r.get("h") for r in c.refs} == {"p1", f"{k0}:p1"}
+    t2 = oracle(inst, 60.0, -80.0)                         # re-read: the block may have moved
+    assert math.hypot(ln._pt1.x() - t2.x(), ln._pt1.y() - t2.y()) < 1e-6
+    defn = w.commit_block("nb-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    (l2,) = sc2._draw_lines
+    (i2,) = sc2._block_instances
+    assert [x.type for x in sc2.constraint_ctl.active()] == ["coincident"]
+    t3 = oracle(i2, 60.0, -80.0)
+    assert math.hypot(l2._pt1.x() - t3.x(), l2._pt1.y() - t3.y()) < 1e-6
