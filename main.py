@@ -5313,8 +5313,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _refresh_constrain_buttons(self) -> None:
         """Enable state of the Constrain / Inspect buttons (D12).
 
-        Horizontal / Vertical / Concentric / Symmetric / Fix / Parallel: enabled with nothing selected (pick mode) or a valid
-        selection; Delete Constraints: a selected constraint, or selected
+        Horizontal / Vertical / Concentric / Symmetric / Fix / Parallel:
+        enabled with nothing selected (pick mode) or a valid selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
         D32 show-all override. No-op with no editor tab current (the page's
         no-editor state, ``_set_block_editor_context``).

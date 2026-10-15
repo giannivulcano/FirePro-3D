@@ -1082,8 +1082,12 @@ def test_e2e_parallel_save_close_reopen_undo_redo(win_with_editor):
     assert len(sc.constraint_ctl.constraints) == 1
     _ctrl(view, Qt.Key.Key_Z)
     assert sc.constraint_ctl.constraints == []
+    by = {ln._uid: ln for ln in sc._draw_lines}             # undo rebuilds the items
+    assert abs(_sin(by[a._uid], by[b._uid])) > 0.1          # the tilt is back
     _ctrl(view, Qt.Key.Key_Y)
     assert [c.type for c in sc.constraint_ctl.constraints] == ["parallel"]
+    by = {ln._uid: ln for ln in sc._draw_lines}
+    assert abs(_sin(by[a._uid], by[b._uid])) < 1e-9
     ua, ub = a._uid, b._uid
     sc.clearSelection()
     defn = w.commit_block("cs9-e2e", "L", "S")
