@@ -190,6 +190,11 @@ class _Adapter:
         paint them as triangles); none by default."""
         return frozenset()
 
+    def circle_curves(self, item) -> frozenset:
+        """Names of the ``curves`` handles that are FULL circles (a Smart
+        Dimension on one is a diameter, not a radius); none by default."""
+        return frozenset()
+
     def hidden_names(self, item) -> frozenset:
         """CS3c: point handles that stay valid (old records solve) but are
         never offered as pick candidates -- text ``ins``. None by default."""
@@ -330,6 +335,9 @@ class _CircleAdapter(_Adapter):
     """vars cx cy r; handle ``center``."""
 
     type_key = "draw_circle"
+
+    def circle_curves(self, item):
+        return frozenset(("curve",))
 
     def nvars(self, it):
         return 3
@@ -641,11 +649,11 @@ class _NestedHandles:
     """A nested instance's handle table in its LOCAL (unrotated) frame:
     ``points[name] = (u, v)``, ``edges[name] = ((u, v), (u, v))``,
     ``curves[name] = ((u, v), r)``, plus the midpoint / hidden name sets."""
-    __slots__ = ("points", "edges", "curves", "mids", "hidden")
+    __slots__ = ("points", "edges", "curves", "mids", "hidden", "circles")
 
     def __init__(self):
         self.points, self.edges, self.curves = {}, {}, {}
-        self.mids, self.hidden = set(), set()
+        self.mids, self.hidden, self.circles = set(), set(), set()
 
 
 def _nested_table(inst) -> _NestedHandles:
@@ -678,6 +686,7 @@ def _nested_table(inst) -> _NestedHandles:
             t.curves[f"{path}:{n}"] = (tuple(float(c) for c in cv.center.eval(x)[0]),
                                        float(x[cv.r]))
         t.mids.update(f"{path}:{n}" for n in ad.mid_names(child))
+        t.circles.update(f"{path}:{n}" for n in ad.circle_curves(child))
         t.hidden.update(f"{path}:{n}" for n in ad.hidden_names(child))
     for path, (u, v) in origins:
         t.points[f"{path}:ins"] = (float(u), float(v))
@@ -736,6 +745,9 @@ class _NestedAdapter(_Adapter):
 
     def hidden_names(self, it):
         return frozenset(_nested_table(it).hidden)
+
+    def circle_curves(self, it):
+        return frozenset(_nested_table(it).circles)
 
     def write(self, it, v):
         x, y, th = (float(t) for t in v)

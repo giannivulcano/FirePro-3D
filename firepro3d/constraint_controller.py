@@ -184,6 +184,8 @@ PICK_SAME_CURVE_STATUS = "Pick a different circle/arc"     # CS6 (same curve twi
 PICK_SAME_EDGE_STATUS = "Pick a different edge"            # CS7 (a pair edge as the axis)
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
+DIM_NESTED_REFERENCE_STATUS = ("Dimension added as Reference -- a nested block's "
+                               "radius is fixed")                    # NB7 ruling
 DIM_ZERO_STATUS = "Pick two separate points"
 DIM_REFERENCE_HINT = "Reference dimension -- set it to Driving to edit"   # D52
 DIM_SUPPRESSED_HINT = "Suppressed dimension -- unsuppress it to edit"
@@ -1824,6 +1826,7 @@ class ConstraintController:
             edge = edge_for_points(refs, self.item_by_uid())
             if edge is not None:
                 refs = [edge]                   # an edge's own ends == that edge
+        nested_ref = False
         c = sm.Constraint.new(ctype, refs)
         if helper is not None:
             c.helper = copy.deepcopy(helper)
@@ -1845,6 +1848,7 @@ class ConstraintController:
             c.value = value if value is not None else self.measure(c)
             if value is None and self._on_const_curve(c, self.item_by_uid()):
                 c.driving = False                        # NB7: only a Reference measures it
+                nested_ref = True
             if label is not None:
                 c.label = copy.deepcopy(label)           # CS4b D62 placement
         if not self._valid(c):
@@ -1867,6 +1871,8 @@ class ConstraintController:
         self._committed(skip=(c.id,))
         if not ok:
             self._report_conflict()          # nothing written: hold last good
+        elif nested_ref:
+            self._status(DIM_NESTED_REFERENCE_STATUS)
         elif reference:
             self._status(DIM_REFERENCE_STATUS)
         elif c.id in self.diagnostics().redundant:
@@ -2293,6 +2299,9 @@ class ConstraintController:
         driving = bool(driving)
         if (c is None or c.inert or c.type not in sm.VALUED
                 or c.driving == driving):
+            return
+        if driving and self._on_const_curve(c, self.item_by_uid()):
+            self._status(DIM_NESTED_REFERENCE_STATUS)      # NB7 ruling: stays Reference
             return
         c.driving = driving
         bad = False

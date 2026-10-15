@@ -654,6 +654,10 @@ def classify_dim(refs, by):
             return "dim_diameter", list(refs)
         if isinstance(it, ArcItem):
             return "dim_radius", list(refs)
+        ad = adapter_for(it)               # NB7: a nested block's arc / circle
+        h = refs[0].get("h")
+        if h in ad.curves(it, 0) and h not in ad.hidden_names(it):
+            return ("dim_diameter" if h in ad.circle_curves(it) else "dim_radius"), list(refs)
         return None
     if kinds in (["edge", "edge"], ["edge", "axis"]):
         par = _parallel_refs(refs, by)                     # D81: parallel -> linear

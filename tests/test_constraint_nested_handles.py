@@ -313,13 +313,100 @@ def test_explode_remaps_interior_refs_and_drops_ins_refs(qapp, monkeypatch):
     assert c2.refs[1] == {"uid": child._uid, "h": f"{ik}:center"}
     new_line = next(it for it in new if isinstance(it, LineItem) and _near(it._pt1, p1_before))
     assert c1.refs[1] == {"uid": new_line._uid, "h": "p1"}
-    # still solving: drag the exploded line's p2 through the seam, p1 stays coincident
+    # still solving: move the exploded line's p1 (the remapped handle) -- the loose line follows
+    start = QPointF(new_line._pt1)
     with ctl.edit([new_line]):
-        new_line._pt2 = QPointF(new_line._pt2.x() + 10.0, new_line._pt2.y())
+        new_line._pt1 = QPointF(new_line._pt1.x() + 10.0, new_line._pt1.y())
         new_line.setLine(new_line._pt1.x(), new_line._pt1.y(), new_line._pt2.x(), new_line._pt2.y())
+    assert _near(new_line._pt1, QPointF(start.x() + 10.0, start.y()), tol=0.05)   # W_EDIT is stiff, not rigid
     assert _near(ln._pt1, new_line._pt1)
     sc.undo()
     (back,) = sc._block_instances
     assert back._uid == inst._uid
     assert sorted(x.type for x in ctl.active()) == ["coincident", "coincident", "horizontal"]
     assert {x.refs[1].get("uid") for x in ctl.constraints if x.type == "coincident"} == {inst._uid}
+
+
+def test_explode_flatten_remaps_to_loose_items(qapp, monkeypatch):
+    """NB5 flatten: L1:p1 -> the loose line; the grandchild circle centre ->
+    the loose circle's bare ``center``; ins drops (counted once); undo restores."""
+    from firepro3d.constraint_controller import removed_status
+    monkeypatch.setattr("firepro3d.themed_message.themed_choice", lambda *a, **k: "all")
+    sc = _scene()
+    sc.push_undo_state()
+    d, inst = _instance(sc)
+    inner = d._resolve_nested(d.primitives[5])
+    ik = inner.primitives[0].get("uid") or "#0"
+    ln = _line(sc, (300.0, 300.0), (400.0, 300.0))
+    ln2 = _line(sc, (300.0, 200.0), (400.0, 200.0))
+    ln3 = _line(sc, (300.0, 100.0), (400.0, 100.0))
+    ctl = sc.constraint_ctl
+    c1 = ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 0)}:p1"}])
+    c2 = ctl.add("coincident", [{"uid": ln2._uid, "h": "p1"}, {"uid": inst._uid, "h": f"{_key(d, 5)}/{ik}:center"}])
+    c3 = ctl.add("horizontal", [{"uid": inst._uid, "h": "ins"}, {"uid": ln3._uid, "h": "p1"}])
+    assert c1 and c2 and c3
+    p1_before = QPointF(ln._pt1)
+    msgs = _status(sc)
+    sc.clearSelection()
+    inst.setSelected(True)
+    new = sc.explode_selected_blocks()
+    assert new and sc._block_instances == []
+    assert c3 not in ctl.constraints and msgs.count(removed_status(1)) == 1
+    ids = {x.id for x in ctl.active()}
+    assert c1.id in ids and c2.id in ids
+    new_line = next(it for it in new if isinstance(it, LineItem) and _near(it._pt1, p1_before))
+    assert c1.refs[1] == {"uid": new_line._uid, "h": "p1"}
+    new_circle = next(it for it in new if isinstance(it, CircleItem) and _near(it._center, ln2._pt1))
+    assert c2.refs[1] == {"uid": new_circle._uid, "h": "center"}
+    sc.undo()
+    assert [i._uid for i in sc._block_instances] == [inst._uid]
+    assert sorted(x.type for x in ctl.active()) == ["coincident", "coincident", "horizontal"]
+    assert {x.refs[1].get("uid") for x in ctl.constraints if x.type == "coincident"} == {inst._uid}
+
+
+# ── NB7 ruling: nested-curve dims are Reference-only through Smart Dimension ──
+
+def test_smart_dimension_on_nested_curves_classifies_and_adds_a_reference(qapp):
+    from firepro3d.constraint_controller import DIM_NESTED_REFERENCE_STATUS
+    from firepro3d.constraint_dims import classify_dim
+    sc = _scene()
+    d, inst = _instance(sc)
+    ctl = sc.constraint_ctl
+    by = ctl.item_by_uid()
+    circ = {"uid": inst._uid, "h": f"{_key(d, 2)}:curve"}
+    arc = {"uid": inst._uid, "h": f"{_key(d, 4)}:curve"}
+    assert classify_dim([circ], by) == ("dim_diameter", [circ])
+    assert classify_dim([arc], by) == ("dim_radius", [arc])
+    msgs = _status(sc)
+    assert ctl.dim_precheck([arc]) == ("dim_radius", [arc])
+    assert msgs == []
+    c = ctl.add("dim_radius", [arc])
+    assert c is not None and c.driving is False and not c.inert
+    assert DIM_NESTED_REFERENCE_STATUS in msgs
+
+
+def test_driving_on_a_nested_curve_dim_is_refused_without_an_undo_step(qapp):
+    from firepro3d.constraint_controller import DIM_NESTED_REFERENCE_STATUS
+    sc = _scene()
+    d, inst = _instance(sc)
+    ctl = sc.constraint_ctl
+    c = ctl.add("dim_radius", [{"uid": inst._uid, "h": f"{_key(d, 4)}:curve"}])
+    assert c is not None and c.driving is False
+    msgs = _status(sc)
+    n = len(sc._undo_stack)
+    ctl.set_driving(c.id, True)
+    assert c.driving is False and not c.inert
+    assert msgs == [DIM_NESTED_REFERENCE_STATUS]
+    assert len(sc._undo_stack) == n
+
+
+def test_paint_ref_geom_of_a_nested_curve_uses_the_constant_radius(qapp):
+    from firepro3d.constraint_paint import _ref_geom
+    sc = _scene()
+    d, inst = _instance(sc, scale=1.0)
+    ctl = sc.constraint_ctl
+    kind, (centre, r) = _ref_geom({"uid": inst._uid, "h": f"{_key(d, 2)}:curve"},
+                                  ctl.item_by_uid(), None)
+    assert kind == "curve"
+    assert _near(centre, oracle(inst, 100.0, 60.0))
+    assert r == pytest.approx(40.0)
