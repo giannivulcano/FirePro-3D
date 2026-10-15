@@ -49,3 +49,4 @@ _t.txt
 
 # Local UI mockups (served slider pages, throwaway)
 .mockups/
+.todo/
