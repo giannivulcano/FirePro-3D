@@ -207,6 +207,15 @@
   - Details: found by the nested-blocks VC9 seam probe 2026-09-30, PROVEN PRE-EXISTING (branch touches neither `paper_display.py` nor `BlockInstance._display_pen_color`): white-pen block ops plot white-on-white, plain and nested alike. Apply the paper white→black display rule to BlockInstance ops. `block_instance.py`, `paper_display.py`. Memory: paper white/invisible render class.
   - Build: absorbed into LT1 (user choice in the LT1 grill Q3, phase-drift logged) -- the paper Blocks category forces the category colour onto block stroke + text ops in B&W/Custom; guard `tests/test_lt1_block_paper.py::test_white_block_plots_black_in_bw_authored_in_full_color`.
 
+## Block Editor constraint system — CS7 Symmetric + CS8 Fix — 2026-10-15
+
+- [x] [type:feature] CS7 — Symmetric (about an edge, X/Y axis, or reference line) [P1] [subject:CAD] [done:2026-10-15]
+  - Details: spec D13, §7.3 (2 DOF; entity pairs expand to handle pairs). Mirror stays an unlinked scene tool. Depends CS6.
+  - Built: `feat/cs7-cs8-symmetric-fix` (base `31ecf5b1`; feature/Medium batch with CS8, FP1 rulings S1-S3 + plan-gate SP1-SP3; inline, per-task reviews). Targets point + point, two edges (end pairs, `helper.swap` = nearer mirror pairing by both ends), two circles / arcs (centres mirror + radii aliased equal) about an edge or the X / Y axis; first 3-ref type (`_ends` / `pick_press` arity generalized). Entry: 2 lines / curves + 1 reference line add at once, the pair alone pre-picks and waits for the axis (`begin_symmetric_axis`), else pick mode; glyph beside each paired ref (multi-anchor `_layout`). Copies keep it about an internal edge, drop it about an X / Y axis. User smoke passed.
+- [x] [type:feature] CS8 — Fix [P1] [subject:CAD] [done:2026-10-15]
+  - Details: spec §7.3. Depends CS7.
+  - Built: same branch. A point handle or a whole item (new `"item"` ref handle -> `ItemExpr`, every adapter variable substituted); `helper.v0` captured at add; a stale whole-item Fix (variable count changed) sits out of `active()`. Selected items -> each fixed whole in one undo step (`add_fixes`); pick mode fixes a point or (edge / curve click) the whole item and stays live until Esc. Copies drop every Fix. Guards RED-proven via red-proof.ps1 (9 proofs). VC6: 9 chunks, 9284 passed; only the filed perf-bar (host load) and Shift+F/I/S shortcut failures, both proven at base `31ecf5b1`.
+
 ## Block Editor constraint system — CS6 Concentric — 2026-10-14
 
 - [x] [type:feature] CS6 — Concentric [P1] [subject:CAD] [done:2026-10-14]

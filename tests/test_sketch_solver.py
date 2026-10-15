@@ -919,3 +919,134 @@ def test_dim_distance_solve_drives_the_length():
     res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(4))
     assert res.converged
     assert math.hypot(res.x[2] - res.x[0], res.x[3] - res.x[1]) == pytest.approx(60.0, abs=1e-6)
+
+
+# ── CS7 Symmetric / CS8 Fix (§7.3) ───────────────────────────────────────────
+
+def _edge(i):
+    """A raw edge: (x[i], x[i+1]) -> (x[i+2], x[i+3])."""
+    return (ss.raw_point(i, i + 1), ss.raw_point(i + 2, i + 3))
+
+
+def _mirror(p, a, b):
+    d = (b - a) / np.linalg.norm(b - a)
+    f = a + d * float((p - a) @ d)
+    return 2 * f - p
+
+
+def test_symmetric_points_about_edge_zero_when_mirrored_and_fd_jacobian():
+    rng = np.random.default_rng(11)
+    for _ in range(10):
+        x = rng.uniform(-50, 50, 8)                  # a(0,1) b(2,3) axis p(4,5) q(6,7)
+        s = ss.System(x=x.copy())
+        ss.BUILDERS["symmetric"]("s", (ss.raw_point(0, 1), ss.raw_point(2, 3), _edge(4)), s)
+        assert len(s.rows) == 2 and not s.aliases and not s.fixes
+        for row in s.rows:
+            _fd_check(row, s.x)
+        s.x[2:4] = _mirror(s.x[0:2], s.x[4:6], s.x[6:8])
+        assert all(abs(r.fn(s.x)[0]) < 1e-9 for r in s.rows)
+        s.x[3] += 2.0
+        assert any(abs(r.fn(s.x)[0]) > 1e-6 for r in s.rows)
+
+
+def test_symmetric_raw_points_about_y_axis_alias_y_and_row_x_sum():
+    s = ss.System(x=np.array([-10.0, 5.0, 12.0, 7.0]))
+    ss.BUILDERS["symmetric"]("s", (ss.raw_point(0, 1), ss.raw_point(2, 3), "y_axis"), s)
+    assert s.aliases == [(1, 3, "s")]                       # equal y
+    (row,) = s.rows                                         # x_a + x_b = 0
+    assert row.fn(s.x)[0] == pytest.approx(2.0)
+    _fd_check(row, s.x)
+
+
+def test_symmetric_raw_points_about_x_axis_alias_x_and_row_y_sum():
+    s = ss.System(x=np.array([4.0, 5.0, 4.0, -5.0]))
+    ss.BUILDERS["symmetric"]("s", (ss.raw_point(0, 1), ss.raw_point(2, 3), "x_axis"), s)
+    assert s.aliases == [(0, 2, "s")]
+    (row,) = s.rows
+    assert abs(row.fn(s.x)[0]) < 1e-12
+    _fd_check(row, s.x + 1.0)
+
+
+def test_symmetric_two_edges_pair_ends_and_swap():
+    s = ss.System(x=np.zeros(12))                          # e1 0..3, e2 4..7, axis 8..11
+    ss.BUILDERS["symmetric"]("s", (_edge(0), _edge(4), _edge(8)), s, helper={"swap": False})
+    assert len(s.rows) == 4
+    assert {0, 1, 4, 5} <= set(s.rows[0].deps) | set(s.rows[1].deps)    # a1 <-> a2
+    s2 = ss.System(x=np.zeros(12))
+    ss.BUILDERS["symmetric"]("s", (_edge(0), _edge(4), _edge(8)), s2, helper={"swap": True})
+    assert {0, 1, 6, 7} <= set(s2.rows[0].deps) | set(s2.rows[1].deps)  # a1 <-> b2
+
+
+def test_symmetric_two_circles_mirror_centres_and_alias_radii():
+    s = ss.System(x=np.array([-20.0, 3.0, 10.0, 20.0, 3.0, 15.0]))
+    ss.BUILDERS["symmetric"]("s", (_circ(0), _circ(3), "y_axis"), s)
+    assert (2, 5, "s") in s.aliases                        # r1 == r2
+    assert (1, 4, "s") in s.aliases                        # equal y about the Y axis
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(6))
+    assert res.converged
+    assert res.x[0] == pytest.approx(-res.x[3], abs=1e-6)
+    assert res.x[2] == pytest.approx(res.x[5], abs=1e-9)
+
+
+def test_symmetric_dof_removed_points_2_edges_4_curves_3():
+    s = ss.System(x=np.array([-10.0, 5.0, 12.0, 7.0]))
+    ss.BUILDERS["symmetric"]("s", (ss.raw_point(0, 1), ss.raw_point(2, 3), "y_axis"), s)
+    assert ss.NumpySolver().diagnose(s).dof == 4 - 2
+    s2 = ss.System(x=np.array([0.0, 0.0, 10.0, 5.0, 30.0, 1.0, 40.0, 9.0]))
+    ss.BUILDERS["symmetric"]("s", (_edge(0), _edge(4), "y_axis"), s2, helper={"swap": False})
+    assert ss.NumpySolver().diagnose(s2).dof == 8 - 4
+    s3 = ss.System(x=np.array([-20.0, 3.0, 10.0, 20.0, 3.0, 15.0]))
+    ss.BUILDERS["symmetric"]("s", (_circ(0), _circ(3), "y_axis"), s3)
+    assert ss.NumpySolver().diagnose(s3).dof == 6 - 3
+
+
+@pytest.mark.parametrize("axis", ["edge", "x_axis", "y_axis"])
+def test_symmetric_derived_points_fd_jacobian(axis):
+    """Review M3: derived (row-path) a / b / axis ends, every row form."""
+    rng = np.random.default_rng(13)
+    for _ in range(8):
+        x = rng.uniform(5, 50, 12)                    # a 0..3, b 4..7, axis 8..11
+        s = ss.System(x=x)
+        ax = (_derived_point(8), ss.raw_point(10, 11)) if axis == "edge" else axis
+        ss.BUILDERS["symmetric"]("s", (_derived_point(0), _derived_point(4), ax), s)
+        assert len(s.rows) == 2 and not s.aliases
+        for row in s.rows:
+            _fd_check(row, s.x)
+
+
+def test_fix_raw_point_fixes_both_axes():
+    s = ss.System(x=np.array([5.0, 9.0]))
+    ss.BUILDERS["fix"]("f", ss.raw_point(0, 1), s, helper={"v0": [5.0, 9.0]})
+    assert sorted((i, v) for i, v, _c in s.fixes) == [(0, 5.0), (1, 9.0)]
+    assert ss.NumpySolver().diagnose(s).dof == 0
+
+
+def test_fix_derived_point_rows_zero_at_v0_and_fd_jacobian():
+    s = ss.System(x=np.array([1.0, 2.0, 10.0, 0.3]))
+    p, _ = _derived_point(0).eval(s.x)
+    ss.BUILDERS["fix"]("f", _derived_point(0), s, helper={"v0": [float(p[0]), float(p[1])]})
+    assert len(s.rows) == 2
+    assert all(abs(r.fn(s.x)[0]) < 1e-12 for r in s.rows)
+    for r in s.rows:
+        _fd_check(r, s.x)
+
+
+def test_fix_item_fixes_every_variable():
+    s = ss.System(x=np.array([1.0, 2.0, 3.0]))
+    ss.BUILDERS["fix"]("f", ss.ItemExpr(idx=(0, 1, 2)), s, helper={"v0": [1.0, 2.0, 3.0]})
+    assert sorted((i, v) for i, v, _c in s.fixes) == [(0, 1.0), (1, 2.0), (2, 3.0)]
+    assert ss.NumpySolver().diagnose(s).dof == 0
+
+
+def test_fix_stale_item_v0_pins_nothing():
+    """T4 review M-c: a v0 whose length no longer matches the item's
+    variables builds no fixes (the builder half of review I1)."""
+    s = ss.System(x=np.array([1.0, 2.0, 3.0, 4.0]))
+    ss.BUILDERS["fix"]("f", ss.ItemExpr(idx=(0, 1, 2, 3)), s, helper={"v0": [1.0, 2.0]})
+    assert not s.fixes and not s.rows
+
+
+def test_fix_origin_adds_nothing():
+    s = ss.System(x=np.zeros(0))
+    ss.BUILDERS["fix"]("f", ss.const_point(0, 0), s, helper={"v0": [0.0, 0.0]})
+    assert not s.rows and not s.fixes and not s.aliases

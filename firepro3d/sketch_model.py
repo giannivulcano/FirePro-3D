@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 GROUNDS = ("origin", "x_axis", "y_axis")
+# CS8 F1: a ref naming a WHOLE primitive (every adapter variable) -- Fix only.
+HANDLE_ITEM = "item"
 # Types whose record carries a numeric ``value`` the residual reads (§6.3):
 # the controller passes it to the builder and drops Reference dims (D7/D52).
 VALUED = frozenset({"dim_distance", "dim_radius", "dim_diameter", "dim_angle",
@@ -74,8 +76,10 @@ REGISTRY: dict[str, TypeSpec] = {
     "dim_angle": TypeSpec("Smart Dimension", (("edge", "edge"), ("edge", "axis")), 1, True),
     "dim_arc_angle": TypeSpec("Smart Dimension", (("curve",),), 1, True),
     "concentric": TypeSpec("Concentric", (("curve", "curve"), ("curve", "point")), 2, True),
-    "symmetric": TypeSpec("Symmetric", (("point", "point", "edge"), ("point", "point", "axis")), 2),
-    "fix": TypeSpec("Fix", (("point",),), 2),
+    "symmetric": TypeSpec("Symmetric", (("point", "point", "edge"), ("point", "point", "axis"),
+                                        ("edge", "edge", "edge"), ("edge", "edge", "axis"),
+                                        ("curve", "curve", "edge"), ("curve", "curve", "axis")), 2, True),
+    "fix": TypeSpec("Fix", (("point",), ("item",)), 2, True),
     "parallel": TypeSpec("Parallel", (("edge", "edge"),), 1),
     "perpendicular": TypeSpec("Perpendicular", (("edge", "edge"),), 1),
     "equal": TypeSpec("Equal", (("edge", "edge"), ("curve", "curve")), 1),

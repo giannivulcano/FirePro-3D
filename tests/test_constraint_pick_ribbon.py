@@ -21,8 +21,8 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
-                    "Concentric", "Show Constraints", "Constraint Status",
-                    "Delete Constraints"}
+                    "Concentric", "Symmetric", "Fix", "Show Constraints",
+                    "Constraint Status", "Delete Constraints"}
 
 
 @pytest.fixture(scope="module")
@@ -188,7 +188,7 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",
-            "Coincident", "Concentric"}                # no greyed placeholders (D15)
+            "Coincident", "Concentric", "Symmetric", "Fix"}   # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -778,3 +778,133 @@ def test_concentric_pick_circle_then_arc(win_with_editor):
     (c,) = sc.constraint_ctl.constraints
     assert c.refs == [{"uid": circ._uid, "h": "curve"}, {"uid": arc._uid, "h": "curve"}]
     assert (circ._center.x(), circ._center.y()) == pytest.approx((arc._center.x(), arc._center.y()), abs=1e-6)
+
+
+# -- CS7 Symmetric / CS8 Fix (S2, F2) -----------------------------------------------
+
+def test_symmetric_pick_point_point_axis_from_the_ribbon(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (-80, -10), (-120, -60)); b = _line(sc, (70, -20), (130, -70))
+    _btn(win, "Symmetric").click(); QApplication.processEvents()
+    assert sc.mode == "constrain_symmetric"
+    _pick(win, (-80, -10), (70, -20))
+    assert sc.constraint_ctl.constraints == []                 # waits for the axis
+    _pick(win, (0, 120))                                       # on the Y axis, clear of geometry
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "symmetric" and c.refs[2] == {"ref": "y_axis"}
+    assert a._pt1.x() == pytest.approx(-b._pt1.x(), abs=1e-6)
+    assert sc.mode == "select"
+
+
+def test_symmetric_two_selected_lines_wait_for_the_axis(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (-80, -10), (-40, -60)); b = _line(sc, (40, -60), (80, -10))
+    a.setSelected(True); b.setSelected(True); qapp.processEvents()
+    _btn(win, "Symmetric").click(); qapp.processEvents()
+    assert sc.mode == "constrain_symmetric"
+    assert sc.constraint_ctl.pick.kinds == ["edge", "edge"]
+    _pick(win, (0, 120))
+    (c,) = sc.constraint_ctl.constraints
+    assert c.helper == {"swap": True}                          # a.p1 mirrors b.p2
+    assert (a._pt1.x(), a._pt1.y()) == pytest.approx((-b._pt2.x(), b._pt2.y()), abs=1e-6)
+
+
+def test_symmetric_two_lines_plus_reference_line_adds_at_once(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (-80, -10), (-40, -60)); b = _line(sc, (40, -60), (80, -10))
+    ax = _line(sc, (0, -100), (0, 100)); ax.reference = True
+    for it in (a, b, ax):
+        it.setSelected(True)
+    qapp.processEvents()
+    _btn(win, "Symmetric").click(); qapp.processEvents()
+    (c,) = sc.constraint_ctl.constraints
+    assert c.refs[2] == {"uid": ax._uid, "h": "edge"}
+
+
+def test_symmetric_invalid_selection_posts_a_hint(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (0, 0), (50, 0)); c = _circle(sc, (100, 0), 10)
+    a.setSelected(True); c.setSelected(True); qapp.processEvents()
+    win._be_constrain("symmetric", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_symmetric"
+    assert win.statusBar().currentMessage() == (
+        "Select 2 lines or 2 circles/arcs (+ a reference line as the axis), "
+        "or nothing to pick")
+
+
+def test_fix_invalid_selection_posts_a_hint(win_with_editor, qapp):
+    """T7 review I1: a selection holding a non-participating item (a spline,
+    D5) disables Fix and a direct call posts the hint, never a pick."""
+    from firepro3d.geometry_2d import SplineItem
+    win = win_with_editor
+    sc = _editor_scene(win)
+    sp = SplineItem([QPointF(0, 0), QPointF(50, -60), QPointF(100, 0), QPointF(150, -40)])
+    sc.addItem(sp); sc._draw_splines.append(sp)
+    sp.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not _btn(win, "Fix").isEnabled()
+    win._be_constrain("fix", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_fix"
+    assert win.statusBar().currentMessage() == (
+        "Select geometry that can be fixed, or nothing to pick")
+
+
+def test_symmetric_and_fix_enable_state(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    s, f = _btn(win, "Symmetric"), _btn(win, "Fix")
+    assert s.toolTip() and f.toolTip()
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert s.isEnabled() and f.isEnabled()
+    a = _line(sc, (0, 0), (50, 0)); a.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not s.isEnabled() and f.isEnabled()                 # lone line: Fix only
+    b = _line(sc, (0, 50), (50, 50)); b.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert s.isEnabled() and f.isEnabled()                     # two lines
+
+
+def test_fix_selection_first_fixes_each_item(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (0, 0), (50, 0)); c = _circle(sc, (100, 0), 10)
+    a.setSelected(True); c.setSelected(True); qapp.processEvents()
+    _btn(win, "Fix").click(); qapp.processEvents()
+    assert sorted(x.refs[0]["uid"] for x in sc.constraint_ctl.constraints) == sorted([a._uid, c._uid])
+    assert all(x.refs[0]["h"] == "item" for x in sc.constraint_ctl.constraints)
+
+
+def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    a = _line(sc, (-60, -40), (60, -40))
+    _btn(win, "Fix").click(); QApplication.processEvents()
+    assert sc.mode == "constrain_fix"
+    _pick(win, (-60, -40))                                     # p1
+    assert sc.mode == "constrain_fix" and len(sc.constraint_ctl.constraints) == 1
+    assert _btn(win, "Fix").isChecked()                        # lit while live
+    _pick(win, (25, -40))                                      # the edge (off its midpoint)
+    assert len(sc.constraint_ctl.constraints) == 2
+    assert sc.constraint_ctl.constraints[1].refs == [{"uid": a._uid, "h": "item"}]
+    QTest.keyClick(_view(win).viewport(), Qt.Key.Key_Escape)
+    QApplication.processEvents()
+    assert sc.mode in (None, "select") and sc.constraint_ctl.pick is None
+    assert not _btn(win, "Fix").isChecked()
+
+
+@pytest.mark.parametrize("label,mode", [("Symmetric", "constrain_symmetric"),
+                                        ("Fix", "constrain_fix")])
+def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label, mode):
+    """T6 review Minor 3: un-toggling a lit button ends its pick session."""
+    win = win_with_editor
+    sc = _editor_scene(win)
+    sc.clearSelection()
+    _btn(win, label).click(); QApplication.processEvents()
+    assert sc.mode == mode and _btn(win, label).isChecked()
+    _btn(win, label).click(); QApplication.processEvents()
+    assert sc.mode in (None, "select") and sc.constraint_ctl.pick is None
+    assert not _btn(win, label).isChecked()

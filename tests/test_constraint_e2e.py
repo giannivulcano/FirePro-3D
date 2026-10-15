@@ -945,3 +945,106 @@ def test_e2e_undo_redo_of_a_concentric_add(win_with_editor):
     assert cur()._center.x() == pytest.approx(10.0, abs=1e-6)
     assert [c.type for c in sc.constraint_ctl.constraints] == ["concentric"]
 
+
+# -- CS7 Symmetric / CS8 Fix §11 #2-#4 (real window, real ribbon, posted events) --
+
+def _ln(sc, a, b):
+    it = LineItem(QPointF(*a), QPointF(*b)); sc.addItem(it); sc._draw_lines.append(it)
+    return it
+
+
+def _click_btn(win, label, *items):
+    sc = win._active_scene()
+    sc.clearSelection()
+    for it in items:
+        it.setSelected(True)
+    QApplication.processEvents()
+    win._be_constrain_buttons[label].click()
+    QApplication.processEvents()
+
+
+def test_e2e_symmetric_mirror_follows_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _ln(sc, (-100, 0), (-40, 60)); b = _ln(sc, (40, 60), (100, 0))
+    ax = _ln(sc, (0, -150), (0, 150)); ax.reference = True
+    # Pin the axis first: a free axis would let least change move IT instead
+    # of the partner line (the assertion below assumes the axis stays at x=0).
+    sc.constraint_ctl.add("fix", [{"uid": ax._uid, "h": "item"}])
+    _click_btn(win, "Symmetric", a, b, ax)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["fix", "symmetric"]
+    sc.clearSelection(); a.setSelected(True); QApplication.processEvents()
+    p0 = QPointF(a._pt1)
+    _drag(view, p0, p0 + QPointF(-30, 25))                  # a's p1 grip
+    assert a._pt1.x() == pytest.approx(p0.x() - 30, abs=1.0)
+    assert (b._pt2.x(), b._pt2.y()) == pytest.approx((-a._pt1.x(), a._pt1.y()), abs=1e-6)
+    assert (ax._pt1.x(), ax._pt2.x()) == pytest.approx((0.0, 0.0), abs=1e-9)
+
+
+def test_e2e_fix_point_never_moves_under_a_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    ln = _ln(sc, (-60, 10), (60, 10))
+    sc.constraint_ctl.add("fix", [{"uid": ln._uid, "h": "p1"}])
+    sc.clearSelection(); ln.setSelected(True); QApplication.processEvents()
+    _drag(view, QPointF(-60, 10), QPointF(-20, 60))          # grab the fixed end
+    assert (ln._pt1.x(), ln._pt1.y()) == pytest.approx((-60.0, 10.0), abs=1e-6)
+    _drag(view, QPointF(60, 10), QPointF(80, 50))            # the free end still moves
+    assert (ln._pt1.x(), ln._pt1.y()) == pytest.approx((-60.0, 10.0), abs=1e-6)
+    assert ln._pt2.y() == pytest.approx(50.0, abs=1.0)
+
+
+def test_e2e_symmetric_and_fix_save_close_reopen(win_with_editor):
+    from firepro3d.geometry_2d import CircleItem
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene
+    a = CircleItem(QPointF(-50, 0), 20); sc.addItem(a); sc._draw_circles.append(a)
+    b = CircleItem(QPointF(60, 10), 10); sc.addItem(b); sc._draw_circles.append(b)
+    sc.constraint_ctl.add("symmetric", [{"uid": a._uid, "h": "curve"},
+                                        {"uid": b._uid, "h": "curve"}, {"ref": "y_axis"}])
+    sc.constraint_ctl.add("fix", [{"uid": a._uid, "h": "item"}])
+    ua, ub = a._uid, b._uid
+    sc.clearSelection()
+    defn = w.commit_block("cs78-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {c._uid: c for c in sc2._draw_circles}
+    assert sorted(c.type for c in sc2.constraint_ctl.active()) == ["fix", "symmetric"]
+    assert sorted(c["type"] for c in defn.constraints) == ["fix", "symmetric"]
+    assert by[ua]._center.x() == pytest.approx(-by[ub]._center.x(), abs=1e-6)
+    assert by[ua]._center.y() == pytest.approx(by[ub]._center.y(), abs=1e-6)
+    assert float(by[ua]._radius) == pytest.approx(float(by[ub]._radius), abs=1e-6)
+    assert sc2.constraint_ctl.diagnostics().state(ua) == "defined"
+    # §11 #3 (T7 review I2): a placed instance renders the solved, frozen
+    # geometry. The Symmetric add moved both rings least-change to
+    # x = +-55, y = 5, r = 15 (mean |x| of 50 / 60, mean r of 20 / 10) before
+    # the Fix froze a: the union is 2 * (55 + 15) wide, 2 * 15 tall.
+    ca, ra = by[ua]._center, float(by[ua]._radius)
+    assert (ca.x(), ca.y(), ra) == pytest.approx((-55.0, 5.0, 15.0), abs=1e-6)
+    inst = win.scene.place_block_instance(defn.id, (0, 0))
+    try:
+        ops = inst.render_ops()
+        r = ops[0].path.boundingRect()
+        for op in ops[1:]:
+            r = r.united(op.path.boundingRect())
+        assert (r.width(), r.height()) == pytest.approx((140.0, 30.0), abs=1e-6)
+    finally:
+        win.scene.remove_block_instance(inst)
+
+
+def test_e2e_undo_redo_of_a_fix_selection(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _ln(sc, (0, 0), (50, 0)); b = _ln(sc, (0, 40), (50, 40))
+    sc.push_undo_state()
+    _click_btn(win, "Fix", a, b)
+    assert len(sc.constraint_ctl.constraints) == 2
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []               # one step undoes both
+    _ctrl(view, Qt.Key.Key_Y)
+    assert len(sc.constraint_ctl.constraints) == 2
+

@@ -137,6 +137,12 @@ class CurveExpr:
     span: tuple | None = None
 
 
+@dataclass(frozen=True)
+class ItemExpr:
+    """A WHOLE primitive (CS8 Fix, ``h = "item"``): its variable indices."""
+    idx: tuple
+
+
 POINT_FAMILIES: dict = {}
 
 
@@ -1012,9 +1018,94 @@ def build_dim_point_line(cid: str, ends, sys: System, value: float = 0.0,
     _point_row(cid, (p, a, b), (), f, sys)
 
 
+def _sym_mid_on_line(P, _E):
+    """Symmetric half 1: the midpoint of (a, b) lies on the line p -> q
+    (signed ``cross(m - p, d)/|d|``, m = (a+b)/2, d = q - p)."""
+    a, b, p, q = P
+    d = q - p
+    L = math.hypot(d[0], d[1])
+    if L < _EPS_LEN:
+        return 0.0, np.zeros((4, 2)), np.zeros(0)
+    u = (a + b) / 2.0 - p
+    C = u[0] * d[1] - u[1] * d[0]
+    gu = np.array([d[1], -d[0]])
+    gd = np.array([-u[1], u[0]])
+    dq = gd / L - C * d / L ** 3
+    return C / L, np.array([0.5 * gu / L, 0.5 * gu / L, -gu / L - dq, dq]), np.zeros(0)
+
+
+def _sym_perp(P, _E):
+    """Symmetric half 2: (b - a) is perpendicular to d = q - p
+    (``dot(b - a, d)/|d|``)."""
+    a, b, p, q = P
+    d = q - p
+    L = math.hypot(d[0], d[1])
+    if L < _EPS_LEN:
+        return 0.0, np.zeros((4, 2)), np.zeros(0)
+    w = b - a
+    D = float(w @ d)
+    dq = w / L - D * d / L ** 3
+    return D / L, np.array([-d / L, d / L, -dq, dq]), np.zeros(0)
+
+
+def _sym_points(cid: str, a, b, axis, sys: System) -> None:
+    """a, b mirror images about *axis* (an edge ``(p, q)`` or a ground axis).
+    About the X axis: ``x_b := x_a`` (``_axis_equal``) + a row ``y_a + y_b``;
+    the Y axis: ``y_b := y_a`` + a row ``x_a + x_b``."""
+    if isinstance(axis, str):
+        k = 1 if axis == "x_axis" else 0          # the summed coordinate
+        _axis_equal(1 - k, cid, (a, b), sys)
+        g = np.zeros((2, 2))
+        g[:, k] = 1.0
+
+        def f(P, _E):
+            return float(P[0][k] + P[1][k]), g, np.zeros(0)
+        _point_row(cid, (a, b), (), f, sys)
+        return
+    p, q = axis
+    _point_row(cid, (a, b, p, q), (), _sym_mid_on_line, sys)
+    _point_row(cid, (a, b, p, q), (), _sym_perp, sys)
+
+
+def build_symmetric(cid: str, ends, sys: System, helper=None) -> None:
+    """Symmetric (CS7, S1): ``refs`` = [a, b, axis]. Points: a / b mirror;
+    two edges: their ends pair (``helper.swap`` crosses them, SP1); two
+    curves: centres mirror and radii are equal (aliased)."""
+    e1, e2, axis = ends
+    if isinstance(e1, CurveExpr):
+        _sym_points(cid, e1.center, e2.center, axis, sys)
+        sys.aliases.append((e1.r, e2.r, cid))
+        return
+    if isinstance(e1, tuple):                     # an edge pair
+        (a1, b1), (a2, b2) = e1, e2
+        if (helper or {}).get("swap"):
+            a2, b2 = b2, a2
+        _sym_points(cid, a1, a2, axis, sys)
+        _sym_points(cid, b1, b2, axis, sys)
+        return
+    _sym_points(cid, e1, e2, axis, sys)
+
+
+def build_fix(cid: str, ends, sys: System, helper=None) -> None:
+    """Fix (CS8, F1): ``refs`` = [point] or [item]; ``helper.v0`` = the
+    captured values. A raw point / every item variable is substituted
+    (``fixes``); a derived point adds a row per axis (``_axis_equal`` vs a
+    constant); the origin adds nothing (refused at add as trivial)."""
+    v0 = [float(v) for v in (helper or {}).get("v0", ())]
+    if isinstance(ends, ItemExpr):
+        if len(v0) != len(ends.idx):              # stale record: pin nothing
+            return
+        for i, v in zip(ends.idx, v0):
+            sys.fixes.append((i, v, cid))
+        return
+    if ends.const is not None:
+        return
+    build_coincident(cid, (ends, const_point(v0[0], v0[1])), sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
-            "concentric": build_concentric,
+            "concentric": build_concentric, "symmetric": build_symmetric, "fix": build_fix,
             "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
             "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
             "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}
