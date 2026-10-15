@@ -1,7 +1,7 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; Trim/Extend/Break/Fillet/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
-last-verified: 2026-10-14  # CS4b Account (pointers only: bare D in model_view keyPressEvent -> parametric D63; Rotate / Flip / Mirror / Scale commits pass point_map -> parametric D65 / §8); prior reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
-verified-commit: f866ff39   # CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-10-15  # block-primitive-snap Account (D16 axis step: block primitives' straight edges are axes; arcs never); prior 2026-10-14 CS4b Account (pointers only: bare D in model_view keyPressEvent -> parametric D63; Rotate / Flip / Mirror / Scale commits pass point_map -> parametric D65 / §8); prior reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: 5e4948d6   # merge feat/block-primitive-snap; prior f866ff39 CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
@@ -711,13 +711,16 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
      `views()[0]`). Axis sources: Line / RefLine, Polyline (incl. a closed
      polyline's closing edge — the snap segment iterator omits it), Rect and
      RegularPolygon edges (incl. the selection's own), gridlines, wall faces,
-     and underlay records that are straight by construction (DXF `line`
-     records; `path_points` records tagged `"straight": True`). **Never an
-     axis:** arcs, circles, ellipses, splines, bulged polyline spans,
-     flattened underlay curves, a legacy cached underlay record without the
-     tag (re-import restores LINE-derived ones only), a PDF record mixing
-     straight and curved segments (v1), block-instance edges,
-     floor / roof / room edges, pipes. No two-point fallback.
+     the straight edges of a placed block's primitives (2026-10-15 user
+     ruling — the whitelist judges the block's posed stand-in, the pick's
+     `source` is the block; `snapping-engine.md` §5 note 12), and underlay
+     records that are straight by construction (DXF `line` records;
+     `path_points` records tagged `"straight": True`). **Never an axis:**
+     arcs, circles, ellipses, splines (a block's included), bulged polyline
+     spans, flattened underlay curves, a legacy cached underlay record without
+     the tag (re-import restores LINE-derived ones only), a PDF record mixing
+     straight and curved segments (v1), floor / roof / room edges, pipes. No
+     two-point fallback.
   3. *Paint:* infinite accent dash-dot 1 px axis + HALO glow on the **single**
      source segment + the reflected ghost (D11); the reflectable originals
      dimmed. Every view repaints on an axis change (detail views share the
