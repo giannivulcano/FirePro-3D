@@ -5271,7 +5271,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # nothing selected -> a live pick session (each click one Fix).
             refs = ctl.selection_refs(ctype)
             if refs is not None:
-                ctl.add_fixes(refs)
+                ctl.add_many("fix", [[r] for r in refs])
             elif sc.selectedItems():
                 sc._show_status("Select geometry that can be fixed, or nothing "
                                 "to pick", 4000)
