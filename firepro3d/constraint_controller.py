@@ -169,6 +169,7 @@ def _angle_helper_ok(h) -> bool:
 
 PICK_SAME_POINT_STATUS = "Pick a different point"
 PICK_SAME_CURVE_STATUS = "Pick a different circle/arc"     # CS6 (same curve twice)
+PICK_SAME_EDGE_STATUS = "Pick a different edge"            # CS7 (a pair edge as the axis)
 DIM_REFERENCE_STATUS = ("Dimension added as Reference -- it would over-define the "
                         "sketch")                                    # D52
 DIM_ZERO_STATUS = "Pick two separate points"
@@ -2340,14 +2341,15 @@ class ConstraintController:
             refs = ([{"uid": ref["uid"], "h": sm.HANDLE_ITEM}]   # FP1p: whole item
                     if p.hover_kind in ("edge", "curve") else [ref])
             self.pick = PickState(self, "fix")
-            self.add("fix", refs)
+            added = self.add("fix", refs) is not None
             self._scene.instructionChanged.emit(self.pick.status())
             self._repaint()
-            return True
+            return added
         else:
             if ref in p.picks:
-                self._status(PICK_SAME_CURVE_STATUS if p.hover_kind == "curve"
-                             else PICK_SAME_POINT_STATUS)
+                self._status({"curve": PICK_SAME_CURVE_STATUS,
+                              "edge": PICK_SAME_EDGE_STATUS}.get(
+                                  p.hover_kind, PICK_SAME_POINT_STATUS))
                 return False
             p.picks.append(ref)
             p.kinds.append(p.hover_kind)

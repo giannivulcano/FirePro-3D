@@ -1038,6 +1038,14 @@ def test_fix_item_fixes_every_variable():
     assert ss.NumpySolver().diagnose(s).dof == 0
 
 
+def test_fix_stale_item_v0_pins_nothing():
+    """T4 review M-c: a v0 whose length no longer matches the item's
+    variables builds no fixes (the builder half of review I1)."""
+    s = ss.System(x=np.array([1.0, 2.0, 3.0, 4.0]))
+    ss.BUILDERS["fix"]("f", ss.ItemExpr(idx=(0, 1, 2, 3)), s, helper={"v0": [1.0, 2.0]})
+    assert not s.fixes and not s.rows
+
+
 def test_fix_origin_adds_nothing():
     s = ss.System(x=np.zeros(0))
     ss.BUILDERS["fix"]("f", ss.const_point(0, 0), s, helper={"v0": [0.0, 0.0]})

@@ -315,3 +315,97 @@ def test_mirrored_copy_of_a_symmetric_pair_is_satisfied(qapp):
                       mirror_axis=(QPointF(150, -10), QPointF(150, 10)))
     (c2,) = ctl.constraints_on(a2)
     assert c2.type == "symmetric" and c2.id not in ctl.red
+
+
+# -- T4 review round (I-1, I-2, M-a, M-b) -----------------------------------------
+
+def _pick_view(sc):
+    from firepro3d.model_view import Model_View
+    v = Model_View(sc)
+    v.resize(800, 600)
+    v.resetTransform()
+    v.centerOn(0, 0)
+    return v
+
+
+def _press(ctl, v, x, y):
+    return ctl.pick_press(v, QPointF(v.mapFromScene(QPointF(x, y))))
+
+
+def test_selection_refs_fix_lone_line_is_the_whole_item(qapp):
+    """Review I-1: one selected line is a whole-item Fix, never an edge."""
+    sc = _scene()
+    a = _line(sc, (0, 0), (10, 0))
+    a.setSelected(True)
+    assert sc.constraint_ctl.selection_refs("fix") == [{"uid": a._uid, "h": "item"}]
+
+
+def test_fix_pick_flow_point_then_edge_stays_live(qapp):
+    """Review I-2: a point click fixes the point, an edge click the whole
+    item; the session and mode stay live; one undo step per click."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    ln = _line(sc, (-60, -40), (60, -40))
+    v = _pick_view(sc)
+    sc.set_mode("constrain_fix")
+    n0 = sc._undo_pos
+    assert _press(ctl, v, -60, -40)
+    assert _press(ctl, v, 20, -40)
+    assert [c.refs for c in ctl.constraints] == [[P(ln, "p1")], [P(ln, "item")]]
+    assert sc.mode == "constrain_fix" and ctl.pick is not None and ctl.pick.ctype == "fix"
+    assert sc._undo_pos == n0 + 2
+
+
+def test_fix_pick_on_the_origin_is_refused_and_returns_false(qapp):
+    """Review M-b: pick_press reports whether a Fix was added."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    _line(sc, (100, 100), (200, 100))
+    v = _pick_view(sc)
+    sc.set_mode("constrain_fix")
+    assert _press(ctl, v, 0, 0) is False
+    assert ctl.constraints == [] and ctl.pick is not None
+
+
+def test_symmetric_pick_flow_completes_on_the_axis(qapp):
+    """Review I-2: point, point, then the Y axis adds the constraint."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    a = _line(sc, (-80, -10), (-120, -60)); b = _line(sc, (70, -20), (130, -70))
+    v = _pick_view(sc)
+    sc.set_mode("constrain_symmetric")
+    assert not _press(ctl, v, -80, -10)
+    assert not _press(ctl, v, 70, -20)
+    assert _press(ctl, v, 0, 120)
+    (c,) = ctl.constraints
+    assert c.refs == [P(a, "p1"), P(b, "p1"), {"ref": "y_axis"}]
+    assert a._pt1.x() == pytest.approx(-b._pt1.x(), abs=1e-6)
+
+
+def test_symmetric_repeated_edge_says_pick_a_different_edge(qapp):
+    """Review M-a: the axis click on a pair edge is refused with the
+    edge noun; the session stays live."""
+    from firepro3d.constraint_controller import PICK_SAME_EDGE_STATUS
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    _line(sc, (-80, -50), (-40, 50)); _line(sc, (40, 50), (80, -50))
+    v = _pick_view(sc)
+    msgs = _status(sc)
+    sc.set_mode("constrain_symmetric")
+    # off the midpoints (a midpoint is a point handle that beats its edge, D58)
+    _press(ctl, v, -50, 25); _press(ctl, v, 50, 25)        # the two edges
+    assert ctl.pick.kinds == ["edge", "edge"]
+    assert _press(ctl, v, -50, 25) is False                 # a pair edge as the axis
+    assert msgs[-1] == PICK_SAME_EDGE_STATUS == "Pick a different edge"
+    assert ctl.constraints == [] and len(ctl.pick.picks) == 2
+
+
+def test_horizontal_first_edge_still_completes_at_once(qapp):
+    """Review I-2: the narrowed first-edge condition keeps H on one click."""
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    ln = _line(sc, (-60, 0), (60, 30))
+    v = _pick_view(sc)
+    sc.set_mode("constrain_horizontal")
+    assert _press(ctl, v, 40, 25)                           # on the edge, off its midpoint
+    assert [c.refs for c in ctl.constraints] == [[P(ln, "edge")]]
