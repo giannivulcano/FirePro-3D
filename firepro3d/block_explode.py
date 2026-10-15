@@ -18,6 +18,13 @@ _NESTED_TYPE = "block_instance"
 _TEXT_TYPE = "text"
 
 
+def record_key(rec, index: int) -> str:
+    """A primitive record's path segment (NB3): its ``uid``, else
+    ``"#<index>"`` for a legacy record without one."""
+    uid = rec.get("uid")
+    return str(uid) if uid else f"#{index}"
+
+
 def can_explode(inst) -> bool:
     """Whether *inst* resolves to a definition with authored primitives.
 
