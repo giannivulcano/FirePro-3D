@@ -10,6 +10,9 @@ scene coordinates, so every per-type snap / segment / direction branch
 handles them unchanged. Text (snapped by its frame box,
 ``BlockDefinition.text_snap_points``) and non-printed scaffolding (never
 drawn, D23) get no stand-in; a missing or cyclic nested block is skipped.
+With ``paths=True`` it returns ``(prims, origins)`` -- ``(path, item)`` pairs
+keyed by record-uid path plus each nested record's origin -- instead of a
+plain item list.
 """
 from __future__ import annotations
 
@@ -44,12 +47,22 @@ def posed_primitives(defn, pose, paths: bool = False):
 
 
 def _join(prefix: str, key: str) -> str:
+    """Join a record path *prefix* and a record *key* with ``/``.
+
+    Args:
+        prefix: The enclosing nested records' path (``""`` at the top level).
+        key: The record's key (see ``record_key``).
+
+    Returns:
+        *key* alone for an empty prefix, else ``"<prefix>/<key>"``.
+    """
     return key if not prefix else f"{prefix}/{key}"
 
 
-def _walk(defn, pose, out: list, active: set, prefix, origins: list) -> None:
+def _walk(defn, pose, out: list, active: set, prefix: str | None, origins: list) -> None:
     """Append *defn*'s posed primitives to *out*; *active* guards cycles.
-    *prefix* None = plain items; a string = ``(path, item)`` pairs."""
+    *prefix* None = plain items; a string = ``(path, item)`` pairs.
+    *origins* is filled only in paths mode."""
     if defn is None or defn.id in active:
         return
     active.add(defn.id)

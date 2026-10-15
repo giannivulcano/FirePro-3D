@@ -31,7 +31,7 @@ from .geometry_2d import SplineItem
 from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, ItemExpr, NumpySolver, System, W_EDIT,
-                            W_PIN, const_point)
+                            W_PIN, const_point, curve_radius)
 from .text_item import TextItem
 from .theme import M
 
@@ -260,7 +260,7 @@ class PickState:
                     if name in hidden:                # CS5 D79: defining circles
                         continue
                     yield ("curve", {"uid": uid, "h": name},
-                           QPointF(*cv.center.eval(x)[0]), (float(x[cv.r]), it))
+                           QPointF(*cv.center.eval(x)[0]), (curve_radius(cv, x), it))
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
         if axes:
             yield "axis", {"ref": "x_axis"}, None, None
@@ -760,7 +760,27 @@ class ConstraintController:
             cv = adapter_for(it).curves(it, 0).get(r0.get("h")) if it is not None else None
             if cv is None or cv.span is None:
                 return False
+        if c.driving and None not in kinds and self._on_const_curve(c, by):
+            return False                                 # NB7: a fixed radius
+        if c.type == "symmetric" and None not in kinds and kinds[:2] == ("curve", "curve"):
+            for r in c.refs[:2]:                         # NB7: no radius variable to alias
+                it = by.get(r.get("uid"))
+                cv = adapter_for(it).curves(it, 0).get(r.get("h")) if it is not None else None
+                if cv is not None and cv.r is None:
+                    return False
         return None not in kinds and kinds in spec.patterns
+
+    @staticmethod
+    def _on_const_curve(c, by) -> bool:
+        """NB7: whether *c* is a radius / diameter dim on a constant-radius
+        (nested block) curve -- it can only be a Reference."""
+        if c.type not in ("dim_radius", "dim_diameter") or not c.refs:
+            return False
+        r0 = c.refs[0]
+        it = by.get(r0.get("uid")) if isinstance(r0, dict) else None
+        ad = adapter_for(it) if it is not None else None
+        cv = ad.curves(it, 0).get(r0.get("h")) if ad is not None else None
+        return cv is not None and cv.r is None
 
     def _fix_helper_ok(self, c, by) -> bool:
         """CS8 FP2p: ``helper.v0`` = finite floats -- 2 for a point, the
@@ -1275,7 +1295,7 @@ class ConstraintController:
             self._carry_dim_labels(anchors, point_map)
             return
         snap = self._snapshot(items)
-        poses = [(it, it.block_rotation(), it.block_mirrored(), it.block_scale())
+        poses = [(it, it.block_mirrored(), it.block_scale())
                  for it in items if hasattr(it, "block_mirrored")]
         flipped, refuse = (self._flip_dim_signs(items, point_map)
                            if point_map is not None and _is_reflection(point_map)
@@ -1291,8 +1311,7 @@ class ConstraintController:
         pins = self._typed_pins(items, snap) if typed else None
         if refuse or not self._solve(edited=items, typed=pins):
             self._restore(snap)
-            for it, r, mir, sc in poses:   # pose parts outside the solver vars (DD8)
-                it.set_block_rotation(r)
+            for it, mir, sc in poses:   # pose parts outside the solver vars (DD8; rotation is one -- NB1)
                 it.set_block_mirrored(mir)
                 it.set_block_scale(sc)
             for c, v in scaled:
@@ -1786,6 +1805,8 @@ class ConstraintController:
                 self._status(refusal)
                 return None
             c.value = value if value is not None else self.measure(c)
+            if value is None and self._on_const_curve(c, self.item_by_uid()):
+                c.driving = False                        # NB7: only a Reference measures it
             if label is not None:
                 c.label = copy.deepcopy(label)           # CS4b D62 placement
         if not self._valid(c):
@@ -2010,6 +2031,8 @@ class ConstraintController:
         refusal = self._dim_refusal(c)
         if refusal is None:
             c.value = self.measure(c)
+            if self._on_const_curve(c, by):
+                c.driving = False                        # NB7: a Reference measure
             if c.value is None or not self._valid(c):
                 refusal = INVALID_STATUS
         if refusal is not None:

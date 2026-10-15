@@ -34,6 +34,7 @@ from . import sketch_model as sm
 from . import theme as th
 from .icons import DARK, LIGHT, themed_icon
 from .sketch_adapters import adapter_for
+from .sketch_solver import curve_radius
 from .theme import M
 
 
@@ -107,7 +108,7 @@ def _ref_geom(ref, by, held=None):
     crs = ad.curves(it, 0)
     if h in crs:
         cv = crs[h]
-        return "curve", (_p(cv.center), float(x[cv.r]))
+        return "curve", (_p(cv.center), curve_radius(cv, x))
     return None
 
 

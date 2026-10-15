@@ -176,3 +176,10 @@ def test_paths_mode_keys_stand_ins_by_record_uid_and_yields_nested_origins(qapp)
     # legacy call shape unchanged
     flat = posed_primitives(d, (0.0, 0.0, 0.0, False, 1.0))
     assert len(flat) == len(prims)
+
+
+def test_record_key_uid_or_index_fallback():
+    from firepro3d.block_explode import record_key
+    assert record_key({}, 3) == "#3"
+    assert record_key({"uid": ""}, 3) == "#3"
+    assert record_key({"uid": 7}, 3) == "7"

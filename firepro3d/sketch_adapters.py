@@ -657,9 +657,9 @@ def _nested_table(inst) -> _NestedHandles:
     from .block_snap_geometry import posed_primitives
     ops = inst.render_ops()
     mir, s = bool(inst.block_mirrored()), float(inst.block_scale())
-    c = getattr(inst, "_nested_handles_cache", None)
-    if c is not None and c[0] is ops and c[1] == mir and c[2] == s:
-        return c[3]
+    cached = getattr(inst, "_nested_handles_cache", None)
+    if cached is not None and cached[0] is ops and cached[1] == mir and cached[2] == s:
+        return cached[3]
     t = _NestedHandles()
     prims, origins = posed_primitives(inst.definition(), (0.0, 0.0, 0.0, mir, s), paths=True)
     for path, child in prims:
@@ -673,6 +673,8 @@ def _nested_table(inst) -> _NestedHandles:
             t.edges[f"{path}:{n}"] = (tuple(float(c) for c in a.eval(x)[0]),
                                       tuple(float(c) for c in b.eval(x)[0]))
         for n, cv in ad.curves(child, 0).items():
+            # a child is never a nested instance -- the walker flattens -- so r
+            # is always a variable index
             t.curves[f"{path}:{n}"] = (tuple(float(c) for c in cv.center.eval(x)[0]),
                                        float(x[cv.r]))
         t.mids.update(f"{path}:{n}" for n in ad.mid_names(child))
@@ -705,6 +707,7 @@ class _NestedAdapter(_Adapter):
         return "ins"
 
     def struct_key(self, it):
+        # id(ops) is stable because _nested_handles_cache holds the ops list alive
         return (self.type_key, 3, id(it.render_ops()),
                 bool(it.block_mirrored()), float(it.block_scale()))
 
@@ -738,7 +741,9 @@ class _NestedAdapter(_Adapter):
         x, y, th = (float(t) for t in v)
         it.set_block_pos(x, y)
         if abs(th - math.radians(it.block_rotation())) > ANG_WRITE_TOL:
-            it.set_block_rotation(math.degrees(th))
+            # round: radians->degrees drift (30 deg -> 29.999999999999996) must
+            # not leak into the item on a restore (still inside ANG_WRITE_TOL)
+            it.set_block_rotation(round(math.degrees(th), 9))
 
 
 def _text_point_fn(su, sv, th):

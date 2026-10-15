@@ -1101,6 +1101,8 @@ def build_symmetric(cid: str, ends, sys: System, helper=None) -> None:
     curves: centres mirror and radii are equal (aliased)."""
     e1, e2, axis = ends
     if isinstance(e1, CurveExpr):
+        if e1.r is None or e2.r is None:
+            raise ValueError("a nested block's curve has a fixed radius (NB7)")
         _sym_points(cid, e1.center, e2.center, axis, sys)
         sys.aliases.append((e1.r, e2.r, cid))
         return

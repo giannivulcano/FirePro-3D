@@ -988,6 +988,15 @@ def test_symmetric_two_circles_mirror_centres_and_alias_radii():
     assert res.x[2] == pytest.approx(res.x[5], abs=1e-9)
 
 
+def test_symmetric_of_a_const_curve_raises():
+    s = ss.System(x=np.array([-20.0, 3.0, 10.0]))
+    const = ss.CurveExpr(center=ss.raw_point(0, 1), r=None, r_const=5.0)
+    with pytest.raises(ValueError):
+        ss.BUILDERS["symmetric"]("s", (const, _circ(0), "y_axis"), s)
+    with pytest.raises(ValueError):
+        ss.BUILDERS["symmetric"]("s", (_circ(0), const, "y_axis"), s)
+
+
 def test_symmetric_dof_removed_points_2_edges_4_curves_3():
     s = ss.System(x=np.array([-10.0, 5.0, 12.0, 7.0]))
     ss.BUILDERS["symmetric"]("s", (ss.raw_point(0, 1), ss.raw_point(2, 3), "y_axis"), s)
