@@ -74,9 +74,12 @@ def test_posed_rect_corners_and_arc_ends_sit_on_the_drawn_geometry(qapp, pose):
     # 0 deg -> (cx + r, cy); 180 deg -> (cx - r, cy) (Y-down local)
     want = [oracle(inst, -70.0, 100.0), oracle(inst, -130.0, 100.0)]
     assert _same_points(ends, want), (ends, want)
-    apex = oracle(inst, -100.0, 70.0)                  # 90 deg: still on the arc
-    assert abs(math.hypot(apex.x() - arc._center.x(), apex.y() - arc._center.y())
-               - arc._radius) < 0.01
+    # The posed arc's mid-angle point is the local apex (90 deg): a wrong span
+    # after the mirror fold would bulge to the other side.
+    mid = math.radians(arc._start_deg + arc._span_deg / 2.0)
+    got = QPointF(arc._center.x() + arc._radius * math.cos(mid),
+                  arc._center.y() - arc._radius * math.sin(mid))
+    assert near(got, oracle(inst, -100.0, 70.0)), got
     assert all(it.scene() is None for it in items)     # stand-ins are scene-free
 
 

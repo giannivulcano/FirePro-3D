@@ -64,13 +64,16 @@ def test_block_snaps_match_the_exploded_block(qapp, pose):
     va, sa, ia = _scene_with(pose)
     vb, sb, _ib = _scene_with(pose, explode=True)
     try:
+        assert not sb._block_instances                  # the twin is all loose
         pts = _samples(ia)
         assert len(pts) > 100
-        diffs = []
+        diffs, hits = [], 0
         for p in pts:
             a, b = _snap_at(va, sa, p), _snap_at(vb, sb, p)
+            hits += b is not None
             if a != b:
                 diffs.append((p.x(), p.y(), a, b))
+        assert hits > len(pts) // 4                     # non-vacuous comparison
         assert diffs == []                                              # [RED]
     finally:
         close_view(va, sa)
@@ -140,14 +143,17 @@ def test_perpendicular_from_a_start_point_onto_a_block_edge(qapp):
     view, scene, inst = _scene_with(POSES[1], nested=False)
     vb, sb, _ = _scene_with(POSES[1], explode=True, nested=False)
     try:
+        assert not sb._block_instances                  # the twin is all loose
         start = QPointF(-300.0, -250.0)
         click(view, start)
         click(vb, start)
-        diffs = []
+        diffs, pers = [], 0
         for p in _samples(inst):
             a, b = _snap_at(view, scene, p), _snap_at(vb, sb, p)
+            pers += b is not None and b[0] == "perpendicular"
             if a != b:
                 diffs.append((p.x(), p.y(), a, b))
+        assert pers > 0                                 # PER-from actually occurs
         assert diffs == []                                              # [RED]
     finally:
         close_view(view, scene)
