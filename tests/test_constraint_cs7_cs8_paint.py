@@ -66,6 +66,22 @@ def test_symmetric_shows_one_glyph_beside_each_point(be):
         assert cp.glyph_at(v, ctl, r.center().toPoint()) == c.id
 
 
+def test_symmetric_hover_glows_both_refs_and_the_axis(be):
+    """S3 (T5 review Minor 1): hovering a Symmetric glows both points and
+    the Y axis."""
+    v, sc = be
+    ctl = sc.constraint_ctl
+    a = _line(sc, (-80, -20), (-40, 40)); b = _line(sc, (40, 40), (80, -20))
+    c = ctl.add("symmetric", [{"uid": a._uid, "h": "p1"}, {"uid": b._uid, "h": "p2"},
+                              {"ref": "y_axis"}])
+    ctl.hover_id = c.id
+    br = cp._glow_path(v, ctl, [(c.id, "selection_hover")]).boundingRect()
+    pa = QPointF(v.mapFromScene(a._pt1)); pb = QPointF(v.mapFromScene(b._pt2))
+    assert br.left() <= pa.x() and br.right() >= pb.x()          # both points
+    vp = v.viewport().rect()
+    assert br.top() <= vp.top() + 1 and br.bottom() >= vp.bottom() - 1   # the axis
+
+
 def test_symmetric_circle_glyph_sits_up_right_of_each_centre(be):
     v, sc = be
     ctl = sc.constraint_ctl
