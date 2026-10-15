@@ -1183,10 +1183,51 @@ def build_perpendicular(cid: str, ends, sys: System) -> None:
     _point_row(cid, (e1[0], e1[1], e2[0], e2[1]), (), _perpendicular, sys)
 
 
+def _equal_len(P, _E):
+    """CS11: ``‖d₁‖ − ‖d₂‖`` over P = (a1, b1, a2, b2). A zero-length edge
+    has no direction: its length term is 0 with a zero gradient."""
+    a1, b1, a2, b2 = P
+    u, v = b1 - a1, b2 - a2
+    nu, nv = math.hypot(u[0], u[1]), math.hypot(v[0], v[1])
+    gu = u / nu if nu >= _EPS_LEN else np.zeros(2)
+    gv = v / nv if nv >= _EPS_LEN else np.zeros(2)
+    return nu - nv, np.array([-gu, gu, gv, -gv]), np.zeros(0)
+
+
+def _const_row(value: float):
+    """A row fixed at *value* with a zero gradient (CS11 E4: two nested curves'
+    constant radii). Built over a real point so it joins that point's
+    component -- an orphan row is only checked by an unfocused solve."""
+    def f(P, _E):
+        return float(value), np.zeros((len(P), 2)), np.zeros(0)
+    return f
+
+
+def build_equal(cid: str, ends, sys: System) -> None:
+    """Equal (CS11, E1/E4): ``refs`` = [edge, edge] | [curve, curve], order not
+    significant. Two edges: one row ``‖d₁‖ − ‖d₂‖``. Two curves: the radii
+    aliased; a constant-radius (nested, NB7) curve fixes the other's radius;
+    two constant curves: a constant row ``r₁ − r₂`` (zero gradient -- red when
+    they differ; identically zero when equal, so the D44 probe refuses it)."""
+    e1, e2 = ends
+    if isinstance(e1, CurveExpr):
+        if e1.r is not None and e2.r is not None:
+            sys.aliases.append((e1.r, e2.r, cid))
+        elif e1.r is not None or e2.r is not None:
+            var, const = (e1.r, e2) if e1.r is not None else (e2.r, e1)
+            sys.fixes.append((var, float(const.r_const), cid))
+        else:
+            _point_row(cid, (e2.center,), (),
+                       _const_row(float(e1.r_const) - float(e2.r_const)), sys)
+        return
+    _point_row(cid, (e1[0], e1[1], e2[0], e2[1]), (), _equal_len, sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
             "concentric": build_concentric, "symmetric": build_symmetric, "fix": build_fix,
             "parallel": build_parallel, "perpendicular": build_perpendicular,
+            "equal": build_equal,
             "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
             "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
             "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}
