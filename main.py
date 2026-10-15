@@ -5254,6 +5254,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             refs = ctl.selection_refs(ctype)
             if refs is not None:
                 ctl.add_fixes(refs)
+            elif sc.selectedItems():
+                sc._show_status("Select geometry that can be fixed, or nothing "
+                                "to pick", 4000)
             else:
                 sc.set_mode(mode)
             self._sync_mode_buttons(sc.mode)

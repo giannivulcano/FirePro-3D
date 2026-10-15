@@ -869,6 +869,7 @@ def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
     assert sc.mode == "constrain_fix"
     _pick(win, (-60, -40))                                     # p1
     assert sc.mode == "constrain_fix" and len(sc.constraint_ctl.constraints) == 1
+    assert _btn(win, "Fix").isChecked()                        # lit while live
     _pick(win, (25, -40))                                      # the edge (off its midpoint)
     assert len(sc.constraint_ctl.constraints) == 2
     assert sc.constraint_ctl.constraints[1].refs == [{"uid": a._uid, "h": "item"}]
@@ -876,3 +877,17 @@ def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
     QApplication.processEvents()
     assert sc.mode in (None, "select") and sc.constraint_ctl.pick is None
     assert not _btn(win, "Fix").isChecked()
+
+
+@pytest.mark.parametrize("label,mode", [("Symmetric", "constrain_symmetric"),
+                                        ("Fix", "constrain_fix")])
+def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label, mode):
+    """T6 review Minor 3: un-toggling a lit button ends its pick session."""
+    win = win_with_editor
+    sc = _editor_scene(win)
+    sc.clearSelection()
+    _btn(win, label).click(); QApplication.processEvents()
+    assert sc.mode == mode and _btn(win, label).isChecked()
+    _btn(win, label).click(); QApplication.processEvents()
+    assert sc.mode in (None, "select") and sc.constraint_ctl.pick is None
+    assert not _btn(win, label).isChecked()
