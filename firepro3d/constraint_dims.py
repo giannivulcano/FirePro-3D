@@ -641,9 +641,7 @@ def classify_dim(refs, by):
         if it is None:
             return None
         ad = adapter_for(it)
-        kinds.append("point" if h in ad.points(it, 0) else
-                     "edge" if h in ad.edges(it, 0) else
-                     "curve" if h in ad.curves(it, 0) else None)
+        kinds.append(ad.handle_kind(it, h))
     if None in kinds:
         return None
     if kinds == ["edge"]:
@@ -656,7 +654,7 @@ def classify_dim(refs, by):
             return "dim_radius", list(refs)
         ad = adapter_for(it)               # NB7: a nested block's arc / circle
         h = refs[0].get("h")
-        if h in ad.curves(it, 0) and h not in ad.hidden_names(it):
+        if ad.handle_kind(it, h) == "curve" and h not in ad.hidden_names(it):
             return ("dim_diameter" if h in ad.circle_curves(it) else "dim_radius"), list(refs)
         return None
     if kinds in (["edge", "edge"], ["edge", "axis"]):

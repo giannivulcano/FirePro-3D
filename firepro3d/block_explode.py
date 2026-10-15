@@ -216,7 +216,9 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
         instances: ``BlockInstance`` items to explode.
         flatten: Also explode every nested block, recursively.
         uid_map: When a dict, filled with record path -> new uid for every
-            item this call creates (NB5).
+            item this call creates (NB5). One map per exploded instance (the
+            caller loops); records ``_add_from_dict`` skips (scaffolding) get
+            no entry, which is NB5's drop path.
 
     Returns:
         The newly created scene items.

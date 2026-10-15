@@ -190,6 +190,18 @@ class _Adapter:
         paint them as triangles); none by default."""
         return frozenset()
 
+    def handle_kind(self, item, h: str) -> str | None:
+        """``"point"`` / ``"edge"`` / ``"curve"`` for handle *h*, or None --
+        pure membership, so an adapter with an expensive expression dict can
+        answer without building it."""
+        if h in self.points(item, 0):
+            return "point"
+        if h in self.edges(item, 0):
+            return "edge"
+        if h in self.curves(item, 0):
+            return "curve"
+        return None
+
     def circle_curves(self, item) -> frozenset:
         """Names of the ``curves`` handles that are FULL circles (a Smart
         Dimension on one is a diameter, not a radius); none by default."""
@@ -748,6 +760,18 @@ class _NestedAdapter(_Adapter):
 
     def circle_curves(self, it):
         return frozenset(_nested_table(it).circles)
+
+    def handle_kind(self, it, h):
+        if h == "ins":
+            return "point"
+        t = _nested_table(it)
+        if h in t.points:
+            return "point"
+        if h in t.edges:
+            return "edge"
+        if h in t.curves:
+            return "curve"
+        return None
 
     def write(self, it, v):
         x, y, th = (float(t) for t in v)

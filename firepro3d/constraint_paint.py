@@ -198,7 +198,7 @@ def _ref_anchor(view, ref, by, held=None) -> QPointF | None:
     if g[0] == "item":
         it = by.get(ref.get("uid"))
         ad = adapter_for(it) if it is not None else None
-        if ad is not None and "edge" in ad.edges(it, 0):
+        if ad is not None and ad.handle_kind(it, "edge") == "edge":
             return _anchor(view, SimpleNamespace(type="", refs=[{**ref, "h": "edge"}]),
                            by, held)
         return _up_right(view, it.sceneBoundingRect().topRight()) if it is not None else None

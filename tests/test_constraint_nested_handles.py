@@ -99,7 +99,6 @@ def test_driving_radius_dim_on_a_nested_curve_is_refused_reference_measures(qapp
     assert INVALID_STATUS in msgs
     c = ctl.add("dim_radius", [ref])              # current measure, then Reference
     assert c is not None
-    ctl.set_driving(c.id, False)
     assert ctl.measure(c) == pytest.approx(40.0)
     assert c in ctl.constraints and c.id not in {x.id for x in ctl.active()}
 
@@ -383,9 +382,13 @@ def test_smart_dimension_on_nested_curves_classifies_and_adds_a_reference(qapp):
     c = ctl.add("dim_radius", [arc])
     assert c is not None and c.driving is False and not c.inert
     assert DIM_NESTED_REFERENCE_STATUS in msgs
+    del msgs[:]
+    cd = ctl.add("dim_diameter", [circ])
+    assert cd is not None and cd.driving is False and not cd.inert
+    assert DIM_NESTED_REFERENCE_STATUS in msgs
 
 
-def test_driving_on_a_nested_curve_dim_is_refused_without_an_undo_step(qapp):
+def test_driving_on_a_nested_curve_dim_is_refused_without_an_undo_step(qapp, monkeypatch):
     from firepro3d.constraint_controller import DIM_NESTED_REFERENCE_STATUS
     sc = _scene()
     d, inst = _instance(sc)
@@ -394,7 +397,10 @@ def test_driving_on_a_nested_curve_dim_is_refused_without_an_undo_step(qapp):
     assert c is not None and c.driving is False
     msgs = _status(sc)
     n = len(sc._undo_stack)
+    refreshed = []
+    monkeypatch.setattr(ctl, "_refresh_panel", lambda: refreshed.append(1))
     ctl.set_driving(c.id, True)
+    assert refreshed == [1]                       # the Driving checkbox re-reads the model
     assert c.driving is False and not c.inert
     assert msgs == [DIM_NESTED_REFERENCE_STATUS]
     assert len(sc._undo_stack) == n
@@ -410,3 +416,36 @@ def test_paint_ref_geom_of_a_nested_curve_uses_the_constant_radius(qapp):
     assert kind == "curve"
     assert _near(centre, oracle(inst, 100.0, 60.0))
     assert r == pytest.approx(40.0)
+
+
+def test_malformed_instance_fix_v0_stays_verbatim_and_inert(qapp):
+    """Review I1: a 2-value v0 with unreadable entries must not raise out of
+    the load (§6.4: kept verbatim, inert)."""
+    sc = _scene()
+    d, inst = _instance(sc)
+    ctl = sc.constraint_ctl
+    rec = {"id": "f1", "type": "fix", "refs": [{"uid": inst._uid, "h": "item"}],
+           "value": None, "driving": True, "enabled": True,
+           "helper": {"v0": [None, "x"]}}
+    ctl.load([rec])
+    (c,) = ctl.constraints
+    assert c.inert
+    assert ctl.to_records() == [rec]
+
+
+def test_handle_kind_membership_parity(qapp):
+    from firepro3d.geometry_2d import LineItem
+    sc = _scene()
+    d, inst = _instance(sc)
+    ad = adapter_for(inst)
+    k = _key(d, 0)
+    assert ad.handle_kind(inst, f"{k}:p1") == "point"
+    assert ad.handle_kind(inst, f"{k}:edge") == "edge"
+    assert ad.handle_kind(inst, f"{_key(d, 2)}:curve") == "curve"
+    assert ad.handle_kind(inst, "ins") == "point"
+    assert ad.handle_kind(inst, f"{k}:zz") is None
+    ln = _line(sc, (0.0, 0.0), (10.0, 0.0))
+    la = adapter_for(ln)
+    assert la.handle_kind(ln, "p1") == "point"
+    assert la.handle_kind(ln, "edge") == "edge"
+    assert la.handle_kind(ln, "zz") is None

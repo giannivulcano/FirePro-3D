@@ -630,7 +630,8 @@ class ConstraintController:
 
     def active(self) -> list:
         """Solvable constraints: enabled, built and valid (not inert), not red
-        (D37), refs resolve."""
+        (D37), refs resolve. First re-validates instance-ref'd records,
+        flipping ``invalid`` / ``raw`` as the child definition changes (NB4)."""
         items = self.item_by_uid()
         by = set(items)
         out = []
@@ -734,13 +735,7 @@ class ConstraintController:
         ad = adapter_for(it)
         if h == sm.HANDLE_ITEM:                  # CS8: a whole primitive (Fix)
             return "item" if ad is not None else None
-        if h in ad.points(it, 0):
-            return "point"
-        if h in ad.edges(it, 0):
-            return "edge"
-        if h in ad.curves(it, 0):
-            return "curve"
-        return None
+        return ad.handle_kind(it, h)
 
     def _valid(self, c, by=None) -> bool:
         """Whether a built-type record can be solved here: every uid resolves,
@@ -864,7 +859,10 @@ class ConstraintController:
         if (it is None or not hasattr(it, "block_rotation")
                 or not isinstance(v0, list) or len(v0) != 2):
             return
-        c.helper["v0"] = [float(v0[0]), float(v0[1]), math.radians(it.block_rotation())]
+        try:
+            c.helper["v0"] = [float(v0[0]), float(v0[1]), math.radians(it.block_rotation())]
+        except (TypeError, ValueError):
+            return                                   # unreadable: falls through to _valid -> inert (§6.4)
 
     def _adopt(self, record, by) -> sm.Constraint:
         """A stored / pasted record as a Constraint. Unreadable or invalid
@@ -2302,6 +2300,7 @@ class ConstraintController:
             return
         if driving and self._on_const_curve(c, self.item_by_uid()):
             self._status(DIM_NESTED_REFERENCE_STATUS)      # NB7 ruling: stays Reference
+            self._refresh_panel()                          # the Driving checkbox re-reads the model
             return
         c.driving = driving
         bad = False
