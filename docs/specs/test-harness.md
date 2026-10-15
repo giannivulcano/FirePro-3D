@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-10-15  # suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
-verified-commit: 22c9444c   # suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-10-15  # OS-mouse make_view Account: Invariant 9 -- make_view installs ignore_os_mouse, guard test_snap_polish_os_mouse, same-point window-move caveat; prior suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: 1a474a6d   # OS-mouse make_view (main); prior 22c9444c suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -172,11 +172,17 @@ SEH bug #371).
    (`tests/_modify_tools_helpers.py`) — a viewport event filter (parented to the
    viewport) that drops spontaneous mouse-move / press / release / double-click /
    wheel events; the test's own `sendEvent`ed events (`spontaneous() is False`) still
-   pass. Guard: `test_modify_tools_flip_mirror.py::test_os_mouse_input_cannot_reaim_the_axis`.
-   Adopted so far by the modify-tool, close-helper, spline-close and context-menu
-   copy/cut suites; adoption in `tests/_snap_polish_helpers.make_view` (the snap /
-   ALIGN flakes) is filed in `todo_open.md`. Until then, don't move the mouse over
-   test windows during a suite run.
+   pass. **`tests/_snap_polish_helpers.make_view` installs it itself** (before
+   `show()`, 2026-10-15), so every `make_view` view is deaf — don't re-wrap one
+   (a second filter is harmless but redundant); a view built any other way (a
+   hand-built second `Model_View`, a Block Editor or MainWindow view) still calls
+   `ignore_os_mouse` itself. Guards: `tests/test_snap_polish_os_mouse.py` (a snap
+   cannot be re-aimed) and
+   `test_modify_tools_flip_mirror.py::test_os_mouse_input_cannot_reaim_the_axis` —
+   both RED with the `make_view` filter removed. Each sends a window-system move
+   (`QTest.mouseMove` on the `QWindow`) to its own point: Qt drops a move to the
+   position the window already holds, so two guards in one process aiming at the
+   same point leave the second with no OS move (its `assert seen` fails).
 10. **A Python-owned stub scene is destroyed deterministically at fixture exit.**
     `tests/test_scene_tools.py`'s `scene` fixture delegates to the
     `stub_scene_session(qapp)` context manager, which `sip.delete()`s the view and the
