@@ -171,3 +171,76 @@ def test_ref_text_for_a_whole_item(qapp):
     sc = _scene()
     ln = _line(sc, (0, 0), (10, 0))
     assert sc.constraint_ctl.ref_text({"uid": ln._uid, "h": "item"}) == "Line"
+
+
+# ── Task 4: pick mode + selection-first refs ───────────────────────────────
+
+def test_symmetric_pick_kinds_by_step(qapp):
+    from firepro3d.constraint_controller import PickState
+    sc = _scene()
+    _line(sc, (0, 0), (100, 0)); _circle(sc, (0, 100), 20)
+    p = PickState(sc.constraint_ctl, "symmetric")
+
+    def kinds():
+        return {k for k, r, _a, _b in p._candidates() if p._allowed(k, r)}
+    assert kinds() == {"point", "edge", "curve"}
+    p.picks, p.kinds = [{"uid": "x", "h": "p1"}], ["point"]
+    assert kinds() == {"point"}
+    p.picks, p.kinds = [{"uid": "x", "h": "edge"}], ["edge"]
+    assert kinds() == {"edge"}
+    p.picks, p.kinds = [{"uid": "x", "h": "curve"}], ["curve"]
+    assert kinds() == {"curve"}
+    p.picks, p.kinds = [{"uid": "x", "h": "p1"}, {"uid": "y", "h": "p1"}], ["point", "point"]
+    assert kinds() == {"edge", "axis"}
+    assert p.status() == ("Symmetric: pick the axis -- an edge or the X/Y axis (2/3)"
+                          " · Esc to cancel")
+
+
+def test_fix_pick_kinds(qapp):
+    from firepro3d.constraint_controller import PickState
+    sc = _scene()
+    _line(sc, (0, 0), (100, 0)); _circle(sc, (0, 100), 20)
+    p = PickState(sc.constraint_ctl, "fix")
+    assert {k for k, r, _a, _b in p._candidates() if p._allowed(k, r)} == {"point", "edge", "curve"}
+
+
+def test_selection_refs_symmetric(qapp):
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    a = _line(sc, (-30, 0), (-10, 20)); b = _line(sc, (10, 20), (30, 0))
+    ax = _line(sc, (0, -50), (0, 50)); ax.reference = True
+    for it in (a, b, ax):
+        it.setSelected(True)
+    refs = ctl.selection_refs("symmetric")
+    assert len(refs) == 3 and refs[2] == {"uid": ax._uid, "h": "edge"}
+    assert sorted(r["uid"] for r in refs[:2]) == sorted([a._uid, b._uid])
+    ax.setSelected(False)
+    pair = ctl.selection_refs("symmetric")
+    assert sorted(r["uid"] for r in pair) == sorted([a._uid, b._uid])
+    assert all(r["h"] == "edge" for r in pair)
+    c1 = _circle(sc, (-40, 0), 10); c2 = _circle(sc, (40, 0), 10)
+    sc.clearSelection(); c1.setSelected(True); c2.setSelected(True)
+    assert all(r["h"] == "curve" for r in ctl.selection_refs("symmetric"))
+    a.setSelected(True)                                      # circles + a line
+    assert ctl.selection_refs("symmetric") is None
+    sc.clearSelection(); a.setSelected(True)
+    assert ctl.selection_refs("symmetric") is None           # a lone line
+
+
+def test_selection_refs_fix_every_selected_item(qapp):
+    sc = _scene()
+    a = _line(sc, (0, 0), (10, 0)); c = _circle(sc, (50, 0), 5)
+    a.setSelected(True); c.setSelected(True)
+    refs = sc.constraint_ctl.selection_refs("fix")
+    assert sorted(r["uid"] for r in refs) == sorted([a._uid, c._uid])
+    assert all(r["h"] == "item" for r in refs)
+
+
+def test_begin_symmetric_axis_prefills_the_pair(qapp):
+    sc = _scene()
+    ctl = sc.constraint_ctl
+    a = _line(sc, (-30, 0), (-10, 20)); b = _line(sc, (10, 20), (30, 0))
+    sc.set_mode("constrain_symmetric")
+    assert ctl.begin_symmetric_axis([P(a, "edge"), P(b, "edge")])
+    assert ctl.pick.kinds == ["edge", "edge"]
+    assert ctl.pick.status().startswith("Symmetric: pick the axis")

@@ -231,7 +231,8 @@ class PickState:
         Curves + axes are offered to Coincident and (CS5) Smart Dimension;
         hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
         ``ry``) never."""
-        curvy = self.ctype in ("coincident", "dim_distance", "concentric")
+        curvy = self.ctype in ("coincident", "dim_distance", "concentric",
+                               "symmetric", "fix")
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -278,6 +279,15 @@ class PickState:
             if kind not in ("curve", "point"):
                 return False
             return not self.picks or kind == "curve" or self.kinds[0] == "curve"
+        if self.ctype == "symmetric":                         # CS7 S2
+            n = len(self.picks)
+            if n == 0:
+                return kind in ("point", "edge", "curve")
+            if n == 1:
+                return kind == self.kinds[0]
+            return kind in ("edge", "axis")
+        if self.ctype == "fix":                               # CS8 FP1p
+            return kind in ("point", "edge", "curve")
         if self.ctype != "coincident":
             return kind == "point" or (kind == "edge" and not self.picks)
         return kind == "point" or not self.picks or self.kinds[0] == "point"
@@ -348,6 +358,18 @@ class PickState:
             what = ("pick a circle/arc" if n and self.kinds[0] != "curve" else
                     "pick a circle/arc, then a circle/arc or point")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
+        if self.ctype == "symmetric":                         # CS7 SP3
+            if n == 0:
+                return (f"{label}: pick 2 points, 2 edges or 2 circles/arcs, "
+                        f"then the axis (0/3) · Esc to cancel")
+            if n == 1:
+                what = {"point": "point", "edge": "edge",
+                        "curve": "circle/arc"}.get(self.kinds[0], "point")
+                return f"{label}: pick the 2nd {what} (1/3) · Esc to cancel"
+            return f"{label}: pick the axis -- an edge or the X/Y axis (2/3) · Esc to cancel"
+        if self.ctype == "fix":                               # CS8 SP3
+            return (f"{label}: pick a point, or an edge / circle-arc to fix the "
+                    f"whole item · Esc to finish")
         if self.ctype == "dim_distance":                      # CS4b D63 / CS5 D78
             if self.pending is not None:
                 if self.extend:
@@ -2300,8 +2322,16 @@ class ConstraintController:
         ctype = p.ctype
         dim = ctype == "dim_distance"
         if (dim and not p.picks and p.hover_kind in ("edge", "curve")) or (
-                not dim and ctype != "coincident" and p.hover_kind == "edge"):
+                ctype in ("horizontal", "vertical") and p.hover_kind == "edge"):
             refs = [ref]
+        elif ctype == "fix":                       # CS8 F2: one click, tool stays live
+            refs = ([{"uid": ref["uid"], "h": sm.HANDLE_ITEM}]   # FP1p: whole item
+                    if p.hover_kind in ("edge", "curve") else [ref])
+            self.pick = PickState(self, "fix")
+            self.add("fix", refs)
+            self._scene.instructionChanged.emit(self.pick.status())
+            self._repaint()
+            return True
         else:
             if ref in p.picks:
                 self._status(PICK_SAME_CURVE_STATUS if p.hover_kind == "curve"
@@ -2309,7 +2339,7 @@ class ConstraintController:
                 return False
             p.picks.append(ref)
             p.kinds.append(p.hover_kind)
-            if len(p.picks) < 2:
+            if len(p.picks) < (3 if ctype == "symmetric" else 2):   # CS7: + the axis
                 self._scene.instructionChanged.emit(p.status())
                 self._repaint()
                 return False
@@ -2364,6 +2394,19 @@ class ConstraintController:
             return False
         p.pending_type, p.pending = hit
         p.extend = False                           # a selected line skips straight to placement
+        self._scene.instructionChanged.emit(p.status())
+        self._repaint()
+        return True
+
+    def begin_symmetric_axis(self, refs) -> bool:
+        """CS7 S2: two selected lines / curves become the pre-picked pair;
+        the session waits for the axis. False with no Symmetric session."""
+        p = self.pick
+        if p is None or p.ctype != "symmetric" or len(refs) != 2:
+            return False
+        by = self.item_by_uid()
+        p.picks = [dict(r) for r in refs]
+        p.kinds = [self._ref_kind(r, by) for r in refs]
         self._scene.instructionChanged.emit(p.status())
         self._repaint()
         return True
@@ -2473,8 +2516,8 @@ class ConstraintController:
             sel = self._scene.selectedItems()
         except RuntimeError:
             return None
-        if (ctype != "concentric" and len(sel) == 1        # CS6 R3: never a line
-                and isinstance(sel[0], LineItem)
+        if (ctype in ("horizontal", "vertical", "dim_distance")   # CS6 R3 / CS7 / CS8
+                and len(sel) == 1 and isinstance(sel[0], LineItem)
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "edge"}]
         if (ctype == "dim_distance" and len(sel) == 1
@@ -2485,6 +2528,42 @@ class ConstraintController:
                 and all(isinstance(s, (CircleItem, ArcItem))
                         and getattr(s, "_uid", None) is not None for s in sel)):
             return [{"uid": s._uid, "h": "curve"} for s in sel]   # CS6 R3
+        if ctype == "symmetric":
+            return self._symmetric_selection_refs(sel)
+        if ctype == "fix":                                    # CS8 F2: each item whole
+            if sel and all(getattr(s, "_uid", None) is not None
+                           and adapter_for(s) is not None for s in sel):
+                return [{"uid": s._uid, "h": sm.HANDLE_ITEM} for s in sel]
+        return None
+
+    @staticmethod
+    def _symmetric_selection_refs(sel):
+        """CS7 S2: two lines (or two circles / arcs) + exactly one reference
+        line -> all three refs (the reference line is the axis); two lines /
+        two curves alone -> the pair (the axis is picked next); else None."""
+        from .geometry_2d import ArcItem, CircleItem, LineItem
+
+        def kind(s):
+            if isinstance(s, LineItem):
+                return "edge"
+            if isinstance(s, (CircleItem, ArcItem)):
+                return "curve"
+            return None
+        if any(getattr(s, "_uid", None) is None for s in sel):
+            return None
+        axes = [s for s in sel if isinstance(s, LineItem) and getattr(s, "reference", False)]
+        if len(sel) == 3 and len(axes) == 1:
+            pair = [s for s in sel if s is not axes[0]]
+            ks = {kind(s) for s in pair}
+            if len(ks) == 1 and None not in ks:
+                h = ks.pop()
+                return ([{"uid": s._uid, "h": h} for s in pair]
+                        + [{"uid": axes[0]._uid, "h": "edge"}])
+        if len(sel) == 2:
+            ks = {kind(s) for s in sel}
+            if len(ks) == 1 and None not in ks:
+                h = ks.pop()
+                return [{"uid": s._uid, "h": h} for s in sel]
         return None
 
     # ── property panel (§10, D11/D27) ────────────────────────────────────
