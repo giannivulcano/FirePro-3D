@@ -112,12 +112,15 @@ def test_item_filter_and_exclude_gate_the_off_geometry_origin(qapp):
 
 def test_block_origin_inside_its_geometry_still_snaps_to_the_instance(qapp):
     # Control: the bbox query already collects this instance; the registry
-    # pass must not change the winner or its source.
+    # pass must not change the winner or its source. The line's midpoint sits
+    # ON the insertion point, and since block primitives snap like loose ones
+    # (user ruling 2026-10-15: on a coincident point the primitive's snap wins
+    # by the normal priority picker) MID beats the origin's CEN there.
     view, scene, inst = _view_with_block("plan", "place_block", -50.0, 50.0)
     try:
         move(view, QPointF(_INS[0] + 1.0, _INS[1] + 1.0))
         res = scene._snap_result
-        assert res is not None and res.snap_type == "center"
+        assert res is not None and res.snap_type == "midpoint"
         assert _at(res.point, *_INS) and res.source_item is inst
     finally:
         close_view(view, scene)

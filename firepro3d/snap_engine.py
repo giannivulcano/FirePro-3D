@@ -520,6 +520,14 @@ def _is_underlay_group(item) -> bool:
             and QGraphicsItem.data(item, 0) in _UNDERLAY_TAGS)
 
 
+def _is_generic_path(item: QGraphicsItem) -> bool:
+    """True when ``SnapEngine._item_segments`` reaches its generic-path branch
+    (a ``QGraphicsPathItem`` none of the earlier ``isinstance`` arms take)."""
+    return isinstance(item, QGraphicsPathItem) and not isinstance(
+        item, (QGraphicsLineItem, PolylineItem, RectangleItem, WallSegment,
+               CircleItem, RegularPolygonItem))
+
+
 def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     """The one snap-target eligibility rule (snapping-engine DD6).
 
@@ -1046,6 +1054,18 @@ class SnapEngine:
                 continue
 
             _collected.add(id(item))
+            if isinstance(item, BlockInstance):
+                # Block parity: static snaps from the culled posed primitives,
+                # cursor snaps (NEA / PER / TAN) from each one near the cursor;
+                # the instance is the reported source (§5).
+                for snap_type, pt, name in self._block_snaps(item, search_rect):
+                    ctx.check(snap_type, pt, item, name)
+                for bounds, prim in item.snap_primitives():
+                    if search_rect.intersects(bounds):
+                        for snap_type, pt in self._geometric_snaps(
+                                ctx.cursor, prim, ctx.from_point, ctx.search_tol):
+                            ctx.check(snap_type, pt, item)
+                continue
             for snap_type, pt, name in self._collect(item):
                 ctx.check(snap_type, pt, item, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, item,
@@ -1269,74 +1289,29 @@ class SnapEngine:
                 yield item
 
         for item in _phase4_items():
-            if isinstance(item, QGraphicsLineItem):
-                line = item.line()
-                yield ("seg", (item.mapToScene(line.p1()),
-                               item.mapToScene(line.p2()), item, item))
-                _emitted += 1
-            elif isinstance(item, PolylineItem):
-                verts = item._points
-                for j in range(len(verts) - 1):
-                    yield ("seg", (item.mapToScene(verts[j]),
-                                   item.mapToScene(verts[j + 1]), item, item))
+            if isinstance(item, BlockInstance):
+                # Block parity: each posed primitive near the rect is its own
+                # suppression key (two primitives of one block DO intersect);
+                # the block is the reported source.
+                for bounds, prim in item.snap_primitives():
+                    if not search_rect.intersects(bounds):
+                        continue
+                    for rec in self._item_segments(prim, item, prim, search_rect):
+                        if rec[0] == "seg":
+                            _emitted += 1
+                        yield rec
+                    if _emitted > _PHASE4_MAX_SEGMENTS:
+                        return
+                continue
+            for rec in self._item_segments(item, item, item, search_rect):
+                if rec[0] == "seg":
                     _emitted += 1
-            elif isinstance(item, RectangleItem):
-                r = item.rect()
-                corners = [
-                    item.mapToScene(QPointF(r.left(),  r.top())),
-                    item.mapToScene(QPointF(r.right(), r.top())),
-                    item.mapToScene(QPointF(r.right(), r.bottom())),
-                    item.mapToScene(QPointF(r.left(),  r.bottom())),
-                ]
-                for j in range(4):
-                    yield ("seg", (corners[j], corners[(j + 1) % 4],
-                                   item, item))
-                    _emitted += 1
-            elif isinstance(item, WallSegment):
-                # Use mitered geometry so joined walls share clean corners
-                # instead of crossing each other inside the joint — the
-                # root cause of the §7.1 wall-corner false negative.
-                try:
-                    p1l, p1r, p2r, p2l = item.snap_quad_points()
-                    yield ("seg", (p1l, p2l, item, item))
-                    yield ("seg", (p1r, p2r, item, item))
-                    _emitted += 2
-                except (ValueError, AttributeError):
-                    pass
-            elif isinstance(item, CircleItem):
-                yield ("circle", (item._center, item._radius, item))
-            elif isinstance(item, RegularPolygonItem):
-                verts = item.vertices()
-                for j in range(len(verts)):
-                    yield ("seg", (verts[j], verts[(j + 1) % len(verts)],
-                                   item, item))
-                    _emitted += 1
-            elif isinstance(item, QGraphicsPathItem):
-                # Generic path items (DXF imports). Filter each segment
-                # against the search rect — polyline bounding rects are
-                # large but only a few segments are actually near the cursor.
-                path = item.path()
-                n = path.elementCount()
-                for j in range(min(n - 1, 511)):
-                    e2 = path.elementAt(j + 1)
-                    if e2.type == QPainterPath.ElementType.MoveToElement:
-                        continue  # sub-path boundary, no segment
-                    e1 = path.elementAt(j)
-                    p1 = item.mapToScene(QPointF(e1.x, e1.y))
-                    p2 = item.mapToScene(QPointF(e2.x, e2.y))
-                    seg_r = QRectF(
-                        min(p1.x(), p2.x()) - 0.5,
-                        min(p1.y(), p2.y()) - 0.5,
-                        abs(p2.x() - p1.x()) + 1.0,
-                        abs(p2.y() - p1.y()) + 1.0,
-                    )
-                    if search_rect.intersects(seg_r):
-                        yield ("seg", (p1, p2, item, item))
-                        _emitted += 1
-                # Abort during extraction — once over the cap the
-                # consumer bails anyway, so stop spending work here.
-                if _emitted > _PHASE4_MAX_SEGMENTS:
-                    return
+                yield rec
+            # Abort during extraction — once over the cap the consumer bails
+            # anyway, so stop spending work here (generic paths only, as the
+            # per-item early-out always was).
+            if _is_generic_path(item) and _emitted > _PHASE4_MAX_SEGMENTS:
+                return
 
         # Extract segments from underlay snap indices
         _queried_groups: set[int] = set()
@@ -1435,6 +1410,80 @@ class SnapEngine:
                 if _emitted > _PHASE4_MAX_SEGMENTS:
                     return
 
+    def _item_segments(self, item: QGraphicsItem, src: QGraphicsItem,
+                       key: object, search_rect: QRectF):
+        """Per-type segment / circle records of ONE item (phase-4 extraction).
+
+        Yields ``("seg", (p1, p2, src, key))`` / ``("circle", (c, r, src))``
+        exactly as ``_iter_geometry_segments`` documents; *src* is the item
+        reported for highlighting (the ``BlockInstance`` for a block's posed
+        primitive) and *key* the same-parent suppression identity (the
+        primitive itself, so two primitives of one block DO intersect while a
+        polyline's own segments stay suppressed).
+
+        Args:
+            item: The item whose geometry is extracted.
+            src: The item reported as the segment's source.
+            key: The same-parent suppression key.
+            search_rect: Scene rect generic-path segments are filtered by.
+        """
+        if isinstance(item, QGraphicsLineItem):
+            line = item.line()
+            yield ("seg", (item.mapToScene(line.p1()),
+                           item.mapToScene(line.p2()), src, key))
+        elif isinstance(item, PolylineItem):
+            verts = item._points
+            for j in range(len(verts) - 1):
+                yield ("seg", (item.mapToScene(verts[j]),
+                               item.mapToScene(verts[j + 1]), src, key))
+        elif isinstance(item, RectangleItem):
+            r = item.rect()
+            corners = [
+                item.mapToScene(QPointF(r.left(),  r.top())),
+                item.mapToScene(QPointF(r.right(), r.top())),
+                item.mapToScene(QPointF(r.right(), r.bottom())),
+                item.mapToScene(QPointF(r.left(),  r.bottom())),
+            ]
+            for j in range(4):
+                yield ("seg", (corners[j], corners[(j + 1) % 4], src, key))
+        elif isinstance(item, WallSegment):
+            # Use mitered geometry so joined walls share clean corners
+            # instead of crossing each other inside the joint — the
+            # root cause of the §7.1 wall-corner false negative.
+            try:
+                p1l, p1r, p2r, p2l = item.snap_quad_points()
+            except (ValueError, AttributeError):
+                return
+            yield ("seg", (p1l, p2l, src, key))
+            yield ("seg", (p1r, p2r, src, key))
+        elif isinstance(item, CircleItem):
+            yield ("circle", (item._center, item._radius, src))
+        elif isinstance(item, RegularPolygonItem):
+            verts = item.vertices()
+            for j in range(len(verts)):
+                yield ("seg", (verts[j], verts[(j + 1) % len(verts)], src, key))
+        elif isinstance(item, QGraphicsPathItem):
+            # Generic path items (DXF imports). Filter each segment
+            # against the search rect — polyline bounding rects are
+            # large but only a few segments are actually near the cursor.
+            path = item.path()
+            n = path.elementCount()
+            for j in range(min(n - 1, 511)):
+                e2 = path.elementAt(j + 1)
+                if e2.type == QPainterPath.ElementType.MoveToElement:
+                    continue  # sub-path boundary, no segment
+                e1 = path.elementAt(j)
+                p1 = item.mapToScene(QPointF(e1.x, e1.y))
+                p2 = item.mapToScene(QPointF(e2.x, e2.y))
+                seg_r = QRectF(
+                    min(p1.x(), p2.x()) - 0.5,
+                    min(p1.y(), p2.y()) - 0.5,
+                    abs(p2.x() - p1.x()) + 1.0,
+                    abs(p2.y() - p1.y()) + 1.0,
+                )
+                if search_rect.intersects(seg_r):
+                    yield ("seg", (p1, p2, src, key))
+
     def _align_geometry_segments(self, scene: QGraphicsScene,
                                  cursor_scene: QPointF,
                                  view_transform: QTransform,
@@ -1479,6 +1528,59 @@ class SnapEngine:
                 return
 
     # ── Internal ─────────────────────────────────────────────────────────────
+
+    def _block_snaps(self, inst: BlockInstance,
+                     rect: QRectF | None = None) -> list[tuple[str, QPointF, None]]:
+        """Static snaps of a placed block (snapping-engine §5).
+
+        The insertion origin (``center``), every posed primitive's own
+        ``_collect`` snaps -- nested blocks' included, so the block snaps
+        exactly like its primitives drawn loose (``snap_primitives``) -- and
+        the text frame boxes. *rect* culls primitives whose scene bounds miss
+        it (phase 1); None keeps every primitive (Move handle snap). A
+        geom-backed definition (no authored primitives) keeps the on-curve
+        render-op vertices.
+
+        Args:
+            inst: The placed block.
+            rect: Scene search rect, or None for every primitive.
+
+        Returns:
+            ``(snap_type, scene_point, None)`` triples.
+        """
+        pts: list[tuple[str, QPointF, None]] = []
+        defn = inst.definition()
+        if self.snap_center:
+            # definition origin is local (0,0) — the instance's insertion point
+            pts.append(("center", QPointF(*inst.block_pos()), None))
+        if defn is not None and defn.primitives:
+            for bounds, prim in inst.snap_primitives():
+                if rect is None or rect.intersects(bounds):
+                    pts.extend((k, p, None) for k, p, _n in self._collect(prim))
+        elif self.snap_endpoint:
+            # ON-CURVE vertices only. addEllipse/addPath emit cubic-bezier
+            # CONTROL points (CurveTo/CurveToData) that sit OFF the visible
+            # outline — emitting those snapped the cursor to empty space.
+            # Pose is baked into geometry (item transform is identity), so map
+            # local points through pose_transform() to reach scene coordinates.
+            _pose = inst.pose_transform()
+            _on_curve = (QPainterPath.ElementType.MoveToElement,
+                         QPainterPath.ElementType.LineToElement)
+            for _op in inst.render_ops():      # posed ops: mirror / scale baked in (DD4)
+                if _op.kind != STROKE:
+                    continue   # text glyphs / fill clips are never endpoint targets (S6)
+                path = _op.path
+                for i in range(path.elementCount()):
+                    el = path.elementAt(i)
+                    if el.type in _on_curve:
+                        pts.append(("endpoint",
+                                    _pose.map(QPointF(el.x, el.y)), None))
+        # Text primitives snap by their frame box (S6), mapped through the
+        # full pose (definition-local boxes: mirror / scale apply, DD2).
+        _full = inst.full_pose_transform()
+        for box in (defn.text_snap_points() if defn is not None else []):
+            pts.extend(self._box_snaps([_full.map(p) for p in box]))
+        return pts
 
     def _box_snaps(
         self, g: list[QPointF],
@@ -1532,37 +1634,9 @@ class SnapEngine:
         elif isinstance(item, QGraphicsLineItem):
             pts.extend(self._line_snaps(item))
 
-        # ── BlockInstance (insertion origin + transformed geometry vertices) ─
+        # ── BlockInstance (origin + posed primitives + text boxes) ────────
         elif isinstance(item, BlockInstance):
-            # Pose is baked into geometry (item transform is identity), so map
-            # local points through pose_transform() to reach scene coordinates.
-            _pose = item.pose_transform()
-            _defn = item.definition()
-            if self.snap_center:
-                # definition origin is local (0,0) — the instance's insertion point
-                pts.append(("center", QPointF(*item.block_pos()), None))
-            if self.snap_endpoint:
-                # ON-CURVE vertices only. addEllipse/addPath emit cubic-bezier
-                # CONTROL points (CurveTo/CurveToData) that sit OFF the visible
-                # outline — emitting those snapped the cursor to empty space.
-                from PyQt6.QtGui import QPainterPath as _QPP
-                _on_curve = (_QPP.ElementType.MoveToElement,
-                             _QPP.ElementType.LineToElement)
-                # posed ops: mirror / scale baked in, design DD4
-                for _op in item.render_ops():
-                    if _op.kind != STROKE:
-                        continue   # text glyphs / fill clips are never endpoint targets (S6)
-                    path = _op.path
-                    for i in range(path.elementCount()):
-                        el = path.elementAt(i)
-                        if el.type in _on_curve:
-                            pts.append(("endpoint",
-                                        _pose.map(QPointF(el.x, el.y)), None))
-            # Text primitives snap by their frame box (S6), mapped through the
-            # full pose (definition-local boxes: mirror / scale apply, DD2).
-            _full = item.full_pose_transform()
-            for box in (_defn.text_snap_points() if _defn is not None else []):
-                pts.extend(self._box_snaps([_full.map(p) for p in box]))
+            pts.extend(self._block_snaps(item))
 
         # ── RectangleItem ─────────────────────────────────────────────────
         elif isinstance(item, RectangleItem):
@@ -2141,8 +2215,10 @@ class SnapEngine:
           centre has no direction).
         * Ellipse / spline / generic path — the scene-flattened curve (the same
           ``toSubpathPolygons(sceneTransform())`` the snap engine projects on).
-        * Rect / polyline / polygon — the segments ``_iter_geometry_segments``
+        * Rect / polyline / polygon — the segments ``_item_segments``
           extracts for phase 4 and ALIGN crossings.
+        * Block instance — the posed primitive the point lies on
+          (``snap_primitives``).
 
         At a vertex shared by two segments a flattened curve averages them (a
         smooth tangent); a polygonal corner is ambiguous and yields None.
@@ -2156,6 +2232,15 @@ class SnapEngine:
         Returns:
             A unit ``(dx, dy)`` in scene coordinates, or None.
         """
+        if isinstance(item, BlockInstance):
+            # The posed primitive the point lies on gives the tangent.
+            probe = QRectF(pt.x() - tol, pt.y() - tol, 2 * tol, 2 * tol)
+            for bounds, prim in item.snap_primitives():
+                if bounds.intersects(probe):
+                    d = self.direction_at(scene, prim, pt, tol)
+                    if d is not None:
+                        return d
+            return None
         if isinstance(item, (ArcItem, QGraphicsEllipseItem)):
             if hasattr(item, "pipes"):           # Node: a point, no direction
                 return None
@@ -2177,12 +2262,10 @@ class SnapEngine:
                 for i in range(poly.count() - 1):
                     segs.append((poly.at(i), poly.at(i + 1)))
         else:
+            # The item's own segments (a block's posed primitive is in no scene).
             probe = QRectF(pt.x() - tol, pt.y() - tol, 2 * tol, 2 * tol)
-            ctx = _SnapCtx(cursor=pt, scale=1.0, aperture_px=0.0,
-                           priority_band_px=0.0)
-            for kind, rec in self._iter_geometry_segments(
-                    scene, probe, None, [], lambda it: it is item, ctx):
-                if kind == "seg" and rec[2] is item:
+            for kind, rec in self._item_segments(item, item, item, probe):
+                if kind == "seg":
                     segs.append((rec[0], rec[1]))
         dirs: list[tuple[float, float]] = []
         for a, b in segs:

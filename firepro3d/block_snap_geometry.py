@@ -14,9 +14,7 @@ drawn, D23) get no stand-in; a missing or cyclic nested block is skipped.
 from __future__ import annotations
 
 from .block_definition import _NESTED_TYPE, _PRIMITIVE_FACTORY, is_scaffold
-from .block_explode import compose_pose, pose_primitive
-
-_TEXT_TYPE = "text"
+from .block_explode import _TEXT_TYPE, compose_pose, pose_primitive
 
 
 def posed_primitives(defn, pose) -> list:

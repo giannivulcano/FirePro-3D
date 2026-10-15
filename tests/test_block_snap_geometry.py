@@ -5,6 +5,8 @@ definition-local coordinates.
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 from PyQt6.QtCore import QPointF
 
@@ -47,6 +49,68 @@ def test_posed_primitives_sit_on_the_drawn_geometry(qapp, pose):
     inner = next(c for c in circles if c is not outer)
     assert abs(inner._radius - 15.0 * 1.2 * s) < 1e-6
     assert near(QPointF(inner._center), nested_oracle(inst, 20.0, 0.0))
+
+
+def _same_points(got, want, tol=0.01):
+    return len(got) == len(want) and all(any(near(g, w, tol) for g in got)
+                                         for w in want)
+
+
+@pytest.mark.parametrize("pose", POSES, ids=POSE_IDS)
+def test_posed_rect_corners_and_arc_ends_sit_on_the_drawn_geometry(qapp, pose):
+    # Review I1: the mirror hooks of rect (angle fold) and arc (start-angle
+    # fold) are the intricate ones -- check their posed geometry, not counts.
+    scene, inst = _placed(qapp, pose, nested=False)
+    items = _items(inst)
+    rect = next(it for it in items if isinstance(it, RectangleItem))
+    # grip_points() are already scene-space and rotation-aware (the items'
+    # overridden mapToScene would rotate a rotated rect twice).
+    corners = [rect.grip_points()[i] for i in (0, 2, 4, 6)]
+    want = [oracle(inst, x, y) for x, y in
+            ((-160.0, -40.0), (-60.0, -40.0), (-60.0, 40.0), (-160.0, 40.0))]
+    assert _same_points(corners, want), (corners, want)
+    arc = next(it for it in items if isinstance(it, ArcItem))
+    ends = [arc.grip_points()[i] for i in (1, 2)]
+    # 0 deg -> (cx + r, cy); 180 deg -> (cx - r, cy) (Y-down local)
+    want = [oracle(inst, -70.0, 100.0), oracle(inst, -130.0, 100.0)]
+    assert _same_points(ends, want), (ends, want)
+    apex = oracle(inst, -100.0, 70.0)                  # 90 deg: still on the arc
+    assert abs(math.hypot(apex.x() - arc._center.x(), apex.y() - arc._center.y())
+               - arc._radius) < 0.01
+    assert all(it.scene() is None for it in items)     # stand-ins are scene-free
+
+
+def test_cyclic_nesting_terminates_with_each_primitive_once(qapp):
+    # Review I2: A nests B nests A -- the active-set guard stops the loop.
+    from firepro3d.block_definition import BlockDefinition
+    scene = Model_Space(scene_role="block_editor")
+    line = {"type": "draw_line", "pt1": [0, 0], "pt2": [10, 0],
+            "color": "#ffffff", "lineweight": 1.0}
+    a = BlockDefinition.new(name="A", library="L", series="S",
+                            origin=(0.0, 0.0), primitives=[dict(line)])
+    b = BlockDefinition.new(name="B", library="L", series="S",
+                            origin=(0.0, 0.0), primitives=[dict(line)])
+    a.primitives.append({"type": "block_instance", "block_id": b.id,
+                         "pos": [100, 0]})
+    b.primitives.append({"type": "block_instance", "block_id": a.id,
+                         "pos": [100, 0]})
+    scene.register_block_definition(a)
+    scene.register_block_definition(b)
+    from firepro3d.block_snap_geometry import posed_primitives
+    items = posed_primitives(a, (0.0, 0.0, 0.0, False, 1.0))
+    assert [type(it) for it in items] == [LineItem, LineItem]   # A's + B's
+
+
+def test_snap_primitives_rebuild_after_a_definition_edit_and_a_mirror(qapp):
+    # Review I2: content edits and mirror / scale changes invalidate the cache.
+    scene, inst = _placed(qapp, POSES[0], nested=False)
+    d = inst.definition()
+    first = inst.snap_primitives()
+    d.set_primitives(d.primitives[:1])                 # keep only L1
+    second = inst.snap_primitives()
+    assert second is not first and len(second) == 1
+    inst.set_block_mirrored(True)
+    assert inst.snap_primitives() is not second
 
 
 def test_text_and_scaffold_records_get_no_stand_in(qapp):
