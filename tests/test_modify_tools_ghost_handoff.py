@@ -22,18 +22,11 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.geometry_2d import LineItem
-from tests._modify_tools_helpers import add_primitive, grips, ignore_os_mouse
-from tests._snap_polish_helpers import click, close_view, move
-from tests._snap_polish_helpers import make_view as _make_view
+from tests._modify_tools_helpers import add_primitive, grips
+from tests._snap_polish_helpers import click, close_view, make_view, move
 
 AXIS_X = 200.0
 EMPTY = QPointF(-300.0, 250.0)          # far from every item and ghost
-
-
-def make_view(**kw):
-    """The shared shown view, deaf to the real mouse (see ignore_os_mouse)."""
-    view, scene = _make_view(**kw)
-    return ignore_os_mouse(view), scene
 
 
 def _grab(view):

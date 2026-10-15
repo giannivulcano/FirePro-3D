@@ -17,23 +17,13 @@ from PyQt6.QtWidgets import QApplication
 from firepro3d.cad_math import CAD_Math
 from firepro3d.halo import halo_scene_path
 from firepro3d.scale_manager import ScaleManager
-from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
-                                         ignore_os_mouse)
-from tests._snap_polish_helpers import click, close_view, move
-from tests._snap_polish_helpers import make_view as _make_view
+from tests._modify_tools_helpers import PRIMITIVES, add_primitive, grips
+from tests._snap_polish_helpers import click, close_view, make_view, move
 from tests.test_manip_reflect_scale import _assert_same_outline, _dense
 
 GEOM = [n for n in PRIMITIVES if not n.startswith("text")]
 LINE0 = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]
 NOTHING_TO_SCALE = "Nothing to scale — only 2D drafting geometry and blocks can be scaled"
-
-
-def make_view(**kw):
-    """The shared shown view, deaf to the real mouse: the live ghost / factor
-    must come only from the test's own events, never a real cursor moving
-    over the window."""
-    view, scene = _make_view(**kw)
-    return ignore_os_mouse(view), scene
 
 
 def _type_factor(scene, text):
