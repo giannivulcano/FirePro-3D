@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-10-14  # clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
-verified-commit: 9a9b2d9d   # clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-10-15  # suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: 22c9444c   # suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -32,6 +32,11 @@ SEH bug #371).
 - **`_fake_clipboard`** (autouse) + **`FakeClipboard`** — an in-memory stand-in
   patched over `QApplication.clipboard` and `QGuiApplication.clipboard` for every
   test. Opt out with `@pytest.mark.real_clipboard`. See Invariant 12.
+- **`_redirect_autosave`** (session, autouse) + **`_isolate_autosave`** (autouse) —
+  patch `MainWindow._autosave_path` once per session (importing `main`) and point
+  it at a fresh per-test temp dir. See Invariant 11.
+- **`dispose_main_window(win)`** (`tests/_mainwindow_helpers.py`, not a fixture) —
+  the one teardown for a test `MainWindow`. See Invariant 6's fixture note.
 - **`real_qsettings`** — yields the unpatched `QSettings` class so a test can read
   the REAL registry (only the isolation guard test needs this).
 - *(retired 2026-09-26: `tmp_settings` and the per-file `isolated_settings` /
@@ -123,7 +128,17 @@ SEH bug #371).
      `processEvents()` does **not** delete the window — DeferredDelete isn't
      dispatched at that loop level. The window lingers until a later test's pump
      flushes it, so its destruction-time signals fire mid-way through an unrelated
-     module (why the crash *moves* with test selection).
+     module (why the crash *moves* with test selection), and an app-wide
+     `setStyleSheet` repolish walks its half-dead widgets. **Rule (2026-10-15):**
+     every fixture or test body that builds a real `MainWindow` tears it down with
+     `tests/_mainwindow_helpers.dispose_main_window(win)` — clears the plan
+     selection, drops the dirty flag, `close()`, `deleteLater()`, then
+     `sendPostedEvents(None, DeferredDelete)` so the window dies now. Restores
+     that touch app-wide state (`setStyleSheet`, fonts, snap globals) run
+     *after* it. Exceptions: fake windows, and the raw-teardown child-process
+     guard `test_mainwindow_teardown_gc.py`. Guard:
+     `tests/test_mainwindow_dispose.py` (its premise test proves close +
+     deleteLater alone leaves the window alive).
 7. **No test reads or writes the user's real block library.** A blank
    `paths/block_dir` resolves to the REAL `%APPDATA%/FirePro3D/blocks`; the Blocks
    browser reads it at construction and Save flows write it, so a test using the
@@ -136,9 +151,13 @@ SEH bug #371).
    mouse move, the handle-snap ≤ 16 ms move) carries `@pytest.mark.perf`
    (registered in `pytest.ini`). Its threshold is the contract and is never
    loosened; host load is excluded instead: the full suite runs as alphabetical
-   chunks (`[a-d] [e-l] [m-r] [s-t] u [v-z]`, one process each — a single process
-   is memory-killed) with `-m "not perf"`, plus one standalone `-m perf` process.
-   Every process's exit code is read on its own (VC6). A generous sanity bound
+   chunks, one process each (a single process is memory-killed), with
+   `-m "not perf"`. The chunk layout, the isolate list (known native-crash files
+   run in their own process) and the run environment live in
+   **`tests/run-suite.psd1`**, consumed by the /todo plugin's `run-suite.ps1`
+   (its suite-runner spec owns the perf stage: perf guards run only when the diff
+   touches a configured `PerfPaths` entry, or with `-Perf run` — none are
+   configured yet). Every process's exit code is read on its own (VC6). A generous sanity bound
    that is "not a benchmark" (seconds, orders of magnitude of slack) stays
    unmarked. Why: 2026-09-26 the offset guard measured 31.7 ms in-batch vs
    22.8 ms standalone — load, not a regression.
@@ -173,13 +192,19 @@ SEH bug #371).
     `TestStubSceneTeardown` (deletion contract + a child-process repro asserting exit 0).
 11. **Tests must not reach the user's real home folder.** `MainWindow` autosaves to
     `~/.firepro3d/autosave/recovery.FPD` (`os.path.expanduser("~")` — the APPDATA
-    monkeypatch does not cover it). A test run that leaves that file behind makes every
-    later `MainWindow` fixture hang on the Recover dialog. **As-built gap (filed,
-    `todo_open.md` "Tests write the autosave `recovery.FPD` into the real home
-    folder"):** there is no conftest-level redirect yet; isolate a run by pointing
-    `USERPROFILE` / `HOME` at a scratch dir (and commit outside that environment — the
-    override also hides the user's git identity). Never delete a real `recovery.FPD`
-    without asking the user.
+    monkeypatch does not cover it), and `closeEvent` / `_check_recovery` *delete*
+    that file. Unredirected, a test could plant one (every later `MainWindow`
+    fixture hangs on the Recover dialog) or wipe the user's real one. conftest's
+    session autouse `_redirect_autosave` patches `MainWindow._autosave_path` before
+    any module fixture builds a window (many test bodies import `main` lazily, so
+    the patch is on the class, once); the function autouse `_isolate_autosave`
+    repoints it at a fresh per-test dir. A module-scoped window built before a
+    test's function fixtures sees the previous test's (temp) dir — never home.
+    Per-file `_autosave_path` patches still win inside their own scope (filed for
+    retirement). A child process (no conftest) redirects its own path, as
+    `test_mainwindow_teardown_gc.py` does. Guards: `tests/test_autosave_isolation.py`
+    (real `_autosave` / `_check_recovery` paths; the real home file's existence and
+    mtime unchanged). Never delete a real `recovery.FPD` without asking the user.
 
 12. **Tests never depend on the OS clipboard.** The Windows clipboard refuses writes
     (ACCESS_DENIED) while another process holds it, so every test gets a fresh
@@ -230,8 +255,15 @@ SEH bug #371).
   `selectionChanged` into `MainWindow._on_selection_changed_contextual`, which
   reads the half-destroyed scene → `RuntimeError` from a Qt slot → process exit
   127. The same race was first noted in the Stage-One chrome spike
-  (`mainwindow-chrome-revamp.md`). **Fixture workaround:** call
-  `scene.clearSelection()` before `close()` (as in
-  `tests/test_view3d_tab_mainwindow.py`'s window fixture). Remove the
+  (`mainwindow-chrome-revamp.md`). **Fixture workaround:**
+  `dispose_main_window` clears the plan scene's selection before `close()`
+  (Invariant 6 note; other scenes' selections are a filed latent gap). Remove the
   workaround when the bug is fixed (disconnect selection slots in
   `closeEvent`, or guard the slot).
+- **Leaked-MainWindow repolish / exit 127** (closed 2026-10-15) — module-singleton
+  windows outlived their module and crashed a later app-wide `setStyleSheet` or a
+  later test's event pump; `test_opening_ribbon.py` exited 127 every run (base
+  127 x4 vs 0 x4 after the fix). Fixed by `dispose_main_window` (Invariant 6).
+  Remaining intermittent native faults and the `test_block_drag_drop.py` in-body
+  crash are tracked in `todo_open.md` ("Full-suite native crashes split the
+  chunked VC6 run").
