@@ -210,6 +210,34 @@ def _isolate_block_library(_isolate_qsettings, tmp_path_factory):
     yield
 
 
+# Invariant 11: MainWindow autosaves to ~/.firepro3d/autosave/recovery.FPD and
+# closeEvent / _check_recovery DELETE that file -- so an unredirected test can
+# plant a recovery file (hanging later fixtures on the Recover dialog) or wipe
+# the user's real one. The class is patched once per session (module-scoped
+# fixtures build their window before function fixtures run, and many test
+# bodies import ``main`` lazily); the directory it points at is per test.
+_autosave_dir = [None]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _redirect_autosave(tmp_path_factory):
+    """Point ``MainWindow._autosave_path`` at ``_autosave_dir`` for the session."""
+    import main as _main_module
+    _autosave_dir[0] = str(tmp_path_factory.mktemp("autosave_session"))
+    mp = pytest.MonkeyPatch()
+    mp.setattr(_main_module.MainWindow, "_autosave_path",
+               staticmethod(lambda: os.path.join(_autosave_dir[0], "recovery.FPD")))
+    yield
+    mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_autosave(_redirect_autosave, tmp_path_factory):
+    """A FRESH per-test autosave dir (see ``_redirect_autosave``)."""
+    _autosave_dir[0] = str(tmp_path_factory.mktemp("autosave"))
+    yield
+
+
 @pytest.fixture
 def shipped_hatches(qapp):
     """Loader for the five shipped hatch-pattern blocks (hatch D-A39).
