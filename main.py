@@ -5169,6 +5169,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("collinear", checked),
             checkable=True)
         self._block_mode_buttons["constrain_collinear"] = b_co
+        b_ac = gc.add_small_button(
+            "Auto Constrain",
+            self._modify_icon("constraint_auto_constrain_icon.svg"),
+            self._be_toggle_auto_constrain, checkable=True)
+        # AC1 AD1: mirrors QSettings AUTO_CONSTRAIN_KEY (default ON); not a mode.
+        from firepro3d.constants import AUTO_CONSTRAIN_KEY
+        b_ac.blockSignals(True)
+        b_ac.setChecked(self.settings.value(AUTO_CONSTRAIN_KEY, True, type=bool))
+        b_ac.blockSignals(False)
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5203,6 +5212,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Equal": b_eq,
                                       "Tangent": b_tg,
                                       "Collinear": b_co,
+                                      "Auto Constrain": b_ac,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -5233,6 +5243,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                            "two circles/arcs) touch, or pick two")
         _editor_only(b_co, "Collinear — put the two selected lines on one line, "
                            "or pick an edge and an edge or the X/Y axis")
+        _editor_only(b_ac, "Auto Constrain — add Coincident / On-curve / "
+                           "Perpendicular from the snaps you place with "
+                           "(Shift inverts for one click)")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -5350,6 +5363,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             ctl.show_status = bool(checked)
             ctl._repaint()
 
+    def _be_toggle_auto_constrain(self, checked: bool) -> None:
+        """Auto Constrain toggle (AC1 AD1): one QSettings key for every editor."""
+        from firepro3d.constants import AUTO_CONSTRAIN_KEY
+        self.settings.setValue(AUTO_CONSTRAIN_KEY, bool(checked))
+
     def _be_delete_constraints(self) -> None:
         """Delete the selected constraint, else every one on the selection."""
         sc = self._active_scene()
@@ -5406,6 +5424,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             st.blockSignals(True)
             st.setChecked(ctl.show_status)
             st.blockSignals(False)
+        ac_b = btns.get("Auto Constrain")
+        if ac_b is not None and not sip.isdeleted(ac_b):
+            from firepro3d.constants import AUTO_CONSTRAIN_KEY
+            ac_b.blockSignals(True)
+            ac_b.setChecked(self.settings.value(AUTO_CONSTRAIN_KEY, True, type=bool))
+            ac_b.blockSignals(False)
 
     def _set_block_editor_context(self, active: bool) -> None:
         """Enable/disable the Block Editor tab's editor-only groups.
