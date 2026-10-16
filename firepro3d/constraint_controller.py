@@ -52,8 +52,10 @@ PERPENDICULAR_TRIVIAL_STATUS = ("Those edges are already perpendicular by constr
                                 "pick another edge")            # CS10
 EQUAL_TRIVIAL_STATUS = "Those are already equal by construction -- pick another"   # CS11
 TANGENT_TRIVIAL_STATUS = "Those are already tangent by construction -- pick another"   # CS12
-# CS10 PP5 / PP6: types whose add first tries turning the edges (lengths held).
-ROTATE_FIRST = ("parallel", "perpendicular")
+COLLINEAR_TRIVIAL_STATUS = ("Those edges are already collinear by construction -- "
+                            "pick another edge")                                    # CS14
+# CS10 PP5 / PP6 (+ CS14 C2): types whose add first tries turning the edges (lengths held).
+ROTATE_FIRST = ("parallel", "perpendicular", "collinear")
 # D17 (CS3); "flipped" since the 2026-10-12 ruling: Flip refuses a fully
 # defined BLOCK instance only (D45; see modify_tools_controller.flip_refusal_targets).
 GROUNDED_STATUS = ("Fully defined geometry can't be moved, rotated, scaled or "
@@ -250,14 +252,14 @@ class PickState:
         (``"mid"`` = an edge midpoint, CS3b), edge
         ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``.
         Curves + axes are offered to Coincident and (CS5) Smart Dimension
-        (and the later curve types); Parallel / Perpendicular (CS9 / CS10)
-        get the axes only; Equal (CS11) and Tangent (CS12) get curves but
+        (and the later curve types); Parallel / Perpendicular / Collinear
+        (CS9 / CS10 / CS14) get the axes only; Equal (CS11) and Tangent (CS12) get curves but
         no axes; hidden handles (text ``ins``, polygon ``radius``, ellipse
         ``rx`` / ``ry``) never."""
         curvy = self.ctype in ("coincident", "dim_distance", "concentric",
                                "symmetric", "fix", "equal", "tangent")
         axes = ((curvy and self.ctype not in ("equal", "tangent"))    # CS11 E1 / CS12 T1: no axis
-                or self.ctype in ("parallel", "perpendicular"))       # CS9 P1 / CS10 PP1
+                or self.ctype in ("parallel", "perpendicular", "collinear"))   # CS9 P1 / CS10 PP1 / CS14 C1
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -319,7 +321,7 @@ class PickState:
             if kind not in ("edge", "curve"):
                 return False
             return not self.picks or kind == self.kinds[0]
-        if self.ctype in ("parallel", "perpendicular"):       # CS9 P1 / CS10 PP1
+        if self.ctype in ("parallel", "perpendicular", "collinear"):   # CS9 P1 / CS10 PP1 / CS14 C1
             if kind not in ("edge", "axis"):
                 return False
             return not self.picks or kind == "edge" or self.kinds[0] == "edge"
@@ -414,7 +416,7 @@ class PickState:
                     else "pick another circle/arc" if self.kinds[0] == "curve"
                     else "pick another edge")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
-        if self.ctype in ("parallel", "perpendicular"):       # CS9 / CS10
+        if self.ctype in ("parallel", "perpendicular", "collinear"):   # CS9 / CS10 / CS14
             what = ("pick an edge" if n and self.kinds[0] == "axis" else
                     "pick an edge, then an edge or the X/Y axis")
             return f"{label}: {what} ({n}/2) · Esc to cancel"
@@ -876,9 +878,10 @@ class ConstraintController:
         rectangle's / square polygon's adjacent sides. CS11: an Equal of a
         rectangle's / text box's opposite sides, two sides of one regular
         polygon, or two nested curves of one radius. CS12: a Tangent of a
-        line and a circle inside one rigid block that already touch."""
+        line and a circle inside one rigid block that already touch. CS14: a
+        Collinear of two segments inside one rigid block already in line."""
         if c.type not in ("point_on_curve", "concentric", "fix", "parallel",
-                          "perpendicular", "equal", "tangent"):
+                          "perpendicular", "equal", "tangent", "collinear"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
         if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
@@ -1914,7 +1917,8 @@ class ConstraintController:
             self._status({"parallel": PARALLEL_TRIVIAL_STATUS,
                           "perpendicular": PERPENDICULAR_TRIVIAL_STATUS,
                           "equal": EQUAL_TRIVIAL_STATUS,
-                          "tangent": TANGENT_TRIVIAL_STATUS}.get(
+                          "tangent": TANGENT_TRIVIAL_STATUS,
+                          "collinear": COLLINEAR_TRIVIAL_STATUS}.get(
                               ctype, TRIVIAL_STATUS))
             return None
         self.constraints.append(c)
@@ -2599,8 +2603,8 @@ class ConstraintController:
                 ctype = "coincident" if both_points else "point_on_curve"
             elif ctype == "concentric" and p.kinds[0] != "curve":
                 refs.reverse()                      # stored curve-first (CS6 pin)
-            elif ctype in ("parallel", "perpendicular") and p.kinds[0] == "axis":
-                refs.reverse()                      # stored edge-first (CS9 / CS10)
+            elif ctype in ("parallel", "perpendicular", "collinear") and p.kinds[0] == "axis":
+                refs.reverse()                      # stored edge-first (CS9 / CS10 / CS14)
         if dim:                                    # CS4b D63 / CS5: placement next
             hit = self.dim_precheck(refs)
             if hit is None:
@@ -2760,7 +2764,8 @@ class ConstraintController:
         reference lines -> ``[edge, edge]`` (Parallel); CS10 two lines ->
         ``[edge, edge]`` (Perpendicular); CS11 two or more lines -> edges, or
         two or more circles / arcs -> curves (an Equal chain); CS12 a line +
-        a circle / arc, or two circles / arcs -> Tangent refs.
+        a circle / arc, or two circles / arcs -> Tangent refs; CS14 two lines
+        -> ``[edge, edge]`` (Collinear).
 
         Returns:
             The refs to add, or None when the selection is not valid for it.
@@ -2782,7 +2787,7 @@ class ConstraintController:
                 and all(isinstance(s, (CircleItem, ArcItem))
                         and getattr(s, "_uid", None) is not None for s in sel)):
             return [{"uid": s._uid, "h": "curve"} for s in sel]   # CS6 R3
-        if (ctype in ("parallel", "perpendicular") and len(sel) == 2   # CS9 P4 / CS10 PP4
+        if (ctype in ("parallel", "perpendicular", "collinear") and len(sel) == 2   # CS9 P4 / CS10 PP4 / CS14 C3
                 and all(isinstance(s, LineItem) and getattr(s, "_uid", None) is not None
                         for s in sel)):
             return [{"uid": s._uid, "h": "edge"} for s in sel]
@@ -3136,8 +3141,8 @@ class ConstraintController:
         everything. Coincident / point-on-curve / Concentric are kept under
         every transform (CS3, CS6). Symmetric is kept under every transform
         (an internal edge axis; an X / Y axis is a ground, so dropped) (CS7);
-        Parallel / Perpendicular between two edges are kept under every
-        transform (an axis is a ground, so dropped) (CS9 / CS10); Equal is
+        Parallel / Perpendicular / Collinear between two edges are kept under
+        every transform (an axis is a ground, so dropped) (CS9 / CS10 / CS14); Equal is
         kept under every transform (CS11); Tangent is kept under every
         transform (a reflection negates its ``side``) (CS12);
         Fix is dropped from every copy (CS8 F3).

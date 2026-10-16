@@ -1265,11 +1265,34 @@ def build_tangent(cid: str, ends, sys: System, helper=None) -> None:
     _point_row(cid, (cv.center, a, b), extra, g, sys)
 
 
+def build_collinear(cid: str, ends, sys: System) -> None:
+    """Collinear (CS14, C1): ``refs`` = [edge, edge | axis], stored
+    edge-first. Two edges: both ends of the second on the first's INFINITE
+    line, as two rows -- the Parallel angle row (``_parallel``, D115 form)
+    and the second edge's first end on the first's line (``_on_line``).
+    Two ``_on_line`` rows (one per end) would have no first-order turn at
+    exactly perpendicular crossing edges, so the rotate-first add could
+    not start (the D115 lesson). A zero-length edge gives zero rows where
+    its direction is needed. An edge and the X / Y axis: both ends
+    ``y := 0`` / ``x := 0`` (``_axis_equal`` against the origin,
+    substituted when raw)."""
+    e1, e2 = ends
+    if isinstance(e2, str):
+        k = 1 if e2 == "x_axis" else 0
+        o = const_point(0.0, 0.0)
+        _axis_equal(k, cid, (e1[0], o), sys)
+        _axis_equal(k, cid, (e1[1], o), sys)
+        return
+    a, b = e1
+    _point_row(cid, (a, b, e2[0], e2[1]), (), _parallel, sys)
+    _point_row(cid, (e2[0], a, b), (), _on_line, sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
             "concentric": build_concentric, "symmetric": build_symmetric, "fix": build_fix,
             "parallel": build_parallel, "perpendicular": build_perpendicular,
-            "equal": build_equal, "tangent": build_tangent,
+            "equal": build_equal, "tangent": build_tangent, "collinear": build_collinear,
             "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
             "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
             "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}

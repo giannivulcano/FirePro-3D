@@ -23,7 +23,7 @@ NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
                     "Concentric", "Symmetric", "Fix", "Parallel", "Perpendicular", "Equal",
-                    "Tangent", "Show Constraints",
+                    "Tangent", "Collinear", "Show Constraints",
                     "Constraint Status", "Delete Constraints"}
 
 
@@ -188,7 +188,8 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",
             "Coincident", "Concentric", "Symmetric", "Fix",
-            "Parallel", "Perpendicular", "Equal", "Tangent"}  # no greyed placeholders (D15)
+            "Parallel", "Perpendicular", "Equal", "Tangent",
+            "Collinear"}  # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -901,7 +902,8 @@ def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
                                         ("Parallel", "constrain_parallel"),
                                         ("Perpendicular", "constrain_perpendicular"),
                                         ("Equal", "constrain_equal"),
-                                        ("Tangent", "constrain_tangent")])
+                                        ("Tangent", "constrain_tangent"),
+                                        ("Collinear", "constrain_collinear")])
 def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label, mode):
     """T6 review Minor 3: un-toggling a lit button ends its pick session."""
     win = win_with_editor
@@ -1063,4 +1065,57 @@ def test_tangent_pick_flow_edge_then_circle(win_with_editor, qapp):
     assert c.type == "tangent"
     assert c.refs == [{"uid": ln._uid, "h": "edge"}, {"uid": k._uid, "h": "curve"}]
     assert abs(ln._pt1.y() - k._center.y()) == pytest.approx(float(k._radius), abs=1e-6)
+    assert sc.mode in (None, "select")
+
+
+# -- CS14 Collinear (C3) --------------------------------------------------------
+
+def test_collinear_enable_state_and_selection_first(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    b = _btn(win, "Collinear")
+    assert b.toolTip()
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                       # nothing: pick mode
+    a = _line(sc, (0, 0), (100, 0)); a.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                   # one line
+    l2 = _line(sc, (150, 40), (250, 60)); l2.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert b.isEnabled()
+    b.click(); qapp.processEvents()
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "collinear"
+    for p in (l2._pt1, l2._pt2):
+        dx, dy = a._pt2.x() - a._pt1.x(), a._pt2.y() - a._pt1.y()
+        off = ((p.x() - a._pt1.x()) * dy - (p.y() - a._pt1.y()) * dx) / math.hypot(dx, dy)
+        assert abs(off) < 1e-6
+
+
+def test_collinear_invalid_selection_posts_the_hint(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    _line(sc, (0, 0), (50, 0)).setSelected(True)
+    _circle(sc, (0, 80), 20).setSelected(True); qapp.processEvents()
+    win._be_constrain("collinear", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_collinear"
+    assert win.statusBar().currentMessage() == "Select two lines, or nothing to pick"
+
+
+def test_collinear_pick_flow_two_edges(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    sc.clearSelection()
+    a = _line(sc, (-150, 0), (-50, 0)); b = _line(sc, (50, 60), (150, 60))
+    _btn(win, "Collinear").click(); qapp.processEvents()
+    assert sc.mode == "constrain_collinear"
+    _pick(win, (-100, 0))
+    _pick(win, (100, 60))
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "collinear"
+    assert c.refs == [{"uid": a._uid, "h": "edge"}, {"uid": b._uid, "h": "edge"}]
+    dx, dy = a._pt2.x() - a._pt1.x(), a._pt2.y() - a._pt1.y()
+    for p in (b._pt1, b._pt2):                                 # on a's line (may tilt)
+        off = ((p.x() - a._pt1.x()) * dy - (p.y() - a._pt1.y()) * dx) / math.hypot(dx, dy)
+        assert abs(off) < 1e-6
     assert sc.mode in (None, "select")

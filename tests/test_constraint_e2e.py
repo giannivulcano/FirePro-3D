@@ -1337,3 +1337,52 @@ def test_e2e_tangent_conflict_red_and_held(win_with_editor):
     c = sc.constraint_ctl.constraints[-1]
     assert c.type == "tangent" and c.id in sc.constraint_ctl.red
     assert [(ln._pt1.x(), ln._pt1.y()), (k._center.x(), k._center.y()), float(k._radius)] == before
+
+
+# -- CS14 Collinear (real window, real ribbon, posted events) ---------------------
+
+def _off(ln, p):
+    a, b = ln._pt1, ln._pt2
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    return ((p.x() - a.x()) * dy - (p.y() - a.y()) * dx) / math.hypot(dx, dy)
+
+
+def test_e2e_collinear_survives_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    a = _ln(sc, (-150, 0), (-50, 0)); b = _ln(sc, (50, 40), (150, 40))
+    _click_btn(win, "Collinear", a, b)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["collinear"]
+    sc.clearSelection(); a.setSelected(True); QApplication.processEvents()
+    p0 = QPointF(a._pt1)
+    _drag(view, p0, p0 + QPointF(0, 60))                         # tilt line a
+    assert a._pt1.y() != pytest.approx(a._pt2.y(), abs=1.0)       # really tilted
+    assert abs(_off(a, b._pt1)) < 1e-6 and abs(_off(a, b._pt2)) < 1e-6
+
+
+def test_e2e_collinear_undo_redo_save_reopen(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene; view = w.view
+    a = _ln(sc, (-150, 0), (-50, 0)); b = _ln(sc, (50, 40), (150, 40))
+    sc.push_undo_state()
+    _click_btn(win, "Collinear", a, b)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["collinear"]
+    ua, ub = a._uid, b._uid
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    by = {ln._uid: ln for ln in sc._draw_lines}                  # undo rebuilds the items
+    assert by[ub]._pt1.y() == pytest.approx(40.0)
+    _ctrl(view, Qt.Key.Key_Y)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["collinear"]
+    sc.clearSelection()
+    defn = w.commit_block("cs14-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {ln._uid: ln for ln in sc2._draw_lines}
+    (c,) = sc2.constraint_ctl.active()
+    assert c.type == "collinear"
+    assert abs(_off(by[ua], by[ub]._pt1)) < 1e-6 and abs(_off(by[ua], by[ub]._pt2)) < 1e-6
