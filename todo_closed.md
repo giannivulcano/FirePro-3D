@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS14 Collinear — 2026-10-16
+
+- [x] [type:feature] CS14 — Collinear [P1] [subject:CAD] [done:2026-10-16]
+  - Details: spec §7.3. Depends CS12 (CS13 Midpoint dropped 2026-10-16, D127).
+  - Built: `feat/cs14-collinear` (base `cf0f115b`; feature/Medium, FP1 rulings C1-C4; inline, per-task Sonnet reviews; Medium: keep-green 565 + RED proofs, no full suite). Two edges (Parallel angle row + one end on-line -- two on-line rows could not turn at an exact 90 deg crossing) or an edge + X/Y axis (both ends fixed), rotate-first add with lengths held, Parallel-style entry / pick / glyph per edge, rigid-block in-line pairs refused; kept on every two-edge copy. User smoke passed. 0.48.0.
+
 ## Block Editor constraint system — CS13 Midpoint (dropped) — 2026-10-16
 
 - [x] [type:feature] CS13 — Midpoint [P1] [subject:CAD] [done:2026-10-16]
