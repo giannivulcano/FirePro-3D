@@ -1458,7 +1458,7 @@ class ConstraintController:
                 c.helper["sign"] = -c.helper["sign"]
                 if rel < 0:
                     c.helper["dirs"][1] = -c.helper["dirs"][1]
-            elif rel > 0 or tan:
+            elif rel > 0:                             # a Tangent has no axis ref: rel 1
                 c.helper["side"] = -c.helper["side"]
         return out, refuse
 
