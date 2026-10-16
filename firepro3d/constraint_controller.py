@@ -27,6 +27,7 @@ from PyQt6.QtGui import QPen, QPolygonF
 
 from . import sketch_model as sm
 from . import theme as _theme
+from .auto_constrain import item_handles, seg_dist as _seg_dist
 from .geometry_2d import SplineItem
 from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
@@ -210,15 +211,6 @@ def _xy(p) -> tuple[float, float]:
     return (p.x(), p.y())
 
 
-def _seg_dist(p, a, b) -> float:
-    """Distance from *p* to segment *ab* (all viewport px)."""
-    ax, ay, bx, by = a.x(), a.y(), b.x(), b.y()
-    dx, dy = bx - ax, by - ay
-    L2 = dx * dx + dy * dy or 1e-12
-    t = max(0.0, min(1.0, ((p.x() - ax) * dx + (p.y() - ay) * dy) / L2))
-    return math.hypot(p.x() - ax - t * dx, p.y() - ay - t * dy)
-
-
 def _vp_to_scene(view, vp_pt) -> QPointF:
     """Exact scene point of a viewport-px point (no int rounding)."""
     inv, _ok = view.viewportTransform().inverted()
@@ -262,28 +254,7 @@ class PickState:
         axes = ((curvy and self.ctype not in ("equal", "tangent"))    # CS11 E1 / CS12 T1: no axis
                 or self.ctype in ("parallel", "perpendicular", "collinear"))   # CS9 P1 / CS10 PP1 / CS14 C1
         for it in self.ctl.items():
-            uid = getattr(it, "_uid", None)
-            if uid is None:
-                continue
-            ad = adapter_for(it)
-            x = np.array(ad.read(it), dtype=float)
-            mids = ad.mid_names(it)
-            hidden = ad.hidden_names(it)
-            for name, e in ad.points(it, 0).items():
-                if name in hidden:                    # CS3c: legacy text ins
-                    continue
-                # CS3b: b = "mid" tags an edge midpoint (a triangle marker).
-                yield ("point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]),
-                       "mid" if name in mids else None)
-            for name, (a, b) in ad.edges(it, 0).items():
-                yield ("edge", {"uid": uid, "h": name},
-                       QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
-            if curvy:
-                for name, cv in ad.curves(it, 0).items():
-                    if name in hidden:                # CS5 D79: defining circles
-                        continue
-                    yield ("curve", {"uid": uid, "h": name},
-                           QPointF(*cv.center.eval(x)[0]), (curve_radius(cv, x), it))
+            yield from item_handles(it, curvy=curvy)
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
         if axes:
             yield "axis", {"ref": "x_axis"}, None, None
