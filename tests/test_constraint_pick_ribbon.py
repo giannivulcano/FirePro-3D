@@ -1023,6 +1023,10 @@ def test_tangent_enable_state_and_selection_first(win_with_editor, qapp):
     ln = _line(sc, (0, 100), (200, 100)); ln.setSelected(True); qapp.processEvents()
     win._refresh_constrain_buttons()
     assert not b.isEnabled()                                   # one line
+    l2 = _line(sc, (0, 140), (200, 140)); l2.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                   # two lines
+    l2.setSelected(False)
     k = _circle(sc, (100, 0), 50); k.setSelected(True); qapp.processEvents()
     win._refresh_constrain_buttons()
     assert b.isEnabled()
@@ -1050,11 +1054,13 @@ def test_tangent_pick_flow_edge_then_circle(win_with_editor, qapp):
     win = win_with_editor
     sc = _editor_scene(win)
     sc.clearSelection()
-    ln = _line(sc, (-100, 80), (100, 80)); _circle(sc, (0, -20), 40)
+    ln = _line(sc, (-100, 80), (100, 80)); k = _circle(sc, (0, -20), 40)
     _btn(win, "Tangent").click(); qapp.processEvents()
     assert sc.mode == "constrain_tangent"
     _pick(win, (50, 80))                                       # the edge
     _pick(win, (40, -20))                                      # the circle's rim
     (c,) = sc.constraint_ctl.constraints
-    assert c.type == "tangent" and c.refs[0] == {"uid": ln._uid, "h": "edge"}
+    assert c.type == "tangent"
+    assert c.refs == [{"uid": ln._uid, "h": "edge"}, {"uid": k._uid, "h": "curve"}]
+    assert abs(ln._pt1.y() - k._center.y()) == pytest.approx(float(k._radius), abs=1e-6)
     assert sc.mode in (None, "select")
