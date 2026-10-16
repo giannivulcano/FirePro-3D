@@ -496,6 +496,7 @@ class ConstraintController:
         self.red: set[str] = set()
         self._commit_gen = 0           # bumps on every commit-level change (diagnostics key)
         self._diag = None              # (key, SketchDiag)
+        self._mute = 0                 # AC1 AD9: auto_join suppresses status
         self._tint_memo = None         # (token, SketchDiag, {uid: state}) -- H-MW-g
         self._tint_colors = None       # (Theme, {state: QColor}) -- H-MW-g
         self._build_cache = None       # (key, sys, slots, base) -- D18 _build reuse
@@ -1243,6 +1244,8 @@ class ConstraintController:
                               else self._status(CONFLICT_STATUS))
 
     def _status(self, msg: str) -> None:
+        if self._mute:                  # AC1 AD9: auto adds post nothing
+            return
         show = getattr(self._scene, "_show_status", None)
         if callable(show):
             show(msg, 5000)
@@ -2037,6 +2040,45 @@ class ConstraintController:
             elif any(c.id in self.diagnostics().redundant for c in out):
                 self._status(REDUNDANT_STATUS)   # D42 (review M2)
         return out
+
+    def auto_join(self, records) -> list:
+        """AC1 AD9: add Auto Constrain joins clean-only, inside the caller's
+        undo step.
+
+        Each ``(ctype, refs)`` goes through :meth:`add` uncommitted with the
+        status muted; a refused record is skipped, a red one (the solve held
+        last good -- nothing written, D10) or a redundant one is removed again.
+        Then one settle (D37 re-check, diagnostics key, repaint, panel)
+        WITHOUT ``push_undo_state`` -- the placement's own push captures the
+        shape + its joins as one step (AD10). Posts no status.
+
+        Returns:
+            The kept constraints.
+        """
+        if not self.enabled or not records:
+            return []
+        kept = []
+        self._mute += 1
+        try:
+            for ctype, refs in records:
+                c = self.add(ctype, refs, _commit=False)
+                if c is None:
+                    continue
+                if c.id in self.red or c.id in self.diagnostics().redundant:
+                    self.constraints = [k for k in self.constraints if k.id != c.id]
+                    self.red.discard(c.id)
+                    continue
+                kept.append(c)
+            if kept:
+                self._recheck_red(tuple(c.id for c in kept))
+        finally:
+            self._mute -= 1
+        if kept:
+            self._commit_gen += 1
+            self._repaint()
+            self._notify_state()
+            self._refresh_panel()
+        return kept
 
     def _point_line_side(self, c) -> int:
         """D81: the ``side`` (±1) whose signed distance (``_on_line``'s
