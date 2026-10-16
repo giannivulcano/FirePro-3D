@@ -25,10 +25,10 @@ def _place_line(win, a, b):
 def test_button_mirrors_and_writes_the_setting(win_with_editor):
     win = win_with_editor
     b = win._be_constrain_buttons["Auto Constrain"]
-    # win.settings: the store the button writes (the module-scoped window
-    # predates the per-test isolated QSettings dir, so a fresh QSettings here
-    # would read a different file).
-    s = win.settings
+    # A fresh QSettings: the button writes the same store the placement press
+    # reads (GeometryDrawingController._auto_infer), never the window's cached
+    # self.settings (which predates the per-test isolated QSettings dir).
+    s = QSettings("GV", "FirePro3D")
     s.setValue(AUTO_CONSTRAIN_KEY, True)
     win._refresh_constrain_buttons()
     assert b.isCheckable() and b.isChecked() and b.isEnabled()
@@ -39,9 +39,27 @@ def test_button_mirrors_and_writes_the_setting(win_with_editor):
 
 
 def test_default_is_on(win_with_editor):
-    win_with_editor.settings.remove(AUTO_CONSTRAIN_KEY)
+    QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
     win_with_editor._refresh_constrain_buttons()
     assert win_with_editor._be_constrain_buttons["Auto Constrain"].isChecked()
+
+
+def test_button_off_stops_the_next_placement_joining(win_with_editor):
+    """The seam: the REAL button's state is what the next placement press
+    reads -- OFF -> a snapped line records nothing, ON again -> it joins."""
+    win = win_with_editor
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    win._refresh_constrain_buttons()
+    b = win._be_constrain_buttons["Auto Constrain"]
+    sc = win._active_scene()
+    _line(sc, (0, 0), (200, 0))
+    b.click()                                             # -> OFF
+    assert not b.isChecked()
+    n = _place_line(win, (200, 0), (200, 150))
+    assert sc.constraint_ctl.constraints_on(n) == []
+    b.click()                                             # -> ON
+    m = _place_line(win, (200, 0), (300, 150))
+    assert [c.type for c in sc.constraint_ctl.constraints_on(m)] == ["coincident"]
 
 
 def test_ctrl_z_removes_line_and_joins_together(win_with_editor):

@@ -6494,12 +6494,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if pl in self._polylines:
                 self._polylines.remove(pl)
             self._polyline_active = None
-            self._geom_ctl._pl_joins = []
+            self._geom_ctl.discard_pl_joins()
             self._hide_close_ring()
             self.instructionChanged.emit("Pick first point")
         else:
             pl._points.pop()
-            del self._geom_ctl._pl_joins[len(pl._points):]   # AC1 AD8: the popped vertex's target
+            self._geom_ctl.discard_pl_joins(len(pl._points))   # AC1 AD8: the popped vertex's target
             pl._rebuild_path()
             self._hide_close_ring()
         for v in self.views(): v.viewport().update()

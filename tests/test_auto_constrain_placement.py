@@ -130,15 +130,37 @@ def test_line_and_joins_are_one_undo_step(vs):
     assert len(sc._draw_lines) == n_lines + 1 and len(sc.constraint_ctl.constraints) == 1
 
 
-def test_plan_scene_records_nothing(qapp):
-    view, sc = make_view(role="plan", scale=1.0, mode=None)
+def _press_event(mods=Qt.KeyboardModifier.NoModifier):
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QMouseEvent
+    return QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(0, 0), QPointF(0, 0),
+                       Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods)
+
+
+def test_inference_is_editor_only(vs, qapp):
+    """The plan scene refuses 2D placement outright (containment C1), so the
+    guard is at the capture: a plan scene's press never infers; the editor's
+    does (same event, toggle ON)."""
+    _view, sc = vs
+    assert sc._geom_ctl._auto_infer(_press_event()) is True
+    pview, psc = make_view(role="plan", scale=1.0, mode=None)
     try:
-        sc.set_align_enabled(False)
-        _line(sc, (0, 0), (200, 0))
-        _draw(view, sc, (200, 0), (200, 150))
-        assert sc.constraint_ctl.constraints == []
+        assert psc.constraint_ctl.enabled is False
+        assert psc._geom_ctl._auto_infer(_press_event()) is False
     finally:
-        close_view(view, sc)
+        close_view(pview, psc)
+
+
+def test_gridline_clicks_never_join(vs):
+    """A draw_gridline click 1 keeps no target (the anchor survives a switch
+    to draw_line, so a stale gridline target must not exist to carry over)."""
+    view, sc = vs
+    _line(sc, (0, 0), (200, 0))
+    sc.set_mode("draw_gridline")
+    if sc.mode != "draw_gridline":
+        pytest.skip("draw_gridline is refused in this scene role")
+    move(view, QPointF(200, 0)); click(view, QPointF(200, 0))
+    assert sc._geom_ctl._line_anchor_join is None
 
 
 def _key(view, key):
@@ -213,3 +235,36 @@ def test_close_on_start_adds_no_extra_join(vs):
     pl = sc._polylines[-1]
     assert pl.is_closed()
     assert _recs(sc) == [("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)])]
+
+
+def test_typed_polyline_vertex_gets_no_join(vs):
+    """AD5: a vertex typed in the HUD carries no join even when the cursor's
+    live snap sits exactly on it; the clicked vertices keep theirs."""
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    _line(sc, (500, 0), (700, 0))
+    sc.set_mode("polyline")
+    move(view, QPointF(200, 0)); click(view, QPointF(200, 0))      # v0 on a.p2
+    move(view, QPointF(500, 0))                                     # live END snap on b.p1
+    assert sc._snap_result is not None
+    assert sc._geom_ctl._commit_polyline_at(QPointF(500, 0))       # typed v1 (HUD applier)
+    _key(view, Qt.Key.Key_Return)
+    ln = sc._draw_lines[-1]                                         # 2-vertex -> a line
+    assert _recs(sc) == [("coincident", [(ln._uid, "p1", None), (a._uid, "p2", None)])]
+
+
+def test_esc_then_new_chain_reuses_no_target(vs):
+    """A cancelled chain's targets never reach the next chain: its v0 re-placed
+    at the old v0's point (Shift: no inference) records nothing."""
+    view, sc = vs
+    _line(sc, (0, 0), (200, 0))
+    sc.set_mode("polyline")
+    move(view, QPointF(200, 0)); click(view, QPointF(200, 0))      # joined v0
+    move(view, QPointF(300, 200)); click(view, QPointF(300, 200))
+    _key(view, Qt.Key.Key_Escape)
+    sc.set_mode("polyline")
+    move(view, QPointF(200, 0), SHIFT); click(view, QPointF(200, 0), SHIFT)
+    move(view, QPointF(300, -200)); click(view, QPointF(300, -200))
+    move(view, QPointF(450, -250)); click(view, QPointF(450, -250))
+    _key(view, Qt.Key.Key_Return)
+    assert _recs(sc) == []

@@ -280,7 +280,9 @@ class GeometryDrawingController:
         _is_grid = self._scene.mode == "draw_gridline"
         if self._scene._draw_line_anchor is None:
             self._scene._draw_line_anchor = snapped
-            self._line_anchor_join = self._capture(event)       # AC1 AD3
+            # AC1 AD3; a gridline click never joins (the anchor survives a
+            # draw_gridline -> draw_line switch, so draw_line clicks only).
+            self._line_anchor_join = None if _is_grid else self._capture(event)
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick end point" if _is_grid else "Pick second point")
         else:
@@ -288,7 +290,8 @@ class GeometryDrawingController:
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._scene._constrain_angle(self._scene._draw_line_anchor, snapped)
-            self._commit_draw_line_at(tip, tip_join=self._capture(event))
+            self._commit_draw_line_at(
+                tip, tip_join=None if _is_grid else self._capture(event))
 
     def _commit_draw_line_at(self, tip, tip_join=None):
         """Commit the armed line-like placement, ending at ``tip``.
@@ -791,6 +794,12 @@ class GeometryDrawingController:
         self._scene.clear_placement_state()
         return True
 
+    def discard_pl_joins(self, keep: int = 0) -> None:
+        """AC1 AD8: drop the vertex targets past the first *keep* -- the
+        Delete-key vertex pop (``keep`` = the remaining vertex count) or a
+        discarded chain (0), so the list stays aligned with ``pl._points``."""
+        del self._pl_joins[keep:]
+
     def join_polyline(self, pl, placed) -> None:
         """AC1 AD8: plan + add the finished chain's vertex joins, once, before
         the finish's undo push. *placed* is the committed item -- *pl* itself,
@@ -810,6 +819,9 @@ class GeometryDrawingController:
             if swap:
                 h, inc = ac.remap_handle(h), (ac.remap_handle(inc) if inc else None)
                 ref = t.ref
+                # Defensive: a 2-vertex chain's own handles can only be a
+                # zero-length self-join (refused anyway), but a self-ref must
+                # never name the removed polyline.
                 if ref.get("uid") == pl_uid:
                     mh = ac.remap_handle(ref.get("h", ""))
                     if mh is None:
