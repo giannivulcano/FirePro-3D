@@ -81,6 +81,7 @@ def test_a_failing_join_is_dropped_and_the_rest_kept(sc):
         calls.append(ctype)
         if len(calls) == 1:
             ctl.constraints.append(type("Half", (), {"id": "half"})())   # appended, then boom
+            ctl.red.add("half")
             raise RuntimeError("solver blew up")
         return real_add(ctype, refs, **kw)
 
@@ -92,4 +93,23 @@ def test_a_failing_join_is_dropped_and_the_rest_kept(sc):
         del ctl.add
     assert [c.type for c in kept] == ["coincident"]
     assert [c.type for c in ctl.constraints] == ["coincident"]
+    assert "half" not in ctl.red
     assert ctl._mute == 0 and sc._status_log == []
+
+
+def test_a_raise_after_add_drops_that_join_too(sc):
+    """The guard spans the whole per-record body: a raise in the redundancy
+    check (diagnostics) drops the just-added record instead of aborting."""
+    a = _line(sc, (0, 0), (100, 0)); b = _line(sc, (100, 0), (100, 80))
+    ctl = sc.constraint_ctl
+
+    def boom():
+        raise RuntimeError("diagnostics blew up")
+
+    ctl.diagnostics = boom
+    try:
+        kept = ctl.auto_join([("coincident", [_p(b, "p1"), _p(a, "p2")])])
+    finally:
+        del ctl.diagnostics
+    assert kept == [] and ctl.constraints == [] and not ctl.red
+    assert ctl._mute == 0

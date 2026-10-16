@@ -2062,30 +2062,38 @@ class ConstraintController:
         try:
             for ctype, refs in records:
                 n0 = len(self.constraints)
+                # Never let a join break the placement: any raise drops this
+                # record (whatever it appended) and the batch carries on.
                 try:
                     c = self.add(ctype, refs, _commit=False)
-                except Exception:           # never let a join break the placement
+                    if c is None:
+                        continue
+                    if c.id in self.red or c.id in self.diagnostics().redundant:
+                        self.constraints = [k for k in self.constraints if k.id != c.id]
+                        self.red.discard(c.id)
+                        continue
+                except Exception:
                     _log.exception("Auto Constrain: dropped a %s join", ctype)
                     dropped = {k.id for k in self.constraints[n0:]}
                     del self.constraints[n0:]
                     self.red -= dropped
                     continue
-                if c is None:
-                    continue
-                if c.id in self.red or c.id in self.diagnostics().redundant:
-                    self.constraints = [k for k in self.constraints if k.id != c.id]
-                    self.red.discard(c.id)
-                    continue
                 kept.append(c)
             if kept:
-                self._recheck_red(tuple(c.id for c in kept))
+                try:
+                    self._recheck_red(tuple(c.id for c in kept))
+                except Exception:
+                    _log.exception("Auto Constrain: red re-check failed")
         finally:
             self._mute -= 1
         if kept:
             self._commit_gen += 1
-            self._repaint()
-            self._notify_state()
-            self._refresh_panel()
+            try:
+                self._repaint()
+                self._notify_state()
+                self._refresh_panel()
+            except Exception:
+                _log.exception("Auto Constrain: settle failed")
         return kept
 
     def _point_line_side(self, c) -> int:
