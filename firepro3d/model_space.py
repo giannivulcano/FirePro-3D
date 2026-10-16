@@ -7509,6 +7509,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts = self._polyline_active._points
             if len(pts) > 2:
                 pts.pop()
+                self._geom_ctl.discard_pl_joins(len(pts))   # AC1 AD8: keep the list aligned
             self._finish_polyline()
             event.accept()
             return

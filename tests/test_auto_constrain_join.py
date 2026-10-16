@@ -67,3 +67,29 @@ def test_conflicting_join_is_dropped_and_geometry_held(sc):
     assert not ctl.red
     assert (a._pt1.x(), a._pt1.y(), a._pt2.x(), a._pt2.y()) == before
     assert sc._status_log == []
+
+
+def test_a_failing_join_is_dropped_and_the_rest_kept(sc):
+    """M1: an exception inside one add never breaks the placement -- that
+    record is dropped (nothing left appended), the next is still added."""
+    a = _line(sc, (0, 0), (100, 0)); b = _line(sc, (100, 0), (100, 80))
+    ctl = sc.constraint_ctl
+    real_add = ctl.add
+    calls = []
+
+    def flaky(ctype, refs, **kw):
+        calls.append(ctype)
+        if len(calls) == 1:
+            ctl.constraints.append(type("Half", (), {"id": "half"})())   # appended, then boom
+            raise RuntimeError("solver blew up")
+        return real_add(ctype, refs, **kw)
+
+    ctl.add = flaky
+    try:
+        kept = ctl.auto_join([("coincident", [_p(b, "p1"), _p(a, "p2")]),
+                              ("coincident", [_p(b, "p1"), _p(a, "p2")])])
+    finally:
+        del ctl.add
+    assert [c.type for c in kept] == ["coincident"]
+    assert [c.type for c in ctl.constraints] == ["coincident"]
+    assert ctl._mute == 0 and sc._status_log == []

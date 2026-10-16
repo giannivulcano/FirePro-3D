@@ -33,7 +33,7 @@ from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
                                     rect_from_side_and_depth, apply_rect_ghost)
 from . import auto_constrain as ac
 from .constants import (SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX,
-                        AUTO_CONSTRAIN_KEY)
+                        AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT)
 from .stroke_style import apply_current
 
 
@@ -217,7 +217,8 @@ class GeometryDrawingController:
         ctl = getattr(self._scene, "constraint_ctl", None)
         if ctl is None or not ctl.enabled:
             return False
-        on = QSettings("GV", "FirePro3D").value(AUTO_CONSTRAIN_KEY, True, type=bool)
+        on = QSettings("GV", "FirePro3D").value(
+            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         return on != shift
 

@@ -2061,7 +2061,15 @@ class ConstraintController:
         self._mute += 1
         try:
             for ctype, refs in records:
-                c = self.add(ctype, refs, _commit=False)
+                n0 = len(self.constraints)
+                try:
+                    c = self.add(ctype, refs, _commit=False)
+                except Exception:           # never let a join break the placement
+                    _log.exception("Auto Constrain: dropped a %s join", ctype)
+                    dropped = {k.id for k in self.constraints[n0:]}
+                    del self.constraints[n0:]
+                    self.red -= dropped
+                    continue
                 if c is None:
                     continue
                 if c.id in self.red or c.id in self.diagnostics().redundant:

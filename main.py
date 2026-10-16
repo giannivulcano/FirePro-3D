@@ -5175,10 +5175,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._be_toggle_auto_constrain, checkable=True)
         # AC1 AD1: mirrors QSettings AUTO_CONSTRAIN_KEY (default ON); not a mode.
         # A fresh QSettings, like the reader (GeometryDrawingController._auto_infer).
-        from firepro3d.constants import AUTO_CONSTRAIN_KEY
+        from firepro3d.constants import AUTO_CONSTRAIN_DEFAULT, AUTO_CONSTRAIN_KEY
         b_ac.blockSignals(True)
         b_ac.setChecked(QSettings("GV", "FirePro3D").value(
-            AUTO_CONSTRAIN_KEY, True, type=bool))
+            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool))
         b_ac.blockSignals(False)
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
@@ -5430,10 +5430,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             st.blockSignals(False)
         ac_b = btns.get("Auto Constrain")
         if ac_b is not None and not sip.isdeleted(ac_b):
-            from firepro3d.constants import AUTO_CONSTRAIN_KEY
+            from firepro3d.constants import AUTO_CONSTRAIN_DEFAULT, AUTO_CONSTRAIN_KEY
             ac_b.blockSignals(True)
             ac_b.setChecked(QSettings("GV", "FirePro3D").value(
-                AUTO_CONSTRAIN_KEY, True, type=bool))
+                AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool))
             ac_b.blockSignals(False)
 
     def _set_block_editor_context(self, active: bool) -> None:

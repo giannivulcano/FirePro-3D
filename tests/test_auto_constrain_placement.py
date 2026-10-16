@@ -268,3 +268,57 @@ def test_esc_then_new_chain_reuses_no_target(vs):
     move(view, QPointF(450, -250)); click(view, QPointF(450, -250))
     _key(view, Qt.Key.Key_Return)
     assert _recs(sc) == []
+
+
+def test_circle_rim_click_is_point_on_curve(vs):
+    """A NEA click on a circle outline puts the new end on the full circle."""
+    view, sc = vs
+    c = CircleItem(QPointF(300, 0), 80.0); sc.addItem(c); sc._draw_circles.append(c)
+    # 60 deg on the rim (340, 69.282): a NEA point (45 deg reports TAN here).
+    n = _draw(view, sc, (500, 300), (340.0, 69.2820323))
+    assert _recs(sc) == [("point_on_curve", [(n._uid, "p2", None), (c._uid, "curve", None)])]
+
+
+def test_reference_line_joins_like_a_line(vs):
+    """A reference line is a draw_line placement stamped by Space (RG6)."""
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    sc.set_mode("draw_line")
+    _key(view, Qt.Key.Key_Space)                          # placement -> reference
+    move(view, QPointF(200, 0)); click(view, QPointF(200, 0))
+    move(view, QPointF(200, 150)); click(view, QPointF(200, 150))
+    n = sc._draw_lines[-1]
+    assert getattr(n, "reference", False) is True
+    assert _recs(sc) == [("coincident", [(n._uid, "p1", None), (a._uid, "p2", None)])]
+
+
+def test_double_click_finish_keeps_the_clicked_joins(vs):
+    """Double-click finish drops the extra press's vertex (and its target)."""
+    from PyQt6.QtCore import QEvent
+    from tests._snap_polish_helpers import post
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    b = _line(sc, (500, 0), (700, 0))
+    sc.set_mode("polyline")
+    for p in ((200, 0), (300, 200), (500, 0)):            # v0 on a.p2, v2 on b.p1
+        move(view, QPointF(*p)); click(view, QPointF(*p))
+    move(view, QPointF(700, 0)); click(view, QPointF(700, 0))      # press 1 of the double
+    post(view, QEvent.Type.MouseButtonDblClick, QPointF(700, 0))
+    post(view, QEvent.Type.MouseButtonRelease, QPointF(700, 0))
+    pl = sc._polylines[-1]
+    assert len(pl._points) == 3                           # the double-click vertex dropped
+    assert _recs(sc) == [
+        ("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)]),
+        ("coincident", [(pl._uid, "v2", None), (b._uid, "p1", None)])]
+
+
+def test_polyline_and_joins_are_one_undo_step(vs):
+    view, sc = vs
+    _line(sc, (0, 0), (200, 0))
+    sc.push_undo_state()
+    n_pl = len(sc._polylines)
+    _poly(view, sc, (200, 0), (300, 200), (450, 100))
+    assert len(sc.constraint_ctl.constraints) == 1
+    sc.undo()
+    QApplication.processEvents()
+    assert len(sc._polylines) == n_pl and sc.constraint_ctl.constraints == []
