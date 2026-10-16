@@ -60,3 +60,79 @@ def item_handles(it, *, curvy: bool = True):
                 continue
             yield ("curve", {"uid": uid, "h": name},
                    QPointF(*cv.center.eval(x)[0]), (curve_radius(cv, x), it))
+
+
+@dataclass(frozen=True)
+class Target:
+    """A resolved snap target (AD6). *point* = the snap point, scene mm."""
+    kind: str                 # "point" | "edge" | "curve"
+    ref: dict                 # HandleRef (§6.2)
+    point: tuple
+    perpendicular: bool = False
+
+
+def _close(p, q) -> bool:
+    return math.hypot(p.x() - q.x(), p.y() - q.y()) <= AUTO_CONSTRAIN_MATCH_TOL_MM
+
+
+def resolve_snap(snap) -> Target | None:
+    """AD6: the constraint target of one OSNAP result, or None (silently).
+
+    ``origin`` -> the origin ground; END / MID / CEN -> the source item's point
+    handle at the snap point; NEA / PER -> the source's edge whose segment holds
+    the point, else a circle / arc curve it lies on. Any other kind, an ALIGN
+    or grid result, or a source with no adapter -> None.
+    """
+    if snap is None:
+        return None
+    t = snap.snap_type
+    p = QPointF(snap.point)
+    xy = (p.x(), p.y())
+    if t == "origin":
+        return Target("point", {"ref": "origin"}, xy)
+    if t not in POINT_SNAPS and t not in EDGE_SNAPS:
+        return None
+    src = snap.source_item
+    if src is None:
+        return None
+    cands = list(item_handles(src))
+    if t in POINT_SNAPS:
+        pts = [(math.hypot(a.x() - p.x(), a.y() - p.y()), ref)
+               for kind, ref, a, _b in cands if kind == "point" and _close(a, p)]
+        return Target("point", min(pts, key=lambda d: d[0])[1], xy) if pts else None
+    per = t == "perpendicular"
+    edges = [(seg_dist(p, a, b), ref) for kind, ref, a, b in cands
+             if kind == "edge" and seg_dist(p, a, b) <= AUTO_CONSTRAIN_MATCH_TOL_MM]
+    if edges:
+        return Target("edge", min(edges, key=lambda d: d[0])[1], xy, perpendicular=per)
+    for kind, ref, c, (r, _it) in ((k, rf, a, b) for k, rf, a, b in cands if k == "curve"):
+        if abs(math.hypot(p.x() - c.x(), p.y() - c.y()) - r) <= AUTO_CONSTRAIN_MATCH_TOL_MM:
+            return Target("curve", ref, xy)
+    return None
+
+
+def matches(target: Target | None, vertex) -> bool:
+    """AD4: a stored target applies only to the vertex at its snap point."""
+    return target is not None and _close(QPointF(*target.point), QPointF(vertex))
+
+
+def plan_joins(uid: str, handle: str, incoming_edge: str | None,
+               target: Target) -> list:
+    """AD7: ``[(ctype, refs), ...]`` joining new handle *handle* of item *uid*
+    to *target*; a PER snap on an edge also makes *incoming_edge* (the new
+    segment ending at that vertex) perpendicular to it."""
+    me = {"uid": uid, "h": handle}
+    if target.kind == "point":
+        return [("coincident", [me, dict(target.ref)])]
+    out = [("point_on_curve", [me, dict(target.ref)])]          # point-first, D43
+    if target.perpendicular and target.kind == "edge" and incoming_edge is not None:
+        out.append(("perpendicular", [{"uid": uid, "h": incoming_edge}, dict(target.ref)]))
+    return out
+
+
+_POLY2_TO_LINE = {"v0": "p1", "v1": "p2", "s0": "edge", "m0": "mid"}
+
+
+def remap_handle(h: str) -> str | None:
+    """AD8: a 2-vertex polyline's handle on the LineItem that replaces it."""
+    return _POLY2_TO_LINE.get(h)
