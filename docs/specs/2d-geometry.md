@@ -459,6 +459,8 @@ in the geometry colour** (`QPen(geom_colour, 1, Qt.PenStyle.DashLine)` +
 > below are shared machinery, exercised in those authoring scenes (not the plan scene). Legacy
 > loose plan-scene geometry is clean-dropped on load (C8).
 
+**Auto Constrain (AC1, 2026-10-16):** in the Block Editor, line / reference-line / polyline placement clicks that land on snaps may record constraints inside the placement's undo step — owned by `parametric-constraint-system.md` §13 (D138–D147).
+
 Placement is **single-placement** for 2D geometry + Architecture (user,
 2026-09-16, reverting the 2026-08-24 always-continuous default): a completed
 placement returns to **Select** with the just-placed item selected (so its
