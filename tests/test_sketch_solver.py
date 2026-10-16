@@ -1363,6 +1363,23 @@ def test_tangent_const_radius_curves_read_r_const():
     _fd_check(s.rows[0], s.x)
 
 
+def test_tangent_internal_with_a_const_second_curve_and_coincident_centres():
+    big = _circ(0)                                                   # r var x[2]
+    small = ss.CurveExpr(center=ss.raw_point(3, 4), r=None, r_const=10.0)
+    s = ss.System(x=np.array([0.0, 0.0, 50.0, 30.0, 0.0]))
+    ss.BUILDERS["tangent"]("t", (big, small), s, helper={"internal": True})
+    (row,) = s.rows
+    r, g = row.fn(s.x)
+    assert r == pytest.approx(30.0 - (50.0 - 10.0))
+    assert g[row.deps.index(2)] == pytest.approx(-1.0)              # only r1 is a variable
+    _fd_check(row, s.x)
+    s.x[3] = 0.0                                                     # centres coincide
+    r, g = row.fn(s.x)
+    assert r == pytest.approx(-40.0)
+    assert g[row.deps.index(2)] == pytest.approx(-1.0)
+    assert not any(g[row.deps.index(i)] for i in (0, 1, 3, 4))       # no direction
+
+
 def test_tangent_removes_one_dof_and_solve_lands_tangent_keeping_radius():
     x = np.array([0.0, 100.0, 200.0, 100.0, 100.0, 0.0, 50.0])
     s = ss.System(x=x.copy())
