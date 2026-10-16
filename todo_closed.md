@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS12 Tangent — 2026-10-16
+
+- [x] [type:feature] CS12 — Tangent (line–arc/circle, arc–arc) [P1] [subject:CAD] [done:2026-10-16]
+  - Details: spec §7.3 (signed distance + `helper.side` / `helper.internal`). Depends CS11.
+  - Built: `feat/cs12-tangent` (base `e0427142`; feature/Medium, FP3 deltas as FP1 rulings T1-T6; inline, per-task Sonnet reviews). Any straight edge + circle / arc, or two circles / arcs, no axis (T1); `tangent` record edge-first, `helper.side` (edge + curve) / `helper.internal` (two curves, larger radius first) captured from the nearest tangency of the current geometry (T2, `_tangent_record`); least change through the translate-first pass -- radii kept when a move suffices (T3, P4-probed); one glyph per ref (T4); exactly two selected add at once, nothing -> pick mode, else disabled; small Tangent button after Equal (T5); arcs on their full circle (T6). Copies keep it; a reflection (Mirror copy / in-place Flip) negates `side`; two refs inside one rigid block refused when already touching, else red. Guards RED-proven via red-proof.ps1 (14 proofs, 19 guard runs). Keep-green: the constraint / sketch / coupled ribbon set green; only the filed host-load D18 rect-heavy bars failed, the commit bar equally at base in 2 alternating pairs. No full suite (user ruling: Medium tier). User smoke passed.
+
 ## Block Editor constraint system — CS11 Equal — 2026-10-16
 
 - [x] [type:feature] CS11 — Equal (lengths / radii) [P1] [subject:CAD] [done:2026-10-16]
