@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-16 (AC1 /todo run, Phase 3); unbuilt. On landing, promoted into parametric-constraint-system.md §13 + D138-D147 -- that spec becomes the one home, this doc the design record
+status: current           # BUILT 2026-10-16 (feat/ac1-auto-constrain, merged ebd7dc0c); promoted into parametric-constraint-system.md §13 + D138-D147 -- that spec is the one home, this doc the design record. Build deltas: gridline clicks never capture; the toggle reads / writes a fresh QSettings; auto_join drops a record that raises
 last-verified: 2026-10-16
-verified-commit: 55c78f02
+verified-commit: ebd7dc0c
 applies-to:
   - firepro3d/auto_constrain.py           # NEW pure: snap-type map, handle_candidates, resolve_snap, plan_joins
   - firepro3d/constraint_controller.py    # auto_join (muted clean-only add, no undo push); PickState._candidates -> handle_candidates
