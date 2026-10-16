@@ -6,7 +6,7 @@ def test_catalogue_declares_every_session_type():
     names = {t.value for t in sm.ConstraintType}
     assert {"horizontal", "vertical", "coincident", "point_on_curve", "concentric",
             "symmetric", "fix", "parallel", "perpendicular", "equal", "tangent",
-            "midpoint", "collinear", "dim_distance", "dim_point_line",
+            "collinear", "dim_distance", "dim_point_line",
             "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle"} == names
 
 
@@ -84,9 +84,9 @@ def test_unknown_or_unbuilt_record_is_inert_and_verbatim():
     assert c.inert
     assert c.to_dict() == raw
     built_later = sm.Constraint.from_dict(
-        {"id": "x2", "type": "midpoint",
-         "refs": [{"uid": "a", "h": "p1"}, {"uid": "b", "h": "edge"}]})
-    assert built_later.inert          # declared but not implemented (CS13)
+        {"id": "x2", "type": "collinear",
+         "refs": [{"uid": "a", "h": "edge"}, {"uid": "b", "h": "edge"}]})
+    assert built_later.inert          # declared but not implemented (CS14)
 
 
 def test_registry_tangent_built():

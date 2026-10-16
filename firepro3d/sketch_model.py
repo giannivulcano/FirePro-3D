@@ -46,7 +46,6 @@ class ConstraintType(str, Enum):
     PERPENDICULAR = "perpendicular"
     EQUAL = "equal"
     TANGENT = "tangent"
-    MIDPOINT = "midpoint"
     COLLINEAR = "collinear"
     DIM_POINT_LINE = "dim_point_line"
 
@@ -84,7 +83,6 @@ REGISTRY: dict[str, TypeSpec] = {
     "perpendicular": TypeSpec("Perpendicular", (("edge", "edge"), ("edge", "axis")), 1, True),
     "equal": TypeSpec("Equal", (("edge", "edge"), ("curve", "curve")), 1, True),
     "tangent": TypeSpec("Tangent", (("edge", "curve"), ("curve", "curve")), 1, True),
-    "midpoint": TypeSpec("Midpoint", (("point", "edge"),), 2),
     "collinear": TypeSpec("Collinear", (("edge", "edge"),), 2),
     "dim_point_line": TypeSpec("Smart Dimension", (("point", "edge"), ("point", "axis")), 1, True),
 }

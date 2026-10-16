@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS13 Midpoint (dropped) — 2026-10-16
+
+- [x] [type:feature] CS13 — Midpoint [P1] [subject:CAD] [done:2026-10-16]
+  - Details: spec §7.3. Depends CS12. CS3b (2026-10-13): Coincident on a derived edge midpoint (D58) already pins p = (a+b)/2 — at the session, decide whether CS13 is a separate type (own glyph / file type) or a Coincident alias.
+  - Closed without a build (maint/Small re-type, user 2026-10-16): Coincident on an edge midpoint handle is the Midpoint (D127). Removed the unbuilt `midpoint` enum/registry row + `constraint_midpoint_icon.svg`; spec D127, §7.3, §12 row 13, D25 updated.
+
 ## Block Editor constraint system — CS12 Tangent — 2026-10-16
 
 - [x] [type:feature] CS12 — Tangent (line–arc/circle, arc–arc) [P1] [subject:CAD] [done:2026-10-16]

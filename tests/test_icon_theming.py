@@ -69,7 +69,7 @@ _CONSTRAINT_ICONS = [
     f"constraint_{k}_icon.svg" for k in (
         "smart_dimension", "horizontal", "vertical", "coincident", "concentric",
         "symmetric", "fix", "parallel", "perpendicular", "equal", "tangent",
-        "midpoint", "collinear", "show_constraints", "constraint_status",
+        "collinear", "show_constraints", "constraint_status",
         "delete_constraints")
 ]
 
