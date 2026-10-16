@@ -15,16 +15,22 @@ from PyQt6.QtWidgets import QApplication
 
 
 def make_view(role: str = "block_editor", scale: float = 0.25, mode: str | None = "select"):
-    """Return (view, scene): shown 800x600 Model_View, m11 == *scale*, centred on 0,0."""
+    """Return (view, scene): shown 800x600 Model_View, m11 == *scale*, centred on 0,0.
+
+    The view is deaf to the real OS mouse (``ignore_os_mouse``, test-harness
+    Invariant 9): a real cursor over the shown window would otherwise re-aim
+    snap / hover state between a test's posted events and its assertions.
+    """
     from firepro3d.level_manager import LevelManager
     from firepro3d.model_space import Model_Space
     from firepro3d.model_view import Model_View
     from firepro3d.scale_manager import ScaleManager
+    from tests._modify_tools_helpers import ignore_os_mouse
 
     scene = Model_Space(scene_role=role)
     scene._level_manager = LevelManager()
     scene.scale_manager = ScaleManager()
-    view = Model_View(scene)
+    view = ignore_os_mouse(Model_View(scene))   # before show(): no OS move lands
     view.resize(800, 600)
     view.show()
     QTest.qWaitForWindowExposed(view)

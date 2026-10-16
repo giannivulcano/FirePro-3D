@@ -21,8 +21,7 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 from firepro3d.halo import halo_scene_path
 from tests._modify_tools_helpers import (PRIMITIVES, add_primitive, grips,
                                          ignore_os_mouse)
-from tests._snap_polish_helpers import click, close_view, move
-from tests._snap_polish_helpers import make_view as _make_view
+from tests._snap_polish_helpers import click, close_view, make_view, move
 from tests.test_manip_reflect_scale import _assert_same_outline, _dense
 
 GEOM = [n for n in PRIMITIVES if not n.startswith("text")]
@@ -30,14 +29,6 @@ AXIS_X = 200.0
 HOVER = QPointF(AXIS_X + 2.0, 250.0)     # on the axis line, far from every item
 LINE0 = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]          # factory line grips
 LINE_FLIPPED = [(400.0, 0.0), (350.0, 0.0), (300.0, 0.0)]
-
-
-def make_view(**kw):
-    """The shared shown view, deaf to the real mouse: hover-driven axis state
-    must come only from the test's own events (the flake was a real cursor
-    moving over the window and re-aiming the axis mid-test)."""
-    view, scene = _make_view(**kw)
-    return ignore_os_mouse(view), scene
 
 
 def _nothing_to(tool):

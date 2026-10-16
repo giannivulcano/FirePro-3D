@@ -5,8 +5,8 @@ DD5 + acceptance M1 (folded into scene-tools.md D10 at Account). Every guard
 drives the real path: a shown Model_View over a real block_editor
 Model_Space, real mouse events, the real HUD (begin_dynamic_input / editor
 text / Tab / Esc / _accept), and asserts scene coordinates of the copies.
-The views ignore the real OS mouse (``ignore_os_mouse``) so a user's cursor
-over the test window cannot inject moves.
+The views ignore the real OS mouse (``make_view`` installs ``ignore_os_mouse``)
+so a user's cursor over the test window cannot inject moves.
 """
 import math
 
@@ -14,18 +14,11 @@ import pytest
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtTest import QTest
 
-from tests._modify_tools_helpers import add_primitive, ignore_os_mouse
+from tests._modify_tools_helpers import add_primitive
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 COS30 = math.cos(math.radians(30.0))
 SIN30 = math.sin(math.radians(30.0))
-
-
-def _view(**kw):
-    """A shown Model_View (``make_view``) deaf to the real OS mouse."""
-    view, scene = make_view(**kw)
-    ignore_os_mouse(view)
-    return view, scene
 
 
 def _type(scene, **fields):
@@ -44,7 +37,7 @@ def _centres(circles):
 def test_typed_count_prefills_the_next_array(qapp):
     """DD5 memory: a typed Count is remembered for the next Array on the same
     canvas (it used to fall back to the fixed default 3)."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")          # centre (0,0) r=50
         assert scene._modify_ctl.start("array")
@@ -89,7 +82,7 @@ def _tab_angle(scene, text):
 def test_typed_angle_30_places_copies_along_30_degrees_yup(qapp):
     """M1: Linear with a typed Angle 30° puts copy k at base + k·sp·(cos30,
     −sin30) in SCENE (Y-down) coordinates — up and to the right on screen."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")          # centre (0,0)
         p0 = scene._undo_pos
@@ -109,7 +102,7 @@ def test_typed_angle_30_places_copies_along_30_degrees_yup(qapp):
 def test_typed_angle_locks_direction_cursor_sets_spacing_only(qapp):
     """DD5: after Angle 30 + Tab, Esc hands back the cursor — which now sets
     only the spacing: the projection of base->cursor onto the 30° line."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -125,7 +118,7 @@ def test_typed_angle_locks_direction_cursor_sets_spacing_only(qapp):
 
 def test_typed_zero_angle_releases_the_lock(qapp):
     """DD5: 0 releases the lock — the cursor aims (direction + spacing) again."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -147,7 +140,7 @@ def test_typed_zero_angle_releases_the_lock(qapp):
 def test_typed_angle_lock_carries_to_the_next_array(qapp):
     """DD5 session memory: a typed Angle starts the next Array locked (and
     the typed Count pre-fills it)."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -171,7 +164,7 @@ def _ghost_centres(paths):
 
 def test_arrow_cycles_array_variants_only_before_the_base_pick(qapp):
     """M1: ←/→ cycles the Array variant at step 0 only (real key events)."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         add_primitive(scene, "circle")
         seen = []
@@ -197,7 +190,7 @@ def test_arrow_cycles_array_variants_only_before_the_base_pick(qapp):
 def test_grid_3x4_places_12_items_rows_go_up(qapp):
     """M1: 2D 3 × 4 places 12 items incl. the original; columns along +X,
     rows along +90° CCW (Y-up) — UP the screen, i.e. scene −Y."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         p0 = scene._undo_pos
@@ -218,7 +211,7 @@ def test_grid_3x4_places_12_items_rows_go_up(qapp):
 def test_grid_angle_30_rows_are_ccw_of_columns_in_yup(qapp):
     """DD5 handedness on scene coordinates: Angle 30° puts columns along
     (cos30, −sin30) and rows along (−sin30, −cos30) — 120° in Y-up."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -238,7 +231,7 @@ def test_grid_cursor_is_the_first_cells_far_corner(qapp):
     """DD5: the cursor is the first cell's diagonal corner (Cols × Rows from
     memory, default 3 × 3); the ghost is exactly what the click creates."""
     from firepro3d.transform_ghost import ghost_base_paths
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -257,7 +250,7 @@ def test_grid_cursor_is_the_first_cells_far_corner(qapp):
 def test_variant_and_typed_values_prefill_the_next_array(qapp):
     """M1: the variant + typed Cols/Rows pre-fill the next Array on the same
     canvas (session memory, per scene)."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -299,7 +292,7 @@ def _polar(view):
 
 
 def test_arrow_cycle_reaches_polar_and_wraps(qapp):
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         add_primitive(scene, "circle")
         seen = []
@@ -317,7 +310,7 @@ def test_arrow_cycle_reaches_polar_and_wraps(qapp):
 def test_polar_8_at_360_places_8_items_at_45_degree_steps_each_rotated(qapp):
     """M1: Polar 8 @ 360° = 8 items incl. the original at 45° steps about the
     centre, each copy TURNED (its own manip_rotate), CCW in Y-up."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         ln = _add_line(scene, (100, 0), (150, 0))
         p0 = scene._undo_pos
@@ -350,7 +343,7 @@ def test_polar_cursor_sweep_sets_total_ccw_and_ghost_matches(qapp):
     sets Total — 90° here, so the default Count 4 lands at 30/60/90° (Y-up,
     i.e. UP the screen); the ghost is exactly what the click creates."""
     from firepro3d.transform_ghost import ghost_base_paths
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         _add_line(scene, (100, 0), (150, 0))
         assert scene._modify_ctl.start("array")
@@ -372,7 +365,7 @@ def test_polar_skips_nodes_with_a_count(qapp):
     """DD5: Polar arrays what Rotate can turn; a Node (a zero-offset node paste
     merges onto its original) is skipped and counted in the status."""
     from firepro3d.gridline import GridlineItem
-    view, scene = _view(role="plan", scale=1.0)
+    view, scene = make_view(role="plan", scale=1.0)
     try:
         msgs = []
         scene._show_status = lambda m, timeout=5000: msgs.append(m)
@@ -412,7 +405,7 @@ def test_polar_total_is_the_sweep_never_a_remembered_typed_total(qapp):
     but is NOT remembered — the next Polar fills the default 360° until the
     cursor sweeps, then the ghost and the commit follow the sweep. Count is
     still remembered."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         _add_line(scene, (100, 0), (150, 0))
         assert scene._modify_ctl.start("array")
@@ -451,7 +444,7 @@ def test_wall_only_selection_refuses_array_up_front(qapp):
     """Review I3: paste_items cannot re-create a wall, so a wall-only
     selection is refused when Array starts (accurate reason), not at the
     commit with "Nothing arrayed"."""
-    view, scene = _view(role="plan", scale=1.0)
+    view, scene = make_view(role="plan", scale=1.0)
     try:
         msgs = []
         scene._show_status = lambda m, timeout=5000: msgs.append(m)
@@ -473,7 +466,7 @@ def test_polar_ghost_and_skip_count_leave_out_walls(qapp):
     honest."""
     from firepro3d.gridline import GridlineItem
     from firepro3d.transform_ghost import ghost_base_paths
-    view, scene = _view(role="plan", scale=1.0)
+    view, scene = make_view(role="plan", scale=1.0)
     try:
         msgs = []
         scene._show_status = lambda m, timeout=5000: msgs.append(m)
@@ -502,7 +495,7 @@ def test_polar_centre_pick_refused_when_nothing_can_rotate(qapp):
     """Review S3: Polar with nothing rotatable (a Node) refuses the centre
     pick with the reason; the tool stays live at step 0 (no base, ←/→ still
     cycles)."""
-    view, scene = _view(role="plan", scale=1.0)
+    view, scene = make_view(role="plan", scale=1.0)
     try:
         msgs = []
         scene._show_status = lambda m, timeout=5000: msgs.append(m)
@@ -536,7 +529,7 @@ def test_big_array_ghost_is_simplified_but_covers_the_commit(qapp):
     extent of what the click creates (the commit is uncapped)."""
     from firepro3d.constants import ARRAY_GHOST_FULL_MAX
     from firepro3d.transform_ghost import LiteGhostPath, ghost_base_paths
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "line")              # (0,0)-(100,0)
         _big_grid(view, scene, 15, 15, QPointF(0, 0), QPointF(120, -60))
@@ -570,7 +563,7 @@ def test_small_array_ghost_keeps_the_full_halo_paths(qapp):
     """At or below ARRAY_GHOST_FULL_MAX the ghost stays one HALO path per
     copy (the D11 style)."""
     from firepro3d.transform_ghost import LiteGhostPath
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         add_primitive(scene, "line")
         _big_grid(view, scene, 3, 3, QPointF(0, 0), QPointF(120, -60))
@@ -587,7 +580,7 @@ def test_50x50_grid_ghost_repaint_is_interactive(qapp):
     measured ~950 ms per repaint before the simplified ghost)."""
     import statistics
     import time
-    view, scene = _view(scale=0.012)
+    view, scene = make_view(scale=0.012)
     try:
         add_primitive(scene, "line")
         # 49 cells of 1300 x 800 mm fit the 800 x 600 view at 0.012. A cell
@@ -620,7 +613,7 @@ def test_polar_start_ray_points_at_the_selection_off_the_zero_ray(qapp):
     """Review I4: the sweep starts on the ray centre -> selection centre.
     The line sits at 270° (Y-up) from the centre; a 90° CCW sweep to 0°
     makes Total 90, so the default Count 4 lands at 300 / 330 / 0°."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         _add_line(scene, (0, 100), (0, 150))                  # 270° (scene +Y)
         assert scene._modify_ctl.start("array")
@@ -636,7 +629,7 @@ def test_locked_projection_at_or_behind_the_base_keeps_the_spacing(qapp):
     """Review I4 / C-8: with the Angle locked, a cursor whose projection on
     the locked direction is <= 0 keeps the previous spacing (the direction
     never flips, the spacing is never the projection's magnitude)."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -654,7 +647,7 @@ def test_locked_projection_at_or_behind_the_base_keeps_the_spacing(qapp):
 def test_typed_angle_equal_to_the_live_aim_does_not_lock(qapp):
     """Review I4: an Angle equal to the live (unlocked) aim is the readout,
     not a lock — the cursor keeps aiming direction + spacing."""
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
         assert scene._modify_ctl.start("array")
@@ -672,7 +665,7 @@ def test_polar_ghost_matches_the_commit_full_rects_of_a_rotated_rect(qapp):
     item (a rotated rectangle) — a ghost that moved copies without turning
     them would differ in size, not just position."""
     from firepro3d.transform_ghost import ghost_base_paths
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "rect_rotated")
         scene._array_memory["polar"]["Count"] = 3
@@ -708,7 +701,7 @@ def test_polar_ghost_matches_the_commit_full_rects_of_a_rotated_rect(qapp):
 def test_status_readout_shows_an_active_angle_lock(qapp):
     """Review S4: a session-sticky Angle lock is visible in the readout."""
     from firepro3d.scale_manager import ScaleManager
-    view, scene = _view(scale=1.0)
+    view, scene = make_view(scale=1.0)
     try:
         msgs = []
         scene._show_status = lambda m, timeout=5000: msgs.append(m)
