@@ -486,7 +486,7 @@ def test_rect_opposite_side_status_names_the_shared_width(qapp):
                                   "constrain_concentric", "constrain_symmetric",
                                   "constrain_fix", "constrain_parallel",
                                   "constrain_perpendicular", "constrain_equal",
-                                  "constrain_tangent"])
+                                  "constrain_tangent", "constrain_collinear"])
 def test_constraint_pick_modes_do_not_snap(be, mode):
     v, sc = be
     _line(sc, (0, 0), (300, 0))

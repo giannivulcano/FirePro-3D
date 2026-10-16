@@ -2589,6 +2589,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constrain_perpendicular": "Perpendicular",
         "constrain_equal": "Equal",
         "constrain_tangent": "Tangent",
+        "constrain_collinear": "Collinear",
         "constrain_dim_distance": "Smart Dimension",
     }
 
@@ -5104,7 +5105,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
         # Constraint Status (the DOF badge lives in the panel, D40/D41);
         # CS4 Smart Dimension (large, tool-first, D50); CS6 Concentric;
-        # CS7 Symmetric; CS8 Fix; CS9 Parallel; CS10 Perpendicular; CS11 Equal; CS12 Tangent.
+        # CS7 Symmetric; CS8 Fix; CS9 Parallel; CS10 Perpendicular; CS11 Equal; CS12 Tangent;
+        # CS14 Collinear.
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_d = gc.add_large_button(
@@ -5162,6 +5164,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("tangent", checked),
             checkable=True)
         self._block_mode_buttons["constrain_tangent"] = b_tg
+        b_co = gc.add_small_button(
+            "Collinear", self._modify_icon(icon_for("collinear")),
+            lambda checked: self._be_constrain("collinear", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_collinear"] = b_co
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5195,6 +5202,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Perpendicular": b_pp,
                                       "Equal": b_eq,
                                       "Tangent": b_tg,
+                                      "Collinear": b_co,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -5223,6 +5231,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                            "circles/arcs the same radius), or pick two")
         _editor_only(b_tg, "Tangent — make the selected line and circle/arc (or "
                            "two circles/arcs) touch, or pick two")
+        _editor_only(b_co, "Collinear — put the two selected lines on one line, "
+                           "or pick an edge and an edge or the X/Y axis")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -5317,6 +5327,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             sc._show_status({"concentric": "Select two circles/arcs, or nothing to pick",
                              "parallel": "Select two lines, or nothing to pick",
                              "perpendicular": "Select two lines, or nothing to pick",
+                             "collinear": "Select two lines, or nothing to pick",
                              "tangent": "Select a line and a circle/arc, or two "
                                         "circles/arcs, or nothing to pick"}.get(
                                 ctype, "Select one line, or nothing to pick points / an edge"),
@@ -5357,7 +5368,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Enable state of the Constrain / Inspect buttons (D12).
 
         Horizontal / Vertical / Concentric / Symmetric / Fix / Parallel /
-        Perpendicular / Equal / Tangent:
+        Perpendicular / Equal / Tangent / Collinear:
         enabled with nothing selected (pick mode) or a valid selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
         D32 show-all override. No-op with no editor tab current (the page's
@@ -5377,7 +5388,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         from firepro3d import sketch_model as sm
         for ctype in ("horizontal", "vertical", "concentric", "symmetric", "fix", "parallel",
-                      "perpendicular", "equal", "tangent"):
+                      "perpendicular", "equal", "tangent", "collinear"):
             b = btns.get(sm.REGISTRY[ctype].label)
             if b is not None and not sip.isdeleted(b):
                 b.setEnabled(not sel or ctl.selection_refs(ctype) is not None)

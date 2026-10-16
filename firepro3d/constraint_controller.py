@@ -3141,8 +3141,8 @@ class ConstraintController:
         everything. Coincident / point-on-curve / Concentric are kept under
         every transform (CS3, CS6). Symmetric is kept under every transform
         (an internal edge axis; an X / Y axis is a ground, so dropped) (CS7);
-        Parallel / Perpendicular between two edges are kept under every
-        transform (an axis is a ground, so dropped) (CS9 / CS10); Equal is
+        Parallel / Perpendicular / Collinear between two edges are kept under
+        every transform (an axis is a ground, so dropped) (CS9 / CS10 / CS14); Equal is
         kept under every transform (CS11); Tangent is kept under every
         transform (a reflection negates its ``side``) (CS12);
         Fix is dropped from every copy (CS8 F3).
