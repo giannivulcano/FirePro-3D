@@ -139,3 +139,77 @@ def test_plan_scene_records_nothing(qapp):
         assert sc.constraint_ctl.constraints == []
     finally:
         close_view(view, sc)
+
+
+def _key(view, key):
+    """Keys on the viewport, as the shipped placement tests post them
+    (test_arc_convention_tools Return, test_block_instance_delete Delete):
+    Return finishes, Delete pops, Esc cancels."""
+    view.setFocus()
+    QTest.keyClick(view.viewport(), key)
+    QApplication.processEvents()
+
+
+def _poly(view, sc, *pts, finish=Qt.Key.Key_Return):
+    sc.set_mode("polyline")
+    for p in pts:
+        move(view, QPointF(*p)); click(view, QPointF(*p))
+    if finish is not None:
+        _key(view, finish)
+
+
+def test_polyline_vertices_join_at_finish(vs):
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    b = _line(sc, (400, -100), (400, 300))
+    _poly(view, sc, (200, 0), (300, 200), (400, 77))
+    pl = sc._polylines[-1]
+    assert _recs(sc) == [
+        ("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)]),
+        ("point_on_curve", [(pl._uid, "v2", None), (b._uid, "edge", None)])]
+
+
+def test_no_join_recorded_mid_chain_and_esc_leaves_none(vs):
+    view, sc = vs
+    _line(sc, (0, 0), (200, 0))
+    sc.set_mode("polyline")
+    move(view, QPointF(200, 0)); click(view, QPointF(200, 0))
+    move(view, QPointF(300, 200)); click(view, QPointF(300, 200))
+    assert sc.constraint_ctl.constraints == []            # AD8: added at finish only
+    _key(view, Qt.Key.Key_Escape)
+    assert sc.constraint_ctl.constraints == [] and sc._polyline_active is None
+
+
+def test_two_vertex_finish_joins_land_on_the_line(vs):
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    n0 = len(sc._draw_lines)
+    _poly(view, sc, (200, 0), (300, 200))
+    assert len(sc._draw_lines) == n0 + 1
+    ln = sc._draw_lines[-1]
+    assert _recs(sc) == [("coincident", [(ln._uid, "p1", None), (a._uid, "p2", None)])]
+
+
+def test_delete_pop_drops_that_vertex_join(vs):
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    _line(sc, (500, 0), (700, 0))
+    sc.set_mode("polyline")
+    for p in ((200, 0), (300, 200), (500, 0)):            # v2 on b.p1 (joined)
+        move(view, QPointF(*p)); click(view, QPointF(*p))
+    _key(view, Qt.Key.Key_Delete)                         # pop v2 -> its target goes too
+    # Re-place v2 at the SAME point with Shift (no inference): a stale v2
+    # target left in the list would still match this point and join it.
+    move(view, QPointF(500, 0), SHIFT); click(view, QPointF(500, 0), SHIFT)
+    _key(view, Qt.Key.Key_Return)
+    pl = sc._polylines[-1]
+    assert _recs(sc) == [("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)])]
+
+
+def test_close_on_start_adds_no_extra_join(vs):
+    view, sc = vs
+    a = _line(sc, (0, 0), (200, 0))
+    _poly(view, sc, (200, 0), (300, 200), (100, 200), (200, 0), finish=None)
+    pl = sc._polylines[-1]
+    assert pl.is_closed()
+    assert _recs(sc) == [("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)])]

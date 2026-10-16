@@ -725,6 +725,7 @@ class GeometryDrawingController:
             self._scene.addItem(pl)
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
+            self._pl_joins = [self._capture(event)]            # AC1 AD3: v0
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick next point (Enter to finish)")
         else:
@@ -751,14 +752,15 @@ class GeometryDrawingController:
                     pl.setSelected(True)
                     self._scene.preview_pipe.hide()
                     for v in self._scene.views(): v.viewport().update()
+                    self.join_polyline(pl, pl)                 # AC1 AD8 (closing click adds none)
                     self._scene.push_undo_state()
                     self._scene.instructionChanged.emit("Pick first point")
                     self._scene._end_placement_switch(pl)
                     return
-            self._commit_polyline_at(tip)
+            self._commit_polyline_at(tip, join=self._capture(event))
         # don't let super() deselect items mid-draw
 
-    def _commit_polyline_at(self, tip):
+    def _commit_polyline_at(self, tip, join=None):
         """Append one vertex to the active polyline at ``tip``.
 
         The commit half of :meth:`_press_polyline`, split out so that Dynamic
@@ -771,6 +773,11 @@ class GeometryDrawingController:
         the placement stays live afterwards: the new vertex becomes the next
         anchor, so the HUD is reseeded for the following segment.
 
+        Args:
+            tip: The vertex to append (scene mm).
+            join: The clicked vertex's Auto Constrain target (AC1 AD3); None
+                when typed (AD5).
+
         Returns:
             True when a vertex was appended, False when no polyline is active.
         """
@@ -778,10 +785,38 @@ class GeometryDrawingController:
         if pl is None:
             return False
         pl.append_point(tip)
+        self._pl_joins.append(join)                            # aligned with pl._points
         # The published point described the segment just committed; the next
         # frame republishes from the new anchor.
         self._scene.clear_placement_state()
         return True
+
+    def join_polyline(self, pl, placed) -> None:
+        """AC1 AD8: plan + add the finished chain's vertex joins, once, before
+        the finish's undo push. *placed* is the committed item -- *pl* itself,
+        or the LineItem a 2-vertex finish replaced it with (handles remapped
+        v0/v1/s0/m0 -> p1/p2/edge/mid, the chain's own uid -> the line's)."""
+        joins, self._pl_joins = self._pl_joins, []
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return
+        swap = placed is not pl
+        pl_uid, uid = getattr(pl, "_uid", None), getattr(placed, "_uid", None)
+        recs = []
+        for i, (pt, t) in enumerate(zip(pl._points, joins)):
+            if not ac.matches(t, pt):
+                continue
+            h, inc = f"v{i}", (f"s{i - 1}" if i > 0 else None)
+            if swap:
+                h, inc = ac.remap_handle(h), (ac.remap_handle(inc) if inc else None)
+                ref = t.ref
+                if ref.get("uid") == pl_uid:
+                    mh = ac.remap_handle(ref.get("h", ""))
+                    if mh is None:
+                        continue
+                    t = ac.Target(t.kind, {"uid": uid, "h": mh}, t.point, t.perpendicular)
+            recs += ac.plan_joins(uid, h, inc, t)
+        ctl.auto_join(recs)
 
     # ── Rectangle (3-click: base → side (angle + W) → depth (H), ellipse-like;
     #    2d-geometry.md §4.  The committer _commit_rectangle_rotated is shared;
