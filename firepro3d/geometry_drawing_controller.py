@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtCore import Qt, QPointF, QRectF, QSettings
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath
 from PyQt6.QtWidgets import (QGraphicsRectItem, QGraphicsEllipseItem,
                              QGraphicsLineItem, QGraphicsPathItem,
@@ -31,7 +31,9 @@ from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
                                     ArcItem, RegularPolygonItem,
                                     rect_side_ghost, rect_signed_depth,
                                     rect_from_side_and_depth, apply_rect_ghost)
-from .constants import SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX
+from . import auto_constrain as ac
+from .constants import (SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX,
+                        AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT)
 from .stroke_style import apply_current
 
 
@@ -65,6 +67,9 @@ class GeometryDrawingController:
         # Live placement ghosts a Space reference toggle recolours (RG8).
         # Transient UI handles only -- never persisted geometry state.
         self._ghosts: list = []
+        # AC1 AD3: per-click Auto Constrain targets (resolved at press).
+        self._line_anchor_join = None     # the armed line's click-1 Target
+        self._pl_joins: list = []         # active polyline: one Target|None per vertex
 
     # ── Reference-placement ghost cue (RG8) ──────────────────────────────────
 
@@ -203,6 +208,38 @@ class GeometryDrawingController:
         # Drop ghosts removed above; a same-mode set_mode keeps the survivors.
         self._ghosts = [g for g in self._ghosts if self._is_live_ghost(g, s)]
 
+    # ── Auto Constrain capture (AC1 AD2-AD5) ──────────────────────────────
+    def _auto_infer(self, event) -> bool:
+        """AD2: infer on this press = toggle XOR Shift; never on a synthetic
+        (typed / track-first) press or outside the Block Editor."""
+        if event is None:
+            return False
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return False
+        on = QSettings("GV", "FirePro3D").value(
+            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        return on != shift
+
+    def _capture(self, event):
+        """AD3: this click's target from its live snap, or None."""
+        if not self._auto_infer(event):
+            return None
+        return ac.resolve_snap(getattr(self._scene, "_snap_result", None))
+
+    def _join_line(self, item, anchor, tip, tip_join) -> None:
+        """AD7/AD9: plan + add the line's joins (before the commit's push)."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        uid = getattr(item, "_uid", None)
+        if ctl is None or not ctl.enabled or uid is None:
+            return
+        recs = []
+        for h, pt, t in (("p1", anchor, self._line_anchor_join), ("p2", tip, tip_join)):
+            if ac.matches(t, pt):
+                recs += ac.plan_joins(uid, h, "edge", t)
+        ctl.auto_join(recs)
+
     # ── Line (shared with draw_gridline; the item factory _make_line_like
     #    stays scene-side because it builds a GridlineItem in gridline mode) ────
 
@@ -244,6 +281,9 @@ class GeometryDrawingController:
         _is_grid = self._scene.mode == "draw_gridline"
         if self._scene._draw_line_anchor is None:
             self._scene._draw_line_anchor = snapped
+            # AC1 AD3; a gridline click never joins (the anchor survives a
+            # draw_gridline -> draw_line switch, so draw_line clicks only).
+            self._line_anchor_join = None if _is_grid else self._capture(event)
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick end point" if _is_grid else "Pick second point")
         else:
@@ -251,9 +291,10 @@ class GeometryDrawingController:
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._scene._constrain_angle(self._scene._draw_line_anchor, snapped)
-            self._commit_draw_line_at(tip)
+            self._commit_draw_line_at(
+                tip, tip_join=None if _is_grid else self._capture(event))
 
-    def _commit_draw_line_at(self, tip):
+    def _commit_draw_line_at(self, tip, tip_join=None):
         """Commit the armed line-like placement, ending at ``tip``.
 
         This is the commit half of :meth:`_press_draw_line`, split out so that
@@ -267,6 +308,11 @@ class GeometryDrawingController:
 
         The item factory ``_make_line_like`` stays scene-side (dual-concern:
         it builds a ``GridlineItem`` in ``draw_gridline`` mode).
+
+        Args:
+            tip: The line's end point (scene mm).
+            tip_join: The clicked tip's Auto Constrain target (AC1 AD3); None
+                for a typed tip (AD5).
 
         Returns:
             True when a line was committed, False when it was refused (no
@@ -286,6 +332,9 @@ class GeometryDrawingController:
                 timeout=2000)
             return False
         item = self._scene._make_line_like(anchor, tip)
+        if self._scene.mode == "draw_line":
+            self._join_line(item, anchor, tip, tip_join)          # AC1, before the push (AD10)
+        self._line_anchor_join = None
         for v in self._scene.views(): v.viewport().update()
         self._scene._draw_line_anchor = None
         self._scene.clear_placement_state()
@@ -680,6 +729,7 @@ class GeometryDrawingController:
             self._scene.addItem(pl)
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
+            self._pl_joins = [self._capture(event)]            # AC1 AD3: v0
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick next point (Enter to finish)")
         else:
@@ -706,14 +756,15 @@ class GeometryDrawingController:
                     pl.setSelected(True)
                     self._scene.preview_pipe.hide()
                     for v in self._scene.views(): v.viewport().update()
+                    self.join_polyline(pl, pl)                 # AC1 AD8 (closing click adds none)
                     self._scene.push_undo_state()
                     self._scene.instructionChanged.emit("Pick first point")
                     self._scene._end_placement_switch(pl)
                     return
-            self._commit_polyline_at(tip)
+            self._commit_polyline_at(tip, join=self._capture(event))
         # don't let super() deselect items mid-draw
 
-    def _commit_polyline_at(self, tip):
+    def _commit_polyline_at(self, tip, join=None):
         """Append one vertex to the active polyline at ``tip``.
 
         The commit half of :meth:`_press_polyline`, split out so that Dynamic
@@ -726,6 +777,11 @@ class GeometryDrawingController:
         the placement stays live afterwards: the new vertex becomes the next
         anchor, so the HUD is reseeded for the following segment.
 
+        Args:
+            tip: The vertex to append (scene mm).
+            join: The clicked vertex's Auto Constrain target (AC1 AD3); None
+                when typed (AD5).
+
         Returns:
             True when a vertex was appended, False when no polyline is active.
         """
@@ -733,10 +789,47 @@ class GeometryDrawingController:
         if pl is None:
             return False
         pl.append_point(tip)
+        self._pl_joins.append(join)                            # aligned with pl._points
         # The published point described the segment just committed; the next
         # frame republishes from the new anchor.
         self._scene.clear_placement_state()
         return True
+
+    def discard_pl_joins(self, keep: int = 0) -> None:
+        """AC1 AD8: drop the vertex targets past the first *keep* -- the
+        Delete-key vertex pop (``keep`` = the remaining vertex count) or a
+        discarded chain (0), so the list stays aligned with ``pl._points``."""
+        del self._pl_joins[keep:]
+
+    def join_polyline(self, pl, placed) -> None:
+        """AC1 AD8: plan + add the finished chain's vertex joins, once, before
+        the finish's undo push. *placed* is the committed item -- *pl* itself,
+        or the LineItem a 2-vertex finish replaced it with (handles remapped
+        v0/v1/s0/m0 -> p1/p2/edge/mid, the chain's own uid -> the line's)."""
+        joins, self._pl_joins = self._pl_joins, []
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return
+        swap = placed is not pl
+        pl_uid, uid = getattr(pl, "_uid", None), getattr(placed, "_uid", None)
+        recs = []
+        for i, (pt, t) in enumerate(zip(pl._points, joins)):
+            if not ac.matches(t, pt):
+                continue
+            h, inc = f"v{i}", (f"s{i - 1}" if i > 0 else None)
+            if swap:
+                h, inc = ac.remap_handle(h), (ac.remap_handle(inc) if inc else None)
+                ref = t.ref
+                # Defensive: a 2-vertex chain's own handles can only be a
+                # zero-length self-join (refused anyway), but a self-ref must
+                # never name the removed polyline.
+                if ref.get("uid") == pl_uid:
+                    mh = ac.remap_handle(ref.get("h", ""))
+                    if mh is None:
+                        continue
+                    t = ac.Target(t.kind, {"uid": uid, "h": mh}, t.point, t.perpendicular)
+            recs += ac.plan_joins(uid, h, inc, t)
+        ctl.auto_join(recs)
 
     # ── Rectangle (3-click: base → side (angle + W) → depth (H), ellipse-like;
     #    2d-geometry.md §4.  The committer _commit_rectangle_rotated is shared;

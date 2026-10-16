@@ -125,6 +125,8 @@ Revit solves this by making targets **named** ("centerline-end-A", "face-left-co
 
 **Pick modes take no cursor snap (not snap-by-tool):** modes that pick *existing* geometry with their own picker get no cursor SNAP / ALIGN / grid at all (`get_effective_position` returns the raw cursor, no glyph) — the Flip / Mirror axis step (`scene-tools.md`) and the Block Editor constraint pick modes `constrain_*` (`parametric-constraint-system.md` D21/D57, CS4 smoke 2026-10-03). No mode gets a *different* snap set.
 
+**Snaps as constraints (AC1, 2026-10-16):** in the Block Editor a placement click's snap may become a constraint (Auto Constrain — `parametric-constraint-system.md` §13); the engine itself is unchanged and `OsnapResult` still carries no handle identity (the constraint side recovers it from the point).
+
 ---
 
 ## 4. Snap type catalog

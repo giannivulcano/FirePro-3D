@@ -27,11 +27,12 @@ from PyQt6.QtGui import QPen, QPolygonF
 
 from . import sketch_model as sm
 from . import theme as _theme
+from .auto_constrain import item_handles, seg_dist as _seg_dist
 from .geometry_2d import SplineItem
 from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, ItemExpr, NumpySolver, System, W_EDIT,
-                            W_PIN, const_point, curve_radius)
+                            W_PIN, const_point)
 from .text_item import TextItem
 from .theme import M
 
@@ -210,15 +211,6 @@ def _xy(p) -> tuple[float, float]:
     return (p.x(), p.y())
 
 
-def _seg_dist(p, a, b) -> float:
-    """Distance from *p* to segment *ab* (all viewport px)."""
-    ax, ay, bx, by = a.x(), a.y(), b.x(), b.y()
-    dx, dy = bx - ax, by - ay
-    L2 = dx * dx + dy * dy or 1e-12
-    t = max(0.0, min(1.0, ((p.x() - ax) * dx + (p.y() - ay) * dy) / L2))
-    return math.hypot(p.x() - ax - t * dx, p.y() - ay - t * dy)
-
-
 def _vp_to_scene(view, vp_pt) -> QPointF:
     """Exact scene point of a viewport-px point (no int rounding)."""
     inv, _ok = view.viewportTransform().inverted()
@@ -262,28 +254,7 @@ class PickState:
         axes = ((curvy and self.ctype not in ("equal", "tangent"))    # CS11 E1 / CS12 T1: no axis
                 or self.ctype in ("parallel", "perpendicular", "collinear"))   # CS9 P1 / CS10 PP1 / CS14 C1
         for it in self.ctl.items():
-            uid = getattr(it, "_uid", None)
-            if uid is None:
-                continue
-            ad = adapter_for(it)
-            x = np.array(ad.read(it), dtype=float)
-            mids = ad.mid_names(it)
-            hidden = ad.hidden_names(it)
-            for name, e in ad.points(it, 0).items():
-                if name in hidden:                    # CS3c: legacy text ins
-                    continue
-                # CS3b: b = "mid" tags an edge midpoint (a triangle marker).
-                yield ("point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]),
-                       "mid" if name in mids else None)
-            for name, (a, b) in ad.edges(it, 0).items():
-                yield ("edge", {"uid": uid, "h": name},
-                       QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
-            if curvy:
-                for name, cv in ad.curves(it, 0).items():
-                    if name in hidden:                # CS5 D79: defining circles
-                        continue
-                    yield ("curve", {"uid": uid, "h": name},
-                           QPointF(*cv.center.eval(x)[0]), (curve_radius(cv, x), it))
+            yield from item_handles(it, curvy=curvy)
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
         if axes:
             yield "axis", {"ref": "x_axis"}, None, None
@@ -525,6 +496,7 @@ class ConstraintController:
         self.red: set[str] = set()
         self._commit_gen = 0           # bumps on every commit-level change (diagnostics key)
         self._diag = None              # (key, SketchDiag)
+        self._mute = 0                 # AC1 AD9: auto_join suppresses status
         self._tint_memo = None         # (token, SketchDiag, {uid: state}) -- H-MW-g
         self._tint_colors = None       # (Theme, {state: QColor}) -- H-MW-g
         self._build_cache = None       # (key, sys, slots, base) -- D18 _build reuse
@@ -1272,6 +1244,8 @@ class ConstraintController:
                               else self._status(CONFLICT_STATUS))
 
     def _status(self, msg: str) -> None:
+        if self._mute:                  # AC1 AD9: auto adds post nothing
+            return
         show = getattr(self._scene, "_show_status", None)
         if callable(show):
             show(msg, 5000)
@@ -2066,6 +2040,61 @@ class ConstraintController:
             elif any(c.id in self.diagnostics().redundant for c in out):
                 self._status(REDUNDANT_STATUS)   # D42 (review M2)
         return out
+
+    def auto_join(self, records) -> list:
+        """AC1 AD9: add Auto Constrain joins clean-only, inside the caller's
+        undo step.
+
+        Each ``(ctype, refs)`` goes through :meth:`add` uncommitted with the
+        status muted; a refused record is skipped, a red one (the solve held
+        last good -- nothing written, D10) or a redundant one is removed again.
+        Then one settle (D37 re-check, diagnostics key, repaint, panel)
+        WITHOUT ``push_undo_state`` -- the placement's own push captures the
+        shape + its joins as one step (AD10). Posts no status.
+
+        Returns:
+            The kept constraints.
+        """
+        if not self.enabled or not records:
+            return []
+        kept = []
+        self._mute += 1
+        try:
+            for ctype, refs in records:
+                n0 = len(self.constraints)
+                # Never let a join break the placement: any raise drops this
+                # record (whatever it appended) and the batch carries on.
+                try:
+                    c = self.add(ctype, refs, _commit=False)
+                    if c is None:
+                        continue
+                    if c.id in self.red or c.id in self.diagnostics().redundant:
+                        self.constraints = [k for k in self.constraints if k.id != c.id]
+                        self.red.discard(c.id)
+                        continue
+                except Exception:
+                    _log.exception("Auto Constrain: dropped a %s join", ctype)
+                    dropped = {k.id for k in self.constraints[n0:]}
+                    del self.constraints[n0:]
+                    self.red -= dropped
+                    continue
+                kept.append(c)
+            if kept:
+                try:
+                    self._recheck_red(tuple(c.id for c in kept))
+                except Exception:
+                    _log.exception("Auto Constrain: red re-check failed")
+        finally:
+            self._mute -= 1
+        if kept:
+            self._commit_gen += 1
+            try:
+                self._repaint()
+                self._notify_state()
+                self._refresh_panel()
+            except Exception:
+                _log.exception("Auto Constrain: settle failed")
+        return kept
 
     def _point_line_side(self, c) -> int:
         """D81: the ``side`` (±1) whose signed distance (``_on_line``'s

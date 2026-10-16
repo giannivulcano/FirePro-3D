@@ -23,7 +23,7 @@ NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
                     "Concentric", "Symmetric", "Fix", "Parallel", "Perpendicular", "Equal",
-                    "Tangent", "Collinear", "Show Constraints",
+                    "Tangent", "Collinear", "Auto Constrain", "Show Constraints",
                     "Constraint Status", "Delete Constraints"}
 
 
@@ -189,7 +189,7 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
         == {"Smart Dimension", "Horizontal", "Vertical",
             "Coincident", "Concentric", "Symmetric", "Fix",
             "Parallel", "Perpendicular", "Equal", "Tangent",
-            "Collinear"}  # no greyed placeholders (D15)
+            "Collinear", "Auto Constrain"}  # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS

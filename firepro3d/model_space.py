@@ -5559,6 +5559,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         placed.setSelected(True)
         for v in self.views():
             v.viewport().update()
+        self._geom_ctl.join_polyline(pl, placed)   # AC1 AD8, inside the finish's undo step
         self.push_undo_state()
         self.instructionChanged.emit("Pick first point")
         self._end_placement_switch(placed)
@@ -6493,10 +6494,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if pl in self._polylines:
                 self._polylines.remove(pl)
             self._polyline_active = None
+            self._geom_ctl.discard_pl_joins()
             self._hide_close_ring()
             self.instructionChanged.emit("Pick first point")
         else:
             pl._points.pop()
+            self._geom_ctl.discard_pl_joins(len(pl._points))   # AC1 AD8: the popped vertex's target
             pl._rebuild_path()
             self._hide_close_ring()
         for v in self.views(): v.viewport().update()
@@ -7506,6 +7509,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts = self._polyline_active._points
             if len(pts) > 2:
                 pts.pop()
+                self._geom_ctl.discard_pl_joins(len(pts))   # AC1 AD8: keep the list aligned
             self._finish_polyline()
             event.accept()
             return

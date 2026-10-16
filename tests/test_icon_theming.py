@@ -70,7 +70,7 @@ _CONSTRAINT_ICONS = [
         "smart_dimension", "horizontal", "vertical", "coincident", "concentric",
         "symmetric", "fix", "parallel", "perpendicular", "equal", "tangent",
         "collinear", "show_constraints", "constraint_status",
-        "delete_constraints")
+        "delete_constraints", "auto_constrain")
 ]
 
 

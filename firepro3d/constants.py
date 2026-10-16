@@ -361,6 +361,9 @@ DIM_SHORT_LEADER_PX = 12.0        # D66: outside terminators sit on stubs this l
 DIM_TERM_PX_PER_MM = 2.5          # D61: terminator end block, px per authored mm
 DIM_TERM_FALLBACK_MM = (3.0, 1.0) # D61: built-in terminator length x width (mm, 3:1)
 DIM_TERMINATOR_KEY = "dimension/terminator"   # D61: QSettings -- End Types end name
+AUTO_CONSTRAIN_KEY = "constraint/auto_constrain"   # AC1 AD1: QSettings bool
+AUTO_CONSTRAIN_DEFAULT = True     # AC1 AD1: Auto Constrain is on until the user turns it off
+AUTO_CONSTRAIN_MATCH_TOL_MM = 1e-3  # AC1 AD4/AD6: snap point == handle / committed vertex (scene mm)
 DIM_TERMINATOR_DEFAULT = "Arrow"
 DIM_LEADER_SHOULDER_PX = 18.0     # CS5 D74: a radial leader runs this far past the curve
 DIM_EXT_DASH = (4.0, 3.0)         # CS5 D75: dashed muted extension to an angle arc
