@@ -101,13 +101,14 @@ def measure_key(c, by):
         return ("sweep", refs[0].get("uid"))
     if c.type == "dim_angle" and len(refs) == 2:
         return ("angle", frozenset(_point_id(r) for r in refs))       # any sector
-    if c.type == "dim_point_line" and len(refs) == 2:                 # D81
-        # Unordered: the same parallel pair picked either way round is one
-        # measure, so the point ref's midpoint handle maps back to its edge.
+    if c.type == "dim_point_line" and len(refs) == 2:                 # D81 / CS15 D134
         p, e = refs
-        if not sm.is_ground(p):
-            p = {"uid": p.get("uid"), "h": mid_edge_name(p.get("h")) or p.get("h")}
-        return ("point_line", frozenset((_point_id(p), _point_id(e))))
+        if mid_parallel(refs, by):
+            # D81: a parallel pair picked either way round is one measure, so
+            # the point ref's midpoint handle maps back to its edge.
+            p = {"uid": p.get("uid"), "h": mid_edge_name(p.get("h"))}
+            return ("point_line", frozenset((_point_id(p), _point_id(e))))
+        return ("point_line", _point_id(p), _point_id(e))              # CS15: ordered
     if len(refs) == 2:
         return frozenset((_point_id(refs[0]), _point_id(refs[1])))
     if len(refs) != 1 or sm.is_ground(refs[0]):
@@ -623,6 +624,23 @@ def _parallel_refs(refs, by):
     return [{"uid": refs[1]["uid"], "h": mid}, dict(refs[0])] if mid else None
 
 
+def mid_parallel(refs, by) -> bool:
+    """CS15 D134: *refs* (``[point, edge | axis]``) name an edge midpoint
+    whose own edge is parallel to -- and not -- the line: a D81 parallel
+    pair, measuring the distance between the two edges."""
+    if len(refs) != 2 or not all(isinstance(r, dict) for r in refs):
+        return False
+    p, line = refs
+    edge = None if sm.is_ground(p) else mid_edge_name(p.get("h"))
+    if edge is None:
+        return False
+    eref = {"uid": p.get("uid"), "h": edge}
+    if eref == line:
+        return False
+    pair = [eref, dict(line)] if sm.is_ground(line) else [dict(line), eref]
+    return _parallel_refs(pair, by) is not None
+
+
 def classify_dim(refs, by):
     """CS5 D69: ``(record type, refs)`` for a completed Smart Dimension
     pick, or None. Normalises polygon centre + vertex / side midpoint and
@@ -662,6 +680,8 @@ def classify_dim(refs, by):
         if par is not None:
             return "dim_point_line", par
         return "dim_angle", list(refs)
+    if kinds in (["point", "edge"], ["point", "axis"]):             # CS15 D133
+        return "dim_point_line", list(refs)
     if kinds == ["point", "curve"]:
         p, cv = refs
         it = by.get(cv.get("uid"))

@@ -563,10 +563,11 @@ def test_circle_centre_does_not_offer_its_own_outline(qapp):
     ps.picks, ps.kinds = [R(circ, "center")], ["point"]
     curves = {(r["uid"]) for k, r, _a, _b in ps._candidates() if k == "curve" and ps._allowed(k, r)}
     assert circ._uid not in curves
-    assert "arc" in ps.status() and "pick the arc for its angle" in ps.status()
+    assert "pick the arc for its angle" not in ps.status()          # D78: an arc centre only (CS15)
     ps.picks = [R(arc, "center")]
     curves = {(r["uid"]) for k, r, _a, _b in ps._candidates() if k == "curve" and ps._allowed(k, r)}
     assert curves == {arc._uid}
+    assert "pick the arc for its angle" in ps.status()
 
 
 # -- user ruling 2026-10-14: an OBLIQUE Flip of an axis dim is refused -----------

@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS15 Smart Dimension: point–line distance — 2026-10-16
+
+- [x] [type:feature] CS15 — Smart Dimension: point–line distance [P1] [subject:CAD] [done:2026-10-16]
+  - Details: spec §7.3 (signed, side in `helper`). Depends CS14. After CS15 the spec `status` → current. Note 2026-10-14: CS5 D81 already built the `dim_point_line` residual (as the parallel-edges linear dim); CS15 adds the point + line pick.
+  - Built: `feat/cs15-point-line-dim` (base `35a605fa`; feature/Medium, FP1 rulings Q1-Q4 + a review ruling; inline, one Sonnet group review + a fix-round review; Medium: keep-green 1069 + 9 red-proof.ps1 proofs, no full suite). D133 point (any handle / origin) then an edge or X/Y axis -> `dim_point_line` (point first only; arc-centre prompt now arcs only); D134 the D56 key folds an edge midpoint only for a parallel pair, else ordered; D135 typed value holds the line, moves the point (raw handle alone; shared-vertex / derived -> least change); D136 "Point is on the line"; D137 an origin -> line dim refuses a mirror missing the origin (held by the solve's honoured edit vars). User smoke passed 2026-10-16. Follow-up filed: block-instance Flip with an origin -> nested-edge dim.
+
 ## Block Editor constraint system — CS14 Collinear — 2026-10-16
 
 - [x] [type:feature] CS14 — Collinear [P1] [subject:CAD] [done:2026-10-16]

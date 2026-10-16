@@ -203,6 +203,7 @@ DIM_RECT_REPEAT_STATUS = ("Already dimensioned -- a rectangle's opposite sides "
 DIM_TEXT_STATUS = "Text boxes can't be dimensioned yet"                 # CS3c AC6
 DIM_ANGLE_ZERO_STATUS = "Pick an edge with length"                          # D77
 DIM_COLLINEAR_STATUS = "Lines are collinear -- nothing to dimension"        # D77/D81
+DIM_POINT_ON_LINE_STATUS = "Point is on the line -- nothing to dimension"  # CS15 D136
 
 
 def _xy(p) -> tuple[float, float]:
@@ -294,7 +295,7 @@ class PickState:
                 return kind in ("edge", "axis") and ref != (self.pending or [None])[0]
             if not self.picks:
                 return kind in ("point", "edge", "curve")
-            if kind == "point":
+            if kind in ("point", "edge", "axis"):     # CS15 D133: a 2nd point, or a line
                 return True
             p0 = self.picks[0]
             if not (kind == "curve" and isinstance(ref, dict)
@@ -330,6 +331,12 @@ class PickState:
         if self.ctype != "coincident":
             return kind == "point" or (kind == "edge" and not self.picks)
         return kind == "point" or not self.picks or self.kinds[0] == "point"
+
+    def _arc_centre(self, ref) -> bool:
+        """CS5 D69 / CS15: *ref* is an arc's ``center`` (the sweep pick)."""
+        from .geometry_2d import ArcItem
+        return (isinstance(ref, dict) and ref.get("h") == "center"
+                and isinstance(self.ctl.item_by_uid().get(ref.get("uid")), ArcItem))
 
     @staticmethod
     def _curve_vp(view, centre, r) -> tuple:
@@ -431,9 +438,13 @@ class PickState:
                 if self.pending_type == "dim_angle":
                     return f"{label}: click a sector to place the angle · Esc to cancel"
                 return f"{label}: click to place the dimension · Esc to cancel"
-            if n and self.picks[0].get("h") == "center":
-                return f"{label}: pick the arc for its angle, or a point ({n}/2) · Esc to cancel"
-            return (f"{label}: pick an edge, a circle / arc, or 2 points ({n}/2)"
+            if n and self._arc_centre(self.picks[0]):
+                return (f"{label}: pick the arc for its angle, a point, or a line / axis"
+                        f" ({n}/2) · Esc to cancel")
+            if n:                                             # CS15 D133
+                return (f"{label}: pick a 2nd point, or a line / axis for the distance"
+                        f" to it ({n}/2) · Esc to cancel")
+            return (f"{label}: pick an edge, a circle / arc, or a point ({n}/2)"
                     f" · Esc to cancel")
         return f"{label}: pick 2 points or 1 edge ({n}/2) · Esc to cancel"
 
@@ -2160,7 +2171,11 @@ class ConstraintController:
                 return INVALID_STATUS        # parallel pairs never get here (D81)
         m = self.measure(c)
         if c.type in sm.LENGTH_DIMS and m is not None and m <= DEGEN_EPS:
-            return DIM_COLLINEAR_STATUS if c.type == "dim_point_line" else DIM_ZERO_STATUS
+            if c.type != "dim_point_line":
+                return DIM_ZERO_STATUS
+            from .constraint_dims import mid_parallel     # CS15 D136
+            return (DIM_COLLINEAR_STATUS if mid_parallel(c.refs, self.item_by_uid())
+                    else DIM_POINT_ON_LINE_STATUS)
         rep = self._repeats_a_dim(c)
         if rep is not None:                       # D56: one dim per measure
             return (DIM_RECT_REPEAT_STATUS.format(rep[2])
@@ -2330,8 +2345,9 @@ class ConstraintController:
         return it, SimpleNamespace(apply=apply)
 
     def _pl_apply(self, c):
-        """D81: translate the second edge (the point's edge; raw ends only)
-        along the line's normal so the distance reads *v*; else None."""
+        """D81 / CS15 D135: hold the line, move the point along its normal so
+        the distance reads *v* -- an edge midpoint translates its edge (raw
+        ends only), a raw point handle moves alone; else None (least change)."""
         from types import SimpleNamespace
         from .constraint_dims import mid_edge_name
         by = self.item_by_uid()
@@ -2343,8 +2359,21 @@ class ConstraintController:
         h = pref.get("h")
         edge = mid_edge_name(h)
         ends = ad.edges(it, 0).get(edge) if edge else None
-        if ends is None or ends[0].raw is None or ends[1].raw is None:
-            return None
+        if ends is not None:
+            if ends[0].raw is None or ends[1].raw is None:
+                return None
+            raws = (ends[0].raw, ends[1].raw)
+        else:
+            pe = ad.points(it, 0).get(h)
+            if pe is None or pe.raw is None:
+                return None
+            raws = (pe.raw,)
+        lref = c.refs[1]
+        if isinstance(lref, dict) and lref.get("uid") == pref.get("uid"):
+            lends = ad.edges(it, 0).get(lref.get("h"))      # CS15 D135: the line is held
+            held = {k for q in (lends or ()) if q.raw is not None for k in q.raw}
+            if held & {k for r in raws for k in r}:
+                return None                         # a shared vertex: least change
         e = self.dim_ends(c, by)
         if e is None:
             return None
@@ -2357,7 +2386,7 @@ class ConstraintController:
         def apply(v):
             dlt = float(v) - n
             vals = list(ad.read(it))
-            for r in (ends[0].raw, ends[1].raw):
+            for r in raws:
                 vals[r[0]] += ux * dlt
                 vals[r[1]] += uy * dlt
             ad.write(it, vals)
