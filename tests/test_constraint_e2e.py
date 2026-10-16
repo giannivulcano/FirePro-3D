@@ -1273,3 +1273,67 @@ def test_e2e_equal_conflict_red_and_held(win_with_editor):
     c = sc.constraint_ctl.constraints[-1]
     assert c.type == "equal" and c.id in sc.constraint_ctl.red
     assert [(p.x(), p.y()) for p in (a._pt1, a._pt2, b._pt1, b._pt2)] == before
+
+
+# -- CS12 Tangent (real window, real ribbon, posted events) ----------------------
+
+def _sd(ln, k):
+    a, b = ln._pt1, ln._pt2
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    return ((k._center.x() - a.x()) * dy - (k._center.y() - a.y()) * dx) / math.hypot(dx, dy)
+
+
+def test_e2e_tangent_survives_a_grip_drag(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene(); view = win._test_editor.view
+    ln = _ln(sc, (-120, 80), (120, 80)); k = _circ(sc, (0, -40), 50)
+    _click_btn(win, "Tangent", ln, k)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["tangent"]
+    assert abs(_sd(ln, k)) == pytest.approx(float(k._radius), abs=1e-6)
+    sc.clearSelection(); ln.setSelected(True); QApplication.processEvents()
+    p0 = QPointF(ln._pt2)
+    _drag(view, p0, p0 + QPointF(0, 60))                         # tilt the line
+    assert ln._pt2.y() != pytest.approx(ln._pt1.y(), abs=1.0)     # really tilted
+    assert abs(_sd(ln, k)) == pytest.approx(float(k._radius), abs=1e-6)
+
+
+def test_e2e_tangent_undo_redo_save_reopen(win_with_editor):
+    win = win_with_editor
+    w = win._test_editor
+    sc = w.editor_scene; view = w.view
+    a = _circ(sc, (-60, 0), 30); b = _circ(sc, (60, 0), 20)
+    sc.push_undo_state()
+    _click_btn(win, "Tangent", a, b)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["tangent"]
+    ua, ub = a._uid, b._uid
+    _ctrl(view, Qt.Key.Key_Z)
+    assert sc.constraint_ctl.constraints == []
+    by = {k._uid: k for k in sc._draw_circles}                     # undo rebuilds the items
+    assert by[ua]._center.x() == pytest.approx(-60.0) and by[ub]._center.x() == pytest.approx(60.0)
+    _ctrl(view, Qt.Key.Key_Y)
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["tangent"]
+    sc.clearSelection()
+    defn = w.commit_block("cs12-e2e", "L", "S")
+    assert defn is not None
+    _close_tab(win, w)
+    w2 = win.block_editor_manager.edit_definition(defn.id)
+    QApplication.processEvents()
+    sc2 = w2.editor_scene
+    by = {k._uid: k for k in sc2._draw_circles}
+    (c,) = sc2.constraint_ctl.active()
+    assert c.type == "tangent" and c.helper == {"internal": False}
+    d = math.hypot(by[ub]._center.x() - by[ua]._center.x(), by[ub]._center.y() - by[ua]._center.y())
+    assert d == pytest.approx(float(by[ua]._radius) + float(by[ub]._radius), abs=1e-6)
+
+
+def test_e2e_tangent_conflict_red_and_held(win_with_editor):
+    win = win_with_editor
+    sc = win._active_scene()
+    ln = _ln(sc, (-80, 100), (80, 100)); k = _circ(sc, (0, 0), 30)
+    sc.constraint_ctl.add("fix", [{"uid": ln._uid, "h": "item"}])
+    sc.constraint_ctl.add("fix", [{"uid": k._uid, "h": "item"}])
+    before = [(ln._pt1.x(), ln._pt1.y()), (k._center.x(), k._center.y()), float(k._radius)]
+    _click_btn(win, "Tangent", ln, k)
+    c = sc.constraint_ctl.constraints[-1]
+    assert c.type == "tangent" and c.id in sc.constraint_ctl.red
+    assert [(ln._pt1.x(), ln._pt1.y()), (k._center.x(), k._center.y()), float(k._radius)] == before
