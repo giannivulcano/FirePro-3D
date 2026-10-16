@@ -32,7 +32,7 @@ from .geometry_2d import SplineItem
 from .paper_display import paper_pass_active
 from .sketch_adapters import ANG_WRITE_TOL, DEGEN_EPS, POS_WRITE_TOL, adapter_for
 from .sketch_solver import (BUILDERS, LIN_TOL, ItemExpr, NumpySolver, System, W_EDIT,
-                            W_PIN, const_point, curve_radius)
+                            W_PIN, const_point)
 from .text_item import TextItem
 from .theme import M
 

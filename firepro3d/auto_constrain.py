@@ -101,12 +101,15 @@ def resolve_snap(snap) -> Target | None:
                for kind, ref, a, _b in cands if kind == "point" and _close(a, p)]
         return Target("point", min(pts, key=lambda d: d[0])[1], xy) if pts else None
     per = t == "perpendicular"
-    edges = [(seg_dist(p, a, b), ref) for kind, ref, a, b in cands
-             if kind == "edge" and seg_dist(p, a, b) <= AUTO_CONSTRAIN_MATCH_TOL_MM]
+    edges = [(d, ref) for d, ref in ((seg_dist(p, a, b), ref)
+                                     for kind, ref, a, b in cands if kind == "edge")
+             if d <= AUTO_CONSTRAIN_MATCH_TOL_MM]
     if edges:
         return Target("edge", min(edges, key=lambda d: d[0])[1], xy, perpendicular=per)
-    for kind, ref, c, (r, _it) in ((k, rf, a, b) for k, rf, a, b in cands if k == "curve"):
-        if abs(math.hypot(p.x() - c.x(), p.y() - c.y()) - r) <= AUTO_CONSTRAIN_MATCH_TOL_MM:
+    for kind, ref, c, rb in cands:
+        if kind != "curve":
+            continue
+        if abs(math.hypot(p.x() - c.x(), p.y() - c.y()) - rb[0]) <= AUTO_CONSTRAIN_MATCH_TOL_MM:
             return Target("curve", ref, xy)
     return None
 
