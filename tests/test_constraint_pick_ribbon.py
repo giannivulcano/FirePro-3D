@@ -23,7 +23,7 @@ NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
                     "Concentric", "Symmetric", "Fix", "Parallel", "Perpendicular", "Equal",
-                    "Show Constraints",
+                    "Tangent", "Show Constraints",
                     "Constraint Status", "Delete Constraints"}
 
 
@@ -188,7 +188,7 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",
             "Coincident", "Concentric", "Symmetric", "Fix",
-            "Parallel", "Perpendicular", "Equal"}             # no greyed placeholders (D15)
+            "Parallel", "Perpendicular", "Equal", "Tangent"}  # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -900,7 +900,8 @@ def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
                                         ("Fix", "constrain_fix"),
                                         ("Parallel", "constrain_parallel"),
                                         ("Perpendicular", "constrain_perpendicular"),
-                                        ("Equal", "constrain_equal")])
+                                        ("Equal", "constrain_equal"),
+                                        ("Tangent", "constrain_tangent")])
 def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label, mode):
     """T6 review Minor 3: un-toggling a lit button ends its pick session."""
     win = win_with_editor
@@ -1008,3 +1009,58 @@ def test_equal_mixed_selection_posts_the_hint(win_with_editor, qapp):
     assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_equal"
     assert win.statusBar().currentMessage() == (
         "Select two or more lines, or two or more circles/arcs, or nothing to pick")
+
+
+# -- CS12 Tangent (T5) ----------------------------------------------------------
+
+def test_tangent_enable_state_and_selection_first(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    b = _btn(win, "Tangent")
+    assert b.toolTip()
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert b.isEnabled()                                       # nothing: pick mode
+    ln = _line(sc, (0, 100), (200, 100)); ln.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                   # one line
+    l2 = _line(sc, (0, 140), (200, 140)); l2.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not b.isEnabled()                                   # two lines
+    l2.setSelected(False)
+    k = _circle(sc, (100, 0), 50); k.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert b.isEnabled()
+    b.click(); qapp.processEvents()
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "tangent"
+    a, e = ln._pt1, ln._pt2
+    dx, dy = e.x() - a.x(), e.y() - a.y()
+    sd = ((k._center.x() - a.x()) * dy - (k._center.y() - a.y()) * dx) / math.hypot(dx, dy)
+    assert abs(abs(sd) - float(k._radius)) < 1e-6
+
+
+def test_tangent_invalid_selection_posts_the_hint(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    _line(sc, (0, 0), (50, 0)).setSelected(True)
+    _line(sc, (0, 30), (50, 30)).setSelected(True); qapp.processEvents()
+    win._be_constrain("tangent", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_tangent"
+    assert win.statusBar().currentMessage() == (
+        "Select a line and a circle/arc, or two circles/arcs, or nothing to pick")
+
+
+def test_tangent_pick_flow_edge_then_circle(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    sc.clearSelection()
+    ln = _line(sc, (-100, 80), (100, 80)); k = _circle(sc, (0, -20), 40)
+    _btn(win, "Tangent").click(); qapp.processEvents()
+    assert sc.mode == "constrain_tangent"
+    _pick(win, (50, 80))                                       # the edge
+    _pick(win, (40, -20))                                      # the circle's rim
+    (c,) = sc.constraint_ctl.constraints
+    assert c.type == "tangent"
+    assert c.refs == [{"uid": ln._uid, "h": "edge"}, {"uid": k._uid, "h": "curve"}]
+    assert abs(ln._pt1.y() - k._center.y()) == pytest.approx(float(k._radius), abs=1e-6)
+    assert sc.mode in (None, "select")

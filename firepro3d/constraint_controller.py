@@ -51,6 +51,7 @@ PARALLEL_TRIVIAL_STATUS = ("Those edges are already parallel by construction -- 
 PERPENDICULAR_TRIVIAL_STATUS = ("Those edges are already perpendicular by construction -- "
                                 "pick another edge")            # CS10
 EQUAL_TRIVIAL_STATUS = "Those are already equal by construction -- pick another"   # CS11
+TANGENT_TRIVIAL_STATUS = "Those are already tangent by construction -- pick another"   # CS12
 # CS10 PP5 / PP6: types whose add first tries turning the edges (lengths held).
 ROTATE_FIRST = ("parallel", "perpendicular")
 # D17 (CS3); "flipped" since the 2026-10-12 ruling: Flip refuses a fully
@@ -250,12 +251,12 @@ class PickState:
         ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``.
         Curves + axes are offered to Coincident and (CS5) Smart Dimension
         (and the later curve types); Parallel / Perpendicular (CS9 / CS10)
-        get the axes only; Equal (CS11) gets curves but no axes;
-        hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
-        ``ry``) never."""
+        get the axes only; Equal (CS11) and Tangent (CS12) get curves but
+        no axes; hidden handles (text ``ins``, polygon ``radius``, ellipse
+        ``rx`` / ``ry``) never."""
         curvy = self.ctype in ("coincident", "dim_distance", "concentric",
-                               "symmetric", "fix", "equal")
-        axes = ((curvy and self.ctype != "equal")                     # CS11 E1: no axis
+                               "symmetric", "fix", "equal", "tangent")
+        axes = ((curvy and self.ctype not in ("equal", "tangent"))    # CS11 E1 / CS12 T1: no axis
                 or self.ctype in ("parallel", "perpendicular"))       # CS9 P1 / CS10 PP1
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
@@ -310,6 +311,10 @@ class PickState:
             if n == 1:
                 return kind == self.kinds[0]
             return kind in ("edge", "axis")
+        if self.ctype == "tangent":                           # CS12 T1
+            if kind not in ("edge", "curve"):
+                return False
+            return not self.picks or kind == "curve" or self.kinds[0] == "curve"
         if self.ctype == "equal":                             # CS11 E1
             if kind not in ("edge", "curve"):
                 return False
@@ -399,6 +404,11 @@ class PickState:
                         "curve": "circle/arc"}.get(self.kinds[0], "point")
                 return f"{label}: pick the 2nd {what} (1/3) · Esc to cancel"
             return f"{label}: pick the axis -- an edge or the X/Y axis (2/3) · Esc to cancel"
+        if self.ctype == "tangent":                           # CS12 T5
+            what = ("pick an edge or a circle/arc, then a circle/arc" if not n
+                    else "pick a circle/arc" if self.kinds[0] == "edge"
+                    else "pick an edge or another circle/arc")
+            return f"{label}: {what} ({n}/2) · Esc to cancel"
         if self.ctype == "equal":                             # CS11 E5
             what = ("pick an edge or a circle/arc, then another of the same kind" if not n
                     else "pick another circle/arc" if self.kinds[0] == "curve"
@@ -787,6 +797,8 @@ class ConstraintController:
             return False
         if c.type == "symmetric" and not self._sym_helper_ok(c, by):
             return False
+        if c.type == "tangent" and not self._tangent_helper_ok(c, by):
+            return False
         kinds = tuple(self._ref_kind(r, by) for r in c.refs)
         if c.type == "dim_arc_angle" and None not in kinds:
             r0 = c.refs[0]
@@ -839,6 +851,18 @@ class ConstraintController:
             return isinstance(c.helper, dict) and isinstance(c.helper.get("swap"), bool)
         return True
 
+    def _tangent_helper_ok(self, c, by) -> bool:
+        """CS12: edge + curve needs ``helper.side`` ±1 (not a bool); two
+        curves need ``helper.internal`` (bool)."""
+        h = c.helper if isinstance(c.helper, dict) else {}
+        kinds = tuple(self._ref_kind(r, by) for r in c.refs)
+        if kinds == ("edge", "curve"):
+            s = h.get("side")
+            return s in (1, -1) and not isinstance(s, bool)
+        if kinds == ("curve", "curve"):
+            return isinstance(h.get("internal"), bool)
+        return True                                  # the pattern check rejects it
+
     def _identically_satisfied(self, c) -> bool:
         """CS3 pin: a point_on_curve whose residual is zero for ANY values of
         its items (a line's own end on its edge, an arc's own end on its
@@ -851,9 +875,10 @@ class ConstraintController:
         and its axis) is parallel for any values. CS10: a Perpendicular of a
         rectangle's / square polygon's adjacent sides. CS11: an Equal of a
         rectangle's / text box's opposite sides, two sides of one regular
-        polygon, or two nested curves of one radius."""
+        polygon, or two nested curves of one radius. CS12: a Tangent of a
+        line and a circle inside one rigid block that already touch."""
         if c.type not in ("point_on_curve", "concentric", "fix", "parallel",
-                          "perpendicular", "equal"):
+                          "perpendicular", "equal", "tangent"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
         if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
@@ -938,7 +963,7 @@ class ConstraintController:
         sys_ = System(x=np.array(x, dtype=float))
         for c in cons:
             kw = {"value": float(c.value)} if c.type in sm.VALUED else {}
-            if c.type in ("dim_angle", "dim_point_line", "symmetric", "fix"):
+            if c.type in ("dim_angle", "dim_point_line", "symmetric", "fix", "tangent"):
                 kw["helper"] = c.helper
             BUILDERS[c.type](c.id, self._ends(c, slots), sys_, **kw)
         return sys_, slots, np.array(w, dtype=float)
@@ -1385,8 +1410,9 @@ class ConstraintController:
 
     def _flip_dim_signs(self, items, point_map=None) -> tuple:
         """D76: negate σ of every angle dim (and ``side`` of every point-line
-        dim, D81) internal to *items* -- a reflection mirrors the sector /
-        side -- BEFORE the solve, so it keeps its value.
+        dim, D81, and of every edge + curve Tangent, CS12) internal to
+        *items* -- a reflection mirrors the sector / side -- BEFORE the
+        solve, so it keeps its value.
 
         A dim whose second ref is a ground axis is not reflected with its
         edge: with ``d`` the axis direction *point_map* sends it to, a mirror
@@ -1411,7 +1437,9 @@ class ConstraintController:
             angle = c.type == "dim_angle" and _angle_helper_ok(c.helper)
             pline = (c.type == "dim_point_line" and isinstance(c.helper, dict)
                      and c.helper.get("side") in (1, -1))
-            if not (angle or pline):
+            tan = (c.type == "tangent" and isinstance(c.helper, dict)
+                   and c.helper.get("side") in (1, -1))
+            if not (angle or pline or tan):
                 continue
             rel = 1                                   # +1 axis kept, -1 reversed, 0 oblique
             g = c.refs[1] if len(c.refs) == 2 else None
@@ -1430,7 +1458,7 @@ class ConstraintController:
                 c.helper["sign"] = -c.helper["sign"]
                 if rel < 0:
                     c.helper["dirs"][1] = -c.helper["dirs"][1]
-            elif rel > 0:
+            elif rel > 0:                             # a Tangent has no axis ref: rel 1
                 c.helper["side"] = -c.helper["side"]
         return out, refuse
 
@@ -1828,6 +1856,9 @@ class ConstraintController:
         auto. *helper* is the record's helper (D72 angle sector
         ``{"dirs", "sign"}``; D81 point-line ``{"side"}``). A Fix captures
         ``{"v0"}`` and a two-edge Symmetric ``{"swap"}`` when None (CS7 / CS8).
+        A Tangent is stored edge-first (two curves: internal -> the larger
+        first) with ``{"side"}`` / ``{"internal"}`` captured from the current
+        geometry (CS12 T2).
 
         A conflicting constraint is still admitted (D9) and the geometry holds
         its last good state (D10). Pushes one undo step -- unless *_commit*
@@ -1860,6 +1891,11 @@ class ConstraintController:
             swap = self._symmetric_swap(refs)
             if swap is not None:
                 c.helper = {"swap": swap}
+        if ctype == "tangent" and helper is None:
+            refs, th = self._tangent_record(refs)
+            c.refs = copy.deepcopy(refs)
+            if th is not None:
+                c.helper = th
         if ctype in sm.VALUED:
             refusal = self._dim_refusal(c)
             if refusal is not None:
@@ -1877,7 +1913,8 @@ class ConstraintController:
         if self._identically_satisfied(c):
             self._status({"parallel": PARALLEL_TRIVIAL_STATUS,
                           "perpendicular": PERPENDICULAR_TRIVIAL_STATUS,
-                          "equal": EQUAL_TRIVIAL_STATUS}.get(
+                          "equal": EQUAL_TRIVIAL_STATUS,
+                          "tangent": TANGENT_TRIVIAL_STATUS}.get(
                               ctype, TRIVIAL_STATUS))
             return None
         self.constraints.append(c)
@@ -1966,6 +2003,37 @@ class ConstraintController:
         straight = math.dist(ma, _xy(a2)) + math.dist(mb, _xy(b2))
         crossed = math.dist(ma, _xy(b2)) + math.dist(mb, _xy(a2))
         return crossed < straight
+
+    def _tangent_record(self, refs):
+        """CS12 T2: ``(refs, helper)`` from the current geometry -- edge first
+        with ``{"side": ±1}`` (the sign of ``cross(c − a, b − a)``, +1 when
+        the centre is on the line); two curves ``{"internal": bool}`` -- the
+        tangency nearer to the current layout (``|d − |r₁ − r₂||`` vs
+        ``|d − (r₁ + r₂)|``, a tie external), internal stored larger radius
+        first. ``(refs, None)`` when a ref does not resolve (``_valid``
+        then refuses the record)."""
+        from .constraint_paint import _ref_geom
+        if len(refs) != 2:
+            return list(refs), None
+        by = self.item_by_uid()
+        g = [_ref_geom(r, by) for r in refs]
+        if any(x is None for x in g):
+            return list(refs), None
+        if g[0][0] == "curve" and g[1][0] == "edge":
+            refs, g = [refs[1], refs[0]], [g[1], g[0]]
+        if g[0][0] == "edge" and g[1][0] == "curve":
+            (a, b), (cen, _r) = g[0][1], g[1][1]
+            cr = ((cen.x() - a.x()) * (b.y() - a.y())
+                  - (cen.y() - a.y()) * (b.x() - a.x()))
+            return list(refs), {"side": 1 if cr >= 0 else -1}
+        if g[0][0] == "curve" and g[1][0] == "curve":
+            (c1, r1), (c2, r2) = g[0][1], g[1][1]
+            d = math.dist(_xy(c1), _xy(c2))
+            internal = abs(d - abs(r1 - r2)) < abs(d - (r1 + r2))
+            if internal and r2 > r1:
+                refs = [refs[1], refs[0]]
+            return list(refs), {"internal": internal}
+        return list(refs), None
 
     def add_many(self, ctype: str, ref_lists) -> list:
         """Add one *ctype* constraint per refs list -- ONE undo step (CS8 F2:
@@ -2691,7 +2759,8 @@ class ConstraintController:
         circles / arcs -> ``[curve, curve]`` (Concentric); CS9 two lines /
         reference lines -> ``[edge, edge]`` (Parallel); CS10 two lines ->
         ``[edge, edge]`` (Perpendicular); CS11 two or more lines -> edges, or
-        two or more circles / arcs -> curves (an Equal chain).
+        two or more circles / arcs -> curves (an Equal chain); CS12 a line +
+        a circle / arc, or two circles / arcs -> Tangent refs.
 
         Returns:
             The refs to add, or None when the selection is not valid for it.
@@ -2723,6 +2792,15 @@ class ConstraintController:
                 return [{"uid": s._uid, "h": "edge"} for s in sel]
             if all(isinstance(s, (CircleItem, ArcItem)) for s in sel):
                 return [{"uid": s._uid, "h": "curve"} for s in sel]
+        if ctype == "tangent" and len(sel) == 2 and all(        # CS12 T5
+                getattr(s, "_uid", None) is not None for s in sel):
+            lines = [s for s in sel if isinstance(s, LineItem)]
+            curves = [s for s in sel if isinstance(s, (CircleItem, ArcItem))]
+            if len(lines) == 1 and len(curves) == 1:
+                return [{"uid": lines[0]._uid, "h": "edge"},
+                        {"uid": curves[0]._uid, "h": "curve"}]
+            if len(curves) == 2:
+                return [{"uid": s._uid, "h": "curve"} for s in curves]
         if ctype == "symmetric":
             return self._symmetric_selection_refs(sel)
         if ctype == "fix":                                    # CS8 F2: each item whole
@@ -3060,7 +3138,8 @@ class ConstraintController:
         (an internal edge axis; an X / Y axis is a ground, so dropped) (CS7);
         Parallel / Perpendicular between two edges are kept under every
         transform (an axis is a ground, so dropped) (CS9 / CS10); Equal is
-        kept under every transform (CS11);
+        kept under every transform (CS11); Tangent is kept under every
+        transform (a reflection negates its ``side``) (CS12);
         Fix is dropped from every copy (CS8 F3).
 
         Args:
@@ -3133,7 +3212,7 @@ class ConstraintController:
                     continue
                 if c.type == "dim_angle" and _angle_helper_ok(c.helper):
                     c.helper["sign"] = -c.helper["sign"]
-                elif c.type == "dim_point_line" and isinstance(c.helper, dict) \
+                elif c.type in ("dim_point_line", "tangent") and isinstance(c.helper, dict) \
                         and c.helper.get("side") in (1, -1):
                     c.helper["side"] = -c.helper["side"]
         # D38: a copied constraint the copied geometry does not satisfy (e.g.

@@ -1223,11 +1223,53 @@ def build_equal(cid: str, ends, sys: System) -> None:
     _point_row(cid, (e1[0], e1[1], e2[0], e2[1]), (), _equal_len, sys)
 
 
+def build_tangent(cid: str, ends, sys: System, helper=None) -> None:
+    """Tangent (CS12, T1-T3): ``refs`` = [edge, curve] (stored edge-first) or
+    [curve, curve]. Edge + curve: one row ``cross(c − a, d)/‖d‖ − s·r``
+    (``s`` = ``helper.side``; a zero-length edge has no direction -> a zero
+    row). Two curves: one row ``‖c₂ − c₁‖ − (r₁ + r₂)``, or ``− (r₁ − r₂)``
+    when ``helper.internal`` (the larger radius stored first). A nested
+    curve's constant radius (NB7) enters as a constant."""
+    h = helper or {}
+    e1, e2 = ends
+    if isinstance(e1, CurveExpr):
+        sgn = -1.0 if h.get("internal") else 1.0
+        cvs = (e1, e2)
+        extra = tuple(cv.r for cv in cvs if cv.r is not None)
+        dE = np.array([-k for k, cv in zip((1.0, sgn), cvs) if cv.r is not None])
+
+        def f(P, E):
+            it = iter(E)
+            r1, r2 = (float(next(it)) if cv.r is not None else float(cv.r_const)
+                      for cv in cvs)
+            target = r1 + sgn * r2
+            v = P[1] - P[0]
+            n = math.hypot(v[0], v[1])
+            if n < 1e-12:                         # coincident centres: no direction
+                return n - target, np.zeros((2, 2)), dE
+            u = v / n
+            return n - target, np.array([-u, u]), dE
+        _point_row(cid, (e1.center, e2.center), extra, f, sys)
+        return
+    (a, b), cv = e1, e2
+    s = float(h.get("side", 1))
+    extra = (cv.r,) if cv.r is not None else ()
+
+    def g(P, E):
+        d = P[2] - P[1]
+        if math.hypot(d[0], d[1]) < _EPS_LEN:
+            return 0.0, np.zeros((3, 2)), np.zeros(len(extra))
+        r, dP, _ = _on_line(P, E)
+        rad = float(E[0]) if extra else float(cv.r_const)
+        return r - s * rad, dP, np.array([-s]) if extra else np.zeros(0)
+    _point_row(cid, (cv.center, a, b), extra, g, sys)
+
+
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
             "coincident": build_coincident, "point_on_curve": build_point_on_curve,
             "concentric": build_concentric, "symmetric": build_symmetric, "fix": build_fix,
             "parallel": build_parallel, "perpendicular": build_perpendicular,
-            "equal": build_equal,
+            "equal": build_equal, "tangent": build_tangent,
             "dim_distance": build_dim_distance, "dim_radius": build_dim_radius,
             "dim_diameter": build_dim_diameter, "dim_arc_angle": build_dim_arc_angle,
             "dim_angle": build_dim_angle, "dim_point_line": build_dim_point_line}

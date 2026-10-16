@@ -1302,3 +1302,92 @@ def test_equal_two_const_curves_give_a_constant_zero_gradient_row():
     r2, g2 = s2.rows[0].fn(s2.x)
     assert r2 == 0.0 and not np.any(g2)                                 # identically zero
     assert ss.NumpySolver().diagnose(s2).redundant == ["e"]
+
+
+# -- CS12 Tangent (§7.3; T1-T3) ---------------------------------------------
+
+def test_tangent_line_circle_row_and_fd_jacobian():
+    rng = np.random.default_rng(12)
+    for side in (1, -1):
+        for _ in range(8):
+            x = rng.uniform(-50, 50, 7); x[6] = rng.uniform(5, 30)
+            s = ss.System(x=x.copy())
+            ss.BUILDERS["tangent"]("t", (_edge(0), _circ(4)), s, helper={"side": side})
+            (row,) = s.rows
+            assert not s.aliases and not s.fixes
+            _fd_check(row, s.x)
+
+
+def test_tangent_line_circle_residual_is_signed_distance_minus_side_r():
+    # line y=100 from (0,100) to (200,100); circle centre (100,0) r 50
+    x = np.array([0.0, 100.0, 200.0, 100.0, 100.0, 0.0, 50.0])
+    for side, want in ((1, 100.0 - 50.0), (-1, 100.0 + 50.0)):
+        s = ss.System(x=x.copy())
+        ss.BUILDERS["tangent"]("t", (_edge(0), _circ(4)), s, helper={"side": side})
+        assert s.rows[0].fn(s.x)[0] == pytest.approx(want)
+    s = ss.System(x=np.array([0.0, 100.0, 200.0, 100.0, 100.0, 50.0, 50.0]))
+    ss.BUILDERS["tangent"]("t", (_edge(0), _circ(4)), s, helper={"side": 1})
+    assert abs(s.rows[0].fn(s.x)[0]) < 1e-12                        # touching
+
+
+def test_tangent_zero_length_edge_gives_zero_row():
+    s = ss.System(x=np.array([5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 10.0]))
+    ss.BUILDERS["tangent"]("t", (_edge(0), _circ(4)), s, helper={"side": 1})
+    r, g = s.rows[0].fn(s.x)
+    assert r == 0.0 and not np.any(g)
+
+
+def test_tangent_circles_external_and_internal_rows():
+    x = np.array([0.0, 0.0, 30.0, 100.0, 0.0, 20.0])
+    s = ss.System(x=x.copy())
+    ss.BUILDERS["tangent"]("t", (_circ(0), _circ(3)), s, helper={"internal": False})
+    assert s.rows[0].fn(s.x)[0] == pytest.approx(100.0 - 50.0)
+    _fd_check(s.rows[0], s.x)
+    s = ss.System(x=x.copy())
+    ss.BUILDERS["tangent"]("t", (_circ(0), _circ(3)), s, helper={"internal": True})
+    assert s.rows[0].fn(s.x)[0] == pytest.approx(100.0 - 10.0)
+    _fd_check(s.rows[0], s.x)
+
+
+def test_tangent_const_radius_curves_read_r_const():
+    const = ss.CurveExpr(center=ss.raw_point(4, 5), r=None, r_const=50.0)
+    s = ss.System(x=np.array([0.0, 100.0, 200.0, 100.0, 100.0, 0.0]))
+    ss.BUILDERS["tangent"]("t", (_edge(0), const), s, helper={"side": 1})
+    (row,) = s.rows
+    assert 5 in row.deps and row.fn(s.x)[0] == pytest.approx(50.0)
+    _fd_check(row, s.x)
+    a = ss.CurveExpr(center=ss.raw_point(0, 1), r=None, r_const=30.0)
+    s = ss.System(x=np.array([0.0, 0.0, 100.0, 0.0, 20.0]))
+    ss.BUILDERS["tangent"]("t", (a, _circ(2)), s, helper={"internal": False})
+    assert s.rows[0].fn(s.x)[0] == pytest.approx(50.0)
+    _fd_check(s.rows[0], s.x)
+
+
+def test_tangent_internal_with_a_const_second_curve_and_coincident_centres():
+    big = _circ(0)                                                   # r var x[2]
+    small = ss.CurveExpr(center=ss.raw_point(3, 4), r=None, r_const=10.0)
+    s = ss.System(x=np.array([0.0, 0.0, 50.0, 30.0, 0.0]))
+    ss.BUILDERS["tangent"]("t", (big, small), s, helper={"internal": True})
+    (row,) = s.rows
+    r, g = row.fn(s.x)
+    assert r == pytest.approx(30.0 - (50.0 - 10.0))
+    assert g[row.deps.index(2)] == pytest.approx(-1.0)              # only r1 is a variable
+    _fd_check(row, s.x)
+    s.x[3] = 0.0                                                     # centres coincide
+    r, g = row.fn(s.x)
+    assert r == pytest.approx(-40.0)
+    assert g[row.deps.index(2)] == pytest.approx(-1.0)
+    assert not any(g[row.deps.index(i)] for i in (0, 1, 3, 4))       # no direction
+
+
+def test_tangent_removes_one_dof_and_solve_lands_tangent_keeping_radius():
+    x = np.array([0.0, 100.0, 200.0, 100.0, 100.0, 0.0, 50.0])
+    s = ss.System(x=x.copy())
+    assert ss.NumpySolver().diagnose(s).dof == 7
+    ss.BUILDERS["tangent"]("t", (_edge(0), _circ(4)), s, helper={"side": 1})
+    assert ss.NumpySolver().diagnose(s).dof == 6
+    w = np.ones(7); w[6] = 1e6                                        # radius held stiff
+    res = ss.NumpySolver().solve(s, x.copy(), w)
+    assert res.converged
+    assert res.x[6] == pytest.approx(50.0, abs=1e-3)                  # stiff, not pinned
+    assert res.x[1] - res.x[5] == pytest.approx(res.x[6], abs=1e-6)   # line 1 r above the centre

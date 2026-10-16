@@ -83,7 +83,7 @@ REGISTRY: dict[str, TypeSpec] = {
     "parallel": TypeSpec("Parallel", (("edge", "edge"), ("edge", "axis")), 1, True),
     "perpendicular": TypeSpec("Perpendicular", (("edge", "edge"), ("edge", "axis")), 1, True),
     "equal": TypeSpec("Equal", (("edge", "edge"), ("curve", "curve")), 1, True),
-    "tangent": TypeSpec("Tangent", (("edge", "curve"), ("curve", "curve")), 1),
+    "tangent": TypeSpec("Tangent", (("edge", "curve"), ("curve", "curve")), 1, True),
     "midpoint": TypeSpec("Midpoint", (("point", "edge"),), 2),
     "collinear": TypeSpec("Collinear", (("edge", "edge"),), 2),
     "dim_point_line": TypeSpec("Smart Dimension", (("point", "edge"), ("point", "axis")), 1, True),
