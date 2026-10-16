@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — CS11 Equal — 2026-10-16
+
+- [x] [type:feature] CS11 — Equal (lengths / radii) [P1] [subject:CAD] [done:2026-10-16]
+  - Details: spec §7.3 (unsquared). Depends CS10.
+  - Built: `feat/cs11-equal` (base `d7173d0b`; feature/Medium, FP3 deltas as FP1 rulings E1-E5; inline, per-task Sonnet reviews). Two edges (`‖d₁‖ − ‖d₂‖` row) or two circles / arcs (radius alias); never mixed, no axis (E1); least change -- both resize, directions kept (E2); 2+ selected lines or circles/arcs -> an Equal chain against the first, one undo step (E3, `add_many` replaces `add_fixes`); a loose curve + a nested constant-radius curve fixes the loose radius, two nested curves: same radius refused, different admitted red via a zero-gradient constant row over the second centre (E4 -- a P4 probe found an orphan row is skipped by the focused add solve); one glyph per ref, by-construction pairs (rect / text-box opposite sides, regular-polygon sides) refused, small Equal button after Perpendicular (E5). Guards RED-proven via red-proof.ps1 (7 proofs, 17 guards). Keep-green: 864 passed; only the filed host-load D18 perf bars failed, equally at base in 2 interleaved pairs. VC6 full suite skipped by the user (Medium tier). User smoke passed.
+
 ## Block Editor constraint system — CS10 Perpendicular — 2026-10-15
 
 - [x] [type:feature] CS10 — Perpendicular [P1] [subject:CAD] [done:2026-10-15]
