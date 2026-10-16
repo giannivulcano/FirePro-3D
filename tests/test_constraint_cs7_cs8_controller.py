@@ -129,12 +129,13 @@ def test_fix_record_with_bad_v0_is_inert(qapp):
     assert c.inert
 
 
-def test_add_fixes_is_one_undo_step(qapp):
+def test_add_many_fix_is_one_undo_step(qapp):
     sc = _scene()
     a = _line(sc, (0, 0), (10, 0)); b = _circle(sc, (50, 0), 5)
     sc.push_undo_state()
     n0 = sc._undo_pos
-    out = sc.constraint_ctl.add_fixes([{"uid": a._uid, "h": "item"}, {"uid": b._uid, "h": "item"}])
+    out = sc.constraint_ctl.add_many("fix", [[{"uid": a._uid, "h": "item"}],
+                                             [{"uid": b._uid, "h": "item"}]])
     assert [c.type for c in out] == ["fix", "fix"]
     assert sc._undo_pos == n0 + 1
     assert len(sc._undo_stack[sc._undo_pos]["constraints"]) == 2
@@ -289,14 +290,14 @@ def test_symmetric_edge_pair_needs_a_bool_swap(qapp):
     assert all(c.inert for c in ctl.constraints)
 
 
-def test_add_fixes_posts_redundant_status(qapp):
+def test_add_many_fix_posts_redundant_status(qapp):
     from firepro3d.constraint_controller import REDUNDANT_STATUS
     sc = _scene()
     a = _line(sc, (0, 0), (10, 0))
     ctl = sc.constraint_ctl
     ctl.add("fix", [P(a, "item")])
     msgs = _status(sc)
-    ctl.add_fixes([P(a, "item")])
+    ctl.add_many("fix", [[P(a, "item")]])
     assert msgs[-1] == REDUNDANT_STATUS
 
 

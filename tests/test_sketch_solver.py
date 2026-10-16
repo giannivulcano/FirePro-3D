@@ -1223,3 +1223,82 @@ def test_perpendicular_with_held_lengths_turns_parallel_lines():
     u, v = res.x[2:4] - res.x[0:2], res.x[6:8] - res.x[4:6]
     assert abs(float(u @ v)) < 1e-6
     assert np.linalg.norm(u) == pytest.approx(100.0) and np.linalg.norm(v) == pytest.approx(100.0)
+
+
+# -- CS11 Equal (§7.3; E1, E4) -----------------------------------------------
+
+def test_equal_edges_row_zero_on_equal_lengths_and_fd_jacobian():
+    rng = np.random.default_rng(11)
+    for _ in range(10):
+        x = rng.uniform(-50, 50, 8)
+        s = ss.System(x=x.copy())
+        ss.BUILDERS["equal"]("e", (_edge(0), _edge(4)), s)
+        (row,) = s.rows
+        assert not s.aliases and not s.fixes
+        _fd_check(row, s.x)
+        L1 = float(np.linalg.norm(s.x[2:4] - s.x[0:2]))
+        d2 = s.x[6:8] - s.x[4:6]
+        s.x[6:8] = s.x[4:6] + d2 / np.linalg.norm(d2) * L1      # same length, own direction
+        assert abs(row.fn(s.x)[0]) < 1e-9
+        s.x[7] += 5.0
+        assert abs(row.fn(s.x)[0]) > 1e-3
+
+
+def test_equal_edges_row_is_length_difference():
+    s = ss.System(x=np.array([0.0, 0.0, 100.0, 0.0, 0.0, 50.0, 0.0, 110.0]))
+    ss.BUILDERS["equal"]("e", (_edge(0), _edge(4)), s)
+    assert s.rows[0].fn(s.x)[0] == pytest.approx(40.0)
+
+
+def test_equal_zero_length_edge_has_zero_gradient_on_that_edge():
+    s = ss.System(x=np.array([5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 3.0, 4.0]))
+    ss.BUILDERS["equal"]("e", (_edge(0), _edge(4)), s)
+    r, g = s.rows[0].fn(s.x)
+    assert r == pytest.approx(-5.0)
+    assert not np.any(g[:4]) and np.any(g[4:])
+
+
+def test_equal_removes_one_dof_and_solve_meets_in_the_middle_keeping_directions():
+    x = np.array([0.0, 0.0, 100.0, 0.0, 0.0, 50.0, 60.0, 50.0])
+    s = ss.System(x=x.copy())
+    assert ss.NumpySolver().diagnose(s).dof == 8
+    ss.BUILDERS["equal"]("e", (_edge(0), _edge(4)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 7
+    res = ss.NumpySolver().solve(s, x.copy(), np.ones(8))
+    assert res.converged
+    u, v = res.x[2:4] - res.x[0:2], res.x[6:8] - res.x[4:6]
+    assert np.linalg.norm(u) == pytest.approx(np.linalg.norm(v), abs=1e-6)
+    assert np.linalg.norm(u) == pytest.approx(80.0, abs=1e-3)       # E2: meet in the middle
+    assert abs(u[1]) < 1e-9 and abs(v[1]) < 1e-9                       # directions kept
+
+
+def test_equal_two_curves_alias_radii():
+    s = ss.System(x=np.zeros(6))
+    ss.BUILDERS["equal"]("e", (_circ(0), _circ(3)), s)
+    assert s.aliases == [(2, 5, "e")] and not s.rows and not s.fixes
+
+
+def test_equal_loose_curve_with_a_const_curve_fixes_the_loose_radius():
+    cv = ss.CurveExpr(center=ss.raw_point(0, 1), r=2)
+    const = ss.CurveExpr(center=ss.raw_point(3, 4), r=None, r_const=7.5)
+    for ends in ((cv, const), (const, cv)):
+        s = ss.System(x=np.zeros(5))
+        ss.BUILDERS["equal"]("e", ends, s)
+        assert s.fixes == [(2, 7.5, "e")] and not s.aliases and not s.rows
+
+
+def test_equal_two_const_curves_give_a_constant_zero_gradient_row():
+    a = ss.CurveExpr(center=ss.raw_point(0, 1), r=None, r_const=40.0)
+    b = ss.CurveExpr(center=ss.raw_point(2, 3), r=None, r_const=60.0)
+    s = ss.System(x=np.array([1.0, 2.0, 3.0, 4.0]))
+    ss.BUILDERS["equal"]("e", (a, b), s)
+    (row,) = s.rows
+    r, g = row.fn(s.x)
+    assert r == pytest.approx(-20.0) and not np.any(g) and row.deps   # has deps -> never an orphan
+    res = ss.NumpySolver().solve(s, s.x.copy(), np.ones(4))
+    assert not res.converged                                            # E4: different -> red
+    s2 = ss.System(x=np.array([1.0, 2.0, 3.0, 4.0]))
+    ss.BUILDERS["equal"]("e", (a, ss.CurveExpr(center=ss.raw_point(2, 3), r=None, r_const=40.0)), s2)
+    r2, g2 = s2.rows[0].fn(s2.x)
+    assert r2 == 0.0 and not np.any(g2)                                 # identically zero
+    assert ss.NumpySolver().diagnose(s2).redundant == ["e"]

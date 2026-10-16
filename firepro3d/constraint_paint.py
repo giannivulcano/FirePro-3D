@@ -207,11 +207,11 @@ def _ref_anchor(view, ref, by, held=None) -> QPointF | None:
 
 def _anchors(view, c, by, held=None) -> list:
     """Every glyph anchor of *c*: Symmetric one per paired ref (S3), Fix
-    its one ref, Parallel / Perpendicular one per edge (CS9 P3 / CS10 PP3),
-    any other type its single :func:`_anchor`."""
+    its one ref, Parallel / Perpendicular / Equal one per ref (CS9 P3 /
+    CS10 PP3 / CS11 E5), any other type its single :func:`_anchor`."""
     if c.type == "symmetric":
         out = [_ref_anchor(view, r, by, held) for r in c.refs[:2]]
-    elif c.type in ("parallel", "perpendicular"):  # CS9 P3 / CS10 PP3: one per edge (an axis: none)
+    elif c.type in ("parallel", "perpendicular", "equal"):  # CS9 P3 / CS10 PP3 / CS11 E5: one per ref (an axis: none)
         out = [_ref_anchor(view, r, by, held) for r in c.refs
                if isinstance(r, dict) and "ref" not in r]
     elif c.type == "fix":

@@ -2587,6 +2587,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "constrain_fix": "Fix",
         "constrain_parallel": "Parallel",
         "constrain_perpendicular": "Perpendicular",
+        "constrain_equal": "Equal",
         "constrain_dim_distance": "Smart Dimension",
     }
 
@@ -5102,7 +5103,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
         # Constraint Status (the DOF badge lives in the panel, D40/D41);
         # CS4 Smart Dimension (large, tool-first, D50); CS6 Concentric;
-        # CS7 Symmetric; CS8 Fix; CS9 Parallel; CS10 Perpendicular.
+        # CS7 Symmetric; CS8 Fix; CS9 Parallel; CS10 Perpendicular; CS11 Equal.
         from firepro3d.sketch_model import icon_for
         gc = page.add_group("Constrain")
         b_d = gc.add_large_button(
@@ -5150,6 +5151,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda checked: self._be_constrain("perpendicular", checked),
             checkable=True)
         self._block_mode_buttons["constrain_perpendicular"] = b_pp
+        b_eq = gc.add_small_button(
+            "Equal", self._modify_icon(icon_for("equal")),
+            lambda checked: self._be_constrain("equal", checked),
+            checkable=True)
+        self._block_mode_buttons["constrain_equal"] = b_eq
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
             "Show Constraints",
@@ -5181,6 +5187,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Fix": b_fx,
                                       "Parallel": b_pa,
                                       "Perpendicular": b_pp,
+                                      "Equal": b_eq,
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
@@ -5205,6 +5212,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                            "or pick an edge and an edge or the X/Y axis")
         _editor_only(b_pp, "Perpendicular — make the two selected lines "
                            "perpendicular, or pick an edge and an edge or the X/Y axis")
+        _editor_only(b_eq, "Equal — make the selected lines the same length (or "
+                           "circles/arcs the same radius), or pick two")
         _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting")
         _editor_only(b_show, "Show Constraints — show every constraint glyph "
@@ -5271,10 +5280,23 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # nothing selected -> a live pick session (each click one Fix).
             refs = ctl.selection_refs(ctype)
             if refs is not None:
-                ctl.add_fixes(refs)
+                ctl.add_many("fix", [[r] for r in refs])
             elif sc.selectedItems():
                 sc._show_status("Select geometry that can be fixed, or nothing "
                                 "to pick", 4000)
+            else:
+                sc.set_mode(mode)
+            self._sync_mode_buttons(sc.mode)
+            return
+        if ctype == "equal":
+            # CS11 E3: 2+ lines or 2+ circles/arcs -> an Equal chain against
+            # the first (one undo step); nothing selected -> pick mode.
+            refs = ctl.selection_refs(ctype)
+            if refs is not None:
+                ctl.add_many(ctype, [[refs[0], r] for r in refs[1:]])
+            elif sc.selectedItems():
+                sc._show_status("Select two or more lines, or two or more "
+                                "circles/arcs, or nothing to pick", 4000)
             else:
                 sc.set_mode(mode)
             self._sync_mode_buttons(sc.mode)
@@ -5324,7 +5346,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Enable state of the Constrain / Inspect buttons (D12).
 
         Horizontal / Vertical / Concentric / Symmetric / Fix / Parallel /
-        Perpendicular:
+        Perpendicular / Equal:
         enabled with nothing selected (pick mode) or a valid selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
         D32 show-all override. No-op with no editor tab current (the page's
@@ -5344,7 +5366,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         from firepro3d import sketch_model as sm
         for ctype in ("horizontal", "vertical", "concentric", "symmetric", "fix", "parallel",
-                      "perpendicular"):
+                      "perpendicular", "equal"):
             b = btns.get(sm.REGISTRY[ctype].label)
             if b is not None and not sip.isdeleted(b):
                 b.setEnabled(not sel or ctl.selection_refs(ctype) is not None)

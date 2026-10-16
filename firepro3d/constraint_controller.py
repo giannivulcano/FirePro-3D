@@ -50,6 +50,7 @@ PARALLEL_TRIVIAL_STATUS = ("Those edges are already parallel by construction -- 
                            "pick another edge")                 # CS9
 PERPENDICULAR_TRIVIAL_STATUS = ("Those edges are already perpendicular by construction -- "
                                 "pick another edge")            # CS10
+EQUAL_TRIVIAL_STATUS = "Those are already equal by construction -- pick another"   # CS11
 # CS10 PP5 / PP6: types whose add first tries turning the edges (lengths held).
 ROTATE_FIRST = ("parallel", "perpendicular")
 # D17 (CS3); "flipped" since the 2026-10-12 ruling: Flip refuses a fully
@@ -249,12 +250,13 @@ class PickState:
         ``(a, b)``, curve ``(centre, (r, item))``, axis ``(None, None)``.
         Curves + axes are offered to Coincident and (CS5) Smart Dimension
         (and the later curve types); Parallel / Perpendicular (CS9 / CS10)
-        get the axes only;
+        get the axes only; Equal (CS11) gets curves but no axes;
         hidden handles (text ``ins``, polygon ``radius``, ellipse ``rx`` /
         ``ry``) never."""
         curvy = self.ctype in ("coincident", "dim_distance", "concentric",
-                               "symmetric", "fix")
-        axes = curvy or self.ctype in ("parallel", "perpendicular")   # CS9 P1 / CS10 PP1
+                               "symmetric", "fix", "equal")
+        axes = ((curvy and self.ctype != "equal")                     # CS11 E1: no axis
+                or self.ctype in ("parallel", "perpendicular"))       # CS9 P1 / CS10 PP1
         for it in self.ctl.items():
             uid = getattr(it, "_uid", None)
             if uid is None:
@@ -308,6 +310,10 @@ class PickState:
             if n == 1:
                 return kind == self.kinds[0]
             return kind in ("edge", "axis")
+        if self.ctype == "equal":                             # CS11 E1
+            if kind not in ("edge", "curve"):
+                return False
+            return not self.picks or kind == self.kinds[0]
         if self.ctype in ("parallel", "perpendicular"):       # CS9 P1 / CS10 PP1
             if kind not in ("edge", "axis"):
                 return False
@@ -393,6 +399,11 @@ class PickState:
                         "curve": "circle/arc"}.get(self.kinds[0], "point")
                 return f"{label}: pick the 2nd {what} (1/3) · Esc to cancel"
             return f"{label}: pick the axis -- an edge or the X/Y axis (2/3) · Esc to cancel"
+        if self.ctype == "equal":                             # CS11 E5
+            what = ("pick an edge or a circle/arc, then another of the same kind" if not n
+                    else "pick another circle/arc" if self.kinds[0] == "curve"
+                    else "pick another edge")
+            return f"{label}: {what} ({n}/2) · Esc to cancel"
         if self.ctype in ("parallel", "perpendicular"):       # CS9 / CS10
             what = ("pick an edge" if n and self.kinds[0] == "axis" else
                     "pick an edge, then an edge or the X/Y axis")
@@ -838,9 +849,11 @@ class ConstraintController:
         is refused the same way. CS8: a Fix of the origin builds nothing.
         CS9: a Parallel of a rectangle's opposite sides (or a text-box edge
         and its axis) is parallel for any values. CS10: a Perpendicular of a
-        rectangle's / square polygon's adjacent sides."""
+        rectangle's / square polygon's adjacent sides. CS11: an Equal of a
+        rectangle's / text box's opposite sides, two sides of one regular
+        polygon, or two nested curves of one radius."""
         if c.type not in ("point_on_curve", "concentric", "fix", "parallel",
-                          "perpendicular"):
+                          "perpendicular", "equal"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
         if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
@@ -1818,7 +1831,7 @@ class ConstraintController:
 
         A conflicting constraint is still admitted (D9) and the geometry holds
         its last good state (D10). Pushes one undo step -- unless *_commit*
-        is False (:meth:`add_fixes` commits a batch once).
+        is False (:meth:`add_many` commits a batch once).
 
         Returns:
             The new ``Constraint``, or None when refused: a disabled scene, an
@@ -1863,7 +1876,8 @@ class ConstraintController:
             return None
         if self._identically_satisfied(c):
             self._status({"parallel": PARALLEL_TRIVIAL_STATUS,
-                          "perpendicular": PERPENDICULAR_TRIVIAL_STATUS}.get(
+                          "perpendicular": PERPENDICULAR_TRIVIAL_STATUS,
+                          "equal": EQUAL_TRIVIAL_STATUS}.get(
                               ctype, TRIVIAL_STATUS))
             return None
         self.constraints.append(c)
@@ -1953,11 +1967,13 @@ class ConstraintController:
         crossed = math.dist(ma, _xy(b2)) + math.dist(mb, _xy(a2))
         return crossed < straight
 
-    def add_fixes(self, refs) -> list:
-        """CS8 F2: Fix each ref (whole selected items) -- ONE undo step."""
+    def add_many(self, ctype: str, ref_lists) -> list:
+        """Add one *ctype* constraint per refs list -- ONE undo step (CS8 F2:
+        Fix each selected item; CS11 E3: an Equal chain against the first).
+        A refused member is skipped (its status stands)."""
         out = []
-        for r in refs:
-            c = self.add("fix", [r], _commit=False)
+        for refs in ref_lists:
+            c = self.add(ctype, refs, _commit=False)
             if c is not None:
                 out.append(c)
         if out:
@@ -2674,7 +2690,8 @@ class ConstraintController:
         CS5 one circle / arc -> ``[curve]`` (Smart Dimension); CS6 two
         circles / arcs -> ``[curve, curve]`` (Concentric); CS9 two lines /
         reference lines -> ``[edge, edge]`` (Parallel); CS10 two lines ->
-        ``[edge, edge]`` (Perpendicular).
+        ``[edge, edge]`` (Perpendicular); CS11 two or more lines -> edges, or
+        two or more circles / arcs -> curves (an Equal chain).
 
         Returns:
             The refs to add, or None when the selection is not valid for it.
@@ -2700,6 +2717,12 @@ class ConstraintController:
                 and all(isinstance(s, LineItem) and getattr(s, "_uid", None) is not None
                         for s in sel)):
             return [{"uid": s._uid, "h": "edge"} for s in sel]
+        if ctype == "equal" and len(sel) >= 2 and all(          # CS11 E3
+                getattr(s, "_uid", None) is not None for s in sel):
+            if all(isinstance(s, LineItem) for s in sel):
+                return [{"uid": s._uid, "h": "edge"} for s in sel]
+            if all(isinstance(s, (CircleItem, ArcItem)) for s in sel):
+                return [{"uid": s._uid, "h": "curve"} for s in sel]
         if ctype == "symmetric":
             return self._symmetric_selection_refs(sel)
         if ctype == "fix":                                    # CS8 F2: each item whole
@@ -3036,7 +3059,8 @@ class ConstraintController:
         every transform (CS3, CS6). Symmetric is kept under every transform
         (an internal edge axis; an X / Y axis is a ground, so dropped) (CS7);
         Parallel / Perpendicular between two edges are kept under every
-        transform (an axis is a ground, so dropped) (CS9 / CS10);
+        transform (an axis is a ground, so dropped) (CS9 / CS10); Equal is
+        kept under every transform (CS11);
         Fix is dropped from every copy (CS8 F3).
 
         Args:

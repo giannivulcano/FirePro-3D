@@ -22,7 +22,7 @@ from tests._mainwindow_helpers import dispose_main_window
 NO_EDITOR_TIP = "Open or create a block to edit"
 PAGE = "Block Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
-                    "Concentric", "Symmetric", "Fix", "Parallel", "Perpendicular",
+                    "Concentric", "Symmetric", "Fix", "Parallel", "Perpendicular", "Equal",
                     "Show Constraints",
                     "Constraint Status", "Delete Constraints"}
 
@@ -188,7 +188,7 @@ def test_constrain_and_inspect_groups_after_modify(win_with_editor):
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",
             "Coincident", "Concentric", "Symmetric", "Fix",
-            "Parallel", "Perpendicular"}                      # no greyed placeholders (D15)
+            "Parallel", "Perpendicular", "Equal"}             # no greyed placeholders (D15)
     assert {b.text() for b in groups["INSPECT"].findChildren(QToolButton)} \
         == {"Show Constraints", "Constraint Status", "Delete Constraints"}
     assert set(win._be_constrain_buttons) == CONSTRAIN_LABELS
@@ -899,7 +899,8 @@ def test_fix_pick_mode_stays_live_until_esc(win_with_editor):
 @pytest.mark.parametrize("label,mode", [("Symmetric", "constrain_symmetric"),
                                         ("Fix", "constrain_fix"),
                                         ("Parallel", "constrain_parallel"),
-                                        ("Perpendicular", "constrain_perpendicular")])
+                                        ("Perpendicular", "constrain_perpendicular"),
+                                        ("Equal", "constrain_equal")])
 def test_lit_symmetric_or_fix_button_click_ends_the_pick(win_with_editor, label, mode):
     """T6 review Minor 3: un-toggling a lit button ends its pick session."""
     win = win_with_editor
@@ -974,3 +975,36 @@ def test_perpendicular_invalid_selection_posts_the_hint(win_with_editor, qapp):
     win._be_constrain("perpendicular", True); qapp.processEvents()
     assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_perpendicular"
     assert win.statusBar().currentMessage() == "Select two lines, or nothing to pick"
+
+
+# -- CS11 Equal (E3 / E5) ------------------------------------------------------
+
+def test_equal_enable_state_and_selection_chain(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    b = _btn(win, "Equal")
+    assert b.toolTip()
+    sc.clearSelection(); win._refresh_constrain_buttons()
+    assert b.isEnabled()
+    l1 = _line(sc, (0, 0), (100, 0)); l1.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert not b.isEnabled()
+    l2 = _line(sc, (0, 50), (60, 50)); l3 = _line(sc, (0, 90), (30, 90))
+    l2.setSelected(True); l3.setSelected(True); qapp.processEvents()
+    win._refresh_constrain_buttons()
+    assert b.isEnabled()
+    b.click(); qapp.processEvents()
+    assert [c.type for c in sc.constraint_ctl.constraints] == ["equal", "equal"]
+    lens = [math.hypot(l._pt2.x() - l._pt1.x(), l._pt2.y() - l._pt1.y()) for l in (l1, l2, l3)]
+    assert max(lens) - min(lens) < 1e-6
+
+
+def test_equal_mixed_selection_posts_the_hint(win_with_editor, qapp):
+    win = win_with_editor
+    sc = _editor_scene(win)
+    _line(sc, (0, 0), (50, 0)).setSelected(True)
+    _circle(sc, (100, 0), 10).setSelected(True); qapp.processEvents()
+    win._be_constrain("equal", True); qapp.processEvents()
+    assert sc.constraint_ctl.constraints == [] and sc.mode != "constrain_equal"
+    assert win.statusBar().currentMessage() == (
+        "Select two or more lines, or two or more circles/arcs, or nothing to pick")

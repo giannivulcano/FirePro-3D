@@ -10,11 +10,11 @@ def test_catalogue_declares_every_session_type():
             "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle"} == names
 
 
-def test_built_types_after_cs10():
+def test_built_types_after_cs11():
     assert [t for t, s in sm.REGISTRY.items() if s.implemented] == [
         "horizontal", "vertical", "coincident", "point_on_curve", "dim_distance",
         "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle", "concentric",
-        "symmetric", "fix", "parallel", "perpendicular", "dim_point_line"]
+        "symmetric", "fix", "parallel", "perpendicular", "equal", "dim_point_line"]
 
 
 def test_registry_perpendicular_built():
@@ -83,9 +83,14 @@ def test_unknown_or_unbuilt_record_is_inert_and_verbatim():
     assert c.inert
     assert c.to_dict() == raw
     built_later = sm.Constraint.from_dict(
-        {"id": "x2", "type": "equal",
-         "refs": [{"uid": "a", "h": "edge"}, {"uid": "b", "h": "edge"}]})
-    assert built_later.inert          # declared but not implemented (CS11)
+        {"id": "x2", "type": "tangent",
+         "refs": [{"uid": "a", "h": "edge"}, {"uid": "b", "h": "curve"}]})
+    assert built_later.inert          # declared but not implemented (CS12)
+
+
+def test_registry_equal_built():
+    assert sm.REGISTRY["equal"].implemented
+    assert sm.REGISTRY["equal"].patterns == (("edge", "edge"), ("curve", "curve"))
 
 
 def test_registry_coincident_types_built():
