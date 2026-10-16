@@ -1408,11 +1408,29 @@ def test_collinear_two_rows_zero_on_one_line_and_fd_jacobian():
         assert all(abs(r.fn(s.x)[0]) < 1e-9 for r in s.rows)
 
 
-def test_collinear_rows_are_signed_distances_of_e2_ends():
-    # e1 (0,0)->(10,0); e2 (0,3)->(5,-2): distances cross(p-a, d)/|d| = -3, +2
+def test_collinear_rows_are_the_angle_and_the_first_end_distance():
+    # e1 (0,0)->(10,0); e2 (0,3)->(5,-2): angle atan2(cross, dot) of
+    # u=(10,0), v=(5,-5) = -pi/4; e2's first end (0,3) is cross(p-a, d)/|d| = -3
     s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 3.0, 5.0, -2.0]))
     ss.BUILDERS["collinear"]("c", (_edge(0), _edge(4)), s)
-    assert sorted(r.fn(s.x)[0] for r in s.rows) == pytest.approx([-3.0, 2.0])
+    ang, dist = (r.fn(s.x)[0] for r in s.rows)
+    assert ang == pytest.approx(ss.ANG_SCALE * -math.pi / 4)
+    assert dist == pytest.approx(-3.0)
+
+
+def test_collinear_rows_turn_at_an_exactly_perpendicular_crossing():
+    """e2 (50,-50)->(50,50) crossing e1 (0,0)->(100,0) at 90 deg, both lengths
+    held (the rotate-first add, D114): two on-line rows plus the two holds
+    have rank 3 here (no first-order turn), so the pass could not start. The
+    collinear rows must make the four rows full rank (D115 lesson)."""
+    s = ss.System(x=np.array([0.0, 0.0, 100.0, 0.0, 50.0, -50.0, 50.0, 50.0]))
+    ss.BUILDERS["collinear"]("c", (_edge(0), _edge(4)), s)
+    ss.BUILDERS["dim_distance"]("h1", _edge(0), s, value=100.0)
+    ss.BUILDERS["dim_distance"]("h2", _edge(4), s, value=100.0)
+    J = np.zeros((len(s.rows), 8))
+    for i, r in enumerate(s.rows):
+        J[i, list(r.deps)] = r.fn(s.x)[1]
+    assert len(s.rows) == 4 and np.linalg.matrix_rank(J) == 4
 
 
 def test_collinear_zero_length_first_edge_gives_zero_rows():

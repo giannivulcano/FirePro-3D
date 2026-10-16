@@ -1268,9 +1268,14 @@ def build_tangent(cid: str, ends, sys: System, helper=None) -> None:
 def build_collinear(cid: str, ends, sys: System) -> None:
     """Collinear (CS14, C1): ``refs`` = [edge, edge | axis], stored
     edge-first. Two edges: both ends of the second on the first's INFINITE
-    line -- two ``_on_line`` rows (a zero-length first edge gives zero
-    rows). An edge and the X / Y axis: both ends ``y := 0`` / ``x := 0``
-    (``_axis_equal`` against the origin, substituted when raw)."""
+    line, as two rows -- the Parallel angle row (``_parallel``, D115 form)
+    and the second edge's first end on the first's line (``_on_line``).
+    Two ``_on_line`` rows (one per end) would have no first-order turn at
+    exactly perpendicular crossing edges, so the rotate-first add could
+    not start (the D115 lesson). A zero-length edge gives zero rows where
+    its direction is needed. An edge and the X / Y axis: both ends
+    ``y := 0`` / ``x := 0`` (``_axis_equal`` against the origin,
+    substituted when raw)."""
     e1, e2 = ends
     if isinstance(e2, str):
         k = 1 if e2 == "x_axis" else 0
@@ -1279,8 +1284,8 @@ def build_collinear(cid: str, ends, sys: System) -> None:
         _axis_equal(k, cid, (e1[1], o), sys)
         return
     a, b = e1
-    for p in e2:
-        _point_row(cid, (p, a, b), (), _on_line, sys)
+    _point_row(cid, (a, b, e2[0], e2[1]), (), _parallel, sys)
+    _point_row(cid, (e2[0], a, b), (), _on_line, sys)
 
 
 BUILDERS = {"horizontal": build_horizontal, "vertical": build_vertical,
