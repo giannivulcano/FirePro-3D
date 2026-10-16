@@ -1391,3 +1391,53 @@ def test_tangent_removes_one_dof_and_solve_lands_tangent_keeping_radius():
     assert res.converged
     assert res.x[6] == pytest.approx(50.0, abs=1e-3)                  # stiff, not pinned
     assert res.x[1] - res.x[5] == pytest.approx(res.x[6], abs=1e-6)   # line 1 r above the centre
+
+
+def test_collinear_two_rows_zero_on_one_line_and_fd_jacobian():
+    rng = np.random.default_rng(14)
+    for _ in range(10):
+        x = rng.uniform(-50, 50, 8)                      # e1 0..3, e2 4..7
+        s = ss.System(x=x.copy())
+        ss.BUILDERS["collinear"]("c", (_edge(0), _edge(4)), s)
+        assert len(s.rows) == 2 and not s.aliases and not s.fixes
+        for row in s.rows:
+            _fd_check(row, s.x)
+        d1 = s.x[2:4] - s.x[0:2]
+        s.x[4:6] = s.x[0:2] + 1.7 * d1                   # both e2 ends on e1's line,
+        s.x[6:8] = s.x[0:2] - 0.4 * d1                   # outside the segment (C4.1)
+        assert all(abs(r.fn(s.x)[0]) < 1e-9 for r in s.rows)
+
+
+def test_collinear_rows_are_signed_distances_of_e2_ends():
+    # e1 (0,0)->(10,0); e2 (0,3)->(5,-2): distances cross(p-a, d)/|d| = -3, +2
+    s = ss.System(x=np.array([0.0, 0.0, 10.0, 0.0, 0.0, 3.0, 5.0, -2.0]))
+    ss.BUILDERS["collinear"]("c", (_edge(0), _edge(4)), s)
+    assert sorted(r.fn(s.x)[0] for r in s.rows) == pytest.approx([-3.0, 2.0])
+
+
+def test_collinear_zero_length_first_edge_gives_zero_rows():
+    s = ss.System(x=np.array([5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 3.0, 4.0]))
+    ss.BUILDERS["collinear"]("c", (_edge(0), _edge(4)), s)
+    for r in s.rows:
+        v, g = r.fn(s.x)
+        assert v == 0.0 and not np.any(g)
+
+
+def test_collinear_to_x_axis_fixes_both_y_to_zero():
+    s = ss.System(x=np.array([0.0, 2.0, 10.0, 7.0]))
+    ss.BUILDERS["collinear"]("c", (_edge(0), "x_axis"), s)
+    assert sorted(s.fixes) == [(1, 0.0, "c"), (3, 0.0, "c")] and not s.rows
+
+
+def test_collinear_to_y_axis_fixes_both_x_to_zero():
+    s = ss.System(x=np.array([1.0, 2.0, 10.0, 7.0]))
+    ss.BUILDERS["collinear"]("c", (_edge(0), "y_axis"), s)
+    assert sorted(s.fixes) == [(0, 0.0, "c"), (2, 0.0, "c")] and not s.rows
+
+
+def test_collinear_removes_two_dof():
+    x = np.array([0.0, 0.0, 100.0, 0.0, 0.0, 50.0, 100.0, 60.0])
+    s = ss.System(x=x.copy())
+    assert ss.NumpySolver().diagnose(s).dof == 8
+    ss.BUILDERS["collinear"]("c", (_edge(0), _edge(4)), s)
+    assert ss.NumpySolver().diagnose(s).dof == 6

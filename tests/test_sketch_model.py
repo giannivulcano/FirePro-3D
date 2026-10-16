@@ -10,12 +10,17 @@ def test_catalogue_declares_every_session_type():
             "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle"} == names
 
 
-def test_built_types_after_cs12():
+def test_built_types_after_cs14():
     assert [t for t, s in sm.REGISTRY.items() if s.implemented] == [
         "horizontal", "vertical", "coincident", "point_on_curve", "dim_distance",
         "dim_radius", "dim_diameter", "dim_angle", "dim_arc_angle", "concentric",
         "symmetric", "fix", "parallel", "perpendicular", "equal", "tangent",
-        "dim_point_line"]
+        "collinear", "dim_point_line"]
+
+
+def test_registry_collinear_built():
+    assert sm.REGISTRY["collinear"].implemented
+    assert sm.REGISTRY["collinear"].patterns == (("edge", "edge"), ("edge", "axis"))
 
 
 def test_registry_perpendicular_built():
@@ -84,9 +89,9 @@ def test_unknown_or_unbuilt_record_is_inert_and_verbatim():
     assert c.inert
     assert c.to_dict() == raw
     built_later = sm.Constraint.from_dict(
-        {"id": "x2", "type": "collinear",
-         "refs": [{"uid": "a", "h": "edge"}, {"uid": "b", "h": "edge"}]})
-    assert built_later.inert          # declared but not implemented (CS14)
+        {"id": "x2", "type": "midpoint",
+         "refs": [{"uid": "a", "h": "p1"}, {"uid": "b", "h": "edge"}]})
+    assert built_later.inert          # CS13 dropped (D127): unknown -> inert
 
 
 def test_registry_tangent_built():
