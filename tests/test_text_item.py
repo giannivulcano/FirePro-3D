@@ -226,8 +226,9 @@ def test_model_text_renders_without_document_renderer(qapp, monkeypatch):
 
 
 def test_model_placed_text_seeds_visible_ink(qapp):
-    """A text placed on the model surface seeds white ink, never invisible
-    black-on-dark (todo #62 RC1)."""
+    """A text placed on the model surface seeds Automatic ink (theme ink on
+    canvas), never invisible black-on-dark (todo #62 RC1; HF1 AC5 retired the
+    literal white seed)."""
     from PyQt6.QtCore import QPointF
     from firepro3d.model_space import Model_Space
     s = Model_Space(scene_role="block_editor")
@@ -236,7 +237,11 @@ def test_model_placed_text_seeds_visible_ink(qapp):
     s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
     texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
     assert len(texts) == 1
-    assert texts[0].data.color.lower() == "#ffffff"
+    from firepro3d.colour_tokens import resolve_colour
+    from firepro3d.constants import TOKEN_AUTO
+    assert texts[0].data.color == TOKEN_AUTO
+    assert (texts[0].defaultTextColor().name()
+            == resolve_colour(TOKEN_AUTO, item=texts[0]).name())
 
 
 def test_model_placed_text_uses_readable_default_height(qapp):

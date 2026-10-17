@@ -22,8 +22,9 @@ from .constants import (
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
-    TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
+    TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
 )
+from .colour_tokens import normalize_colour
 from .scale_manager import ScaleManager
 from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
 from .house_dialog import HouseDialog
@@ -1610,7 +1611,8 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
         "Bold": {"type": "bool", "value": data.bold},
         "Italic": {"type": "bool", "value": data.italic},
         "Underline": {"type": "bool", "value": data.underline},
-        "Color": {"type": "color", "value": data.color or "#000000"},
+        "Color": {"type": "color", "value": data.color or TOKEN_AUTO,
+                  "allow_tokens": True},
         "Alignment": {"type": "enum",
                       "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
                       "options": ["Left", "Center", "Right"]},
@@ -1667,7 +1669,7 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
     elif key == "Underline":
         field, new = "underline", bool(value)
     elif key == "Color":
-        field, new = "color", str(value)
+        field, new = "color", normalize_colour(value, TOKEN_AUTO)
     elif key == "Alignment":
         # Strict: the multi-select "< mixed >" placeholder (or any non-label
         # string) must not silently coerce to Left and push a command.
@@ -1733,7 +1735,7 @@ def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
     if "underline" in raw:
         data.underline = _b(raw["underline"])
     if "color" in raw:
-        data.color = str(raw["color"])
+        data.color = normalize_colour(raw["color"], TOKEN_AUTO)
     if "align" in raw:
         a = str(raw["align"])
         data.align = a if a in ("L", "C", "R") else "L"

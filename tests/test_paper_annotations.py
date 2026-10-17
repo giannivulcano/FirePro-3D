@@ -51,7 +51,8 @@ def test_text_annotation_data_partial_dict_defaults():
     out = TextAnnotationData.from_dict({"text": "X"})
     assert out.text == "X"
     assert out.height_mm == DEFAULT_TEXT_HEIGHT_MM
-    assert out.color == "#000000"
+    from firepro3d.constants import TOKEN_AUTO
+    assert out.color == TOKEN_AUTO   # HF1 AC5: default is Automatic
     assert out.align == "L"
     assert out.wrap_width_mm == 0.0
 
@@ -256,7 +257,10 @@ def test_item_auto_width_when_wrap_zero(qapp):
 
 def test_item_default_color_black_and_z(qapp):
     item = TextAnnotationItem(TextAnnotationData(text="x"))
-    assert item.defaultTextColor().name() == "#000000"
+    from firepro3d.constants import TOKEN_AUTO
+    assert item.data.color == TOKEN_AUTO   # HF1 AC5: default is Automatic
+    # off-scene item resolves as canvas (theme ink); on paper it is #000000
+    # (covered by tests/test_hf1_token_render.py::test_g8b_paper_text_annotation_is_black)
     assert item.zValue() == 15
     assert item.data is item._data
 

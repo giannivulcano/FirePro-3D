@@ -38,7 +38,7 @@ from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
-from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
+from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
@@ -5778,10 +5778,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 text="", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
                 height_mm=DEFAULT_MODEL_TEXT_HEIGHT_MM)  # real-size scene mm — readable at editor zoom
-            # Seed white ink so a freshly placed model text isn't invisible
-            # black-on-dark — parity with the sibling 2D primitives, which default
-            # to "#ffffff".  Paper text keeps the black default (prints on white).
-            data.color = "#ffffff"
+            data.color = TOKEN_AUTO  # Automatic: theme ink on canvas, black on paper (HF1)
             data.border = True   # solid border on by default (border_line_type already "solid")
             data.cell_padding_mm = DEFAULT_MODEL_TEXT_PADDING_MM
             text = TextItem(data)

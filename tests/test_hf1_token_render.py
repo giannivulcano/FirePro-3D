@@ -107,7 +107,9 @@ def test_g8b_paper_text_annotation_is_black(qapp, force_theme):
     sc = PaperScene(Sheet.create_default(), MagicMock(spec=ViewResolver))
     t = TextItem(TextAnnotationData(text="A"))
     sc.addItem(t)
-    assert resolve_colour(TOKEN_AUTO, item=t).name() == "#000000"
+    assert t._data.color == TOKEN_AUTO          # the real default (AC5)
+    assert resolve_colour(t._data.color, item=t).name() == "#000000"
+    assert t.defaultTextColor().name() == "#000000"
 
 
 def test_g8b_titleblock_previews_resolve_tokens_as_paper(qapp, force_theme):

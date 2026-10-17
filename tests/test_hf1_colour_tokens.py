@@ -143,3 +143,32 @@ def test_canvas_pen_resolves_token(qapp, force_theme):
     ln._display_color = None
     ln._sync_stroke_pen()
     assert ln.pen().color().name() == "#1c2024"
+
+
+def test_text_defaults_to_automatic_and_resolves(qapp, force_theme):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    force_theme("dark")
+    d = TextAnnotationData(text="A")
+    assert d.color == TOKEN_AUTO
+    t = TextItem(d)
+    assert t.defaultTextColor().name() == "#e6e9ec"
+    force_theme("light")
+    t.on_theme_changed()
+    assert t.defaultTextColor().name() == "#1c2024"
+    assert TextItem.from_dict(t.to_dict())._data.color == TOKEN_AUTO
+
+
+def test_text_colour_prop_offers_tokens(qapp):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    props = TextItem(TextAnnotationData(text="A")).get_properties()
+    assert props["Font Color"]["allow_tokens"] is True
+    assert props["Font Color"]["value"] == TOKEN_AUTO
+
+
+def test_text_colour_setter_keeps_tokens(qapp):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    t = TextItem(TextAnnotationData(text="A", color="#112233"))
+    t.set_property("Font Color", TOKEN_ACCENT)
+    assert t._data.color == TOKEN_ACCENT
+    t.set_property("Font Color", "#FF0000")
+    assert t._data.color == "#ff0000"
