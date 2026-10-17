@@ -151,6 +151,42 @@ def test_toggle_off_records_nothing(vs):
     assert _recs(sc) == []
 
 
+def test_refline_offset_click_records_parallel_and_gap_dim(vs):
+    view, sc = vs
+    src, attr = add_primitive(sc, "refline")
+    assert src.reference
+    sc._modify_ctl.start("offset")
+    move(view, QPointF(50, 30))
+    click(view, QPointF(50, 30))
+    cp = getattr(sc, attr)[-1]
+    assert cp is not src and cp.reference
+    assert _recs(sc) == [("parallel", [(cp._uid, "edge"), (src._uid, "edge")]),
+                         ("dim_point_line", [(cp._uid, "mid"), (src._uid, "edge")])]
+
+
+def test_toggle_off_shift_click_records(vs):
+    view, sc = vs
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
+    _offset_line_by_click(view, sc, SHIFT)
+    assert [t for t, _ in _recs(sc)] == ["parallel", "dim_point_line"]
+
+
+def test_toggle_off_enter_and_typed_record_nothing(vs):
+    view, sc = vs
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
+    add_primitive(sc, "line")
+    sc._modify_ctl.start("offset")
+    move(view, QPointF(50, 30))
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+    assert len(sc._draw_lines) == 2
+    sc.clearSelection()
+    sc._draw_lines[0].setSelected(True)
+    sc._modify_ctl.start("offset")
+    move(view, QPointF(50, 60))
+    _type_distance(sc, "20")
+    assert len(sc._draw_lines) == 3 and _recs(sc) == []
+
+
 def test_one_undo_removes_copy_and_relations(vs):
     view, sc = vs
     src, attr = add_primitive(sc, "line")
