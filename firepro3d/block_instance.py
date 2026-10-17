@@ -1167,7 +1167,8 @@ class BlockInstance(QGraphicsObject):
         return _pd.resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
 
     def _paint_fill_op(self, painter, pose, op) -> None:
-        """Fill / pattern op: boundary posed; pattern stamped in the pose's rotation / mirror frame, never its scale (D-A11 block-pose exception)."""
+        """Fill / pattern op: boundary posed; pattern stamped in the pose's
+        rotation / mirror frame, never its scale (D-A11 block-pose exception)."""
         paint_fill = _hr.paint_fill              # module import (hot path)
         col = QColor(op.colour or "#888888")
         col.setAlpha(op.alpha)

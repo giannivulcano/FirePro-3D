@@ -83,6 +83,12 @@ def test_mirrored_instance_mirrors_its_hatch(qapp, shipped_hatches):
     assert _ang_close(_line_angle(_render(_placed(shipped_hatches, mirrored=True))), 135)
 
 
+def test_mirrored_rotated_instance_mirrors_then_turns(qapp, shipped_hatches):
+    """Mirror then pose rotation: 45 -> 135, +200 deg -> 155 deg (mod 180)."""
+    sc = _placed(shipped_hatches, rotation=200.0, mirrored=True)
+    assert _ang_close(_line_angle(_render(sc)), 155)
+
+
 def _row_crossings(img, y=350, lo=110, hi=590):
     n, prev = 0, False
     for x in range(lo, hi):
@@ -96,7 +102,7 @@ def test_scaled_instance_keeps_hatch_spacing(qapp, shipped_hatches):
     """Scale never resizes the pattern: same crossings per row at x1 and x2."""
     n1 = _row_crossings(_render(_placed(shipped_hatches)))
     n2 = _row_crossings(_render(_placed(shipped_hatches, scale=2.0)))
-    assert n1 >= 3 and abs(n2 - n1) <= 1
+    assert n1 >= 3 and n2 == n1
 
 
 def test_nested_rotations_compose(qapp, shipped_hatches):

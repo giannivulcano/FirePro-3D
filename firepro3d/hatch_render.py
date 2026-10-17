@@ -192,7 +192,8 @@ def stamp_lattice(painter, bounds: QRectF, tile, k: float, origin: QPointF,
     """Stamp *tile* (scaled by *k*) over the visible part of *bounds*,
     anchored at *origin*.
 
-    Painter coords must be the pattern frame (scene axes). Only cells over
+    Painter coords must be the pattern frame (scene axes, or a placed block's
+    ``orient`` frame -- see ``paint_fill``). Only cells over
     ``bounds ∩ visible area`` are stamped; when the visible area cuts the fill
     the range is snapped outward to multiples of ``HATCH_VISIBLE_SNAP_CELLS``
     (cache-stable panning), a fully visible fill uses the exact range. The
@@ -292,7 +293,8 @@ def paint_fill(painter, clip: QPainterPath, *, scene,
         scale: Pattern Scale multiplier.
         line_width_px: Canvas (cosmetic) pattern line width.
         to_scene: Item→scene transform of the painter frame; the pattern is
-            stamped in scene axes so a rotated frame never rotates it.
+            stamped in scene axes (or *orient*'s) so a rotated frame never
+            rotates it by itself.
         orient: Pattern axes in scene (``render_op.pattern_orient``: rotation,
             possibly reflecting, no scale) -- a placed block's hatch turns and
             mirrors with its pose (D-A11 block-pose exception); None = scene
