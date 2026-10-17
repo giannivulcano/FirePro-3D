@@ -4,6 +4,7 @@ from PyQt6.QtCore import QPointF
 
 from firepro3d.geometry_2d import (ArcItem, CircleItem, LineItem, PolylineItem,
                                    RectangleItem)
+from firepro3d.constants import TOKEN_AUTO
 from firepro3d.model_space import Model_Space
 
 
@@ -143,7 +144,7 @@ def test_new_primitive_default_style(qapp, mode, attr, pts):
             click(view, QPointF(*p))
         (item,) = getattr(scene, attr)
         assert item.style == default_style(item.style["colour"])
-        assert item.style["colour"] == "#ffffff"
+        assert item.style["colour"] == TOKEN_AUTO   # HF1 AC5 (was #ffffff)
     finally:
         close_view(view, scene)
 
