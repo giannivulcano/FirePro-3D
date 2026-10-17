@@ -64,6 +64,9 @@ class FontGroupController(QObject):
         self._theme = th.detect()
         self._size_user_edit = False
         self._build_widgets()
+        # Bound method of a QObject: PyQt drops the connection when this
+        # controller is destroyed, so the module-level bus never holds it.
+        th.theme_bus().changed.connect(self._on_theme_changed)
 
     def _build_widgets(self):
         self.container = QWidget()
@@ -160,6 +163,15 @@ class FontGroupController(QObject):
             return
         self._size_user_edit = False
         self.commit_size_text(self.size_combo.currentText())
+
+    def _on_theme_changed(self) -> None:
+        """Theme switched: re-latch the swatch QSS (it bakes the resolved
+        colour and chrome tokens) from the unchanged raw value."""
+        from PyQt6 import sip
+        if sip.isdeleted(self.color_btn):       # ribbon torn down first
+            return
+        self._theme = th.detect()
+        self._set_swatch(self._swatch)
 
     def _set_swatch(self, value: str):
         """Show *value* (hex or colour token); ``_swatch`` keeps the raw value."""

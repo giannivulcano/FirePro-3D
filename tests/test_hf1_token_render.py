@@ -129,3 +129,79 @@ def test_g8b_titleblock_previews_resolve_tokens_as_paper(qapp, force_theme):
         sc.addItem(it)
         assert resolve_colour(TOKEN_AUTO, item=it).name() == "#000000"
         assert resolve_colour(TOKEN_ACCENT, item=it).name() == "#2f9e63"
+
+
+# ---------------------------------------------------------------------------
+# T6: theme bus + live-scene refresh (AC3, G8c)
+# ---------------------------------------------------------------------------
+
+def test_g8c_live_switch_flips_pixel_and_text(qapp, force_theme):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    from firepro3d.view_3d import View3D  # noqa: F401 -- heavy import before MainWindow
+    import main as _main_module
+    _main_module.View3D = View3D
+    from main import MainWindow
+    from tests._mainwindow_helpers import dispose_main_window
+    force_theme("dark")
+    win = MainWindow()
+    try:
+        win.show()
+        QTest.qWaitForWindowExposed(win)
+        ms = win.scene
+        t = TextItem(TextAnnotationData(text="A"))
+        ms.addItem(t)
+        _token_block(ms, TOKEN_AUTO)
+        assert t.defaultTextColor().name() == "#e6e9ec"
+        assert "#e6e9ec" in _shown_pixels(ms)
+        force_theme("light")
+        win._apply_theme()                       # the real switch entry point
+        assert t.defaultTextColor().name() == "#1c2024"
+        assert "#1c2024" in _shown_pixels(ms)
+    finally:
+        dispose_main_window(win)
+
+
+def test_theme_bus_is_a_singleton_with_changed_signal(qapp):
+    bus = theme.theme_bus()
+    assert bus is theme.theme_bus()
+    hits = []
+    bus.changed.connect(lambda: hits.append(1))
+    bus.changed.emit()
+    assert hits == [1]
+
+
+def test_disposed_main_window_does_not_leak_a_bus_slot(qapp, force_theme):
+    from firepro3d.view_3d import View3D  # noqa: F401
+    import main as _main_module
+    _main_module.View3D = View3D
+    from main import MainWindow
+    from tests._mainwindow_helpers import dispose_main_window
+    force_theme("dark")
+    win = MainWindow()
+    dispose_main_window(win)
+    theme.theme_bus().changed.emit()      # must not touch the dead window
+
+
+def test_font_swatch_follows_theme_switch_without_resync(qapp, force_theme):
+    from firepro3d.font_group import FontGroupController
+    force_theme("dark")
+    fg = FontGroupController(get_targets=lambda: [])
+    try:
+        fg._set_swatch(TOKEN_AUTO)
+        assert "#e6e9ec" in fg.color_btn.styleSheet()
+        force_theme("light")
+        theme.theme_bus().changed.emit()
+        assert "#1c2024" in fg.color_btn.styleSheet()
+        assert fg._swatch == TOKEN_AUTO
+    finally:
+        fg.container.deleteLater()
+        fg.deleteLater()
+
+
+def test_font_group_deleted_does_not_break_later_emits(qapp, force_theme):
+    from PyQt6 import sip
+    from firepro3d.font_group import FontGroupController
+    force_theme("dark")
+    fg = FontGroupController(get_targets=lambda: [])
+    sip.delete(fg)
+    theme.theme_bus().changed.emit()      # must not raise or crash

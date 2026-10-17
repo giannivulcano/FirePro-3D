@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QApplication
 
@@ -270,7 +271,7 @@ def _mix(a: str, b: str, t: float) -> str:
 
 @dataclass(frozen=True)
 class Theme:
-    """One theme variant. A variant authors ONLY the 16 primitive colours;
+    """One theme variant. A variant authors ONLY the 20 primitive colours;
     every semantic token below derives from them (Layer 2)."""
 
     name: str
@@ -463,6 +464,23 @@ def detect() -> Theme:
     pal = QApplication.palette()
     lum = pal.color(QPalette.ColorRole.Window).lightness()
     return DARK if lum < 128 else LIGHT
+
+
+class _ThemeBus(QObject):
+    """Process-wide theme-changed notifier (HF1). ``MainWindow._apply_theme``
+    emits ``changed`` after the stylesheets are re-applied."""
+    changed = pyqtSignal()
+
+
+_bus: _ThemeBus | None = None
+
+
+def theme_bus() -> _ThemeBus:
+    """The singleton theme bus (created on first use)."""
+    global _bus
+    if _bus is None:
+        _bus = _ThemeBus()
+    return _bus
 
 
 # ─────────────────────────────────────────────────────────────────────────────

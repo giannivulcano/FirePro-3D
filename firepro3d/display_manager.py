@@ -3230,6 +3230,26 @@ def apply_project_display_settings(scene, display_dict: dict):
     settings.sync()
 
 
+def refresh_token_latched(scene) -> None:
+    """Re-apply categories whose stored colour is a token, so values latched
+    at apply time (SVG tints, marker / gridline pens, labels) follow a theme
+    switch (HF1). Per-paint readers need nothing.
+
+    Scenes without a ``sprinkler_system`` (paper sheet, elevation, schematic,
+    Block Editor scenes) have no category items and are skipped.
+    """
+    from .colour_tokens import is_token
+    if getattr(scene, "sprinkler_system", None) is None:
+        return
+    for cat in _CATEGORIES:
+        key = cat["key"]
+        vals = _read_category_from_settings(key)
+        if not is_token(vals.get("color")):
+            continue
+        for item in _items_for_category_static(scene, key):
+            _apply_vals_to_item(item, vals, respect_overrides=True)
+
+
 def _items_for_category_static(scene, key: str) -> list:
     """Same as DisplayManager._items_for_category but as a free function."""
     from .gridline import GridlineItem

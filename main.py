@@ -487,6 +487,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.current_text_template.data
         self.paper_space_widget.paper_scene.selectionChanged.connect(
             self.update_paper_property_manager)
+        # HF1: theme switch -> repaint token consumers. Bound method (auto-drops
+        # with the window) + explicit disconnect in closeEvent: the bus is
+        # process-wide and outlives every window.
+        th.theme_bus().changed.connect(self._on_theme_bus_changed)
         # Bound methods, never ``self`` lambdas: the parentless PaperScene can
         # outlive this window, and ~QUndoStack emits indexChanged on destruction;
         # PyQt auto-disconnects bound-method slots when the receiver dies, a
@@ -2369,6 +2373,39 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 self.ribbon.setStyleSheet(_th.build_ribbon_qss(t))
         if getattr(self, "view", None) is not None:
             self.view.viewport().update()
+        _th.theme_bus().changed.emit()
+
+    def _live_scenes(self) -> list:
+        """Every live scene: model, paper sheet, open Block Editors,
+        elevation views, schematic scenes (HF1 theme refresh + re-pen)."""
+        scenes = [self.scene]
+        psw = getattr(self, "paper_space_widget", None)
+        if psw is not None and getattr(psw, "paper_scene", None) is not None:
+            scenes.append(psw.paper_scene)
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is not None:
+            scenes.extend(w.editor_scene for w in mgr.open_editors())
+        em = getattr(self, "elevation_manager", None)
+        if em is not None:
+            scenes.extend(sc for sc, _v in em._views.values())
+        ss = getattr(self, "schematic_scenes", None)     # SchematicSceneManager
+        if ss is not None:
+            scenes.extend(ss._scenes.values())          # {block_id: scene}
+        return scenes
+
+    def _on_theme_bus_changed(self) -> None:
+        """Repaint every token consumer after a theme switch (HF1)."""
+        from PyQt6 import sip
+        if sip.isdeleted(self):
+            return
+        from firepro3d.display_manager import refresh_token_latched
+        for sc in self._live_scenes():
+            refresh_token_latched(sc)
+            for it in sc.items():
+                fn = getattr(it, "on_theme_changed", None)
+                if fn is not None:
+                    fn()
+            sc.update()
 
     def _apply_crosshair(self, enabled=None) -> None:
         """Toggle the accent crosshair across plan views + suppress the blue
@@ -3839,14 +3876,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         for record, _group in list(getattr(self.scene, "underlays", [])):
             self.scene.repen_underlay(record)
-        scenes = [self.scene]
-        psw = getattr(self, "paper_space_widget", None)
-        if psw is not None and getattr(psw, "paper_scene", None) is not None:
-            scenes.append(psw.paper_scene)
-        mgr = getattr(self, "block_editor_manager", None)
-        if mgr is not None:
-            scenes.extend(w.editor_scene for w in mgr.open_editors())
-        for sc in scenes:
+        for sc in self._live_scenes():
             for v in sc.views():
                 v.viewport().update()
 
@@ -5822,6 +5852,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         self.save_settings()
         self._cleanup_autosave()
+        try:
+            th.theme_bus().changed.disconnect(self._on_theme_bus_changed)
+        except (TypeError, RuntimeError):
+            pass                                # already disconnected
         self.schematic_scenes.dispose_all()
         # Child widgets don't receive closeEvent; release the 3D view's VTK
         # render window explicitly so its GL context doesn't leak past teardown.
