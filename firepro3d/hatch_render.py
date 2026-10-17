@@ -277,7 +277,7 @@ def paint_fill(painter, clip: QPainterPath, *, scene,
                background: QColor | None = None, tile_ref: str | None = None,
                colour: QColor | None = None, origin: QPointF | None = None,
                scale: float = 1.0, line_width_px: float = 1.0,
-               to_scene=None) -> None:
+               to_scene=None, orient=None) -> None:
     """Fill *clip* with an optional background and a tiled pattern.
 
     Args:
@@ -293,12 +293,21 @@ def paint_fill(painter, clip: QPainterPath, *, scene,
         line_width_px: Canvas (cosmetic) pattern line width.
         to_scene: Item→scene transform of the painter frame; the pattern is
             stamped in scene axes so a rotated frame never rotates it.
+        orient: Pattern axes in scene (``render_op.pattern_orient``: rotation,
+            possibly reflecting, no scale) -- a placed block's hatch turns and
+            mirrors with its pose (D-A11 block-pose exception); None = scene
+            axes. *origin* stays in scene coords.
     """
     if clip is None or clip.isEmpty():
         return
     origin = QPointF(0.0, 0.0) if origin is None else origin
     painter.save()
     try:
+        if orient is not None and not orient.isIdentity():
+            oinv, ok = orient.inverted()
+            if ok:                                  # stamp in the pattern frame
+                to_scene = (QTransform() if to_scene is None else to_scene) * oinv
+                origin = oinv.map(origin)
         if to_scene is not None and not to_scene.isIdentity():
             inv, ok = to_scene.inverted()
             if ok:
