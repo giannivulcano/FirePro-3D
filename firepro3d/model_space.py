@@ -38,6 +38,7 @@ from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
+from .colour_tokens import resolve_colour
 from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
@@ -4324,9 +4325,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._plc._get_geometry_template()
 
     def _geom_color_lw(self):
-        """Return (color, lineweight) for new geometry."""
+        """Return (color, lineweight) for new geometry (colour is Automatic, HF1)."""
         from .constants import DEFAULT_GEOMETRY_LINEWEIGHT
-        return "#ffffff", DEFAULT_GEOMETRY_LINEWEIGHT
+        return TOKEN_AUTO, DEFAULT_GEOMETRY_LINEWEIGHT
 
     def _ensure_underlay_caches(self, *args, **kwargs):
         """Back-compat shell → :class:`UnderlayController`."""
@@ -4898,7 +4899,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _make_ref_line(self):
         """Create a dashed cosmetic angle-reference guide line, added to scene."""
         line = QGraphicsLineItem()
-        pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        pen = QPen(resolve_colour(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         line.setPen(pen)
         line.setZValue(200)
@@ -4913,7 +4914,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         by the caller.
         """
         circle = QGraphicsEllipseItem()
-        pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        pen = QPen(resolve_colour(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         circle.setPen(pen)
         circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))

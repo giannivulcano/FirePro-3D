@@ -656,3 +656,31 @@ def test_project_non_numeric_version_migrates_without_raising():
              "display_settings": {"2D Geometry": {"color": "#ffffff"}}}
         migrate_project_payload(p)
         assert p["display_settings"]["2D Geometry"]["color"] == TOKEN_AUTO
+
+
+def _hf1_click(view, x, y):
+    from PyQt6.QtCore import QEvent, QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtWidgets import QApplication
+    vp = view.mapFromScene(QPointF(x, y))
+    gp = view.viewport().mapToGlobal(vp)
+    for et in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress,
+               QEvent.Type.MouseButtonRelease):
+        btn = (Qt.MouseButton.NoButton if et == QEvent.Type.MouseMove
+               else Qt.MouseButton.LeftButton)
+        QApplication.sendEvent(view.viewport(), QMouseEvent(
+            et, QPointF(vp), QPointF(gp), btn, btn,
+            Qt.KeyboardModifier.NoModifier))
+    QApplication.processEvents()
+
+
+def test_drawn_line_commits_with_automatic_colour(shown_model_view):
+    """AC5, end to end: the real draw_line tool (posted mouse events) stores
+    ``token:auto`` on the committed item, not a literal white."""
+    view, scene = shown_model_view
+    scene.scene_role = "block_editor"
+    scene.set_mode("draw_line")
+    _hf1_click(view, 0, 0)
+    _hf1_click(view, 600, 0)
+    assert len(scene._draw_lines) == 1
+    assert scene._draw_lines[0].style["colour"] == TOKEN_AUTO

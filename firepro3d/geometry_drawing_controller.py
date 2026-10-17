@@ -34,6 +34,7 @@ from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
 from . import auto_constrain as ac
 from .constants import (SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX,
                         AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT)
+from .colour_tokens import resolve_colour
 from .stroke_style import apply_current
 
 
@@ -108,7 +109,7 @@ class GeometryDrawingController:
 
     def _recolour(self, item) -> None:
         pen = QPen(item.pen())
-        pen.setColor(QColor(self._ghost_colour()))
+        pen.setColor(resolve_colour(self._ghost_colour()))
         item.setPen(pen)
 
     def recolour_ghosts(self) -> None:
@@ -309,7 +310,7 @@ class GeometryDrawingController:
         # width-1 dashed) so it matches the other 2D-geo previews — not the
         # shared preview_pipe's darkGray pipe default. set_mode resets the pen
         # for pipe/set_scale.
-        _pen = QPen(QColor(self._ghost_colour()), 1, Qt.PenStyle.DashLine)
+        _pen = QPen(resolve_colour(self._ghost_colour()), 1, Qt.PenStyle.DashLine)
         _pen.setCosmetic(True)
         self._scene.preview_pipe.setPen(_pen)
         self._scene.preview_pipe.setLine(anchor.x(), anchor.y(), tip.x(), tip.y())
@@ -438,7 +439,7 @@ class GeometryDrawingController:
             self._scene.instructionChanged.emit("Pick radius point")
             # Create preview circle
             preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-            _prev_pen = QPen(QColor(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(resolve_colour(self._scene._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
             self._track_ghost(preview)
@@ -972,7 +973,7 @@ class GeometryDrawingController:
                 "Pick edge midpoint (width + angle)" if s._draw_rect_from_center
                 else "Pick first side (direction + width)")
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
-            _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(resolve_colour(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
             self._track_ghost(preview)
@@ -1248,7 +1249,7 @@ class GeometryDrawingController:
             # Create radius preview line (centre → cursor)
             line = QGraphicsLineItem(snapped.x(), snapped.y(),
                                      snapped.x(), snapped.y())
-            _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(resolve_colour(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             line.setPen(_prev_pen)
             self._track_ghost(line)
@@ -1294,7 +1295,7 @@ class GeometryDrawingController:
         """Create the dashed arc preview path item (all arc variants)."""
         s = self._scene
         preview = QGraphicsPathItem()
-        _prev_pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        _prev_pen = QPen(resolve_colour(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         _prev_pen.setCosmetic(True)
         preview.setPen(_prev_pen)
         self._track_ghost(preview)
@@ -2048,7 +2049,7 @@ class GeometryDrawingController:
             path.lineTo(p)
         if s._spline_ref_poly is None:
             item = QGraphicsPathItem()
-            _pen = QPen(QColor(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+            _pen = QPen(resolve_colour(s._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
             _pen.setCosmetic(True)
             item.setPen(_pen)
             self._track_ghost(item)

@@ -8,6 +8,7 @@ from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                                    PolylineItem, RectangleItem,
                                    RegularPolygonItem, SplineItem)
 from firepro3d.block_definition import is_scaffold, is_scaffold_item
+from firepro3d.colour_tokens import resolve_colour
 
 
 def _polyline():
@@ -502,7 +503,7 @@ def test_space_recolours_each_tools_ghost(shown_model_view, case):
     view, scene = shown_model_view
     scene.scene_role = "block_editor"
     ref = QColor(_read_category_from_settings("Reference Geometry")["color"]).name()
-    geo = QColor(scene._geom_color_lw()[0]).name()
+    geo = resolve_colour(scene._geom_color_lw()[0]).name()
     assert ref != geo
     clicks, getters = _GHOSTS[case]
     scene.set_mode("draw_arc" if case == "draw_arc_span" else case)
@@ -660,7 +661,7 @@ def test_toggle_recolours_the_line_rubber_band_at_once(shown_model_view):
     view, scene = shown_model_view
     scene.scene_role = "block_editor"
     ref = QColor(_read_category_from_settings("Reference Geometry")["color"]).name()
-    geo = QColor(scene._geom_color_lw()[0]).name()
+    geo = resolve_colour(scene._geom_color_lw()[0]).name()
     scene.set_mode("draw_line")
     _click(view, 0, 0)
     _move(view, 150, 220)
