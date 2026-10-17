@@ -178,6 +178,11 @@ def _is_reflection(point_map) -> bool:
     return ((x.x() - o.x()) * (y.y() - o.y()) - (x.y() - o.y()) * (y.x() - o.x())) < 0.0
 
 
+def _value_tol(c) -> float:
+    """D31: how close a typed dim value must land (degrees for angle dims)."""
+    return math.degrees(TYPED_TOL) if c.type in sm.ANGLE_DIMS else TYPED_TOL
+
+
 def _angle_helper_ok(h) -> bool:
     """D72: ``{"dirs": [±1, ±1], "sign": ±1}`` exactly."""
     if not isinstance(h, dict):
@@ -512,6 +517,7 @@ class ConstraintController:
         # (the ribbon's Delete Constraints enable state, main.py).
         self.state_listeners: list = []
         self._solver = NumpySolver()
+        self._polish = False                   # set_value only: polish stalled solves
         self._drag_snap = None
         self._last_good = None
         self._drag_ctx = None
@@ -1103,7 +1109,7 @@ class ConstraintController:
         pref = self._stiffened(slots, weights, "stiff_vars")
         if np.array_equal(pref, weights):              # no size / angle vars
             return self._solve_plain(sys_, slots, weights, active)
-        res = self._solver.solve(sys_, sys_.x.copy(), pref, active=active)
+        res = self._solver.solve(sys_, sys_.x.copy(), pref, active=active, polish=self._polish)
         if not res.converged or self._collapses(slots, sys_.x, res.x):
             return self._solve_plain(sys_, slots, weights, active)
         dev = self._deviation(res.x, sys_.x, honour)
@@ -1126,7 +1132,7 @@ class ConstraintController:
 
     def _solve_plain(self, sys_, slots, weights, active):
         """The plain-weights solve + the D29 collapse retry, or None."""
-        res = self._solver.solve(sys_, sys_.x.copy(), weights, active=active)
+        res = self._solver.solve(sys_, sys_.x.copy(), weights, active=active, polish=self._polish)
         if not res.converged:
             return None
         # D29: a solve that can only be satisfied by collapsing a shape is a CONFLICT.
@@ -1135,7 +1141,7 @@ class ConstraintController:
             # variable stiff (W_PIN) so a non-collapsing answer (e.g. a rotate)
             # wins if one exists. Still collapsing / unsolved -> conflict.
             stiff = self._stiffened(slots, weights, "size_floors")
-            res = self._solver.solve(sys_, sys_.x.copy(), stiff, active=active)
+            res = self._solver.solve(sys_, sys_.x.copy(), stiff, active=active, polish=self._polish)
             if not res.converged or self._collapses(slots, sys_.x, res.x):
                 return None
         return res.x
@@ -2307,15 +2313,30 @@ class ConstraintController:
         snap = self._snapshot(items)
         c.value = v
         self.red.discard(c.id)
+        self._polish = True                        # a stalled solve is polished
         try:
             if hit is not None:
                 hit[1].apply(v)
                 ok = self._solve(edited=items, typed=self._typed_pins(items, snap))
+                if not ok:
+                    # D6: the anchor law is a strong preference, not a lock --
+                    # when the block's other constraints contradict it (a line
+                    # whose midpoint is held at the origin, a rect centred on
+                    # it) re-seed the anchor and let the rest yield. The value
+                    # stays exact: the dim is a hard constraint (checked below).
+                    self._restore(snap)
+                    hit[1].apply(v)
+                    ok = self._solve(edited=items)
             else:
                 ok = self._solve(focus=_safe_ref_uids(c) or set())
+            if ok:
+                m = self.measure(c)
+                ok = m is None or abs(m - v) <= _value_tol(c)
         except Exception:                          # F10: never leave a half-applied value
             _log.exception("dim set_value failed")
             ok = False
+        finally:
+            self._polish = False
         if not ok:
             self._restore(snap)
             c.value = old

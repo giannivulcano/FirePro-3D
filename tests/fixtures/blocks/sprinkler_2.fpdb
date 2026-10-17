@@ -1,0 +1,303 @@
+{
+  "schema": 2,
+  "id": "8447eff20a5b4f9687677cdb50c305d3",
+  "version": 4,
+  "name": "Sprinkler_2",
+  "library": "Sprinkler Systems",
+  "series": "Sprinklers",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        70.73980913447912,
+        -70.68153508249142
+      ],
+      "pt2": [
+        -70.73980913446746,
+        70.68153505420717
+      ],
+      "uid": "04d2b6d8e68146ff813b39bcc82112eb",
+      "style": {
+        "linetype": "9763ac4e3be844e992af9c9d945a5de4",
+        "weight": "Thin",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        -70.68153506834,
+        -70.73980914861889
+      ],
+      "pt2": [
+        70.68153505421533,
+        70.73980910618666
+      ],
+      "uid": "1b1e34f85bff42b8ab887cdc0d32db20",
+      "style": {
+        "linetype": "9763ac4e3be844e992af9c9d945a5de4",
+        "weight": "Thin",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_circle",
+      "cx": 0.0,
+      "cy": 0.0,
+      "radius": 100.0,
+      "uid": "ca6a2c684186469187f5e149df8b1653",
+      "style": {
+        "linetype": "9763ac4e3be844e992af9c9d945a5de4",
+        "weight": "Thin",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "87e25b6e89744f2f83d860094c0ac1bb",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "ca6a2c684186469187f5e149df8b1653",
+          "h": "center"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "6f1fb6d6569c4b1881fa25b1b048abdd",
+      "type": "dim_diameter",
+      "refs": [
+        {
+          "uid": "ca6a2c684186469187f5e149df8b1653",
+          "h": "curve"
+        }
+      ],
+      "value": 200.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "angle": 31.5237414055683
+      }
+    },
+    {
+      "id": "769474569ee0497394ed7b78e34e2b1c",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "04d2b6d8e68146ff813b39bcc82112eb",
+          "h": "mid"
+        },
+        {
+          "uid": "ca6a2c684186469187f5e149df8b1653",
+          "h": "center"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "16013c5d70594d1790a2667301d18d0e",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "1b1e34f85bff42b8ab887cdc0d32db20",
+          "h": "mid"
+        },
+        {
+          "uid": "04d2b6d8e68146ff813b39bcc82112eb",
+          "h": "mid"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "9e96b838148043878ec2113a9a1cbd03",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "04d2b6d8e68146ff813b39bcc82112eb",
+          "h": "p1"
+        },
+        {
+          "uid": "ca6a2c684186469187f5e149df8b1653",
+          "h": "curve"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "9f748b51a4e648de83d799f00082853f",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "1b1e34f85bff42b8ab887cdc0d32db20",
+          "h": "p1"
+        },
+        {
+          "uid": "ca6a2c684186469187f5e149df8b1653",
+          "h": "curve"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "584c07ca41f84686a1dd65e587c53bea",
+      "type": "dim_angle",
+      "refs": [
+        {
+          "uid": "1b1e34f85bff42b8ab887cdc0d32db20",
+          "h": "edge"
+        },
+        {
+          "uid": "04d2b6d8e68146ff813b39bcc82112eb",
+          "h": "edge"
+        }
+      ],
+      "value": 89.99999999999719,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "dirs": [
+          -1,
+          -1
+        ],
+        "sign": 1
+      },
+      "label": {
+        "radius": 14.16916311632576
+      }
+    },
+    {
+      "id": "2fcba3f31d7a452f80021036cdc774d3",
+      "type": "dim_angle",
+      "refs": [
+        {
+          "uid": "04d2b6d8e68146ff813b39bcc82112eb",
+          "h": "edge"
+        },
+        {
+          "ref": "x_axis"
+        }
+      ],
+      "value": 44.97639070768404,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "dirs": [
+          -1,
+          1
+        ],
+        "sign": 1
+      },
+      "label": {
+        "radius": 16.37830555077357
+      }
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "bundled": {
+    "9763ac4e3be844e992af9c9d945a5de4": {
+      "schema": 1,
+      "id": "9763ac4e3be844e992af9c9d945a5de4",
+      "version": 4,
+      "name": "Solid",
+      "library": "System",
+      "series": "Line Types",
+      "scale_mode": "real_size",
+      "origin": [
+        0.0,
+        0.0
+      ],
+      "attributes": [],
+      "primitives": [
+        {
+          "type": "draw_line",
+          "pt1": [
+            0.0,
+            0.0
+          ],
+          "pt2": [
+            50.0,
+            0.0
+          ],
+          "uid": "39300afbccb5408db62daa992941ee77",
+          "style": {
+            "linetype": "continuous",
+            "weight": "by_linetype",
+            "start": {
+              "end": "by_linetype",
+              "visible": true
+            },
+            "finish": {
+              "end": "by_linetype",
+              "visible": true
+            },
+            "colour": "#ffffff"
+          }
+        }
+      ],
+      "render_mode": "default",
+      "constraints": [],
+      "tile": null,
+      "repeat": {
+        "length": 50.0,
+        "size": "model"
+      }
+    }
+  },
+  "weights": {
+    "Thin": 0.35
+  }
+}
