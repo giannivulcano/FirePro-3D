@@ -320,7 +320,8 @@ class FontGroupController(QObject):
         # clicked the swatch.
         targets = self._targets()
         initial = (targets[0].data.color or TOKEN_AUTO) if targets else TOKEN_AUTO
-        v = colour_picker.pick_colour(initial, self.container, "Font")
+        v = colour_picker.pick_colour(initial, self.container, "Font",
+                                      allow_tokens=True)
         if v is not None:
             self._commit_to(targets, "Color", v)
 

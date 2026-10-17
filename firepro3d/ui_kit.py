@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
                              QLineEdit, QToolButton)
 
-from .theme import M, detect as _detect
+from .colour_tokens import is_token, resolve_colour, token_label
+from .theme import M, detect as _detect, theme_bus
 
 
 def dock_header(text: str) -> QLabel:
@@ -1064,9 +1065,14 @@ class _Chip(QWidget):
             paint_no_fill(p, r, 3)
             p.setBrush(Qt.BrushStyle.NoBrush)
         else:
-            p.setBrush(QColor(self._color))
+            p.setBrush(resolve_colour(self._color))
         p.setPen(QPen(QColor(t.border_subtle), 1))
         p.drawRoundedRect(r, 3, 3)
+        if is_token(self._color):                # "A" badge: theme-relative colour
+            p.setPen(QColor(t.text_primary))
+            f = p.font(); f.setPixelSize(7); f.setBold(True); p.setFont(f)
+            p.drawText(r.adjusted(0, 0, -1, 0),
+                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "A")
 
     def mousePressEvent(self, event):
         self.clicked.emit()
@@ -1083,9 +1089,10 @@ class Swatch(QWidget):
     colorChanged = pyqtSignal(str)
 
     def __init__(self, hex_color="#000000", parent=None, *, allow_none=False,
-                 context="Colour"):
+                 allow_tokens=False, context="Colour"):
         super().__init__(parent)
         self._allow_none = allow_none
+        self._allow_tokens = allow_tokens
         self._context = context
         self._hex = "" if (allow_none and not hex_color) else (hex_color or "#000000")
         t = _detect()
@@ -1101,15 +1108,23 @@ class Swatch(QWidget):
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
         lay.addStretch(1)
+        theme_bus().changed.connect(self._on_theme)
+
+    def _on_theme(self):
+        """Live theme switch: re-latch the muted label colour and repaint."""
+        self._label.setStyleSheet(
+            f"color: {_detect().muted}; font-size: {M.PROP_FIELD_FS}px;")
+        self._chip.update()
 
     @staticmethod
     def _text_for(v):
-        return "None" if not v else v.upper()
+        return "None" if not v else (token_label(v) or v.upper())
 
     def _pick(self):
         from . import colour_picker
+        kw = {"allow_tokens": True} if self._allow_tokens else {}
         v = colour_picker.pick_colour(self._hex, self, self._context,
-                                      allow_none=self._allow_none)
+                                      allow_none=self._allow_none, **kw)
         if v is None:
             return
         self.set_hex(v)

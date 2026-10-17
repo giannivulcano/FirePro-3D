@@ -3447,7 +3447,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Seed the picker from the first target's current override, if any.
         seed = targets[0]._display_overrides.get(prop)
         hex_val = colour_picker.pick_colour(
-            seed if seed else "#ffffff", self, title)
+            seed if seed else "#ffffff", self, title,
+            allow_tokens=(prop == "color"))
         if hex_val is None:
             return
 

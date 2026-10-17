@@ -896,7 +896,8 @@ class Geometry2DMixin:
                 locked_tip=_LOCKED_END_LINETYPE_TIP if in_end else None,
                 ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc),
                 drawing_scale=sm.drawing_scale if sm is not None else None))
-            props["Colour"] = {"type": "color", "value": self.style["colour"]}
+            props["Colour"] = {"type": "color", "value": self.style["colour"],
+                               "allow_tokens": True}
         if self.is_fillable() and not self.reference:
             props["Fill"] = {"type": "enum",
                              "options": ["none", "solid", "hatch"],

@@ -1843,7 +1843,8 @@ class DisplayManager(QDialog):
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = self._cat_data[category_key]["widgets"]
         cur_hex = widgets[btn_key].property("_color") or default
-        v = colour_picker.pick_colour(cur_hex, self, f"{category_key} · {prop}")
+        v = colour_picker.pick_colour(cur_hex, self, f"{category_key} · {prop}",
+                                      allow_tokens=(prop == "color"))
         if v is not None:
             self._update_swatch(widgets[btn_key], prop, v)
             self._on_category_changed(category_key, prop, v)
@@ -1859,7 +1860,8 @@ class DisplayManager(QDialog):
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = data["widgets"]
         cur_hex = widgets[btn_key].property("_color") or default
-        v = colour_picker.pick_colour(cur_hex, self, f"Instance · {prop}")
+        v = colour_picker.pick_colour(cur_hex, self, f"Instance · {prop}",
+                                      allow_tokens=(prop == "color"))
         if v is not None:
             self._update_swatch(widgets[btn_key], prop, v)
             self._on_instance_changed(item_ref, prop, v)
