@@ -244,9 +244,11 @@ Tool behaviour stays in `scene-tools.md` D16 / D17, the grounded-Flip refusal in
   text upside down or backwards.** Un-mirrored text is never flagged (a plain block rotated 180°
   still reads upside down, as before). Bounds / shape / HALO use the turned path.
 - **Scale scope.** Scale enlarges geometry and text height only; lineweights, dash lengths, hatch
-  pattern spacing (and scene angle) and end-glyph sizes stay as styled (resolved at paint).
+  pattern spacing and end-glyph sizes stay as styled (resolved at paint). Hatch angle follows the
+  instance's rotation / mirror — hatch-and-fill.md D-A11 block-pose exception.
   **Explode parity:** a posed instance looks like its exploded primitives Flipped / Scaled the same
-  way (exemption: dash phase along a reflected arc / ellipse — design DD10).
+  way (exemptions: dash phase along a reflected arc / ellipse — design DD10; hatch angle under a
+  rotated / mirrored pose — hatch D-A11 exception).
 - **Explode.** Primitives: translate by pos − origin, then about the insertion point reflect
   across its vertical (when mirrored), `manip_scale_about`, `manip_rotate` — the order of `P`
   (`block_explode.pose_primitive`). Text: height, wrap width, box height and cell padding ×
@@ -284,7 +286,7 @@ Tool behaviour stays in `scene-tools.md` D16 / D17, the grounded-Flip refusal in
   Block Editor also exposes its child primitives' handles (`_nested_handles_cache`, D105).
 - **Known gaps (each filed in `todo_open.md`).** The readable-text upright turn is not applied in
   the hatch-tile / end-glyph paths; reference-mode (imported) text reads backwards under a mirror;
-  hatch phase differs after Explode.
+  hatch phase and angle (rotation / mirror) differ after Explode.
 
 Guards: `tests/test_block_pose.py`, `tests/test_block_mirror_scale*.py`,
 `tests/test_mirror_scale_path_walk.py`, `tests/test_mirror_scale_render_op.py`.

@@ -207,7 +207,8 @@ until that doc is approved.
   regions draw behind other geometry; manual draw order deferred. Exception:
   imported regions keep source paint order (D-A22).
 - **D-A13** Modify tools: Move/Copy/Array/Rotate/Mirror/Scale transform the
-  boundary (pattern never rotates/mirrors/resizes; origin translates); Offset,
+  boundary (pattern never rotates/mirrors/resizes — regions; a placed block
+  instance: D-A11 exception; origin translates); Offset,
   Trim/Extend/Break/Fillet refused; Explode → boundary loops as plain primitives;
   no grips in v1; copy/paste between Block Editor ↔ Paper allowed.
 - **D-A16** Per-item fill on closed primitives is **dissolved** — every fill is
