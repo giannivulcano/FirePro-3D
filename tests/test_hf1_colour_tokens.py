@@ -557,3 +557,45 @@ def test_fpdb_round_trip_marks_and_reloads(qapp, tmp_path):
     rec[COLOUR_TOKENS_MARK] = 1
     legacy.write_text(json.dumps(rec), encoding="utf-8")
     assert bl.load_block_file(str(legacy)).primitives[0]["style"]["colour"] == "#ffffff"
+
+
+class _Dxf:
+    def __init__(self, **kw):
+        self._kw = kw
+
+    def hasattr(self, k):
+        return k in self._kw
+
+    def get(self, k, default=None):
+        return self._kw.get(k, default)
+
+    def __getattr__(self, k):
+        return self._kw[k]
+
+
+class _Ent:
+    def __init__(self, **kw):
+        self.dxf = _Dxf(**kw)
+
+
+def test_dxf_aci7_and_bylayer7_import_as_automatic():
+    from firepro3d.dxf_import_worker import _resolve_entity_color, _aci_to_hex
+    lc = {"W": _aci_to_hex(7), "R": _aci_to_hex(1)}
+    assert _resolve_entity_color(_Ent(color=7), lc) == TOKEN_AUTO
+    assert _resolve_entity_color(_Ent(color=256, layer="W"), lc) == TOKEN_AUTO
+    assert _resolve_entity_color(_Ent(color=1), lc) == _aci_to_hex(1)
+    assert _resolve_entity_color(_Ent(color=256, layer="R"), lc) == _aci_to_hex(1)
+    assert _resolve_entity_color(_Ent(color=256, layer="missing"), lc) == TOKEN_AUTO
+
+
+def test_geometry_import_no_colour_is_automatic(qapp):
+    from firepro3d.geometry_import import geom_dicts_to_primitives
+    items, skipped = geom_dicts_to_primitives(
+        [{"kind": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0}], 1.0)
+    assert skipped == 0
+    assert items[0].style["colour"] == TOKEN_AUTO
+
+
+def test_underlay_cache_version_bumped_for_aci7():
+    from firepro3d import underlay_cache
+    assert underlay_cache._CACHE_VERSION >= 5

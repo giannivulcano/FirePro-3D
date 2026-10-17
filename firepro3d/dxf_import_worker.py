@@ -13,6 +13,8 @@ import tempfile
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from .constants import TOKEN_AUTO
+
 try:
     import ezdxf
     from ezdxf.colors import DXF_DEFAULT_COLORS
@@ -94,10 +96,11 @@ def _build_layer_colors(doc) -> dict[str, str]:
 
 
 def _resolve_entity_color(entity, layer_colors: dict[str, str]) -> str:
-    """Resolve an entity's display colour to ``#rrggbb``.
+    """Resolve an entity's display colour to ``#rrggbb`` or Automatic.
 
-    Priority: true_color → ACI (1-255) → BYLAYER (256) → fallback white.
-    Never raises — returns ``#ffffff`` on any failure.
+    Priority: true_color → ACI (1-255) → BYLAYER (256) → Automatic.
+    ACI 7 (white/black), direct or BYLAYER, and no colour import as
+    ``token:auto`` (D-A21, HF1 scope). Never raises.
     """
     try:
         # 1) True-color RGB override
@@ -108,15 +111,18 @@ def _resolve_entity_color(entity, layer_colors: dict[str, str]) -> str:
 
         aci = entity.dxf.get("color", 256)  # default = BYLAYER
 
-        # 2) Explicit ACI colour
+        # 2) Explicit ACI colour (7 = white/black -> Automatic)
+        if aci == 7:
+            return TOKEN_AUTO
         if 0 < aci < 256:
             return _aci_to_hex(aci)
 
         # 3) BYLAYER (256) — look up from layer table
         layer_name = entity.dxf.get("layer", "0")
-        return layer_colors.get(layer_name, "#ffffff")
+        c = layer_colors.get(layer_name)
+        return TOKEN_AUTO if c is None or c == _aci_to_hex(7) else c
     except Exception:
-        return "#ffffff"
+        return TOKEN_AUTO
 
 
 # ─────────────────────────────────────────────────────────────────────────────
