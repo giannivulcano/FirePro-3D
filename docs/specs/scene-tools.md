@@ -448,6 +448,7 @@ questions. Available HUD schemas today (`dynamic_input.SCHEMAS`):
   ~~Q-O6 ReferenceLine offset stays a ReferenceLine.~~ RESOLVED 2026-10-13 (reference geometry,
   `bfef1e34`): Offset clones via `to_dict` / `_add_from_dict`, so the copy keeps `reference` /
   `printed` (§3.1).
+- **Block Editor relations on the copy:** `parametric-constraint-system.md` §13, D155–D156.
 
 ### 5.8 Array
 - **As-built (unreachable):** modal `ArrayDialog`; linear (rows, cols, x/y

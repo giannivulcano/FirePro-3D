@@ -14,6 +14,7 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 
 from .constants import AUTO_CONSTRAIN_MATCH_TOL_MM
+from .geometry_2d import ArcItem, CircleItem, LineItem
 from .sketch_adapters import adapter_for
 from .sketch_solver import LIN_TOL, curve_radius
 
@@ -151,6 +152,23 @@ def plan_rim(uid: str, curve: str, target: Target) -> list:
     if target.kind != "point":
         return []
     return [("point_on_curve", [dict(target.ref), {"uid": uid, "h": curve}])]
+
+
+def plan_offset(src, copy) -> list:
+    """AC4 (D155): the records tying an Offset *copy* to its *src* -- a line
+    (reference line included) -> ``parallel`` [copy edge, source edge] + a
+    ``dim_point_line`` [copy mid, source edge] (the D81 parallel-pair gap dim,
+    measured at add, D50); a circle / arc -> ``concentric`` [copy, source]
+    (radii stay free); any other shape, or a missing uid, -> ``[]``."""
+    su, cu = getattr(src, "_uid", None), getattr(copy, "_uid", None)
+    if su is None or cu is None:
+        return []
+    if isinstance(src, LineItem) and isinstance(copy, LineItem):
+        return [("parallel", [{"uid": cu, "h": "edge"}, {"uid": su, "h": "edge"}]),
+                ("dim_point_line", [{"uid": cu, "h": "mid"}, {"uid": su, "h": "edge"}])]
+    if isinstance(src, (CircleItem, ArcItem)) and type(copy) is type(src):
+        return [("concentric", [{"uid": cu, "h": "curve"}, {"uid": su, "h": "curve"}])]
+    return []
 
 
 _POLY2_TO_LINE = {"v0": "p1", "v1": "p2", "s0": "edge", "m0": "mid"}
