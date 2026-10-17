@@ -255,7 +255,7 @@ def test_item_auto_width_when_wrap_zero(qapp):
     assert item.textWidth() > 0
 
 
-def test_item_default_color_black_and_z(qapp):
+def test_item_default_color_automatic_and_z(qapp):
     item = TextAnnotationItem(TextAnnotationData(text="x"))
     from firepro3d.constants import TOKEN_AUTO
     assert item.data.color == TOKEN_AUTO   # HF1 AC5: default is Automatic
@@ -847,3 +847,17 @@ def test_document_margin_rescales_on_height_change(qapp):
     assert abs(s_after - s_before) > 1e-6, "Scale should change when height changes"
     expected = TEXT_BOX_MARGIN_MM / s_after
     assert item.document().documentMargin() == pytest.approx(expected, abs=1e-6)
+
+
+def test_hf1_token_survives_panel_change_and_template_settings(qapp):
+    """A colour token must pass through _text_panel_change and
+    apply_template_settings unmangled (not lower-cased/blanked/replaced)."""
+    from firepro3d.constants import TOKEN_ACCENT, TOKEN_AUTO
+    from firepro3d.paper_space import _text_panel_change, apply_template_settings
+    d = TextAnnotationData(color="#112233")
+    assert _text_panel_change(d, "Color", TOKEN_ACCENT) == {"color": TOKEN_ACCENT}
+    dst = TextAnnotationData(color="#112233")
+    apply_template_settings(dst, {"color": TOKEN_ACCENT})
+    assert dst.color == TOKEN_ACCENT
+    apply_template_settings(dst, {"color": TOKEN_AUTO})
+    assert dst.color == TOKEN_AUTO

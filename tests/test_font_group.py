@@ -155,3 +155,22 @@ def test_grow_at_top_is_noop(paper_text):
     for it in items:
         assert _font_pt_from_mm(it.data, it.data.height_mm) == pytest.approx(72, abs=0.1)
     assert scene.undo_stack.index() == idx
+
+
+def test_swatch_resolves_token_for_display(paper_text, monkeypatch):
+    """Font-group swatch must render the resolved ink for token:auto, not feed
+    the token into QSS (invalid -> blank). The raw stored value is kept."""
+    from firepro3d import theme
+    from firepro3d.constants import TOKEN_AUTO
+    monkeypatch.setattr(theme, "theme_preference", lambda: "dark")
+    _scene, items = paper_text
+    for it in items:
+        it.data.color = TOKEN_AUTO
+    c = _controller(items)
+    c.sync()
+    assert c._swatch == TOKEN_AUTO
+    qss = c.color_btn.styleSheet()
+    assert "token:" not in qss and "#e6e9ec" in qss
+    c.color_btn.ensurePolished()
+    img = c.color_btn.grab().toImage()
+    assert img.pixelColor(img.width() // 2, img.height() // 2).name() == "#e6e9ec"
