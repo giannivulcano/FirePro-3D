@@ -22,6 +22,7 @@ from PyQt6.QtGui import (
 if TYPE_CHECKING:
     from .wall_opening import WallOpening
 
+from .colour_tokens import resolve_colour
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
 from .view_scale import scene_hit_width
@@ -302,14 +303,14 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
 
         p1l, p1r, p2r, p2l = self.mitered_quad()
-        line_col = QColor(self._display_color) if self._display_color else self._color
+        line_col = resolve_colour(self._display_color, item=self) if self._display_color else self._color
         pen = self._outline_pen(line_col)
 
         # Fill (always fill the full quad area)
         fill_brush = Qt.BrushStyle.NoBrush
         if self._fill_mode == FILL_SOLID:
             if self._display_fill_color:
-                fill_color = QColor(self._display_fill_color)
+                fill_color = resolve_colour(self._display_fill_color, item=self)
             else:
                 fill_color = QColor(self._color)
             if not getattr(self, "_paper_fill_opaque", False):
@@ -388,7 +389,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     def _draw_hatch(self, painter, p1l, p1r, p2r, p2l):
         """Draw diagonal hatch lines inside the wall quad."""
-        hatch_col = QColor(self._display_fill_color) if self._display_fill_color else self._color
+        hatch_col = resolve_colour(self._display_fill_color, item=self) if self._display_fill_color else self._color
         pen = QPen(hatch_col, 0.5)
         pen.setCosmetic(True)
         painter.setPen(pen)

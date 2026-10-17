@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QPainterPathStroker
 
+from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .constants import (
     DEFAULT_LEVEL, Z_CAT_OPENING,
@@ -544,7 +545,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
 
         # Resolve pen colour
         if self._display_color is not None:
-            pen_color = QColor(self._display_color)
+            pen_color = resolve_colour(self._display_color, item=self)
         elif self._type == "door":
             pen_color = _DOOR_COLOR
         elif self._type == "window":

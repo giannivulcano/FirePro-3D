@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 
+from .colour_tokens import resolve_colour
 from .geometry_utils import triangulate_polygon
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
@@ -194,7 +195,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        line_col = QColor(self._display_color) if self._display_color else self._color
+        line_col = resolve_colour(self._display_color, item=self) if self._display_color else self._color
         pen = self._outline_pen(line_col)
 
         # When this slab is within the plan view range, draw an opaque
@@ -215,7 +216,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         painter.setPen(pen)
 
         if self._display_fill_color:
-            fill_color = QColor(self._display_fill_color)
+            fill_color = resolve_colour(self._display_fill_color, item=self)
         else:
             fill_color = QColor(self._color)
         if not getattr(self, "_paper_fill_opaque", False):

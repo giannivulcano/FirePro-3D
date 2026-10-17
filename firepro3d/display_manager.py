@@ -28,7 +28,8 @@ import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
 from .hatch_patterns import BUILTIN_DIAGONAL
-from .constants import MODEL_WEIGHT_PX_MAX
+from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO
+from .colour_tokens import is_token, resolve_colour, token_label
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,8 @@ def _recolor_svg_bytes(svg_path: str, color: str | None = None,
     ``stroke:none`` are preserved (transparent elements stay transparent).
     Results are cached by *(path, color, fill_color)*.
     """
+    if is_token(color):
+        color = resolve_colour(color).name()
     key = (svg_path, color, fill_color)
     if key in _svg_color_cache:
         return _svg_color_cache[key]
@@ -148,6 +151,8 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     """
     item._display_color = color
     item._display_fill_color = fill_color
+    if is_token(color):
+        color = resolve_colour(color).name()
     # Remove any leftover QGraphicsColorizeEffect from older sessions
     if item.graphicsEffect() is not None:
         item.setGraphicsEffect(None)
@@ -198,6 +203,22 @@ def _compose_fill_value(mode: str, hex_color: str) -> str:
     return hex_color
 
 
+def _apply_swatch_look(btn, value: str | None, _t) -> None:
+    """Paint a solid Colour-column swatch: a token resolves for the fill and
+    shows its label ("Automatic" / "Accent"); hex shows no text (HF1, R7)."""
+    label = token_label(value)
+    shown = resolve_colour(value).name() if label else value
+    btn.setText(label or "")
+    text_css = ""
+    if label:
+        c = resolve_colour(value)
+        text_css = (f"color: {'#000000' if c.lightness() > 128 else '#ffffff'}; "
+                    "font-size: 9px; ")
+    btn.setStyleSheet(
+        f"background: {shown}; {text_css}border: 1px solid {_t.border_subtle}; "
+        f"border-radius: 2px;")
+
+
 def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
                     pattern: str = BUILTIN_DIAGONAL, registry=None) -> QPixmap:
     """Return a small pixmap showing solid or hatch swatch."""
@@ -239,7 +260,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "2D Geometry",      "color": "#ffffff", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
+    {"key": "2D Geometry",      "color": TOKEN_AUTO, "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
     {"key": "Reference Geometry", "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
 ]
 
@@ -627,9 +648,9 @@ def _apply_elevation_marker(marker, color, scale, opacity, visible, fill_color,
                             font_size=None):
     """Apply display settings to a ViewMarkerArrow."""
     if color:
-        marker._marker_color = QColor(color)
+        marker._marker_color = resolve_colour(color)
         pen = marker.pen()
-        pen.setColor(QColor(color))
+        pen.setColor(resolve_colour(color))
         marker.setPen(pen)
     if fill_color:
         marker._fill_color = QColor(fill_color)
@@ -656,9 +677,9 @@ def _apply_detail_marker(marker, color, scale, opacity, visible, fill_color,
                          font_size=None):
     """Apply display settings to a DetailMarker."""
     if color:
-        marker._tag_color = QColor(color)
+        marker._tag_color = resolve_colour(color)
         pen = marker.pen()
-        pen.setColor(QColor(color))
+        pen.setColor(resolve_colour(color))
         marker.setPen(pen)
     if fill_color:
         marker._fill_color = QColor(fill_color)
@@ -676,13 +697,13 @@ def _apply_detail_marker(marker, color, scale, opacity, visible, fill_color,
 def _apply_gridline(gl, color, scale, opacity, visible, fill_color, font_size=None):
     """Apply display settings to a GridlineItem."""
     if color:
-        gl._grid_color = QColor(color)
+        gl._grid_color = resolve_colour(color)
         # Preserve the bubble's original pen width, just change color
         for bubble in (gl.bubble1, gl.bubble2):
             bp = bubble.pen()
-            bp.setColor(QColor(color))
+            bp.setColor(resolve_colour(color))
             bubble.setPen(bp)
-            bubble._label.setDefaultTextColor(QColor(color).lighter(150))
+            bubble._label.setDefaultTextColor(resolve_colour(color).lighter(150))
     if fill_color:
         gl.bubble1.setBrush(QBrush(QColor(fill_color)))
         gl.bubble2.setBrush(QBrush(QColor(fill_color)))
@@ -745,10 +766,26 @@ def _migrate_reference_rename(settings: QSettings) -> None:
     settings.setValue(_REFERENCE_RENAME_MARK, True)
 
 
+_HF1_AUTO_MARK = "display/_migrated_hf1_auto"
+
+
+def _migrate_2d_geometry_auto(settings: QSettings) -> None:
+    """One-shot (HF1, R7): a stored "2D Geometry" colour of #ffffff (current
+    or user default) becomes Automatic. Idempotent via a store marker."""
+    if settings.value(_HF1_AUTO_MARK):
+        return
+    for prop in ("color", "default_color"):
+        k = f"display/2D Geometry/{prop}"
+        if str(settings.value(k, "")).lower() == "#ffffff":
+            settings.setValue(k, TOKEN_AUTO)
+    settings.setValue(_HF1_AUTO_MARK, True)
+
+
 def _migrate_display_keys(settings: QSettings) -> None:
     """Every one-shot display-key migration, in order."""
     _migrate_opening_split(settings)
     _migrate_reference_rename(settings)
+    _migrate_2d_geometry_auto(settings)
 
 
 def _project_entry(display_dict: dict, key: str) -> dict:
@@ -1654,9 +1691,7 @@ class DisplayManager(QDialog):
         color_btn = QPushButton()
         color_btn.setFixedSize(40, 20)
         color_btn.setProperty("_color", color)
-        color_btn.setStyleSheet(
-            f"background: {color}; border: 1px solid {_t.border_subtle}; "
-            f"border-radius: 2px;")
+        _apply_swatch_look(color_btn, color, _t)
         self._tree.setItemWidget(tree_item, _COL_COLOR, color_btn)
 
         # ── Fill colour swatch (solid only — no hatch option) ────────
@@ -1894,10 +1929,7 @@ class DisplayManager(QDialog):
             _, hex_col = _parse_fill_value(hex_color)
             btn.setProperty("_color", hex_col)
             btn.setIcon(QIcon())
-            btn.setText("")
-            btn.setStyleSheet(
-                f"background: {hex_col}; border: 1px solid {_t.border_subtle}; "
-                f"border-radius: 2px;")
+            _apply_swatch_look(btn, hex_col, _t)
 
     # Legacy aliases so existing internal calls still work
     _update_color_btn = lambda self, btn, v: self._update_swatch(btn, "color", v)

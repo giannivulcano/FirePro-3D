@@ -177,9 +177,23 @@ def test_disposed_main_window_does_not_leak_a_bus_slot(qapp, force_theme):
     from main import MainWindow
     from tests._mainwindow_helpers import dispose_main_window
     force_theme("dark")
-    win = MainWindow()
-    dispose_main_window(win)
-    theme.theme_bus().changed.emit()      # must not touch the dead window
+    calls = []
+    orig = MainWindow._on_theme_bus_changed
+    # connect() binds whatever the class attribute is at construct time
+    MainWindow._on_theme_bus_changed = lambda self: calls.append(1)
+    try:
+        win = MainWindow()
+        try:
+            theme.theme_bus().changed.emit()
+            assert calls == [1]               # subscribed (positive control)
+            win._modified = False
+            win.close()                       # closeEvent, window still alive
+            theme.theme_bus().changed.emit()
+            assert calls == [1]               # closeEvent detached the slot
+        finally:
+            dispose_main_window(win)
+    finally:
+        MainWindow._on_theme_bus_changed = orig
 
 
 def test_font_swatch_follows_theme_switch_without_resync(qapp, force_theme):

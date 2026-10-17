@@ -172,3 +172,76 @@ def test_text_colour_setter_keeps_tokens(qapp):
     assert t._data.color == TOKEN_ACCENT
     t.set_property("Font Color", "#FF0000")
     assert t._data.color == "#ff0000"
+
+
+# ---------------------------------------------------------------------------
+# T7: Display Manager tokens (R7, AC1, AC3)
+# ---------------------------------------------------------------------------
+
+def test_dm_2d_geometry_factory_is_automatic():
+    from firepro3d.display_manager import _CATEGORY_MAP
+    assert _CATEGORY_MAP["2D Geometry"]["color"] == TOKEN_AUTO
+
+
+def test_dm_settings_white_migrates_once(qapp):
+    from PyQt6.QtCore import QSettings
+    from firepro3d import display_manager as dm
+    s = QSettings("GV", "FirePro3D")             # conftest isolates the store
+    s.setValue("display/2D Geometry/color", "#FFFFFF")
+    s.setValue("display/2D Geometry/default_color", "#ffffff")
+    s.remove(dm._HF1_AUTO_MARK)
+    dm._migrate_display_keys(s)
+    assert s.value("display/2D Geometry/color") == TOKEN_AUTO
+    assert s.value("display/2D Geometry/default_color") == TOKEN_AUTO
+    s.setValue("display/2D Geometry/color", "#ffffff")       # user picks white later
+    dm._migrate_display_keys(s)
+    assert s.value("display/2D Geometry/color") == "#ffffff"
+
+
+def test_dm_read_category_defaults_2d_geometry_to_automatic(qapp):
+    from firepro3d import display_manager as dm
+    assert dm._read_category_from_settings("2D Geometry")["color"] == TOKEN_AUTO
+
+
+def test_svg_tint_resolves_token(qapp, force_theme, tmp_path):
+    from firepro3d import display_manager as dm
+    force_theme("light")
+    svg = tmp_path / "s.svg"
+    svg.write_text('<svg xmlns="http://www.w3.org/2000/svg" '
+                   'xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">'
+                   '<g inkscape:groupmode="layer"><rect width="1" '
+                   'height="1"/></g></svg>', encoding="utf-8")
+    data = bytes(dm._recolor_svg_bytes(str(svg), TOKEN_AUTO, None)).decode()
+    assert "#1c2024" in data.lower() and "token" not in data
+
+
+def _paint_pixels(item, rect, size=120):
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    from PyQt6.QtWidgets import QStyleOptionGraphicsItem
+    img = QImage(size, size, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#808080"))
+    p = QPainter(img)
+    p.setWindow(rect.toRect())
+    item.paint(p, QStyleOptionGraphicsItem(), None)
+    p.end()
+    return {img.pixelColor(x, y).name() for x in range(size) for y in range(size)}
+
+
+def test_wall_paints_token_display_colour(qapp, force_theme):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.wall import WallSegment
+    force_theme("light")
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
+    w._display_color = TOKEN_AUTO
+    px = _paint_pixels(w, w.boundingRect())
+    assert "#1c2024" in px
+
+
+def test_room_paints_token_display_colour(qapp, force_theme):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.room import Room
+    force_theme("light")
+    r = Room([QPointF(0, 0), QPointF(2000, 0), QPointF(2000, 2000), QPointF(0, 2000)])
+    r._display_color = TOKEN_AUTO
+    px = _paint_pixels(r, r.boundingRect())
+    assert "#1c2024" in px
