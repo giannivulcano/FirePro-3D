@@ -41,16 +41,21 @@ def _items(u, lid):
     arc = ArcItem(P(900, -100), 500 * u, 30.0, 200.0)
     spline = SplineItem([P(-1500, 700), P(-700, 1200), P(0, 700),
                          P(700, 1200), P(1500, 800)])
-    return [solid, dashed, poly, arc, spline]
+    items = [solid, dashed, poly, arc, spline]
+    for it in items:                  # legacy drawings author white (HF1: the default is now Automatic)
+        it.style["colour"] = "#ffffff"
+    return items
 
 
 def _plan():
     """Plan: one placed block holding the five strokes + a nested block."""
     ms = Model_Space()
     lid = hidden(ms)
+    inner_ln = LineItem(QPointF(-300, 0), QPointF(300, 0))
+    inner_ln.style["colour"] = "#ffffff"
     inner = BlockDefinition.new(
         name="Inner", library="L", series="S", origin=(0.0, 0.0),
-        primitives=[LineItem(QPointF(-300, 0), QPointF(300, 0)).to_dict()])
+        primitives=[inner_ln.to_dict()])
     nested = {"type": "block_instance", "block_id": inner.id,
               "pos": [-900.0, 1600.0], "rotation": 30.0}
     host = BlockDefinition.new(

@@ -113,3 +113,33 @@ def test_token_label():
 def test_paper_scene_class_flag():
     from firepro3d.paper_space import PaperScene
     assert PaperScene.paints_on_paper is True
+
+
+def test_style_keeps_tokens():
+    from firepro3d import stroke_style as ss
+    assert ss.default_style()["colour"] == TOKEN_AUTO
+    assert ss.normalize_style({"colour": TOKEN_ACCENT})["colour"] == TOKEN_ACCENT
+    assert ss.normalize_style({"colour": "#FF0000"})["colour"] == "#ff0000"
+    legacy = ss.migrate_primitive({"type": "draw_line", "color": TOKEN_AUTO})
+    assert legacy["style"]["colour"] == TOKEN_AUTO
+
+
+def test_new_line_defaults_to_automatic_and_round_trips(qapp):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0))
+    assert ln.style["colour"] == TOKEN_AUTO
+    back = LineItem.from_dict(ln.to_dict())
+    assert back.style["colour"] == TOKEN_AUTO
+    ln.set_property("Colour", TOKEN_ACCENT)
+    assert ln.style["colour"] == TOKEN_ACCENT
+
+
+def test_canvas_pen_resolves_token(qapp, force_theme):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    force_theme("light")
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0))
+    ln._display_color = None
+    ln._sync_stroke_pen()
+    assert ln.pen().color().name() == "#1c2024"

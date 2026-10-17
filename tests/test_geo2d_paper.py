@@ -81,7 +81,8 @@ def test_solid_fill_rectangle_plots_on_paper(qapp):
     rect.fill_pattern = "diagonal"
     rect.fill_opacity = 0.8
     rect._display_fill_color = "#333333"   # dark grey — clearly non-white on paper
-    assert rect.pen().color().name() == "#ffffff"   # default white outline
+    assert rect.style["colour"] == "token:auto"   # default Automatic outline (HF1)
+    canvas_ink = rect.pen().color().name()        # resolved canvas ink, restored after render
     ms._draw_rects.append(rect)
     ms.addItem(rect)
 
@@ -95,7 +96,7 @@ def test_solid_fill_rectangle_plots_on_paper(qapp):
     )
 
     # Pen colour restored to original white after render.
-    assert rect.pen().color().name() == "#ffffff"
+    assert rect.pen().color().name() == canvas_ink
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,7 +118,8 @@ def test_hatch_fill_circle_plots_on_paper(qapp, shipped_hatches):
     circle.fill_type = "hatch"
     circle.fill_pattern = "diagonal"
     circle._display_fill_color = "#000000"
-    assert circle.pen().color().name() == "#ffffff"   # default white
+    assert circle.style["colour"] == "token:auto"   # default Automatic (HF1)
+    canvas_ink = circle.pen().color().name()
     ms._draw_circles.append(circle)
     ms.addItem(circle)
 
@@ -131,7 +133,7 @@ def test_hatch_fill_circle_plots_on_paper(qapp, shipped_hatches):
     )
 
     # Pen colour restored.
-    assert circle.pen().color().name() == "#ffffff"
+    assert circle.pen().color().name() == canvas_ink
 
 
 # Test C (per-viewport level isolation for filled 2D primitives) retired

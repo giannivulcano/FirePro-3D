@@ -36,6 +36,7 @@ def _line_def(name, colour="#ffffff", extra=()):
     pen.setColor(QColor(colour))
     pen.setWidthF(3.0)                  # authored px -- must be ignored on paper
     ln.setPen(pen)
+    ln.style["colour"] = colour         # authored colour lives in the record (HF1: default is a token)
     return BlockDefinition.new(name=name, library="L", series="S",
                                primitives=[ln.to_dict(), *extra],
                                origin=(0.0, 0.0))

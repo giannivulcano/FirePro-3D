@@ -26,7 +26,7 @@ def test_normalize_fills_missing_and_defaults_empty_weight():
     assert st["start"] == {"end": "by_linetype", "visible": False}
     assert st["finish"] == {"end": "by_linetype", "visible": True}
     assert ss.normalize_style({"weight": ""})["weight"] == "by_linetype"  # WM-10
-    assert ss.normalize_style(None) == ss.default_style("#ffffff")
+    assert ss.normalize_style(None) == ss.default_style()
 
 
 def test_normalize_deep_copies():
