@@ -202,3 +202,117 @@ def test_delete_pop_drops_that_vertex_hv(vs):
     move(view, QPointF(520, 300)); click(view, QPointF(520, 300))
     _key(view, Qt.Key.Key_Return)
     assert _recs(sc) == []
+
+
+# ── rect / polygon / ellipse / arc End Points ────────────────────────────
+
+def _clicks(view, sc, *pts, mods=None):
+    for i, p in enumerate(pts):
+        m = (mods or {}).get(i, NONE)
+        move(view, QPointF(*p), m); click(view, QPointF(*p), m)
+
+
+def test_rect_corner_records_on_the_drawn_side(vs):
+    from firepro3d import auto_constrain as ac
+    view, sc = vs
+    sc.set_mode("draw_rectangle"); sc._draw_rect_from_center = False
+    _clicks(view, sc, (310, 120), (310, 300), (200, 210))   # first side vertical
+    r = sc._draw_rects[-1]
+    (ct, refs), = _recs(sc)
+    assert ct == "vertical" and refs[0][0] == r._uid
+    # Ground truth: the named edge is the drawn x = 310 side (the depth side is x = 200).
+    edges = {ref["h"]: (a, b) for k, ref, a, b in ac.item_handles(r) if k == "edge"}
+    a, b = edges[refs[0][1]]
+    assert abs(a.x() - 310) < 1e-6 and abs(b.x() - 310) < 1e-6
+    assert abs(r._angle) > 1.0                               # rotated rect: not "left"
+
+
+def test_rect_centre_records_on_the_clicked_side(vs):
+    view, sc = vs
+    sc.set_mode("draw_rectangle"); sc._draw_rect_from_center = True
+    _clicks(view, sc, (310, 120), (400, 120), (330, 170))   # H radial -> V facing side
+    r = sc._draw_rects[-1]
+    (ct, refs), = _recs(sc)
+    assert ct == "vertical" and refs[0][0] == r._uid
+    # Ground truth: the named edge is the clicked x = 400 side (its opposite is x = 220).
+    from firepro3d import auto_constrain as ac
+    edges = {ref["h"]: (a, b) for k, ref, a, b in ac.item_handles(r) if k == "edge"}
+    a, b = edges[refs[0][1]]
+    assert abs(a.x() - 400) < 1e-6 and abs(b.x() - 400) < 1e-6
+
+
+def test_rect_shift_on_the_side_click_suppresses(vs):
+    view, sc = vs
+    sc.set_mode("draw_rectangle"); sc._draw_rect_from_center = False
+    _clicks(view, sc, (310, 120), (470, 120), (400, 220), mods={1: SHIFT})
+    assert _recs(sc) == []
+
+
+def test_rect_oblique_records_nothing(vs):
+    view, sc = vs
+    sc.set_mode("draw_rectangle"); sc._draw_rect_from_center = False
+    _clicks(view, sc, (310, 120), (470, 180), (400, 300))
+    assert _recs(sc) == []
+
+
+def test_polygon_inscribed_center_v0(vs):
+    view, sc = vs
+    sc.set_mode("polygon"); sc._polygon_inscribed = True
+    _clicks(view, sc, (310, 120), (370, 120), (310, 300))   # rotate click due south
+    pg = sc._draw_polygons[-1]
+    assert _recs(sc) == [("vertical", [(pg._uid, "center", None), (pg._uid, "v0", None)])]
+
+
+def test_polygon_circumscribed_facing_side(vs):
+    view, sc = vs
+    sc.set_mode("polygon"); sc._polygon_inscribed = False
+    _clicks(view, sc, (310, 120), (370, 120), (480, 120))   # rotate click due east
+    pg = sc._draw_polygons[-1]
+    n = pg._sides
+    assert _recs(sc) == [("vertical", [(pg._uid, f"s{n - 1}", None)])]
+
+
+def test_polygon_typed_rotation_90(vs):
+    view, sc = vs
+    sc.set_mode("polygon"); sc._polygon_inscribed = True
+    _clicks(view, sc, (310, 120), (370, 150))
+    assert sc._geom_ctl._commit_polygon_rotated(90.0)        # rotation HUD = typed
+    pg = sc._draw_polygons[-1]
+    assert _recs(sc) == [("vertical", [(pg._uid, "center", None), (pg._uid, "v0", None)])]
+
+
+def test_ellipse_axis(vs):
+    view, sc = vs
+    sc.set_mode("draw_ellipse")
+    _clicks(view, sc, (310, 120), (470, 120), (310, 170))
+    el = sc._draw_ellipses[-1]
+    assert _recs(sc) == [("horizontal", [(el._uid, "a0", None), (el._uid, "a1", None)])]
+
+
+def test_arc_end_points_chord(vs):
+    view, sc = vs
+    sc.set_mode("draw_arc"); sc._arc_variant = "endpoints"
+    _clicks(view, sc, (310, 120), (470, 120), (390, 60))
+    arc = sc._draw_arcs[-1]
+    assert _recs(sc) == [("horizontal", [(arc._uid, "start", None), (arc._uid, "end", None)])]
+
+
+def test_arc_end_points_shift_on_chord_click_suppresses(vs):
+    view, sc = vs
+    sc.set_mode("draw_arc"); sc._arc_variant = "endpoints"
+    _clicks(view, sc, (310, 120), (470, 120), (390, 60), mods={1: SHIFT})
+    assert len(sc._draw_arcs) >= 1 and _recs(sc) == []
+
+
+def test_arc_centre_variant_radials_never(vs):
+    view, sc = vs
+    sc.set_mode("draw_arc"); sc._arc_variant = "center"
+    _clicks(view, sc, (310, 120), (470, 120), (310, 0))
+    assert len(sc._draw_arcs) >= 1 and _recs(sc) == []
+
+
+def test_circle_rim_never(vs):
+    view, sc = vs
+    sc.set_mode("draw_circle")
+    _clicks(view, sc, (310, 120), (470, 120))
+    assert len(sc._draw_circles) >= 1 and _recs(sc) == []

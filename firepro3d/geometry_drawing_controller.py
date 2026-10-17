@@ -527,14 +527,15 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._ellipse_center, snapped)
-            self._commit_draw_ellipse_major_at(snapped)
+            self._commit_draw_ellipse_major_at(snapped, hv=self._hv_on(event))
         else:
             self._commit_draw_ellipse_at(snapped)
 
-    def _commit_draw_ellipse_major_at(self, point) -> bool:
+    def _commit_draw_ellipse_major_at(self, point, hv=None) -> bool:
         """Step-1 applier: fix rx + rotation from the major endpoint, advance to
         the minor step.  Shared by the mouse 2nd click and the ``line`` HUD
-        schema (Length=rx, Angle=rotation → this rim point)."""
+        schema (Length=rx, Angle=rotation → this rim point). *hv* (AC2): the
+        axis press's toggle XOR Shift; None when typed = the toggle (R1)."""
         s = self._scene
         if s._ellipse_center is None:
             return False
@@ -547,6 +548,7 @@ class GeometryDrawingController:
         s._ellipse_major = QPointF(point)
         s._ellipse_rx = rx
         s._ellipse_rot = math.degrees(math.atan2(-dy, dx))
+        self._ellipse_axis_hv = self._hv_on(None) if hv is None else hv   # AC2 R1
         s._ellipse_step = 2
         s.instructionChanged.emit("Pick minor-axis extent (radius)")
         # Swap the radial preview line for the ellipse preview + step-2 guides.
@@ -635,6 +637,8 @@ class GeometryDrawingController:
         s._draw_ellipses.append(item)
         s.clearSelection()            # only the just-placed item stays selected
         item.setSelected(True)
+        self._auto_hv(item, ("a0", "a1"), self._ellipse_axis_hv)      # AC2
+        self._ellipse_axis_hv = False
         for v in s.views(): v.viewport().update()
         if s._ellipse_preview is not None:
             s.removeItem(s._ellipse_preview)
@@ -954,14 +958,16 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._draw_rect_anchor, snapped)
-            self._advance_rectangle_to_depth_step(snapped)
+            self._advance_rectangle_to_depth_step(snapped, hv=self._hv_on(event))
         else:
             self._commit_rectangle_depth_at(snapped)
 
-    def _advance_rectangle_to_depth_step(self, side_pt) -> bool:
+    def _advance_rectangle_to_depth_step(self, side_pt, hv=None) -> bool:
         """Fix the first side and enter the depth step.
 
         Shared by the mouse second click and the ``rect_side*`` HUD applier.
+        *hv* (AC2): the side press's toggle XOR Shift; None when typed = the
+        toggle (R1) -- applied at the commit.
 
         Returns:
             True when the side was fixed, False when refused (no base, or a
@@ -976,6 +982,7 @@ class GeometryDrawingController:
             s._show_status("Rectangle side too small — pick again", timeout=2000)
             return False
         s._draw_rect_side_pt = QPointF(side_pt)
+        self._rect_side_hv = self._hv_on(None) if hv is None else hv   # AC2 R1
         if s._draw_rect_ref_line0 is not None:
             a, b = rect_side_ghost(base, side_pt, s._draw_rect_from_center)
             s._draw_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
@@ -1048,6 +1055,13 @@ class GeometryDrawingController:
         self._scene._draw_rects.append(item)
         self._scene.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        base, side = self._scene._draw_rect_anchor, self._scene._draw_rect_side_pt
+        if self._rect_side_hv and base is not None and side is not None:   # AC2 R2
+            e = ac.rect_drawn_edge(item, base, side,
+                                   from_center=self._scene._draw_rect_from_center)
+            if e is not None:
+                self._auto_hv(item, (e,), True)
+        self._rect_side_hv = False
         for v in self._scene.views(): v.viewport().update()
         # Remove preview
         if self._scene._draw_rect_preview is not None:
@@ -1413,12 +1427,13 @@ class GeometryDrawingController:
                          "start": "Pick start point",
                          "endpoints": "Pick first end point"}
 
-    def _finish_arc_commit(self, item) -> None:
+    def _finish_arc_commit(self, item, hv_handles=None) -> None:
         """Add a committed ``ArcItem`` and reset every arc variant's state.
 
         The shared tail of the centre/start and End Points commits: select the
         new item, tear down previews/guides, reset the step state, push undo and
-        re-prompt for the variant's first pick.
+        re-prompt for the variant's first pick. *hv_handles* (AC2): the End
+        Points chord's H / V handles, or None (the radials never get one).
         """
         s = self._scene
         s._stamp_place_reference(item)       # RG6 (every arc variant)
@@ -1426,6 +1441,8 @@ class GeometryDrawingController:
         s._draw_arcs.append(item)
         s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        if hv_handles:
+            self._auto_hv(item, hv_handles, True)              # AC2, before the push
         for v in s.views(): v.viewport().update()
         # Clean up previews
         if s._draw_arc_preview is not None:
@@ -1469,12 +1486,14 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._draw_arc_ep_a, snapped)
-            self._commit_draw_arc_ep_chord_at(snapped)
+            self._commit_draw_arc_ep_chord_at(snapped, hv=self._hv_on(event))
         else:
             self._commit_draw_arc_ep_at(snapped, snap90=True)
 
-    def _commit_draw_arc_ep_chord_at(self, point) -> bool:
+    def _commit_draw_arc_ep_chord_at(self, point, hv=None) -> bool:
         """Step-1 applier: fix end point B (mouse 2nd click + ``line`` HUD).
+        *hv* (AC2): the chord press's toggle XOR Shift; None when typed = the
+        toggle (R1) -- applied at the commit.
 
         Returns:
             True when the arc advanced to the centre step, False when unarmed
@@ -1488,6 +1507,7 @@ class GeometryDrawingController:
             s._show_status("Arc chord too small — pick again", timeout=2000)
             return False
         s._draw_arc_ep_b = QPointF(point)
+        self._arc_ep_chord_hv = self._hv_on(None) if hv is None else hv   # AC2 R1
         s._draw_arc_step = 2
         if s._draw_arc_radius_line is not None:
             if s._draw_arc_radius_line.scene() is s:
@@ -1639,7 +1659,9 @@ class GeometryDrawingController:
             s._show_status("Arc span too small — skipped", timeout=2000)
             return False
         _c, _lw = s._geom_color_lw()
-        self._finish_arc_commit(ArcItem(c, r, st, sp, _c, _lw))
+        on, self._arc_ep_chord_hv = self._arc_ep_chord_hv, False
+        self._finish_arc_commit(ArcItem(c, r, st, sp, _c, _lw),
+                                hv_handles=("start", "end") if on else None)
         return True
 
     # ── Polygon (3-step centre→radius→rotate, ↑/↓ sides + ←/→ inscribed. The
@@ -1676,7 +1698,8 @@ class GeometryDrawingController:
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and s._polygon_center is not None):
                 snapped = s._constrain_angle(s._polygon_center, snapped)
-            self._commit_polygon_rotated(self._polygon_rotation_angle_to(snapped))
+            self._commit_polygon_rotated(self._polygon_rotation_angle_to(snapped),
+                                         hv=self._hv_on(event))
         elif s._polygon_center is None:
             # Step 0: arm the centre.
             s._polygon_center = snapped
@@ -1754,7 +1777,7 @@ class GeometryDrawingController:
             return self._commit_polygon_rotated(geometry["angle_deg"])   # dict
         return self._advance_polygon_to_rotate_step(geometry)             # QPointF
 
-    def _commit_polygon_rotated(self, angle_deg) -> bool:
+    def _commit_polygon_rotated(self, angle_deg, hv=None) -> bool:
         """Commit the sized polygon at ``angle_deg`` orientation (Y-up, degrees).
 
         Builds ``RegularPolygonItem`` from the stored centre and sized radius,
@@ -1763,6 +1786,8 @@ class GeometryDrawingController:
 
         Args:
             angle_deg: Absolute orientation, Y-up degrees from +x.
+            hv: AC2 -- the rotate press's toggle XOR Shift; None when typed =
+                the toggle (R1).
 
         Returns:
             True when committed; False when sizing state is missing.
@@ -1784,6 +1809,9 @@ class GeometryDrawingController:
         s._draw_polygons.append(item)
         s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        self._auto_hv(item, ("center", "v0") if item._inscribed
+                      else (f"s{item._sides - 1}",),          # AC2: the facing side
+                      self._hv_on(None) if hv is None else hv)
         # Remove preview ghost.
         if s._polygon_preview is not None:
             if s._polygon_preview.scene() is s:
