@@ -268,6 +268,11 @@ until that doc is approved.
 - **D-A20** Load migration: only known defaults (2D stroke `#ffffff`, default
   text ink) → Automatic; explicit colours kept. Forward-only format bump.
 - **D-A21** Import: DXF ACI 7 and PDF pure black → Automatic; other colours literal.
+  *(HF1 scope, user ruling 2026-10-17: underlays ignore per-entity colour and
+  the PDF importer reads no colour, so HF1 covers Block Editor import only —
+  DXF ACI 7 (direct or via BYLAYER) and geometry carrying no colour (every PDF
+  line today) → Automatic. PDF pure-black detection lands with HF6's colour
+  extraction.)*
 
 **Import**
 - **D-A22** PDF fills: underlay renders filled shapes (holes + paint order);
@@ -359,6 +364,98 @@ until that doc is approved.
 - **D-A38** *(user ruling 2026-10-02, amends D-A32)* Turning Pattern tile on
   seeds **Size = Model** (the tile is what you drew, in real mm); Drafting is
   an explicit choice for patterns authored at printed size.
+
+## HF1 build design — colour tokens (approved 2026-10-17; *proposal* until HF1 lands)
+
+The *what* is D-A18–D-A21 + D-A25's theme bar; Phase 2 rulings (2026-10-17):
+Automatic = theme `ink` on canvas, `#000000` on paper; Accent = theme
+`accent` on canvas, light-theme accent on paper; B&W → black for both.
+Supersedes the mechanics sketch in the concept doc's HD6.
+
+**Goal.** 2D geometry, text and Display Manager colours can say "Automatic" or
+"Accent" and draw correctly on whatever surface they land on — light ink on a
+dark canvas, dark ink on a light canvas, black on paper/PDF/print — and follow
+a live theme switch without relaunch.
+
+**Architecture & constraints.**
+- *Value model.* A colour value stays a plain string: `#rrggbb` |
+  `token:auto` | `token:accent` (constants in `constants.py`). A typed object
+  was rejected — it ripples through every `to_dict` / `RenderOp` string field
+  for no gain. Unknown `token:*` draws as Automatic + one load warning.
+- *One resolver.* New module `firepro3d/colour_tokens.py`: `is_token(v)`,
+  `normalize_colour(v, default)` (lower-cases hex, passes tokens; replaces
+  `stroke_style._hex`'s coerce-to-`#ffffff` for tokens), and
+  `resolve_colour(v, alpha=None, item=None) -> QColor`. Hex passes through.
+- *Resolve per paint, never at set time.* A model item paints on the dark
+  canvas and inside a paper viewport in the same frame, so a latched colour is
+  wrong on one of them. Every consumer converts its stored string through
+  `resolve_colour` at paint.
+- *Surface.* Paper when `paper_display.paper_pass_active()` is true (the
+  `SheetViewport` window — screen, PDF export and print share it) or the
+  item's scene carries `paints_on_paper = True` (`PaperScene`, the title-block
+  editor / arrange white preview scenes); otherwise canvas. Paper colour mode
+  B&W → black. Non-Full-Colour paper modes keep their existing category-colour
+  substitution for viewport content; the resolver's B&W check covers
+  paper-scene items (annotations).
+- *Theme bus.* `theme.py` gains a `theme_bus()` QObject with a `changed`
+  signal, emitted at the end of `MainWindow._apply_theme`. One MainWindow
+  listener walks every live scene (model, paper, Block Editors, elevation,
+  schematic — generalising the existing scene enumerator) and `update()`s it,
+  calling `on_theme_changed()` on latched consumers: text default colour
+  (`_apply_format`), Display Manager SVG tints and gridline / marker pens when
+  their stored value is a token, the `ui_kit.Swatch` label. Compiled block
+  stroke pens keep the token string; the instance sets the pen colour per
+  paint.
+
+**Design decisions.**
+- *Defaults → Automatic:* new 2D geometry (`default_style`, ctor /
+  `from_dict` fallbacks), new model + Block Editor text (seed `#ffffff` today),
+  new paper text (`TextAnnotationData.color` `#000000` today), Display Manager
+  "2D Geometry" factory colour, `geometry_import` no-colour fallback.
+- *Import (D-A21 HF1 scope):* `_aci_to_hex` path returns `token:auto` for ACI 7
+  (direct or BYLAYER); underlay cache version bumped so cached geometry
+  re-extracts.
+- *Load migration (D-A20).* Project `SAVE_VERSION` 10 → 11; files < 11
+  convert block-definition prims (stroke `#ffffff`, text `#ffffff`), paper
+  annotation text `#000000` and the project Display Manager "2D Geometry"
+  colour `#ffffff` → `token:auto`. `.fpdb` files carry no format version, so
+  they gain a `colour_tokens: 1` marker; the same rule runs when it is absent
+  (bundled nested definitions too) and saving writes it. QSettings Display
+  Manager colour keys at `#ffffff` migrate once behind a settings marker. An
+  explicit hex in a v11+ file is never touched.
+- *Picker (D-A18, ui-design-system D6):* `pick_colour(..., allow_tokens=True)`
+  adds an overline **Theme** row above Standard with two labelled chips
+  (Automatic, Accent), each drawn in its current-canvas colour; returns the
+  token string. Recents store hex only — a token pick is never pushed. Every
+  drawn-item colour caller and the DM colour cells pass `allow_tokens=True`.
+  `ui_kit.Swatch` shows a token as its resolved colour with a small "A" corner
+  badge and the label "Automatic" / "Accent".
+- *Overlays (R5):* block-instance selection tints use the theme accent per
+  paint; `selection_manipulator`'s `#63BE8B` lines are detect-failure
+  fallbacks and stay with `# theme-exempt:`.
+- *Hexguard (R8):* `tests/test_item_paint_hexguard.py` scans a listed set of
+  item paint modules for `QColor("#…")` literals; one passes only with
+  `# theme-exempt: <reason>` on the same line.
+
+**Acceptance criteria.** AC1–AC10 of the HF1 Phase 2 definition, with AC7 per
+the D-A21 HF1 scope above.
+
+**Verification checklist (VC3).**
+- G8a shown view, token line + text, dark and light canvas → sampled pixel =
+  theme ink; G8b `export_pdf` / paper pass → black (Full Colour), accent item
+  `#2F9E63`, B&W black; G8c live `_apply_theme` dark → light flips the pixel,
+  text default colour and Swatch label with no reload.
+- G9 (colour half): v10 project + un-marked `.fpdb` with `#ffffff` stroke,
+  `#ffffff` block text, `#000000` paper text, explicit `#ff0000` → first three
+  Automatic, red kept; re-save writes v11 / marker; second load converts
+  nothing.
+- Round-trip: token survives save/load, `normalize_style`, copy/paste, undo.
+- Import: DXF ACI 7 + BYLAYER-7 entity → Automatic; other ACI literal; PDF
+  line → Automatic.
+- Picker: Automatic returns `token:auto`; recents unchanged.
+- Hexguard: a raw `QColor("#hex")` added to a guarded module fails.
+- G12 theme bar: 1,000 token items, switch → flushed repaint ≤ 500 ms
+  (`perf`, own process; bench shapes confirmed with the user before the bench).
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
