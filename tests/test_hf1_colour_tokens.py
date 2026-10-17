@@ -71,6 +71,33 @@ def test_paper_pass_resolves_black(qapp, force_theme, monkeypatch):
     assert resolve_colour(TOKEN_AUTO).name() == "#000000"
 
 
+def test_paper_pass_accent_resolves_light_accent(qapp, force_theme, monkeypatch):
+    from firepro3d import paper_display
+    from firepro3d.paper_display import PaperColorMode
+    force_theme("dark")
+    monkeypatch.setattr(paper_display, "paper_pass_active", lambda: True)
+    monkeypatch.setattr(paper_display, "load_paper_color_mode",
+                        lambda *a, **k: PaperColorMode.FULL_COLOR)
+    assert resolve_colour(TOKEN_ACCENT).name() == "#2f9e63"
+
+
+def test_real_paper_scene_accent_resolves_light_accent(qapp, force_theme, monkeypatch):
+    from unittest.mock import MagicMock
+    from firepro3d import paper_display
+    from firepro3d.paper_display import PaperColorMode
+    from firepro3d.paper_space import PaperScene, Sheet, ViewResolver
+    force_theme("dark")
+    monkeypatch.setattr(paper_display, "load_paper_color_mode",
+                        lambda *a, **k: PaperColorMode.FULL_COLOR)
+    resolver = MagicMock(spec=ViewResolver)
+    resolver.resolve.return_value = None
+    ps = PaperScene(Sheet.create_default(), resolver)
+    it = QGraphicsLineItem()
+    ps.addItem(it)
+    assert resolve_colour(TOKEN_ACCENT, item=it).name() == "#2f9e63"
+    assert resolve_colour(TOKEN_AUTO, item=it).name() == "#000000"
+
+
 def test_alpha_and_unknown_token(qapp, force_theme):
     force_theme("dark")
     assert resolve_colour(TOKEN_AUTO, alpha=40).alpha() == 40

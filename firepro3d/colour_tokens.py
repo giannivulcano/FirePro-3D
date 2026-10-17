@@ -71,6 +71,7 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
         c = QColor(value) if value else QColor()
     else:
         from . import theme as _th
+        from . import paper_display as _pd
         if value not in _LABELS and value not in _warned:
             _warned.add(value)
             _log.warning("unknown colour token %r drawn as Automatic", value)
@@ -78,7 +79,7 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
         if mode is None:
             t = _th.detect()
             c = QColor(t.accent if value == TOKEN_ACCENT else t.ink)
-        elif value == TOKEN_ACCENT and mode.value == "full_color":
+        elif value == TOKEN_ACCENT and mode is _pd.PaperColorMode.FULL_COLOR:
             c = QColor(_th.LIGHT.accent)
         else:
             c = QColor(_PAPER_INK)

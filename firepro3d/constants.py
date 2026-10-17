@@ -329,7 +329,7 @@ HALO_CYCLE_RESET_PX = 4   # cursor move beyond this rebuilds the candidate list
 HALO_TRACE_COLOR = "accent"   # theme token the trace is drawn in
 HALO_TRACE_ALPHA = 128        # trace opacity, 0-255 (128 ~ 50%)
 HALO_TRACE_WIDTH_PX = 4.0     # cosmetic px of the core traced line
-HALO_GLOW_PX = 8.0           # soft outer-glow blur radius (px); 0 disables
+HALO_GLOW_PX = 8.0            # soft outer-glow blur radius (px); 0 disables
 
 # HF1 colour tokens (hatch-and-fill.md § HF1 build design, D-A18–D-A20).
 TOKEN_PREFIX = "token:"
