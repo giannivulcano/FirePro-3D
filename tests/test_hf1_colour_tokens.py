@@ -437,3 +437,123 @@ def test_dm_category_colour_pick_opens_on_token(qapp, monkeypatch):
 def test_dm_category_fill_pick_stays_hex(qapp, monkeypatch):
     seen = _dm_token_pick("fill", monkeypatch)
     assert seen["allow_tokens"] is False
+
+
+# --- Task 9: load migration (project v11, .fpdb marker) ---------------------
+
+def _v10_payload():
+    return {
+        "version": 10,
+        "block_definitions": {"b": {"primitives": [
+            {"type": "draw_line", "style": {"colour": "#FFFFFF"}},
+            {"type": "draw_line", "style": {"colour": "#ff0000"}},
+            {"type": "draw_line", "color": "#ffffff"},
+            {"type": "text", "color": "#ffffff"},
+            {"type": "block_instance", "color": "#ffffff"},
+        ]}},
+        "sheets": [{"annotations": [{"color": "#000000"}, {"color": "#ff0000"}]}],
+        "display_settings": {"2D Geometry": {"color": "#ffffff"}},
+    }
+
+
+def test_project_v10_migrates_known_defaults_only():
+    from firepro3d.colour_migration import migrate_project_payload
+    p = _v10_payload()
+    migrate_project_payload(p)
+    prims = p["block_definitions"]["b"]["primitives"]
+    assert prims[0]["style"]["colour"] == TOKEN_AUTO
+    assert prims[1]["style"]["colour"] == "#ff0000"
+    assert prims[2]["color"] == TOKEN_AUTO
+    assert prims[3]["color"] == TOKEN_AUTO
+    assert prims[4]["color"] == "#ffffff"          # nested block: never touched
+    anns = p["sheets"][0]["annotations"]
+    assert anns[0]["color"] == TOKEN_AUTO and anns[1]["color"] == "#ff0000"
+    assert p["display_settings"]["2D Geometry"]["color"] == TOKEN_AUTO
+
+
+def test_project_v11_untouched():
+    from firepro3d.colour_migration import migrate_project_payload
+    p = _v10_payload()
+    p["version"] = 11
+    migrate_project_payload(p)
+    assert p["block_definitions"]["b"]["primitives"][0]["style"]["colour"] == "#FFFFFF"
+
+
+def test_fpdb_marker_gates_migration():
+    from firepro3d.colour_migration import migrate_fpdb_dict
+    from firepro3d.constants import COLOUR_TOKENS_MARK
+    d = {"primitives": [{"type": "draw_line", "style": {"colour": "#ffffff"}}],
+         "bundled": {"n": {"primitives": [{"type": "text", "color": "#ffffff"}]}}}
+    migrate_fpdb_dict(d)
+    assert d["primitives"][0]["style"]["colour"] == TOKEN_AUTO
+    assert d["bundled"]["n"]["primitives"][0]["color"] == TOKEN_AUTO
+    m = {COLOUR_TOKENS_MARK: 1,
+         "primitives": [{"type": "draw_line", "style": {"colour": "#ffffff"}}]}
+    migrate_fpdb_dict(m)
+    assert m["primitives"][0]["style"]["colour"] == "#ffffff"
+
+
+def test_g9_v10_project_file_round_trip(qapp, tmp_path):
+    import json
+    from firepro3d.model_space import Model_Space
+    p = tmp_path / "v10.fpd"
+    p.write_text(json.dumps({"version": 10, "block_definitions": {
+        "leg": {"schema": 1, "id": "leg", "version": 1, "name": "Leg",
+                "library": "L", "series": "S", "origin": [0, 0],
+                "primitives": [{"type": "draw_line", "pt1": [0, 0], "pt2": [10, 0],
+                                "color": "#ffffff", "lineweight": 1.0}]}}}),
+                 encoding="utf-8")
+    ms = Model_Space()
+    ms.load_from_file(str(p))
+    prim = ms.block_registry.get("leg").primitives[0]
+    assert prim["style"]["colour"] == TOKEN_AUTO
+    out = tmp_path / "v11.fpd"
+    ms.save_to_file(str(out))
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["version"] == 11
+    ms2 = Model_Space()
+    ms2.load_from_file(str(out))
+    assert ms2.block_registry.get("leg").primitives[0]["style"]["colour"] == TOKEN_AUTO
+
+
+def test_g9_v10_project_sheet_text_and_display_colour_load(qapp, tmp_path):
+    """Real load path: a v10 file's black sheet text and white 2D Geometry
+    display colour reach the live objects as Automatic."""
+    import json
+    from firepro3d.model_space import Model_Space
+    p = tmp_path / "v10b.fpd"
+    p.write_text(json.dumps({"version": 10, "display_settings": {
+        "2D Geometry": {"color": "#ffffff"}},
+        "sheets": [{"number": "A1", "name": "S", "paper_size": "ANSI D",
+                    "annotations": [{"type": "text", "text": "hi",
+                                     "color": "#000000"}]}]}), encoding="utf-8")
+    ms = Model_Space()
+    ms.load_from_file(str(p))
+    assert ms._sheets[0].annotations[0].color == TOKEN_AUTO
+    assert ms._loaded_display_settings["2D Geometry"]["color"] == TOKEN_AUTO
+
+
+def test_fpdb_round_trip_marks_and_reloads(qapp, tmp_path):
+    import json
+    from firepro3d import block_library as bl
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.constants import COLOUR_TOKENS_MARK
+    d = BlockDefinition.new(
+        name="Leg", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[{"type": "draw_line", "pt1": [0, 0], "pt2": [10, 0],
+                     "style": {"colour": "#ff0000"}}])
+    path = bl.save_to_library(d, root=str(tmp_path))
+    rec = json.loads(open(path, encoding="utf-8").read())
+    assert rec[COLOUR_TOKENS_MARK] == 1
+    assert bl.load_block_file(path).primitives[0]["style"]["colour"] == "#ff0000"
+    # An un-marked legacy file converts on load; the marked one stays literal.
+    rec.pop(COLOUR_TOKENS_MARK)
+    rec["primitives"][0]["style"]["colour"] = "#ffffff"
+    legacy = tmp_path / "legacy.fpdb"
+    legacy.write_text(json.dumps(rec), encoding="utf-8")
+    assert bl.load_block_file(str(legacy)).primitives[0]["style"]["colour"] == TOKEN_AUTO
+    defn, _ = bl.load_block_file_with_bundle(str(legacy))
+    assert defn.primitives[0]["style"]["colour"] == TOKEN_AUTO
+    rec[COLOUR_TOKENS_MARK] = 1
+    legacy.write_text(json.dumps(rec), encoding="utf-8")
+    assert bl.load_block_file(str(legacy)).primitives[0]["style"]["colour"] == "#ffffff"

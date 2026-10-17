@@ -22,6 +22,8 @@ from . import capability_folder
 from .capability_folder import sanitize  # noqa: F401 -- public name, kept here
 from .app_data import block_library_dir
 from .block_definition import BlockDefinition
+from .colour_migration import migrate_fpdb_dict
+from .constants import COLOUR_TOKENS_MARK
 
 _log = logging.getLogger(__name__)
 _LEGACY_INDEX = "index.json"   # retired 2026-10-10; removed on the next write
@@ -323,6 +325,7 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
 
     # (c) Write the .fpdb (the file IS the listing -- no index).
     rec = definition.to_dict()
+    rec[COLOUR_TOKENS_MARK] = 1       # HF1 (D-A20): file is token-migrated
     if bundled:
         rec["schema"] = 2
         rec["bundled"] = dict(bundled)
@@ -524,7 +527,9 @@ def load_block(library: str, series: str, filename: str,
         return None
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            return BlockDefinition.from_dict(json.load(fh))
+            data = json.load(fh)
+        migrate_fpdb_dict(data)
+        return BlockDefinition.from_dict(data)
     except Exception as exc:
         _log.warning("Unreadable block .fpdb %s: %s", path, exc)
         return None
@@ -539,7 +544,9 @@ def load_block_file(path: str) -> BlockDefinition | None:
         return None
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            return BlockDefinition.from_dict(json.load(fh))
+            data = json.load(fh)
+        migrate_fpdb_dict(data)
+        return BlockDefinition.from_dict(data)
     except Exception as exc:
         _log.warning("Unreadable block .fpdb %s: %s", path, exc)
         return None
@@ -591,6 +598,7 @@ def load_block_file_with_bundle(path: str):
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
+        migrate_fpdb_dict(data)
         defn = BlockDefinition.from_dict(data)
         bundled = [BlockDefinition.from_dict(v)
                    for v in (data.get("bundled") or {}).values()]

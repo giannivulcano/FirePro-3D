@@ -86,7 +86,7 @@ def test_g8a_fpd_round_trip_keeps_full_record(qapp, tmp_path):
     path = tmp_path / "rt.fpd"
     ms.save_to_file(str(path))
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["version"] == 10
+    assert payload["version"] == 11
     ms2 = Model_Space()
     ms2.load_from_file(str(path))
     assert ms2.block_registry.get(d.id).primitives[0]["style"] == ln.style

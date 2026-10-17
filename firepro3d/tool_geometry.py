@@ -32,6 +32,7 @@ from .geometry_2d import (
 )
 from .geometry_2d import _AXIS_MIN as _ELLIPSE_AXIS_MIN
 from .cad_math import CAD_Math
+from .constants import TOKEN_AUTO
 from . import geometry_intersect as gi
 from .arc_math import yup_angle
 
@@ -477,7 +478,7 @@ def _spline_copy(src, cps):
     """
     data = src.to_dict()
     new = SplineItem([], src._degree, None, None,
-                     data.get("style", {}).get("colour", "#ffffff"), 1.0)
+                     data.get("style", {}).get("colour", TOKEN_AUTO), 1.0)
     new._geom2d_from_dict(data)
     new._control_points = [QPointF(p) for p in cps]
     new._degree = src._degree
