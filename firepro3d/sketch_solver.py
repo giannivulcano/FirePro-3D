@@ -515,6 +515,51 @@ def _eval_vals(comp: _Component, x: np.ndarray):
     return F, v
 
 
+def _polish(comp: _Component, x: np.ndarray, z: np.ndarray, winv, nr: int) -> bool:
+    """Weighted Gauss-Newton corrections from the CURRENT point onto ``F = 0``
+    (no goal term), for a projection that stalled short of ``RES_STOP``.
+
+    The projection step rebuilds the whole offset from the goals each pass, so
+    its fixed point carries the Tikhonov bias ``F = -damping * lam`` -- with a
+    heavy edit far from where the constraints allow (large ``lam``) that bias
+    alone exceeds ``LIN_TOL`` and a consistent system reads as a conflict. A
+    correction from the current point has a tiny ``lam``, so the bias vanishes
+    and the weighted optimum barely moves. *z* / *x* are updated in place and
+    left at the best (lowest-residual) iterate.
+
+    Returns:
+        True when every row reaches ``RES_STOP``.
+    """
+    mv, lc = comp.vars, comp.var_lcol
+    ja, jc, nc = comp.ja, comp.jc, comp.ncols
+    best_f, best_z = math.inf, z.copy()
+    for _ in range(MAX_ITERS):
+        F, v = _eval_vals(comp, x)
+        fmax = float(np.max(np.abs(F)))
+        if not math.isfinite(fmax):
+            break
+        if fmax < best_f:
+            best_f, best_z = fmax, z.copy()
+        if fmax <= RES_STOP:
+            return True
+        A = np.bincount(comp.pidx, weights=v[comp.pe] * v[comp.pf] * winv[comp.pc],
+                        minlength=nr * nr).reshape(nr, nr)
+        dmax = float(np.max(np.diag(A)))
+        A[np.diag_indices_from(A)] += DAMPING_REL * dmax if dmax > 0 else 1.0
+        try:
+            lam = np.linalg.solve(A, -F)
+        except np.linalg.LinAlgError:
+            lam = np.linalg.lstsq(A, -F, rcond=None)[0]
+        dz = winv * np.bincount(jc, weights=v * lam[ja], minlength=nc)
+        if not np.all(np.isfinite(dz)):
+            break
+        z += dz
+        x[mv] = z[lc]
+    z[:] = best_z
+    x[mv] = z[lc]
+    return False
+
+
 def _eval_comp(comp: _Component, x: np.ndarray):
     """Residuals ``F`` and dense reduced Jacobian ``J`` (diagnostics only)."""
     F, v = _eval_vals(comp, x)
@@ -609,7 +654,8 @@ def _certified_row_basis(J: np.ndarray):
 class NumpySolver:
     """The v1 ``SketchSolver`` (spec §7.1)."""
 
-    def solve(self, sys: System, goals, weights, active=None) -> SolveResult:
+    def solve(self, sys: System, goals, weights, active=None,
+              polish: bool = False) -> SolveResult:
         """Weighted min-change projection of *goals* onto ``F(x) = 0``.
 
         Args:
@@ -621,6 +667,10 @@ class NumpySolver:
                 current value differs from its fix, is activated too, and so is
                 every component with a row reading an activated fixed group.
                 Everything else keeps its current values bit-for-bit.
+            polish: A component whose projection stalls short of
+                ``RES_STOP`` gets :func:`_polish` corrections (typed dim values
+                only: other edits rely on a far-off-manifold edit failing,
+                e.g. D137's refused mirror).
 
         Returns:
             ``SolveResult``; ``converged`` is judged against ``LIN_TOL`` over the
@@ -633,9 +683,10 @@ class NumpySolver:
             ValueError: A weight is not > 0.
         """
         with one_blas_thread():
-            return self._solve(sys, goals, weights, active)
+            return self._solve(sys, goals, weights, active, polish)
 
-    def _solve(self, sys: System, goals, weights, active) -> SolveResult:
+    def _solve(self, sys: System, goals, weights, active,
+               polish: bool = False) -> SolveResult:
         """Body of :meth:`solve` (run under :func:`one_blas_thread`)."""
         w_full = np.asarray(weights, dtype=float)
         if not np.all(w_full > 0):
@@ -715,6 +766,10 @@ class NumpySolver:
                 scale = max(1.0, float(np.max(np.abs(z))))
                 if float(np.max(np.abs(dz))) < STEP_TOL * scale:
                     break
+            if not tight and polish:
+                tight = _polish(comp, x, z, winv, nr)
+                if tight:
+                    maxima.append(float(np.max(np.abs(_eval_vals(comp, x)[0]))))
             if not tight:
                 recheck.append(comp)
         for comp in recheck:                 # step-tol / cap / divergence: re-check at x
