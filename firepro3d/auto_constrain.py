@@ -160,7 +160,7 @@ def item_hv(it, handles: tuple) -> list:
     read from its adapter; ``[]`` for no adapter / uid or an unknown name."""
     uid = getattr(it, "_uid", None)
     ad = adapter_for(it)
-    if uid is None or ad is None:
+    if uid is None or ad is None or len(handles) not in (1, 2):
         return []
     x = np.array(ad.read(it), dtype=float)
     if len(handles) == 1:

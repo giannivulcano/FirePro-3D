@@ -59,3 +59,5 @@ def test_rect_drawn_edge_corner_and_centre():
     assert ac.rect_drawn_edge(r, QPointF(0, 0), QPointF(100, 0), from_center=False) == "bottom"
     # centre variant: side point = the right-edge midpoint (100, -25)
     assert ac.rect_drawn_edge(r, QPointF(50, -25), QPointF(100, -25), from_center=True) == "right"
+    # corner variant: a base off every edge holding the side point -> None
+    assert ac.rect_drawn_edge(r, QPointF(50, -25), QPointF(100, 0), from_center=False) is None

@@ -209,18 +209,40 @@ class GeometryDrawingController:
         self._ghosts = [g for g in self._ghosts if self._is_live_ghost(g, s)]
 
     # ── Auto Constrain capture (AC1 AD2-AD5) ──────────────────────────────
+    def _toggle_on(self) -> bool:
+        """AD1: the Auto Constrain toggle, Block Editor only (False elsewhere)."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return False
+        return QSettings("GV", "FirePro3D").value(
+            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+
     def _auto_infer(self, event) -> bool:
         """AD2: infer on this press = toggle XOR Shift; never on a synthetic
         (typed / track-first) press or outside the Block Editor."""
         if event is None:
             return False
+        return self._hv_on(event)
+
+    def _hv_on(self, event) -> bool:
+        """AC2 R1: H / V on the segment this press completes = toggle XOR
+        Shift; a typed completion (*event* None) follows the toggle alone.
+        Block Editor only."""
         ctl = getattr(self._scene, "constraint_ctl", None)
         if ctl is None or not ctl.enabled:
             return False
-        on = QSettings("GV", "FirePro3D").value(
-            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+        if event is None:
+            return self._toggle_on()
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        return on != shift
+        return self._toggle_on() != shift
+
+    def _auto_hv(self, item, handles, on) -> None:
+        """AC2: add *item*'s H / V on *handles* clean-only (D146), before the
+        placement's own undo push (D147). For shapes with no AC1 joins."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if not on or ctl is None or not ctl.enabled:
+            return
+        ctl.auto_join(ac.item_hv(item, handles))
 
     def _capture(self, event):
         """AD3: this click's target from its live snap, or None."""
@@ -228,8 +250,9 @@ class GeometryDrawingController:
             return None
         return ac.resolve_snap(getattr(self._scene, "_snap_result", None))
 
-    def _join_line(self, item, anchor, tip, tip_join) -> None:
-        """AD7/AD9: plan + add the line's joins (before the commit's push)."""
+    def _join_line(self, item, anchor, tip, tip_join, hv=False) -> None:
+        """AD7/AD9 + AC2: plan + add the line's joins, then its H / V (R3:
+        joins first), before the commit's push."""
         ctl = getattr(self._scene, "constraint_ctl", None)
         uid = getattr(item, "_uid", None)
         if ctl is None or not ctl.enabled or uid is None:
@@ -238,6 +261,8 @@ class GeometryDrawingController:
         for h, pt, t in (("p1", anchor, self._line_anchor_join), ("p2", tip, tip_join)):
             if ac.matches(t, pt):
                 recs += ac.plan_joins(uid, h, "edge", t)
+        if hv:
+            recs += ac.item_hv(item, ("edge",))
         ctl.auto_join(recs)
 
     # ── Line (shared with draw_gridline; the item factory _make_line_like
@@ -292,9 +317,10 @@ class GeometryDrawingController:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._scene._constrain_angle(self._scene._draw_line_anchor, snapped)
             self._commit_draw_line_at(
-                tip, tip_join=None if _is_grid else self._capture(event))
+                tip, tip_join=None if _is_grid else self._capture(event),
+                hv=self._hv_on(event))
 
-    def _commit_draw_line_at(self, tip, tip_join=None):
+    def _commit_draw_line_at(self, tip, tip_join=None, hv=None):
         """Commit the armed line-like placement, ending at ``tip``.
 
         This is the commit half of :meth:`_press_draw_line`, split out so that
@@ -313,6 +339,8 @@ class GeometryDrawingController:
             tip: The line's end point (scene mm).
             tip_join: The clicked tip's Auto Constrain target (AC1 AD3); None
                 for a typed tip (AD5).
+            hv: AC2 -- H / V on (the finishing press's toggle XOR Shift);
+                None for a typed tip = the toggle alone (R1).
 
         Returns:
             True when a line was committed, False when it was refused (no
@@ -333,7 +361,9 @@ class GeometryDrawingController:
             return False
         item = self._scene._make_line_like(anchor, tip)
         if self._scene.mode == "draw_line":
-            self._join_line(item, anchor, tip, tip_join)          # AC1, before the push (AD10)
+            if hv is None:
+                hv = self._hv_on(None)                         # AC2 R1: typed = toggle
+            self._join_line(item, anchor, tip, tip_join, hv)  # AC1 + AC2, before the push (AD10)
         self._line_anchor_join = None
         for v in self._scene.views(): v.viewport().update()
         self._scene._draw_line_anchor = None
