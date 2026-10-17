@@ -69,6 +69,10 @@ class GeometryDrawingController:
         self._ghosts: list = []
         # AC1 AD3: per-click Auto Constrain targets (resolved at press).
         self._line_anchor_join = None     # the armed line's click-1 Target
+        self._pl_hv = []                  # AC2: per-vertex H/V flag of the segment ending there (v0: None)
+        self._rect_side_hv = False        # AC2: the rect side press's H/V flag
+        self._ellipse_axis_hv = False     # AC2: the ellipse axis press's H/V flag
+        self._arc_ep_chord_hv = False     # AC2: the End Points chord press's H/V flag
         self._pl_joins: list = []         # active polyline: one Target|None per vertex
 
     # ── Reference-placement ghost cue (RG8) ──────────────────────────────────
@@ -760,6 +764,7 @@ class GeometryDrawingController:
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
             self._pl_joins = [self._capture(event)]            # AC1 AD3: v0
+            self._pl_hv = [None]                               # AC2: v0 ends no segment
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick next point (Enter to finish)")
         else:
@@ -786,15 +791,17 @@ class GeometryDrawingController:
                     pl.setSelected(True)
                     self._scene.preview_pipe.hide()
                     for v in self._scene.views(): v.viewport().update()
-                    self.join_polyline(pl, pl)                 # AC1 AD8 (closing click adds none)
+                    # AC1 AD8 (the closing click adds no join) + AC2 closing side
+                    self.join_polyline(pl, pl, close_hv=self._hv_on(event))
                     self._scene.push_undo_state()
                     self._scene.instructionChanged.emit("Pick first point")
                     self._scene._end_placement_switch(pl)
                     return
-            self._commit_polyline_at(tip, join=self._capture(event))
+            self._commit_polyline_at(tip, join=self._capture(event),
+                                     hv=self._hv_on(event))
         # don't let super() deselect items mid-draw
 
-    def _commit_polyline_at(self, tip, join=None):
+    def _commit_polyline_at(self, tip, join=None, hv=None):
         """Append one vertex to the active polyline at ``tip``.
 
         The commit half of :meth:`_press_polyline`, split out so that Dynamic
@@ -811,6 +818,8 @@ class GeometryDrawingController:
             tip: The vertex to append (scene mm).
             join: The clicked vertex's Auto Constrain target (AC1 AD3); None
                 when typed (AD5).
+            hv: AC2 -- H / V on the segment this vertex ends; None when
+                typed = the toggle (R1).
 
         Returns:
             True when a vertex was appended, False when no polyline is active.
@@ -820,23 +829,29 @@ class GeometryDrawingController:
             return False
         pl.append_point(tip)
         self._pl_joins.append(join)                            # aligned with pl._points
+        self._pl_hv.append(self._hv_on(None) if hv is None else hv)
         # The published point described the segment just committed; the next
         # frame republishes from the new anchor.
         self._scene.clear_placement_state()
         return True
 
     def discard_pl_joins(self, keep: int = 0) -> None:
-        """AC1 AD8: drop the vertex targets past the first *keep* -- the
-        Delete-key vertex pop (``keep`` = the remaining vertex count) or a
-        discarded chain (0), so the list stays aligned with ``pl._points``."""
+        """AC1 AD8: drop the vertex targets (and AC2 H/V flags) past the
+        first *keep* -- the Delete-key vertex pop (``keep`` = the remaining
+        vertex count) or a discarded chain (0), so the lists stay aligned with
+        ``pl._points``."""
         del self._pl_joins[keep:]
+        del self._pl_hv[keep:]
 
-    def join_polyline(self, pl, placed) -> None:
+    def join_polyline(self, pl, placed, close_hv=False) -> None:
         """AC1 AD8: plan + add the finished chain's vertex joins, once, before
         the finish's undo push. *placed* is the committed item -- *pl* itself,
         or the LineItem a 2-vertex finish replaced it with (handles remapped
-        v0/v1/s0/m0 -> p1/p2/edge/mid, the chain's own uid -> the line's)."""
+        v0/v1/s0/m0 -> p1/p2/edge/mid, the chain's own uid -> the line's).
+        AC2: then each segment's H / V whose ending press had it on (the
+        closing side on the close click, *close_hv*) -- joins first, R3."""
         joins, self._pl_joins = self._pl_joins, []
+        hvs, self._pl_hv = self._pl_hv, []
         ctl = getattr(self._scene, "constraint_ctl", None)
         if ctl is None or not ctl.enabled:
             return
@@ -859,6 +874,12 @@ class GeometryDrawingController:
                         continue
                     t = ac.Target(t.kind, {"uid": uid, "h": mh}, t.point, t.perpendicular)
             recs += ac.plan_joins(uid, h, inc, t)
+        for i in range(1, len(pl._points)):                    # AC2: s<i-1> ends at v<i>
+            if i < len(hvs) and hvs[i]:
+                h = f"s{i - 1}"
+                recs += ac.item_hv(placed, (ac.remap_handle(h) if swap else h,))
+        if close_hv and pl.is_closed():                        # AC2: the closing side
+            recs += ac.item_hv(placed, (f"s{len(pl._points) - 1}",))
         ctl.auto_join(recs)
 
     # ── Rectangle (3-click: base → side (angle + W) → depth (H), ellipse-like;

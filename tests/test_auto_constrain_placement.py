@@ -233,7 +233,7 @@ def test_delete_pop_drops_that_vertex_join(vs):
 def test_close_on_start_adds_no_extra_join(vs):
     view, sc = vs
     a = _line(sc, (0, 0), (200, 0))
-    _poly(view, sc, (200, 0), (300, 200), (100, 200), (200, 0), finish=None)
+    _poly(view, sc, (200, 0), (300, 200), (100, 230), (200, 0), finish=None)
     pl = sc._polylines[-1]
     assert pl.is_closed()
     assert _recs(sc) == [("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)])]
@@ -244,12 +244,12 @@ def test_typed_polyline_vertex_gets_no_join(vs):
     live snap sits exactly on it; the clicked vertices keep theirs."""
     view, sc = vs
     a = _line(sc, (0, 0), (200, 0))
-    _line(sc, (500, 0), (700, 0))
+    _line(sc, (500, 60), (700, 60))
     sc.set_mode("polyline")
     move(view, QPointF(200, 0)); click(view, QPointF(200, 0))      # v0 on a.p2
-    move(view, QPointF(500, 0))                                     # live END snap on b.p1
+    move(view, QPointF(500, 60))                                    # live END snap on b.p1
     assert sc._snap_result is not None
-    assert sc._geom_ctl._commit_polyline_at(QPointF(500, 0))       # typed v1 (HUD applier)
+    assert sc._geom_ctl._commit_polyline_at(QPointF(500, 60))      # typed v1 (HUD applier)
     _key(view, Qt.Key.Key_Return)
     ln = sc._draw_lines[-1]                                         # 2-vertex -> a line
     assert _recs(sc) == [("coincident", [(ln._uid, "p1", None), (a._uid, "p2", None)])]

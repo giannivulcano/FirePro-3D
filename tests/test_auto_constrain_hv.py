@@ -144,3 +144,61 @@ def test_gridline_gets_no_hv(vs):
     move(view, QPointF(310, 120)); click(view, QPointF(310, 120))
     move(view, QPointF(470, 120)); click(view, QPointF(470, 120))
     assert _recs(sc) == []
+
+
+# ── polyline ─────────────────────────────────────────────────────────────
+
+from PyQt6.QtTest import QTest  # noqa: E402
+
+
+def _key(view, key):
+    view.setFocus()
+    QTest.keyClick(view.viewport(), key)
+    QApplication.processEvents()
+
+
+def _poly(view, sc, *pts, mods=None, finish=Qt.Key.Key_Return):
+    sc.set_mode("polyline")
+    for i, p in enumerate(pts):
+        m = (mods or {}).get(i, NONE)
+        move(view, QPointF(*p), m); click(view, QPointF(*p), m)
+    if finish is not None:
+        _key(view, finish)
+
+
+def test_polyline_segments_including_closing(vs):
+    view, sc = vs
+    # s0 H, s1 V, s2 oblique, closing s3 = (310,320)->(310,120) V (close click)
+    _poly(view, sc, (310, 120), (470, 120), (470, 260), (310, 320), (310, 120),
+          finish=None)
+    pl = sc._polylines[-1]
+    assert pl.is_closed()
+    assert _recs(sc) == [("horizontal", [(pl._uid, "s0", None)]),
+                         ("vertical", [(pl._uid, "s1", None)]),
+                         ("vertical", [(pl._uid, "s3", None)])]
+
+
+def test_polyline_shift_on_the_ending_vertex_skips_that_segment(vs):
+    view, sc = vs
+    _poly(view, sc, (310, 120), (470, 120), (470, 260), mods={1: SHIFT})
+    pl = sc._polylines[-1]
+    assert _recs(sc) == [("vertical", [(pl._uid, "s1", None)])]
+
+
+def test_two_vertex_polyline_hv_lands_on_the_line_edge(vs):
+    view, sc = vs
+    _poly(view, sc, (310, 120), (470, 120))
+    ln = sc._draw_lines[-1]
+    assert _recs(sc) == [("horizontal", [(ln._uid, "edge", None)])]
+
+
+def test_delete_pop_drops_that_vertex_hv(vs):
+    view, sc = vs
+    sc.set_mode("polyline")
+    for p in ((310, 120), (470, 120)):                    # s0 H (flag on v1)
+        move(view, QPointF(*p)); click(view, QPointF(*p))
+    _key(view, Qt.Key.Key_Delete)                         # pop v1 -> its flag goes too
+    move(view, QPointF(470, 120), SHIFT); click(view, QPointF(470, 120), SHIFT)
+    move(view, QPointF(520, 300)); click(view, QPointF(520, 300))
+    _key(view, Qt.Key.Key_Return)
+    assert _recs(sc) == []
