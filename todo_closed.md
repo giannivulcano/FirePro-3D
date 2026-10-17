@@ -2,6 +2,14 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor constraint system — AC4 Offset copy relations — 2026-10-17
+
+- [x] [type:feature] AC4 — Offset auto-constrains its copy to the source (lines + circles / arcs) [subject:CAD] [P1] [done:2026-10-17]
+  - Details: 2026-10-16 design grill Q12. Depends AC1 (toggle + Shift + clean-only add). Probed: `ModifyToolsController.commit_offset` → `_add_from_dict` → `push_undo_state`, no constraint call, no source link; `tool_geometry.offset_item` clones the class. Line offset at distance d → `parallel` [copy, source] + a driving `dim_point_line` [copy `mid`, source `edge`] = d (D81 shape, `label.offset` auto per D62); circle / arc offset → `concentric` (a radius-gap dim does not exist; the radii stay free). Rect / polygon / polyline / ellipse / spline offsets stay unconstrained (follow-up below). Same undo step as the offset; Shift inverts; clean-only. Update the spec §8 Offset row ("New geometry, no constraints") and `scene-tools.md` §5.7 pointer. Guards: line offset → the two records, editing the gap dim moves the copy and keeps it parallel; circle → `concentric`; rect → none; Shift+commit → none.
+  - Note 2026-10-16 (user ruling): this task's wrap-up runs the one full suite (VC6) covering AC1–AC4 — AC1–AC3 ran their keep-green sets only.
+  - Note 2026-10-16: AC1 met -- merged to main `ebd7dc0c` (0.50.0): toggle, Shift rule, resolver, clean-only `auto_join`, undo folding (spec §13, D138-D147).
+  - Note 2026-10-17: built on `feat/ac4-offset-constraints` (D155-D156): `auto_constrain.plan_offset` + `ModifyToolsController._auto_constrain_offset` (gate `_hv_on`; Enter / typed Distance follow the toggle). Line / reference line -> `parallel` + driving `dim_point_line` gap dim; circle / arc -> `concentric`; others none. 19 guards in `tests/test_auto_constrain_offset.py`, 13 RED-proved. User smoke passed. VC6 (AC1-AC4): every HEAD chunk ran, no HEAD-only failure (the filed shortcut bug, the filed `test_block_drag_drop` crash and the newly filed stale `test_failed_solve...` fake, each failing at base `3db589c7`); the base half and perf stage were cut short by host memory.
+
 ## Block Editor constraint system — AC3 Auto Constrain shape-click joins — 2026-10-17
 
 - [x] [type:feature] AC3 — Auto Constrain: joins for rect / circle / arc / polygon / ellipse clicks [subject:CAD] [P1] [done:2026-10-17]
