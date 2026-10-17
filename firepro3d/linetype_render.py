@@ -566,7 +566,7 @@ def paint_missing_badge(painter, at: QPointF) -> None:
     painter.drawPolygon(QPolygonF([QPointF(c.x(), c.y() - r),
                                    QPointF(c.x() + r, c.y() + 5 * k),
                                    QPointF(c.x() - r, c.y() + 5 * k)]))
-    painter.setBrush(QColor("#ffffff"))
+    painter.setBrush(QColor("#ffffff"))  # theme-exempt: white glyph on the warn badge
     painter.drawRoundedRect(QRectF(c.x() - 0.9 * k, c.y() - 2.6 * k,
                                    1.8 * k, 4.6 * k), 0.6 * k, 0.6 * k)
     painter.drawEllipse(QPointF(c.x(), c.y() + 3.7 * k), 1.0 * k, 1.0 * k)

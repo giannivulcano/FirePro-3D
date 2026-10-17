@@ -715,7 +715,7 @@ class BlockInstance(QGraphicsObject):
         self._paint_sf = None                   # set where the ends' factors are read
         if not ops:
             if self.definition() is None:      # orphan placeholder
-                p = QPen(QColor("#c0392b"))
+                p = QPen(QColor("#c0392b"))  # theme-exempt: missing-definition error red
                 p.setCosmetic(True)
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
