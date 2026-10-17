@@ -2657,6 +2657,8 @@ class PaperScene(QGraphicsScene):
     Coordinate system: 1 scene unit = 1 mm.
     """
 
+    paints_on_paper = True   # colour tokens resolve as paper (HF1)
+
     navigate_to_view = pyqtSignal(str, str)
     sheetModified = pyqtSignal()
     # Hatch renderer fast path (see Model_Space._hatch_paper_scale): a sheet's
