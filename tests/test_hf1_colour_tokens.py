@@ -599,3 +599,60 @@ def test_geometry_import_no_colour_is_automatic(qapp):
 def test_underlay_cache_version_bumped_for_aci7():
     from firepro3d import underlay_cache
     assert underlay_cache._CACHE_VERSION >= 5
+
+
+def _legacy_fpdb(tmp_path, name="legacy.fpdb"):
+    """An un-marked .fpdb with a white stroke and a bundled nested def whose
+    prim is also white."""
+    import json
+    from firepro3d.block_definition import BlockDefinition
+    nested = BlockDefinition.new(
+        name="Nest", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[{"type": "draw_line", "pt1": [0, 0], "pt2": [5, 0],
+                     "style": {"colour": "#ffffff"}}])
+    top = BlockDefinition.new(
+        name="Top", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[{"type": "draw_line", "pt1": [0, 0], "pt2": [10, 0],
+                     "style": {"colour": "#ffffff"}}])
+    rec = top.to_dict()
+    rec["schema"] = 2
+    rec["bundled"] = {nested.id: nested.to_dict()}
+    path = tmp_path / name
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    return path, top, nested
+
+
+def test_load_block_migrates_unmarked_fpdb(qapp, tmp_path):
+    """Real ``block_library.load_block`` (library/series/filename path)."""
+    from firepro3d import block_library as bl
+    _legacy_fpdb(tmp_path, "Top.fpdb")
+    got = bl.load_block("", "", "Top.fpdb", root=str(tmp_path))
+    assert got is not None
+    assert got.primitives[0]["style"]["colour"] == TOKEN_AUTO
+
+
+def test_load_block_file_migrates_unmarked_fpdb(qapp, tmp_path):
+    """Real ``block_library.load_block_file`` (browse-anywhere path)."""
+    from firepro3d import block_library as bl
+    path, _t, _n = _legacy_fpdb(tmp_path)
+    got = bl.load_block_file(str(path))
+    assert got.primitives[0]["style"]["colour"] == TOKEN_AUTO
+
+
+def test_load_block_file_with_bundle_migrates_bundled_defs(qapp, tmp_path):
+    """Real ``load_block_file_with_bundle``: top def AND bundled nested def."""
+    from firepro3d import block_library as bl
+    path, _t, nested = _legacy_fpdb(tmp_path)
+    defn, bundled = bl.load_block_file_with_bundle(str(path))
+    assert defn.primitives[0]["style"]["colour"] == TOKEN_AUTO
+    assert [b.id for b in bundled] == [nested.id]
+    assert bundled[0].primitives[0]["style"]["colour"] == TOKEN_AUTO
+
+
+def test_project_non_numeric_version_migrates_without_raising():
+    from firepro3d.colour_migration import migrate_project_payload
+    for bad in ("abc", "1.0", [3], {}):
+        p = {"version": bad,
+             "display_settings": {"2D Geometry": {"color": "#ffffff"}}}
+        migrate_project_payload(p)
+        assert p["display_settings"]["2D Geometry"]["color"] == TOKEN_AUTO

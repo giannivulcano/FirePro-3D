@@ -44,7 +44,11 @@ def migrate_definition_dict(d) -> None:
 def migrate_project_payload(payload: dict) -> None:
     """In place: a < v11 project's block prims, paper annotation text and
     "2D Geometry" display colour become Automatic."""
-    if int(payload.get("version", 1) or 1) >= TOKENS_SAVE_VERSION:
+    try:
+        version = int(payload.get("version", 1) or 1)
+    except (TypeError, ValueError):
+        version = 1                          # non-numeric -> legacy: migrate
+    if version >= TOKENS_SAVE_VERSION:
         return
     for d in (payload.get("block_definitions") or {}).values():
         migrate_definition_dict(d)
