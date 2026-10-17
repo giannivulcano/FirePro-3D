@@ -69,6 +69,10 @@ class GeometryDrawingController:
         self._ghosts: list = []
         # AC1 AD3: per-click Auto Constrain targets (resolved at press).
         self._line_anchor_join = None     # the armed line's click-1 Target
+        self._pl_hv = []                  # AC2: per-vertex H/V flag of the segment ending there (v0: None)
+        self._rect_side_hv = False        # AC2: the rect side press's H/V flag
+        self._ellipse_axis_hv = False     # AC2: the ellipse axis press's H/V flag
+        self._arc_ep_chord_hv = False     # AC2: the End Points chord press's H/V flag
         self._pl_joins: list = []         # active polyline: one Target|None per vertex
 
     # ── Reference-placement ghost cue (RG8) ──────────────────────────────────
@@ -209,18 +213,40 @@ class GeometryDrawingController:
         self._ghosts = [g for g in self._ghosts if self._is_live_ghost(g, s)]
 
     # ── Auto Constrain capture (AC1 AD2-AD5) ──────────────────────────────
+    def _toggle_on(self) -> bool:
+        """AD1: the Auto Constrain toggle, Block Editor only (False elsewhere)."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled:
+            return False
+        return QSettings("GV", "FirePro3D").value(
+            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+
     def _auto_infer(self, event) -> bool:
         """AD2: infer on this press = toggle XOR Shift; never on a synthetic
         (typed / track-first) press or outside the Block Editor."""
         if event is None:
             return False
+        return self._hv_on(event)
+
+    def _hv_on(self, event) -> bool:
+        """AC2 R1: H / V on the segment this press completes = toggle XOR
+        Shift; a typed completion (*event* None) follows the toggle alone.
+        Block Editor only."""
         ctl = getattr(self._scene, "constraint_ctl", None)
         if ctl is None or not ctl.enabled:
             return False
-        on = QSettings("GV", "FirePro3D").value(
-            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+        if event is None:
+            return self._toggle_on()
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        return on != shift
+        return self._toggle_on() != shift
+
+    def _auto_hv(self, item, handles, on) -> None:
+        """AC2: add *item*'s H / V on *handles* clean-only (D146), before the
+        placement's own undo push (D147). For shapes with no AC1 joins."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if not on or ctl is None or not ctl.enabled:
+            return
+        ctl.auto_join(ac.item_hv(item, handles))
 
     def _capture(self, event):
         """AD3: this click's target from its live snap, or None."""
@@ -228,8 +254,9 @@ class GeometryDrawingController:
             return None
         return ac.resolve_snap(getattr(self._scene, "_snap_result", None))
 
-    def _join_line(self, item, anchor, tip, tip_join) -> None:
-        """AD7/AD9: plan + add the line's joins (before the commit's push)."""
+    def _join_line(self, item, anchor, tip, tip_join, hv=False) -> None:
+        """AD7/AD9 + AC2: plan + add the line's joins, then its H / V (R3:
+        joins first), before the commit's push."""
         ctl = getattr(self._scene, "constraint_ctl", None)
         uid = getattr(item, "_uid", None)
         if ctl is None or not ctl.enabled or uid is None:
@@ -238,6 +265,8 @@ class GeometryDrawingController:
         for h, pt, t in (("p1", anchor, self._line_anchor_join), ("p2", tip, tip_join)):
             if ac.matches(t, pt):
                 recs += ac.plan_joins(uid, h, "edge", t)
+        if hv:
+            recs += ac.item_hv(item, ("edge",))
         ctl.auto_join(recs)
 
     # ── Line (shared with draw_gridline; the item factory _make_line_like
@@ -292,9 +321,10 @@ class GeometryDrawingController:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._scene._constrain_angle(self._scene._draw_line_anchor, snapped)
             self._commit_draw_line_at(
-                tip, tip_join=None if _is_grid else self._capture(event))
+                tip, tip_join=None if _is_grid else self._capture(event),
+                hv=self._hv_on(event))
 
-    def _commit_draw_line_at(self, tip, tip_join=None):
+    def _commit_draw_line_at(self, tip, tip_join=None, hv=None):
         """Commit the armed line-like placement, ending at ``tip``.
 
         This is the commit half of :meth:`_press_draw_line`, split out so that
@@ -313,6 +343,8 @@ class GeometryDrawingController:
             tip: The line's end point (scene mm).
             tip_join: The clicked tip's Auto Constrain target (AC1 AD3); None
                 for a typed tip (AD5).
+            hv: AC2 -- H / V on (the finishing press's toggle XOR Shift);
+                None for a typed tip = the toggle alone (R1).
 
         Returns:
             True when a line was committed, False when it was refused (no
@@ -333,7 +365,9 @@ class GeometryDrawingController:
             return False
         item = self._scene._make_line_like(anchor, tip)
         if self._scene.mode == "draw_line":
-            self._join_line(item, anchor, tip, tip_join)          # AC1, before the push (AD10)
+            if hv is None:
+                hv = self._hv_on(None)                         # AC2 R1: typed = toggle
+            self._join_line(item, anchor, tip, tip_join, hv)  # AC1 + AC2, before the push (AD10)
         self._line_anchor_join = None
         for v in self._scene.views(): v.viewport().update()
         self._scene._draw_line_anchor = None
@@ -493,14 +527,15 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._ellipse_center, snapped)
-            self._commit_draw_ellipse_major_at(snapped)
+            self._commit_draw_ellipse_major_at(snapped, hv=self._hv_on(event))
         else:
             self._commit_draw_ellipse_at(snapped)
 
-    def _commit_draw_ellipse_major_at(self, point) -> bool:
+    def _commit_draw_ellipse_major_at(self, point, hv=None) -> bool:
         """Step-1 applier: fix rx + rotation from the major endpoint, advance to
         the minor step.  Shared by the mouse 2nd click and the ``line`` HUD
-        schema (Length=rx, Angle=rotation → this rim point)."""
+        schema (Length=rx, Angle=rotation → this rim point). *hv* (AC2): the
+        axis press's toggle XOR Shift; None when typed = the toggle (R1)."""
         s = self._scene
         if s._ellipse_center is None:
             return False
@@ -513,6 +548,7 @@ class GeometryDrawingController:
         s._ellipse_major = QPointF(point)
         s._ellipse_rx = rx
         s._ellipse_rot = math.degrees(math.atan2(-dy, dx))
+        self._ellipse_axis_hv = self._hv_on(None) if hv is None else hv   # AC2 R1
         s._ellipse_step = 2
         s.instructionChanged.emit("Pick minor-axis extent (radius)")
         # Swap the radial preview line for the ellipse preview + step-2 guides.
@@ -601,6 +637,8 @@ class GeometryDrawingController:
         s._draw_ellipses.append(item)
         s.clearSelection()            # only the just-placed item stays selected
         item.setSelected(True)
+        self._auto_hv(item, ("a0", "a1"), self._ellipse_axis_hv)      # AC2
+        self._ellipse_axis_hv = False
         for v in s.views(): v.viewport().update()
         if s._ellipse_preview is not None:
             s.removeItem(s._ellipse_preview)
@@ -730,6 +768,7 @@ class GeometryDrawingController:
             self._scene._polylines.append(pl)
             self._scene._polyline_active = pl
             self._pl_joins = [self._capture(event)]            # AC1 AD3: v0
+            self._pl_hv = [None]                               # AC2: v0 ends no segment
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick next point (Enter to finish)")
         else:
@@ -756,15 +795,17 @@ class GeometryDrawingController:
                     pl.setSelected(True)
                     self._scene.preview_pipe.hide()
                     for v in self._scene.views(): v.viewport().update()
-                    self.join_polyline(pl, pl)                 # AC1 AD8 (closing click adds none)
+                    # AC1 AD8 (the closing click adds no join) + AC2 closing side
+                    self.join_polyline(pl, pl, close_hv=self._hv_on(event))
                     self._scene.push_undo_state()
                     self._scene.instructionChanged.emit("Pick first point")
                     self._scene._end_placement_switch(pl)
                     return
-            self._commit_polyline_at(tip, join=self._capture(event))
+            self._commit_polyline_at(tip, join=self._capture(event),
+                                     hv=self._hv_on(event))
         # don't let super() deselect items mid-draw
 
-    def _commit_polyline_at(self, tip, join=None):
+    def _commit_polyline_at(self, tip, join=None, hv=None):
         """Append one vertex to the active polyline at ``tip``.
 
         The commit half of :meth:`_press_polyline`, split out so that Dynamic
@@ -781,6 +822,8 @@ class GeometryDrawingController:
             tip: The vertex to append (scene mm).
             join: The clicked vertex's Auto Constrain target (AC1 AD3); None
                 when typed (AD5).
+            hv: AC2 -- H / V on the segment this vertex ends; None when
+                typed = the toggle (R1).
 
         Returns:
             True when a vertex was appended, False when no polyline is active.
@@ -790,23 +833,29 @@ class GeometryDrawingController:
             return False
         pl.append_point(tip)
         self._pl_joins.append(join)                            # aligned with pl._points
+        self._pl_hv.append(self._hv_on(None) if hv is None else hv)
         # The published point described the segment just committed; the next
         # frame republishes from the new anchor.
         self._scene.clear_placement_state()
         return True
 
     def discard_pl_joins(self, keep: int = 0) -> None:
-        """AC1 AD8: drop the vertex targets past the first *keep* -- the
-        Delete-key vertex pop (``keep`` = the remaining vertex count) or a
-        discarded chain (0), so the list stays aligned with ``pl._points``."""
+        """AC1 AD8: drop the vertex targets (and AC2 H/V flags) past the
+        first *keep* -- the Delete-key vertex pop (``keep`` = the remaining
+        vertex count) or a discarded chain (0), so the lists stay aligned with
+        ``pl._points``."""
         del self._pl_joins[keep:]
+        del self._pl_hv[keep:]
 
-    def join_polyline(self, pl, placed) -> None:
+    def join_polyline(self, pl, placed, close_hv=False) -> None:
         """AC1 AD8: plan + add the finished chain's vertex joins, once, before
         the finish's undo push. *placed* is the committed item -- *pl* itself,
         or the LineItem a 2-vertex finish replaced it with (handles remapped
-        v0/v1/s0/m0 -> p1/p2/edge/mid, the chain's own uid -> the line's)."""
+        v0/v1/s0/m0 -> p1/p2/edge/mid, the chain's own uid -> the line's).
+        AC2: then each segment's H / V whose ending press had it on (the
+        closing side on the close click, *close_hv*) -- joins first, R3."""
         joins, self._pl_joins = self._pl_joins, []
+        hvs, self._pl_hv = self._pl_hv, []
         ctl = getattr(self._scene, "constraint_ctl", None)
         if ctl is None or not ctl.enabled:
             return
@@ -829,6 +878,12 @@ class GeometryDrawingController:
                         continue
                     t = ac.Target(t.kind, {"uid": uid, "h": mh}, t.point, t.perpendicular)
             recs += ac.plan_joins(uid, h, inc, t)
+        for i in range(1, len(pl._points)):                    # AC2: s<i-1> ends at v<i>
+            if i < len(hvs) and hvs[i]:
+                h = f"s{i - 1}"
+                recs += ac.item_hv(placed, (ac.remap_handle(h) if swap else h,))
+        if close_hv and pl.is_closed():                        # AC2: the closing side
+            recs += ac.item_hv(placed, (f"s{len(pl._points) - 1}",))
         ctl.auto_join(recs)
 
     # ── Rectangle (3-click: base → side (angle + W) → depth (H), ellipse-like;
@@ -903,14 +958,16 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._draw_rect_anchor, snapped)
-            self._advance_rectangle_to_depth_step(snapped)
+            self._advance_rectangle_to_depth_step(snapped, hv=self._hv_on(event))
         else:
             self._commit_rectangle_depth_at(snapped)
 
-    def _advance_rectangle_to_depth_step(self, side_pt) -> bool:
+    def _advance_rectangle_to_depth_step(self, side_pt, hv=None) -> bool:
         """Fix the first side and enter the depth step.
 
         Shared by the mouse second click and the ``rect_side*`` HUD applier.
+        *hv* (AC2): the side press's toggle XOR Shift; None when typed = the
+        toggle (R1) -- applied at the commit.
 
         Returns:
             True when the side was fixed, False when refused (no base, or a
@@ -925,6 +982,7 @@ class GeometryDrawingController:
             s._show_status("Rectangle side too small — pick again", timeout=2000)
             return False
         s._draw_rect_side_pt = QPointF(side_pt)
+        self._rect_side_hv = self._hv_on(None) if hv is None else hv   # AC2 R1
         if s._draw_rect_ref_line0 is not None:
             a, b = rect_side_ghost(base, side_pt, s._draw_rect_from_center)
             s._draw_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
@@ -997,6 +1055,13 @@ class GeometryDrawingController:
         self._scene._draw_rects.append(item)
         self._scene.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        base, side = self._scene._draw_rect_anchor, self._scene._draw_rect_side_pt
+        if self._rect_side_hv and base is not None and side is not None:   # AC2 R2
+            e = ac.rect_drawn_edge(item, base, side,
+                                   from_center=self._scene._draw_rect_from_center)
+            if e is not None:
+                self._auto_hv(item, (e,), True)
+        self._rect_side_hv = False
         for v in self._scene.views(): v.viewport().update()
         # Remove preview
         if self._scene._draw_rect_preview is not None:
@@ -1362,12 +1427,13 @@ class GeometryDrawingController:
                          "start": "Pick start point",
                          "endpoints": "Pick first end point"}
 
-    def _finish_arc_commit(self, item) -> None:
+    def _finish_arc_commit(self, item, hv_handles=None) -> None:
         """Add a committed ``ArcItem`` and reset every arc variant's state.
 
         The shared tail of the centre/start and End Points commits: select the
         new item, tear down previews/guides, reset the step state, push undo and
-        re-prompt for the variant's first pick.
+        re-prompt for the variant's first pick. *hv_handles* (AC2): the End
+        Points chord's H / V handles, or None (the radials never get one).
         """
         s = self._scene
         s._stamp_place_reference(item)       # RG6 (every arc variant)
@@ -1375,6 +1441,8 @@ class GeometryDrawingController:
         s._draw_arcs.append(item)
         s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        if hv_handles:
+            self._auto_hv(item, hv_handles, True)              # AC2, before the push
         for v in s.views(): v.viewport().update()
         # Clean up previews
         if s._draw_arc_preview is not None:
@@ -1418,12 +1486,14 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._draw_arc_ep_a, snapped)
-            self._commit_draw_arc_ep_chord_at(snapped)
+            self._commit_draw_arc_ep_chord_at(snapped, hv=self._hv_on(event))
         else:
             self._commit_draw_arc_ep_at(snapped, snap90=True)
 
-    def _commit_draw_arc_ep_chord_at(self, point) -> bool:
+    def _commit_draw_arc_ep_chord_at(self, point, hv=None) -> bool:
         """Step-1 applier: fix end point B (mouse 2nd click + ``line`` HUD).
+        *hv* (AC2): the chord press's toggle XOR Shift; None when typed = the
+        toggle (R1) -- applied at the commit.
 
         Returns:
             True when the arc advanced to the centre step, False when unarmed
@@ -1437,6 +1507,7 @@ class GeometryDrawingController:
             s._show_status("Arc chord too small — pick again", timeout=2000)
             return False
         s._draw_arc_ep_b = QPointF(point)
+        self._arc_ep_chord_hv = self._hv_on(None) if hv is None else hv   # AC2 R1
         s._draw_arc_step = 2
         if s._draw_arc_radius_line is not None:
             if s._draw_arc_radius_line.scene() is s:
@@ -1588,7 +1659,9 @@ class GeometryDrawingController:
             s._show_status("Arc span too small — skipped", timeout=2000)
             return False
         _c, _lw = s._geom_color_lw()
-        self._finish_arc_commit(ArcItem(c, r, st, sp, _c, _lw))
+        on, self._arc_ep_chord_hv = self._arc_ep_chord_hv, False
+        self._finish_arc_commit(ArcItem(c, r, st, sp, _c, _lw),
+                                hv_handles=("start", "end") if on else None)
         return True
 
     # ── Polygon (3-step centre→radius→rotate, ↑/↓ sides + ←/→ inscribed. The
@@ -1625,7 +1698,8 @@ class GeometryDrawingController:
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and s._polygon_center is not None):
                 snapped = s._constrain_angle(s._polygon_center, snapped)
-            self._commit_polygon_rotated(self._polygon_rotation_angle_to(snapped))
+            self._commit_polygon_rotated(self._polygon_rotation_angle_to(snapped),
+                                         hv=self._hv_on(event))
         elif s._polygon_center is None:
             # Step 0: arm the centre.
             s._polygon_center = snapped
@@ -1703,7 +1777,7 @@ class GeometryDrawingController:
             return self._commit_polygon_rotated(geometry["angle_deg"])   # dict
         return self._advance_polygon_to_rotate_step(geometry)             # QPointF
 
-    def _commit_polygon_rotated(self, angle_deg) -> bool:
+    def _commit_polygon_rotated(self, angle_deg, hv=None) -> bool:
         """Commit the sized polygon at ``angle_deg`` orientation (Y-up, degrees).
 
         Builds ``RegularPolygonItem`` from the stored centre and sized radius,
@@ -1712,6 +1786,8 @@ class GeometryDrawingController:
 
         Args:
             angle_deg: Absolute orientation, Y-up degrees from +x.
+            hv: AC2 -- the rotate press's toggle XOR Shift; None when typed =
+                the toggle (R1).
 
         Returns:
             True when committed; False when sizing state is missing.
@@ -1733,6 +1809,9 @@ class GeometryDrawingController:
         s._draw_polygons.append(item)
         s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        self._auto_hv(item, ("center", "v0") if item._inscribed
+                      else (f"s{item._sides - 1}",),          # AC2: the facing side
+                      self._hv_on(None) if hv is None else hv)
         # Remove preview ghost.
         if s._polygon_preview is not None:
             if s._polygon_preview.scene() is s:

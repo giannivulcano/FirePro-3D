@@ -55,7 +55,7 @@ def test_button_off_stops_the_next_placement_joining(win_with_editor):
     _line(sc, (0, 0), (200, 0))
     b.click()                                             # -> OFF
     assert not b.isChecked()
-    n = _place_line(win, (200, 0), (200, 150))
+    n = _place_line(win, (200, 0), (260, 150))
     assert sc.constraint_ctl.constraints_on(n) == []
     b.click()                                             # -> ON
     m = _place_line(win, (200, 0), (300, 150))
@@ -67,7 +67,7 @@ def test_ctrl_z_removes_line_and_joins_together(win_with_editor):
     QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
     sc = win._active_scene(); view = win._test_editor.view
     a = _line(sc, (0, 0), (200, 0)); sc.push_undo_state()
-    n = _place_line(win, (200, 0), (200, 150))
+    n = _place_line(win, (200, 0), (260, 150))
     assert [c.type for c in sc.constraint_ctl.constraints_on(n)] == ["coincident"]
     _ctrl(view, Qt.Key.Key_Z)
     assert sc.constraint_ctl.constraints == []
@@ -79,7 +79,7 @@ def test_joins_survive_save_close_reopen(win_with_editor):
     QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
     w = win._test_editor; sc = w.editor_scene
     a = _line(sc, (0, 0), (200, 0))
-    n = _place_line(win, (200, 0), (200, 150))
+    n = _place_line(win, (200, 0), (260, 150))
     ua, un = a._uid, n._uid
     sc.clearSelection()
     defn = w.commit_block("ac1-e2e", "L", "S")

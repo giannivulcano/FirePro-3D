@@ -1341,9 +1341,11 @@ class ActionRowList(QWidget):
         else:
             self._footer = QLabel(footer)
             self._footer.setObjectName("actionRowFooter")
+        # Parent it before setVisible: a parentless widget made visible is
+        # briefly its own top-level window (the AC2 smoke flash).
+        lay.addWidget(self._footer)
         self._footer.setVisible(bool(footer))
         self._footer_state = footer_state
-        lay.addWidget(self._footer)
 
     # ── read API (tests / callers) ────────────────────────────────────────
     def title_text(self) -> str:
@@ -1437,8 +1439,8 @@ class PatternList(QWidget):
         self._note = QLabel(note)
         self._note.setObjectName("patternNote")
         self._note.setWordWrap(True)
+        lay.addWidget(self._note)                 # parent first: no window flash
         self._note.setVisible(bool(note))
-        lay.addWidget(self._note)
         if self._rows is None:
             return
         marks = sum(1 for k, _ in self._rows if k in ("dash", "dot"))

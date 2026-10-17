@@ -49,7 +49,7 @@ def _recs(sc):
 def test_endpoint_click_records_one_coincident(vs):
     view, sc = vs
     a = _line(sc, (0, 0), (200, 0))
-    n = _draw(view, sc, (200, 0), (200, 150))
+    n = _draw(view, sc, (200, 0), (260, 150))
     assert _recs(sc) == [("coincident", [(n._uid, "p1", None), (a._uid, "p2", None)])]
 
 
@@ -58,7 +58,7 @@ def test_midpoint_and_centre_and_origin(vs):
     a = _line(sc, (-300, 100), (-100, 100))
     c = CircleItem(QPointF(300, 0), 60.0); sc.addItem(c); sc._draw_circles.append(c)
     n = _draw(view, sc, (-200, 100), (300, 0))           # MID -> CEN
-    m = _draw(view, sc, (0, 0), (0, -150))                # origin -> free
+    m = _draw(view, sc, (0, 0), (90, -150))                # origin -> free
     assert _recs(sc) == [
         ("coincident", [(n._uid, "p1", None), (a._uid, "mid", None)]),
         ("coincident", [(n._uid, "p2", None), (c._uid, "center", None)]),
@@ -87,21 +87,21 @@ def test_perpendicular_snap_adds_perpendicular(vs):
 def test_shift_inverts_both_ways(vs):
     view, sc = vs
     a = _line(sc, (50, 0), (250, 0))                      # off the origin snap
-    _draw(view, sc, (250, 0), (250, 150), ma=SHIFT)       # ON + Shift -> none
+    _draw(view, sc, (250, 0), (310, 150), ma=SHIFT)       # ON + Shift -> none
     assert _recs(sc) == []
     QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
-    _draw(view, sc, (50, 0), (50, -150))                  # OFF -> none
+    _draw(view, sc, (50, 0), (110, -150))                  # OFF -> none
     assert _recs(sc) == []
-    n = _draw(view, sc, (150, 0), (150, -150), ma=SHIFT)  # OFF + Shift -> a.mid
+    n = _draw(view, sc, (150, 0), (210, -150), ma=SHIFT)  # OFF + Shift -> a.mid
     assert _recs(sc) == [("coincident", [(n._uid, "p1", None), (a._uid, "mid", None)])]
 
 
 def test_ctrl_lock_off_the_snap_gets_no_join(vs):
     view, sc = vs
     _line(sc, (0, 0), (200, 0))
-    _line(sc, (300, 37), (400, 37))
-    n = _draw(view, sc, (200, 0), (300, 37), mb=CTRL)    # ~20 deg -> angle-locked
-    assert math.hypot(n._pt2.x() - 300, n._pt2.y() - 37) > 1.0   # tip left its END snap
+    _line(sc, (300, 120), (400, 120))
+    n = _draw(view, sc, (200, 0), (300, 120), mb=CTRL)   # ~50 deg -> locked 45
+    assert math.hypot(n._pt2.x() - 300, n._pt2.y() - 120) > 1.0   # tip left its END snap
     assert [r[1][0][1] for r in _recs(sc)] == ["p1"]      # only click 1 joined
 
 
@@ -110,7 +110,7 @@ def test_typed_second_point_keeps_the_clicked_first(vs):
     a = _line(sc, (0, 0), (200, 0))
     sc.set_mode("draw_line")
     move(view, QPointF(200, 0)); click(view, QPointF(200, 0))
-    assert sc._geom_ctl._commit_draw_line_at(QPointF(200, 150))   # the HUD applier = typed
+    assert sc._geom_ctl._commit_draw_line_at(QPointF(260, 150))   # the HUD applier = typed
     n = sc._draw_lines[-1]
     assert _recs(sc) == [("coincident", [(n._uid, "p1", None), (a._uid, "p2", None)])]
 
@@ -120,7 +120,7 @@ def test_line_and_joins_are_one_undo_step(vs):
     _line(sc, (0, 0), (200, 0))
     sc.push_undo_state()
     n_lines = len(sc._draw_lines)
-    _draw(view, sc, (200, 0), (200, 150))
+    _draw(view, sc, (200, 0), (260, 150))
     assert len(sc.constraint_ctl.constraints) == 1
     sc.undo()
     QApplication.processEvents()
@@ -143,10 +143,12 @@ def test_inference_is_editor_only(vs, qapp):
     does (same event, toggle ON)."""
     _view, sc = vs
     assert sc._geom_ctl._auto_infer(_press_event()) is True
+    assert sc._geom_ctl._hv_on(None) is True                  # AC2: typed = the toggle
     pview, psc = make_view(role="plan", scale=1.0, mode=None)
     try:
         assert psc.constraint_ctl.enabled is False
         assert psc._geom_ctl._auto_infer(_press_event()) is False
+        assert psc._geom_ctl._hv_on(None) is False            # AC2: editor only
     finally:
         close_view(pview, psc)
 
@@ -231,7 +233,7 @@ def test_delete_pop_drops_that_vertex_join(vs):
 def test_close_on_start_adds_no_extra_join(vs):
     view, sc = vs
     a = _line(sc, (0, 0), (200, 0))
-    _poly(view, sc, (200, 0), (300, 200), (100, 200), (200, 0), finish=None)
+    _poly(view, sc, (200, 0), (300, 200), (100, 230), (200, 0), finish=None)
     pl = sc._polylines[-1]
     assert pl.is_closed()
     assert _recs(sc) == [("coincident", [(pl._uid, "v0", None), (a._uid, "p2", None)])]
@@ -242,12 +244,12 @@ def test_typed_polyline_vertex_gets_no_join(vs):
     live snap sits exactly on it; the clicked vertices keep theirs."""
     view, sc = vs
     a = _line(sc, (0, 0), (200, 0))
-    _line(sc, (500, 0), (700, 0))
+    _line(sc, (500, 60), (700, 60))
     sc.set_mode("polyline")
     move(view, QPointF(200, 0)); click(view, QPointF(200, 0))      # v0 on a.p2
-    move(view, QPointF(500, 0))                                     # live END snap on b.p1
+    move(view, QPointF(500, 60))                                    # live END snap on b.p1
     assert sc._snap_result is not None
-    assert sc._geom_ctl._commit_polyline_at(QPointF(500, 0))       # typed v1 (HUD applier)
+    assert sc._geom_ctl._commit_polyline_at(QPointF(500, 60))      # typed v1 (HUD applier)
     _key(view, Qt.Key.Key_Return)
     ln = sc._draw_lines[-1]                                         # 2-vertex -> a line
     assert _recs(sc) == [("coincident", [(ln._uid, "p1", None), (a._uid, "p2", None)])]
@@ -286,7 +288,7 @@ def test_reference_line_joins_like_a_line(vs):
     sc.set_mode("draw_line")
     _key(view, Qt.Key.Key_Space)                          # placement -> reference
     move(view, QPointF(200, 0)); click(view, QPointF(200, 0))
-    move(view, QPointF(200, 150)); click(view, QPointF(200, 150))
+    move(view, QPointF(260, 150)); click(view, QPointF(260, 150))
     n = sc._draw_lines[-1]
     assert getattr(n, "reference", False) is True
     assert _recs(sc) == [("coincident", [(n._uid, "p1", None), (a._uid, "p2", None)])]
