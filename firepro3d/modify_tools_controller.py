@@ -481,8 +481,12 @@ class ModifyToolsController:
         for v in s.views():
             v.viewport().update()
 
-    def commit_offset(self) -> bool:
+    def commit_offset(self, event=None) -> bool:
         """Create the offset item (source kept), one undo step, re-arm ``offset``.
+
+        Args:
+            event: The committing press, None for Enter / a typed Distance
+                (AC4: those follow the Auto Constrain toggle alone).
 
         Returns:
             True when an item was created; False when unarmed, at zero
@@ -500,8 +504,10 @@ class ModifyToolsController:
             return False
         # Register through the one deserialise-and-register helper (I1),
         # keyed by the item's own to_dict()["type"] (the reference flag rides along).
-        if s._add_from_dict(new.to_dict()) is None:
+        item = s._add_from_dict(new.to_dict())
+        if item is None:
             return False
+        self._auto_constrain_offset(s._offset_source, item, event)
         s.push_undo_state()
         s._offset_sticky = s._offset_dist
         s._offset_sticky_locked = bool(s._offset_typed)
@@ -512,9 +518,22 @@ class ModifyToolsController:
         s._show_status(f"Offset {self._fmt_len(s._offset_sticky)}", 3000)
         return True
 
+    def _auto_constrain_offset(self, src, item, event) -> None:
+        """AC4 (D155-D156): tie the Offset copy *item* to *src* -- clean-only
+        through ``auto_join`` (D146), before the commit's push (one undo step,
+        D147). Gate = ``_hv_on``: a click is toggle XOR Shift, Enter / a typed
+        Distance (*event* None) the toggle alone; Block Editor only."""
+        s = self._scene
+        ctl = getattr(s, "constraint_ctl", None)
+        geom = getattr(s, "_geom_ctl", None)
+        if ctl is None or not ctl.enabled or geom is None or not geom._hv_on(event):
+            return
+        from . import auto_constrain as ac
+        ctl.auto_join(ac.plan_offset(src, item))
+
     def press_offset_side(self, event, pos, snapped, *_):
         """``offset_side`` click: commit on the cursor's side."""
-        self.commit_offset()
+        self.commit_offset(event)
 
     def apply_offset_distance(self, params: dict) -> bool:
         """Typed Distance (``distance`` schema): commit at that distance on the
