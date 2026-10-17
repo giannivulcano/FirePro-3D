@@ -120,6 +120,22 @@ def test_rect_centre_variant_center_and_side_mid(vs):
     assert recs[2][0] == "vertical" and len(recs) == 3
 
 
+def test_rect_base_on_an_edge_is_point_on_curve(vs):
+    view, sc = vs
+    ln = LineItem(QPointF(200, 120), QPointF(500, 120))   # mid (350, 120) is 50 mm off
+    sc.addItem(ln); sc._draw_lines.append(ln)
+    sc.set_mode("draw_rectangle"); sc._draw_rect_from_center = False
+    move(view, QPointF(300, 120))
+    assert sc._snap_result is not None and sc._snap_result.snap_type == "nearest"   # precondition
+    click(view, QPointF(300, 120))
+    _clicks(view, sc, (300, 300), (200, 210))
+    r = sc._draw_rects[-1]
+    recs = _recs(sc)
+    assert [t for t, _ in recs] == ["point_on_curve", "vertical"]
+    (n, o) = recs[0][1]
+    assert o == (ln._uid, "edge", None) and n[0] == r._uid and _at(r, n[1], (300, 120))
+
+
 def test_rect_depth_click_never_joins(vs):
     view, sc = vs
     _stub(sc, (400, 300))
