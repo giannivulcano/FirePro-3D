@@ -74,6 +74,7 @@ class GeometryDrawingController:
         self._ellipse_axis_hv = False     # AC2: the ellipse axis press's H/V flag
         self._arc_ep_chord_hv = False     # AC2: the End Points chord press's H/V flag
         self._pl_joins: list = []         # active polyline: one Target|None per vertex
+        self._shape_joins: list = []      # AC3: active shape's (rim, Target|None) per captured click
 
     # ── Reference-placement ghost cue (RG8) ──────────────────────────────────
 
@@ -240,13 +241,36 @@ class GeometryDrawingController:
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         return self._toggle_on() != shift
 
-    def _auto_hv(self, item, handles, on) -> None:
-        """AC2: add *item*'s H / V on *handles* clean-only (D146), before the
-        placement's own undo push (D147). For shapes with no AC1 joins."""
+    def _press_capture(self, event, apply, *, rim=False) -> bool:
+        """AC3: capture this press's target, run the step applier *apply*, and
+        keep the target only when the step took (a refused step is re-picked)."""
+        self._shape_joins.append((rim, self._capture(event)))
+        ok = apply()
+        if not ok and self._shape_joins:
+            self._shape_joins.pop()
+        return ok
+
+    def _join_shape(self, item, hv_recs=()) -> None:
+        """AC3 + AC2: the shape's captured joins -- each target on the new
+        point handle sitting at its snap point, the circle rim's
+        ``point_on_curve`` where none does -- then its H / V (D150: joins
+        first), one clean-only batch before the placement's push (D147)."""
+        targets, self._shape_joins = self._shape_joins, []
         ctl = getattr(self._scene, "constraint_ctl", None)
-        if not on or ctl is None or not ctl.enabled:
+        uid = getattr(item, "_uid", None)
+        if ctl is None or not ctl.enabled or uid is None:
             return
-        ctl.auto_join(ac.item_hv(item, handles))
+        recs = []
+        for rim, t in targets:
+            if t is None:
+                continue
+            h = ac.point_handle_at(item, t.point)
+            if h is not None:
+                recs += ac.plan_joins(uid, h, None, t)
+            elif rim:
+                recs += ac.plan_rim(uid, "curve", t)
+        recs += list(hv_recs)
+        ctl.auto_join(recs)
 
     def _capture(self, event):
         """AD3: this click's target from its live snap, or None."""
@@ -408,6 +432,7 @@ class GeometryDrawingController:
 
     def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._scene._draw_circle_center is None:
+            self._shape_joins = [(False, self._capture(event))]   # AC3: centre click
             self._scene._draw_circle_center = snapped
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit("Pick radius point")
@@ -422,7 +447,7 @@ class GeometryDrawingController:
             self._scene.addItem(preview)
             self._scene._draw_circle_preview = preview
         else:
-            self._commit_draw_circle_at(snapped)
+            self._press_capture(event, lambda: self._commit_draw_circle_at(snapped), rim=True)
 
     def _commit_draw_circle_at(self, rim):
         """Commit the armed circle with ``rim`` on its circumference.
@@ -458,6 +483,7 @@ class GeometryDrawingController:
         self._scene._draw_circles.append(item)
         self._scene.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
+        self._join_shape(item)                                   # AC3, before the push
         for v in self._scene.views(): v.viewport().update()
         # Remove preview
         if self._scene._draw_circle_preview is not None:
@@ -513,6 +539,7 @@ class GeometryDrawingController:
     def _press_draw_ellipse(self, event, pos, snapped, item_under, node_under, pipe_under):
         s = self._scene
         if s._ellipse_step == 0:
+            self._shape_joins = [(False, self._capture(event))]   # AC3: centre
             s._ellipse_center = snapped
             s._ellipse_step = 1
             s.update_preview_node(snapped)
@@ -527,9 +554,10 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._ellipse_center, snapped)
-            self._commit_draw_ellipse_major_at(snapped, hv=self._hv_on(event))
+            self._press_capture(event, lambda: self._commit_draw_ellipse_major_at(
+                snapped, hv=self._hv_on(event)))
         else:
-            self._commit_draw_ellipse_at(snapped)
+            self._press_capture(event, lambda: self._commit_draw_ellipse_at(snapped))
 
     def _commit_draw_ellipse_major_at(self, point, hv=None) -> bool:
         """Step-1 applier: fix rx + rotation from the major endpoint, advance to
@@ -637,7 +665,8 @@ class GeometryDrawingController:
         s._draw_ellipses.append(item)
         s.clearSelection()            # only the just-placed item stays selected
         item.setSelected(True)
-        self._auto_hv(item, ("a0", "a1"), self._ellipse_axis_hv)      # AC2
+        self._join_shape(item, ac.item_hv(item, ("a0", "a1"))
+                         if self._ellipse_axis_hv else ())                 # AC3 + AC2
         self._ellipse_axis_hv = False
         for v in s.views(): v.viewport().update()
         if s._ellipse_preview is not None:
@@ -936,6 +965,7 @@ class GeometryDrawingController:
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
         s = self._scene
         if s._draw_rect_anchor is None:
+            self._shape_joins = [(False, self._capture(event))]   # AC3: base click
             s._draw_rect_anchor = QPointF(snapped)
             s.update_preview_node(snapped)
             s.instructionChanged.emit(
@@ -958,7 +988,8 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._draw_rect_anchor, snapped)
-            self._advance_rectangle_to_depth_step(snapped, hv=self._hv_on(event))
+            self._press_capture(event, lambda: self._advance_rectangle_to_depth_step(
+                snapped, hv=self._hv_on(event)))
         else:
             self._commit_rectangle_depth_at(snapped)
 
@@ -1056,12 +1087,14 @@ class GeometryDrawingController:
         self._scene.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
         base, side = self._scene._draw_rect_anchor, self._scene._draw_rect_side_pt
+        hv = []
         if self._rect_side_hv and base is not None and side is not None:   # AC2 R2
             e = ac.rect_drawn_edge(item, base, side,
                                    from_center=self._scene._draw_rect_from_center)
             if e is not None:
-                self._auto_hv(item, (e,), True)
+                hv = ac.item_hv(item, (e,))
         self._rect_side_hv = False
+        self._join_shape(item, hv)                                          # AC3 + AC2
         for v in self._scene.views(): v.viewport().update()
         # Remove preview
         if self._scene._draw_rect_preview is not None:
@@ -1203,6 +1236,7 @@ class GeometryDrawingController:
         s = self._scene
         if s._draw_arc_step == 0:
             # Click 1 — the centre (center-first) or the start point (start-first)
+            self._shape_joins = [(False, self._capture(event))]   # AC3: click 1
             s._draw_arc_center = snapped
             s._draw_arc_step = 1
             s._draw_arc_cw = False         # each placement starts CCW
@@ -1226,12 +1260,12 @@ class GeometryDrawingController:
             # with the Dynamic Input rim applier via ``_commit_draw_arc_rim_at``.
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 snapped = s._constrain_angle(s._draw_arc_center, snapped)
-            self._commit_draw_arc_rim_at(snapped)
+            self._press_capture(event, lambda: self._commit_draw_arc_rim_at(snapped))
         elif s._draw_arc_step == 2:
             # Click 3 — set end point → commit arc
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 snapped = s._constrain_angle(s._draw_arc_center, snapped)
-            self._commit_draw_arc_at(snapped)
+            self._press_capture(event, lambda: self._commit_draw_arc_at(snapped))
 
     def _advance_arc_to_span_step(self) -> None:
         """Advance an armed arc from step 1 to step 2 (radius → span).
@@ -1441,8 +1475,7 @@ class GeometryDrawingController:
         s._draw_arcs.append(item)
         s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
-        if hv_handles:
-            self._auto_hv(item, hv_handles, True)              # AC2, before the push
+        self._join_shape(item, ac.item_hv(item, hv_handles) if hv_handles else ())   # AC3 + AC2
         for v in s.views(): v.viewport().update()
         # Clean up previews
         if s._draw_arc_preview is not None:
@@ -1473,6 +1506,7 @@ class GeometryDrawingController:
         """End Points click router: end A, end B (chord), then the centre."""
         s = self._scene
         if s._draw_arc_step == 0:
+            self._shape_joins = [(False, self._capture(event))]   # AC3: end A
             s._draw_arc_ep_a = QPointF(snapped)
             s._draw_arc_ep_major = False
             s._draw_arc_ep_side = 1        # fresh placement: no inherited side
@@ -1486,9 +1520,10 @@ class GeometryDrawingController:
             if (event is not None
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 snapped = s._constrain_angle(s._draw_arc_ep_a, snapped)
-            self._commit_draw_arc_ep_chord_at(snapped, hv=self._hv_on(event))
+            self._press_capture(event, lambda: self._commit_draw_arc_ep_chord_at(
+                snapped, hv=self._hv_on(event)))
         else:
-            self._commit_draw_arc_ep_at(snapped, snap90=True)
+            self._press_capture(event, lambda: self._commit_draw_arc_ep_at(snapped, snap90=True))
 
     def _commit_draw_arc_ep_chord_at(self, point, hv=None) -> bool:
         """Step-1 applier: fix end point B (mouse 2nd click + ``line`` HUD).
@@ -1702,13 +1737,14 @@ class GeometryDrawingController:
                                          hv=self._hv_on(event))
         elif s._polygon_center is None:
             # Step 0: arm the centre.
+            self._shape_joins = [(False, self._capture(event))]   # AC3: centre
             s._polygon_center = snapped
             s.update_preview_node(snapped)
             s.instructionChanged.emit(
                 f"Pick radius  |  {self._polygon_readout()}")
         else:
             # Step 1: set the radius and advance to the rotate step.
-            self._advance_polygon_to_rotate_step(snapped)
+            self._press_capture(event, lambda: self._advance_polygon_to_rotate_step(snapped))
 
     def _polygon_rotation_angle_to(self, cursor) -> float:
         """Return absolute Y-up orientation (degrees from +x) centre→``cursor``.
@@ -1809,9 +1845,10 @@ class GeometryDrawingController:
         s._draw_polygons.append(item)
         s.clearSelection()  # only the just-placed item stays selected
         item.setSelected(True)
-        self._auto_hv(item, ("center", "v0") if item._inscribed
-                      else (f"s{item._sides - 1}",),          # AC2: the facing side
-                      self._hv_on(None) if hv is None else hv)
+        on = self._hv_on(None) if hv is None else hv
+        self._join_shape(item, ac.item_hv(item, ("center", "v0") if item._inscribed
+                                          else (f"s{item._sides - 1}",))   # AC2: the facing side
+                         if on else ())                                     # AC3 + AC2
         # Remove preview ghost.
         if s._polygon_preview is not None:
             if s._polygon_preview.scene() is s:

@@ -119,6 +119,17 @@ def matches(target: Target | None, vertex) -> bool:
     return target is not None and _close(QPointF(*target.point), QPointF(vertex))
 
 
+def point_handle_at(it, xy) -> str | None:
+    """AC3: the name of item *it*'s point handle sitting on *xy* (scene mm,
+    within the match tolerance; nearest wins), or None -- a shape click joins
+    only when a new handle lands on its snap point."""
+    p = QPointF(*xy)
+    pts = [(math.hypot(a.x() - p.x(), a.y() - p.y()), ref["h"])
+           for kind, ref, a, _b in item_handles(it, curvy=False)
+           if kind == "point" and _close(a, p)]
+    return min(pts, key=lambda d: d[0])[1] if pts else None
+
+
 def plan_joins(uid: str, handle: str, incoming_edge: str | None,
                target: Target) -> list:
     """AD7: ``[(ctype, refs), ...]`` joining new handle *handle* of item *uid*
@@ -131,6 +142,15 @@ def plan_joins(uid: str, handle: str, incoming_edge: str | None,
     if target.perpendicular and target.kind == "edge" and incoming_edge is not None:
         out.append(("perpendicular", [{"uid": uid, "h": incoming_edge}, dict(target.ref)]))
     return out
+
+
+def plan_rim(uid: str, curve: str, target: Target) -> list:
+    """AC3: a circle rim click on a POINT snap puts that existing point on
+    new curve *curve* of item *uid* -- ``point_on_curve`` point-first (D43);
+    ``[]`` for an edge / curve target (no point to hold)."""
+    if target.kind != "point":
+        return []
+    return [("point_on_curve", [dict(target.ref), {"uid": uid, "h": curve}])]
 
 
 _POLY2_TO_LINE = {"v0": "p1", "v1": "p2", "s0": "edge", "m0": "mid"}
