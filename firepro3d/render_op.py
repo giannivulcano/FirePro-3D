@@ -18,6 +18,23 @@ PATTERN = "pattern"
 TEXT = "text"
 
 
+def orient_part(t: QTransform) -> tuple:
+    """Rotation / reflection part of similarity *t* as ``(m11, m12, m21, m22)``:
+    translation dropped, uniform scale divided out (hatch D-A11 block-pose
+    exception -- a pattern turns and mirrors with its block, never resizes)."""
+    s = math.sqrt(abs(t.m11() * t.m22() - t.m12() * t.m21())) or 1.0
+    return (t.m11() / s, t.m12() / s, t.m21() / s, t.m22() / s)
+
+
+def pattern_orient(frame, *xfs) -> QTransform:
+    """Pattern axes in the target frame: *frame* (a PATTERN op's
+    ``pattern_frame``, None = identity) then each of *xfs*' ``orient_part``."""
+    o = QTransform(*frame, 0.0, 0.0) if frame else QTransform()
+    for x in xfs:
+        o = o * QTransform(*orient_part(x), 0.0, 0.0)
+    return o
+
+
 @dataclass(frozen=True, eq=False)
 class RenderOp:
     """A compiled draw op in definition-local, origin-relative coordinates.
@@ -51,6 +68,10 @@ class RenderOp:
             None for non-text ops (block mirror/scale DD6).
         readable: True once a reflecting ``mapped`` un-mirrored this TEXT
             op's glyphs; paint then keeps it upright (DD6).
+        pattern_frame: ``orient_part`` of every definition -> parent map a
+            PATTERN op went through (nested poses, the mirror / scale
+            variant); None = identity, and always None for other kinds
+            (hatch D-A11 block-pose exception).
 
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
@@ -70,6 +91,7 @@ class RenderOp:
     ends: tuple | None = None
     text_frame: tuple | None = None
     readable: bool = False
+    pattern_frame: tuple | None = None
 
     def mapped(self, t: QTransform) -> "RenderOp":
         """This op mapped through a similarity *t* (rigid x uniform scale,
@@ -117,10 +139,13 @@ class RenderOp:
             st = {"start": dict(ends[0]), "finish": dict(ends[1])}
             toggle_mirrored(st)
             ends = (st["start"], st["finish"])
+        pframe = self.pattern_frame
+        if self.kind == PATTERN:
+            pframe = orient_part(pattern_orient(pframe, t))
         return replace(self, path=path,
                        origin=None if self.origin is None else t.map(self.origin),
                        pieces=pieces, ends=ends, text_frame=frame,
-                       readable=readable)
+                       readable=readable, pattern_frame=pframe)
 
 
 def apply_overrides(ops, weight=None, linetype=None):

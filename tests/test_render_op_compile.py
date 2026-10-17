@@ -70,3 +70,30 @@ def test_pattern_op_through_nested_pose(qapp):
     assert pat.origin == QPointF(100, 0)          # nested pose maps (0,0)
     b = pat.path.boundingRect()
     assert (round(b.width(), 6), round(b.height(), 6)) == (50, 100)  # rotated
+
+
+def test_pattern_frame_composes_nested_rotation_and_drops_scale(qapp):
+    from PyQt6.QtGui import QPainterPath
+    from firepro3d.block_pose import pose_matrix
+    from firepro3d.render_op import orient_part
+    op = RenderOp(PATTERN, QPainterPath(), tile_ref="x")
+    assert op.pattern_frame is None
+    m = op.mapped(pose_matrix(0, 0, 90.0, False, 3.0)).mapped(
+        pose_matrix(0, 0, 30.0, False, 2.0))
+    want = orient_part(pose_matrix(0, 0, 120.0))
+    assert all(abs(a - b) < 1e-9 for a, b in zip(m.pattern_frame, want))
+
+
+def test_pattern_frame_keeps_reflection(qapp):
+    from PyQt6.QtGui import QPainterPath
+    from firepro3d.block_pose import pose_matrix
+    op = RenderOp(PATTERN, QPainterPath(), tile_ref="x")
+    f = op.mapped(pose_matrix(0, 0, 0.0, True, 2.0)).pattern_frame
+    assert all(abs(a - b) < 1e-9 for a, b in zip(f, (-1.0, 0.0, 0.0, 1.0)))
+
+
+def test_non_pattern_ops_carry_no_frame(qapp):
+    from PyQt6.QtGui import QPainterPath
+    from firepro3d.block_pose import pose_matrix
+    op = RenderOp(FILL, QPainterPath())
+    assert op.mapped(pose_matrix(0, 0, 45.0)).pattern_frame is None
