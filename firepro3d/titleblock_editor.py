@@ -331,9 +331,11 @@ class TitleBlockEditorDialog(HouseDialog):
 
         # ── Preview scene (reused across refresh_preview calls) ────────────
         self._preview_scene = QGraphicsScene(self)
+        self._preview_scene.paints_on_paper = True  # HF1: tokens resolve as paper
 
         # ── Field preview scene (single-field preview on Fields tab) ───────
         self._field_preview_scene = QGraphicsScene(self)
+        self._field_preview_scene.paints_on_paper = True  # HF1: tokens resolve as paper
 
         # ── Build UI ──────────────────────────────────────────────────────
         self._build_ui()
