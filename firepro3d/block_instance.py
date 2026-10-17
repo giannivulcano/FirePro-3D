@@ -33,7 +33,8 @@ from .block_pose import (check_scale, is_upright, pose_matrix, reflect_pose,
                          valid_scale)
 from .constants import LINETYPE_WINDOW_MIN_PERIODS
 from .geometry_2d import constraint_tint
-from .render_op import STROKE, FILL, PATTERN, TEXT, apply_overrides
+from .render_op import (STROKE, FILL, PATTERN, TEXT, apply_overrides,
+                        pattern_orient as _pattern_orient)
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
@@ -1166,7 +1167,8 @@ class BlockInstance(QGraphicsObject):
         return _pd.resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
 
     def _paint_fill_op(self, painter, pose, op) -> None:
-        """Fill / pattern op: boundary posed, pattern stamped in scene axes (D-A11)."""
+        """Fill / pattern op: boundary posed; pattern stamped in the pose's
+        rotation / mirror frame, never its scale (D-A11 block-pose exception)."""
         paint_fill = _hr.paint_fill              # module import (hot path)
         col = QColor(op.colour or "#888888")
         col.setAlpha(op.alpha)
@@ -1174,11 +1176,12 @@ class BlockInstance(QGraphicsObject):
             paint_fill(painter, pose.map(op.path), scene=self.scene(),
                        background=col, to_scene=self.sceneTransform())
         else:
+            st = self.sceneTransform()
             origin = pose.map(op.origin if op.origin is not None else QPointF(0, 0))
             paint_fill(painter, pose.map(op.path), scene=self.scene(),
                        tile_ref=op.tile_ref, colour=col,
-                       origin=self.sceneTransform().map(origin), scale=op.scale,
-                       to_scene=self.sceneTransform())
+                       origin=st.map(origin), scale=op.scale, to_scene=st,
+                       orient=_pattern_orient(op.pattern_frame, pose, st))
 
     def _display_pen_color(self) -> Optional[QColor]:
         """Hook for display-manager 'Blocks' category colour + pre-highlight.

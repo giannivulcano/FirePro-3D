@@ -58,7 +58,10 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   copy, then the shipped file.
 - **Picker source** — `tile_choices(registry, exclude)` is the single source
   for every pattern picker: the project's valid tiled blocks, then folder
-  patterns not yet in the project, with unique labels. `picker_exclude` drops
+  patterns not yet in the project whose file tile is valid (`tile_is_valid`
+  via `_file_tile`, passed as `capability_choices(valid_entry=)`; an empty or
+  zero-size library pattern is hidden — HF2 polish 2026-10-17), with unique
+  labels. `picker_exclude` drops
   the edited block and every tile that would nest it (Block Editor).
   `ensure_pattern_available` loads a picked folder pattern into the project
   (one undo step via `blocks_browser.ensure_block_loaded`) before its id is
@@ -74,10 +77,14 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
 ## 2. As-built: renderer (`hatch_render.py`)
 
 - **`paint_fill(painter, clip, *, scene, background, tile_ref, colour, origin,
-  scale, line_width_px, to_scene)`** — the one entry point: IntersectClip to
-  the boundary (H5), optional solid background, then the tile lattice. With
-  `to_scene`, the painter is re-based to **scene axes** so a rotated item or
-  block pose never rotates the pattern (D-A11); `origin` is in scene coords,
+  scale, line_width_px, to_scene, orient)`** — the one entry point:
+  IntersectClip to the boundary (H5), optional solid background, then the tile
+  lattice. With `to_scene`, the painter is re-based to **scene axes** so a
+  rotated item never rotates the pattern (D-A11); with `orient` (a placed
+  block only — `BlockInstance._paint_fill_op` passes
+  `render_op.pattern_orient(op.pattern_frame, pose, sceneTransform)`) the
+  pattern frame is that rotation / reflection instead, scale stripped (D-A11
+  block-pose exception); `origin` is in scene coords,
   default (0, 0) = the container origin (H11). A ref that does not resolve to a
   valid tile (`tile_is_valid`: positive W×H and at least one op) draws the
   tone, logged once (D-A36). Non-finite bounds draw nothing (never raises).
@@ -200,7 +207,8 @@ until that doc is approved.
   regions draw behind other geometry; manual draw order deferred. Exception:
   imported regions keep source paint order (D-A22).
 - **D-A13** Modify tools: Move/Copy/Array/Rotate/Mirror/Scale transform the
-  boundary (pattern never rotates/mirrors/resizes; origin translates); Offset,
+  boundary (pattern never rotates/mirrors/resizes — regions; a placed block
+  instance: D-A11 exception; origin translates); Offset,
   Trim/Extend/Break/Fillet refused; Explode → boundary loops as plain primitives;
   no grips in v1; copy/paste between Block Editor ↔ Paper allowed.
 - **D-A16** Per-item fill on closed primitives is **dissolved** — every fill is
@@ -240,8 +248,14 @@ until that doc is approved.
   real size until then).
 - **D-A11** Pattern origin defaults to the container origin, stored per region;
   translates with the region, never rotates; boundary edits change only the
-  clip. Rotating a region or a containing block instance never rotates the
-  pattern (Model and Drafting alike). "Pick pattern origin" nice-to-have.
+  clip. Rotating a region never rotates the pattern (Model and Drafting
+  alike). **Exception (HF2 polish, ratified 2026-10-17):** a placed block
+  instance's hatch turns and mirrors with the instance pose — nested poses
+  compose (`RenderOp.pattern_frame`, carried by `RenderOp.mapped`) — but never
+  scales (spacing stays Scale × Model/Drafting). Block Editor shapes, plain 2D
+  shapes, wall / slab section cuts and future Filled Regions stay
+  scene-aligned; no legacy flag or migration (old files re-display). "Pick
+  pattern origin" nice-to-have.
 - **D-A24** Shipped System > Hatches set + template Fill Types (see concept
   doc). The shipped set waits on SB1b; region/renderer/type work does not.
 

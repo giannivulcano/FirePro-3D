@@ -274,3 +274,26 @@ def test_pattern_tile_toggle_seeds_size_model(qapp):
     w._add_primitive(LineItem(QPointF(0, 0), QPointF(20, -8)))
     assert w.toggle_pattern_tile()
     assert w.editor_scene.block_tile["size"] == "model"
+
+
+def test_empty_library_pattern_is_hidden(hatch_dir):
+    good = _pattern()
+    empty = BlockDefinition.new(
+        name="Empty", library="System", series="Hatches", origin=(0.0, 0.0),
+        primitives=[], tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
+    bl.save_to_library(good, root=str(hatch_dir))
+    bl.save_to_library(empty, root=str(hatch_dir))
+    assert empty.id in {b for _n, b, _p in hp.library_patterns()}   # scanned ...
+    labels = _labels(Model_Space().block_registry)
+    assert labels.get("Zig") == good.id
+    assert empty.id not in labels.values()                          # ... not offered
+    assert empty.id not in {r for _n, r in hp.tile_choices(None)}
+
+
+def test_zero_size_library_pattern_is_hidden(hatch_dir):
+    flat = BlockDefinition.new(
+        name="Flat", library="System", series="Hatches", origin=(0.0, 0.0),
+        primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()],
+        tile={"w": 5.0, "h": 0.0, "row_shift": 0.0, "size": "model"})
+    bl.save_to_library(flat, root=str(hatch_dir))
+    assert flat.id not in _labels(Model_Space().block_registry).values()

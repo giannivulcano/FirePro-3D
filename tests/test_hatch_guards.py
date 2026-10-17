@@ -8,8 +8,8 @@ from firepro3d.geometry_2d import RectangleItem
 from firepro3d.model_space import Model_Space
 
 
-def _hatched_rect_def(pattern=hp.BUILTIN_DIAGONAL):
-    r = RectangleItem(QPointF(-500, -500), QPointF(500, 500))
+def _hatched_rect_def(pattern=hp.BUILTIN_DIAGONAL, half=500.0):
+    r = RectangleItem(QPointF(-half, -half), QPointF(half, half))
     r.fill_type, r.fill_pattern = "hatch", pattern
     r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
     return BlockDefinition.new(name="H", library="L", series="S",
@@ -33,13 +33,32 @@ def _red(img, x, y):
     return c.red() > 200 and c.green() < 90 and c.blue() < 90
 
 
-def _placed(load_patterns, rotation=0.0, pattern=hp.BUILTIN_DIAGONAL):
+def _placed(load_patterns, rotation=0.0, pattern=hp.BUILTIN_DIAGONAL,
+            mirrored=False, scale=1.0):
     sc = Model_Space(scene_role="block_editor")
     load_patterns(sc)                     # D-A39: patterns are project blocks
     d = _hatched_rect_def(pattern)
     sc.register_block_definition(d)
-    sc.place_block_instance(d.id, (0.0, 0.0), rotation=rotation)
+    sc.place_block_instance(d.id, (0.0, 0.0), rotation=rotation,
+                            mirrored=mirrored, scale=scale)
     return sc
+
+
+def _line_angle(img, lo=200, hi=500, r=8):
+    """Dominant hatch-line direction, Y-up degrees in [0, 180): the angle at
+    which a lit pixel most often continues r px away."""
+    import math
+    lit = [(x, y) for x in range(lo, hi) for y in range(lo, hi) if _red(img, x, y)]
+    assert len(lit) > 50
+
+    def rate(a):
+        dx, dy = r * math.cos(math.radians(a)), -r * math.sin(math.radians(a))
+        return sum(_red(img, round(x + dx), round(y + dy)) for x, y in lit[::3])
+    return max(range(180), key=rate)
+
+
+def _ang_close(a, want, tol=3):
+    return min(abs(a - want), 180 - abs(a - want)) <= tol
 
 
 def test_h1_placed_block_shows_its_hatch(qapp, shipped_hatches):
@@ -50,18 +69,54 @@ def test_h1_placed_block_shows_its_hatch(qapp, shipped_hatches):
     assert inside > 20 and outside == 0
 
 
-def test_g3_rotated_instance_keeps_45_degree_hatch(qapp, shipped_hatches):
-    """G3 / D-A11: a 30° instance still shows 45° (Y-up) hatch lines.
+def test_g3_rotated_instance_turns_its_hatch(qapp, shipped_hatches):
+    """G3 / D-A11 (block-pose exception): Diagonal 45 deg in a 30 deg instance -> 75 deg."""
+    assert _ang_close(_line_angle(_render(_placed(shipped_hatches, rotation=30.0))), 75)
 
-    A 45° Y-up line rises to the right on screen, so a lit pixel (x, y)
-    continues at (x+3, y-3). Were the hatch rotated with the instance its
-    lines would run at 75° and the continuation rate would collapse.
-    """
-    img = _render(_placed(shipped_hatches, rotation=30.0))
-    lit = [(x, y) for x in range(200, 500) for y in range(200, 500) if _red(img, x, y)]
-    assert len(lit) > 50
-    along = sum(_red(img, x + 3, y - 3) for x, y in lit) / len(lit)   # 45° Y-up
-    assert along > 0.8
+
+def test_unrotated_instance_keeps_45(qapp, shipped_hatches):
+    assert _ang_close(_line_angle(_render(_placed(shipped_hatches))), 45)
+
+
+def test_mirrored_instance_mirrors_its_hatch(qapp, shipped_hatches):
+    """Mirror (local x -> -x): 45 deg -> 135 deg."""
+    assert _ang_close(_line_angle(_render(_placed(shipped_hatches, mirrored=True))), 135)
+
+
+def test_mirrored_rotated_instance_mirrors_then_turns(qapp, shipped_hatches):
+    """Mirror then pose rotation: 45 -> 135, +200 deg -> 155 deg (mod 180)."""
+    sc = _placed(shipped_hatches, rotation=200.0, mirrored=True)
+    assert _ang_close(_line_angle(_render(sc)), 155)
+
+
+def _row_crossings(img, y=350, lo=110, hi=590):
+    n, prev = 0, False
+    for x in range(lo, hi):
+        cur = _red(img, x, y)
+        n += cur and not prev
+        prev = cur
+    return n
+
+
+def test_scaled_instance_keeps_hatch_spacing(qapp, shipped_hatches):
+    """Scale never resizes the pattern: same crossings per row at x1 and x2."""
+    n1 = _row_crossings(_render(_placed(shipped_hatches)))
+    n2 = _row_crossings(_render(_placed(shipped_hatches, scale=2.0)))
+    assert n1 >= 3 and n2 == n1
+
+
+def test_nested_rotations_compose(qapp, shipped_hatches):
+    """Inner instance at 90 deg inside a host placed at 30 deg: 45 + 90 + 30 = 165 deg."""
+    sc = Model_Space(scene_role="block_editor")
+    shipped_hatches(sc)
+    inner = _hatched_rect_def()
+    sc.register_block_definition(inner)
+    host = BlockDefinition.new(name="Host", library="L", series="S", origin=(0.0, 0.0),
+                               primitives=[{"type": "block_instance", "block_id": inner.id,
+                                            "pos": [0.0, 0.0], "rotation": 90.0}])
+    sc.register_block_definition(host)
+    sc.place_block_instance(host.id, (0.0, 0.0), rotation=30.0)
+    assert _ang_close(_line_angle(_render(sc)), 165)
 
 
 def _along_45(img, lo=200, hi=500):
@@ -218,6 +273,35 @@ def _vp_render_spacing(paper_scale, load_patterns):
     assert len(ys) >= 5, f"too few hatch rows ({len(ys)})"
     gaps = sorted(b - a for a, b in zip(ys, ys[1:]))
     return gaps[len(gaps) // 2] / px_per_mm
+
+
+def test_rotated_instance_hatch_turns_on_paper(qapp, shipped_hatches):
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
+    from firepro3d.level_manager import LevelManager, PlanViewManager
+    from tests._paper_iso_helpers import _DetailMgrStub
+    ms = Model_Space()
+    shipped_hatches(ms)
+    lm, pvm = LevelManager(), PlanViewManager()
+    pvm.create("Level 1", lm)
+    resolver = ViewResolver(ms, pvm, _DetailMgrStub(), None, level_manager=lm)
+    d = _hatched_rect_def(half=2000.0)
+    ms.register_block_definition(d)
+    ms.place_block_instance(d.id, (2500.0, 2500.0), rotation=30.0, level="Level 1")
+    ms.active_level = "Level 1"
+    ms.active_view_key = "plan:Plan: Level 1"
+    lm.apply_to_scene(ms, "Level 1")
+    data = SheetViewData("plan", "Plan: Level 1", "P", 0.01, 0, 0, 0, 0)
+    vp = PaperScene(Sheet.create_default(), resolver).add_viewport(data)
+    data.crop_rect = QRectF(0, 0, 5000, 5000)
+    vp._recompute_size_from_scale()
+    img = QImage(int(data.w * 10) + 20, int(data.h * 10) + 20, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    p.scale(10, 10)
+    vp.paint(p, None, None)
+    p.end()
+    c = img.width() // 2
+    assert _ang_close(_line_angle(img, c - 120, c + 120), 75)
 
 
 def test_d_a30_drafting_spacing_is_printed_size_at_any_viewport_scale(qapp, shipped_hatches):

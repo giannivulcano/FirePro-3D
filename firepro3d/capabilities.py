@@ -122,7 +122,7 @@ def exclusive_message(current: str, wanted: str) -> str:
 
 def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
                        fixed=(), valid=None, include_folder=True,
-                       reserved=None):
+                       reserved=None, valid_entry=None):
     """``[(label, ref)]`` for a capability picker -- the one source behind
     the pattern, linetype and end pickers.
 
@@ -145,6 +145,9 @@ def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
             as a keyword label of this picker (``"None"``, ``"By Linetype
             (...)"``); such a block is offered as ``"<name> (block)"`` so it
             stays pickable.
+        valid_entry: Optional predicate on a folder entry's ``.fpdb`` path:
+            False drops it (a library block unusable once loaded -- hatch
+            HF2 polish: an empty / zero-size pattern tile).
 
     Returns:
         The ``(label, ref)`` pairs in picker order.
@@ -167,9 +170,11 @@ def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
         for name, bid in sorted(project, key=lambda x: x[0].lower()):
             out.append((_unique(_name(name), used, "project"), bid))
     if include_folder:
-        for name, bid, _path in folder_fn():
+        for name, bid, path in folder_fn():
             if bid in exclude or (registry is not None
                                   and registry.get(bid) is not None):
+                continue
+            if valid_entry is not None and not valid_entry(path):
                 continue
             out.append((_unique(_name(name or bid), used, "library"), bid))
     return out

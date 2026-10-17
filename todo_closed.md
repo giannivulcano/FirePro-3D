@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Hatch & Fill — HF2 polish pass — 2026-10-17
+
+- [x] [type:feature] HF2 polish pass — notes from the 2026-10-03 smoke [subject:CAD] [P1] [done:2026-10-17]
+  - Details: user notes (verbatim): "Hatch"; "Fix Paperspace display"; "Add rotation in the hosted block". Clarify each in Phase 2 (rotation: D-A10/D-A11 say a pattern never rotates with its host and angle comes only from the pattern block — confirm whether the ask is a per-use rotation, which would amend D-A10). Also fold in: DM category pattern previews as the tone until OK; library pattern listing trusts the index `tile` flag without validating the tile; tile-frame preview rebuilt on every grip-drag frame (debounce); shipped patterns now sort alphabetically in pickers (Brick first) — decide the order. `hatch_render.py`, `tile_frame.py`, `paper_display.py`, `display_manager.py`.
+  - Note 2026-10-17 (Phase 2 grill): dropped "Hatch" and "Fix Paperspace display" (user could not recall the intent); dropped the debounce (not felt) and the sort-order change (keep alphabetical). Rotation ratified as: a hatch inside a placed block instance follows the pose's rotation + mirror, never its scale; nested instances compose; block instances only (Block Editor shapes, wall / slab section cuts stay scene-aligned); no legacy flag.
+  - Note 2026-10-17: built on `feat/hf2-polish` — `RenderOp.pattern_frame` + `orient_part` (render_op), `paint_fill(orient=)` (hatch_render), `BlockInstance._paint_fill_op` orient (D-A11 block-pose exception amended in `hatch-and-fill.md`); invalid library patterns hidden from pickers (`capability_choices(valid_entry=)`, `_folder_tile_valid`). DM swatch "tone until OK" NOT reproduced — guard `tests/test_display_manager_swatch.py` kept. Explode now also jumps the hatch angle (+1 on the "phase differs after Explode" line). User smoke passed (9 rows).
+
 ## Block Editor constraint system — AC4 Offset copy relations — 2026-10-17
 
 - [x] [type:feature] AC4 — Offset auto-constrains its copy to the source (lines + circles / arcs) [subject:CAD] [P1] [done:2026-10-17]
