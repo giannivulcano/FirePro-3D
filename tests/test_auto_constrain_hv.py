@@ -316,3 +316,34 @@ def test_circle_rim_never(vs):
     sc.set_mode("draw_circle")
     _clicks(view, sc, (310, 120), (470, 120))
     assert len(sc._draw_circles) >= 1 and _recs(sc) == []
+
+
+def test_polyline_shift_on_the_close_click_skips_the_closing_side(vs):
+    view, sc = vs
+    _poly(view, sc, (310, 120), (470, 120), (470, 260), (310, 320), (310, 120),
+          mods={4: SHIFT}, finish=None)
+    pl = sc._polylines[-1]
+    assert pl.is_closed()
+    assert _recs(sc) == [("horizontal", [(pl._uid, "s0", None)]),
+                         ("vertical", [(pl._uid, "s1", None)])]
+
+
+def test_typed_polyline_vertex_at_0_follows_the_toggle(vs):
+    view, sc = vs
+    sc.set_mode("polyline")
+    move(view, QPointF(310, 120)); click(view, QPointF(310, 120))
+    move(view, QPointF(400, 300)); click(view, QPointF(400, 300))   # s0 oblique
+    assert sc._geom_ctl._commit_polyline_at(QPointF(560, 300))     # typed v2: s1 H
+    _key(view, Qt.Key.Key_Return)
+    pl = sc._polylines[-1]
+    assert _recs(sc) == [("horizontal", [(pl._uid, "s1", None)])]
+
+
+def test_polyline_and_hv_are_one_undo_step(vs):
+    view, sc = vs
+    sc.push_undo_state()
+    n_pl = len(sc._polylines)
+    _poly(view, sc, (310, 120), (470, 120), (520, 300))
+    assert len(sc.constraint_ctl.constraints) == 1
+    sc.undo(); QApplication.processEvents()
+    assert len(sc._polylines) == n_pl and sc.constraint_ctl.constraints == []
