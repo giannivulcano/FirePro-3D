@@ -15,7 +15,7 @@ from PyQt6.QtCore import QPointF
 
 from .constants import AUTO_CONSTRAIN_MATCH_TOL_MM
 from .sketch_adapters import adapter_for
-from .sketch_solver import curve_radius
+from .sketch_solver import LIN_TOL, curve_radius
 
 POINT_SNAPS = frozenset({"endpoint", "midpoint", "center"})   # AD6 -> a point handle
 EDGE_SNAPS = frozenset({"nearest", "perpendicular"})          # AD6 -> an edge, else a curve
@@ -139,3 +139,52 @@ _POLY2_TO_LINE = {"v0": "p1", "v1": "p2", "s0": "edge", "m0": "mid"}
 def remap_handle(h: str) -> str | None:
     """AD8: a 2-vertex polyline's handle on the LineItem that replaces it."""
     return _POLY2_TO_LINE.get(h)
+
+
+def plan_hv(a, b, refs) -> list:
+    """AC2: ``[("horizontal" | "vertical", refs)]`` when segment *a* -> *b*
+    (``(x, y)`` scene mm) is exactly axis-aligned -- the off-axis delta within
+    ``LIN_TOL`` (the H / V row's own bar) and the other above it -- else ``[]``
+    (a near-miss is never inferred)."""
+    dx, dy = abs(float(b[0]) - float(a[0])), abs(float(b[1]) - float(a[1]))
+    if dy <= LIN_TOL < dx:
+        return [("horizontal", refs)]
+    if dx <= LIN_TOL < dy:
+        return [("vertical", refs)]
+    return []
+
+
+def item_hv(it, handles: tuple) -> list:
+    """AC2: H / V on item *it*'s segment named by *handles* -- one edge name
+    (``("edge",)``, ``("s3",)``) or two point names (``("center", "v0")``),
+    read from its adapter; ``[]`` for no adapter / uid or an unknown name."""
+    uid = getattr(it, "_uid", None)
+    ad = adapter_for(it)
+    if uid is None or ad is None:
+        return []
+    x = np.array(ad.read(it), dtype=float)
+    if len(handles) == 1:
+        e = ad.edges(it, 0).get(handles[0])
+        if e is None:
+            return []
+        a, b = e[0].eval(x)[0], e[1].eval(x)[0]
+    else:
+        pts = ad.points(it, 0)
+        if handles[0] not in pts or handles[1] not in pts:
+            return []
+        a, b = pts[handles[0]].eval(x)[0], pts[handles[1]].eval(x)[0]
+    return plan_hv(a, b, [{"uid": uid, "h": h} for h in handles])
+
+
+def rect_drawn_edge(it, base, side_pt, *, from_center: bool) -> str | None:
+    """AC2 R2: the rect edge the user drew -- corner variant: the edge holding
+    both *base* and *side_pt* (the first side); centre variant: the edge holding
+    *side_pt* (the side whose midpoint was clicked). None when none holds it."""
+    for kind, ref, a, b in item_handles(it):
+        if kind != "edge":
+            continue
+        if seg_dist(side_pt, a, b) > AUTO_CONSTRAIN_MATCH_TOL_MM:
+            continue
+        if from_center or seg_dist(base, a, b) <= AUTO_CONSTRAIN_MATCH_TOL_MM:
+            return ref["h"]
+    return None
