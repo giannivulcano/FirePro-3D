@@ -297,10 +297,18 @@ def _unique(name: str, used: set, tag: str) -> str:
     return label
 
 
+def _folder_tile_valid(path: str) -> bool:
+    """A folder pattern file whose tile is usable (``tile_is_valid``) -- the
+    rule the project's own tiles already meet in every picker."""
+    d = _file_tile(path)
+    return d is not None and tile_is_valid(d)
+
+
 def tile_choices(registry=None, exclude=(),
                  include_library=True) -> list[tuple[str, str]]:
     """``[(label, ref)]``: the project's valid tiled blocks by name, then the
-    Hatch patterns folder's pattern blocks not already in the project (D-A37).
+    Hatch patterns folder's **valid** pattern blocks not already in the
+    project (D-A37).
     Blocks only (D-A39) — the single source for every pattern picker.
 
     Labels are unique: a name colliding with an earlier label gets
@@ -318,7 +326,8 @@ def tile_choices(registry=None, exclude=(),
     from .capabilities import capability_choices
     return capability_choices("tile", library_patterns, registry, exclude,
                               valid=tile_is_valid,
-                              include_folder=include_library)
+                              include_folder=include_library,
+                              valid_entry=_folder_tile_valid)
 
 
 def ensure_pattern_available(ref: str | None, scene) -> bool:
