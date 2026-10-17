@@ -1,0 +1,269 @@
+{
+  "schema": 1,
+  "id": "8fd027e037e94666b6a8c488313ba8c7",
+  "version": 7,
+  "name": "Pipe Break",
+  "library": "Sprinkler Systems",
+  "series": "Pipe",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_rectangle",
+      "x": -67.61673541120564,
+      "y": -19.519270197278775,
+      "w": 135.23347080103375,
+      "h": 39.03854039455387,
+      "angle": -90.0,
+      "pivot": null,
+      "uid": "29384c8355494f5084a811fe75710f4e",
+      "style": {
+        "linetype": "continuous",
+        "weight": "Thin",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "reference": true,
+      "printed": false
+    },
+    {
+      "type": "arc",
+      "cx": 19.519270186588166,
+      "cy": -33.80836760134535,
+      "radius": 39.03854032716923,
+      "start_deg": 120.00000007631284,
+      "span_deg": 119.99999984736027,
+      "uid": "e858a8b6471d48a0935015f95d20c7bd",
+      "style": {
+        "linetype": "continuous",
+        "weight": "Thin",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "arc",
+      "cx": -19.519270213330273,
+      "cy": 33.80836760134626,
+      "radius": 39.03854031250346,
+      "start_deg": 300.0000001103174,
+      "span_deg": 119.99999977936076,
+      "uid": "5a0e76bb26184be3a6048dac5a57bd76",
+      "style": {
+        "linetype": "continuous",
+        "weight": "Thin",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "58680abbd1ed443ba2cf2cb8f4e179e2",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "center"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "6dcb4d51a5b54dce8687d287e3afb024",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "top"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "b651aeb1cdda4cc1970df672e2ee1d07",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "e858a8b6471d48a0935015f95d20c7bd",
+          "h": "start"
+        },
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "lm"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "0bb8634093684b5583581621bc7da814",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "e858a8b6471d48a0935015f95d20c7bd",
+          "h": "end"
+        },
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "center"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "8b5c5a7ae4384e369bfa5218e08a9679",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "e858a8b6471d48a0935015f95d20c7bd",
+          "h": "center"
+        },
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "top"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "ad42e8a9aa21456fbbaa5f24e14c0965",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "5a0e76bb26184be3a6048dac5a57bd76",
+          "h": "center"
+        },
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "bottom"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "25ae3ea03b9c42f4b09389c4ef445285",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "5a0e76bb26184be3a6048dac5a57bd76",
+          "h": "start"
+        },
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "rm"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "e0c9fbf7c9e344a2bf49db94cc350752",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "5a0e76bb26184be3a6048dac5a57bd76",
+          "h": "end"
+        },
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "center"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "41ce387ba86a4a5cbf4c1c62e2663d59",
+      "type": "tangent",
+      "refs": [
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "bottom"
+        },
+        {
+          "uid": "e858a8b6471d48a0935015f95d20c7bd",
+          "h": "curve"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "side": -1
+      }
+    },
+    {
+      "id": "686fef2f2b8640dc91efc17714fe5494",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "29384c8355494f5084a811fe75710f4e",
+          "h": "left"
+        }
+      ],
+      "value": 39.03854039455387,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "offset": -13.869840830765128
+      }
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "weights": {
+    "Thin": 0.35
+  }
+}
