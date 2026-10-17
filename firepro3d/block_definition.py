@@ -618,6 +618,7 @@ class BlockDefinition:
                     ends = (dict(st["start"]), dict(st["finish"]))
             ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
                                 weight=st["weight"] if st else None,
+                                colour=st["colour"] if st else None,
                                 pieces=pieces, linetype=lt,
                                 # phase anchor: this definition's origin
                                 origin=QPointF(0.0, 0.0) if pieces else None,
