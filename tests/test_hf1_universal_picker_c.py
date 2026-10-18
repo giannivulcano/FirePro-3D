@@ -264,16 +264,6 @@ def test_v11_project_text_colour_empty_stays_no_colour(ms, tmp_path):
     assert [a.color for a in fresh._sheets[0].annotations] == [""]
 
 
-def test_v10_payload_model_text_colour_empty_becomes_automatic():
-    from firepro3d.colour_migration import migrate_project_payload
-    old = {"version": 10, "texts": [{"color": ""}, {"color": "#ff0000"}]}
-    migrate_project_payload(old)
-    assert [t["color"] for t in old["texts"]] == [TOKEN_AUTO, "#ff0000"]
-    new = {"version": 11, "texts": [{"color": ""}]}
-    migrate_project_payload(new)
-    assert new["texts"][0]["color"] == ""
-
-
 def test_property_manager_none_colour_value_is_pinned_as_empty(qapp):
     """Pinned (I4 choice: leave): a colour row whose value is ``None`` shows
     the empty chip (``hex() == ""``, the same as No Fill). Every in-tree

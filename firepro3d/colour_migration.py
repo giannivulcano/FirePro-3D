@@ -59,12 +59,6 @@ def migrate_project_payload(payload: dict) -> None:
             if isinstance(a, dict) and (_is(a.get("color"), _BLACK)
                                         or a.get("color") == ""):
                 a["color"] = TOKEN_AUTO
-    # Pre-v11 text colour "" was never a "no colour" (the universal picker's
-    # No Fill meaning is v11+): it drew the default ink, so it loads Automatic
-    # rather than invisible.
-    for t in payload.get("texts") or []:
-        if isinstance(t, dict) and t.get("color") == "":
-            t["color"] = TOKEN_AUTO
     geo = (payload.get("display_settings") or {}).get("2D Geometry")
     if isinstance(geo, dict) and _is(geo.get("color"), _WHITE):
         geo["color"] = TOKEN_AUTO
