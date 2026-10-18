@@ -532,7 +532,7 @@ def test_graphic_override_fill_token_paints_ink(mw, qapp, monkeypatch, force_the
     _pick_returns(monkeypatch, TOKEN_AUTO)
     mw._graphic_override_fill()
     assert r._display_overrides["fill"] == TOKEN_AUTO
-    assert r._display_fill_color == TOKEN_AUTO
+    assert r._display_fill_color is None     # C1: the override is not the own (serialized) fill
     assert ink in _pixels(r)
 
 
