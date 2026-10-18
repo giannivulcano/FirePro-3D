@@ -432,3 +432,93 @@ def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
     assert not m.isVisible() and m._marker_color.name() == before
     restore(saved)
     assert m.isVisible() and m._marker_color.name() == before
+
+
+# ── E1: elevation views placed on sheets resolve colours as paper ───────────
+
+_CANVAS_RGB = {(0.9, 0.91, 0.93), (0.39, 0.75, 0.55)}   # dark-theme ink / accent
+_PAPER_GREEN = (0.18, 0.62, 0.39)                       # #2f9e63
+
+
+def _elevation_sheet_pdf(tmp_path, elev, scale=0.01):
+    from unittest.mock import MagicMock
+    from firepro3d import paper_export
+    from firepro3d.paper_space import Sheet, SheetViewData, ViewResolver
+    from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _crop
+    sheet = Sheet.create_default()
+    sheet.paper_size = "A4"
+    sheet.sheet_views = [SheetViewData("elevation", "North", "P", scale,
+                                       _VP_X, _VP_Y, _VP_W, _VP_W)]
+    resolver = MagicMock(spec=ViewResolver)
+    resolver.resolve.side_effect = lambda vt, vn: (elev, QRectF(_crop(scale)))
+    out = tmp_path / "elev.pdf"
+    paper_export.export_pdf([sheet], resolver, str(out), dpi=300)
+    return out
+
+
+def _auto_wall_and_accent_gridline_elevation(elevation_scene_for):
+    from firepro3d.gridline import GridlineItem
+    from firepro3d.wall import WallSegment
+    s = QSettings("GV", "FirePro3D")             # conftest-isolated
+    s.setValue("display/Wall/color", TOKEN_AUTO)
+    s.setValue("display/Grid Line/color", "token:accent")
+    ms, elev = elevation_scene_for("north")
+    wall = WallSegment(QPointF(0, 0), QPointF(2000, 0))
+    wall._colour = TOKEN_AUTO                    # the wall's own colour: Automatic
+    ms.addItem(wall)
+    ms._walls.append(wall)
+    gl = GridlineItem(QPointF(3000, -1200), QPointF(3000, 1200), label="A")
+    ms._gridlines.append(gl)
+    ms.addItem(gl)
+    # Keep the dashed line inside the viewport so its stroke is sampled whole.
+    elev._gridline_z_overrides["A"] = {"v_top": -2500.0, "v_bot": 500.0}
+    elev.rebuild()
+    return elev
+
+
+@pytest.mark.parametrize("mode,wall_rgb,grid_rgb", [
+    ("FULL_COLOR", (0.0, 0.0, 0.0), _PAPER_GREEN),
+    ("BW", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+], ids=["full-colour", "bw"])
+def test_e1_elevation_on_sheet_plots_paper_colours(
+        qapp, tmp_path, force_theme, elevation_scene_for, mode, wall_rgb, grid_rgb):
+    """An Automatic wall and an Accent gridline in an elevation view placed in
+    a sheet viewport plot black / paper green (black on B&W) through the real
+    export_pdf path -- never the dark theme's canvas ink / accent."""
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    force_theme("dark")
+    save_paper_color_mode(getattr(PaperColorMode, mode))
+    elev = _auto_wall_and_accent_gridline_elevation(elevation_scene_for)
+    pdf = _elevation_sheet_pdf(tmp_path, elev)
+    strokes, fills = _plot_colours(pdf)
+    assert not (strokes | fills) & _CANVAS_RGB, (strokes, fills)
+    assert wall_rgb in fills, (strokes, fills)           # the wall's solid body
+    assert grid_rgb in strokes, (strokes, fills)         # gridline + bubble ring
+    if mode == "BW":
+        assert _PAPER_GREEN not in strokes | fills
+    # the model-side items still hold their canvas resolution afterwards
+    from firepro3d.elevation_scene import ElevGridlineItem
+    (g,) = [i for i in elev.items() if isinstance(i, ElevGridlineItem)]
+    assert g._grid_color.name() == "#63be8b"
+
+
+# ── E2: a "" template still previews while placing ──────────────────────────
+
+@pytest.mark.parametrize("which", ["wall", "roof"])
+def test_e2_empty_colour_template_has_a_visible_placement_preview(
+        qapp, force_theme, which):
+    from firepro3d.model_space import Model_Space
+    force_theme("dark")
+    ms = Model_Space()
+    p = QPointF(0, 0)
+    if which == "wall":
+        ms._get_wall_template()._colour = ""
+        ms._press_wall_rect(None, p, p, None, None, None)
+        preview = ms._wall_rect_preview
+    else:
+        ms._get_roof_template()._colour = ""
+        ms._press_roof_rect(None, p, p, None, None, None)
+        preview = ms._roof_rect_preview
+    assert preview.pen().color().alpha() == 255
+    assert preview.pen().color().name() == "#63be8b"      # dark-theme accent
+    assert 0 < preview.brush().color().alpha() < 255      # the faint wash stays
