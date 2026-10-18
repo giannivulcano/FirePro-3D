@@ -29,6 +29,7 @@ from PyQt6.QtCore import QSettings
 
 from .constants import DEFAULT_LEVEL
 from . import theme as th
+from .colour_tokens import resolve_colour
 from .halo_selection import HaloSelectionMixin
 
 if TYPE_CHECKING:
@@ -880,8 +881,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._wall_display_props()
         if not props["visible"]:
             return
-        dm_color = QColor(props["color"])
-        dm_fill = QColor(props["fill"])
+        dm_color = resolve_colour(props["color"])
+        dm_fill = resolve_colour(props["fill"])
         dm_opacity = props["opacity"] / 100.0
         has_explicit_fill = props.get("has_explicit_fill", False)
 
@@ -1188,8 +1189,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._floor_display_props()
         if not props["visible"]:
             return
-        dm_color = QColor(props["color"])
-        dm_fill = QColor(props["fill"])
+        dm_color = resolve_colour(props["color"])
+        dm_fill = resolve_colour(props["fill"])
         dm_opacity = props["opacity"] / 100.0
 
         d = self._direction
@@ -1275,8 +1276,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._roof_display_props()
         if not props["visible"]:
             return
-        dm_color = QColor(props["color"])
-        dm_fill = QColor(props["fill"])
+        dm_color = resolve_colour(props["color"])
+        dm_fill = resolve_colour(props["fill"])
         dm_opacity = props["opacity"] / 100.0
 
         for roof in getattr(self._ms, "_roofs", []):
@@ -1382,8 +1383,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         if not props["visible"]:
             return
 
-        grid_color = QColor(props["color"])
-        fill_color = QColor(props["fill"])
+        grid_color = resolve_colour(props["color"])
+        fill_color = resolve_colour(props["fill"])
         opacity = props["opacity"] / 100.0
         bubble_scale = props["scale"]
         BUBBLE_R = 203.2 * bubble_scale  # 8" in mm, scaled
@@ -1482,8 +1483,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._datum_display_props()
         if not props.get("visible", True):
             return
-        datum_color = QColor(props["color"])
-        fill_color = QColor(props.get("fill", "#1a1a2e"))
+        datum_color = resolve_colour(props["color"])
+        fill_color = resolve_colour(props.get("fill", "#1a1a2e"))
         opacity = props["opacity"] / 100.0
         scale = props.get("scale", 1.0)
 

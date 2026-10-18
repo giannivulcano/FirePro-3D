@@ -2399,6 +2399,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if sip.isdeleted(self):
             return
         from firepro3d.display_manager import refresh_token_latched
+        # Elevation views project DM colours at rebuild (no sprinkler_system,
+        # so refresh_token_latched skips them): re-project before the walk.
+        em = getattr(self, "elevation_manager", None)
+        if em is not None:
+            em.rebuild_all()
         for sc in self._live_scenes():
             refresh_token_latched(sc)
             for it in sc.items():
