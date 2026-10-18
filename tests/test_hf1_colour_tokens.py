@@ -161,7 +161,7 @@ def test_text_defaults_to_automatic_and_resolves(qapp, force_theme):
 def test_text_colour_prop_offers_tokens(qapp):
     from firepro3d.text_item import TextAnnotationData, TextItem
     props = TextItem(TextAnnotationData(text="A")).get_properties()
-    assert props["Font Color"]["allow_tokens"] is True
+    assert "allow_tokens" not in props["Font Color"]     # flags retired 2026-10-18
     assert props["Font Color"]["value"] == TOKEN_AUTO
 
 
@@ -259,7 +259,7 @@ def _dispose(w):
 def test_picker_theme_row_returns_token_and_skips_recents(qapp):
     from firepro3d import colour_picker as cp
     cp.clear_recents()
-    dlg = cp.ColourPickerDialog(initial="#ff0000", allow_tokens=True)
+    dlg = cp.ColourPickerDialog(initial="#ff0000")
     try:
         chips = [c for c in dlg._chips if c.value == TOKEN_AUTO]
         assert len(chips) == 1
@@ -271,18 +271,20 @@ def test_picker_theme_row_returns_token_and_skips_recents(qapp):
         _dispose(dlg)
 
 
-def test_picker_without_tokens_has_no_theme_row(qapp):
+def test_picker_always_has_theme_row(qapp):
+    # Universal picker (2026-10-18): the old "no flag -> no Theme row" contract
+    # is retired; every picker shows Automatic + Accent.
     from firepro3d import colour_picker as cp
     dlg = cp.ColourPickerDialog(initial="#ff0000")
     try:
-        assert not [c for c in dlg._chips if c.value in (TOKEN_AUTO, TOKEN_ACCENT)]
+        assert [c.value for c in dlg._theme_row_chips] == [TOKEN_AUTO, TOKEN_ACCENT]
     finally:
         _dispose(dlg)
 
 
 def test_picker_opens_on_token_initial(qapp):
     from firepro3d import colour_picker as cp
-    dlg = cp.ColourPickerDialog(initial=TOKEN_ACCENT, allow_tokens=True)
+    dlg = cp.ColourPickerDialog(initial=TOKEN_ACCENT)
     try:
         assert dlg.current_value() == TOKEN_ACCENT
         sel = [c.value for c in dlg._chips if c.selected]
@@ -293,7 +295,7 @@ def test_picker_opens_on_token_initial(qapp):
 
 def test_picker_hex_edit_after_token_returns_hex(qapp):
     from firepro3d import colour_picker as cp
-    dlg = cp.ColourPickerDialog(initial=TOKEN_AUTO, allow_tokens=True)
+    dlg = cp.ColourPickerDialog(initial=TOKEN_AUTO)
     try:
         dlg._on_hex_edited("#00ff00")
         assert dlg.current_value() == "#00FF00"
@@ -304,7 +306,7 @@ def test_picker_hex_edit_after_token_returns_hex(qapp):
 def test_swatch_shows_token_label(qapp, force_theme):
     from firepro3d.ui_kit import Swatch
     force_theme("dark")
-    sw = Swatch(TOKEN_AUTO, allow_tokens=True)
+    sw = Swatch(TOKEN_AUTO)
     try:
         assert sw._label.text() == "Automatic"
         sw.set_hex("#ff0000")
@@ -317,7 +319,7 @@ def test_swatch_chip_paints_resolved_token(qapp, force_theme):
     from PyQt6.QtGui import QImage
     from firepro3d.ui_kit import Swatch
     force_theme("light")
-    sw = Swatch(TOKEN_ACCENT, allow_tokens=True)
+    sw = Swatch(TOKEN_ACCENT)
     try:
         img = QImage(sw._chip.size(), QImage.Format.Format_ARGB32)
         sw._chip.render(img)
@@ -327,23 +329,23 @@ def test_swatch_chip_paints_resolved_token(qapp, force_theme):
         _dispose(sw)
 
 
-def test_swatch_pick_passes_allow_tokens_and_stores_token(qapp, monkeypatch):
+def test_swatch_pick_stores_token(qapp, monkeypatch):
     from PyQt6.QtCore import Qt
     from PyQt6.QtTest import QTest
     from firepro3d import colour_picker
     from firepro3d.ui_kit import Swatch
     seen = {}
 
-    def fake(initial, parent=None, context="", *, allow_none=False, allow_tokens=False):
-        seen.update(initial=initial, allow_tokens=allow_tokens)
+    def fake(initial, parent=None, context=""):
+        seen.update(initial=initial)
         return TOKEN_ACCENT
     monkeypatch.setattr(colour_picker, "pick_colour", fake)
-    sw = Swatch(TOKEN_AUTO, allow_tokens=True)
+    sw = Swatch(TOKEN_AUTO)
     got = []
     sw.colorChanged.connect(got.append)
     try:
         QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
-        assert seen == {"initial": TOKEN_AUTO, "allow_tokens": True}
+        assert seen == {"initial": TOKEN_AUTO}
         assert got == [TOKEN_ACCENT] and sw._label.text() == "Accent"
     finally:
         _dispose(sw)
@@ -365,15 +367,14 @@ def test_geometry2d_panel_swatch_shows_automatic_and_stores_accent(qapp, monkeyp
         assert sw._label.text() == "Automatic"
         monkeypatch.setattr(
             colour_picker, "pick_colour",
-            lambda initial, parent=None, context="", *, allow_none=False,
-            allow_tokens=False: TOKEN_ACCENT if allow_tokens else "#123456")
+            lambda initial, parent=None, context="": TOKEN_ACCENT)
         QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
         assert item.style["colour"] == TOKEN_ACCENT
     finally:
         _dispose(pm)
 
 
-def test_font_group_pick_offers_tokens_and_stores_auto(paper_text_t8, monkeypatch):
+def test_font_group_pick_stores_auto(paper_text_t8, monkeypatch):
     from firepro3d import colour_picker
     from firepro3d.font_group import FontGroupController
     scene, items = paper_text_t8
@@ -381,12 +382,12 @@ def test_font_group_pick_offers_tokens_and_stores_auto(paper_text_t8, monkeypatc
     c = FontGroupController(get_targets=lambda: [items[0]])
     seen = {}
 
-    def fake(initial, parent=None, context="", *, allow_none=False, allow_tokens=False):
-        seen["allow_tokens"] = allow_tokens
+    def fake(initial, parent=None, context=""):
+        seen["initial"] = initial
         return TOKEN_AUTO
     monkeypatch.setattr(colour_picker, "pick_colour", fake)
     c._pick_color()
-    assert seen["allow_tokens"] is True
+    assert seen["initial"] == "#ff0000"
     assert items[0].data.color == TOKEN_AUTO
 
 
@@ -406,14 +407,13 @@ def _dm_token_pick(kind, monkeypatch):
     from firepro3d.model_space import Model_Space
     seen = {}
 
-    def fake(initial, parent=None, context="", *, allow_none=False, allow_tokens=False):
-        dlg = colour_picker.ColourPickerDialog(initial=initial, allow_none=allow_none,
-                                               allow_tokens=allow_tokens)
+    def fake(initial, parent=None, context=""):
+        dlg = colour_picker.ColourPickerDialog(initial=initial)
         try:
             seen["value"] = dlg.current_value()
+            seen["theme_row"] = bool(dlg._theme_row_chips)
         finally:
             _dispose(dlg)
-        seen["allow_tokens"] = allow_tokens
         return None
     monkeypatch.setattr(colour_picker, "pick_colour", fake)
     dm = DisplayManager(Model_Space())
@@ -431,12 +431,13 @@ def _dm_token_pick(kind, monkeypatch):
 
 def test_dm_category_colour_pick_opens_on_token(qapp, monkeypatch):
     seen = _dm_token_pick("category", monkeypatch)
-    assert seen == {"value": TOKEN_AUTO, "allow_tokens": True}
+    assert seen == {"value": TOKEN_AUTO, "theme_row": True}
 
 
-def test_dm_category_fill_pick_stays_hex(qapp, monkeypatch):
+def test_dm_category_fill_pick_shows_theme_row(qapp, monkeypatch):
+    # Universal picker (2026-10-18): the DM fill column offers tokens too.
     seen = _dm_token_pick("fill", monkeypatch)
-    assert seen["allow_tokens"] is False
+    assert seen["theme_row"] is True
 
 
 # --- Task 9: load migration (project v11, .fpdb marker) ---------------------
