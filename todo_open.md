@@ -61,6 +61,8 @@
 
 ## Documentation reorg
 
+- [ ] [type:maint] HF1 Account leftovers: pre-existing spec contradictions found during the 2026-10-18 audit [P3] [subject:Docs]
+  - Details: VC10 list from the HF1 Account (ef9c0e7b). (1) `view-3d.md` §1.2/§2.3 called `sceneModified` the only rebuild trigger — now a parenthetical; rewrite the section to list the theme-bus trigger. (2) `underlay-workflow.md` §10.5 "per-entity colour extraction disabled in rendering; uniform gray" vs D-A21's "underlays ignore per-entity colour" — reconcile. (3) `paper-space.md` (~474) and `linetypes.md` (~467) restate "Full Color keeps authored colours" now owned by `hatch-and-fill.md` — Rule A: replace with links. (4) `hatch-and-fill.md` §4 divergence ledger + HF2 status line not re-audited; hexguard/R5 + VC3 checklist + G12 perf figures not re-verified. (5) Specs whose applies-to lists `ui_kit.py` / `constants.py` / `design_area.py` / `selection_manipulator.py` (mainwindow-chrome-revamp*, ribbon-bar, sprinkler-system-components) not read — grep for stale colour-picker wording.
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
 
