@@ -684,3 +684,21 @@ def test_drawn_line_commits_with_automatic_colour(shown_model_view):
     _hf1_click(view, 600, 0)
     assert len(scene._draw_lines) == 1
     assert scene._draw_lines[0].style["colour"] == TOKEN_AUTO
+
+
+@pytest.mark.parametrize("name,ink", [("dark", "#e6e9ec"), ("light", "#1c2024")])
+@pytest.mark.parametrize("mode,attr", [("polyline", "_polyline_active"),
+                                       ("polygon", "_polygon_preview")])
+def test_tool_ghost_pen_draws_theme_ink(shown_model_view, force_theme,
+                                        name, ink, mode, attr):
+    """The in-progress polyline / polygon ghost draws the canvas ink of the
+    current theme (``_track_ghost`` -> ``_recolour`` resolves the token)."""
+    view, scene = shown_model_view
+    force_theme(name)
+    scene.scene_role = "block_editor"
+    scene.set_mode(mode)
+    _hf1_click(view, 0, 0)
+    _hf1_click(view, 600, 0)
+    ghost = getattr(scene, attr)
+    assert ghost is not None and ghost._ghost_pen
+    assert ghost.pen().color().name() == ink

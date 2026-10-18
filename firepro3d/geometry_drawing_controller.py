@@ -789,7 +789,7 @@ class GeometryDrawingController:
             self._scene._stamp_place_reference(pl)   # the chain keeps it (RG6)
             # Ghost the in-progress polyline in the canonical reference-line style
             # (width-1 dashed); finalize() restores the committed solid pen.
-            _ghost = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
+            _ghost = QPen(resolve_colour(_c), 1, Qt.PenStyle.DashLine)
             _ghost.setCosmetic(True)
             pl.setPen(_ghost)
             pl._ghost_pen = True     # paint must not re-derive (LT2 H-c)
@@ -1889,7 +1889,7 @@ class GeometryDrawingController:
                                    rotation_deg=rotation_deg,
                                    inscribed=s._polygon_inscribed,
                                    color=_c, lineweight=_lw)
-        pen = QPen(QColor(_c), 1, Qt.PenStyle.DashLine)
+        pen = QPen(resolve_colour(_c), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         ghost.setPen(pen)
         ghost._ghost_pen = True      # keep the width-1 dashed ghost at paint

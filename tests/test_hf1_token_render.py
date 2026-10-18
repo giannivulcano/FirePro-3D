@@ -143,6 +143,7 @@ def test_g8c_live_switch_flips_pixel_and_text(qapp, force_theme):
     from main import MainWindow
     from tests._mainwindow_helpers import dispose_main_window
     force_theme("dark")
+    prev_qss = qapp.styleSheet()   # _apply_theme restyles the whole app
     win = MainWindow()
     try:
         win.show()
@@ -159,6 +160,9 @@ def test_g8c_live_switch_flips_pixel_and_text(qapp, force_theme):
         assert "#1c2024" in _shown_pixels(ms)
     finally:
         dispose_main_window(win)
+        # A light app QSS left behind under a dark detect() made later
+        # pixel tests draw dark ink on a light canvas (test_mw_tint ghost).
+        qapp.setStyleSheet(prev_qss)
 
 
 def test_theme_bus_is_a_singleton_with_changed_signal(qapp):
