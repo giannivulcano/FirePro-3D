@@ -527,3 +527,161 @@ def test_underlay_freeze_capture_uses_token_and_no_fill(
     finally:
         view.close()
         view.deleteLater()
+
+
+# ── Slice D: wall Colour row, wall placement, roof Enter-close ───────────────
+
+@pytest.mark.parametrize("value", [TOKEN_ACCENT, ""])
+def test_wall_panel_colour_stores_token_and_no_colour_and_round_trips(
+        qapp, monkeypatch, value):
+    from PyQt6.QtCore import Qt as _Qt
+    from firepro3d.model_space import Model_Space
+    from firepro3d.property_manager import PropertyManager
+    from firepro3d.ui_kit import Swatch
+    from firepro3d.wall import WallSegment
+    scene = Model_Space()
+    w = _wall(scene)
+    pm = PropertyManager()
+    try:
+        pm.show_properties(w)
+        sw = next(s for s in pm.findChildren(Swatch) if s._context == "Colour")
+        _pick_returns(monkeypatch, value)
+        QTest.mouseClick(sw._chip, _Qt.MouseButton.LeftButton)
+    finally:
+        _dispose(pm)
+    assert w._colour == value
+    assert w.get_properties()["Colour"]["value"] == value
+    assert WallSegment.from_dict(w.to_dict())._colour == value
+
+
+def test_wall_legacy_hex_colour_loads_unchanged(ms):
+    from firepro3d.wall import WallSegment
+    w = WallSegment.from_dict({"type": "wall", "pt1": [0, 0], "pt2": [100, 0],
+                               "color": "#336699"})
+    assert w._colour == "#336699" and w._color.name() == "#336699"
+
+
+def test_wall_own_token_colour_paints_theme_ink_per_paint(ms, force_theme):
+    force_theme("light")
+    w = _wall(ms)
+    w._fill_mode = "None"
+    w._colour = TOKEN_AUTO
+    assert LIGHT_INK in _pixels(w)
+    force_theme("dark")
+    px = _pixels(w)
+    assert DARK_INK in px and LIGHT_INK not in px
+
+
+def test_wall_own_no_colour_draws_nothing(ms):
+    w = _wall(ms)
+    assert _pixels(w) != {BG}
+    w._colour = ""
+    assert _pixels(w) == {BG}
+
+
+@pytest.mark.parametrize("stored", [TOKEN_ACCENT, ""])
+def test_wall_placement_keeps_the_template_colour(ms, stored):
+    ms._get_wall_template()._colour = stored
+    ms._press_wall(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    ms._press_wall(None, QPointF(2000, 0), QPointF(2000, 0), None, None, None)
+    (wall,) = ms._walls
+    assert wall._colour == stored
+
+
+@pytest.mark.parametrize("stored", [TOKEN_ACCENT, ""])
+def test_wall_rect_placement_keeps_the_template_colour(ms, stored):
+    ms._get_wall_template()._colour = stored
+    for p in (QPointF(0, 0), QPointF(2000, 0), QPointF(2000, 1000)):
+        ms._press_wall_rect(None, p, p, None, None, None)
+    assert len(ms._walls) == 4
+    assert {w._colour for w in ms._walls} == {stored}
+
+
+def test_dm_instance_row_of_a_wall_shows_the_stored_colour(ms):
+    from firepro3d.display_manager import DisplayManager
+    w = _wall(ms)
+    w._colour = TOKEN_ACCENT
+    dm = DisplayManager(ms)
+    try:
+        assert dm._read_item_display_state(w, "Wall")["color"] == TOKEN_ACCENT
+    finally:
+        _dispose(dm)
+
+
+def test_3d_wall_actor_resolves_token_and_no_colour(real3d, force_theme):
+    from PyQt6.QtGui import QColor as C
+    s, v = real3d
+    force_theme("dark")
+    w = _wall(s)
+    s._walls.append(w)
+    w._colour = TOKEN_AUTO
+    v.rebuild()
+    (actor,) = [a for a in v._actors["walls"] if a is not None]
+    prop = actor.GetProperty()
+    got = tuple(round(c * 255) for c in prop.GetColor())
+    ink = C(DARK_INK)
+    assert got == (ink.red(), ink.green(), ink.blue())
+    w._colour = ""
+    v.rebuild()
+    (actor,) = [a for a in v._actors["walls"] if a is not None]
+    assert actor.GetProperty().GetOpacity() == 0.0 and not actor.GetPickable()
+    assert len(v._actors["walls"]) == len(v._actors["wall_edges"])
+
+
+@pytest.mark.parametrize("stored", [TOKEN_ACCENT, ""])
+def test_roof_enter_close_placement_keeps_the_stored_colour(ms, monkeypatch, stored):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent
+    from firepro3d.roof_dialog import RoofDialog
+    monkeypatch.setattr(RoofDialog, "exec",
+                        lambda self: QDialog.DialogCode.Accepted)
+    ms._get_roof_template()._colour = stored
+    ms.mode = "roof"
+    for p in (QPointF(0, 0), QPointF(900, 0), QPointF(900, 700)):
+        ms._press_roof(None, p, p, None, None, None)
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+    ms.keyPressEvent(ev)
+    (roof,) = ms._roofs
+    assert roof._colour == stored
+
+
+def test_3d_wall_token_follows_the_theme_bus(real3d, force_theme):
+    from PyQt6.QtGui import QColor as C
+    s, v = real3d
+    force_theme("dark")
+    w = _wall(s)
+    s._walls.append(w)
+    w._colour = TOKEN_AUTO
+    v.rebuild()
+    v.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    v.show()
+    QTest.qWait(300)
+    force_theme("light")
+    theme.theme_bus().changed.emit()
+    QTest.qWait(300)
+    (actor,) = [a for a in v._actors["walls"] if a is not None]
+    got = tuple(round(c * 255) for c in actor.GetProperty().GetColor())
+    ink = C(LIGHT_INK)
+    assert got == (ink.red(), ink.green(), ink.blue())
+
+
+def test_model_text_is_not_a_project_file_record(ms, tmp_path):
+    """Pins why the model-text migration has no file round trip: standalone
+    model text is forbidden loose content (containment C8), so a project save
+    writes no ``texts`` key and a load discards one. The only v10 text-colour
+    records that really load are the paper sheet annotations (guarded above)."""
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    t = TextItem(TextAnnotationData(text="x", x=10, y=10, color=""))
+    ms.addItem(t)
+    ms._texts.append(t)
+    path = tmp_path / "t.fpd"
+    ms.save_to_file(str(path))
+    data = json.loads(path.read_text())
+    assert not data.get("texts")
+    data["version"] = 10
+    data["texts"] = [{"text": "legacy", "color": ""}]
+    path.write_text(json.dumps(data))
+    fresh = Model_Space()
+    fresh.load_from_file(str(path))
+    assert fresh._texts == []
