@@ -11,6 +11,8 @@ import logging
 
 from PyQt6.QtGui import QColor
 
+from . import paper_display as _pd   # module imports (hot path)
+from . import theme as _th
 from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_PREFIX
 
 _log = logging.getLogger(__name__)
@@ -50,7 +52,6 @@ def _paper_mode(item):
     already substituted upstream, so the pass reports FULL_COLOR. A
     ``paints_on_paper`` scene (PaperScene, white previews) reads the saved mode.
     """
-    from . import paper_display as _pd
     if _pd.paper_pass_active():
         return _pd.PaperColorMode.FULL_COLOR
     sc = item.scene() if item is not None else None
@@ -70,8 +71,6 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     if not is_token(value):
         c = QColor(value) if value else QColor()
     else:
-        from . import theme as _th
-        from . import paper_display as _pd
         if value not in _LABELS and value not in _warned:
             _warned.add(value)
             _log.warning("unknown colour token %r drawn as Automatic", value)
@@ -86,3 +85,22 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     if alpha is not None:
         c.setAlpha(alpha)
     return c
+
+
+def paint_resolver(item=None):
+    """Per-paint memo of :func:`resolve_colour` for *item* (G12 perf).
+
+    The surface (paper pass, paper scene mode, theme) cannot change inside
+    one paint, so each distinct stored value resolves once. Use the returned
+    callable for a single paint only -- nothing resolved here outlives it,
+    so a theme or paper-mode change reaches the next paint.
+    """
+    cache: dict = {}
+
+    def resolve(value) -> QColor:
+        c = cache.get(value)
+        if c is None:
+            c = cache[value] = resolve_colour(value, item=item)
+        return QColor(c)        # copy: callers may tint / set alpha
+
+    return resolve

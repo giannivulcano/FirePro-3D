@@ -165,6 +165,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # set/cleared by paper_display). Declared so the per-paint read in
     # hatch_render hits: a missing attribute on a sip scene costs ~10 us.
     _hatch_paper_scale = None
+    # Colour tokens resolve as canvas here (HF1); declared for the same reason
+    # -- colour_tokens._paper_mode reads it once per token op per paint (G12).
+    paints_on_paper = False
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
