@@ -48,6 +48,7 @@ from .theme import detect, M
 from . import theme as _th
 from .ui_kit import SideTabs, ToggleSwitch, TopTabs, Section, SwitchBar, no_fill_icon
 from . import colour_picker
+from .colour_tokens import is_token, resolve_colour
 from .icons import themed_icon
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
@@ -120,12 +121,16 @@ def _make_swatch(color: str, parent: QWidget | None = None) -> QPushButton:
 
 
 def _update_swatch(btn: QPushButton, color: str) -> None:
-    c = QColor(color) if color else QColor()
+    c = resolve_colour(color) if color else QColor()
     if color and c.isValid():
         btn.setIcon(QIcon())
+        btn.setText("A" if is_token(color) else "")   # theme-relative badge
         btn.setStyleSheet(
-            f"background-color: {c.name()}; border: 1px solid {detect().border_strong};")
+            f"background-color: {c.name()}; border: 1px solid {detect().border_strong};"
+            + (f" color: {'black' if c.lightness() > 128 else 'white'};"
+               if is_token(color) else ""))
     else:                                   # No Fill (todo #70): shared glyph
+        btn.setText("")
         btn.setStyleSheet(f"background-color: transparent; border: 1px solid {detect().border_strong};")
         # Inset 3 px per side so the glyph sits inside the 1 px border.
         iw, ih = max(1, btn.width() - 6), max(1, btn.height() - 6)
@@ -205,7 +210,8 @@ class _BorderGroup(QWidget):
             outer.addWidget(box)
 
     def _pick_color(self):
-        cur = self._color_btn.property("_color") or "#000000"
+        cur = self._color_btn.property("_color")
+        cur = "#000000" if cur is None else cur
         v = colour_picker.pick_colour(cur, self, "Border")
         if v is not None:
             _update_swatch(self._color_btn, v)
@@ -260,7 +266,8 @@ class _BorderGroup(QWidget):
         d = {
             "visible": self._visible.isChecked(),
             "width_mm": self._width.value_mm(),
-            "color": self._color_btn.property("_color") or "#000000",
+            "color": ("#000000" if self._color_btn.property("_color") is None
+                      else self._color_btn.property("_color")),
             "corner": "fillet" if self._corner.current() == "fillet" else "sharp",
             "fillet_radius_mm": self._fillet.value_mm(),
         }
@@ -1410,7 +1417,8 @@ class TitleBlockEditorDialog(HouseDialog):
         f = self._sel_field()
         if f is None:
             return
-        v = colour_picker.pick_colour(f.text_color or "#000000", self, "Field text")
+        v = colour_picker.pick_colour(
+            "#000000" if f.text_color is None else f.text_color, self, "Field text")
         if v is not None:
             _update_swatch(self._ftext_color_swatch, v)
             self._field_prop("text_color", v)
@@ -1420,7 +1428,7 @@ class TitleBlockEditorDialog(HouseDialog):
         if self._sel_field() is None:
             return
         cur = self._ffield_fill_swatch.property("_color") or ""
-        v = colour_picker.pick_colour(cur, self, "Field fill", allow_none=True)
+        v = colour_picker.pick_colour(cur, self, "Field fill")
         if v is not None:
             _update_swatch(self._ffield_fill_swatch, v)
             self._field_prop("fill_color", v)

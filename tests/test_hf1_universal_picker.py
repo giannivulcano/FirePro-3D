@@ -563,16 +563,19 @@ def test_graphic_override_stroke_no_stroke_draws_nothing(mw, qapp, monkeypatch):
     assert _pixels(r) == {BG}
 
 
-def test_pick_colour_ignores_retired_flags(qapp, monkeypatch):
-    """Slice B's callers still pass allow_none / allow_tokens: ignored."""
+def test_pick_colour_has_no_opt_out_flags(qapp, monkeypatch):
+    """The retired allow_none / allow_tokens kwargs are gone (slice B): the
+    one picker takes (initial, parent, context) and always shows every row."""
+    import inspect
+    assert list(inspect.signature(colour_picker.pick_colour).parameters) == [
+        "initial", "parent", "context"]
     seen = []
 
     def exec_(self):
         seen.append(bool(self._theme_row_chips) and self._standard_row_chips[-1].value == "")
         return QDialog.DialogCode.Rejected
     monkeypatch.setattr(colour_picker.ColourPickerDialog, "exec", exec_)
-    assert colour_picker.pick_colour("#112233", None, "x", allow_none=False,
-                                     allow_tokens=False) is None
+    assert colour_picker.pick_colour("#112233", None, "x") is None
     assert seen == [True]
 
 

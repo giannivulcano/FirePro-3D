@@ -32,6 +32,7 @@ from .underlay_manager_model import (
 )
 from .theme import Theme
 from . import colour_picker
+from .colour_tokens import resolve_colour, token_label
 
 ROW_HEIGHT = 34
 
@@ -284,13 +285,20 @@ class ColourDelegate(_BaseDelegate):
         r = option.rect
         sw = QRectF(r.x() + 8, r.center().y() - self.SWATCH / 2, self.SWATCH, self.SWATCH)
 
+        if not hex_colour:                       # "" = not drawn: No-Fill glyph
+            from .ui_kit import paint_no_fill
+            paint_no_fill(painter, sw, 3)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        else:                                    # a token shows its canvas colour
+            painter.setBrush(resolve_colour(hex_colour))
         painter.setPen(QPen(self.t.color("line_strong"), 1))
-        painter.setBrush(QColor(hex_colour))
         painter.drawRoundedRect(sw, 3, 3)
 
         painter.setPen(self.t.color("muted"))
         text_rect = QRect(int(sw.right()) + 7, r.y(), r.width(), r.height())
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, str(hex_colour).upper())
+        label = ("None" if not hex_colour
+                 else token_label(hex_colour) or str(hex_colour).upper())
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, label)
         painter.restore()
 
     def editorEvent(self, event, model, option, index):

@@ -17,8 +17,10 @@ operating on live item state; only painting is suppressed.
 from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, Qt, QTimer
-from PyQt6.QtGui import QPainter, QPixmap, QTransform
+from PyQt6.QtGui import QBrush, QPainter, QPen, QPixmap, QTransform
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsPixmapItem
+
+from .colour_tokens import is_token, resolve_colour
 
 from .constants import (
     UNDERLAY_FREEZE_MAX_PX,
@@ -39,6 +41,40 @@ class _UnderlayPathItem(QGraphicsPathItem):
         super().__init__(*args)
         # The stroke's crisp axis-split, by value (MW-7, H-MW-f delta 1).
         self._mw_split_cache = SplitCache()
+        # Stored layer colour when it is a ``token:*`` or ``""`` (universal
+        # picker): resolved per paint on the surface this item paints on, never
+        # latched into the pen / brush. None for a plain hex colour.
+        self._colour_src: str | None = None
+
+    def set_colour_src(self, src) -> None:
+        """Record the stored layer colour *src*. A token / ``""`` is resolved
+        per paint (:meth:`resolved_pen_brush`); the pen / brush also get the
+        canvas colour now so any reader of them sees a valid colour."""
+        if src == "" or is_token(src):
+            self._colour_src = src
+            c = resolve_colour(src)
+            if self.pen().style() == Qt.PenStyle.NoPen:
+                self.setBrush(QBrush(c))                 # text batch
+            else:
+                pen = QPen(self.pen())
+                pen.setColor(c)
+                self.setPen(pen)
+        else:
+            self._colour_src = None
+
+    def resolved_pen_brush(self):
+        """``(pen, brush)`` to paint with right now: the item's own, except a
+        token / ``""`` layer colour resolves on the current surface (canvas
+        theme ink / accent, paper black / green, ``""`` fully transparent)."""
+        pen, brush = self.pen(), self.brush()
+        if self._colour_src is None:
+            return pen, brush
+        c = resolve_colour(self._colour_src, item=self)
+        if pen.style() == Qt.PenStyle.NoPen:
+            return pen, QBrush(c)
+        pen = QPen(pen)
+        pen.setColor(c)
+        return pen, brush
 
     def seed_split(self, split) -> None:
         """Pre-load the identity-frame crisp split of this item's path (built
@@ -51,10 +87,15 @@ class _UnderlayPathItem(QGraphicsPathItem):
         ctrl = getattr(scene, "_underlay_freeze", None)
         if ctrl is not None and ctrl.frozen:
             return
-        pen = self.pen()
+        pen, brush = self.resolved_pen_brush()
         if (pen.style() == Qt.PenStyle.NoPen or not pen.isCosmetic()
-                or self.brush().style() != Qt.BrushStyle.NoBrush):
-            super().paint(painter, option, widget)      # text fills / paper
+                or brush.style() != Qt.BrushStyle.NoBrush):
+            if self._colour_src is None:
+                super().paint(painter, option, widget)  # text fills / paper
+            else:
+                painter.setPen(pen)                     # token / "": resolved
+                painter.setBrush(brush)
+                painter.drawPath(self.path())
             return
         # Canvas stroke: axis runs crisp (MW-7, H-MW-f delta 1). The split is
         # cached per item by path value + rotation -- never per paint / zoom,
@@ -181,8 +222,9 @@ class UnderlayFreezeController:
                     continue      # hidden layer / hidden underlay / level
                 painter.setOpacity(group.opacity())
                 painter.setWorldTransform(child.sceneTransform() * base)
-                painter.setPen(child.pen())        # cosmetic → device width
-                painter.setBrush(child.brush())    # text items: fill
+                pen, brush = child.resolved_pen_brush()
+                painter.setPen(pen)                # cosmetic → device width
+                painter.setBrush(brush)            # text items: fill
                 painter.drawPath(child.path())
                 z_values.append(group.zValue())
         painter.end()

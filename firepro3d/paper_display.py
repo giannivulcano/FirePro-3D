@@ -1365,7 +1365,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # the authored effective layer colours.
                 colour = (QColor("#000000")
                           if color_mode == PaperColorMode.BW
-                          else QColor(record.effective_layer_colour(layer)))
+                          else _paper_qcolor(
+                              record.effective_layer_colour(layer)))
                 if child.pen().style() == Qt.PenStyle.NoPen:
                     child.setBrush(QBrush(colour))      # text batch
                     continue

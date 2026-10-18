@@ -457,15 +457,12 @@ class ColourPickerDialog(HouseDialog):
         super().reject()
 
 
-def pick_colour(initial, parent=None, context="", *, allow_none=None,
-                allow_tokens=None):
+def pick_colour(initial, parent=None, context=""):
     """Open the house picker. Returns None (cancelled), NO_FILL (""), a colour
     token or a lower-case "#rrggbb" — the same convention
     QColor.name() gave every caller, so stored data / no-op comparisons keep
     their existing form. (The dialog DISPLAYS upper-case hex; only the
     returned value is lower-cased.)"""
-    # allow_none / allow_tokens: retired 2026-10-18 (universal picker shows
-    # every row); accepted and ignored until slice B removes its callers.
     dlg = ColourPickerDialog(parent, initial=initial or "", context=context)
     try:
         code = dlg.exec()

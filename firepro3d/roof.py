@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from .colour_tokens import resolve_colour
+from .colour_tokens import normalize_colour, resolve_colour
 from .geometry_utils import triangulate_polygon
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
@@ -104,6 +104,15 @@ def _scene_hit_width(item) -> float:
 from .displayable_item import DisplayableItemMixin
 
 
+_DEFAULT_COLOUR = "#d2b48c"
+
+
+def _stored_colour(value) -> str:
+    """Stored form of a roof colour: lower-case ``#rrggbb``, a ``token:*``
+    string or ``""`` (no colour). A ``QColor`` stores its hex name."""
+    return normalize_colour(value, _DEFAULT_COLOUR)
+
+
 class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     """A roof defined by a closed boundary polygon.
 
@@ -117,7 +126,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
                  color: str | QColor = "#D2B48C"):
         super().__init__()
         self._points: list[QPointF] = [QPointF(p) for p in (points or [])]
-        self._color = QColor(color) if isinstance(color, str) else QColor(color)
+        self._colour: str = _stored_colour(color)
         self._thickness_mm: float = DEFAULT_THICKNESS_MM
         self._roof_type: str = "flat"
         self._pitch_deg: float = DEFAULT_PITCH_DEG
@@ -308,22 +317,46 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return [(QPointF(ridge_p1[0], ridge_p1[1]),
                  QPointF(ridge_p2[0], ridge_p2[1]))]
 
+    # ── Colour ───────────────────────────────────────────────────────────
+
+    @property
+    def _color(self) -> QColor:
+        """Canvas-resolved colour of the stored roof colour (legacy readers);
+        paint and the 3D mesh resolve ``self._colour`` themselves."""
+        return resolve_colour(self._colour)
+
+    @_color.setter
+    def _color(self, value) -> None:
+        self._colour = _stored_colour(value)
+
+    def _mesh_colour(self) -> tuple:
+        """RGBA (0-1) of the 3D surface. The 3D view has no paper, so a token
+        resolves with canvas semantics (theme ink / accent). ``""`` is alpha
+        0: View3D draws no surface for it."""
+        c = resolve_colour(self._colour)
+        return (c.redF(), c.greenF(), c.blueF(), c.alphaF())
+
     # ── Paint ────────────────────────────────────────────────────────────
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        line_col = resolve_colour(self._display_color, item=self) if self._display_color else self._color
+        # Stroke / fill: the Display Manager colour when set (``None`` =
+        # unset), else the roof's own colour. A token resolves per paint on
+        # this item's surface; ``""`` draws nothing.
+        dc = self._display_color
+        line_col = resolve_colour(self._colour if dc is None else dc, item=self)
         pen = self._outline_pen(line_col)
         painter.setPen(pen)
 
-        if self._display_fill_color:
-            fill_color = resolve_colour(self._display_fill_color, item=self)
-            fill_color.setAlpha(_FILL_ALPHA)
+        dfc = self._display_fill_color
+        fill_src = self._colour if dfc is None else dfc
+        if fill_src == "":
+            painter.setBrush(Qt.BrushStyle.NoBrush)
         else:
-            fill_color = QColor(self._color)
+            fill_color = resolve_colour(fill_src, item=self)
             fill_color.setAlpha(_FILL_ALPHA)
-        painter.setBrush(QBrush(fill_color))
+            painter.setBrush(QBrush(fill_color))
 
         if len(self._points) >= 3:
             # Draw the full roof boundary (includes overhang if any)
@@ -439,7 +472,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "Type":         {"type": "label",     "value": "Roof"},
             "Name":         {"type": "string",    "value": self.name},
-            "Colour":       {"type": "color",     "value": self._color.name()},
+            "Colour":       {"type": "color",     "value": self._colour},
             "Roof Type":    {"type": "enum",      "value": self._roof_type.capitalize(),
                              "options": [t.capitalize() for t in ROOF_TYPES]},
             "Pitch":        {"type": "string",    "value": f"{self._pitch_deg}°"},
@@ -474,7 +507,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
                 "eave_height_mm":  self._eave_height_mm,
                 "level":           self.level,
                 "overhang_mm":     self._overhang_mm,
-                "color":           self._color.name(),
+                "color":           self._colour,
                 "ridge_direction": self._ridge_direction,
                 "half_span_mm":    self.half_span_mm(),
             },
@@ -490,7 +523,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             self._eave_height_mm = p["eave_height_mm"]
             self._overhang_mm    = p["overhang_mm"]
             self._ridge_direction = p.get("ridge_direction", "auto")
-            self._color          = QColor(p["color"])
+            self._colour         = _stored_colour(p["color"])
             if p.get("eave_level"):
                 self.level = p["eave_level"]
             self._rebuild_path()
@@ -525,7 +558,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         if key == "Name":
             self.name = str(value)
         elif key == "Colour":
-            self._color = QColor(value)
+            self._colour = _stored_colour(value)
             self.update()
         elif key == "Roof Type":
             v = str(value).lower()
@@ -563,7 +596,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "type":            "roof",
             "points":          [[p.x(), p.y()] for p in self._points],
-            "color":           self._color.name(),
+            "color":           self._colour,
             "roof_type":       self._roof_type,
             "pitch_deg":       self._pitch_deg,
             "eave_height_mm":  self._eave_height_mm,
@@ -675,8 +708,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "vertices": verts,
             "faces": faces,
-            "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 1.0),
+            "color": self._mesh_colour(),
         }
 
     def _mesh_gable(self, pts_2d, n, eave_z, bot_z) -> dict | None:
@@ -740,8 +772,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "vertices": verts,
             "faces": faces,
-            "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 1.0),
+            "color": self._mesh_colour(),
         }
 
     def _mesh_hip(self, pts_2d, n, eave_z, bot_z) -> dict | None:
@@ -774,8 +805,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "vertices": verts,
             "faces": faces,
-            "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 1.0),
+            "color": self._mesh_colour(),
         }
 
     def _mesh_shed(self, pts_2d, n, eave_z, bot_z) -> dict | None:
@@ -813,8 +843,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "vertices": verts,
             "faces": faces,
-            "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 1.0),
+            "color": self._mesh_colour(),
         }
 
     def _ridge_rise_mm(self) -> float:

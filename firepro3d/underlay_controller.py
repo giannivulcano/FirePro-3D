@@ -33,6 +33,7 @@ from .constants import (CRISP_AXIS_TOL as _AXIS_TOL, CRISP_CLOSE_TOL as _RING_TO
 from .dxf_import_worker import DxfImportWorker
 from .underlay import Underlay
 from .underlay_freeze import _UnderlayPathItem
+from .colour_tokens import resolve_colour
 from . import crisp_stroke as _cs
 
 # A polyline whose last point is this close to its first (but not equal) is
@@ -509,6 +510,7 @@ class UnderlayController:
                 item.seed_split(seed.split(geom_path))   # MW-13: no first-paint split
                 item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                item.set_colour_src(record.effective_layer_colour(layer))
                 item.setZValue(Z_UNDERLAY)
                 item.setData(1, layer)  # layer tag for visibility toggling
                 items.append(item)
@@ -527,7 +529,7 @@ class UnderlayController:
                     if sd is None:
                         sd = seeds[w] = _CrispSeed()
                     sd.add(g, append)
-                colour = QColor(record.effective_layer_colour(layer))
+                colour = resolve_colour(record.effective_layer_colour(layer))
                 for w, wpath in by_width.items():
                     if wpath.isEmpty():
                         continue
@@ -537,6 +539,7 @@ class UnderlayController:
                     item.seed_split(seeds[w].split(wpath))   # MW-13: no first-paint split
                     item.setPen(pen)
                     item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                    item.set_colour_src(record.effective_layer_colour(layer))
                     item.setZValue(Z_UNDERLAY)
                     item.setData(1, layer)  # layer tag for visibility toggling
                     item.setData(7, w)      # source stroke width (pt) for repen
@@ -545,8 +548,9 @@ class UnderlayController:
             if not text_path.isEmpty():
                 item = _UnderlayPathItem(text_path)
                 item.setPen(QPen(Qt.PenStyle.NoPen))
-                item.setBrush(QBrush(QColor(
+                item.setBrush(QBrush(resolve_colour(
                     record.effective_layer_colour(layer))))
+                item.set_colour_src(record.effective_layer_colour(layer))
                 item.setZValue(Z_UNDERLAY)
                 item.setData(1, layer)
                 items.append(item)
@@ -1215,7 +1219,7 @@ class UnderlayController:
                     continue
                 if child.pen().style() == Qt.PenStyle.NoPen:
                     # text batch: colour rides the brush fill
-                    child.setBrush(QBrush(QColor(
+                    child.setBrush(QBrush(resolve_colour(
                         record.effective_layer_colour(layer))))
                 elif record.effective_layer_weight(layer):
                     # override wins: flat weight for the whole layer
@@ -1226,10 +1230,13 @@ class UnderlayController:
                     if src_w is None:
                         child.setPen(underlay_layer_pen(record, layer))
                     else:
-                        p = QPen(QColor(record.effective_layer_colour(layer)),
+                        p = QPen(resolve_colour(
+                            record.effective_layer_colour(layer)),
                                  _pdf_width_to_px(float(src_w)))
                         p.setCosmetic(True)
                         child.setPen(p)
+                if isinstance(child, _UnderlayPathItem):
+                    child.set_colour_src(record.effective_layer_colour(layer))
             group.setOpacity(record.opacity)
             return
 

@@ -35,7 +35,8 @@ from .water_supply import WaterSupply
 from .wall import WallSegment
 from .floor_slab import FloorSlab
 from .view_cube import ViewCube
-from .theme import detect
+from .theme import detect, theme_bus
+from .colour_tokens import is_token
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -170,6 +171,10 @@ class View3D(QWidget):
                 sig.disconnect(slot)
             except (TypeError, RuntimeError):
                 pass                          # already disconnected / scene gone
+        try:
+            theme_bus().changed.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass
         plotter = getattr(self, "_plotter", None)
         if plotter is not None:
             try:
@@ -364,6 +369,16 @@ class View3D(QWidget):
     def _connect_signals(self):
         self._scene.sceneModified.connect(self.request_rebuild)
         self._scene.selectionChanged.connect(self._on_2d_selection_changed)
+        theme_bus().changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self) -> None:
+        """Theme switch: a ``token:*`` roof colour resolves to a different
+        canvas colour, so rebuild when any roof uses one."""
+        if self._plotter is None:
+            return
+        if any(is_token(getattr(r, "_colour", "")) for r in
+               getattr(self._scene, "_roofs", [])):
+            self.request_rebuild()
 
     # ── Coordinate mapping ─────────────────────────────────────────────────
 
@@ -1069,9 +1084,12 @@ class View3D(QWidget):
             col = mesh_data.get("color", (0.8, 0.7, 0.5, 0.5))
 
             mesh = _mesh_from_faces(verts, faces)
-            actor = self._plotter.add_mesh(
-                mesh, color=col[:3], opacity=col[3] if len(col) > 3 else 1.0,
-            )
+            opacity = col[3] if len(col) > 3 else 1.0
+            # Roof colour "" (No Fill): a fully transparent actor and no edge
+            # wireframe -- the roof draws nothing, but the actor / edge lists
+            # stay index-parallel for the section cut and the pick map.
+            no_surface = opacity <= 0.0
+            actor = self._plotter.add_mesh(mesh, color=col[:3], opacity=opacity)
             self._add_actor("roofs", actor, entity=roof, entity_type="roof")
             self._roof_refs.append(roof)
             self._original_roof_colors.append(col)
@@ -1080,7 +1098,10 @@ class View3D(QWidget):
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
             # Edge wireframe via VTK feature edges
-            self._add_edge_actor(mesh, "roof_edges")
+            if no_surface:
+                self._add_actor("roof_edges", None)
+            else:
+                self._add_edge_actor(mesh, "roof_edges")
 
         self._roof_centroids_3d = np.array(centroids) if centroids else None
 

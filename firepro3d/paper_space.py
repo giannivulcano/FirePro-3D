@@ -24,7 +24,7 @@ from .constants import (
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
 )
-from .colour_tokens import normalize_colour
+from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
 from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
 from .house_dialog import HouseDialog
@@ -2430,7 +2430,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         edges = (style.edge_top, style.edge_bottom,
                  style.edge_left, style.edge_right)
-        painter.setPen(QPen(QColor(style.color), style.width_mm))
+        painter.setPen(QPen(resolve_colour(style.color, item=self),
+                            style.width_mm))   # token on paper; "" draws nothing
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if all(edges):
             if style.corner == "fillet" and style.fillet_radius_mm > 0:
@@ -2482,7 +2483,9 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         painter.save()
         painter.setFont(f)
-        painter.setPen(QPen(QColor(fdef.text_color or "#000000"), 0.1))
+        painter.setPen(QPen(resolve_colour(
+            "#000000" if fdef.text_color is None else fdef.text_color,
+            item=self), 0.1))                       # token on paper; "" draws nothing
         painter.translate(rect.topLeft())
         painter.scale(s, s)
         align = {"left": Qt.AlignmentFlag.AlignLeft,
@@ -2534,7 +2537,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
         # Pass 1: fills (outside clip so fill bleeds to full cell rect)
         for rect, f in zip(lay.cell_rects, fields):
             if f.fill_color:
-                painter.fillRect(rect, QColor(f.fill_color))
+                painter.fillRect(rect, resolve_colour(f.fill_color, item=self))
         # Pass 2: content, clipped to strip (composes with caller clips via
         # IntersectClip in export paths). spec DD-8.
         painter.save()
