@@ -1287,7 +1287,11 @@ class DesignArea(QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         editing = getattr(self.scene(), "mode", None) == "design_area"
         if editing:
-            base = resolve_colour(self._display_fill_color or "#ffc800", item=self)
+            dfc = self._display_fill_color
+            if dfc == "":                   # No Fill: draws nothing
+                option.state &= ~QStyle.StateFlag.State_Selected
+                return
+            base = resolve_colour("#ffc800" if dfc is None else dfc, item=self)
             border = QPen(base, 2, Qt.PenStyle.DashLine)
             painter.setPen(border)
             fill = QColor(base)
@@ -1310,7 +1314,8 @@ class DesignArea(QGraphicsPathItem):
             # ~10mm before union so touching rows merge into one outline.
             # Cosmetic: 2 device px at any zoom — a 2 scene-mm pen is
             # sub-pixel when zoomed to building scale (invisible).
-            pen = QPen(resolve_colour(self._display_color or "#dc1e1e", item=self), 2,
+            dc = self._display_color        # None = unset; "" = No stroke
+            pen = QPen(resolve_colour("#dc1e1e" if dc is None else dc, item=self), 2,
                        Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
@@ -1447,7 +1452,8 @@ class DesignAreaBadge(QGraphicsItem):
         return self._rotation_transform().mapRect(base)
 
     def paint(self, painter, option, widget=None):
-        color = resolve_colour(self._area._display_color or "#ff0000", item=self)
+        dc = self._area._display_color      # None = unset; "" = No colour
+        color = resolve_colour("#ff0000" if dc is None else dc, item=self)
         if self._angle != 0.0:
             painter.save()
             painter.setTransform(self._rotation_transform(), True)

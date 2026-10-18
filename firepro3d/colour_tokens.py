@@ -99,6 +99,18 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     return c
 
 
+def section_fill_colour(value, item=None) -> "QColor | None":
+    """Solid section-cut body colour for a stored value, or None for no body
+    fill: unset and ``""`` (No Fill) draw nothing; a ``#hex`` or ``token:*``
+    resolves on *item*'s surface; anything else (a ``hatch:`` form) is None.
+    """
+    if not value:
+        return None
+    if value.startswith("#") or is_token(value):
+        return resolve_colour(value, item=item)
+    return None
+
+
 def paint_resolver(item=None):
     """Per-paint memo of :func:`resolve_colour` for *item* (G12 perf).
 

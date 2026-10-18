@@ -43,7 +43,9 @@ def migrate_definition_dict(d) -> None:
 
 def migrate_project_payload(payload: dict) -> None:
     """In place: a < v11 project's block prims, paper annotation text and
-    "2D Geometry" display colour become Automatic."""
+    "2D Geometry" display colour become Automatic; a text ``color`` of ``""``
+    (annotation or model text) also becomes Automatic -- v11+ keeps ``""`` as
+    No colour."""
     try:
         version = int(payload.get("version", 1) or 1)
     except (TypeError, ValueError):
@@ -54,8 +56,15 @@ def migrate_project_payload(payload: dict) -> None:
         migrate_definition_dict(d)
     for sheet in payload.get("sheets") or []:
         for a in (sheet or {}).get("annotations") or []:
-            if isinstance(a, dict) and _is(a.get("color"), _BLACK):
+            if isinstance(a, dict) and (_is(a.get("color"), _BLACK)
+                                        or a.get("color") == ""):
                 a["color"] = TOKEN_AUTO
+    # Pre-v11 text colour "" was never a "no colour" (the universal picker's
+    # No Fill meaning is v11+): it drew the default ink, so it loads Automatic
+    # rather than invisible.
+    for t in payload.get("texts") or []:
+        if isinstance(t, dict) and t.get("color") == "":
+            t["color"] = TOKEN_AUTO
     geo = (payload.get("display_settings") or {}).get("2D Geometry")
     if isinstance(geo, dict) and _is(geo.get("color"), _WHITE):
         geo["color"] = TOKEN_AUTO

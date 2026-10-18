@@ -7206,7 +7206,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_roof(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._roof_active is None:
             _rtmpl = self._get_roof_template()
-            roof = RoofItem(color=_rtmpl._color.name())
+            roof = RoofItem(color=_rtmpl._colour)
             roof.name = f"Roof {self._next_roof_num}"
             self._next_roof_num += 1
             roof._thickness_mm = _rtmpl._thickness_mm
@@ -7249,7 +7249,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                             "eave_height_mm":  roof._eave_height_mm,
                             "level":           roof.level,
                             "overhang_mm":     roof._overhang_mm,
-                            "color":           roof._color.name(),
+                            "color":           roof._colour,
                             "ridge_direction": roof._ridge_direction,
                             "half_span_mm":    roof.half_span_mm(),
                         },
@@ -7264,7 +7264,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         roof._eave_height_mm = p["eave_height_mm"]
                         roof._overhang_mm    = p["overhang_mm"]
                         roof._ridge_direction = p.get("ridge_direction", "auto")
-                        roof._color          = QColor(p["color"])
+                        roof._colour         = p["color"]
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()
@@ -7315,7 +7315,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 QPointF(rect.x(), rect.y() + rect.height()),
             ]
             _rtmpl = self._get_roof_template()
-            roof = RoofItem(points=corners, color=_rtmpl._color.name())
+            roof = RoofItem(points=corners, color=_rtmpl._colour)
             roof.name = f"Roof {self._next_roof_num}"
             self._next_roof_num += 1
             roof._thickness_mm = _rtmpl._thickness_mm
@@ -7343,7 +7343,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "eave_height_mm": roof._eave_height_mm,
                     "level":          roof.level,
                     "overhang_mm":    roof._overhang_mm,
-                    "color":          roof._color.name(),
+                    "color":          roof._colour,
                 },
                 level_manager=self._level_manager,
                 scale_manager=self.scale_manager,
@@ -7355,7 +7355,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 roof._pitch_deg     = p["pitch_deg"]
                 roof._eave_height_mm = p["eave_height_mm"]
                 roof._overhang_mm   = p["overhang_mm"]
-                roof._color         = QColor(p["color"])
+                roof._colour = p["color"]
                 if p.get("eave_level"):
                     roof.level = p["eave_level"]
                 roof._rebuild_path()
@@ -8126,7 +8126,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                             "eave_height_mm":  roof._eave_height_mm,
                             "level":           roof.level,
                             "overhang_mm":     roof._overhang_mm,
-                            "color":           roof._color.name(),
+                            "color":           roof._colour,
                             "ridge_direction": roof._ridge_direction,
                             "half_span_mm":    roof.half_span_mm(),
                         },
@@ -8141,7 +8141,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         roof._eave_height_mm = p["eave_height_mm"]
                         roof._overhang_mm    = p["overhang_mm"]
                         roof._ridge_direction = p.get("ridge_direction", "auto")
-                        roof._color          = QColor(p["color"])
+                        roof._colour          = p["color"]
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()

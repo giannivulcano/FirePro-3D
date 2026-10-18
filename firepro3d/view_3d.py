@@ -1090,6 +1090,8 @@ class View3D(QWidget):
             # stay index-parallel for the section cut and the pick map.
             no_surface = opacity <= 0.0
             actor = self._plotter.add_mesh(mesh, color=col[:3], opacity=opacity)
+            if no_surface:
+                actor.SetPickable(False)    # VTK's prop picker ignores opacity
             self._add_actor("roofs", actor, entity=roof, entity_type="roof")
             self._roof_refs.append(roof)
             self._original_roof_colors.append(col)

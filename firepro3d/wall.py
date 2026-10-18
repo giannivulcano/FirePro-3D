@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
 if TYPE_CHECKING:
     from .wall_opening import WallOpening
 
-from .colour_tokens import resolve_colour
+from .colour_tokens import resolve_colour, section_fill_colour
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
 from .view_scale import scene_hit_width
@@ -303,16 +303,17 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
 
         p1l, p1r, p2r, p2l = self.mitered_quad()
-        line_col = resolve_colour(self._display_color, item=self) if self._display_color else self._color
+        dc = self._display_color            # None = unset; "" = No stroke
+        line_col = (self._color if dc is None
+                    else resolve_colour(dc, item=self))
         pen = self._outline_pen(line_col)
 
-        # Fill (always fill the full quad area)
+        # Fill (always fill the full quad area); "" = No Fill draws nothing
         fill_brush = Qt.BrushStyle.NoBrush
-        if self._fill_mode == FILL_SOLID:
-            if self._display_fill_color:
-                fill_color = resolve_colour(self._display_fill_color, item=self)
-            else:
-                fill_color = QColor(self._color)
+        if self._fill_mode == FILL_SOLID and self._display_fill_color != "":
+            dfc = self._display_fill_color
+            fill_color = (QColor(self._color) if dfc is None
+                          else resolve_colour(dfc, item=self))
             if not getattr(self, "_paper_fill_opaque", False):
                 fill_color.setAlpha(80)
             fill_brush = QBrush(fill_color)
@@ -358,8 +359,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             clip.closeSubpath()
             # Section fill colour replaces element fill; hatch lines
             # use the element's normal line colour and weight.
-            sec_fill_hex = getattr(self, "_display_section_color", None) or ""
-            sec_fill = QColor(sec_fill_hex) if sec_fill_hex.startswith("#") else None
+            sec_fill = section_fill_colour(
+                getattr(self, "_display_section_color", None), self)
             pattern = getattr(self, "_display_section_pattern", None) or "diagonal"
             h_scale = getattr(self, "_display_section_scale", 1.0) or 1.0
             draw_section_hatch(painter, clip, self.scene(),
@@ -389,7 +390,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     def _draw_hatch(self, painter, p1l, p1r, p2r, p2l):
         """Draw diagonal hatch lines inside the wall quad."""
-        hatch_col = resolve_colour(self._display_fill_color, item=self) if self._display_fill_color else self._color
+        dfc = self._display_fill_color
+        hatch_col = self._color if dfc is None else resolve_colour(dfc, item=self)
         pen = QPen(hatch_col, 0.5)
         pen.setCosmetic(True)
         painter.setPen(pen)

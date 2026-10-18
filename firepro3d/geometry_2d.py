@@ -284,7 +284,7 @@ class Geometry2DMixin:
             return None
         dc = getattr(self, "_display_color", None)
         if self.style is None:
-            if dc:
+            if dc is not None:      # "" = No stroke: transparent pen
                 pen = QPen(self.pen())
                 pen.setColor(resolve_colour(dc, item=self))
                 self.setPen(pen)
@@ -298,6 +298,8 @@ class Geometry2DMixin:
         sc = self._stroke_colour()
         if sc:                      # "" = No stroke: _paint_routed_stroke skips it
             pen.setColor(resolve_colour(sc, item=self))
+        # Coupled with _stroke_hidden (which reads NoPen as "no stroke"): a
+        # NoPen left by a paper pass is reset here so the canvas stroke returns.
         if pen.style() == Qt.PenStyle.NoPen:
             pen.setStyle(Qt.PenStyle.SolidLine)     # back from a No-stroke paper pass
         pen.setWidthF(canvas_px(rs.weight))
@@ -316,7 +318,8 @@ class Geometry2DMixin:
 
     def _stroke_hidden(self) -> bool:
         """True when the stroke draws nothing: colour ``""`` (picker No Fill)
-        or a NoPen pen (paper pass for a ``""`` paper-category colour)."""
+        or a NoPen pen (a pen the item or caller set to NoPen; the paper
+        pass does not set NoPen for ``""`` -- it writes the colour string)."""
         if self.reference:
             return False
         if self.style is not None and self._stroke_colour() == "":
@@ -358,13 +361,23 @@ class Geometry2DMixin:
         unset, which paints the default grey)."""
         return (getattr(self, "fill_type", "none") != "none"
                 and not self.reference
-                and getattr(self, "_display_fill_color", None) != "")
+                and self._fill_value() != "")
+
+    def _fill_value(self):
+        """Fill colour in force: a per-instance Graphic Override ``fill`` wins
+        over the item's own ``_display_fill_color`` (the serialized fill, never
+        overwritten by the override path -- so Clear restores it and a save
+        while overridden keeps the own fill). ``None`` = unset."""
+        ov = getattr(self, "_display_overrides", None) or {}
+        if ov.get("fill") is not None:
+            return ov["fill"]
+        return getattr(self, "_display_fill_color", None)
 
     def _fill_paint_colour(self) -> str:
         """``#rrggbb`` the fill paints with right now: a ``token:*`` resolves
         per paint on this item's surface (canvas ink / paper black), unset is
         the default grey."""
-        v = self._display_fill_color
+        v = self._fill_value()
         if v is None:
             return "#888888"
         return resolve_colour(v, item=self).name()

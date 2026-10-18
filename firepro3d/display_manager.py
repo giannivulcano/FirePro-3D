@@ -636,11 +636,11 @@ def _apply_geo2d(item, color, opacity, visible, fill_color=None):
     apply it to the pen before delegating to super().paint().  Fill colour is
     already handled by draw_fill() in each paint() via _display_fill_color; a
     Graphic Override / instance ``fill`` (token, hex or ``""`` = No Fill) is
-    written there when set -- ``None`` leaves the item's own fill untouched.
+    read from ``_display_overrides["fill"]`` by ``Geometry2DMixin._fill_value``.
+    The apply path never writes ``_display_fill_color`` (the item's own
+    serialized fill), so Clear restores it and a save keeps it.
     """
     item._display_color = color
-    if fill_color is not None:
-        item._display_fill_color = fill_color
     item.setVisible(visible)
     item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     item.update()
@@ -915,7 +915,7 @@ def apply_category_defaults(item):
                 return raw
         return factory
 
-    color = _v("color", cat_def["color"])
+    color = _vc("color", cat_def["color"])      # "" = No stroke is a value
     scale = float(_v("scale", cat_def["scale"]))
     opacity = int(float(_v("opacity", cat_def["opacity"])))
     visible = _v("visible", cat_def["visible"])
@@ -1359,8 +1359,8 @@ class DisplayManager(QDialog):
             fill = item.bubble1.brush().color().name()
             font = None
         elif isinstance(item, Pipe):
-            color = (getattr(item, "_display_color", None)
-                     or item.pen().color().name())
+            color = _fill_or(getattr(item, "_display_color", None),
+                             item.pen().color().name())
             fill = None
             font_val = item._properties.get(
                 "Label Size", {}).get("value", 12)
@@ -1369,20 +1369,20 @@ class DisplayManager(QDialog):
             except (ValueError, TypeError):
                 font = 12
         elif isinstance(item, Fitting):
-            color = (getattr(item, "_display_color", None)
-                     or cat_def["color"])
+            color = _fill_or(getattr(item, "_display_color", None),
+                             cat_def["color"])
             fill = _fill_or(getattr(item, "_display_fill_color", None),
                             cat_def.get("fill"))
             font = None
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
-            color = (getattr(item, "_display_color", None)
-                     or cat_def["color"])
+            color = _fill_or(getattr(item, "_display_color", None),
+                             cat_def["color"])
             fill = _fill_or(getattr(item, "_display_fill_color", None),
                             cat_def.get("fill"))
             font = None
         elif isinstance(item, WallSegment):
-            color = (getattr(item, "_display_color", None)
-                     or item._color.name())
+            color = _fill_or(getattr(item, "_display_color", None),
+                             item._color.name())
             fill = _fill_or(getattr(item, "_display_fill_color", None),
                             cat_def.get("fill"))
             font = None
@@ -1395,8 +1395,10 @@ class DisplayManager(QDialog):
             font = getattr(item, "_display_font_size", cat_def.get("font"))
         else:
             # Generic items (FloorSlab, RoofItem, Room, Node, etc.)
-            color = (getattr(item, "_display_color", None)
-                     or getattr(item, "_color", cat_def["color"]))
+            color = _fill_or(
+                getattr(item, "_display_color", None),
+                _fill_or(getattr(item, "_colour", None),    # roof: str store
+                         getattr(item, "_color", cat_def["color"])))
             if isinstance(color, QColor):
                 color = color.name()
             fill = _fill_or(getattr(item, "_display_fill_color", None),
@@ -1404,8 +1406,8 @@ class DisplayManager(QDialog):
             font = cat_def.get("font")
 
         # Section colour + pattern — read from item or fall back to category default
-        section = (getattr(item, "_display_section_color", None)
-                   or cat_def.get("section"))
+        section = _fill_or(getattr(item, "_display_section_color", None),
+                           cat_def.get("section"))
         section_pattern = (getattr(item, "_display_section_pattern", None)
                            or cat_def.get("section_pattern"))
 
