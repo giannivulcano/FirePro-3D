@@ -2,6 +2,15 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Hatch & Fill — unified picker design — 2026-10-18
+
+- [x] [type:design] Unified colour + hatch picker: pattern selection, No Fill and fill opacity live in one picker widget [P2] [subject:UX] [done:2026-10-18]
+  - Details: user ask 2026-10-17 (during HF1): pattern selection, No Fill chip, always-shown fill control and fill opacity inside the picker; fork vs HF3's dissolve of per-item fill. +1 2026-10-18 (HF1 smoke).
+  - Findings (design/Medium run 2026-10-18, rulings R1–R12 ratified via AskUserQuestion): end goal = quick shape fills (R1); **keep item fill — reverses D-A16** (R2); two layers per shape, background + pattern, each colour + opacity (R3); picker Pattern row of preview tiles + Opacity (R4), fill mode only (R5); two swatches "Fill" / "Fill Pattern", one picker (R6); all 4 old picker sites route to it (R7); swatches always shown, default No Fill, enum retired (R8); Scale in pattern mode (R9); new fills 100 %, saved values kept (R10); same-look legacy load (R11); HF3 keeps FilledRegion for non-shape areas, drops dissolve/migration/"Region from this shape" (R12). Filed UP1 (R3–R6, R8–R11) and UP2 (R7); HF3 re-scoped; spec amendment notes on `hatch-and-fill.md` D-A16 and `ui-design-system.md` D6.
+- [x] [type:maint] Hatch picker helper — one implementation for the 4 picker sites [P3] [subject:Code Quality] [done:2026-10-18]
+  - Details: HF2 Task 5 review M3: `entity_context_menu._attach_fill_submenu` and `Model_View._build_fill_submenu` are duplicates; the Graphic Override combo and DM SectionPatternDialog repopulate the same way. One `populate_pattern_picker` helper with one unknown-ref rule (D-A36).
+  - Closed as absorbed into UP2 (unified-picker design run, R7): every site routes to the one picker.
+
 ## Hatch & Fill — HF1 colour tokens — 2026-10-18
 
 - [x] [type:feature] HF1 — Colour tokens: ColourValue (`#hex` | `token:auto` | `token:accent`) + `resolve_colour(value, surface)` + surface context (paper/print/PDF/previews = light values, B&W = black) + `theme.changed` live repaint + picker/Swatch Automatic·Accent row + load migration of defaults + format bump + raw-`QColor(hex)` hexguard [subject:UX] [P1] [done:2026-10-18]

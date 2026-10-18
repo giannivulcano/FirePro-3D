@@ -122,7 +122,7 @@ chrome ignored the house theme. One modal `ColourPickerDialog(HouseDialog)` plus
 point, `colour_picker.pick_colour`, now serve every call site. Grill-locked choices:
 - **Modal, not an anchored popup:** it keeps today's Cancel/OK semantics and one undo step.
 - **Fixed palette:** AutoCAD ACI plus greys. These are drawing colours and don't change with the theme.
-- **No alpha:** opacity stays its own property wherever it exists.
+- **No alpha:** opacity stays its own property wherever it exists. *(Amended 2026-10-18, unified-picker design run R4–R6/R9, as-proposed until UP1 ships: a **fill mode** of the picker adds a Pattern row of preview tiles, an Opacity control and a pattern Scale, opened from the "Fill" / "Fill Pattern" swatches; stroke, text and line pickers stay colour-only with no alpha. Tracked as UP1/UP2 in `todo_open.md`.)*
 - **No eyedropper or custom slots:** deferred.
 - **No Fill** is a chip at the end of the Standard row. *(Amended 2026-10-18, HF1 smoke ruling: one universal picker. Every call site shows every row — the Theme row (Automatic / Accent), No Fill and Standard / Recents / custom — and every property it edits honours a token and `""`; `""` draws nothing. Per-caller opt-in flags are retired. Fill opacity moving into the picker is the filed "Unified colour + hatch picker" design task, so **No alpha** holds until that task lands.)*
 

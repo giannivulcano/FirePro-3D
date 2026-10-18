@@ -217,6 +217,13 @@ until that doc is approved.
 - **D-A16** Per-item fill on closed primitives is **dissolved** — every fill is
   a Filled Region; "fill this shape" creates a region from it. Existing
   `prim["fill"]` in block definitions migrates on load to region + shape.
+  *(**Reversed 2026-10-18** by the unified-picker design run, rulings R2/R3/R12
+  ratified: closed shapes **keep** their own fill, now two layers — background
+  (solid | none) + pattern (tile | none), each with colour + opacity, the D-A12
+  model — edited through the house picker's fill mode (UP1, UP2 in
+  `todo_open.md`). No dissolve, no `prim["fill"]` migration, no "Region from
+  this shape"; Filled Regions (HF3/HF4) cover areas that are not one shape.
+  Until UP1 lands, today's single-layer per-item fill stands.)*
 - **D-A26** Click inside selects (lowest pick priority — lines win); boundary
   is snappable even when the outline is Invisible; HALO traces the boundary.
 
@@ -541,7 +548,7 @@ the D-A21 HF1 scope above.
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
-- `2d-geometry.md` fill section → `fill.pattern` is a tile id linked here (**done, HF2 Account**); per-item fill dissolved (D-A16) — pending HF3.
+- `2d-geometry.md` fill section → `fill.pattern` is a tile id linked here (**done, HF2 Account**); per-item fill dissolved (D-A16) — **D-A16 reversed 2026-10-18**: the section instead gains the two-layer shape fill with UP1.
 - `ui-design-system.md` D6 → picker gains token choices (D-A18) (**done, HF1 Account** — D6 colour block + amendment).
 - `docs/architecture/theming.md` → element colours may be tokens resolved by surface (D-A19) (**done, HF1 Account** — theme bus pointer).
 - `block-system.md` → tile capability + pattern refs in the registry (D-A9, D-A34, D-A39: **done, HF2 Account** — "Pattern-tile capability (HF2)"); Fill Type bundling (D-A15) — pending.
