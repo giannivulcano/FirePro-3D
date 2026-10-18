@@ -1382,7 +1382,7 @@ class DisplayManager(QDialog):
             font = None
         elif isinstance(item, WallSegment):
             color = _fill_or(getattr(item, "_display_color", None),
-                             item._color.name())
+                             item._colour)
             fill = _fill_or(getattr(item, "_display_fill_color", None),
                             cat_def.get("fill"))
             font = None

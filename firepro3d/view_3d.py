@@ -377,7 +377,8 @@ class View3D(QWidget):
         if self._plotter is None:
             return
         if any(is_token(getattr(r, "_colour", "")) for r in
-               getattr(self._scene, "_roofs", [])):
+               (list(getattr(self._scene, "_roofs", []))
+                + list(getattr(self._scene, "_walls", [])))):
             self.request_rebuild()
 
     # ── Coordinate mapping ─────────────────────────────────────────────────
@@ -954,9 +955,12 @@ class View3D(QWidget):
             col = mesh_data.get("color", (0.8, 0.8, 0.8, 0.9))
 
             mesh = _mesh_from_faces(verts, faces)
+            no_surface = len(col) > 3 and col[3] <= 0.0     # wall colour ""
             actor = self._plotter.add_mesh(
-                mesh, color=col[:3], opacity=1.0,
+                mesh, color=col[:3], opacity=0.0 if no_surface else 1.0,
             )
+            if no_surface:
+                actor.SetPickable(False)    # VTK's picker ignores opacity  (wall)
             actor.GetProperty().SetBackfaceCulling(False)
             actor.GetProperty().SetFrontfaceCulling(False)
             self._add_actor("walls", actor, entity=wall, entity_type="wall")
@@ -967,8 +971,12 @@ class View3D(QWidget):
             # Store Z range for section cuts
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
-            # Edge wireframe via VTK feature edges
-            self._add_edge_actor(mesh, "wall_edges")
+            # Edge wireframe via VTK feature edges (none for a "" wall; the
+            # list stays index-parallel)
+            if no_surface:
+                self._add_actor("wall_edges", None)
+            else:
+                self._add_edge_actor(mesh, "wall_edges")
 
         self._wall_centroids_3d = np.array(centroids) if centroids else None
 

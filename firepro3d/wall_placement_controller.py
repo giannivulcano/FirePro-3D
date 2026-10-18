@@ -128,7 +128,7 @@ class WallPlacementController:
             _tmpl = self._scene._get_wall_template()
             wall = WallSegment(self._scene._wall_anchor, tip,
                                thickness_mm=_tmpl._thickness_mm,
-                               color=_tmpl._color.name())
+                               color=_tmpl._colour)  # chain
             wall.name = f"Wall {self._scene._next_wall_num}"
             self._scene._next_wall_num += 1
             wall._alignment = _tmpl._alignment
@@ -511,7 +511,7 @@ class WallPlacementController:
             p2 = corners[(i + 1) % 4]
             wall = WallSegment(p1, p2,
                                thickness_mm=_tmpl._thickness_mm,
-                               color=_tmpl._color.name())
+                               color=_tmpl._colour)  # rect
             wall.name = f"Wall {self._scene._next_wall_num}"
             self._scene._next_wall_num += 1
             wall._alignment = _rect_align

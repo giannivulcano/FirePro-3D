@@ -22,7 +22,9 @@ from PyQt6.QtGui import (
 if TYPE_CHECKING:
     from .wall_opening import WallOpening
 
-from .colour_tokens import resolve_colour, section_fill_colour
+from .colour_tokens import normalize_colour, resolve_colour, section_fill_colour
+
+_DEFAULT_COLOUR = "#cccccc"
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
 from .view_scale import scene_hit_width
@@ -121,7 +123,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._pt1 = QPointF(pt1)
         self._pt2 = QPointF(pt2)
         self._thickness_mm: float = float(thickness_mm)
-        self._color = QColor(color) if isinstance(color, str) else QColor(color)
+        self._colour: str = normalize_colour(color, _DEFAULT_COLOUR)
         self._fill_mode: str = FILL_NONE
 
         # Shared display-manager attributes
@@ -297,6 +299,18 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         for op in self.openings:
             op._reposition()
 
+    # ── Colour ───────────────────────────────────────────────────────────────
+
+    @property
+    def _color(self) -> QColor:
+        """Canvas-resolved colour of the stored wall colour (legacy readers);
+        paint and the 3D mesh resolve ``self._colour`` themselves."""
+        return resolve_colour(self._colour)
+
+    @_color.setter
+    def _color(self, value) -> None:
+        self._colour = normalize_colour(value, _DEFAULT_COLOUR)
+
     # ── Paint ────────────────────────────────────────────────────────────────
 
     def paint(self, painter, option, widget=None):
@@ -304,16 +318,15 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         p1l, p1r, p2r, p2l = self.mitered_quad()
         dc = self._display_color            # None = unset; "" = No stroke
-        line_col = (self._color if dc is None
-                    else resolve_colour(dc, item=self))
+        line_col = resolve_colour(self._colour if dc is None else dc, item=self)
         pen = self._outline_pen(line_col)
 
         # Fill (always fill the full quad area); "" = No Fill draws nothing
         fill_brush = Qt.BrushStyle.NoBrush
-        if self._fill_mode == FILL_SOLID and self._display_fill_color != "":
-            dfc = self._display_fill_color
-            fill_color = (QColor(self._color) if dfc is None
-                          else resolve_colour(dfc, item=self))
+        dfc = self._display_fill_color
+        fill_src = self._colour if dfc is None else dfc     # "" = no colour
+        if self._fill_mode == FILL_SOLID and fill_src != "":
+            fill_color = resolve_colour(fill_src, item=self)
             if not getattr(self, "_paper_fill_opaque", False):
                 fill_color.setAlpha(80)
             fill_brush = QBrush(fill_color)
@@ -391,7 +404,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     def _draw_hatch(self, painter, p1l, p1r, p2r, p2l):
         """Draw diagonal hatch lines inside the wall quad."""
         dfc = self._display_fill_color
-        hatch_col = self._color if dfc is None else resolve_colour(dfc, item=self)
+        hatch_col = resolve_colour(self._colour if dfc is None else dfc, item=self)
         pen = QPen(hatch_col, 0.5)
         pen.setCosmetic(True)
         painter.setPen(pen)
@@ -557,7 +570,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "Type":         {"type": "label",     "value": "Wall"},
             "Name":         {"type": "string",    "value": self.name},
-            "Colour":       {"type": "color",     "value": self._color.name()},
+            "Colour":       {"type": "color",     "value": self._colour},
             "Thickness":    {"type": "dimension", "value": self._fmt(self._thickness_mm),
                              "value_mm": self._thickness_mm},
             "Fill Mode":    {"type": "enum",      "value": self._fill_mode,
@@ -593,7 +606,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             defaults={
                 "name":           self.name,
                 "thickness_mm":   self._thickness_mm,
-                "color":          self._color.name(),
+                "color":          self._colour,
                 "fill_mode":      self._fill_mode,
                 "alignment":      self._alignment,
                 "base_level":     self._base_level,
@@ -609,7 +622,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             p = dlg.get_params()
             self.name            = p["name"] or self.name
             self._thickness_mm   = p["thickness_mm"]
-            self._color          = QColor(p["color"])
+            self._colour         = normalize_colour(p["color"], _DEFAULT_COLOUR)
             self._fill_mode      = p["fill_mode"]
             self._alignment      = p["alignment"]
             self._base_level     = p["base_level"]
@@ -650,7 +663,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if key == "Name":
             self.name = str(value)
         elif key == "Colour":
-            self._color = QColor(value)
+            self._colour = normalize_colour(value, _DEFAULT_COLOUR)
             self.update()
         elif key == "Thickness":
             parsed = self._parse_dim(value)
@@ -717,7 +730,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "pt1":           [self._pt1.x(), self._pt1.y()],
             "pt2":           [self._pt2.x(), self._pt2.y()],
             "thickness_mm":  self._thickness_mm,
-            "color":         self._color.name(),
+            "color":         self._colour,
             "fill_mode":     self._fill_mode,
             "alignment":     self._alignment,
             "base_level":    self._base_level,
@@ -837,8 +850,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         corners_2d = [to_mm(p) for p in (p1l, p1r, p2r, p2l)]
 
-        color = (self._color.redF(), self._color.greenF(),
-                 self._color.blueF(), 0.9)
+        # The 3D view has no paper: a token resolves with canvas semantics;
+        # "" (no colour) is alpha 0 and View3D draws no surface for it.
+        c = resolve_colour(self._colour)
+        color = (c.redF(), c.greenF(), c.blueF(), 0.0 if self._colour == "" else 0.9)
 
         if not self.openings:
             # Simple box: 8 vertices, 12 triangles (6 faces × 2 tris)

@@ -962,7 +962,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
                 fill_col = dm_fill
             else:
                 fill_col = QColor(wall._color) if hasattr(wall, "_color") else dm_fill
-                fill_col.setAlpha(255)
+                if getattr(wall, "_colour", None) != "":    # "" = no colour: stays transparent
+                    fill_col.setAlpha(255)
             rect.setBrush(QBrush(fill_col))
             rect.setOpacity(dm_opacity)
 
