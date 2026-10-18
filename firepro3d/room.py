@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QFont, QPainterPath, QPainter
 from PyQt6.QtCore import Qt, QPointF
 
+from .colour_tokens import resolve_colour
 from .constants import DEFAULT_LEVEL, Z_OVERLAY
 
 if TYPE_CHECKING:
@@ -225,7 +226,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         if not text or not self._boundary:
             return
 
-        fc = self._label_font_color
+        fc = resolve_colour(self._label_font_color, item=self).name()
         fs = self._label_font_size
         html = (f"<div style='text-align:center; font-size:{fs:.0f}px; "
                 f"font-family:Segoe UI; font-weight:bold; "
@@ -247,7 +248,9 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         if self._label_bg is None:
             self._label_bg = _RoundedRectBgItem(self)
             self._label_bg.setZValue(Z_OVERLAY - 1)
-        border_color = QColor(self._display_color or self._color.name())
+        dc = self._display_color            # None = unset; "" = No stroke
+        border_color = resolve_colour(self._color.name() if dc is None else dc,
+                                      item=self)
         pen = QPen(border_color, 2)
         pen.setCosmetic(True)
         self._label_bg.setPen(pen)
@@ -435,17 +438,21 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        line_col = QColor(self._display_color or self._color.name())
+        dc = self._display_color            # None = unset; "" = No stroke
+        line_col = resolve_colour(self._color.name() if dc is None else dc,
+                                  item=self)
 
         painter.setPen(self._outline_pen(line_col, style=Qt.PenStyle.DashLine))
         # In paper viewports rooms render as boundary + tag only — no fill
         # (_paper_no_fill set by paper_display.apply_paper_overrides). On the
         # model canvas the fill stays (opaque under _paper_fill_opaque, else
         # the model alpha-50 wash).
-        if getattr(self, "_paper_no_fill", False):
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+        dfc = self._display_fill_color
+        if getattr(self, "_paper_no_fill", False) or dfc == "":
+            painter.setBrush(Qt.BrushStyle.NoBrush)     # "" = No Fill
         else:
-            fill_col = QColor(self._display_fill_color or self._color.name())
+            fill_col = resolve_colour(self._color.name() if dfc is None else dfc,
+                                      item=self)
             if not getattr(self, "_paper_fill_opaque", False):
                 fill_col.setAlpha(50)
             painter.setBrush(QBrush(fill_col))

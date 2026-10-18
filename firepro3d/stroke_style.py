@@ -14,7 +14,8 @@ import math
 from typing import NamedTuple
 
 from . import paper_display as _pd
-from .constants import (END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN, END_SCALE_MAX,
+from .colour_tokens import normalize_colour
+from .constants import (TOKEN_AUTO, END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN, END_SCALE_MAX,
                         END_SCALE_MIN)
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
@@ -111,7 +112,7 @@ STYLED_TYPES = frozenset({
 })
 
 
-def default_style(colour: str = "#ffffff") -> dict:
+def default_style(colour: str = TOKEN_AUTO) -> dict:
     """A fresh Continuous / By Linetype record with By Linetype ends (WM-10)."""
     return {
         "linetype": CONTINUOUS,
@@ -123,12 +124,9 @@ def default_style(colour: str = "#ffffff") -> dict:
 
 
 def _hex(colour) -> str:
-    """Lower-case ``#rrggbb`` for a str / QColor (fallback white)."""
-    name = getattr(colour, "name", None)
-    if callable(name):
-        colour = name()
-    s = str(colour or "#ffffff").strip().lower()
-    return s if s.startswith("#") else "#ffffff"
+    """Lower-case ``#rrggbb`` or a colour token for a str / QColor
+    (fallback Automatic -- HF1)."""
+    return normalize_colour(colour, TOKEN_AUTO)
 
 
 def _end_scale(rec) -> float:
@@ -215,7 +213,7 @@ def migrate_primitive(rec: dict) -> dict:
     if "style" in out:
         out["style"] = normalize_style(out["style"])
     else:
-        out["style"] = default_style(legacy_colour or "#ffffff")
+        out["style"] = default_style(legacy_colour or TOKEN_AUTO)
     return out
 
 

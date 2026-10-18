@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM
+from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM, TOKEN_AUTO
 
 
 def default_border_weight() -> str:
@@ -94,10 +94,10 @@ class TextAnnotationData:
     bold: bool = False
     italic: bool = False
     underline: bool = False
-    color: str = "#000000"                       # authored hex, default black
+    color: str = TOKEN_AUTO                      # hex or colour token; default Automatic (HF1)
     align: str = "L"                             # horizontal: 'L' | 'C' | 'R'
     valign: str = "T"                            # vertical: 'T' | 'M' | 'B'
-    fill_color: str = ""                          # box fill hex; "" = no fill
+    fill_color: str = ""                          # box fill hex | token:*; "" = no fill
     fill_opacity: float = 100.0                   # fill alpha percentage 0-100
     cell_padding_mm: float = TEXT_BOX_MARGIN_MM   # inner padding text↔box edge (surface mm)
     border: bool = False                         # frame visibility
@@ -141,7 +141,7 @@ class TextAnnotationData:
             font_family=d.get("font_family", ""),
             bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
             underline=bool(d.get("underline", False)),
-            color=d.get("color", "#000000"), align=d.get("align", "L"),
+            color=d.get("color", TOKEN_AUTO), align=d.get("align", "L"),
             valign=d.get("valign", "T"),
             fill_color=(d.get("fill_color")
                         if d.get("fill_color") is not None
@@ -198,6 +198,7 @@ from .constants import (                                           # noqa: E402
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_CARET_WIDTH_PX, TEXT_METRIC_REF_PX, TEXT_SELECTION_ALPHA,
 )
+from .colour_tokens import is_token, normalize_colour, resolve_colour  # noqa: E402
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
 
@@ -349,7 +350,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         f.setUnderline(d.underline)
         f.setPixelSize(TEXT_METRIC_REF_PX)
         self.setFont(f)
-        self.setDefaultTextColor(QColor(d.color))
+        self.setDefaultTextColor(resolve_colour(d.color, item=self))
         opt = self.document().defaultTextOption()
         opt.setAlignment(self._ALIGN.get(d.align, Qt.AlignmentFlag.AlignLeft))
         self.document().setDefaultTextOption(opt)
@@ -375,6 +376,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         else:
             self.setTextWidth(-1)
             self.setTextWidth(self.document().idealWidth())
+
+    def on_theme_changed(self) -> None:
+        """Re-latch the document's default text colour after a theme switch
+        (HF1 theme bus) -- only a token colour changes.
+
+        Calls ``setDefaultTextColor`` directly rather than ``_apply_format``,
+        which also rebuilds scale/wrap/margins (geometry side effects).
+        """
+        if is_token(self._data.color):
+            self.setDefaultTextColor(resolve_colour(self._data.color, item=self))
+            self.update()
 
     def itemChange(self, change, value):
         """Re-derive the sizing mode when the item lands on / leaves a scene,
@@ -477,7 +489,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         On the paper surface the true named mm weight is used (divided by scale
         like the other paper pens) so the border still plots at its real width.
         """
-        pen = QPen(QColor(self._data.color))
+        pen = QPen(resolve_colour(self._data.color, item=self))
         pen.setStyle({
             "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
             "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
@@ -612,7 +624,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
         if self._data.fill_color:
-            c = QColor(self._data.fill_color)
+            c = resolve_colour(self._data.fill_color, item=self)   # token-aware
             c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
             painter.fillRect(box, c)
         if self.is_device_independent():
@@ -630,10 +642,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                     painter.fillRect(r.intersected(box), sel)
             outline = self._glyph_outline_local()
             if not outline.isEmpty():
-                painter.fillPath(outline, QColor(self._data.color))
+                painter.fillPath(outline, resolve_colour(self._data.color, item=self))
             if self._editing and self._caret_on:
                 cr = self.caret_rect_local()
-                pen = QPen(QColor(self._data.color))
+                pen = QPen(resolve_colour(self._data.color, item=self))
                 pen.setCosmetic(True)
                 pen.setWidthF(TEXT_CARET_WIDTH_PX)
                 painter.setPen(pen)
@@ -645,7 +657,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._editing and self.is_device_independent():
             # Paper keeps its dashed EDITING frame; the model surface shows the
             # normal selection frame only (spec § Inline edit — no edit frame).
-            pen = QPen(QColor("#88aaff"))
+            pen = QPen(QColor("#88aaff"))  # theme-exempt: paper edit-frame overlay (theme-blind overlays follow-up)
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
@@ -1145,7 +1157,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "V Align":  {"type": "icon_enum", "value": d.valign,
                          "options": [("T", "align_top.svg"), ("M", "align_middle.svg"),
                                      ("B", "align_bottom.svg")]},
-            "Font Color": {"type": "color", "value": d.color or "#000000"},
+            "Font Color": {"type": "color", "value": TOKEN_AUTO if d.color is None else d.color},
             "Frame":    {"type": "header", "value": "Frame"},
             "Line Type": {"type": "enum",
                           "options": ["none", "solid", "dashed", "dotted", "dashdot"],
@@ -1160,7 +1172,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Corner Radius": {"type": "number", "value": int(round(d.border_corner_radius_mm)),
                               "minimum": 0},
             "Fill":     {"type": "header", "value": "Fill"},
-            "Fill Color":   {"type": "color", "value": d.fill_color, "allow_none": True},
+            "Fill Color":   {"type": "color", "value": d.fill_color},
             "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity),
                              "disabled": not d.fill_color},
         }
@@ -1202,7 +1214,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         elif key == "Font":
             self._data.font_family = str(value)
         elif key == "Font Color":
-            self._data.color = str(value)
+            self._data.color = normalize_colour(value, TOKEN_AUTO)
         elif key == "Height":
             try:
                 mm = float(value)

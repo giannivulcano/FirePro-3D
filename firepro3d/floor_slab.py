@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 
+from .colour_tokens import resolve_colour, section_fill_colour
 from .geometry_utils import triangulate_polygon
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
@@ -194,7 +195,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        line_col = QColor(self._display_color) if self._display_color else self._color
+        dc = self._display_color            # None = unset; "" = No stroke
+        line_col = self._color if dc is None else resolve_colour(dc, item=self)
         pen = self._outline_pen(line_col)
 
         # When this slab is within the plan view range, draw an opaque
@@ -214,13 +216,15 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
 
         painter.setPen(pen)
 
-        if self._display_fill_color:
-            fill_color = QColor(self._display_fill_color)
+        dfc = self._display_fill_color
+        if dfc == "":                       # No Fill: draws nothing
+            painter.setBrush(Qt.BrushStyle.NoBrush)
         else:
-            fill_color = QColor(self._color)
-        if not getattr(self, "_paper_fill_opaque", False):
-            fill_color.setAlpha(_FILL_ALPHA)
-        painter.setBrush(QBrush(fill_color))
+            fill_color = (QColor(self._color) if dfc is None
+                          else resolve_colour(dfc, item=self))
+            if not getattr(self, "_paper_fill_opaque", False):
+                fill_color.setAlpha(_FILL_ALPHA)
+            painter.setBrush(QBrush(fill_color))
 
         if len(self._points) >= 3:
             poly = QPolygonF(self._points)
@@ -234,8 +238,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             clip = QPainterPath()
             clip.addPolygon(QPolygonF(self._points))
             clip.closeSubpath()
-            sec_fill_hex = getattr(self, "_display_section_color", None) or ""
-            sec_fill = QColor(sec_fill_hex) if sec_fill_hex.startswith("#") else None
+            sec_fill = section_fill_colour(
+                getattr(self, "_display_section_color", None), self)
             pattern = getattr(self, "_display_section_pattern", None) or "diagonal"
             h_scale = getattr(self, "_display_section_scale", 1.0) or 1.0
             draw_section_hatch(painter, clip, self.scene(),

@@ -28,10 +28,12 @@ from . import end_render as _er
 from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
+from . import theme as _theme
 from .block_definition import BlockDefinition
 from .block_pose import (check_scale, is_upright, pose_matrix, reflect_pose,
                          valid_scale)
-from .constants import LINETYPE_WINDOW_MIN_PERIODS
+from .colour_tokens import paint_resolver, resolve_colour
+from .constants import LINETYPE_WINDOW_MIN_PERIODS, TOKEN_AUTO
 from .geometry_2d import constraint_tint
 from .render_op import (STROKE, FILL, PATTERN, TEXT, apply_overrides,
                         pattern_orient as _pattern_orient)
@@ -713,7 +715,7 @@ class BlockInstance(QGraphicsObject):
         self._paint_sf = None                   # set where the ends' factors are read
         if not ops:
             if self.definition() is None:      # orphan placeholder
-                p = QPen(QColor("#c0392b"))
+                p = QPen(QColor("#c0392b"))  # theme-exempt: missing-definition error red
                 p.setCosmetic(True)
                 painter.setPen(p)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -755,6 +757,9 @@ class BlockInstance(QGraphicsObject):
         ec = self._end_ops_cache            # LT5 explicit-end ops (inline hit)
         eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
         xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
+        rc = paint_resolver(self)     # each distinct colour once per paint (G12)
+        sel = (QColor(_theme.detect().accent)       # canvas selection (R5)
+               if selected and not on_paper else None)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
                 xf.unposed()
@@ -764,12 +769,12 @@ class BlockInstance(QGraphicsObject):
                 xf.unposed()
                 # Text op: the fill carries the colour, so selection/override
                 # tint applies to the BRUSH.
-                b = QBrush(QColor(op.colour or "#ffffff"))
+                b = QBrush(rc(op.colour or TOKEN_AUTO))
                 if override is not None:
                     b.setColor(override)
                 # Selection is canvas feedback -- never plots (LT1-2).
-                if selected and not on_paper:
-                    b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                if sel is not None:
+                    b.setColor(sel)  # theme accent (R5)
                 if self._paper_pen_color is not None:
                     b.setColor(self._paper_pen_color)   # paper B&W/Custom (LT1-2)
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -785,6 +790,8 @@ class BlockInstance(QGraphicsObject):
                     missing = rs.missing_id
                 # Copy — the compiled op pen is shared by every instance.
                 p = QPen(op.pen)
+                if op.colour is not None:
+                    p.setColor(rc(op.colour))
                 if on_paper:
                     p.setCosmetic(False)          # true mm on paper (LT1-2)
                     p.setWidthF(width)
@@ -796,8 +803,8 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(override)
                 if tint is not None:
                     p.setColor(tint)              # pen COPY (MW-12)
-                if selected and not on_paper:
-                    p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                if sel is not None:
+                    p.setColor(sel)  # theme accent (R5)
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
                 # LT5: this op's resolved ends and the trims they cut. Inline
@@ -906,6 +913,9 @@ class BlockInstance(QGraphicsObject):
         on_paper = self._paper_pen_width is not None
         last_w, last_px = None, None
         xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
+        rc = paint_resolver(self)     # each distinct colour once per paint (G12)
+        sel = (QColor(_theme.detect().accent)       # canvas selection (R5)
+               if selected and not on_paper else None)
         miss = []
         ff = sf = reg = None          # LT5 / ET1 lazies (ff None = not read yet)
         for i, op in enumerate(ops):
@@ -917,12 +927,12 @@ class BlockInstance(QGraphicsObject):
                 xf.unposed()
                 # Text op: the fill carries the colour, so selection/override
                 # tint applies to the BRUSH.
-                b = QBrush(QColor(op.colour or "#ffffff"))
+                b = QBrush(rc(op.colour or TOKEN_AUTO))
                 if override is not None:
                     b.setColor(override)
                 # Selection is canvas feedback -- never plots (LT1-2).
-                if selected and not on_paper:
-                    b.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                if sel is not None:
+                    b.setColor(sel)  # theme accent (R5)
                 if self._paper_pen_color is not None:
                     b.setColor(self._paper_pen_color)   # paper B&W/Custom (LT1-2)
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -930,6 +940,8 @@ class BlockInstance(QGraphicsObject):
             else:
                 # Copy — the compiled op pen is shared by every instance.
                 p = QPen(op.pen)
+                if op.colour is not None:
+                    p.setColor(rc(op.colour))
                 w = op.weight
                 if on_paper:
                     p.setCosmetic(False)          # true mm on paper (LT1-2)
@@ -944,8 +956,8 @@ class BlockInstance(QGraphicsObject):
                     p.setColor(override)
                 if tint is not None:
                     p.setColor(tint)              # pen COPY (MW-12)
-                if selected and not on_paper:
-                    p.setColor(QColor("#63BE8B"))  # accent; icon-style-guide token
+                if sel is not None:
+                    p.setColor(sel)  # theme accent (R5)
                 if self._paper_pen_color is not None:
                     p.setColor(self._paper_pen_color)
                 if end_ops and i in end_ops and not self._is_ghost:
@@ -1170,7 +1182,7 @@ class BlockInstance(QGraphicsObject):
         """Fill / pattern op: boundary posed; pattern stamped in the pose's
         rotation / mirror frame, never its scale (D-A11 block-pose exception)."""
         paint_fill = _hr.paint_fill              # module import (hot path)
-        col = QColor(op.colour or "#888888")
+        col = resolve_colour(op.colour or "#888888", item=self)
         col.setAlpha(op.alpha)
         if op.kind == FILL:
             paint_fill(painter, pose.map(op.path), scene=self.scene(),

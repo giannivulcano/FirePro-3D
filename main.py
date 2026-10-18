@@ -487,6 +487,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.current_text_template.data
         self.paper_space_widget.paper_scene.selectionChanged.connect(
             self.update_paper_property_manager)
+        # HF1: theme switch -> repaint token consumers. Bound method (auto-drops
+        # with the window) + explicit disconnect in closeEvent: the bus is
+        # process-wide and outlives every window.
+        th.theme_bus().changed.connect(self._on_theme_bus_changed)
         # Bound methods, never ``self`` lambdas: the parentless PaperScene can
         # outlive this window, and ~QUndoStack emits indexChanged on destruction;
         # PyQt auto-disconnects bound-method slots when the receiver dies, a
@@ -2369,6 +2373,49 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 self.ribbon.setStyleSheet(_th.build_ribbon_qss(t))
         if getattr(self, "view", None) is not None:
             self.view.viewport().update()
+        _th.theme_bus().changed.emit()
+
+    def _live_scenes(self) -> list:
+        """Every live scene: model, paper sheet, open Block Editors,
+        elevation views, schematic scenes (HF1 theme refresh + re-pen)."""
+        scenes = [self.scene]
+        psw = getattr(self, "paper_space_widget", None)
+        if psw is not None and getattr(psw, "paper_scene", None) is not None:
+            scenes.append(psw.paper_scene)
+        mgr = getattr(self, "block_editor_manager", None)
+        if mgr is not None:
+            scenes.extend(w.editor_scene for w in mgr.open_editors())
+        em = getattr(self, "elevation_manager", None)
+        if em is not None:
+            scenes.extend(sc for sc, _v in em._views.values())
+        ss = getattr(self, "schematic_scenes", None)     # SchematicSceneManager
+        if ss is not None:
+            scenes.extend(ss._scenes.values())          # {block_id: scene}
+        return scenes
+
+    def _on_theme_bus_changed(self) -> None:
+        """Repaint every token consumer after a theme switch (HF1)."""
+        from PyQt6 import sip
+        if sip.isdeleted(self):
+            return
+        from firepro3d.display_manager import refresh_token_latched
+        # Elevation views project DM colours at rebuild (no sprinkler_system,
+        # so refresh_token_latched skips them): re-project before the walk.
+        em = getattr(self, "elevation_manager", None)
+        if em is not None:
+            try:
+                em.rebuild_all()
+            except Exception:       # one bad elevation must not abort the walk
+                import logging
+                logging.getLogger(__name__).warning(
+                    "elevation rebuild failed on theme switch", exc_info=True)
+        for sc in self._live_scenes():
+            refresh_token_latched(sc)
+            for it in sc.items():
+                fn = getattr(it, "on_theme_changed", None)
+                if fn is not None:
+                    fn()
+            sc.update()
 
     def _apply_crosshair(self, enabled=None) -> None:
         """Toggle the accent crosshair across plan views + suppress the blue
@@ -2848,9 +2895,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         def _swatch_style(hex_color: str) -> str:
             t2 = _th.detect()
+            from firepro3d.colour_tokens import is_token, resolve_colour
+            if hex_color == "":
+                hex_color = "transparent"          # No Fill
+            elif is_token(hex_color):
+                hex_color = resolve_colour(hex_color).name()
             return (f"QToolButton {{ border: 1px solid {t2.border_strong}; "
                     f"background: {hex_color}; }}"
                     f"QToolButton:hover {{ border-color: {t2.accent_primary}; }}")
+
+        def _fill_of(it):
+            """Stored fill colour; unset (None) paints the default grey, while
+            ``""`` is No Fill and a ``token:*`` is kept as is."""
+            v = getattr(it, "_display_fill_color", None)
+            return "#888888" if v is None else v
 
         # Row 1: Stroke swatch + Fill type + Pattern
         row1 = QWidget(); r1 = QHBoxLayout(row1)
@@ -2915,8 +2973,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 pat = uniform(lambda it: it.fill_pattern)
                 pattern_combo.setCurrentIndex(
                     pattern_combo.findData(canonical_ref(pat)) if pat is not None else -1)
-                col = uniform(lambda it: getattr(it, "_display_fill_color", None) or "#888888")
-                if col:
+                col = uniform(lambda it: _fill_of(it))
+                if col is not None:
                     fill_btn.setStyleSheet(_swatch_style(col))
                 opa = uniform(lambda it: round(it.fill_opacity * 100))
                 opacity_edit.setText("" if opa is None else str(opa))
@@ -2956,11 +3014,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             targets = _fillable_targets()
             if not targets:
                 return
-            existing = getattr(targets[0], "_display_fill_color", None) or "#888888"
+            existing = _fill_of(targets[0])
             hex_val = colour_picker.pick_colour(existing, page, "Fill")
             if hex_val is not None:
-                apply = [t for t in targets
-                         if (getattr(t, "_display_fill_color", None) or "#888888") != hex_val]
+                apply = [t for t in targets if _fill_of(t) != hex_val]
                 if not apply:
                     return
                 self.scene.push_undo_state()
@@ -3410,7 +3467,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Seed the picker from the first target's current override, if any.
         seed = targets[0]._display_overrides.get(prop)
         hex_val = colour_picker.pick_colour(
-            seed if seed else "#ffffff", self, title)
+            seed if seed is not None else "#ffffff", self, title)
         if hex_val is None:
             return
 
@@ -3839,14 +3896,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         for record, _group in list(getattr(self.scene, "underlays", [])):
             self.scene.repen_underlay(record)
-        scenes = [self.scene]
-        psw = getattr(self, "paper_space_widget", None)
-        if psw is not None and getattr(psw, "paper_scene", None) is not None:
-            scenes.append(psw.paper_scene)
-        mgr = getattr(self, "block_editor_manager", None)
-        if mgr is not None:
-            scenes.extend(w.editor_scene for w in mgr.open_editors())
-        for sc in scenes:
+        for sc in self._live_scenes():
             for v in sc.views():
                 v.viewport().update()
 
@@ -5822,6 +5872,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         self.save_settings()
         self._cleanup_autosave()
+        try:
+            th.theme_bus().changed.disconnect(self._on_theme_bus_changed)
+        except (TypeError, RuntimeError):
+            pass                                # already disconnected
         self.schematic_scenes.dispose_all()
         # Child widgets don't receive closeEvent; release the 3D view's VTK
         # render window explicitly so its GL context doesn't leak past teardown.

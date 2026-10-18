@@ -349,10 +349,10 @@ class RoofDialog(QDialog):
             self._peak_height_label.setText("N/A (place roof first)")
 
     def _update_color_swatch(self):
-        self._color_btn.setStyleSheet(
-            f"background-color: {self._color_value};"
-            f" border: 1px solid {detect().border_strong}; border-radius: 3px;")
-        self._color_btn.setText(self._color_value)
+        from .display_manager import _apply_swatch_look   # token / "" aware
+        _apply_swatch_look(self._color_btn, self._color_value, detect())
+        if self._color_value and not self._color_btn.text():
+            self._color_btn.setText(self._color_value)   # hex shows its value
 
     def _pick_color(self):
         v = colour_picker.pick_colour(self._color_value, self, "Roof")

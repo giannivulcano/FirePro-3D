@@ -72,9 +72,9 @@ def test_recents_mru_dedupe_cap_and_persist(qapp):
 
 # ── Task 3: ColourPickerDialog + pick_colour ───────────────────────────────
 
-def _dlg(qapp, initial="#FF0000", allow_none=False, context="Test"):
+def _dlg(qapp, initial="#FF0000", context="Test"):
     from firepro3d.colour_picker import ColourPickerDialog
-    d = ColourPickerDialog(None, initial=initial, context=context, allow_none=allow_none)
+    d = ColourPickerDialog(None, initial=initial, context=context)
     d.show()
     qapp.processEvents()
     return d
@@ -108,7 +108,7 @@ def test_double_click_chip_commits(qapp):
 
 
 def test_escape_cancels_and_is_not_no_fill(qapp):
-    d = _dlg(qapp, "#FF0000", allow_none=True)
+    d = _dlg(qapp, "#FF0000")
     QTest.mouseClick(_chip(d, "#00FFFF"), Qt.MouseButton.LeftButton)   # move off default
     fired = []
     d.rejected.connect(lambda: fired.append(1))
@@ -132,11 +132,9 @@ def test_cancel_button_returns_none(qapp):
     assert d.result_value() is None
 
 
-def test_no_fill_chip_only_when_allowed_and_at_end_of_standard(qapp):
-    d = _dlg(qapp, "#FF0000", allow_none=False)
-    assert all(c.value != "" for c in d._chips)
-    d.close()
-    d = _dlg(qapp, "#FF0000", allow_none=True)
+def test_no_fill_chip_always_at_end_of_standard(qapp):
+    # Universal picker (2026-10-18 ruling): No Fill is offered at every site.
+    d = _dlg(qapp, "#FF0000")
     row = d._standard_row_chips
     assert [c.value for c in row] == [*__import__("firepro3d.colour_picker", fromlist=["x"]).STANDARD, ""]
     QTest.mouseClick(row[-1], Qt.MouseButton.LeftButton)
@@ -146,14 +144,8 @@ def test_no_fill_chip_only_when_allowed_and_at_end_of_standard(qapp):
 
 
 def test_initial_no_fill_opens_no_fill_selected(qapp):
-    d = _dlg(qapp, "", allow_none=True)
+    d = _dlg(qapp, "")
     assert d.current_value() == "" and _chip(d, "").selected
-    d.close()
-
-
-def test_initial_empty_without_allow_none_falls_back_to_black(qapp):
-    d = _dlg(qapp, "", allow_none=False)
-    assert d.current_value() == "#000000"
     d.close()
 
 
@@ -203,12 +195,12 @@ def test_hue_bar_click_changes_hue(qapp):
 def test_ok_records_recent_cancel_and_no_fill_do_not(qapp):
     from firepro3d import colour_picker as cp
     cp.clear_recents()
-    d = _dlg(qapp, "#123456", allow_none=True)
+    d = _dlg(qapp, "#123456")
     QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
     assert cp.load_recents() == ["#123456"]
     d = _dlg(qapp, "#654321")
     QTest.keyClick(d, Qt.Key.Key_Escape)
-    d = _dlg(qapp, "", allow_none=True)
+    d = _dlg(qapp, "")
     QTest.mouseClick(d._ok_btn, Qt.MouseButton.LeftButton)
     assert cp.load_recents() == ["#123456"]
     # a NEW dialog instance shows it in the Recent row
@@ -242,7 +234,7 @@ def test_pick_colour_entry_point_tristate(qapp, monkeypatch):
         self.accept()
         return QDialog.DialogCode.Accepted
     monkeypatch.setattr(cp.ColourPickerDialog, "exec", _acc)
-    assert cp.pick_colour("#FF0000", None, "x", allow_none=True) == ""
+    assert cp.pick_colour("#FF0000", None, "x") == ""
     assert cp.load_recents() == []                   # No Fill is never recorded
 
 
@@ -274,7 +266,7 @@ def test_context_label_and_title(qapp):
 
 
 def test_every_interactive_control_has_tooltip(qapp):
-    d = _dlg(qapp, "#FF0000", allow_none=True)
+    d = _dlg(qapp, "#FF0000")
     for w in [d._sv, d._hue, d._hex, d._r, d._g, d._b, *d._chips]:
         assert w.toolTip(), f"missing tooltip on {w!r}"
     d.close()
@@ -327,13 +319,13 @@ def test_group_labels_are_accent_coloured(qapp, theme_name):
     d.close()
 
 
-@pytest.mark.parametrize("initial, allow_none", [("", True), ("#000000", False), ("#808080", False)])
-def test_hue_drag_from_achromatic_start_changes_colour(qapp, initial, allow_none):
+@pytest.mark.parametrize("initial", ["", "#000000", "#808080"])
+def test_hue_drag_from_achromatic_start_changes_colour(qapp, initial):
     """User smoke 2026-09-22: opened from No Fill / black, dragging the hue bar
     left the colour #000000 (black/grey at any hue is still black/grey), so the
     preview looked dead until a preset was clicked. Hue on an achromatic colour
     must produce a visible hue."""
-    d = _dlg(qapp, initial, allow_none=allow_none)
+    d = _dlg(qapp, initial)
     hb = d._hue
     QTest.mouseClick(hb, Qt.MouseButton.LeftButton, pos=QPoint(hb.width() // 2, hb.height() // 2))
     c = QColor(d.current_value())

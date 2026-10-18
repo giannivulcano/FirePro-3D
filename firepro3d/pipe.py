@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsItem, QGraphicsTextItem,
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
+from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
 
 from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY
@@ -150,8 +151,16 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                 # Delegate to _update_riser_symbol for consistent logic
                 self._update_riser_symbol()
 
+    def _pen_colour(self) -> QColor:
+        """Stroke colour in force: the Display Manager colour (a ``token:*``
+        resolves per paint, ``""`` = No stroke is transparent), else the
+        Colour property."""
+        dc = self._display_color
+        return resolve_colour(self._properties["Colour"]["value"] if dc is None else dc,
+                              item=self)
+
     def set_pipe_display(self):
-        colour = QColor(self._display_color or self._properties["Colour"]["value"])
+        colour = self._pen_colour()
         line_weight = self.display_width_mm() * self._display_scale
         pen = QPen(colour, line_weight)
         # Use RoundCap unless both ends are cap fittings; mixed case is
@@ -616,7 +625,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         return math.sqrt(horiz_ft ** 2 + z_diff_ft ** 2)
 
     def paint(self, painter, option, widget=None):
-        colour = QColor(self._display_color or self._properties["Colour"]["value"])
+        colour = self._pen_colour()
 
         # Pen width = Main/Branch display width in scene units (mm).
         # Non-cosmetic: the line scales with zoom just like real geometry.

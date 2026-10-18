@@ -62,7 +62,8 @@ def test_default_rectangle_plots_black_on_paper(qapp):
     # DEFAULT color = white #ffffff (invisible on white paper before the fix).
     rect = RectangleItem(QPointF(200, 200), QPointF(800, 800))
     rect.level = "Level 1"
-    assert rect.pen().color().name() == "#ffffff"   # guard: white default
+    assert rect.style["colour"] == "token:auto"   # guard: Automatic default (HF1)
+    canvas_ink = rect.pen().color().name()
     ms._draw_rects.append(rect)
     ms.addItem(rect)
 
@@ -74,15 +75,16 @@ def test_default_rectangle_plots_black_on_paper(qapp):
     inside = _non_white_inside(img, data)
     assert inside > 0, f"rectangle did not plot: {inside} non-white pixels inside"
 
-    # (b) After render, the pen color is restored to the model white.
-    assert rect.pen().color().name() == "#ffffff"
+    # (b) After render, the pen color is restored to the canvas ink.
+    assert rect.pen().color().name() == canvas_ink
 
 
 def test_default_circle_plots_black_on_paper(qapp):
     ms = Model_Space()
     circle = CircleItem(QPointF(500, 500), 300)     # default white
     circle.level = "Level 1"
-    assert circle.pen().color().name() == "#ffffff"
+    assert circle.style["colour"] == "token:auto"
+    canvas_ink = circle.pen().color().name()
     ms._draw_circles.append(circle)
     ms.addItem(circle)
 
@@ -91,7 +93,7 @@ def test_default_circle_plots_black_on_paper(qapp):
 
     inside = _non_white_inside(img, data)
     assert inside > 0, f"circle did not plot: {inside} non-white pixels inside"
-    assert circle.pen().color().name() == "#ffffff"
+    assert circle.pen().color().name() == canvas_ink
 
 
 def test_draw_geometry_pen_width_is_true_on_paper_mm(qapp):

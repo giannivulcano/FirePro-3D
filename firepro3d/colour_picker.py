@@ -1,11 +1,12 @@
 """colour_picker.py — house colour picker (todo #70).
 
 One modal ``ColourPickerDialog(HouseDialog)`` + one entry point
-``pick_colour(initial, parent, context, *, allow_none=False)`` replacing the
+``pick_colour(initial, parent, context)`` (every row, always) replacing the
 native Qt colour dialog app-wide. Result contract:
     None        → cancelled (caller changes nothing)
-    ""          → No Fill (only possible when allow_none=True)
+    ""          → No Fill (always offered)
     "#RRGGBB"   → a colour
+    "token:*"   → a theme token (Automatic / Accent; always offered)
 Callers must import the MODULE and call ``colour_picker.pick_colour`` so tests
 can monkeypatch one attribute. See docs/specs/ui-design-system.md.
 """
@@ -19,6 +20,8 @@ from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QLineEdit, QGridLayout, QDialog, QDialogButtonBox,
                              QPushButton)
 
+from .colour_tokens import is_token, resolve_colour, token_label
+from .constants import TOKEN_ACCENT, TOKEN_AUTO
 from .house_dialog import HouseDialog
 from .theme import M, detect
 from .ui_kit import Stepper, paint_no_fill
@@ -53,8 +56,9 @@ def _save_recents(lst: list[str]) -> None:
 
 def push_recent(hex_color: str) -> None:
     """Record a committed colour: MRU-first, case-insensitive dedupe, cap 10.
-    No Fill ("") is never recorded."""
-    if not hex_color:
+    No Fill ("") and colour tokens are never recorded (a token is theme-relative,
+    not a colour to remember)."""
+    if not hex_color or is_token(hex_color):
         return
     h = hex_color.upper()
     lst = [c for c in load_recents() if c.upper() != h]
@@ -180,7 +184,7 @@ class _PreviewChip(QWidget):
             if v == NO_FILL:
                 paint_no_fill(p, rr, 0)
             else:
-                p.fillRect(rr, QColor(v))
+                p.fillRect(rr, resolve_colour(v))
         p.setPen(QPen(QColor((self._t or detect()).line_strong), 1)); p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(r, 4, 4)
 
@@ -221,7 +225,7 @@ class _PaletteChip(QWidget):
             paint_no_fill(p, r, rad)
             p.setBrush(Qt.BrushStyle.NoBrush)
         else:
-            p.setBrush(QColor(self.value))
+            p.setBrush(resolve_colour(self.value))
         p.setPen(QPen(QColor(t.line_strong), 1)); p.drawRoundedRect(r, rad, rad)
         if self.selected:
             p.setBrush(Qt.BrushStyle.NoBrush)
@@ -248,14 +252,16 @@ class ColourPickerDialog(HouseDialog):
     """House colour picker. Read the outcome with ``result_value()``."""
 
     def __init__(self, parent=None, *, initial="#000000", context="",
-                 allow_none=False, theme=None):
+                 theme=None):
         super().__init__(parent, title="Colour", icon=None, theme=theme)
         self.setFixedWidth(M.COLOUR_DLG_W)
-        self._allow_none = allow_none
+        self._token = initial if is_token(initial) else None
         self._syncing = False
         self._chips: list[_PaletteChip] = []
-        if initial == NO_FILL and allow_none:
+        if initial == NO_FILL:
             start = NO_FILL
+        elif self._token:
+            start = resolve_colour(self._token).name().upper()
         else:
             q = QColor(initial) if initial else QColor()
             start = q.name().upper() if q.isValid() else "#000000"
@@ -271,7 +277,7 @@ class ColourPickerDialog(HouseDialog):
         self._hue = _HueBar(theme=self._theme); self._hue.changed.connect(self._on_hue)
         top.addWidget(self._sv); top.addWidget(self._hue)
         side = QVBoxLayout(); side.setSpacing(6); side.setContentsMargins(0, 0, 0, 0)
-        self._preview = _PreviewChip(start, theme=self._theme); side.addWidget(self._preview)
+        self._preview = _PreviewChip(self._token or start, theme=self._theme); side.addWidget(self._preview)
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         self._hex = QLineEdit()
         self._hex.setFixedHeight(M.PROP_FIELD_H)
@@ -290,9 +296,10 @@ class ColourPickerDialog(HouseDialog):
         top.addLayout(side, 1)
         lay.addLayout(top)
 
+        self._theme_row_chips = self._add_token_row(lay)
         std = list(zip(STANDARD, STANDARD_NAMES))
         self._standard_row_chips = self._add_row(lay, "Standard", [(v, f"{n} · {v}") for v, n in std]
-                                                 + ([(NO_FILL, "No Fill (transparent)")] if allow_none else []))
+                                                 + [(NO_FILL, "No Fill (transparent)")])
         self._add_row(lay, "Greys", [(v, v) for v in GREYS])
         rec = load_recents()
         self._recent_row_chips = self._add_row(
@@ -333,15 +340,40 @@ class ColourPickerDialog(HouseDialog):
         self._chips.extend(chips)
         return chips
 
+    def _add_token_row(self, lay):
+        """Overline **Theme** row: Automatic + Accent chips, each drawn in its
+        current-canvas colour with a caption (D-A18, ui-design-system D6)."""
+        lay.addSpacing(M.COLOUR_SEC_GAP)
+        lay.addWidget(_section_label("Theme"))
+        lay.addSpacing(4)
+        row = QHBoxLayout(); row.setSpacing(M.COLOUR_CHIP_GAP); row.setContentsMargins(0, 0, 0, 0)
+        chips = []
+        for value in (TOKEN_AUTO, TOKEN_ACCENT):
+            c = _PaletteChip(value, token_label(value), theme=self._theme)
+            c.picked.connect(self._on_chip)
+            c.committed.connect(self._on_chip_commit)
+            row.addWidget(c)
+            row.addWidget(QLabel(token_label(value)))
+            row.addSpacing(M.COLOUR_COL_GAP)
+            chips.append(c)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self._chips.extend(chips)
+        return chips
+
     # ── state ──────────────────────────────────────────────────────────────
     def current_value(self) -> str:
+        if self._token:
+            return self._token
         return NO_FILL if self._no_fill else self._color.name().upper()
 
     def result_value(self):
-        """None if cancelled, NO_FILL ("") or "#RRGGBB" if accepted."""
+        """None if cancelled, NO_FILL (""), a colour token 
+        or "#RRGGBB" if accepted."""
         return self._result_value
 
     def _set_colour(self, qc: QColor, *, keep_hue=False):
+        self._token = None
         self._no_fill = False
         self._color = QColor(qc)
         if not keep_hue and qc.hsvHueF() >= 0:
@@ -349,9 +381,9 @@ class ColourPickerDialog(HouseDialog):
         self._sync_widgets()
 
     def _set_no_fill(self):
-        if self._allow_none:
-            self._no_fill = True
-            self._sync_widgets()
+        self._token = None
+        self._no_fill = True
+        self._sync_widgets()
 
     def _sync_widgets(self):
         self._syncing = True
@@ -362,8 +394,9 @@ class ColourPickerDialog(HouseDialog):
             self._hue.set_hue(self._h)
             self._preview.set_new(v)
             if not self._hex.hasFocus() or self._no_fill:
-                self._hex.setText("" if self._no_fill else v)
-            self._hex.setPlaceholderText("None" if self._no_fill else "")
+                self._hex.setText("" if (self._no_fill or self._token) else v)
+            self._hex.setPlaceholderText(
+                "None" if self._no_fill else (token_label(self._token) or ""))
             for st, val in ((self._r, c.red()), (self._g, c.green()), (self._b, c.blue())):
                 st.setValue(val)
             for chip in self._chips:
@@ -398,6 +431,12 @@ class ColourPickerDialog(HouseDialog):
             self._set_colour(QColor(self._r.value(), self._g.value(), self._b.value()))
 
     def _on_chip(self, value):
+        if is_token(value):
+            self._token = value
+            self._no_fill = False
+            self._color = resolve_colour(value)
+            self._sync_widgets()
+            return
         if value == NO_FILL:
             self._set_no_fill()
         else:
@@ -418,13 +457,13 @@ class ColourPickerDialog(HouseDialog):
         super().reject()
 
 
-def pick_colour(initial, parent=None, context="", *, allow_none=False):
-    """Open the house picker. Returns None (cancelled), NO_FILL ("") or a
-    lower-case "#rrggbb" — the same convention QColor.name() gave every caller,
-    so stored data / no-op comparisons keep their existing form. (The dialog
-    DISPLAYS upper-case hex; only the returned value is lower-cased.)"""
-    dlg = ColourPickerDialog(parent, initial=initial or "", context=context,
-                             allow_none=allow_none)
+def pick_colour(initial, parent=None, context=""):
+    """Open the house picker. Returns None (cancelled), NO_FILL (""), a colour
+    token or a lower-case "#rrggbb" — the same convention
+    QColor.name() gave every caller, so stored data / no-op comparisons keep
+    their existing form. (The dialog DISPLAYS upper-case hex; only the
+    returned value is lower-cased.)"""
+    dlg = ColourPickerDialog(parent, initial=initial or "", context=context)
     try:
         code = dlg.exec()
         v = dlg.result_value() if code == QDialog.DialogCode.Accepted else None

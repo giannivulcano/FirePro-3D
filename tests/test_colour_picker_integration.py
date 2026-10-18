@@ -30,14 +30,13 @@ def test_model_text_panel_no_fill_end_to_end(qapp, monkeypatch):
     assert _count_nonwhite(item) > baseline + 50            # filled
     pm = PropertyManager(); pm.show_properties(item)
     sw = _fill_swatch(pm)
-    assert sw._allow_none is True
     seen = {}
-    def fake(initial, parent=None, context="", *, allow_none=False):
-        seen.update(initial=initial, allow_none=allow_none, context=context)
+    def fake(initial, parent=None, context=""):
+        seen.update(initial=initial, context=context)
         return ""
     monkeypatch.setattr(colour_picker, "pick_colour", fake)
     QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
-    assert seen == {"initial": "#c0392b", "allow_none": True, "context": "Fill Color"}
+    assert seen == {"initial": "#c0392b", "context": "Fill Color"}
     assert item._data.fill_color == ""                      # true No Fill, not opacity 0
     assert item._data.fill_opacity == 100.0                 # opacity untouched
     assert _count_nonwhite(item) == baseline                 # observable: no fill pixels
@@ -46,7 +45,7 @@ def test_model_text_panel_no_fill_end_to_end(qapp, monkeypatch):
 def test_model_panel_passes_empty_fill_and_disables_opacity(qapp):
     item = TextItem(TextAnnotationData(text="A", fill_color=""))
     p = item.get_properties()
-    assert p["Fill Color"]["value"] == "" and p["Fill Color"]["allow_none"] is True
+    assert p["Fill Color"]["value"] == "" and "allow_none" not in p["Fill Color"]
     assert p["Fill Opacity"].get("disabled") is True
     item2 = TextItem(TextAnnotationData(text="A", fill_color="#112233"))
     assert not item2.get_properties()["Fill Opacity"].get("disabled")
@@ -67,18 +66,20 @@ def test_paper_panel_no_fill(qapp):
     from firepro3d.paper_space import _text_panel_properties
     d = TextAnnotationData(text="A", fill_color="")
     p = _text_panel_properties(d)
-    assert p["Fill Color"]["value"] == "" and p["Fill Color"]["allow_none"] is True
+    assert p["Fill Color"]["value"] == "" and "allow_none" not in p["Fill Color"]
     assert p["Fill Opacity"].get("disabled") is True
 
 
-def test_swatch_non_allow_none_never_shows_none(qapp, monkeypatch):
+def test_swatch_empty_value_is_no_fill_everywhere(qapp, monkeypatch):
+    # Universal picker (2026-10-18): the old "non-allow_none Swatch coerces an
+    # empty value to black" contract is retired -- "" is No Fill at every site.
     from firepro3d.ui_kit import Swatch
-    sw = Swatch("", context="Font Color")                   # legacy empty value
-    assert sw.hex() == "#000000" and sw._label.text() == "#000000"
+    sw = Swatch("", context="Font Color")
+    assert sw.hex() == "" and sw._label.text() == "None"
     monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: None)   # cancel
     got = []; sw.colorChanged.connect(got.append)
     QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
-    assert got == [] and sw.hex() == "#000000"
+    assert got == [] and sw.hex() == ""
 
 
 def test_opacity_reenables_after_picking_colour(qapp, monkeypatch):

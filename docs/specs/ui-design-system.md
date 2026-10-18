@@ -124,7 +124,7 @@ point, `colour_picker.pick_colour`, now serve every call site. Grill-locked choi
 - **Fixed palette:** AutoCAD ACI plus greys. These are drawing colours and don't change with the theme.
 - **No alpha:** opacity stays its own property wherever it exists.
 - **No eyedropper or custom slots:** deferred.
-- **No Fill** is a chip at the end of the Standard row, shown only when the caller opts in.
+- **No Fill** is a chip at the end of the Standard row. *(Amended 2026-10-18, HF1 smoke ruling: one universal picker. Every call site shows every row — the Theme row (Automatic / Accent), No Fill and Standard / Recents / custom — and every property it edits honours a token and `""`; `""` draws nothing. Per-caller opt-in flags are retired. Fill opacity moving into the picker is the filed "Unified colour + hatch picker" design task, so **No alpha** holds until that task lands.)*
 
 Rejected: an Office-style anchored flyout (two surfaces), and a full picker inside a popup.
 

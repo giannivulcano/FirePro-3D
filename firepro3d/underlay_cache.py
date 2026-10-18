@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-_CACHE_VERSION = 4
+_CACHE_VERSION = 5  # 5: HF1 ACI 7 -> token:auto
 
 
 def cache_dir_for_project(project_path: str) -> str:

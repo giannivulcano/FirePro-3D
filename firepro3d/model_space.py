@@ -38,7 +38,8 @@ from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
-from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
+from .colour_tokens import preview_colour, resolve_colour
+from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
@@ -158,12 +159,15 @@ def _record_levels(params, active: str) -> list[str]:
 
 class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 10  # v10: 2D primitive style record (LT2; key-presence migration)
+    SAVE_VERSION = 11  # 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
     UNDO_MAX = 50
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display). Declared so the per-paint read in
     # hatch_render hits: a missing attribute on a sip scene costs ~10 us.
     _hatch_paper_scale = None
+    # Colour tokens resolve as canvas here (HF1); declared for the same reason
+    # -- colour_tokens._paper_mode reads it once per token op per paint (G12).
+    paints_on_paper = False
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
@@ -4324,9 +4328,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._plc._get_geometry_template()
 
     def _geom_color_lw(self):
-        """Return (color, lineweight) for new geometry."""
+        """Return (color, lineweight) for new geometry (colour is Automatic, HF1)."""
         from .constants import DEFAULT_GEOMETRY_LINEWEIGHT
-        return "#ffffff", DEFAULT_GEOMETRY_LINEWEIGHT
+        return TOKEN_AUTO, DEFAULT_GEOMETRY_LINEWEIGHT
 
     def _ensure_underlay_caches(self, *args, **kwargs):
         """Back-compat shell → :class:`UnderlayController`."""
@@ -4898,7 +4902,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _make_ref_line(self):
         """Create a dashed cosmetic angle-reference guide line, added to scene."""
         line = QGraphicsLineItem()
-        pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        pen = QPen(resolve_colour(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         line.setPen(pen)
         line.setZValue(200)
@@ -4913,7 +4917,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         by the caller.
         """
         circle = QGraphicsEllipseItem()
-        pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        pen = QPen(resolve_colour(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         circle.setPen(pen)
         circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -5113,7 +5117,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             snapped = tip
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
-            pen = QPen(QColor(self._roof_active._color), 1, Qt.PenStyle.DashLine)
+            pen = QPen(preview_colour(self._roof_active._colour), 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             self.preview_pipe.setPen(pen)
             self.preview_pipe.show()
@@ -5756,7 +5760,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._text_anchor = snapped
             self.update_preview_node(snapped)
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
-            _prev_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(resolve_colour(TOKEN_AUTO), 2, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
             preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -5778,10 +5782,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 text="", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
                 height_mm=DEFAULT_MODEL_TEXT_HEIGHT_MM)  # real-size scene mm — readable at editor zoom
-            # Seed white ink so a freshly placed model text isn't invisible
-            # black-on-dark — parity with the sibling 2D primitives, which default
-            # to "#ffffff".  Paper text keeps the black default (prints on white).
-            data.color = "#ffffff"
+            data.color = TOKEN_AUTO  # Automatic: theme ink on canvas, black on paper (HF1)
             data.border = True   # solid border on by default (border_line_type already "solid")
             data.cell_padding_mm = DEFAULT_MODEL_TEXT_PADDING_MM
             text = TextItem(data)
@@ -7205,7 +7206,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _press_roof(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._roof_active is None:
             _rtmpl = self._get_roof_template()
-            roof = RoofItem(color=_rtmpl._color.name())
+            roof = RoofItem(color=_rtmpl._colour)
             roof.name = f"Roof {self._next_roof_num}"
             self._next_roof_num += 1
             roof._thickness_mm = _rtmpl._thickness_mm
@@ -7248,7 +7249,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                             "eave_height_mm":  roof._eave_height_mm,
                             "level":           roof.level,
                             "overhang_mm":     roof._overhang_mm,
-                            "color":           roof._color.name(),
+                            "color":           roof._colour,
                             "ridge_direction": roof._ridge_direction,
                             "half_span_mm":    roof.half_span_mm(),
                         },
@@ -7263,7 +7264,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         roof._eave_height_mm = p["eave_height_mm"]
                         roof._overhang_mm    = p["overhang_mm"]
                         roof._ridge_direction = p.get("ridge_direction", "auto")
-                        roof._color          = QColor(p["color"])
+                        roof._color          = p["color"]
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()
@@ -7296,7 +7297,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit("Pick opposite corner for rectangular roof")
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
             _rtmpl = self._get_roof_template()
-            _rc = QColor(_rtmpl._color)
+            _rc = preview_colour(_rtmpl._colour)
             pen = QPen(_rc, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             preview.setPen(pen)
@@ -7314,7 +7315,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 QPointF(rect.x(), rect.y() + rect.height()),
             ]
             _rtmpl = self._get_roof_template()
-            roof = RoofItem(points=corners, color=_rtmpl._color.name())
+            roof = RoofItem(points=corners, color=_rtmpl._colour)
             roof.name = f"Roof {self._next_roof_num}"
             self._next_roof_num += 1
             roof._thickness_mm = _rtmpl._thickness_mm
@@ -7342,7 +7343,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "eave_height_mm": roof._eave_height_mm,
                     "level":          roof.level,
                     "overhang_mm":    roof._overhang_mm,
-                    "color":          roof._color.name(),
+                    "color":          roof._colour,
                 },
                 level_manager=self._level_manager,
                 scale_manager=self.scale_manager,
@@ -7354,7 +7355,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 roof._pitch_deg     = p["pitch_deg"]
                 roof._eave_height_mm = p["eave_height_mm"]
                 roof._overhang_mm   = p["overhang_mm"]
-                roof._color         = QColor(p["color"])
+                roof._color = p["color"]
                 if p.get("eave_level"):
                     roof.level = p["eave_level"]
                 roof._rebuild_path()
@@ -8125,7 +8126,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                             "eave_height_mm":  roof._eave_height_mm,
                             "level":           roof.level,
                             "overhang_mm":     roof._overhang_mm,
-                            "color":           roof._color.name(),
+                            "color":           roof._colour,
                             "ridge_direction": roof._ridge_direction,
                             "half_span_mm":    roof.half_span_mm(),
                         },
@@ -8140,7 +8141,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         roof._eave_height_mm = p["eave_height_mm"]
                         roof._overhang_mm    = p["overhang_mm"]
                         roof._ridge_direction = p.get("ridge_direction", "auto")
-                        roof._color          = QColor(p["color"])
+                        roof._color           = p["color"]
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()

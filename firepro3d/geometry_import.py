@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF
 
+from .constants import TOKEN_AUTO
 from .geometry_2d import (LineItem, CircleItem, PolylineItem, ArcItem, EllipseItem,
                           SplineItem, periodic_control_points)
 
@@ -103,7 +104,7 @@ def geom_dicts_to_primitives(geoms, import_scale: float = 1.0, *,
     skipped = 0
     for g in geoms:
         kind = g.get("kind")
-        color = g.get("color", "#ffffff")
+        color = g.get("color") or TOKEN_AUTO
         layer = g.get("layer", "")  # source-layer tag (reference-graphic R1)
         it = None
         if kind == "line":

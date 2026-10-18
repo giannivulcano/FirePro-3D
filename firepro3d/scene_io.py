@@ -20,6 +20,7 @@ import logging
 import os
 import shutil
 
+from .colour_migration import migrate_project_payload
 from .constants import DEFAULT_LEVEL
 from .underlay import Underlay
 from .network_codec import (
@@ -190,6 +191,7 @@ class SceneIOMixin:
             return
 
         version = payload.get("version", 1)
+        migrate_project_payload(payload)    # HF1 (D-A20): before display_settings is read
         self._clear_scene()
         self._project_path = os.path.abspath(filename)
 

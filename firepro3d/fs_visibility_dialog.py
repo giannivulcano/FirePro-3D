@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSettings
 from . import theme as th
 from . import colour_picker
+from .display_manager import _apply_swatch_look
 
 
 # Default colours per component type
@@ -59,9 +60,7 @@ class FSVisibilityDialog(QDialog):
             btn = QPushButton()
             btn.setFixedSize(50, 24)
             btn.setProperty("_color", saved_color)
-            btn.setStyleSheet(
-                f"background: {saved_color}; "
-                f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
+            _apply_swatch_look(btn, saved_color, _t)   # token / "" aware
             btn.clicked.connect(lambda _, n=name, b=btn: self._pick(n, b))
             row_layout.addWidget(btn)
 
@@ -88,13 +87,12 @@ class FSVisibilityDialog(QDialog):
 
     def _pick(self, name: str, btn: QPushButton):
         _t = th.detect()
-        cur = btn.property("_color") or _DEFAULTS[name]["color"]
+        cur = btn.property("_color")
+        cur = _DEFAULTS[name]["color"] if cur is None else cur   # "" = No Fill
         v = colour_picker.pick_colour(cur, self, name)
         if v is not None:
             btn.setProperty("_color", v)
-            btn.setStyleSheet(
-                f"background: {v}; "
-                f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
+            _apply_swatch_look(btn, v, _t)
 
     def get_settings(self) -> dict[str, dict]:
         """Return current dialog values as {name: {color, scale}}."""

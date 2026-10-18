@@ -1,4 +1,5 @@
 """Tests for firepro3d.text_item — the shared TextAnnotationData dataclass (C5)."""
+import pytest
 from firepro3d.text_item import TextAnnotationData
 
 
@@ -226,8 +227,9 @@ def test_model_text_renders_without_document_renderer(qapp, monkeypatch):
 
 
 def test_model_placed_text_seeds_visible_ink(qapp):
-    """A text placed on the model surface seeds white ink, never invisible
-    black-on-dark (todo #62 RC1)."""
+    """A text placed on the model surface seeds Automatic ink (theme ink on
+    canvas), never invisible black-on-dark (todo #62 RC1; HF1 AC5 retired the
+    literal white seed)."""
     from PyQt6.QtCore import QPointF
     from firepro3d.model_space import Model_Space
     s = Model_Space(scene_role="block_editor")
@@ -236,7 +238,11 @@ def test_model_placed_text_seeds_visible_ink(qapp):
     s._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
     texts = [i for i in s._texts if type(i).__name__ == "TextItem"]
     assert len(texts) == 1
-    assert texts[0].data.color.lower() == "#ffffff"
+    from firepro3d import theme
+    from firepro3d.constants import TOKEN_AUTO
+    assert texts[0].data.color == TOKEN_AUTO
+    # Observable: the live theme's ink, never invisible black on dark.
+    assert texts[0].defaultTextColor().name() == theme.detect().ink.lower()
 
 
 def test_model_placed_text_uses_readable_default_height(qapp):
@@ -363,3 +369,40 @@ def test_paper_border_pen_is_true_mm(qapp):
     p.addItem(t)
     pen = t._frame_pen()
     assert pen.isCosmetic() is False
+
+
+@pytest.mark.parametrize("name,ink", [("dark", "#e6e9ec"), ("light", "#1c2024")])
+def test_hf1_model_glyph_fill_follows_theme_ink(qapp, monkeypatch, name, ink):
+    """VC3 pixel guard for the glyph-outline fill site in TextItem.paint
+    (token:auto text on the model surface): after a theme switch +
+    on_theme_changed the rendered glyph pixels equal the new theme's ink.
+    Covers the model-surface glyph fill only (paper uses super().paint)."""
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QColor, QImage, QPainter, QFont
+    from firepro3d import theme
+    from firepro3d.constants import TOKEN_AUTO
+    from firepro3d.model_space import Model_Space
+    from firepro3d.text_item import TextItem
+    monkeypatch.setattr(theme, "theme_preference", lambda: "light" if name == "dark" else "dark")
+    scene = Model_Space()
+    d = TextAnnotationData(text="M", x=0.0, y=0.0, height_mm=100.0)
+    assert d.color == TOKEN_AUTO
+    t = TextItem(d)
+    scene.addItem(t)
+    t._apply_format()
+    # switch to the target theme (opposite first so a stale colour can't pass)
+    monkeypatch.setattr(theme, "theme_preference", lambda: name)
+    t.on_theme_changed()
+    assert t.is_device_independent() is False
+    src = t.mapRectToScene(t._box_rect_local())
+    img = QImage(240, 240, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#808080"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 240, 240), src)
+    p.end()
+    want = QColor(ink)
+    best = min(abs(img.pixelColor(x, y).red() - want.red())
+               + abs(img.pixelColor(x, y).green() - want.green())
+               + abs(img.pixelColor(x, y).blue() - want.blue())
+               for y in range(img.height()) for x in range(img.width()))
+    assert best <= 6, f"no glyph pixel near {ink} under {name} (closest dist {best})"

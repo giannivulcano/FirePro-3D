@@ -700,7 +700,7 @@ class SelectionManipulator(QGraphicsObject):
         try:
             color = QColor(theme.detect().selection)
         except Exception:                       # headless / no palette yet
-            color = QColor("#63BE8B")
+            color = QColor("#63BE8B")  # theme-exempt: headless fallback when detect() raises
         pen = QPen(color, 1.0)
         pen.setCosmetic(True)
         pen.setStyle(Qt.PenStyle.DashLine)      # dashed = selection, distinct
@@ -720,7 +720,7 @@ class SelectionManipulator(QGraphicsObject):
         try:
             color = QColor(theme.detect().selection)
         except Exception:
-            color = QColor("#63BE8B")
+            color = QColor("#63BE8B")  # theme-exempt: headless fallback when detect() raises
         pen = QPen(color, 1.0)
         pen.setCosmetic(True)
         pen.setStyle(Qt.PenStyle.DashLine)
@@ -850,7 +850,7 @@ class SelectionManipulator(QGraphicsObject):
                 else th.selection
             return QColor(token)
         except Exception:                        # headless / no palette yet
-            return QColor("#8FE3B4" if active else "#63BE8B")
+            return QColor("#8FE3B4" if active else "#63BE8B")  # theme-exempt: headless fallback when detect() raises
 
     def _cursor_for(self, role: HandleRole) -> QCursor:
         """Axis-aware resize cursor.  The frame is unrotated at rest, so the

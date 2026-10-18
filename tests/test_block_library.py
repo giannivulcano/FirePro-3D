@@ -92,7 +92,9 @@ def test_load_block_file_reads_arbitrary_path(tmp_path):
     p = tmp_path / "somewhere" / "Loose.fpdb"
     p.parent.mkdir(parents=True)
     import json
-    p.write_text(json.dumps(d.to_dict()), encoding="utf-8")
+    # an app-written file carries the HF1 marker (an un-marked one is legacy
+    # and migrates its default-white colours on load -- see test_hf1_colour_tokens)
+    p.write_text(json.dumps({**d.to_dict(), "colour_tokens": 1}), encoding="utf-8")
     loaded = bl2.load_block_file(str(p))
     assert loaded is not None
     assert loaded.id == d.id and loaded.name == "Loose"

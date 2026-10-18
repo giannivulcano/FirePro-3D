@@ -44,7 +44,7 @@ class RenderOp:
         path: Stroke geometry, or the closed clip (fill / pattern), or the
             filled glyph outline (text).
         pen: Authored pen (stroke only).
-        colour: Unresolved colour string (fill / pattern / text).
+        colour: Unresolved colour string (stroke / fill / pattern / text).
         alpha: 0–255 opacity for fill / pattern.
         tile_ref: Pattern tile block id or legacy alias (pattern only).
         origin: Pattern origin, definition-local (pattern only).

@@ -1063,12 +1063,12 @@ class TestFieldsTab:
         dlg._ffield_fill_swatch.click()
         assert dlg.working.layout.fields[0].fill_color == "#abcdef"
         seen = {}
-        def fake(initial, parent=None, context="", *, allow_none=False):
-            seen["allow_none"] = allow_none; return ""
+        def fake(initial, parent=None, context=""):
+            seen["called"] = True; return ""
         monkeypatch.setattr(tbe.colour_picker, "pick_colour", fake)
         depth = len(dlg._undo_stack)
         dlg._ffield_fill_swatch.click()
-        assert seen["allow_none"] is True
+        assert seen["called"]      # no allow_none opt-in: the one picker offers No Fill
         assert dlg.working.layout.fields[0].fill_color == ""
         assert len(dlg._undo_stack) == depth + 1
         assert not dlg._ffield_fill_swatch.icon().isNull()       # No-Fill glyph shown

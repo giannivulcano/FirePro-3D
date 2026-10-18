@@ -325,7 +325,7 @@ def paint_fill(painter, clip: QPainterPath, *, scene,
             painter.drawRect(bounds)
         if tile_ref is None:
             return
-        col = QColor(colour) if colour is not None else QColor("#808080")
+        col = QColor(colour) if colour is not None else QColor("#808080")  # theme-exempt: no-colour fallback grey
         tile = resolve_tile(tile_ref, getattr(scene, "block_registry", None))
         if tile is None or not tile_is_valid(tile):
             if tile_ref not in _MISSING_LOGGED:

@@ -46,7 +46,7 @@ def test_mirrored_written_only_when_true():
 
 def test_default_record_unchanged():
     assert ss.default_style()["start"] == {"end": "by_linetype", "visible": True}
-    assert ss.normalize_style(None) == ss.default_style("#ffffff")
+    assert ss.normalize_style(None) == ss.default_style()
 
 
 @pytest.mark.parametrize("v, exp", [

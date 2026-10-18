@@ -22,8 +22,9 @@ from .constants import (
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
-    TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
+    TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
 )
+from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
 from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
 from .house_dialog import HouseDialog
@@ -1610,11 +1611,11 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
         "Bold": {"type": "bool", "value": data.bold},
         "Italic": {"type": "bool", "value": data.italic},
         "Underline": {"type": "bool", "value": data.underline},
-        "Color": {"type": "color", "value": data.color or "#000000"},
+        "Color": {"type": "color", "value": TOKEN_AUTO if data.color is None else data.color},
         "Alignment": {"type": "enum",
                       "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
                       "options": ["Left", "Center", "Right"]},
-        "Fill Color": {"type": "color", "value": data.fill_color, "allow_none": True},
+        "Fill Color": {"type": "color", "value": data.fill_color},
         "Fill Opacity": {"type": "percent", "value": float(data.fill_opacity),
                          "disabled": not data.fill_color},
         "Border": {"type": "bool", "value": data.border},
@@ -1667,7 +1668,7 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
     elif key == "Underline":
         field, new = "underline", bool(value)
     elif key == "Color":
-        field, new = "color", str(value)
+        field, new = "color", normalize_colour(value, TOKEN_AUTO)
     elif key == "Alignment":
         # Strict: the multi-select "< mixed >" placeholder (or any non-label
         # string) must not silently coerce to Left and push a command.
@@ -1733,7 +1734,7 @@ def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
     if "underline" in raw:
         data.underline = _b(raw["underline"])
     if "color" in raw:
-        data.color = str(raw["color"])
+        data.color = normalize_colour(raw["color"], TOKEN_AUTO)
     if "align" in raw:
         a = str(raw["align"])
         data.align = a if a in ("L", "C", "R") else "L"
@@ -2429,7 +2430,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         edges = (style.edge_top, style.edge_bottom,
                  style.edge_left, style.edge_right)
-        painter.setPen(QPen(QColor(style.color), style.width_mm))
+        painter.setPen(QPen(resolve_colour(style.color, item=self),
+                            style.width_mm))   # token on paper; "" draws nothing
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if all(edges):
             if style.corner == "fillet" and style.fillet_radius_mm > 0:
@@ -2481,7 +2483,9 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         painter.save()
         painter.setFont(f)
-        painter.setPen(QPen(QColor(fdef.text_color or "#000000"), 0.1))
+        painter.setPen(QPen(resolve_colour(
+            "#000000" if fdef.text_color is None else fdef.text_color,
+            item=self), 0.1))                       # token on paper; "" draws nothing
         painter.translate(rect.topLeft())
         painter.scale(s, s)
         align = {"left": Qt.AlignmentFlag.AlignLeft,
@@ -2533,7 +2537,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
         # Pass 1: fills (outside clip so fill bleeds to full cell rect)
         for rect, f in zip(lay.cell_rects, fields):
             if f.fill_color:
-                painter.fillRect(rect, QColor(f.fill_color))
+                painter.fillRect(rect, resolve_colour(f.fill_color, item=self))
         # Pass 2: content, clipped to strip (composes with caller clips via
         # IntersectClip in export paths). spec DD-8.
         painter.save()
@@ -2656,6 +2660,8 @@ class PaperScene(QGraphicsScene):
 
     Coordinate system: 1 scene unit = 1 mm.
     """
+
+    paints_on_paper = True   # colour tokens resolve as paper (HF1)
 
     navigate_to_view = pyqtSignal(str, str)
     sheetModified = pyqtSignal()

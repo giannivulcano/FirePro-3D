@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (
 
 from . import theme as th
 from . import colour_picker
-from .constants import FONT_SIZE_LADDER_PT
+from .constants import FONT_SIZE_LADDER_PT, TOKEN_AUTO
+from .colour_tokens import resolve_colour
 from .ui_kit import FontSelect
 from .paper_space import (
     _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt,
@@ -63,6 +64,9 @@ class FontGroupController(QObject):
         self._theme = th.detect()
         self._size_user_edit = False
         self._build_widgets()
+        # Bound method of a QObject: PyQt drops the connection when this
+        # controller is destroyed, so the module-level bus never holds it.
+        th.theme_bus().changed.connect(self._on_theme_changed)
 
     def _build_widgets(self):
         self.container = QWidget()
@@ -107,7 +111,7 @@ class FontGroupController(QObject):
         self.color_btn.setToolTip("Font color")
         self.color_btn.setFixedSize(28, 26)
         self.color_btn.clicked.connect(self._pick_color)
-        self._set_swatch("#000000")
+        self._set_swatch(TOKEN_AUTO)
         row2.addWidget(self.color_btn)
 
         self.align_btns = {}
@@ -160,11 +164,23 @@ class FontGroupController(QObject):
         self._size_user_edit = False
         self.commit_size_text(self.size_combo.currentText())
 
-    def _set_swatch(self, hex_color: str):
-        self._swatch = hex_color
+    def _on_theme_changed(self) -> None:
+        """Theme switched: re-latch the swatch QSS (it bakes the resolved
+        colour and chrome tokens) from the unchanged raw value."""
+        from PyQt6 import sip
+        if sip.isdeleted(self.color_btn):       # ribbon torn down first
+            return
+        self._theme = th.detect()
+        self._set_swatch(self._swatch)
+
+    def _set_swatch(self, value: str):
+        """Show *value* (hex or colour token); ``_swatch`` keeps the raw value."""
+        self._swatch = value
         t = self._theme
+        # canvas surface, current theme; "" (No colour) shows a clear chip
+        shown = resolve_colour(value).name() if value else "transparent"
         self.color_btn.setStyleSheet(
-            f"QToolButton {{ border: 1px solid {t.border_strong}; background: {hex_color}; }}"
+            f"QToolButton {{ border: 1px solid {t.border_strong}; background: {shown}; }}"
             f"QToolButton:hover {{ border-color: {t.accent_primary}; }}")
 
     # ── Commits (all routed through set_property) ─────────────────────────
@@ -304,7 +320,8 @@ class FontGroupController(QObject):
         # mode, etc.), so we commit to the list that was live when the user
         # clicked the swatch.
         targets = self._targets()
-        initial = (targets[0].data.color or "#000000") if targets else "#000000"
+        initial = (TOKEN_AUTO if targets[0].data.color is None
+                   else targets[0].data.color) if targets else TOKEN_AUTO
         v = colour_picker.pick_colour(initial, self.container, "Font")
         if v is not None:
             self._commit_to(targets, "Color", v)
@@ -344,8 +361,10 @@ class FontGroupController(QObject):
             self.italic_btn.setChecked(uniform(lambda d: d.italic) is True)
             self.underline_btn.setChecked(uniform(lambda d: d.underline) is True)
 
-            color = uniform(lambda d: d.color or "#000000")
-            self._set_swatch(color or (targets[0].data.color or "#000000"))
+            def _col(d):
+                return TOKEN_AUTO if d.color is None else d.color
+            color = uniform(_col)
+            self._set_swatch(color if color is not None else _col(targets[0].data))
 
             align = uniform(lambda d: d.align)
             for label, b in self.align_btns.items():
