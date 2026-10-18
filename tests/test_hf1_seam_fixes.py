@@ -2,6 +2,7 @@
 I3 per-instance overrides, M3 copy/paste/undo round-trip)."""
 import pytest
 from PyQt6.QtCore import QPointF, QRectF, QSettings
+from PyQt6.QtGui import QColor
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QGraphicsView
 
@@ -90,6 +91,8 @@ def test_i1_elevation_flips_on_live_theme_switch(qapp, force_theme):
         win._apply_theme()
         px = _view_pixels(elev, rect)
         assert "#1c2024" in px and "#e6e9ec" not in px
+        assert elev.backgroundBrush().color().name() == QColor(theme.LIGHT.canvas_bg).name()
+        assert elev._edge_color.name() == "#000000"      # was #d0d0d0 on dark
     finally:
         dispose_main_window(win)
         qapp.setStyleSheet(prev_qss)

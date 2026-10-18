@@ -2403,7 +2403,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # so refresh_token_latched skips them): re-project before the walk.
         em = getattr(self, "elevation_manager", None)
         if em is not None:
-            em.rebuild_all()
+            try:
+                em.rebuild_all()
+            except Exception:       # one bad elevation must not abort the walk
+                import logging
+                logging.getLogger(__name__).warning(
+                    "elevation rebuild failed on theme switch", exc_info=True)
         for sc in self._live_scenes():
             refresh_token_latched(sc)
             for it in sc.items():

@@ -519,14 +519,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         # HALO preselection + scene-drawn rubber-band state (mixin).
         self._init_halo_state()
 
-        # Theme
-        _t = th.detect()
-        bg = QColor(_t.canvas_bg)
-        self.setBackgroundBrush(QBrush(bg))
-
-        # Edge/line color based on background brightness
-        br = bg.redF() * 0.299 + bg.greenF() * 0.587 + bg.blueF() * 0.114
-        self._edge_color = QColor("#d0d0d0") if br < 0.5 else QColor("#000000")
+        # Theme (re-applied by rebuild(), so a live theme switch follows)
+        self._apply_theme_colours()
         self._datum_color = QColor("#4488cc")
 
         # Large scene rect (in mm)
@@ -812,8 +806,17 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         if not self._rebuild_timer.isActive():
             self._rebuild_timer.start()
 
+    def _apply_theme_colours(self):
+        """Canvas background + edge/line colour from the current theme."""
+        bg = QColor(th.detect().canvas_bg)
+        self.setBackgroundBrush(QBrush(bg))
+        # Edge/line color based on background brightness
+        br = bg.redF() * 0.299 + bg.greenF() * 0.587 + bg.blueF() * 0.114
+        self._edge_color = QColor("#d0d0d0") if br < 0.5 else QColor("#000000")
+
     def rebuild(self):
         """Clear and re-project all entities from the model."""
+        self._apply_theme_colours()
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
