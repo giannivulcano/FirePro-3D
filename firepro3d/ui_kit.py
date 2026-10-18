@@ -1081,20 +1081,17 @@ class _Chip(QWidget):
 class Swatch(QWidget):
     """Colour picker field: painted chip + hex label. Opens the house colour
     picker (``colour_picker.pick_colour``) on click and emits
-    ``colorChanged(hex)``. ``allow_none=True`` offers No Fill; the emitted value
-    is then "" and the chip shows the shared No-Fill glyph with the label
-    "None" (todo #70). Replaces a bare QPushButton (which picked up the app's
+    ``colorChanged(hex)``. The picker always offers No Fill and the Theme row;
+    the emitted value is then "" (chip shows the shared No-Fill glyph, label
+    "None", todo #70) or a ``token:*`` string. Replaces a bare QPushButton (which picked up the app's
     global button chrome and rendered wrong)."""
 
     colorChanged = pyqtSignal(str)
 
-    def __init__(self, hex_color="#000000", parent=None, *, allow_none=False,
-                 allow_tokens=False, context="Colour"):
+    def __init__(self, hex_color="#000000", parent=None, *, context="Colour"):
         super().__init__(parent)
-        self._allow_none = allow_none
-        self._allow_tokens = allow_tokens
         self._context = context
-        self._hex = "" if (allow_none and not hex_color) else (hex_color or "#000000")
+        self._hex = "#000000" if hex_color is None else hex_color
         t = _detect()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -1122,9 +1119,7 @@ class Swatch(QWidget):
 
     def _pick(self):
         from . import colour_picker
-        kw = {"allow_tokens": True} if self._allow_tokens else {}
-        v = colour_picker.pick_colour(self._hex, self, self._context,
-                                      allow_none=self._allow_none, **kw)
+        v = colour_picker.pick_colour(self._hex, self, self._context)
         if v is None:
             return
         self.set_hex(v)

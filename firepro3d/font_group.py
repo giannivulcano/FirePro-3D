@@ -177,7 +177,8 @@ class FontGroupController(QObject):
         """Show *value* (hex or colour token); ``_swatch`` keeps the raw value."""
         self._swatch = value
         t = self._theme
-        shown = resolve_colour(value).name()   # canvas surface, current theme
+        # canvas surface, current theme; "" (No colour) shows a clear chip
+        shown = resolve_colour(value).name() if value else "transparent"
         self.color_btn.setStyleSheet(
             f"QToolButton {{ border: 1px solid {t.border_strong}; background: {shown}; }}"
             f"QToolButton:hover {{ border-color: {t.accent_primary}; }}")
@@ -319,9 +320,9 @@ class FontGroupController(QObject):
         # mode, etc.), so we commit to the list that was live when the user
         # clicked the swatch.
         targets = self._targets()
-        initial = (targets[0].data.color or TOKEN_AUTO) if targets else TOKEN_AUTO
-        v = colour_picker.pick_colour(initial, self.container, "Font",
-                                      allow_tokens=True)
+        initial = (TOKEN_AUTO if targets[0].data.color is None
+                   else targets[0].data.color) if targets else TOKEN_AUTO
+        v = colour_picker.pick_colour(initial, self.container, "Font")
         if v is not None:
             self._commit_to(targets, "Color", v)
 
@@ -360,8 +361,10 @@ class FontGroupController(QObject):
             self.italic_btn.setChecked(uniform(lambda d: d.italic) is True)
             self.underline_btn.setChecked(uniform(lambda d: d.underline) is True)
 
-            color = uniform(lambda d: d.color or TOKEN_AUTO)
-            self._set_swatch(color or (targets[0].data.color or TOKEN_AUTO))
+            def _col(d):
+                return TOKEN_AUTO if d.color is None else d.color
+            color = uniform(_col)
+            self._set_swatch(color if color is not None else _col(targets[0].data))
 
             align = uniform(lambda d: d.align)
             for label, b in self.align_btns.items():

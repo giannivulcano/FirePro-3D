@@ -295,11 +295,33 @@ class Geometry2DMixin:
             return rs
         if paper_pass_active():
             return rs               # paper pass owns the pen (no ping-pong)
-        pen.setColor(resolve_colour(dc or self.style["colour"], item=self))
+        sc = self._stroke_colour()
+        if sc:                      # "" = No stroke: _paint_routed_stroke skips it
+            pen.setColor(resolve_colour(sc, item=self))
+        if pen.style() == Qt.PenStyle.NoPen:
+            pen.setStyle(Qt.PenStyle.SolidLine)     # back from a No-stroke paper pass
         pen.setWidthF(canvas_px(rs.weight))
         pen.setCosmetic(True)
         self.setPen(pen)
         return rs
+
+    def _stroke_colour(self) -> str:
+        """Stored stroke colour in force: the Display Manager colour if set,
+        else ``style.colour``. ``""`` (No stroke -- distinct from unset)."""
+        dc = getattr(self, "_display_color", None)
+        if dc == "":
+            return ""
+        st = self.style
+        return dc or (st["colour"] if st is not None else "")
+
+    def _stroke_hidden(self) -> bool:
+        """True when the stroke draws nothing: colour ``""`` (picker No Fill)
+        or a NoPen pen (paper pass for a ``""`` paper-category colour)."""
+        if self.reference:
+            return False
+        if self.style is not None and self._stroke_colour() == "":
+            return True
+        return self.pen().style() == Qt.PenStyle.NoPen
 
     def _resolved_stroke(self):
         """LT3-8 cascade for this primitive (None for unstyled and reference
@@ -331,8 +353,21 @@ class Geometry2DMixin:
         return pen
 
     def _draws_fill(self) -> bool:
-        """Fill paints only on a non-reference item with a fill (RG4)."""
-        return getattr(self, "fill_type", "none") != "none" and not self.reference
+        """Fill paints only on a non-reference item with a fill (RG4), and not
+        when the fill colour is No Fill (``""`` -- distinct from ``None`` =
+        unset, which paints the default grey)."""
+        return (getattr(self, "fill_type", "none") != "none"
+                and not self.reference
+                and getattr(self, "_display_fill_color", None) != "")
+
+    def _fill_paint_colour(self) -> str:
+        """``#rrggbb`` the fill paints with right now: a ``token:*`` resolves
+        per paint on this item's surface (canvas ink / paper black), unset is
+        the default grey."""
+        v = self._display_fill_color
+        if v is None:
+            return "#888888"
+        return resolve_colour(v, item=self).name()
 
     def _lt_args(self) -> dict:
         """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
@@ -360,6 +395,8 @@ class Geometry2DMixin:
         unrotated item frame, since its ``stroke_pieces()`` carry the
         rotation); None keeps the painter's. Returns True when dashed.
         """
+        if self._stroke_hidden():
+            return False                # No stroke: nothing to draw or highlight
         pen = self.pen()                # painter-local copy (MW-7 / MW-12)
         if rs is not None and pen.isCosmetic() and paper_pass_active():
             # No paper category reset this pen (Ellipse / Polygon / Spline):
@@ -896,8 +933,7 @@ class Geometry2DMixin:
                 locked_tip=_LOCKED_END_LINETYPE_TIP if in_end else None,
                 ends=self._ends_open(), ends_locked_tip=_ends_lock_tip(sc),
                 drawing_scale=sm.drawing_scale if sm is not None else None))
-            props["Colour"] = {"type": "color", "value": self.style["colour"],
-                               "allow_tokens": True}
+            props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable() and not self.reference:
             props["Fill"] = {"type": "enum",
                              "options": ["none", "solid", "hatch"],
@@ -919,7 +955,9 @@ class Geometry2DMixin:
                                     "value": value}
             if self.fill_type in ("solid", "hatch"):
                 props["Fill Colour"] = {"type": "color",
-                                        "value": self._display_fill_color or "#888888"}
+                                        "value": (self._display_fill_color
+                                                  if self._display_fill_color is not None
+                                                  else "#888888")}
             if self.fill_type == "solid":
                 props["Fill Opacity"] = {
                     "type":  "string",
@@ -1027,7 +1065,8 @@ class Geometry2DMixin:
             d["fill"] = {
                 "type":    self.fill_type,
                 "pattern": self.fill_pattern,
-                "color":   self._display_fill_color or "#888888",
+                "color":   (self._display_fill_color
+                            if self._display_fill_color is not None else "#888888"),
                 "opacity": self.fill_opacity,
             }
         if self.reference:
@@ -1426,7 +1465,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
+                          self.fill_pattern, self._fill_paint_colour(),
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
@@ -2015,7 +2054,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                     # rotation, then item → scene (Qt row-vector order), so the
                     # hatch stays in scene axes (D-A11).
                     draw_fill(painter, cp, self.scene(), self.fill_type,
-                              self.fill_pattern, self._display_fill_color or "#888888",
+                              self.fill_pattern, self._fill_paint_colour(),
                               alpha=int(round(self.fill_opacity * 255)),
                               to_scene=self._rotation_transform() * self.sceneTransform())
             # Linetype dashes draw in the UNROTATED item frame (stroke_pieces()
@@ -2376,7 +2415,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
+                          self.fill_pattern, self._fill_paint_colour(),
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
@@ -2722,7 +2761,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
+                          self.fill_pattern, self._fill_paint_colour(),
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
@@ -3035,7 +3074,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
+                          self.fill_pattern, self._fill_paint_colour(),
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
@@ -3308,7 +3347,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
+                          self.fill_pattern, self._fill_paint_colour(),
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
@@ -3743,7 +3782,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888",
+                          self.fill_pattern, self._fill_paint_colour(),
                           alpha=int(round(self.fill_opacity * 255)),
                           to_scene=self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,

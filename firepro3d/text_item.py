@@ -97,7 +97,7 @@ class TextAnnotationData:
     color: str = TOKEN_AUTO                      # hex or colour token; default Automatic (HF1)
     align: str = "L"                             # horizontal: 'L' | 'C' | 'R'
     valign: str = "T"                            # vertical: 'T' | 'M' | 'B'
-    fill_color: str = ""                          # box fill hex; "" = no fill
+    fill_color: str = ""                          # box fill hex | token:*; "" = no fill
     fill_opacity: float = 100.0                   # fill alpha percentage 0-100
     cell_padding_mm: float = TEXT_BOX_MARGIN_MM   # inner padding text↔box edge (surface mm)
     border: bool = False                         # frame visibility
@@ -624,7 +624,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
         if self._data.fill_color:
-            c = QColor(self._data.fill_color)
+            c = resolve_colour(self._data.fill_color, item=self)   # token-aware
             c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
             painter.fillRect(box, c)
         if self.is_device_independent():
@@ -1157,8 +1157,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "V Align":  {"type": "icon_enum", "value": d.valign,
                          "options": [("T", "align_top.svg"), ("M", "align_middle.svg"),
                                      ("B", "align_bottom.svg")]},
-            "Font Color": {"type": "color", "value": d.color or TOKEN_AUTO,
-                           "allow_tokens": True},
+            "Font Color": {"type": "color", "value": TOKEN_AUTO if d.color is None else d.color},
             "Frame":    {"type": "header", "value": "Frame"},
             "Line Type": {"type": "enum",
                           "options": ["none", "solid", "dashed", "dotted", "dashdot"],
@@ -1173,7 +1172,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Corner Radius": {"type": "number", "value": int(round(d.border_corner_radius_mm)),
                               "minimum": 0},
             "Fill":     {"type": "header", "value": "Fill"},
-            "Fill Color":   {"type": "color", "value": d.fill_color, "allow_none": True},
+            "Fill Color":   {"type": "color", "value": d.fill_color},
             "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity),
                              "disabled": not d.fill_color},
         }

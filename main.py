@@ -2895,9 +2895,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         def _swatch_style(hex_color: str) -> str:
             t2 = _th.detect()
+            from firepro3d.colour_tokens import is_token, resolve_colour
+            if hex_color == "":
+                hex_color = "transparent"          # No Fill
+            elif is_token(hex_color):
+                hex_color = resolve_colour(hex_color).name()
             return (f"QToolButton {{ border: 1px solid {t2.border_strong}; "
                     f"background: {hex_color}; }}"
                     f"QToolButton:hover {{ border-color: {t2.accent_primary}; }}")
+
+        def _fill_of(it):
+            """Stored fill colour; unset (None) paints the default grey, while
+            ``""`` is No Fill and a ``token:*`` is kept as is."""
+            v = getattr(it, "_display_fill_color", None)
+            return "#888888" if v is None else v
 
         # Row 1: Stroke swatch + Fill type + Pattern
         row1 = QWidget(); r1 = QHBoxLayout(row1)
@@ -2962,8 +2973,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 pat = uniform(lambda it: it.fill_pattern)
                 pattern_combo.setCurrentIndex(
                     pattern_combo.findData(canonical_ref(pat)) if pat is not None else -1)
-                col = uniform(lambda it: getattr(it, "_display_fill_color", None) or "#888888")
-                if col:
+                col = uniform(lambda it: _fill_of(it))
+                if col is not None:
                     fill_btn.setStyleSheet(_swatch_style(col))
                 opa = uniform(lambda it: round(it.fill_opacity * 100))
                 opacity_edit.setText("" if opa is None else str(opa))
@@ -3003,11 +3014,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             targets = _fillable_targets()
             if not targets:
                 return
-            existing = getattr(targets[0], "_display_fill_color", None) or "#888888"
+            existing = _fill_of(targets[0])
             hex_val = colour_picker.pick_colour(existing, page, "Fill")
             if hex_val is not None:
-                apply = [t for t in targets
-                         if (getattr(t, "_display_fill_color", None) or "#888888") != hex_val]
+                apply = [t for t in targets if _fill_of(t) != hex_val]
                 if not apply:
                     return
                 self.scene.push_undo_state()
@@ -3457,8 +3467,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Seed the picker from the first target's current override, if any.
         seed = targets[0]._display_overrides.get(prop)
         hex_val = colour_picker.pick_colour(
-            seed if seed else "#ffffff", self, title,
-            allow_tokens=(prop == "color"))
+            seed if seed is not None else "#ffffff", self, title)
         if hex_val is None:
             return
 

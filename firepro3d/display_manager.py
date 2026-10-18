@@ -81,6 +81,12 @@ def _recolor_svg_bytes(svg_path: str, color: str | None = None,
     """
     if is_token(color):
         color = resolve_colour(color).name()
+    elif color == "":
+        color = "none"              # No stroke (universal picker)
+    if is_token(fill_color):
+        fill_color = resolve_colour(fill_color).name()
+    elif fill_color == "":
+        fill_color = "none"         # No Fill
     key = (svg_path, color, fill_color)
     if key in _svg_color_cache:
         return _svg_color_cache[key]
@@ -161,8 +167,8 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     if src is None or not os.path.isfile(src):
         return  # can't recolour without the source path
 
-    needs_recolor = ((color and color.lower() != "#ffffff") or
-                     (fill_color is not None))
+    needs_recolor = ((color and color.lower() != "#ffffff") or color == ""
+                     or (fill_color is not None))
     if needs_recolor:
         data = _recolor_svg_bytes(src, color, fill_color)
         renderer = QSvgRenderer(data)
@@ -189,8 +195,10 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
 
 def _parse_fill_value(val: str | None) -> tuple[str, str]:
     """Return (mode, hex_color).  mode is 'solid' or 'hatch'."""
-    if not val:
+    if val is None:
         return ("solid", "#000000")
+    if val == "":
+        return ("solid", "")            # No Fill: distinct from None (inherit)
     if val.startswith("hatch:"):
         return ("hatch", val[6:])
     return ("solid", val)
@@ -207,6 +215,13 @@ def _apply_swatch_look(btn, value: str | None, _t) -> None:
     """Paint a solid Colour-column swatch: a token resolves for the fill and
     shows its label ("Automatic" / "Accent"); hex shows no text (HF1, R7)."""
     label = token_label(value)
+    if value == "":
+        # No Fill / no stroke: a transparent chip captioned "None".
+        btn.setText("None")
+        btn.setStyleSheet(
+            f"background: transparent; color: {_t.muted}; font-size: 9px; "
+            f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
+        return
     shown = resolve_colour(value).name() if label else value
     btn.setText(label or "")
     text_css = ""
@@ -219,6 +234,21 @@ def _apply_swatch_look(btn, value: str | None, _t) -> None:
         f"border-radius: 2px;")
 
 
+def _fill_or(value, default):
+    """*value* unless unset (``None``): ``""`` (No Fill) is a real value and
+    must not fall back to the category default."""
+    return default if value is None else value
+
+
+def _fill_qcolor(value) -> QColor:
+    """QColor for a stored fill/section colour string: a ``token:*`` resolves
+    (canvas surface), ``""`` (No Fill) is fully transparent so a brush, pen or
+    icon built from it draws nothing."""
+    if value == "":
+        return QColor(0, 0, 0, 0)
+    return resolve_colour(value)
+
+
 def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
                     pattern: str = BUILTIN_DIAGONAL, registry=None) -> QPixmap:
     """Return a small pixmap showing solid or hatch swatch."""
@@ -226,7 +256,7 @@ def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
     pix.fill(QColor("transparent"))
     p = QPainter(pix)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    col = QColor(hex_color)
+    col = _fill_qcolor(hex_color)
     if mode == "hatch":
         from .hatch_render import paint_swatch
         paint_swatch(p, QRectF(0, 0, w, h), pattern, col, registry,
@@ -354,9 +384,9 @@ def _write_category_to_settings(key: str, vals: dict,
     settings.setValue(f"display/{key}/scale", vals["scale"])
     settings.setValue(f"display/{key}/opacity", vals["opacity"])
     settings.setValue(f"display/{key}/visible", str(vals["visible"]).lower())
-    if vals.get("fill"):
+    if vals.get("fill") is not None:
         settings.setValue(f"display/{key}/fill", vals["fill"])
-    if vals.get("section"):
+    if vals.get("section") is not None:
         settings.setValue(f"display/{key}/section", vals["section"])
     if vals.get("section_pattern"):
         settings.setValue(f"display/{key}/section_pattern", vals["section_pattern"])
@@ -466,7 +496,7 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_pipe(item, color, scale, opacity, visible, font_size)
     elif isinstance(item, WallSegment):
         item._display_color = color
-        if fill_color:
+        if fill_color is not None:
             mode, hex_col = _parse_fill_value(fill_color)
             item._display_fill_color = hex_col
             if mode == "hatch":
@@ -484,7 +514,7 @@ def apply_display_to_item(item, color: str | None, scale: float,
         item.update()
     elif isinstance(item, Room):
         item._display_color = color
-        if fill_color:
+        if fill_color is not None:
             _, hex_col = _parse_fill_value(fill_color)
             item._display_fill_color = hex_col
         if color:
@@ -521,7 +551,7 @@ def apply_display_to_item(item, color: str | None, scale: float,
     elif _is_opening_item(item):
         _apply_opening(item, color, opacity, visible)
     elif _is_geo2d_item(item):
-        _apply_geo2d(item, color, opacity, visible)
+        _apply_geo2d(item, color, opacity, visible, fill_color)
     elif isinstance(item, Node):
         _apply_node(item, color, scale, opacity, visible)
     else:
@@ -599,14 +629,18 @@ def _is_opening_item(item) -> bool:
     return type(item).__name__ == "WallOpening"
 
 
-def _apply_geo2d(item, color, opacity, visible):
+def _apply_geo2d(item, color, opacity, visible, fill_color=None):
     """Apply display settings to a 2D draw-geometry item (LineItem, PolylineItem, etc.).
 
     Stroke colour is stored in _display_color; the paint() methods read it and
     apply it to the pen before delegating to super().paint().  Fill colour is
-    already handled by draw_fill() in each paint() via _display_fill_color.
+    already handled by draw_fill() in each paint() via _display_fill_color; a
+    Graphic Override / instance ``fill`` (token, hex or ``""`` = No Fill) is
+    written there when set -- ``None`` leaves the item's own fill untouched.
     """
     item._display_color = color
+    if fill_color is not None:
+        item._display_fill_color = fill_color
     item.setVisible(visible)
     item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     item.update()
@@ -652,9 +686,9 @@ def _apply_elevation_marker(marker, color, scale, opacity, visible, fill_color,
         pen = marker.pen()
         pen.setColor(resolve_colour(color))
         marker.setPen(pen)
-    if fill_color:
-        marker._fill_color = QColor(fill_color)
-        marker.setBrush(QBrush(QColor(fill_color)))
+    if fill_color is not None:
+        marker._fill_color = _fill_qcolor(fill_color)
+        marker.setBrush(QBrush(_fill_qcolor(fill_color)))
     if scale and scale != 1.0:
         marker.setScale(scale)
     elif scale == 1.0:
@@ -681,8 +715,8 @@ def _apply_detail_marker(marker, color, scale, opacity, visible, fill_color,
         pen = marker.pen()
         pen.setColor(resolve_colour(color))
         marker.setPen(pen)
-    if fill_color:
-        marker._fill_color = QColor(fill_color)
+    if fill_color is not None:
+        marker._fill_color = _fill_qcolor(fill_color)
     if scale and scale != 1.0:
         marker.setScale(scale)
     elif scale == 1.0:
@@ -704,9 +738,9 @@ def _apply_gridline(gl, color, scale, opacity, visible, fill_color, font_size=No
             bp.setColor(resolve_colour(color))
             bubble.setPen(bp)
             bubble._label.setDefaultTextColor(resolve_colour(color).lighter(150))
-    if fill_color:
-        gl.bubble1.setBrush(QBrush(QColor(fill_color)))
-        gl.bubble2.setBrush(QBrush(QColor(fill_color)))
+    if fill_color is not None:
+        gl.bubble1.setBrush(QBrush(_fill_qcolor(fill_color)))
+        gl.bubble2.setBrush(QBrush(_fill_qcolor(fill_color)))
     # Scale the bubbles (child transforms around their position on the line)
     if scale and scale != 1.0:
         gl.bubble1.setScale(scale)
@@ -873,17 +907,25 @@ def apply_category_defaults(item):
                 or settings.value(f"display/{key}/{prop}")
                 or factory)
 
+    def _vc(prop, factory):
+        """Like ``_v`` but a stored ``""`` (No Fill) is a value, not unset."""
+        for k in (f"display/{key}/default_{prop}", f"display/{key}/{prop}"):
+            raw = settings.value(k)
+            if raw is not None:
+                return raw
+        return factory
+
     color = _v("color", cat_def["color"])
     scale = float(_v("scale", cat_def["scale"]))
     opacity = int(float(_v("opacity", cat_def["opacity"])))
     visible = _v("visible", cat_def["visible"])
     if isinstance(visible, str):
         visible = visible.lower() not in ("false", "0")
-    fill = _v("fill", cat_def.get("fill"))
+    fill = _vc("fill", cat_def.get("fill"))
     font = cat_def.get("font")
     if font is not None:
         font = int(float(_v("font", font)))
-    section = _v("section", cat_def.get("section"))
+    section = _vc("section", cat_def.get("section"))
     section_pattern = _v("section_pattern", cat_def.get("section_pattern"))
     section_scale_raw = _v("section_scale", None)
     section_scale = float(section_scale_raw) if section_scale_raw else None
@@ -937,10 +979,8 @@ class SectionPatternDialog(QDialog):
         row2.addWidget(QLabel("Colour:"))
         self._color_btn = QPushButton()
         self._color_btn.setFixedSize(40, 20)
-        self._cur_color = current_color or "#666666"
-        self._color_btn.setStyleSheet(
-            f"background: {self._cur_color}; border: 1px solid {_t.border_subtle}; "
-            f"border-radius: 2px;")
+        self._cur_color = current_color if current_color is not None else "#666666"
+        _apply_swatch_look(self._color_btn, self._cur_color, _t)
         self._color_btn.clicked.connect(self._pick_color)
         row2.addWidget(self._color_btn)
         self._preview = QLabel()
@@ -978,10 +1018,7 @@ class SectionPatternDialog(QDialog):
         v = colour_picker.pick_colour(self._cur_color, self, "Section")
         if v is not None:
             self._cur_color = v
-            _t = th.detect()
-            self._color_btn.setStyleSheet(
-                f"background: {self._cur_color}; border: 1px solid {_t.border_subtle}; "
-                f"border-radius: 2px;")
+            _apply_swatch_look(self._color_btn, self._cur_color, th.detect())
             self._refresh_preview()
 
     def _current_pattern(self):
@@ -1334,20 +1371,20 @@ class DisplayManager(QDialog):
         elif isinstance(item, Fitting):
             color = (getattr(item, "_display_color", None)
                      or cat_def["color"])
-            fill = (getattr(item, "_display_fill_color", None)
-                    or cat_def.get("fill"))
+            fill = _fill_or(getattr(item, "_display_fill_color", None),
+                            cat_def.get("fill"))
             font = None
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
             color = (getattr(item, "_display_color", None)
                      or cat_def["color"])
-            fill = (getattr(item, "_display_fill_color", None)
-                    or cat_def.get("fill"))
+            fill = _fill_or(getattr(item, "_display_fill_color", None),
+                            cat_def.get("fill"))
             font = None
         elif isinstance(item, WallSegment):
             color = (getattr(item, "_display_color", None)
                      or item._color.name())
-            fill = (getattr(item, "_display_fill_color", None)
-                    or cat_def.get("fill"))
+            fill = _fill_or(getattr(item, "_display_fill_color", None),
+                            cat_def.get("fill"))
             font = None
         elif _is_elevation_marker(item):
             color = (getattr(item, "_marker_color", cat_def["color"])
@@ -1362,8 +1399,8 @@ class DisplayManager(QDialog):
                      or getattr(item, "_color", cat_def["color"]))
             if isinstance(color, QColor):
                 color = color.name()
-            fill = (getattr(item, "_display_fill_color", None)
-                    or cat_def.get("fill"))
+            fill = _fill_or(getattr(item, "_display_fill_color", None),
+                            cat_def.get("fill"))
             font = cat_def.get("font")
 
         # Section colour + pattern — read from item or fall back to category default
@@ -1697,13 +1734,11 @@ class DisplayManager(QDialog):
         # ── Fill colour swatch (solid only — no hatch option) ────────
         fill_btn = QPushButton()
         fill_btn.setFixedSize(40, 20)
-        if has_fill and fill:
+        if has_fill and fill is not None:
             # Strip any legacy "hatch:" prefix — fill is now solid-only
             _, hex_col = _parse_fill_value(fill)
             fill_btn.setProperty("_color", hex_col)
-            fill_btn.setStyleSheet(
-                f"background: {hex_col}; border: 1px solid {_t.border_subtle}; "
-                f"border-radius: 2px;")
+            _apply_swatch_look(fill_btn, hex_col, _t)
         else:
             fill_btn.setProperty("_color", "")
             fill_btn.setStyleSheet(_disabled_ss)
@@ -1714,7 +1749,7 @@ class DisplayManager(QDialog):
         section_btn = QPushButton()
         section_btn.setFixedSize(40, 20)
         _sec_pat = section_pattern or BUILTIN_DIAGONAL
-        if has_section and section:
+        if has_section and section is not None:
             section_btn.setProperty("_color", section)
             section_btn.setProperty("_pattern", _sec_pat)
             section_btn.setProperty("_section_scale", section_scale)
@@ -1842,9 +1877,10 @@ class DisplayManager(QDialog):
         btn_key = {"color": "color_btn", "fill": "fill_btn"}[prop]
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = self._cat_data[category_key]["widgets"]
-        cur_hex = widgets[btn_key].property("_color") or default
-        v = colour_picker.pick_colour(cur_hex, self, f"{category_key} · {prop}",
-                                      allow_tokens=(prop == "color"))
+        cur_hex = widgets[btn_key].property("_color")
+        if cur_hex is None:
+            cur_hex = default
+        v = colour_picker.pick_colour(cur_hex, self, f"{category_key} · {prop}")
         if v is not None:
             self._update_swatch(widgets[btn_key], prop, v)
             self._on_category_changed(category_key, prop, v)
@@ -1859,9 +1895,10 @@ class DisplayManager(QDialog):
         btn_key = {"color": "color_btn", "fill": "fill_btn"}[prop]
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = data["widgets"]
-        cur_hex = widgets[btn_key].property("_color") or default
-        v = colour_picker.pick_colour(cur_hex, self, f"Instance · {prop}",
-                                      allow_tokens=(prop == "color"))
+        cur_hex = widgets[btn_key].property("_color")
+        if cur_hex is None:
+            cur_hex = default
+        v = colour_picker.pick_colour(cur_hex, self, f"Instance · {prop}")
         if v is not None:
             self._update_swatch(widgets[btn_key], prop, v)
             self._on_instance_changed(item_ref, prop, v)
@@ -1876,7 +1913,9 @@ class DisplayManager(QDialog):
                 return
             widgets = data["widgets"]
         btn = widgets["section_btn"]
-        cur_color = btn.property("_color") or "#666666"
+        cur_color = btn.property("_color")
+        if cur_color is None:
+            cur_color = "#666666"
         cur_pattern = btn.property("_pattern") or BUILTIN_DIAGONAL
         cur_scale = btn.property("_section_scale") or 1.0
         if isinstance(cur_scale, str):
@@ -1990,12 +2029,12 @@ class DisplayManager(QDialog):
                                    cat_widgets["color_btn"].property("_color"))
             if _category_has_fill(cat_key):
                 fill_val = cat_widgets["fill_btn"].property("_color")
-                if fill_val:
+                if fill_val is not None:
                     self._update_fill_btn(w["fill_btn"], fill_val)
             if _category_has_section(cat_key):
                 section_val = cat_widgets["section_btn"].property("_color")
                 section_pat = cat_widgets["section_btn"].property("_pattern") or "diagonal"
-                if section_val:
+                if section_val is not None:
                     w["section_btn"].setProperty("_pattern", section_pat)
                     self._update_swatch(w["section_btn"], "section", section_val,
                                         pattern=section_pat)
@@ -2138,9 +2177,9 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/default_scale", s["scale"])
             self._settings.setValue(f"display/{key}/default_opacity", s["opacity"])
             self._settings.setValue(f"display/{key}/default_visible", s["visible"])
-            if s.get("fill"):
+            if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/default_fill", s["fill"])
-            if s.get("section"):
+            if s.get("section") is not None:
                 self._settings.setValue(f"display/{key}/default_section", s["section"])
             if s.get("section_pattern"):
                 self._settings.setValue(f"display/{key}/default_section_pattern", s["section_pattern"])
@@ -2153,9 +2192,9 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/scale", s["scale"])
             self._settings.setValue(f"display/{key}/opacity", s["opacity"])
             self._settings.setValue(f"display/{key}/visible", s["visible"])
-            if s.get("fill"):
+            if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
-            if s.get("section"):
+            if s.get("section") is not None:
                 self._settings.setValue(f"display/{key}/section", s["section"])
             if s.get("section_pattern"):
                 self._settings.setValue(f"display/{key}/section_pattern", s["section_pattern"])
@@ -2182,10 +2221,10 @@ class DisplayManager(QDialog):
         elif prop == "color":
             self._update_color_btn(widgets["color_btn"], value)
         elif prop == "fill":
-            if widgets["fill_btn"].isEnabled() and value:
+            if widgets["fill_btn"].isEnabled() and value is not None:
                 self._update_fill_btn(widgets["fill_btn"], value)
         elif prop == "section":
-            if widgets["section_btn"].isEnabled() and value:
+            if widgets["section_btn"].isEnabled() and value is not None:
                 self._update_swatch(widgets["section_btn"], "section", value)
         elif prop == "section_pattern":
             if widgets["section_btn"].isEnabled() and value:
@@ -2211,11 +2250,11 @@ class DisplayManager(QDialog):
             "opacity": w["opacity"].value(),
         }
         if _category_has_fill(key):
-            result["fill"] = w["fill_btn"].property("_color") or None
+            result["fill"] = w["fill_btn"].property("_color")
         else:
             result["fill"] = None
         if _category_has_section(key):
-            result["section"] = w["section_btn"].property("_color") or None
+            result["section"] = w["section_btn"].property("_color")
             result["section_pattern"] = w["section_btn"].property("_pattern") or "diagonal"
             _ss = w["section_btn"].property("_section_scale")
             result["section_scale"] = float(_ss) if _ss else 1.0
@@ -2274,9 +2313,9 @@ class DisplayManager(QDialog):
                 self._settings.setValue(f"display/{key}/scale", cat_settings["scale"])
                 self._settings.setValue(f"display/{key}/opacity", cat_settings["opacity"])
                 self._settings.setValue(f"display/{key}/visible", cat_settings["visible"])
-                if cat_settings.get("fill"):
+                if cat_settings.get("fill") is not None:
                     self._settings.setValue(f"display/{key}/fill", cat_settings["fill"])
-                if cat_settings.get("section"):
+                if cat_settings.get("section") is not None:
                     self._settings.setValue(f"display/{key}/section", cat_settings["section"])
                 if cat_settings.get("section_pattern"):
                     self._settings.setValue(f"display/{key}/section_pattern", cat_settings["section_pattern"])
@@ -2432,10 +2471,7 @@ class DisplayManager(QDialog):
                 color_btn.setFixedSize(40, 20)
                 color_val = cat.get("color", "#000000")
                 color_btn.setProperty("_color", color_val)
-                color_btn.setStyleSheet(
-                    f"background: {color_val}; "
-                    f"border: 1px solid {_t.border_subtle}; "
-                    f"border-radius: 2px;")
+                _apply_swatch_look(color_btn, color_val, _t)
                 color_btn.clicked.connect(
                     lambda _, k=key: self._on_paper_color_clicked(k, "color"))
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_COLOR,
@@ -2447,10 +2483,7 @@ class DisplayManager(QDialog):
                 if key in _HAS_FILL:
                     fill_val = cat.get("fill", "#ffffff")
                     fill_btn.setProperty("_color", fill_val)
-                    fill_btn.setStyleSheet(
-                        f"background: {fill_val}; "
-                        f"border: 1px solid {_t.border_subtle}; "
-                        f"border-radius: 2px;")
+                    _apply_swatch_look(fill_btn, fill_val, _t)
                     fill_btn.clicked.connect(
                         lambda _, k=key: self._on_paper_color_clicked(
                             k, "fill"))
@@ -2467,10 +2500,7 @@ class DisplayManager(QDialog):
                 if key in _HAS_SECTION:
                     sec_val = cat.get("section_color", "#000000")
                     section_btn.setProperty("_color", sec_val)
-                    section_btn.setStyleSheet(
-                        f"background: {sec_val}; "
-                        f"border: 1px solid {_t.border_subtle}; "
-                        f"border-radius: 2px;")
+                    _apply_swatch_look(section_btn, sec_val, _t)
                     section_btn.clicked.connect(
                         lambda _, k=key: self._on_paper_color_clicked(
                             k, "section_color"))
@@ -2617,7 +2647,9 @@ class DisplayManager(QDialog):
         btn_key = {"color": "color_btn", "fill": "fill_btn",
                    "section_color": "section_btn"}[prop]
         btn = widgets[btn_key]
-        cur_hex = btn.property("_color") or "#000000"
+        cur_hex = btn.property("_color")
+        if cur_hex is None:
+            cur_hex = "#000000"
         hex_val = colour_picker.pick_colour(cur_hex, self, f"{key} · {prop}")
         if hex_val is None:
             return
@@ -3073,9 +3105,9 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/scale", s["scale"])
             self._settings.setValue(f"display/{key}/opacity", s["opacity"])
             self._settings.setValue(f"display/{key}/visible", s["visible"])
-            if s.get("fill"):
+            if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
-            if s.get("section"):
+            if s.get("section") is not None:
                 self._settings.setValue(f"display/{key}/section", s["section"])
             if s.get("section_pattern"):
                 self._settings.setValue(f"display/{key}/section_pattern", s["section_pattern"])
@@ -3283,7 +3315,8 @@ def refresh_token_latched(scene) -> None:
             # else the category's -- a token override under a hex category
             # must re-latch too.
             ov = getattr(item, "_display_overrides", None) or {}
-            if is_token(ov.get("color", vals.get("color"))):
+            if (is_token(ov.get("color", vals.get("color")))
+                    or is_token(ov.get("fill", vals.get("fill")))):
                 _apply_vals_to_item(item, vals, respect_overrides=True)
 
 

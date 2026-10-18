@@ -34,8 +34,11 @@ def token_label(value) -> str | None:
 
 
 def normalize_colour(value, default: str = "#ffffff") -> str:
-    """Lower-case ``#rrggbb`` for a str / QColor; tokens pass unchanged;
+    """Lower-case ``#rrggbb`` for a str / QColor; tokens pass unchanged; the
+    literal ``""`` (No Fill / no stroke, universal picker) passes unchanged;
     anything else becomes *default*."""
+    if isinstance(value, str) and value == "":
+        return ""
     name = getattr(value, "name", None)
     if callable(name):
         value = name()
@@ -70,8 +73,13 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     Hex passes through ``QColor(value)`` unchanged. ``token:auto`` -> theme
     ``ink`` on canvas, black on paper; ``token:accent`` -> theme ``accent`` on
     canvas, the light-theme accent on paper; B&W paper -> black for both.
-    An unknown token draws as Automatic (one warning per value).
+    An unknown token draws as Automatic (one warning per value). ``""`` (No
+    Fill / no stroke, universal picker) is fully transparent whatever *alpha*,
+    so a pen, brush or text colour built from it draws nothing; ``None``
+    (unset) is an invalid QColor.
     """
+    if isinstance(value, str) and value == "":
+        return QColor(0, 0, 0, 0)
     if not is_token(value):
         c = QColor(value) if value else QColor()
     else:

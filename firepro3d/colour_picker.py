@@ -1,12 +1,12 @@
 """colour_picker.py — house colour picker (todo #70).
 
 One modal ``ColourPickerDialog(HouseDialog)`` + one entry point
-``pick_colour(initial, parent, context, *, allow_none=False, allow_tokens=False)`` replacing the
+``pick_colour(initial, parent, context)`` (every row, always) replacing the
 native Qt colour dialog app-wide. Result contract:
     None        → cancelled (caller changes nothing)
-    ""          → No Fill (only possible when allow_none=True)
+    ""          → No Fill (always offered)
     "#RRGGBB"   → a colour
-    "token:*"   → a theme token (Automatic / Accent; only when allow_tokens=True)
+    "token:*"   → a theme token (Automatic / Accent; always offered)
 Callers must import the MODULE and call ``colour_picker.pick_colour`` so tests
 can monkeypatch one attribute. See docs/specs/ui-design-system.md.
 """
@@ -252,15 +252,13 @@ class ColourPickerDialog(HouseDialog):
     """House colour picker. Read the outcome with ``result_value()``."""
 
     def __init__(self, parent=None, *, initial="#000000", context="",
-                 allow_none=False, allow_tokens=False, theme=None):
+                 theme=None):
         super().__init__(parent, title="Colour", icon=None, theme=theme)
         self.setFixedWidth(M.COLOUR_DLG_W)
-        self._allow_none = allow_none
-        self._allow_tokens = allow_tokens
-        self._token = initial if (allow_tokens and is_token(initial)) else None
+        self._token = initial if is_token(initial) else None
         self._syncing = False
         self._chips: list[_PaletteChip] = []
-        if initial == NO_FILL and allow_none:
+        if initial == NO_FILL:
             start = NO_FILL
         elif self._token:
             start = resolve_colour(self._token).name().upper()
@@ -298,11 +296,10 @@ class ColourPickerDialog(HouseDialog):
         top.addLayout(side, 1)
         lay.addLayout(top)
 
-        if allow_tokens:
-            self._theme_row_chips = self._add_token_row(lay)
+        self._theme_row_chips = self._add_token_row(lay)
         std = list(zip(STANDARD, STANDARD_NAMES))
         self._standard_row_chips = self._add_row(lay, "Standard", [(v, f"{n} · {v}") for v, n in std]
-                                                 + ([(NO_FILL, "No Fill (transparent)")] if allow_none else []))
+                                                 + [(NO_FILL, "No Fill (transparent)")])
         self._add_row(lay, "Greys", [(v, v) for v in GREYS])
         rec = load_recents()
         self._recent_row_chips = self._add_row(
@@ -371,7 +368,7 @@ class ColourPickerDialog(HouseDialog):
         return NO_FILL if self._no_fill else self._color.name().upper()
 
     def result_value(self):
-        """None if cancelled, NO_FILL (""), a colour token (``allow_tokens``)
+        """None if cancelled, NO_FILL (""), a colour token 
         or "#RRGGBB" if accepted."""
         return self._result_value
 
@@ -384,10 +381,9 @@ class ColourPickerDialog(HouseDialog):
         self._sync_widgets()
 
     def _set_no_fill(self):
-        if self._allow_none:
-            self._token = None
-            self._no_fill = True
-            self._sync_widgets()
+        self._token = None
+        self._no_fill = True
+        self._sync_widgets()
 
     def _sync_widgets(self):
         self._syncing = True
@@ -461,15 +457,16 @@ class ColourPickerDialog(HouseDialog):
         super().reject()
 
 
-def pick_colour(initial, parent=None, context="", *, allow_none=False,
-                allow_tokens=False):
+def pick_colour(initial, parent=None, context="", *, allow_none=None,
+                allow_tokens=None):
     """Open the house picker. Returns None (cancelled), NO_FILL (""), a colour
-    token (``allow_tokens``) or a lower-case "#rrggbb" — the same convention
+    token or a lower-case "#rrggbb" — the same convention
     QColor.name() gave every caller, so stored data / no-op comparisons keep
     their existing form. (The dialog DISPLAYS upper-case hex; only the
     returned value is lower-cased.)"""
-    dlg = ColourPickerDialog(parent, initial=initial or "", context=context,
-                             allow_none=allow_none, allow_tokens=allow_tokens)
+    # allow_none / allow_tokens: retired 2026-10-18 (universal picker shows
+    # every row); accepted and ignored until slice B removes its callers.
+    dlg = ColourPickerDialog(parent, initial=initial or "", context=context)
     try:
         code = dlg.exec()
         v = dlg.result_value() if code == QDialog.DialogCode.Accepted else None

@@ -844,6 +844,18 @@ def _category_for_item(item) -> str | None:
     return None
 
 
+def _paper_qcolor(value, item=None):
+    """QColor for a paper-category colour string (universal picker): a
+    ``token:*`` resolves on the paper surface (black / light-theme accent);
+    ``""`` (No Fill / no stroke) is fully transparent, so a pen, brush or text
+    colour built from it draws nothing."""
+    from PyQt6.QtGui import QColor
+    from .colour_tokens import resolve_colour    # circular at import time
+    if value == "":
+        return QColor(0, 0, 0, 0)
+    return resolve_colour(value, item=item)
+
+
 def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
     """Apply paper overrides to a generic item (Wall, Door / Window / Opening, Room, Floor, Roof).
 
@@ -915,7 +927,7 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         if color_mode != PaperColorMode.FULL_COLOR:
-            pen.setColor(QColor(cat["color"]))
+            pen.setColor(_paper_qcolor(cat["color"], item))
         else:
             # The pen still holds the canvas-resolved ink (HF1): a token colour
             # must re-resolve on the paper surface -- this runs inside the pass
@@ -953,7 +965,7 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
         # gridline bubble labels). FULL_COLOR keeps the authored/model colour.
         _lbl = getattr(pipe, "label", None)
         if _lbl is not None:
-            _lbl.setDefaultTextColor(QColor(cat["color"]))
+            _lbl.setDefaultTextColor(_paper_qcolor(cat["color"], pipe))
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
     pipe.update()
@@ -972,7 +984,7 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     from PyQt6.QtGui import QColor
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
-    inst._paper_pen_color = (QColor(cat["color"])
+    inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
                              if color_mode != PaperColorMode.FULL_COLOR else None)
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
@@ -1020,13 +1032,13 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
     gl._paper_bubble_r = r_mm / S
 
     if color_mode != PaperColorMode.FULL_COLOR:
-        gl._grid_color = QColor(cat["color"])
+        gl._grid_color = _paper_qcolor(cat["color"], gl)
     elif model_token is not None:
         from .colour_tokens import resolve_colour
         gl._grid_color = resolve_colour(model_token, item=gl)
     # Authored color in full-color mode — suppresses the duplicate-warning
     # orange in ALL modes (a warning is not authored content, §9.9.1).
-    pen_color = (QColor(cat["color"]) if color_mode != PaperColorMode.FULL_COLOR
+    pen_color = (_paper_qcolor(cat["color"], gl) if color_mode != PaperColorMode.FULL_COLOR
                  else QColor(gl._grid_color))
 
     for bubble in (gl.bubble1, gl.bubble2):
@@ -1042,7 +1054,7 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
         bubble.setPen(bp)
         bubble._label.setDefaultTextColor(pen_color)
         if color_mode != PaperColorMode.FULL_COLOR and cat["fill"] is not None:
-            bubble.setBrush(QBrush(QColor(cat["fill"])))
+            bubble.setBrush(QBrush(_paper_qcolor(cat["fill"], gl)))
 
     gl._lock_indicator.setVisible(False)
     gl.setOpacity(cat["opacity"] / 100.0)
@@ -1063,13 +1075,15 @@ def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
         pen.setColor(c)
         marker.setPen(pen)
     if color_mode != PaperColorMode.FULL_COLOR:
-        setattr(marker, color_attr, QColor(cat["color"]))
+        _pc = _paper_qcolor(cat["color"], marker)
+        setattr(marker, color_attr, _pc)
         pen = marker.pen()
-        pen.setColor(QColor(cat["color"]))
+        pen.setColor(_pc)
         marker.setPen(pen)
         if cat["fill"] is not None and hasattr(marker, "_fill_color"):
-            marker._fill_color = QColor(cat["fill"])
-            marker.setBrush(QBrush(QColor(cat["fill"])))
+            _pf = _paper_qcolor(cat["fill"], marker)
+            marker._fill_color = _pf
+            marker.setBrush(QBrush(_pf))
     marker.setOpacity(cat["opacity"] / 100.0)
     marker.update()
 
