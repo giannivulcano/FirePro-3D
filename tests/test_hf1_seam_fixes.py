@@ -373,7 +373,9 @@ def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy):
     from firepro3d.paper_display import PaperColorMode
     force_theme("dark")
     ms, fits = _fitting_scene(TOKEN_AUTO)
+    tint_spy["hex"].clear()
     saved, restore = _pass(ms, PaperColorMode.BW)
+    assert tint_spy["hex"] and set(tint_spy["hex"]) == {"#000000"}   # B&W pass tinted it black
     tint_spy["hex"].clear()
     restore(saved)
     assert set(tint_spy["hex"]) == {"#e6e9ec"}       # symbol back to canvas ink
