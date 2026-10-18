@@ -426,8 +426,12 @@ a live theme switch without relaunch.
 - *Picker (D-A18, ui-design-system D6):* `pick_colour(..., allow_tokens=True)`
   adds an overline **Theme** row above Standard with two labelled chips
   (Automatic, Accent), each drawn in its current-canvas colour; returns the
-  token string. Recents store hex only — a token pick is never pushed. Every
-  drawn-item colour caller and the DM colour cells pass `allow_tokens=True`.
+  token string. Recents store hex only — a token pick is never pushed.
+  *(Amended 2026-10-18, smoke ruling — ui-design-system D6 amendment: every
+  picker call site shows the Theme row and No Fill; every property it edits —
+  2D fill, text fill, Display Manager colour / fill / Section / paper tab,
+  roof (resolved at the 3D build), underlay colour, title-block border and
+  field text, FS visibility — accepts a token and `""` (draws nothing).)*
   `ui_kit.Swatch` shows a token as its resolved colour with a small "A" corner
   badge and the label "Automatic" / "Accent".
 - *Overlays (R5):* block-instance selection tints use the theme accent per
