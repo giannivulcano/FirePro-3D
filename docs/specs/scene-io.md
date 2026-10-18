@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: 6a36206
+last-verified: 2026-10-18  # HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: 084b43e0  # HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -48,7 +48,10 @@ design areas) or on each item's `to_dict`/`from_dict` (geometry, walls, blocks�
 ### §2 — Save
 
 `save_to_file` writes a single JSON object (`payload`) with `version` =
-`Model_Space.SAVE_VERSION` (10 since LT2 — informational; primitive migration is
+`Model_Space.SAVE_VERSION` (11 since HF1 — **version-gated**: `colour_migration.migrate_project_payload`
+runs on the raw payload before any `from_dict` when `version < 11`, converting legacy default colours to
+`token:auto`; `.fpdb` files carry a `colour_tokens: 1` marker instead of a version — rules owned by
+[`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md). 10 since LT2 was informational; primitive migration is
 key-presence driven, and `load_from_file` installs the file's weight table + aliases
 before any parse — see [`linetypes.md`](linetypes.md) "LT2" H-a / H-g) and `project_info`, `scale`, `display_settings`,
 `paper_display`, `levels`, `plan_views`, `active_level`, and the entity
@@ -70,7 +73,7 @@ failure the backup is restored; on success the backup is removed.
 
 ### §3 — Load
 
-`load_from_file` reads `version` (default 1), calls `_clear_scene()`, then
+`load_from_file` reads `version` (default 1), runs `migrate_project_payload` (HF1) on the payload, calls `_clear_scene()`, then
 restores each section. Node ids are temp integers assigned at save and
 rehydrated into a `id → Node` map that pipes/design-areas reference. Constraints
 reference geometry by index into the same ordered `_all_geometry_items()` list.

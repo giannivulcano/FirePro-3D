@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-09-30
-verified-commit: f1d8151
+last-verified: 2026-10-18  # HF1 Account: theme-bus rebuild trigger + "" colour actor pointer only (rest not re-audited); prior 2026-09-30
+verified-commit: 084b43e0  # HF1 Account (pointers only); prior f1d8151
 applies-to:
   - firepro3d/view_3d.py
   - firepro3d/view_cube.py
@@ -112,6 +112,7 @@ come together correctly in space.
 | `ViewCube.viewRequested(float, float)` | `ViewCube.mousePressEvent` on a hit zone | `View3D._build_ui` → `_on_viewcube_request` → `_set_view_preset` |
 | `Model_Space.sceneModified` | scene | `View3D._connect_signals` → `request_rebuild` — the **only** model-change path to a 3D rebuild. MainWindow's own `sceneModified` → `_on_scene_modified` → `_refresh_all_views` debounce does **not** touch the 3D view (I6). |
 | `Model_Space.selectionChanged` | scene | `View3D._connect_signals` → `_on_2d_selection_changed` |
+| `theme.theme_bus().changed` (HF1) | `MainWindow._apply_theme` | `View3D._on_theme_changed` → `request_rebuild` **only when** a roof or wall holds a `token:*` colour (the mesh colour is resolved at build). Disconnected in `cleanup()`. Not a model change — the one non-`sceneModified` rebuild trigger; contract in [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md) |
 | `Model_Space.radiationCancel` / `radiationConfirm` | emitted **by View3D** on the scene's behalf (Esc / Enter while `_radiation_selecting`) | MainWindow radiation flow |
 | VTK `InteractionEvent`, `EndInteractionEvent` | interactor observers | `_sync_viewcube` |
 | `ProjectBrowser.activate3DView()` | browser `3D Model` leaf (activation / context-menu Open) | MainWindow → `View3DTabController.open` (I3; `project-browser.md`) |
@@ -119,7 +120,7 @@ come together correctly in space.
 | `_CanvasTabBar.countChanged(int)` | canvas tab bar `tabInserted` / `tabRemoved` | MainWindow → `_on_canvas_count_changed` (I5) |
 
 `cleanup()` disconnects the two scene connections (`sceneModified`,
-`selectionChanged`) — I11.
+`selectionChanged`) and the theme-bus connection — I11.
 
 ## 2. Lifecycle (as-built)
 
@@ -175,7 +176,8 @@ come together correctly in space.
 ### 2.3 Rebuild triggers and visibility gating (I6)
 - **Model change:** `sceneModified` → `request_rebuild()` sets `_dirty = True`
   and starts the 100 ms coalescing timer **only if visible** (and not already
-  running). This is the only model-change trigger; `MainWindow._refresh_all_views`
+  running). This is the only model-change trigger (a token-colour theme switch
+  also calls `request_rebuild` — §1.2, HF1); `MainWindow._refresh_all_views`
   deliberately does not touch 3D, so a visible view rebuilds once per edit.
 - **Timer:** `_do_rebuild` rebuilds only if still dirty **and** visible — a view
   hidden before the timer fired stays dirty until shown.
@@ -324,7 +326,9 @@ and returns (loose 2D primitives no longer live in the plan scene). Level
 floors: translucent quads per level sized to the node extent + padding, with
 edge outline and name label, hidden unless Floors is on; absent when there are
 no nodes. Walls / slabs / roofs: `get_3d_mesh` meshes + feature-edge actors
-(walls & slabs backface culling off; roofs use the mesh alpha). Openings:
+(walls & slabs backface culling off; roofs use the mesh alpha; HF1: a roof or
+wall with colour `""` is an opacity-0, unpickable actor with a `None` edge slot so
+the actor / edge lists stay index-parallel — [`hatch-and-fill.md`](hatch-and-fill.md)). Openings:
 `get_3d_meshes` per opening with the mesh alpha. Static: XYZ axes at origin
 (500 mm) + labels; 5000 mm ground grid (1000 mm step) hidden by default.
 

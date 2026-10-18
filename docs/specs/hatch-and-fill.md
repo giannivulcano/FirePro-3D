@@ -1,12 +1,15 @@
 ---
-status: partial          # HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-17  # HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: 6bacede7   # HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+status: partial          # HF1 BUILT 2026-10-18 (merge 084b43e0, feat/hf1-colour-tokens): colour tokens (token:auto / token:accent), per-paint resolver, theme bus, SAVE_VERSION 11 + .fpdb marker migration, universal picker -- see "HF1 build design". Prior: HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
+last-verified: 2026-10-18  # HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: 084b43e0   # HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
   - firepro3d/hatch_render.py       # renderer: paint_fill / stamp_lattice / paint_swatch
   - firepro3d/render_op.py          # RenderOp type — shared with linetypes (LT3 extends it); block compile semantics owned by block-system.md
+  - firepro3d/colour_tokens.py      # HF1: token resolver (is_token / normalize_colour / resolve_colour / preview_colour / resolve_pen_brush / section_fill_colour / paint_resolver)
+  - firepro3d/colour_migration.py   # HF1: SAVE_VERSION 11 / .fpdb marker load migration (legacy default colours -> token:auto)
+  - firepro3d/colour_picker.py      # HF1: universal picker Theme row (owner of D6 signature = ui-design-system.md)
   - firepro3d/capability_frame.py   # Block Editor capability frame base (CapabilityFrameItem, tag, frame_for) — shared with linetypes.md LT4 (RepeatFrame), owned here
   - firepro3d/tile_frame.py         # Block Editor pattern-tile frame (TileFrame) + tile panel rows
   - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files (D-A39; the shipped index.json was removed 2026-10-10)
@@ -365,7 +368,11 @@ until that doc is approved.
   seeds **Size = Model** (the tile is what you drew, in real mm); Drafting is
   an explicit choice for patterns authored at printed size.
 
-## HF1 build design — colour tokens (approved 2026-10-17; *proposal* until HF1 lands)
+## HF1 build design — colour tokens (approved 2026-10-17; **SHIPPED** 2026-10-18, merge `084b43e0`)
+
+*Account 2026-10-18:* the text below states shipped behaviour. Where the
+2026-10-17 proposal differed, the code won and the text was corrected (S1–S3
+of the VC9 review are resolved in code and below).
 
 The *what* is D-A18–D-A21 + D-A25's theme bar; Phase 2 rulings (2026-10-17):
 Automatic = theme `ink` on canvas, `#000000` on paper; Accent = theme
@@ -381,31 +388,64 @@ a live theme switch without relaunch.
 - *Value model.* A colour value stays a plain string: `#rrggbb` |
   `token:auto` | `token:accent` (constants in `constants.py`). A typed object
   was rejected — it ripples through every `to_dict` / `RenderOp` string field
-  for no gain. Unknown `token:*` draws as Automatic + one load warning.
-- *One resolver.* New module `firepro3d/colour_tokens.py`: `is_token(v)`,
-  `normalize_colour(v, default)` (lower-cases hex, passes tokens; replaces
-  `stroke_style._hex`'s coerce-to-`#ffffff` for tokens), and
-  `resolve_colour(v, alpha=None, item=None) -> QColor`. Hex passes through.
+  for no gain. Unknown `token:*` draws as Automatic; the warning is logged
+  once per distinct value at resolve / paint time (`colour_tokens`), not at load.
+- *One resolver.* Module `firepro3d/colour_tokens.py` (all of it; signatures
+  live there, this list is the contract):
+  - `is_token(v)`, `token_label(v)` (UI label, `None` for hex).
+  - `normalize_colour(v, default)` — lower-cases hex, passes tokens **and the
+    literal `""` unchanged**, anything else → `default` (replaces
+    `stroke_style._hex`'s coerce-to-`#ffffff`).
+  - `resolve_colour(v, alpha=None, item=None) -> QColor` — hex passes through;
+    `""` → fully transparent `QColor(0,0,0,0)` whatever `alpha`; `None` →
+    an invalid `QColor`.
+  - `preview_colour(v)` — canvas colour for a placement rubber band; a `""`
+    template previews as the theme accent (else it would be invisible).
+  - `resolve_pen_brush(item, pen, brush, pen_src, brush_src, alpha)` — the
+    per-paint pen / brush from stored colour strings (styles / widths kept).
+  - `section_fill_colour(v, item)` — solid section-cut body colour, or `None`
+    (unset, `""`, or a `hatch:` form → no solid body).
+  - `paint_resolver(item)` — per-paint memo of `resolve_colour` (G12 perf);
+    never outlive one paint.
 - *Resolve per paint, never at set time.* A model item paints on the dark
   canvas and inside a paper viewport in the same frame, so a latched colour is
   wrong on one of them. Every consumer converts its stored string through
-  `resolve_colour` at paint.
+  `resolve_colour` at paint. **Latched consumers** (S1 resolved: gridline /
+  marker pens, DM SVG tints, fitting symbols) cannot resolve at paint, so on
+  **Full Colour** paper the paper pass re-resolves them on the paper surface
+  and `restore_model_display` puts the canvas value back (fittings carry a
+  `retinted` flag on their saved entry so only re-tinted symbols are
+  re-latched).
 - *Surface.* Paper when `paper_display.paper_pass_active()` is true (the
   `SheetViewport` window — screen, PDF export and print share it) or the
   item's scene carries `paints_on_paper = True` (`PaperScene`, the title-block
   editor / arrange white preview scenes); otherwise canvas. Paper colour mode
-  B&W → black. Non-Full-Colour paper modes keep their existing category-colour
-  substitution for viewport content; the resolver's B&W check covers
-  paper-scene items (annotations).
-- *Theme bus.* `theme.py` gains a `theme_bus()` QObject with a `changed`
-  signal, emitted at the end of `MainWindow._apply_theme`. One MainWindow
-  listener walks every live scene (model, paper, Block Editors, elevation,
-  schematic — generalising the existing scene enumerator) and `update()`s it,
-  calling `on_theme_changed()` on latched consumers: text default colour
-  (`_apply_format`), Display Manager SVG tints and gridline / marker pens when
-  their stored value is a token, the `ui_kit.Swatch` label. Compiled block
-  stroke pens keep the token string; the instance sets the pen colour per
-  paint.
+  B&W → black for both tokens. **Full Colour paper keeps authored colours**
+  (S2 resolved): the paper pass leaves hex colours alone and tokens resolve on
+  the paper surface (Automatic black, Accent the light-theme accent
+  `#2F9E63`). The **Paper-tab category colours apply only in B&W / Custom**
+  (the existing substitution for viewport content); **CUSTOM treats tokens as
+  Full Colour** (Accent stays green). Items with no paper category
+  (`TextItem`) get no upstream substitution, so under a B&W pass they honour
+  it through `paper_display.paper_pass_color_mode()` (read by the resolver);
+  paper-scene items (annotations) read the saved mode.
+- *Theme bus.* `theme.py` has `theme_bus()`, a singleton QObject whose
+  `changed` signal is emitted at the end of `MainWindow._apply_theme`.
+  Listeners:
+  - `MainWindow._on_theme_bus_changed`: first calls
+    `elevation_manager.rebuild_all()` (elevation views project DM colours at
+    rebuild and have no sprinkler system, so `refresh_token_latched` skips
+    them), then walks every live scene (model, paper, Block Editors,
+    elevation, schematic — `_live_scenes`), runs
+    `display_manager.refresh_token_latched(scene)`, calls
+    `on_theme_changed()` on items that define it (latched consumers: text
+    default colour via `_apply_format`, DM SVG tints and gridline / marker
+    pens when the stored value is a token) and `update()`s the scene.
+  - `View3D._on_theme_changed`: requests a 3D rebuild when any roof or wall
+    holds a token colour (the mesh colour is resolved at build).
+  - `ui_kit.Swatch` (label colour + chip repaint) and `FontGroup`.
+  Compiled block stroke pens keep the token string; the instance sets the pen
+  colour per paint.
 
 **Design decisions.**
 - *Defaults → Automatic:* new 2D geometry (`default_style`, ctor /
@@ -422,18 +462,56 @@ a live theme switch without relaunch.
   they gain a `colour_tokens: 1` marker; the same rule runs when it is absent
   (bundled nested definitions too) and saving writes it. QSettings Display
   Manager colour keys at `#ffffff` migrate once behind a settings marker. An
-  explicit hex in a v11+ file is never touched.
-- *Picker (D-A18, ui-design-system D6):* `pick_colour(..., allow_tokens=True)`
-  adds an overline **Theme** row above Standard with two labelled chips
-  (Automatic, Accent), each drawn in its current-canvas colour; returns the
-  token string. Recents store hex only — a token pick is never pushed.
+  explicit hex in a v11+ file is never touched. A text `color` of `""`
+  (annotation or model text) in a < v11 file also becomes Automatic; v11+
+  keeps `""` as "no colour". Shipped: `firepro3d/colour_migration.py`
+  (payload-level, run before any `from_dict`; `SAVE_VERSION` = 11 in
+  `model_space.py`; the Display Manager QSettings keys migrate once behind
+  the `display/_migrated_hf1_auto` marker). The `.fpdb` marker is
+  `colour_tokens: 1` (`COLOUR_TOKENS_MARK`), written on save. The shipped
+  `system_blocks/Hatches/*.fpdb` stay **unmarked on disk** and re-migrate on
+  every load (harmless: the rule is idempotent and an explicit hex is never
+  touched).
+- *Picker (D-A18, ui-design-system D6):* the signature is
+  `pick_colour(initial, parent, context)` — no opt-in flags (owner:
+  [ui-design-system.md D6](ui-design-system.md)). It shows an overline
+  **Theme** row above Standard with two labelled chips (Automatic, Accent),
+  each drawn in its current-canvas colour, plus No Fill, and returns `None`
+  (cancel), `""`, a `token:*` string or a lower-case hex. Recents store hex
+  only — a token pick (or `""`) is never pushed.
   *(Amended 2026-10-18, smoke ruling — ui-design-system D6 amendment: every
-  picker call site shows the Theme row and No Fill; every property it edits —
-  2D fill, text fill, Display Manager colour / fill / Section / paper tab,
-  roof (resolved at the 3D build), underlay colour, title-block border and
-  field text, FS visibility — accepts a token and `""` (draws nothing).)*
+  picker call site shows the Theme row and No Fill; every property it edits
+  accepts a token and `""` (draws nothing). Edited properties: 2D fill,
+  text fill, **model / paper text colour (`""` allowed)**, Display Manager
+  colour / fill / Section / paper tab, **room / floor / design-area DM
+  `""`**, roof (resolved at the 3D build), **wall Colour (`_colour` store;
+  the 3D mesh resolves it at build, and View3D rebuilds on the theme bus when
+  a roof or wall holds a token)**, underlay colour, title-block border and
+  field text, **title-block field fill**, and **elevation projection**
+  (elevation proxies resolve per paint and are paper-aware, so a sheet plots
+  the paper surface; S3 resolved — elevation does resolve). The former
+  "FS visibility" entry is dropped: that dialog is dead and its deletion is
+  filed.)*
   `ui_kit.Swatch` shows a token as its resolved colour with a small "A" corner
   badge and the label "Automatic" / "Accent".
+- *Invariants (shipped).*
+  - In 3D a roof or wall whose colour is `""` is an opacity-0, unpickable
+    actor with a `None` edge slot, so the actor and edge lists stay
+    index-parallel (section cut, pick map).
+  - Display Manager fill `""` (no fill) is distinct from `None` (inherit /
+    unset, which paints the default grey).
+  - A Graphic Override fill on 2D geometry is display-only:
+    `Geometry2DMixin._fill_value()` reads override-else-own, and `to_dict`
+    never saves the override (Clear restores the own fill).
+  - Paper surface rules (Full Colour keeps authored colours; Custom treats
+    tokens as Full Colour; B&W pass reaches uncategorised items) are in the
+    *Surface* bullet above — one home.
+- *Known gaps (open, filed in `todo_open.md`).* (1) Elevation edge lines and
+  opening voids / floor-slab masks are canvas-latched on sheets (plot canvas
+  colours on paper). (2) Block-definition text prims with a flat
+  `color == ""` are not migrated by `colour_migration`. (3) The Paper-tab
+  Colour column has no UI cue that it is inactive in Full Colour (and the
+  property panel shows the own fill while a Graphic Override is active).
 - *Overlays (R5):* block-instance selection tints use the theme accent per
   paint; `selection_manipulator`'s `#63BE8B` lines are detect-failure
   fallbacks and stay with `# theme-exempt:`.
@@ -464,12 +542,12 @@ the D-A21 HF1 scope above.
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
 - `2d-geometry.md` fill section → `fill.pattern` is a tile id linked here (**done, HF2 Account**); per-item fill dissolved (D-A16) — pending HF3.
-- `ui-design-system.md` D6 → picker gains token choices (D-A18).
-- `docs/architecture/theming.md` → element colours may be tokens resolved by surface (D-A19).
+- `ui-design-system.md` D6 → picker gains token choices (D-A18) (**done, HF1 Account** — D6 colour block + amendment).
+- `docs/architecture/theming.md` → element colours may be tokens resolved by surface (D-A19) (**done, HF1 Account** — theme bus pointer).
 - `block-system.md` → tile capability + pattern refs in the registry (D-A9, D-A34, D-A39: **done, HF2 Account** — "Pattern-tile capability (HF2)"); Fill Type bundling (D-A15) — pending.
 - `linetypes.md` → `RenderOp` exists (`render_op.py`); LT3 extends it (**done, HF2 Account**).
 - `settings-dialog.md` §4.5b → Hatch patterns folder row + seeded key (**done, HF2**).
 - `docs/architecture/display-system.md` → section-cut hatching links here (**done, HF2 Account**).
 - `underlay-workflow.md` §10.5 → wrongly says DXF HATCH is implemented (it imports nothing); §16.3 → fills (D-A22/23).
-- `scene-io.md` §4 + `2d-geometry.md` → legacy HatchItem is discarded, not migrated (H12: **done, HF2 Account**); format bump (D-A20) — pending.
+- `scene-io.md` §4 + `2d-geometry.md` → legacy HatchItem is discarded, not migrated (H12: **done, HF2 Account**); format bump (D-A20) (**done, HF1 Account** — `scene-io.md` SAVE_VERSION 11 pointer).
 - System Blocks concept → add the Hatches series (D-A24).

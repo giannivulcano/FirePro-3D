@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-10-04  # opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
-verified-commit: cbfe14f   # Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
+verified-commit: 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -299,7 +299,7 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 
 `paint()` renders in layers:
 
-1. **Fill** (if fill mode enabled): Semi-transparent polygon fill (alpha 80) using display fill color.
+1. **Fill** (if fill mode enabled): Semi-transparent polygon fill (alpha 80) using display fill color. *(HF1: the wall's Colour is the `_colour` string — `#hex`, `token:*` or `""` — resolved per paint on the surface it paints on via `colour_tokens`; `get_3d_mesh` resolves it at build, a `""` wall giving an opacity-0 mesh. Contract: [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).)*
 2. **Left edge**: Always drawn (centerline-parallel).
 3. **Right edge**: Always drawn.
 4. **End edges**: Drawn only if `solid_ptN` is `False` for that endpoint.
@@ -318,7 +318,7 @@ Walls participate in the unified section-cut protocol:
 
 1. `LevelManager` sets `_is_section_cut = True` when the view-range cut plane intersects the wall's Z-range.
 2. `paint()` calls `draw_section_hatch()` with the wall quad as clip path.
-3. Section appearance (color, pattern, scale) is controlled by the display system's three-tier cascade (per-instance > category > factory default).
+3. Section appearance (color, pattern, scale) is controlled by the display system's three-tier cascade (per-instance > category > factory default). *(HF1: a section/DM colour may be a `token:*`; a Display Manager fill of `""` (no fill) is distinct from `None` (inherit); room / floor / roof / design-area DM colours accept `""`; `colour_tokens.section_fill_colour` yields no body fill for unset / `""` — see [`hatch-and-fill.md`](hatch-and-fill.md).)*
 4. Wall fill mode `FILL_SECTION` forces hatch regardless of cut plane.
 
 ### 6.5 3D Mesh

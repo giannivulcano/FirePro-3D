@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-09-18
-verified-commit: 5cd5941
+last-verified: 2026-10-18  # HF1 Account: elevation-colour pointer only (rest not re-audited); prior 2026-09-18
+verified-commit: 084b43e0  # HF1 Account (pointer only); prior 5cd5941
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
@@ -98,6 +98,7 @@ Consequences:
 - The snap engine is 2D (canvas input only) — see `snapping-engine.md`.
 - The pipe placement methodology is plan-view-driven — see `pipe-placement-methodology.md`.
 - `ElevationView` provides pan / zoom / fit / coordinate display + **selection** (HALO hover, unified `SelectionManipulator` frame, scene-drawn rubber-band — see `selection-mode.md` elevation section) and annotation-extent grip editing; it exposes **no model-geometry editing tools**. Read-only proxies show the manipulator frame with **zero editing handles** (a no-op `manip_translate` grants only the wrap; interior-drag is inert). `View3D` provides orbit / pan / zoom / fit, click-pick, and whole-item **delete / hide** (no geometry editing) — its behaviour contract is `view-3d.md` (§10).
+- **Elevation colours (HF1):** elevation projection proxies keep their colour *sources* (hex / `token:*` / `""`) and resolve per paint, paper-aware, so a theme switch (the `MainWindow` theme-bus listener calls `elevation_manager.rebuild_all()`) and a sheet plot both get the right surface. Open gap: elevation edge lines and opening voids / floor-slab masks are still canvas-latched on sheets. Owner: [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).
 - A future "edit model geometry in elevation" capability is still a **planned extension**: the spec must not introduce constraints that preclude it (e.g. must not assume Z is invisible to view widgets).
 
 ### 3.2 Two distinct Z systems

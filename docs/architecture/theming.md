@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-09-26 - verified-commit: a972466 (doc-drift sweep: canvas selection section now = selection-manipulator tokens) - prior 2026-09-01 cfcb6d6 (feat/underlay-manager-chrome-match — FramelessShellMixin house shell, on_accent token, role=title/name selectors; house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
+<!-- last-verified: 2026-10-18 - verified-commit: 084b43e0 (HF1 Account: theme bus + element-colour tokens pointer to hatch-and-fill.md) - prior 2026-09-26 a972466 (doc-drift sweep: canvas selection section now = selection-manipulator tokens) - prior 2026-09-01 cfcb6d6 (feat/underlay-manager-chrome-match — FramelessShellMixin house shell, on_accent token, role=title/name selectors; house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
 
 # Theming & UI Style
 
@@ -75,6 +75,18 @@ migrated chrome file reintroduces raw hex in a `setStyleSheet(...)` call without
 an explicit `# theme-exempt: <reason>` marker (used only for fixed paper/preview
 backdrops). The guard is allow-listed to the migrated files today; extending it
 to the full chrome set is a tracked follow-up.
+
+### Theme bus and element-colour tokens (HF1)
+
+`theme.theme_bus().changed` fires at the end of `MainWindow._apply_theme`, after
+the stylesheets are re-applied, so anything that latched a theme-derived colour
+can refresh without a relaunch. Listeners today: `MainWindow` (repaints every live
+scene and refreshes token-latched consumers), `View3D`, `ui_kit.Swatch` and
+`FontGroup`. Placed-element colours may be **colour tokens** (`token:auto` /
+`token:accent`) resolved per paint by surface (canvas theme vs paper), not at set
+time. What each listener does, the resolver, and the per-surface rules are owned by
+[hatch-and-fill.md "HF1 build design — colour tokens"](../specs/hatch-and-fill.md);
+this page does not restate them (Rule A).
 
 ## Layout metrics (`theme.M`)
 

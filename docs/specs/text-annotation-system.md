@@ -1,7 +1,7 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); model-surface inline edit LANDED 2026-09-23 (feat/model-text-inline-edit); style presets/SHX/overrides deferred
-last-verified: 2026-10-13  # CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
-verified-commit: 503c6959  # CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
+last-verified: 2026-10-18  # HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
+verified-commit: 084b43e0  # HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -136,7 +136,7 @@ defaults so pre-existing `.fpd` files load with the border off:
 | `fill_color` | `str` | `""` | Box fill colour hex; `""` = no fill (transparent). |
 | `fill_opacity` | `float` | `100.0` | Fill alpha as a percentage 0–100. |
 
-- `color` (existing) is the **font colour**; `fill_color` is the box fill — two independent colours.
+- `color` (existing) is the **font colour**; `fill_color` is the box fill — two independent colours. *(HF1: `TextAnnotationData.color` defaults to Automatic (`token:auto`, was `#000000`) and both colours accept a `token:*`; font colour `""` = no colour and draws nothing. Resolution per surface, the SAVE_VERSION 11 migration of legacy `#000000` / `""` paper text, and the B&W pass for this uncategorised item are owned by [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).)*
 - **`opaque_bg` migration:** `from_dict` maps a legacy `opaque_bg=True` → `fill_color="#ffffff", fill_opacity=100`; `False`/absent → `fill_color=""`. The `opaque_bg` field/rows are removed from the data model, `paint`, panels, and the paper `_TEMPLATE_FIELDS`/migration/capture sites (grep `opaque_bg` — 12 sites). `paint` fills the box with `QColor(fill_color)` at `fill_opacity/100` alpha when `fill_color` is set (replacing the white knockout).
 - `to_dict` / `from_dict` gain all four border fields plus the two fill fields (`from_dict` uses `.get(..., default)`).
 - **Dual-serialization parity:** the fields are added to *both* the file path
@@ -236,10 +236,11 @@ the work is in **`TextItem.get_properties()` (model branch)** + **new
 - **`percent`** — Opacity as a 0–100 slider with a `%` readout, bound to
   `fill_opacity`.
 - **`color`** (existing) — used for both **Font colour** (`color`) and **Fill
-  colour** (`fill_color`). Fill Color rows emit `"allow_none": True` and pass the
-  raw `fill_color` (no `or "#ffffff"` masking), so `ui_kit.Swatch` offers the house
-  picker's **No Fill** chip and shows the No-Fill glyph + "None" when empty
-  (todo #70; picker contract in `ui-design-system.md` D6).
+  colour** (`fill_color`). Fill Color rows pass the raw `fill_color` (no
+  `or "#ffffff"` masking); the house picker always offers **No Fill** (and the
+  Theme row — HF1; the `allow_none` flag is retired), and `ui_kit.Swatch` shows
+  the No-Fill glyph + "None" when empty (todo #70; picker contract in
+  `ui-design-system.md` D6).
 
 Frame rows disable when `border` is off; the Opacity row disables when
 `fill_color` is empty (none) — via the generic `meta["disabled"]` flag in
@@ -515,7 +516,7 @@ Landed:
   shared `paper_display.canvas_weight_px` mapping — `linetypes.md` LT1-7, which
   retired `_BORDER_WEIGHT_PX` 2026-10-04), true-mm on paper. Border Weight
   pickers list the project weight table (`linetypes.md` LT1-6).
-- **Model-placement defaults** (`_press_text`, real-size scene mm): white ink,
+- **Model-placement defaults** (`_press_text`, real-size scene mm): Automatic ink (`token:auto` — theme ink on the canvas; HF1, was white; [`hatch-and-fill.md`](hatch-and-fill.md)),
   `DEFAULT_MODEL_TEXT_HEIGHT_MM=100`, solid border on, border weight = the
   live row nearest 0.25 mm (`text_item.default_border_weight`, `linetypes.md`
   "MW" MW-5; was the literal `"Medium"`),
