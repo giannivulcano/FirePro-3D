@@ -922,7 +922,7 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
             # and _sync_stroke_pen leaves the pen alone for the whole pass.
             st = getattr(item, "style", None)
             tok = (getattr(item, "_display_color", None)
-                   or (st["colour"] if st is not None else None))
+                   or (st.get("colour") if st is not None else None))
             if is_token(tok):
                 pen.setColor(resolve_colour(tok, item=item))
         pen.setWidthF(lw_mm / max(paper_scale, 1e-9))
@@ -1317,11 +1317,13 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                       fitting_cat.get("fill"))
                         f._display_color = fitting_cat["color"]
                         f._display_fill_color = fitting_cat.get("fill")
+                        entry["retinted"] = True
                     else:
                         _tok = _full_tok(f, "Fitting")
                         if _tok is not None:   # re-tint on the paper surface
                             _set_svg_tint(f.symbol, _tok,
                                           getattr(f, "_display_fill_color", None))
+                            entry["retinted"] = True
                     f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
         # ── Underlays (§16.5) — records drive per-layer paper appearance ──
@@ -1530,8 +1532,9 @@ def restore_model_display(saved: list[dict]):
         # Restore fitting wrapper attributes
         fitting = entry.get("fitting")
         if fitting is not None:
-            # Re-latch the canvas tint (a Full Colour token re-tinted the symbol).
-            _set_svg_tint(item, entry["display_color"],
-                          entry.get("display_fill_color"))
+            if entry.get("retinted"):
+                # Re-latch the canvas tint: the apply step re-tinted the symbol.
+                _set_svg_tint(item, entry["display_color"],
+                              entry.get("display_fill_color"))
             fitting._display_color = entry["display_color"]
             fitting._display_fill_color = entry.get("display_fill_color")

@@ -304,3 +304,129 @@ def test_m3_token_colour_survives_copy_paste_undo_redo(qapp, force_theme, name):
         assert resolve_colour(_stored_colour(lst[-1]), item=lst[-1]).name() == "#1c2024"
     finally:
         close_view(view, scene)
+
+
+# ── I-B / VC9 round 2: fitting + marker paper-pass tint hand-off ────────────
+
+def _fitting_scene(colour):
+    """Model_Space with one pipe; the end nodes' fittings carry *colour*."""
+    from firepro3d.display_manager import (
+        _apply_to_scene_items, _read_category_from_settings)
+    from firepro3d.model_space import Model_Space
+    from firepro3d.pipe import Pipe
+    QSettings("GV", "FirePro3D").setValue("display/Fitting/color", colour)
+    ms = Model_Space()
+    n1, n2 = ms.add_node(0, 0), ms.add_node(1000, 0)
+    p = Pipe(n1, n2)
+    ms.addItem(p)
+    ms.sprinkler_system.add_pipe(p)
+    for n in (n1, n2):
+        n.fitting.type = n.fitting.determine_type(n.pipes)
+        n.fitting.update()
+    _apply_to_scene_items(ms, "Fitting", _read_category_from_settings("Fitting"))
+    fits = [n.fitting for n in (n1, n2) if n.fitting.symbol is not None]
+    assert fits and fits[0].symbol.isVisible()
+    return ms, fits
+
+
+@pytest.fixture
+def tint_spy(monkeypatch):
+    """Record every SVG recolour hex and every ``_set_svg_tint`` call."""
+    from firepro3d import display_manager as dm
+    rec = {"hex": [], "calls": 0}
+    orig_rc, orig_tint = dm._recolor_svg_bytes, dm._set_svg_tint
+
+    def rc(path, color=None, fill=None):
+        rec["hex"].append(color)
+        return orig_rc(path, color, fill)
+
+    def tint(*a, **k):
+        rec["calls"] += 1
+        return orig_tint(*a, **k)
+    monkeypatch.setattr(dm, "_recolor_svg_bytes", rc)
+    monkeypatch.setattr(dm, "_set_svg_tint", tint)
+    return rec
+
+
+def _pass(ms, mode):
+    from firepro3d.paper_display import (
+        apply_paper_overrides, restore_model_display, save_paper_color_mode)
+    save_paper_color_mode(mode)
+    saved = apply_paper_overrides(ms, QRectF(-5000, -5000, 10000, 10000))
+    return saved, restore_model_display
+
+
+def test_ib_token_fitting_full_colour_paper_then_canvas(qapp, force_theme, tint_spy):
+    from firepro3d.paper_display import PaperColorMode
+    force_theme("dark")
+    ms, fits = _fitting_scene(TOKEN_AUTO)
+    tint_spy["hex"].clear()
+    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    assert tint_spy["hex"] and set(tint_spy["hex"]) == {"#000000"}   # paper ink
+    tint_spy["hex"].clear()
+    restore(saved)
+    assert set(tint_spy["hex"]) == {"#e6e9ec"}                       # canvas ink back
+    assert all(f._display_color == TOKEN_AUTO for f in fits)
+
+
+def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy):
+    from firepro3d.paper_display import PaperColorMode
+    force_theme("dark")
+    ms, fits = _fitting_scene(TOKEN_AUTO)
+    saved, restore = _pass(ms, PaperColorMode.BW)
+    tint_spy["hex"].clear()
+    restore(saved)
+    assert set(tint_spy["hex"]) == {"#e6e9ec"}       # symbol back to canvas ink
+
+
+def test_ib_hex_fitting_restore_does_not_retint(qapp, force_theme, tint_spy):
+    from firepro3d.paper_display import PaperColorMode
+    force_theme("dark")
+    ms, fits = _fitting_scene("#ff0000")
+    before = [f._display_color for f in fits]
+    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    tint_spy["calls"] = 0
+    restore(saved)
+    assert tint_spy["calls"] == 0
+    assert [f._display_color for f in fits] == before == ["#ff0000"] * len(fits)
+
+
+def _detail_marker_scene(colour):
+    from firepro3d.display_manager import _apply_detail_marker
+    from firepro3d.detail_view import DetailMarker
+    from firepro3d.model_space import Model_Space
+    ms = Model_Space()
+    m = DetailMarker("D1", QRectF(0, 0, 400, 300))
+    ms.addItem(m)
+    _apply_detail_marker(m, colour, 1.0, 100, True, None)
+    return ms, m
+
+
+def test_id_detail_marker_token_full_colour_paper_then_canvas(qapp, force_theme):
+    from firepro3d.paper_display import PaperColorMode
+    force_theme("dark")
+    QSettings("GV", "FirePro3D").setValue("display/Detail Marker/color", TOKEN_AUTO)
+    ms, m = _detail_marker_scene(TOKEN_AUTO)
+    canvas_tag, canvas_pen = m._tag_color.name(), m.pen().color().name()
+    assert canvas_tag == "#e6e9ec"
+    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    assert m._tag_color.name() == "#000000" and m.pen().color().name() == "#000000"
+    restore(saved)
+    assert m._tag_color.name() == canvas_tag and m.pen().color().name() == canvas_pen
+
+
+def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
+    """ViewMarkerArrow is PAPER_EXCLUDED (hidden for the pass), so its
+    ``_apply_marker`` token branch is unreachable; pin that and the restore."""
+    from firepro3d.paper_display import PaperColorMode
+    from firepro3d.view_marker import ViewMarkerArrow
+    from firepro3d.model_space import Model_Space
+    force_theme("dark")
+    ms = Model_Space()
+    m = ViewMarkerArrow("north")
+    ms.addItem(m)
+    before = m._marker_color.name()
+    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    assert not m.isVisible() and m._marker_color.name() == before
+    restore(saved)
+    assert m.isVisible() and m._marker_color.name() == before
