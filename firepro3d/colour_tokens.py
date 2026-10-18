@@ -48,11 +48,15 @@ def normalize_colour(value, default: str = "#ffffff") -> str:
 def _paper_mode(item):
     """None on the canvas; else the PaperColorMode that applies to *item*.
 
-    Inside the SheetViewport window (screen, PDF, print) B&W/Custom is
-    already substituted upstream, so the pass reports FULL_COLOR. A
-    ``paints_on_paper`` scene (PaperScene, white previews) reads the saved mode.
+    Inside the SheetViewport window (screen, PDF, print) categorised items get
+    their B&W/Custom colour substituted upstream, but uncategorised ones
+    (TextItem) do not -- so the pass reports BW when the pass was applied under
+    B&W, else FULL_COLOR. A ``paints_on_paper`` scene (PaperScene, white
+    previews) reads the saved mode.
     """
     if _pd.paper_pass_active():
+        if _pd.paper_pass_color_mode() is _pd.PaperColorMode.BW:
+            return _pd.PaperColorMode.BW
         return _pd.PaperColorMode.FULL_COLOR
     sc = item.scene() if item is not None else None
     if sc is not None and getattr(sc, "paints_on_paper", False):

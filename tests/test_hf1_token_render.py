@@ -223,3 +223,41 @@ def test_font_group_deleted_does_not_break_later_emits(qapp, force_theme):
     fg = FontGroupController(get_targets=lambda: [])
     sip.delete(fg)
     theme.theme_bus().changed.emit()      # must not raise or crash
+
+
+# ── VC9 fix round C1: Full Colour paper hand-off for NON-block geometry ─────
+
+def _scene_with_line_and_text(colour):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    from tests.test_lt1_block_paper import _HALF_LEN, _TEXT_H, _TEXT_X, _TEXT_Y
+    ms = Model_Space()
+    ln = LineItem(QPointF(-_HALF_LEN, 0), QPointF(_HALF_LEN, 0), colour)
+    ms.addItem(ln)
+    t = TextItem(TextAnnotationData(text="H", x=_TEXT_X, y=_TEXT_Y,
+                                    height_mm=_TEXT_H, color=colour))
+    ms.addItem(t)
+    return ms
+
+
+@pytest.mark.parametrize("mode,colour,rgb", [
+    (PaperColorMode.FULL_COLOR, TOKEN_AUTO, (0.0, 0.0, 0.0)),
+    (PaperColorMode.FULL_COLOR, TOKEN_ACCENT, (0x2f / 255, 0x9e / 255, 0x63 / 255)),
+    (PaperColorMode.BW, TOKEN_AUTO, (0.0, 0.0, 0.0)),
+    (PaperColorMode.BW, TOKEN_ACCENT, (0.0, 0.0, 0.0)),
+], ids=["full-auto", "full-accent", "bw-auto", "bw-accent"])
+def test_c1_non_block_line_and_text_plot_paper_colour(
+        qapp, tmp_path, force_theme, mode, colour, rgb):
+    """A token LineItem / TextItem in model space (not inside a block) must plot
+    in paper colours through the real export_pdf path, never canvas ink."""
+    from tests.test_lt1_block_paper import _text_fills
+    force_theme("dark")                 # canvas ink would be #e6e9ec
+    save_paper_color_mode(mode)
+    pdf = _export(tmp_path, _scene_with_line_and_text(colour), 0.02, "c1.pdf")
+    strokes = _block_strokes(pdf, 0.02)
+    assert strokes, "line not found in PDF"
+    for _w, got in strokes:
+        assert got == pytest.approx(rgb, abs=0.01), strokes
+    fills = _text_fills(pdf)
+    assert fills, "text glyph not found in PDF"
+    for got in fills:
+        assert got == pytest.approx(rgb, abs=0.01), fills

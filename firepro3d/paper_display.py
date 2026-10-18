@@ -157,6 +157,7 @@ _THIN_LINES = False
 # >0 while a paper pass (apply_paper_overrides .. restore_model_display) is
 # live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
 _THIN_SUSPEND = 0
+_PASS_COLOR_MODE = None     # PaperColorMode of the live pass; None outside one
 # MW-2: System factor (QSettings view/model_weight_factor), cached so paint
 # never reads QSettings; MainWindow restores it at startup.
 _MODEL_FACTOR: float = MODEL_WEIGHT_FACTOR
@@ -374,6 +375,16 @@ def paper_pass_active() -> bool:
     scene.changed ping-pong against the paper echo guard (LT2 H-c).
     """
     return _THIN_SUSPEND > 0
+
+
+def paper_pass_color_mode():
+    """The saved ``PaperColorMode`` the live paper pass was applied under
+    (``FULL_COLOR`` when no pass recorded one -- e.g. a test-forced counter).
+
+    ``colour_tokens`` reads it so an item with no paper category (TextItem)
+    still plots a token as black under B&W.
+    """
+    return _PASS_COLOR_MODE or PaperColorMode.FULL_COLOR
 
 
 def auto_model_px(width_mm: float) -> int:
@@ -900,10 +911,20 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     matching the gridline/underlay convention (§9.9.1).
     """
     from PyQt6.QtGui import QColor
+    from .colour_tokens import is_token, resolve_colour   # circular at import time
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         if color_mode != PaperColorMode.FULL_COLOR:
             pen.setColor(QColor(cat["color"]))
+        else:
+            # The pen still holds the canvas-resolved ink (HF1): a token colour
+            # must re-resolve on the paper surface -- this runs inside the pass
+            # and _sync_stroke_pen leaves the pen alone for the whole pass.
+            st = getattr(item, "style", None)
+            tok = (getattr(item, "_display_color", None)
+                   or (st["colour"] if st is not None else None))
+            if is_token(tok):
+                pen.setColor(resolve_colour(tok, item=item))
         pen.setWidthF(lw_mm / max(paper_scale, 1e-9))
         pen.setCosmetic(False)
         item.setPen(pen)
@@ -1086,8 +1107,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     saved.append({"hatch_scene": scene})
     # Thin Lines never plots (LT1-8): suspend it for the pass so paint-time
     # canvas pens (text borders) resolve their real width; lifted by restore.
-    global _THIN_SUSPEND
+    global _THIN_SUSPEND, _PASS_COLOR_MODE
     _THIN_SUSPEND += 1
+    _PASS_COLOR_MODE = color_mode
     saved.append({"thin_suspend": True})
     try:
         items = scene.items(source_rect)
@@ -1308,7 +1330,7 @@ def restore_model_display(saved: list[dict]):
     from .gridline import GridlineItem
     from PyQt6.QtGui import QColor, QBrush, QPen
 
-    global _THIN_SUSPEND
+    global _THIN_SUSPEND, _PASS_COLOR_MODE
     for entry in saved:
         if "hatch_scene" in entry:
             entry["hatch_scene"]._hatch_paper_scale = None
@@ -1321,6 +1343,8 @@ def restore_model_display(saved: list[dict]):
                                  "suspension counter unbalanced (%d)",
                                  _THIN_SUSPEND)
                 _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
+                if _THIN_SUSPEND == 0:
+                    _PASS_COLOR_MODE = None
             continue
         if "underlay_group" in entry:
             # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
