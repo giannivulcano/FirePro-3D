@@ -25,6 +25,8 @@ import math
 
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath
+
+from .colour_tokens import preview_colour
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsRectItem
 
 from .constants import AUTO_JOIN_TOLERANCE, TEE_TOLERANCE
@@ -409,7 +411,7 @@ class WallPlacementController:
                 "Pick edge midpoint (width + angle)" if s._wall_rect_from_center
                 else "Pick first side (direction + width)")
             _tmpl = s._get_wall_template()
-            _wc = QColor(_tmpl._color)
+            _wc = preview_colour(_tmpl._colour)
             pen = QPen(_wc, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             preview = QGraphicsRectItem(QRectF(snapped, snapped))

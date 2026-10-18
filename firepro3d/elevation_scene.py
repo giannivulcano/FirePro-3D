@@ -23,13 +23,16 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsTextItem, QStyle,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QPointF, QLineF, QTimer
-from PyQt6.QtGui import QPen, QColor, QBrush, QFont, QPainterPath, QPainterPathStroker, QPainter
+from PyQt6.QtGui import (
+    QPen, QColor, QBrush, QFont, QFontMetricsF, QPainterPath,
+    QPainterPathStroker, QPainter,
+)
 
 from PyQt6.QtCore import QSettings
 
 from .constants import DEFAULT_LEVEL
 from . import theme as th
-from .colour_tokens import resolve_colour
+from .colour_tokens import resolve_colour, resolve_pen_brush
 from .halo_selection import HaloSelectionMixin
 
 if TYPE_CHECKING:
@@ -67,6 +70,129 @@ _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Colour-source items — stored colour strings resolved per paint (HF1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ColourSrcMixin:
+    """Paints with stored colour *strings* (``#hex`` | ``token:*`` | ``""``)
+    resolved on the surface the item paints on, never latched at build time.
+
+    An elevation scene is rendered on the canvas and, through a sheet viewport,
+    onto paper (PDF / print) from the same items: a colour resolved when the
+    view was built would plot canvas ink on white paper. ``set_colour_src``
+    records the sources; ``paint`` resolves them with ``item=self`` so the
+    paper pass (or a ``paints_on_paper`` scene) picks the paper surface.
+    Items with no source paint as a stock Qt item.
+    """
+
+    _pen_src = None
+    _brush_src = None
+    _src_alpha = None
+    _src_tint = None            # callable(QColor) -> QColor, e.g. lighter(150)
+
+    def set_colour_src(self, pen=None, brush=None, alpha=None, tint=None) -> None:
+        """Record the stored pen / brush colour strings (``None`` = leave that
+        half as set). The pen / brush also get the canvas colour now so any
+        reader of them sees a valid colour."""
+        self._pen_src, self._brush_src = pen, brush
+        self._src_alpha, self._src_tint = alpha, tint
+        p, b = self.resolved_pen_brush()
+        if pen is not None:
+            self.setPen(p)
+        if brush is not None:
+            self.setBrush(b)
+
+    def resolved_pen_brush(self):
+        """``(pen, brush)`` to paint with right now (see ``resolve_pen_brush``)."""
+        brush = self.brush() if hasattr(self, "brush") else QBrush()   # lines: none
+        pen, brush = resolve_pen_brush(self, self.pen(), brush,
+                                       self._pen_src, self._brush_src,
+                                       self._src_alpha)
+        if self._src_tint is not None:
+            if self._pen_src is not None:
+                pen.setColor(self._src_tint(pen.color()))
+            if self._brush_src is not None:
+                brush = QBrush(self._src_tint(brush.color()))
+        return pen, brush
+
+    def _draw_shape(self, painter) -> None:
+        raise NotImplementedError
+
+    def paint(self, painter, option, widget=None):
+        if self._pen_src is None and self._brush_src is None:
+            super().paint(painter, option, widget)
+            return
+        pen, brush = self.resolved_pen_brush()
+        painter.setPen(pen)
+        painter.setBrush(brush)
+        self._draw_shape(painter)
+        if option.state & QStyle.StateFlag.State_Selected:
+            fg = option.palette.windowText().color()
+            bg = QColor(Qt.GlobalColor.black if fg.red() > 127
+                        else Qt.GlobalColor.white)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for col, style in ((bg, Qt.PenStyle.SolidLine),
+                               (fg, Qt.PenStyle.DashLine)):
+                painter.setPen(QPen(col, 0, style))
+                painter.drawRect(self.boundingRect())
+
+
+class _SrcRect(_ColourSrcMixin, QGraphicsRectItem):
+    def _draw_shape(self, painter):
+        painter.drawRect(self.rect())
+
+
+class _SrcLine(_ColourSrcMixin, QGraphicsLineItem):
+    def _draw_shape(self, painter):
+        painter.drawLine(self.line())
+
+
+class _SrcEllipse(_ColourSrcMixin, QGraphicsEllipseItem):
+    def _draw_shape(self, painter):
+        painter.drawEllipse(self.rect())
+
+
+class _SrcPath(_ColourSrcMixin, QGraphicsPathItem):
+    def _draw_shape(self, painter):
+        painter.drawPath(self.path())
+
+
+class _SrcSimpleText(_ColourSrcMixin, QGraphicsSimpleTextItem):
+    def _draw_shape(self, painter):
+        painter.setFont(self.font())
+        painter.setPen(QPen(painter.brush().color()))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawText(QPointF(0, QFontMetricsF(self.font()).ascent()),
+                         self.text())
+
+
+class _ElevLabel(QGraphicsTextItem):
+    """Bubble label whose colour is a stored string resolved per paint."""
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self._src = None
+        self._tint = None
+
+    def set_colour_src(self, src, tint=None) -> None:
+        self._src, self._tint = src, tint
+        self.setDefaultTextColor(self._now())     # canvas colour for readers
+
+    def _now(self) -> QColor:
+        c = resolve_colour(self._src, item=self)
+        return self._tint(c) if self._tint is not None else c
+
+    def paint(self, painter, option, widget=None):
+        if self._src is None:
+            super().paint(painter, option, widget)
+            return
+        painter.setFont(self.font())
+        painter.setPen(self._now())
+        painter.drawText(self.boundingRect(), Qt.AlignmentFlag.AlignCenter,
+                         self.toPlainText())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Read-only proxy items — model entities projected into elevation (§3.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -100,17 +226,17 @@ class _ElevReadOnlyProxyMixin:
         return []
 
 
-class _ElevProxyRect(_ElevReadOnlyProxyMixin, QGraphicsRectItem):
+class _ElevProxyRect(_ElevReadOnlyProxyMixin, _SrcRect):
     """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
 
     HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
 
 
-class _ElevProxyLine(_ElevReadOnlyProxyMixin, QGraphicsLineItem):
+class _ElevProxyLine(_ElevReadOnlyProxyMixin, _SrcLine):
     """Read-only line proxy (pipes)."""
 
 
-class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, QGraphicsEllipseItem):
+class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, _SrcEllipse):
     """Read-only ellipse proxy (sprinklers)."""
 
     HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
@@ -120,7 +246,7 @@ class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, QGraphicsEllipseItem):
 # ElevGridlineItem — selectable gridline in elevation view
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _ElevBubble(QGraphicsEllipseItem):
+class _ElevBubble(_SrcEllipse):
     """Bubble at a gridline/datum endpoint in elevation view.
 
     Clicking selects the parent composite item.  Visual appearance mirrors
@@ -130,7 +256,8 @@ class _ElevBubble(QGraphicsEllipseItem):
     HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
 
     def __init__(self, radius: float, label: str, color: QColor,
-                 fill: QColor, parent: QGraphicsItem | None = None):
+                 fill: QColor, parent: QGraphicsItem | None = None,
+                 color_src: str | None = None, fill_src: str | None = None):
         super().__init__(-radius, -radius, 2 * radius, 2 * radius, parent)
         self._radius = radius
         pen = QPen(color, max(1, radius * 0.04))
@@ -138,13 +265,18 @@ class _ElevBubble(QGraphicsEllipseItem):
         self.setBrush(QBrush(fill))
         self.setZValue(500)
 
-        self._label = QGraphicsTextItem(label, self)
+        self._label = _ElevLabel(label, self)
         self._label.setDefaultTextColor(color.lighter(150))
         font = QFont("Consolas")
         font.setPixelSize(max(1, int(radius * 0.9)))
         font.setBold(True)
         self._label.setFont(font)
         self._center_label()
+        if color_src is not None or fill_src is not None:
+            # Stored strings: resolved per paint on the surface painted on.
+            self.set_colour_src(pen=color_src, brush=fill_src)
+        if color_src is not None:
+            self._label.set_colour_src(color_src, lambda c: c.lighter(150))
 
     def set_label(self, text: str):
         self._label.setPlainText(text)
@@ -159,7 +291,7 @@ class _ElevBubble(QGraphicsEllipseItem):
         parent = self.parentItem()
         if parent is not None and parent.isSelected():
             r = self._radius
-            base_color = self.pen().color()
+            base_color = self.resolved_pen_brush()[0].color()
             highlight = QPen(base_color.lighter(150), max(1, r * 0.08))
             painter.setPen(highlight)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -184,8 +316,13 @@ class ElevGridlineItem(QGraphicsLineItem):
     def __init__(self, h_pos: float, v_top: float, v_bot: float,
                  label: str, bubble_r: float,
                  color: QColor, fill: QColor, pen_w: float,
-                 opacity: float = 1.0):
+                 opacity: float = 1.0,
+                 color_src: str | None = None, fill_src: str | None = None):
         super().__init__(h_pos, v_top, h_pos, v_bot)
+        # Stored colour strings (display-manager values): resolved per paint,
+        # so a sheet viewport plots them on paper. ``color`` / ``fill`` are
+        # their canvas resolution, kept for readers and the no-source case.
+        self._grid_src = color_src
         self._h = h_pos
         self._bubble_r = bubble_r
         self._label = label  # gridline label used as override key
@@ -203,8 +340,10 @@ class ElevGridlineItem(QGraphicsLineItem):
         self.setData(_ROLE_ELEV_ANNOTATION, True)
 
         # Bubbles at top and bottom
-        self.bubble1 = _ElevBubble(bubble_r, label, color, fill, self)
-        self.bubble2 = _ElevBubble(bubble_r, label, color, fill, self)
+        self.bubble1 = _ElevBubble(bubble_r, label, color, fill, self,
+                                   color_src, fill_src)
+        self.bubble2 = _ElevBubble(bubble_r, label, color, fill, self,
+                                   color_src, fill_src)
         self._update_bubble_positions()
 
     def _update_bubble_positions(self):
@@ -252,12 +391,14 @@ class ElevGridlineItem(QGraphicsLineItem):
         else:
             draw_p1, draw_p2 = p1, p2
 
-        pen = QPen(self._grid_color, self._pen_w, Qt.PenStyle.DashDotLine)
+        grid_color = (self._grid_color if self._grid_src is None
+                      else resolve_colour(self._grid_src, item=self))
+        pen = QPen(grid_color, self._pen_w, Qt.PenStyle.DashDotLine)
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
 
         if self.isSelected():
-            sel_pen = QPen(self._grid_color.lighter(150),
+            sel_pen = QPen(grid_color.lighter(150),
                            self._pen_w * 2, Qt.PenStyle.DashDotLine)
             painter.setPen(sel_pen)
             painter.drawLine(draw_p1, draw_p2)
@@ -326,8 +467,12 @@ class ElevDatumItem(QGraphicsLineItem):
                  level_name: str, elev_str: str,
                  bubble_r: float, datum_color: QColor, fill_color: QColor,
                  pen_w: float, name_font: QFont, elev_font: QFont,
-                 scale: float = 1.0, opacity: float = 1.0):
+                 scale: float = 1.0, opacity: float = 1.0,
+                 color_src: str | None = None, fill_src: str | None = None):
         super().__init__(h_min, v_pos, h_max, v_pos)
+        # Stored colour strings, resolved per paint (see ElevGridlineItem).
+        self._color_src = color_src
+        self._fill_src = fill_src
         self._v = v_pos
         self._h_min = h_min
         self._h_max = h_max
@@ -362,48 +507,57 @@ class ElevDatumItem(QGraphicsLineItem):
         """Build the 4-quadrant datum bubble as child items."""
         circle_pen = QPen(datum_color, pen_w)
         circle_pen.setCosmetic(False)
+        cs, fs = self._color_src, self._fill_src
 
-        circle = QGraphicsEllipseItem(bx - r, by - r, r * 2, r * 2, self)
+        circle = _SrcEllipse(bx - r, by - r, r * 2, r * 2, self)
         circle.setPen(circle_pen)
         circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         circle.setZValue(51)
+        circle.set_colour_src(pen=cs)
 
-        QGraphicsLineItem(bx - r, by, bx + r, by, self).setPen(circle_pen)
-        QGraphicsLineItem(bx, by - r, bx, by + r, self).setPen(circle_pen)
+        for ln in (_SrcLine(bx - r, by, bx + r, by, self),
+                   _SrcLine(bx, by - r, bx, by + r, self)):
+            ln.setPen(circle_pen)
+            ln.set_colour_src(pen=cs)
 
         arc_rect = QRectF(bx - r, by - r, r * 2, r * 2)
 
         lq = QPainterPath()
         lq.moveTo(bx, by); lq.arcTo(arc_rect, 0, 90); lq.closeSubpath()
         lq.moveTo(bx, by); lq.arcTo(arc_rect, 180, 90); lq.closeSubpath()
-        lq_item = QGraphicsPathItem(lq, self)
+        lq_item = _SrcPath(lq, self)
         lq_item.setPen(QPen(Qt.PenStyle.NoPen))
         lq_item.setBrush(QBrush(datum_color))
         lq_item.setZValue(52)
+        lq_item.set_colour_src(brush=cs)
 
         fq = QPainterPath()
         fq.moveTo(bx, by); fq.arcTo(arc_rect, 90, 90); fq.closeSubpath()
         fq.moveTo(bx, by); fq.arcTo(arc_rect, 270, 90); fq.closeSubpath()
-        fq_item = QGraphicsPathItem(fq, self)
+        fq_item = _SrcPath(fq, self)
         fq_item.setPen(QPen(Qt.PenStyle.NoPen))
         fq_item.setBrush(QBrush(fill_color))
         fq_item.setZValue(52)
+        fq_item.set_colour_src(brush=fs)
 
     def _build_labels(self):
         """Create or recreate label items using the stored fonts."""
         tag_gap = 50 * self._scale
         tag_x = self._bx + self._bubble_r + tag_gap
 
-        self._name_text = QGraphicsSimpleTextItem(self._level_name, self)
+        self._name_text = _SrcSimpleText(self._level_name, self)
         self._name_text.setFont(self._name_font)
         self._name_text.setBrush(QBrush(self._datum_color))
+        self._name_text.set_colour_src(brush=self._color_src)
         name_br = self._name_text.boundingRect()
         self._name_text.setPos(tag_x, self._v - name_br.height() - 20)
         self._name_text.setZValue(53)
 
-        self._elev_text = QGraphicsSimpleTextItem(self._elev_str, self)
+        self._elev_text = _SrcSimpleText(self._elev_str, self)
         self._elev_text.setFont(self._elev_font)
         self._elev_text.setBrush(QBrush(self._datum_color.lighter(130)))
+        self._elev_text.set_colour_src(brush=self._color_src,
+                                       tint=lambda c: c.lighter(130))
         self._elev_text.setPos(tag_x, self._v + 20)
         self._elev_text.setZValue(53)
 
@@ -868,12 +1022,14 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
             if h_end <= h_start:
                 continue
 
-            pen = QPen(item._datum_color, item._pen_w, Qt.PenStyle.DashDotLine)
+            datum_color = (item._datum_color if item._color_src is None
+                           else resolve_colour(item._color_src, item=item))
+            pen = QPen(datum_color, item._pen_w, Qt.PenStyle.DashDotLine)
             painter.setPen(pen)
             painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
 
             if item.isSelected():
-                sel_pen = QPen(item._datum_color.lighter(150),
+                sel_pen = QPen(datum_color.lighter(150),
                                item._pen_w * 2, Qt.PenStyle.DashDotLine)
                 painter.setPen(sel_pen)
                 painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
@@ -884,8 +1040,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._wall_display_props()
         if not props["visible"]:
             return
-        dm_color = resolve_colour(props["color"])
-        dm_fill = resolve_colour(props["fill"])
+        dm_color = props["color"]       # stored strings: resolved per paint
+        dm_fill = props["fill"]
         dm_opacity = props["opacity"] / 100.0
         has_explicit_fill = props.get("has_explicit_fill", False)
 
@@ -954,17 +1110,17 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
 
             rect = _ElevProxyRect(h_min, v_top, width, height)
 
-            # Use display manager colour; fall back to wall's own colour
-            pen = QPen(dm_color, 1)
+            # Use display manager colour; fall back to wall's own colour.
+            # Sources, not QColors: a sheet viewport resolves them on paper.
+            pen = QPen(QColor(0, 0, 0), 1)
             pen.setCosmetic(True)
             rect.setPen(pen)
-            if has_explicit_fill:
-                fill_col = dm_fill
-            else:
-                fill_col = QColor(wall._color) if hasattr(wall, "_color") else dm_fill
-                if getattr(wall, "_colour", None) != "":    # "" = no colour: stays transparent
-                    fill_col.setAlpha(255)
-            rect.setBrush(QBrush(fill_col))
+            fill_src, fill_alpha = dm_fill, None
+            if not has_explicit_fill and hasattr(wall, "_colour"):
+                # Opaque (the outline is opaque already); "" resolves fully
+                # transparent whatever the alpha.
+                fill_src, fill_alpha = wall._colour, 255
+            rect.set_colour_src(pen=dm_color, brush=fill_src, alpha=fill_alpha)
             rect.setOpacity(dm_opacity)
 
             rect.setData(_ROLE_SOURCE, wall)
@@ -1193,8 +1349,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._floor_display_props()
         if not props["visible"]:
             return
-        dm_color = resolve_colour(props["color"])
-        dm_fill = resolve_colour(props["fill"])
+        dm_color = props["color"]       # stored strings: resolved per paint
+        dm_fill = props["fill"]
         dm_opacity = props["opacity"] / 100.0
 
         d = self._direction
@@ -1257,10 +1413,10 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
 
             # Visible slab rect with styled fill
             rect = _ElevProxyRect(h_min, v_top, width, height)
-            pen = QPen(dm_color, 1)
+            pen = QPen(QColor(0, 0, 0), 1)
             pen.setCosmetic(True)
             rect.setPen(pen)
-            rect.setBrush(QBrush(dm_fill))
+            rect.set_colour_src(pen=dm_color, brush=dm_fill)
             rect.setOpacity(dm_opacity)
             rect.setData(_ROLE_SOURCE, slab)
             rect.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -1280,8 +1436,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._roof_display_props()
         if not props["visible"]:
             return
-        dm_color = resolve_colour(props["color"])
-        dm_fill = resolve_colour(props["fill"])
+        dm_color = props["color"]       # stored strings: resolved per paint
+        dm_fill = props["fill"]
         dm_opacity = props["opacity"] / 100.0
 
         for roof in getattr(self._ms, "_roofs", []):
@@ -1314,10 +1470,10 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
                 min(h_vals), min(v_vals),
                 max(h_vals) - min(h_vals), max(v_vals) - min(v_vals),
             )
-            pen = QPen(dm_color, 1)
+            pen = QPen(QColor(0, 0, 0), 1)
             pen.setCosmetic(True)
             rect.setPen(pen)
-            rect.setBrush(QBrush(dm_fill))
+            rect.set_colour_src(pen=dm_color, brush=dm_fill)
             rect.setOpacity(dm_opacity)
             rect.setData(_ROLE_SOURCE, roof)
             rect.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -1387,8 +1543,9 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         if not props["visible"]:
             return
 
-        grid_color = resolve_colour(props["color"])
-        fill_color = resolve_colour(props["fill"])
+        grid_src, fill_src = props["color"], props["fill"]   # resolved per paint
+        grid_color = resolve_colour(grid_src)
+        fill_color = resolve_colour(fill_src)
         opacity = props["opacity"] / 100.0
         bubble_scale = props["scale"]
         BUBBLE_R = 203.2 * bubble_scale  # 8" in mm, scaled
@@ -1427,7 +1584,8 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
 
             item = ElevGridlineItem(
                 h_avg, v_top, v_bot, label_text, BUBBLE_R,
-                grid_color, fill_color, gl_pen_w, opacity)
+                grid_color, fill_color, gl_pen_w, opacity,
+                color_src=grid_src, fill_src=fill_src)
             self.addItem(item)
 
     # ── Construction geometry ────────────────────────────────────────────
@@ -1487,8 +1645,10 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
         props = self._datum_display_props()
         if not props.get("visible", True):
             return
-        datum_color = resolve_colour(props["color"])
-        fill_color = resolve_colour(props.get("fill", "#1a1a2e"))
+        datum_src = props["color"]                      # resolved per paint
+        fill_src = props.get("fill", "#1a1a2e")
+        datum_color = resolve_colour(datum_src)
+        fill_color = resolve_colour(fill_src)
         opacity = props["opacity"] / 100.0
         scale = props.get("scale", 1.0)
 
@@ -1524,7 +1684,7 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
                 lvl.name, elev_str,
                 bubble_r, datum_color, fill_color,
                 pen_w, name_font, elev_font,
-                scale, opacity)
+                scale, opacity, color_src=datum_src, fill_src=fill_src)
             self.addItem(item)
 
     # ── Selection ────────────────────────────────────────────────────────

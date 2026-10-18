@@ -20,7 +20,7 @@ from PyQt6.QtCore import QRectF, Qt, QTimer
 from PyQt6.QtGui import QBrush, QPainter, QPen, QPixmap, QTransform
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsPixmapItem
 
-from .colour_tokens import is_token, resolve_colour
+from .colour_tokens import is_token, resolve_colour, resolve_pen_brush
 
 from .constants import (
     UNDERLAY_FREEZE_MAX_PX,
@@ -69,12 +69,9 @@ class _UnderlayPathItem(QGraphicsPathItem):
         pen, brush = self.pen(), self.brush()
         if self._colour_src is None:
             return pen, brush
-        c = resolve_colour(self._colour_src, item=self)
         if pen.style() == Qt.PenStyle.NoPen:
-            return pen, QBrush(c)
-        pen = QPen(pen)
-        pen.setColor(c)
-        return pen, brush
+            return resolve_pen_brush(self, pen, brush, brush_src=self._colour_src)
+        return resolve_pen_brush(self, pen, brush, pen_src=self._colour_src)
 
     def seed_split(self, split) -> None:
         """Pre-load the identity-frame crisp split of this item's path (built

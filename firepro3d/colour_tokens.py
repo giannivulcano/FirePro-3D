@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QBrush, QColor, QPen
 
 from . import paper_display as _pd   # module imports (hot path)
 from . import theme as _th
@@ -97,6 +97,32 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     if alpha is not None:
         c.setAlpha(alpha)
     return c
+
+
+def preview_colour(value) -> QColor:
+    """Canvas colour for a placement rubber band of an item stored as *value*.
+
+    A ``""`` (no colour) template would make the preview fully transparent --
+    nothing to see while placing -- so it previews in the theme accent."""
+    return resolve_colour(TOKEN_ACCENT if value == "" else value)
+
+
+def resolve_pen_brush(item, pen, brush, pen_src=None, brush_src=None,
+                      alpha: int | None = None):
+    """``(pen, brush)`` to paint *item* with right now.
+
+    The stored colour strings *pen_src* / *brush_src* (``#hex`` | ``token:*`` |
+    ``""``) resolve on the surface *item* paints on (canvas theme, paper pass,
+    ``paints_on_paper`` scene), keeping *pen* / *brush* styles, widths and the
+    optional *alpha* laid over the colour. A ``None`` source leaves that half
+    as given. Never latch the result: call it per paint.
+    """
+    if pen_src is not None:
+        pen = QPen(pen)
+        pen.setColor(resolve_colour(pen_src, alpha, item))
+    if brush_src is not None:
+        brush = QBrush(resolve_colour(brush_src, alpha, item))
+    return pen, brush
 
 
 def section_fill_colour(value, item=None) -> "QColor | None":

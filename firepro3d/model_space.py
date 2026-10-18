@@ -38,7 +38,7 @@ from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
-from .colour_tokens import resolve_colour
+from .colour_tokens import preview_colour, resolve_colour
 from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
@@ -5117,7 +5117,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             snapped = tip
             self.preview_pipe.setLine(
                 last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
-            pen = QPen(QColor(self._roof_active._color), 1, Qt.PenStyle.DashLine)
+            pen = QPen(preview_colour(self._roof_active._colour), 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             self.preview_pipe.setPen(pen)
             self.preview_pipe.show()
@@ -7264,7 +7264,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         roof._eave_height_mm = p["eave_height_mm"]
                         roof._overhang_mm    = p["overhang_mm"]
                         roof._ridge_direction = p.get("ridge_direction", "auto")
-                        roof._colour         = p["color"]
+                        roof._color          = p["color"]
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()
@@ -7297,7 +7297,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit("Pick opposite corner for rectangular roof")
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
             _rtmpl = self._get_roof_template()
-            _rc = QColor(_rtmpl._color)
+            _rc = preview_colour(_rtmpl._colour)
             pen = QPen(_rc, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             preview.setPen(pen)
@@ -7355,7 +7355,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 roof._pitch_deg     = p["pitch_deg"]
                 roof._eave_height_mm = p["eave_height_mm"]
                 roof._overhang_mm   = p["overhang_mm"]
-                roof._colour = p["color"]
+                roof._color = p["color"]
                 if p.get("eave_level"):
                     roof.level = p["eave_level"]
                 roof._rebuild_path()
@@ -8141,7 +8141,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         roof._eave_height_mm = p["eave_height_mm"]
                         roof._overhang_mm    = p["overhang_mm"]
                         roof._ridge_direction = p.get("ridge_direction", "auto")
-                        roof._colour          = p["color"]
+                        roof._color           = p["color"]
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()
