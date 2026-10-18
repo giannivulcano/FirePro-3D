@@ -5760,7 +5760,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._text_anchor = snapped
             self.update_preview_node(snapped)
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
-            _prev_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
+            _prev_pen = QPen(resolve_colour(TOKEN_AUTO), 2, Qt.PenStyle.DashLine)
             _prev_pen.setCosmetic(True)
             preview.setPen(_prev_pen)
             preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))

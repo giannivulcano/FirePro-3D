@@ -3278,10 +3278,13 @@ def refresh_token_latched(scene) -> None:
     for cat in _CATEGORIES:
         key = cat["key"]
         vals = _read_category_from_settings(key)
-        if not is_token(vals.get("color")):
-            continue
         for item in _items_for_category_static(scene, key):
-            _apply_vals_to_item(item, vals, respect_overrides=True)
+            # Per item: the effective colour is its own override when present,
+            # else the category's -- a token override under a hex category
+            # must re-latch too.
+            ov = getattr(item, "_display_overrides", None) or {}
+            if is_token(ov.get("color", vals.get("color"))):
+                _apply_vals_to_item(item, vals, respect_overrides=True)
 
 
 def _items_for_category_static(scene, key: str) -> list:

@@ -978,8 +978,35 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     inst.update()
 
 
-def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
-    """Apply paper overrides to a GridlineItem — colors + true-scale geometry (§9.9.1)."""
+def _model_colour_token(item, cat_key: str, cache: dict | None = None):
+    """The token colour string the MODEL side stores for *item*, else None.
+
+    Display Manager consumers (SVG tints, marker / gridline pens) latch the
+    token already resolved for the canvas; a Full Colour paper pass keeps
+    authored colours and so must re-resolve a token on the paper surface.
+    Effective value = the item's own override, else its model category colour
+    (*cache* holds one QSettings read per category per pass).
+    """
+    from .colour_tokens import is_token
+    c = (getattr(item, "_display_overrides", None) or {}).get("color")
+    if c is None:
+        if cache is not None and cat_key in cache:
+            c = cache[cat_key]
+        else:
+            from .display_manager import _CATEGORY_MAP, _read_category_from_settings
+            c = (_read_category_from_settings(cat_key)["color"]
+                 if cat_key in _CATEGORY_MAP else None)
+            if cache is not None:
+                cache[cat_key] = c
+    return c if is_token(c) else None
+
+
+def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
+    """Apply paper overrides to a GridlineItem — colors + true-scale geometry (§9.9.1).
+
+    *model_token*: the model-side token colour (Full Colour only) re-resolved on
+    the paper surface; ``_grid_color`` is restored by ``restore_model_display``.
+    """
     from PyQt6.QtGui import QColor, QBrush
     from .gridline import bubble_paper_geometry
 
@@ -994,6 +1021,9 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
 
     if color_mode != PaperColorMode.FULL_COLOR:
         gl._grid_color = QColor(cat["color"])
+    elif model_token is not None:
+        from .colour_tokens import resolve_colour
+        gl._grid_color = resolve_colour(model_token, item=gl)
     # Authored color in full-color mode — suppresses the duplicate-warning
     # orange in ALL modes (a warning is not authored content, §9.9.1).
     pen_color = (QColor(cat["color"]) if color_mode != PaperColorMode.FULL_COLOR
@@ -1019,9 +1049,19 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
     gl.update()
 
 
-def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color"):
+def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
+                  model_token=None):
     """Apply paper overrides to an elevation/detail marker."""
     from PyQt6.QtGui import QColor, QBrush, QPen
+    if color_mode == PaperColorMode.FULL_COLOR and model_token is not None:
+        # Full Colour keeps authored colours, but a token latched for the
+        # canvas must re-resolve on paper (restore puts the saved colour back).
+        from .colour_tokens import resolve_colour
+        c = resolve_colour(model_token, item=marker)
+        setattr(marker, color_attr, c)
+        pen = marker.pen()
+        pen.setColor(c)
+        marker.setPen(pen)
     if color_mode != PaperColorMode.FULL_COLOR:
         setattr(marker, color_attr, QColor(cat["color"]))
         pen = marker.pen()
@@ -1100,6 +1140,13 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     color_mode = load_paper_color_mode()
     cats = load_paper_categories()
     saved: list[dict] = []
+    _tok_cache: dict = {}
+
+    def _full_tok(it, key):
+        """Model-side token colour to re-resolve (Full Colour only)."""
+        if color_mode != PaperColorMode.FULL_COLOR:
+            return None
+        return _model_colour_token(it, key, _tok_cache)
     # Drafting-tile scale for the hatch renderer during THIS viewport render
     # (D-A30); cleared by restore_model_display. First entry → cleared even if
     # the pass fails part-way.
@@ -1205,15 +1252,23 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             if isinstance(item, Pipe):
                 _apply_pipe(item, cat, color_mode, lw_mm, paper_scale)
             elif isinstance(item, GridlineItem):
-                _apply_gridline(item, cat, color_mode, lw_mm, paper_scale)
+                _apply_gridline(item, cat, color_mode, lw_mm, paper_scale,
+                                _full_tok(item, cat_key))
             elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
                 if color_mode != PaperColorMode.FULL_COLOR:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
+                else:
+                    _tok = _full_tok(item, cat_key)
+                    if _tok is not None:       # re-tint on the paper surface
+                        _set_svg_tint(item, _tok,
+                                      getattr(item, "_display_fill_color", None))
                 item.setOpacity(cat["opacity"] / 100.0)
             elif cat_key == "Elevation Marker":
-                _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
+                _apply_marker(item, cat, color_mode, lw_mm, "_marker_color",
+                              _full_tok(item, cat_key))
             elif cat_key == "Detail Marker":
-                _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
+                _apply_marker(item, cat, color_mode, lw_mm, "_tag_color",
+                              _full_tok(item, cat_key))
             elif cat_key == "Blocks":
                 _apply_block(item, cat, color_mode, lw_mm, paper_scale)
             elif cat_key == "Construction":
@@ -1262,6 +1317,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                       fitting_cat.get("fill"))
                         f._display_color = fitting_cat["color"]
                         f._display_fill_color = fitting_cat.get("fill")
+                    else:
+                        _tok = _full_tok(f, "Fitting")
+                        if _tok is not None:   # re-tint on the paper surface
+                            _set_svg_tint(f.symbol, _tok,
+                                          getattr(f, "_display_fill_color", None))
                     f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
         # ── Underlays (§16.5) — records drive per-layer paper appearance ──
@@ -1470,5 +1530,8 @@ def restore_model_display(saved: list[dict]):
         # Restore fitting wrapper attributes
         fitting = entry.get("fitting")
         if fitting is not None:
+            # Re-latch the canvas tint (a Full Colour token re-tinted the symbol).
+            _set_svg_tint(item, entry["display_color"],
+                          entry.get("display_fill_color"))
             fitting._display_color = entry["display_color"]
             fitting._display_fill_color = entry.get("display_fill_color")
