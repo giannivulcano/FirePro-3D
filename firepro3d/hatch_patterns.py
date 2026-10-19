@@ -370,8 +370,8 @@ def _fill_ref(primitive) -> str | None:
 def project_pattern_refs(scene) -> set[str]:
     """Every pattern ref a project uses or will draw with (D-A39).
 
-    Collected (canonical ids): 2D items' hatch ``fill_pattern``; every block
-    definition's primitive hatch fills; each item's Display Manager section
+    Collected (canonical ids): 2D items' pattern layer (``fill_layers.pattern``); every block
+    definition's primitive pattern fills; each item's Display Manager section
     pattern (``_display_section_pattern`` + a per-instance
     ``_display_overrides`` value); every Display Manager category
     ``section_pattern`` (QSettings / factory, via the DM reader); and
@@ -385,8 +385,9 @@ def project_pattern_refs(scene) -> set[str]:
     """
     refs: set = {DEFAULT_TILE_REF}
     for item in scene.items():
-        if getattr(item, "fill_type", None) == "hatch":
-            refs.add(canonical_ref(getattr(item, "fill_pattern", None)))
+        fl = getattr(item, "fill_layers", None)
+        if fl is not None and fl.pattern is not None:
+            refs.add(fl.pattern.ref)
         refs.add(canonical_ref(getattr(item, "_display_section_pattern", None)))
         ov = getattr(item, "_display_overrides", None)
         if isinstance(ov, dict):

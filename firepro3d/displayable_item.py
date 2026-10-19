@@ -54,34 +54,6 @@ def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
                line_width_px=line_width, to_scene=to_scene)
 
 
-def draw_fill(painter, closed_path: "QPainterPath | None", scene,
-              fill_type: str, pattern: str, colour: str,
-              alpha: int = 115, to_scene=None):
-    """Per-item 2D fill (solid or hatch) via ``hatch_render`` (HF3 retires it).
-
-    Args:
-        painter: Active painter (item coords).
-        closed_path: Fill boundary; None/empty → nothing.
-        scene: The item's scene (drafting factor / registry) or None.
-        fill_type: ``"none"`` | ``"solid"`` | ``"hatch"``.
-        pattern: Tile ref or legacy name (hatch only).
-        colour: ``"#rrggbb"`` fill colour.
-        alpha: 0–255 opacity for both solid and hatch.
-        to_scene: Item→scene transform (pattern anchored at the scene origin).
-    """
-    if closed_path is None or closed_path.isEmpty() or fill_type == "none":
-        return
-    from .hatch_render import paint_fill
-    col = QColor(colour)
-    col.setAlpha(alpha)
-    if fill_type == "solid":
-        paint_fill(painter, closed_path, scene=scene, background=col,
-                   to_scene=to_scene)
-    elif fill_type == "hatch":
-        paint_fill(painter, closed_path, scene=scene, tile_ref=pattern,
-                   colour=col, to_scene=to_scene)
-
-
 def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,
                           display_scale: float = 1.0, *, reset_pos: bool = False):
     """Scale and centre an SVG item so its visual centre maps to local (0, 0).

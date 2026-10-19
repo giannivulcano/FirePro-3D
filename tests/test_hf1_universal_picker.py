@@ -23,6 +23,7 @@ from firepro3d.view_3d import View3D  # heavy import required before MainWindow(
 _main_module.View3D = View3D
 from firepro3d import colour_picker, snap_engine, theme
 from firepro3d.constants import TOKEN_ACCENT, TOKEN_AUTO
+from firepro3d.fill_layers import NO_LAYER, BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from main import MainWindow
 from tests._mainwindow_helpers import dispose_main_window
@@ -65,6 +66,11 @@ def _pick_returns(monkeypatch, value):
     return seen
 
 
+def _pick_fill_returns(monkeypatch, layer):
+    """pick_fill (the fill-mode picker behind the Fill swatch) returns *layer*."""
+    monkeypatch.setattr(colour_picker, "pick_fill", lambda *a, **k: layer)
+
+
 def _pixels(item, size=120):
     """Set of colour names from really painting *item* over a grey backdrop."""
     img = QImage(size, size, QImage.Format.Format_ARGB32)
@@ -81,8 +87,8 @@ def _solid_rect(scene, stroke="#00ff00"):
     scene.addItem(r)
     if hasattr(scene, "_draw_rects"):
         scene._draw_rects.append(r)    # as the draw tool registers it (DM categories)
-    r.fill_type = "solid"
-    r.fill_opacity = 1.0            # exact fill colour, not a blend
+    # the default grey at 100 % -- an exact fill colour, not a blend
+    r.fill_layers = FillLayers(background=BackgroundLayer("#888888", 1.0))
     r.style["colour"] = stroke      # a stroke colour distinct from every fill
     return r
 
@@ -186,20 +192,19 @@ def mw(_mw_singleton, qapp):
     qapp.processEvents()
 
 
-def _fill_button(mw, qapp):
-    from PyQt6.QtWidgets import QToolButton
-    tb = mw.ribbon._tab_bar
-    tabs = [tb.tabText(i) for i in range(tb.count())]
-    page = mw.ribbon._stack.widget(tabs.index("Modify | Rectangle"))
-    return next(b for b in page.findChildren(QToolButton)
-                if b.toolTip() == "Override the fill colour")
-
-
 def _click_fill(mw, qapp, rect):
-    rect.setSelected(True)
-    qapp.processEvents()
-    _fill_button(mw, qapp).click()
-    qapp.processEvents()
+    """Click the Fill swatch of the real property panel for *rect* (the
+    shape's own background layer; the ribbon's swatch is the same widget)."""
+    from firepro3d.property_manager import PropertyManager
+    from firepro3d.ui_kit import FillSwatch
+    pm = PropertyManager()
+    try:
+        pm.show_properties(rect)
+        sw = next(s for s in pm.findChildren(FillSwatch) if s._context == "Fill")
+        QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
+        qapp.processEvents()
+    finally:
+        _dispose(pm)
 
 
 def test_main_fill_pick_shows_theme_and_no_fill(mw, qapp, picker_spy):
@@ -224,9 +229,9 @@ def test_2d_fill_token_paints_theme_ink_on_canvas(mw, qapp, monkeypatch,
                                                   force_theme, theme_name, ink):
     force_theme(theme_name)
     r = _solid_rect(mw.scene)
-    _pick_returns(monkeypatch, TOKEN_AUTO)
+    _pick_fill_returns(monkeypatch, BackgroundLayer(TOKEN_AUTO, 1.0))
     _click_fill(mw, qapp, r)
-    assert r._display_fill_color == TOKEN_AUTO              # stored, not latched
+    assert r.fill_layers.background.color == TOKEN_AUTO     # stored, not latched
     assert ink in _pixels(r)
     force_theme("light" if theme_name == "dark" else "dark")
     other = LIGHT_INK if theme_name == "dark" else DARK_INK
@@ -240,7 +245,7 @@ def test_2d_fill_token_paints_black_on_full_colour_paper(mw, qapp, monkeypatch,
                                          save_paper_color_mode)
     force_theme("dark")
     r = _solid_rect(mw.scene)
-    _pick_returns(monkeypatch, TOKEN_AUTO)
+    _pick_fill_returns(monkeypatch, BackgroundLayer(TOKEN_AUTO, 1.0))
     _click_fill(mw, qapp, r)
     assert DARK_INK in _pixels(r)
     save_paper_color_mode(PaperColorMode.FULL_COLOR)
@@ -256,26 +261,26 @@ def test_2d_fill_token_paints_black_on_full_colour_paper(mw, qapp, monkeypatch,
 def test_2d_fill_no_fill_draws_nothing_and_survives_round_trip(mw, qapp, monkeypatch):
     from firepro3d.geometry_2d import RectangleItem as R
     r = _solid_rect(mw.scene)
-    # control: an unset fill paints the default grey, a hex paints itself
+    # control: the grey background paints, a hex paints itself
     assert "#888888" in _pixels(r)
-    _pick_returns(monkeypatch, "#ff0000")
+    _pick_fill_returns(monkeypatch, BackgroundLayer("#ff0000", 1.0))
     _click_fill(mw, qapp, r)
     assert "#ff0000" in _pixels(r)
-    _pick_returns(monkeypatch, "")
+    _pick_fill_returns(monkeypatch, NO_LAYER)
     _click_fill(mw, qapp, r)
-    assert r._display_fill_color == ""                       # not None, not grey
+    assert r.fill_layers.is_empty                            # layer off, not grey
     px = _pixels(r)
     assert px <= {BG, "#00ff00"}, px          # only backdrop + the green stroke
     d = r.to_dict()
-    assert d["fill"]["color"] == ""
+    assert "fill" not in d
     again = R.from_dict(d)
-    assert again._display_fill_color == ""
+    assert again.fill_layers.is_empty
 
 
 def test_2d_fill_panel_value_keeps_no_fill(mw, qapp):
     r = _solid_rect(mw.scene)
-    r._display_fill_color = ""
-    assert r.get_properties()["Fill Colour"]["value"] == ""
+    r.fill_layers = FillLayers()
+    assert r.get_properties()["Fill"]["value"] is None
 
 
 # ── 2D geometry stroke: "" ───────────────────────────────────────────────────

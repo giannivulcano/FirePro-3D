@@ -1,7 +1,9 @@
 """RenderOp compile contract (hatch HD4a): typed ops replace (pen, brush, path)."""
 from PyQt6.QtCore import QPointF
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
 from firepro3d.geometry_2d import LineItem, RectangleItem
+from firepro3d.hatch_patterns import canonical_ref
 from firepro3d.render_op import RenderOp, STROKE, FILL, PATTERN
 
 
@@ -19,9 +21,8 @@ def test_line_compiles_to_one_stroke_op(qapp):
 
 def test_hatched_rect_emits_pattern_op_before_stroke(qapp):
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
-    r.fill_type = "hatch"
-    r.fill_pattern = "diagonal"
-    r._display_fill_color = "#ff0000"
+    r.fill_layers = FillLayers(pattern=PatternLayer(
+        canonical_ref("diagonal"), "#ff0000", 0.45, 1.0))
     ops = _defn([r.to_dict()]).render_ops()
     assert [o.kind for o in ops] == [PATTERN, STROKE]
     pat = ops[0]
@@ -33,9 +34,7 @@ def test_hatched_rect_emits_pattern_op_before_stroke(qapp):
 
 def test_solid_rect_emits_fill_op_with_alpha(qapp):
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
-    r.fill_type = "solid"
-    r.fill_opacity = 0.5
-    r._display_fill_color = "#00ff00"
+    r.fill_layers = FillLayers(background=BackgroundLayer("#00ff00", 0.5))
     ops = _defn([r.to_dict()]).render_ops()
     assert [o.kind for o in ops] == [FILL, STROKE]
     assert ops[0].alpha == 128 and ops[0].colour == "#00ff00"
@@ -43,8 +42,8 @@ def test_solid_rect_emits_fill_op_with_alpha(qapp):
 
 def _hatched_rect():
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
-    r.fill_type = "hatch"
-    r.fill_pattern = "diagonal"
+    r.fill_layers = FillLayers(pattern=PatternLayer(
+        canonical_ref("diagonal"), "#888888", 0.45, 1.0))
     return r
 
 

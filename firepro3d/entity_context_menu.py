@@ -12,7 +12,7 @@ def _attach_fill_submenu(menu: QMenu, target) -> None:
     if target is None or not getattr(target, "is_fillable", lambda: False)():
         return
 
-    from .hatch_patterns import canonical_ref, tile_choices
+    from .hatch_patterns import tile_choices
 
     fill_menu = menu.addMenu("Fill")
 
@@ -25,7 +25,8 @@ def _attach_fill_submenu(menu: QMenu, target) -> None:
             # The Pattern setter loads a library pattern first (D-A37,
             # ensure_pattern_available); a refused load leaves the fill as is.
             target.set_property("Pattern", pattern)
-            if canonical_ref(getattr(target, "fill_pattern", None)) != pattern:
+            pat = getattr(getattr(target, "fill_layers", None), "pattern", None)
+            if pat is None or pat.ref != pattern:
                 return
         target.set_property("Fill", fill_type)
         target.update()

@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import QDialog
 
 from firepro3d import theme
 from firepro3d.constants import TOKEN_ACCENT, TOKEN_AUTO
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import RectangleItem
 # Slice A / B helpers and fixtures (mw / force_theme are pytest fixtures).
 from tests.test_hf1_universal_picker import (          # noqa: F401
@@ -49,7 +50,7 @@ def test_graphic_override_clear_restores_own_fill(mw, qapp, monkeypatch,
                                                   force_theme, value):
     force_theme("light")
     r = _solid_rect(mw.scene)
-    r._display_fill_color = "#ff0000"
+    r.fill_layers = FillLayers(background=BackgroundLayer("#ff0000", 1.0))
     assert "#ff0000" in _pixels(r)                          # control
     r.setSelected(True)
     qapp.processEvents()
@@ -61,11 +62,11 @@ def test_graphic_override_clear_restores_own_fill(mw, qapp, monkeypatch,
     if value:
         assert LIGHT_INK in px
     # a save while the override is active holds the item's own fill
-    assert r.to_dict()["fill"]["color"] == "#ff0000"
+    assert r.to_dict()["fill"]["background"]["color"] == "#ff0000"
     mw._graphic_override_clear()
     assert "#ff0000" in _pixels(r)                          # original pixels back
-    assert r.to_dict()["fill"]["color"] == "#ff0000"
-    assert r._display_fill_color == "#ff0000"
+    assert r.to_dict()["fill"]["background"]["color"] == "#ff0000"
+    assert r.fill_layers.background.color == "#ff0000"
 
 
 # ── I1: model item classes honour a token and "" ────────────────────────────
@@ -273,10 +274,6 @@ def test_property_manager_none_colour_value_is_pinned_as_empty(qapp):
     from firepro3d.property_manager import PropertyManager
     from firepro3d.ui_kit import Swatch
     r = RectangleItem(QPointF(0, 0), QPointF(500, 300))
-    r.fill_type = "solid"
-    r._display_fill_color = None
-    value = r.get_properties()["Fill Colour"]["value"]
-    assert value == "#888888"                    # a real item resolves its default
     pm = PropertyManager()
     try:
         real = {"Probe": {"type": "color", "value": None}}

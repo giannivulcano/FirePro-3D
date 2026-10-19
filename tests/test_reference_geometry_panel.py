@@ -9,9 +9,12 @@ from PyQt6.QtCore import QPointF, QRectF, QSettings
 from PyQt6.QtGui import QColor, QImage, QPainter
 from PyQt6.QtWidgets import QApplication
 
+from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                                    PolylineItem, RectangleItem,
                                    RegularPolygonItem, SplineItem)
+
+_SOLID = FillLayers(background=BackgroundLayer("#888888", 0.45))   # the old fill_type="solid"
 
 
 # -- RG10: panel Reference / Printed toggles ---------------------------------
@@ -20,7 +23,7 @@ def test_panel_reference_toggle_hides_style_rows_and_restores(shown_model_view):
     view, scene = shown_model_view
     scene.scene_role = "block_editor"
     c = CircleItem(QPointF(0, 0), 50.0)
-    c.fill_type = "solid"
+    c.fill_layers = _SOLID
     scene.addItem(c); scene._draw_circles.append(c)
     scene.push_undo_state()
     before = c.to_dict()
@@ -28,13 +31,15 @@ def test_panel_reference_toggle_hides_style_rows_and_restores(shown_model_view):
     assert "Reference" in rows and rows["Reference"]["type"] == "toggle"
     assert rows["Reference"]["value"] is False
     assert "Printed" not in rows and "Linetype" in rows and "Fill" in rows
+    assert "Fill Pattern" in rows
     pos0 = scene._undo_pos
     c.set_property("Reference", True)
     assert scene._undo_pos == pos0 + 1                     # one undo step
     rows = c.get_properties()
     assert c.reference is True and rows["Reference"]["value"] is True
     assert "Printed" in rows and rows["Printed"]["type"] == "toggle"
-    for k in ("Linetype", "Weight", "Colour", "Fill", "Fill Colour", "Fill Opacity"):
+    for k in ("Linetype", "Weight", "Colour", "Fill", "Fill Pattern",
+              "Fill Colour", "Fill Opacity"):
         assert k not in rows, k
     c.set_property("Printed", True)
     assert c.printed is True and scene._undo_pos == pos0 + 2
@@ -202,8 +207,7 @@ def _ref_records(flag: bool):
     ln = LineItem(QPointF(0, 0), QPointF(10, 0))
     ln.style["linetype"] = "lt_block_id"
     c = CircleItem(QPointF(0, 0), 5.0)
-    c.fill_type = "hatch"
-    c.fill_pattern = "pattern_block_id"
+    c.fill_layers = FillLayers(pattern=PatternLayer("pattern_block_id"))
     ln.reference = c.reference = flag
     return [ln.to_dict(), c.to_dict()]
 
@@ -290,7 +294,7 @@ def test_hidden_fill_never_hit_tests_on_any_closed_shape(qapp, name):
     s.addItem(item)
     assert item.is_fillable()
     assert not item.shape().contains(QPointF(0, 0))      # unfilled baseline
-    item.fill_type = "solid"
+    item.fill_layers = _SOLID
     inside = QPointF(0, 0)                    # centre: far from every stroke
     assert item.shape().contains(inside) and halo_is_area(item)
     item.reference = True

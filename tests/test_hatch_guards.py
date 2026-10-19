@@ -4,14 +4,14 @@ from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath
 
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import RectangleItem
 from firepro3d.model_space import Model_Space
 
 
 def _hatched_rect_def(pattern=hp.BUILTIN_DIAGONAL, half=500.0):
     r = RectangleItem(QPointF(-half, -half), QPointF(half, half))
-    r.fill_type, r.fill_pattern = "hatch", pattern
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    r.fill_layers = FillLayers(pattern=PatternLayer(pattern, "#ff0000", 1.0, 1.0))
     return BlockDefinition.new(name="H", library="L", series="S",
                                primitives=[r.to_dict()], origin=(0.0, 0.0))
 
@@ -126,17 +126,17 @@ def _along_45(img, lo=200, hi=500):
 
 
 def test_g3_rotated_2d_rectangle_keeps_45_degree_hatch(qapp, shipped_hatches):
-    """G3 / D-A11 through ``draw_fill``: a 30°-rotated hatched rectangle.
+    """G3 / D-A11 through ``paint_fill``: a 30°-rotated hatched rectangle.
 
     ``RectangleItem.paint`` rotates the painter (rotation is data), so the
-    ``to_scene`` it hands ``draw_fill`` must include that rotation or the
+    ``to_scene`` it hands ``paint_fill`` must include that rotation or the
     hatch turns with the rectangle (lines at 75°).
     """
     sc = Model_Space(scene_role="block_editor")
     shipped_hatches(sc)
     r = RectangleItem(QPointF(-500, -500), QPointF(500, 500))
-    r.fill_type, r.fill_pattern = "hatch", hp.BUILTIN_DIAGONAL
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    r.fill_layers = FillLayers(
+        pattern=PatternLayer(hp.BUILTIN_DIAGONAL, "#ff0000", 1.0, 1.0))
     sc.addItem(r)
     sc._draw_rects.append(r)
     r.set_angle(30.0)
@@ -243,8 +243,7 @@ def _vp_render_spacing(paper_scale, load_patterns):
     resolver = ViewResolver(ms, pvm, _DetailMgrStub(), None, level_manager=lm)
     r = RectangleItem(QPointF(0, 0), QPointF(5000, 5000))
     r.level = "Level 1"
-    r.fill_type, r.fill_pattern = "hatch", "horizontal"
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    r.fill_layers = FillLayers(pattern=PatternLayer("horizontal", "#ff0000", 1.0, 1.0))
     ms._draw_rects.append(r)
     ms.addItem(r)
     ms.active_level = "Level 1"

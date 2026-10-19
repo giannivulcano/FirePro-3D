@@ -17,6 +17,7 @@ from PyQt6.QtCore import QPointF, QSettings
 from firepro3d import app_data, block_library as bl
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import PatternLayer
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 
@@ -165,6 +166,11 @@ def test_unreadable_files_are_skipped(hatch_dir):
 
 # ── Picking loads the pattern into the project ──────────────────────────────
 
+def _choice_names(row) -> list[str]:
+    """Pattern names the picker behind a ``"fill"`` pattern row lists."""
+    return [n for n, _ref in hp.tile_choices(row["registry"], row["exclude"])]
+
+
 def _rect_in(ms):
     rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
     ms.addItem(rect)
@@ -179,18 +185,18 @@ def test_picking_via_the_property_setter_loads_then_stores(hatch_dir):
     bl.save_to_library(p, root=str(hatch_dir))
     ms = Model_Space()
     rect = _rect_in(ms)
-    opts = rect.get_properties()["Pattern"]["options"]
-    assert "Zig" in opts
+    row = rect.get_properties()["Fill Pattern"]
+    assert "Zig" in _choice_names(row)
     pos0 = ms._undo_pos
-    rect.set_property("Pattern", "Zig")
-    assert rect.fill_pattern == p.id
+    rect.set_property("Fill Pattern", PatternLayer(p.id))
+    assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
     assert hp.resolve_tile(p.id, ms.block_registry) is not None
     assert ms._undo_pos == pos0 + 1                    # the load's one batch
     ms.undo()                                          # one step removes the load
     assert p.id not in ms._block_definitions
     (rect2,) = ms._draw_rects                          # restored (refs invalidated)
-    assert (rect2.fill_type, rect2.fill_pattern) == ("hatch", hp.DEFAULT_TILE_REF)
+    assert rect2.fill_layers.pattern == PatternLayer(hp.DEFAULT_TILE_REF)
 
 
 def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir):
@@ -207,9 +213,9 @@ def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir):
     act = next((a for a in hatch.actions() if a.text() == "Zig"), None)
     assert act is not None, [a.text() for a in hatch.actions()]
     act.trigger()
-    assert (rect.fill_type, rect.fill_pattern) == ("hatch", p.id)
+    assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
-    ms.undo()                                          # one step removes the load
+    ms.undo()                                        # one step removes the load
     assert p.id not in ms._block_definitions
 
 
@@ -228,7 +234,7 @@ def test_picking_in_the_plan_context_menu_loads(hatch_dir):
     fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
     hatch = next(a.menu() for a in fill.actions() if a.text() == "Hatch")
     next(a for a in hatch.actions() if a.text() == "Zig").trigger()
-    assert (rect.fill_type, rect.fill_pattern) == ("hatch", p.id)
+    assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
 
 
@@ -242,9 +248,9 @@ def test_picking_in_a_block_editor_loads_into_the_project(hatch_dir):
     rect = RectangleItem(QPointF(0, 0), QPointF(20, 10))
     w._add_primitive(rect)
     rect.set_property("Fill", "hatch")
-    assert "Zig" in rect.get_properties()["Pattern"]["options"]
-    rect.set_property("Pattern", "Zig")
-    assert rect.fill_pattern == p.id
+    assert "Zig" in _choice_names(rect.get_properties()["Fill Pattern"])
+    rect.set_property("Fill Pattern", PatternLayer(p.id))
+    assert rect.fill_layers.pattern.ref == p.id
     assert p.id in project._block_definitions          # the PROJECT, not the editor
 
 

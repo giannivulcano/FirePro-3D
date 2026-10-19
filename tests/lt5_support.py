@@ -4,6 +4,7 @@ Group D). Origin = attach point, +X = outward (Q5); scene Y-down, so -Y is
 from PyQt6.QtCore import QPointF
 
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import CircleItem, LineItem, PolylineItem
 
 
@@ -14,8 +15,8 @@ def _poly(points, closed=True, fill=True):
     if closed:
         pl.close()
     if fill:
-        pl.fill_type = "solid"
-        pl.fill_opacity = 1.0          # an authored end fill is opaque
+        # an authored end fill is opaque
+        pl.fill_layers = FillLayers(background=BackgroundLayer("#888888", 1.0))
     return pl.to_dict()
 
 
@@ -43,8 +44,7 @@ def half_arrow(length=3.0, h=1.5, name="Half"):
 
 def _disc(radius):
     c = CircleItem(QPointF(0.0, 0.0), radius)
-    c.fill_type = "solid"
-    c.fill_opacity = 1.0
+    c.fill_layers = FillLayers(background=BackgroundLayer("#888888", 1.0))
     return c.to_dict()
 
 

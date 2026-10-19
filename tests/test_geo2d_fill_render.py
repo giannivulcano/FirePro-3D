@@ -15,6 +15,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QImage, QPainter, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsScene
 
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import (
     RectangleItem,
     CircleItem,
@@ -45,6 +46,13 @@ def _is_white(c: QColor) -> bool:
     return c.red() > 240 and c.green() > 240 and c.blue() > 240
 
 
+def _fill(kind: str, color: str = "#888888") -> FillLayers:
+    """Layers a pre-UP1 ``fill_type`` / colour pair stood for (solid at 0.45)."""
+    if kind == "none":
+        return FillLayers()
+    return FillLayers(background=BackgroundLayer(color, 0.45))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # RectangleItem — solid fill
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,8 +61,7 @@ class TestRectangleFill:
     def _make_rect(self, fill: str = "none", color: str = "#0000ff") -> tuple[RectangleItem, QGraphicsScene]:
         scene = QGraphicsScene()
         r = RectangleItem(QPointF(10, 10), QPointF(110, 110))
-        r.fill_type = fill
-        r._display_fill_color = color
+        r.fill_layers = _fill(fill, color)
         scene.addItem(r)
         return r, scene
 
@@ -87,8 +94,7 @@ class TestRectangleFill:
         scene = QGraphicsScene()
         # 40×80 rect centred at (60, 60) in scene coords
         r = RectangleItem(QPointF(40, 20), QPointF(80, 100))
-        r.fill_type = "solid"
-        r._display_fill_color = "#ff0000"
+        r.fill_layers = _fill("solid", "#ff0000")
         r.set_angle(30)
         scene.addItem(r)
 
@@ -125,8 +131,7 @@ class TestRectangleFill:
         """scene.itemAt() on the interior of a filled rect returns the rect."""
         scene = QGraphicsScene()
         r = RectangleItem(QPointF(10, 10), QPointF(110, 110))
-        r.fill_type = "solid"
-        r._display_fill_color = "#0000ff"
+        r.fill_layers = _fill("solid", "#0000ff")
         scene.addItem(r)
 
         # scene centre of the rect
@@ -145,8 +150,7 @@ class TestCircleFill:
         """Interior pixel must be non-white when solid fill is active."""
         scene = QGraphicsScene()
         c_item = CircleItem(QPointF(60, 60), 40, "#00aa00")
-        c_item.fill_type = "solid"
-        c_item._display_fill_color = "#00aa00"
+        c_item.fill_layers = _fill("solid", "#00aa00")
         scene.addItem(c_item)
 
         img = _render_scene(scene, QRectF(0, 0, 120, 120))
@@ -159,7 +163,7 @@ class TestCircleFill:
         """Interior stays white when fill_type='none'."""
         scene = QGraphicsScene()
         c_item = CircleItem(QPointF(60, 60), 40, "#00aa00")
-        c_item.fill_type = "none"
+        c_item.fill_layers = _fill("none")
         scene.addItem(c_item)
 
         img = _render_scene(scene, QRectF(0, 0, 120, 120))
@@ -172,8 +176,7 @@ class TestCircleFill:
         """shape() of a filled circle must include the centre."""
         scene = QGraphicsScene()
         c_item = CircleItem(QPointF(60, 60), 40, "#00aa00")
-        c_item.fill_type = "solid"
-        c_item._display_fill_color = "#00aa00"
+        c_item.fill_layers = _fill("solid", "#00aa00")
         scene.addItem(c_item)
 
         centre_local = c_item.rect().center()
@@ -203,8 +206,7 @@ class TestArcFill:
         """Closed arc (360°) with solid fill colours the interior."""
         scene = QGraphicsScene()
         a = ArcItem(QPointF(60, 60), 40, 0, 360)
-        a.fill_type = "solid"
-        a._display_fill_color = "#ff6600"
+        a.fill_layers = _fill("solid", "#ff6600")
         scene.addItem(a)
 
         img = _render_scene(scene, QRectF(0, 0, 120, 120))
@@ -217,8 +219,7 @@ class TestArcFill:
         """Open arc never fills even if fill_type is set."""
         scene = QGraphicsScene()
         a = ArcItem(QPointF(60, 60), 40, 0, 180)
-        a.fill_type = "solid"
-        a._display_fill_color = "#ff6600"
+        a.fill_layers = _fill("solid", "#ff6600")
         scene.addItem(a)
 
         img = _render_scene(scene, QRectF(0, 0, 120, 120))
@@ -245,8 +246,7 @@ class TestPolylineFill:
         for pt in pts[1:]:
             p.append_point(pt)
         p.close()  # explicit close flag (new API; no duplicate vertex)
-        p.fill_type = fill
-        p._display_fill_color = "#aa00aa"
+        p.fill_layers = _fill(fill, "#aa00aa")
         scene.addItem(p)
         return p, scene
 
@@ -274,8 +274,7 @@ class TestPolylineFill:
         p = PolylineItem(QPointF(20, 20))
         p.append_point(QPointF(100, 20))
         p.append_point(QPointF(100, 100))
-        p.fill_type = "solid"
-        p._display_fill_color = "#aa00aa"
+        p.fill_layers = _fill("solid", "#aa00aa")
         scene.addItem(p)
 
         img = _render_scene(scene, QRectF(0, 0, 120, 120))

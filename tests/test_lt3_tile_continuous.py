@@ -10,6 +10,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 from tests.lt3_support import hidden
@@ -32,8 +33,7 @@ def _scene():
         tile={"w": TILE, "h": TILE, "row_shift": 0.0, "size": "model"})
     ms.register_block_definition(tile)
     r = RectangleItem(QPointF(0, 0), QPointF(3 * TILE, TILE))
-    r.fill_type, r.fill_pattern = "hatch", tile.id
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    r.fill_layers = FillLayers(pattern=PatternLayer(tile.id, "#ff0000", 1.0, 1.0))
     host = BlockDefinition.new(name="Host", library="L", series="S",
                                primitives=[r.to_dict()], origin=(0.0, 0.0))
     ms.register_block_definition(host)

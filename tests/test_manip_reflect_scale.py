@@ -20,6 +20,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d.cad_math import CAD_Math
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import ArcItem, LineItem, RectangleItem
 from firepro3d.halo import halo_scene_path
 from tests._modify_tools_helpers import PRIMITIVES
@@ -111,7 +112,7 @@ def test_arc_reflected_across_x0_lands_in_visual_q2(scene):
 
 def test_reflect_keeps_closed_polyline_fill(scene):
     pl = _make(scene, "polyline_closed")
-    pl.fill_type = "solid"
+    pl.fill_layers = FillLayers(background=BackgroundLayer("#888888", 0.45))
     fill0 = pl.to_dict()["fill"]
     pl.manip_reflect(QPointF(500, 0), QPointF(500, -10))
     assert pl.is_closed()                                            # [RED]

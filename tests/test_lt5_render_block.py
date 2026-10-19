@@ -9,6 +9,7 @@ from firepro3d import paper_display as pd
 from firepro3d import theme
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.block_instance import BlockInstance
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import CircleItem, LineItem
 from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
 from tests.lt3_support import make_linetype
@@ -107,7 +108,7 @@ def test_end_definition_edit_reaches_the_next_paint(qapp):
     ms, _ = scene_with([dt, d], d.id)
     small = _blob(_render(ms, _PLAN, 400, 400))
     c = CircleItem(QPointF(0.0, 0.0), 1.2)
-    c.fill_type = "solid"
+    c.fill_layers = FillLayers(background=BackgroundLayer("#888888", 0.45))
     dt.set_primitives([c.to_dict()])                             # version bump
     ms.block_registry.invalidate(dt.id)
     big = _blob(_render(ms, _PLAN, 400, 400))

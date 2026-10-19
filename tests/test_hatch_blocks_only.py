@@ -17,6 +17,7 @@ from firepro3d import block_library as bl
 from firepro3d import hatch_patterns as hp
 from firepro3d import hatch_render as hr
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import RectangleItem
 from firepro3d.model_space import Model_Space
 from tests._mainwindow_helpers import dispose_main_window
@@ -166,7 +167,7 @@ def test_host_block_bundles_the_shipped_pattern(qapp, tmp_path, shipped_hatches)
     sc = Model_Space()
     shipped_hatches(sc)
     r = RectangleItem(QPointF(0, 0), QPointF(100, 100))
-    r.fill_type, r.fill_pattern = "hatch", "diagonal"      # legacy name
+    r.fill_layers = FillLayers(pattern=PatternLayer("diagonal"))   # legacy name
     host = BlockDefinition.new(name="Slab", library="Mine", series="S",
                                origin=(0.0, 0.0), primitives=[r.to_dict()])
     sc.register_block_definition(host)
@@ -256,10 +257,10 @@ def test_opening_an_old_file_loads_its_legacy_pattern(mw, tmp_path):
     # An old file: a block whose fill says "diagonal", no pattern definition.
     src = Model_Space()
     r = RectangleItem(QPointF(-500, -500), QPointF(500, 500))
-    r.fill_type, r.fill_pattern = "hatch", hp.BUILTIN_DIAGONAL
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
     rec = r.to_dict()
-    rec["fill"]["pattern"] = "diagonal"                    # legacy name in the file
+    # A legacy record in the file: the old-name hatch, as pre-UP1 wrote it.
+    rec["fill"] = {"type": "hatch", "pattern": "diagonal",
+                   "color": "#ff0000", "opacity": 1.0}
     host = BlockDefinition.new(name="Slab", library="Mine", series="S",
                                origin=(0.0, 0.0), primitives=[rec])
     src.register_block_definition(host)
@@ -339,8 +340,7 @@ def test_sheet_2d_fill_resolves_through_the_project(qapp, shipped_hatches):
     paper = PaperScene(Sheet.create_default(),
                        ViewResolver(ms, pvm, _DetailMgrStub(), None, level_manager=lm))
     r = RectangleItem(QPointF(0, 0), QPointF(60, 60))      # printed mm on a sheet
-    r.fill_type, r.fill_pattern = "hatch", "horizontal"
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    r.fill_layers = FillLayers(pattern=PatternLayer("horizontal", "#ff0000", 1.0, 1.0))
     paper.addItem(r)
     img = QImage(300, 300, QImage.Format.Format_RGB32)
     img.fill(QColor("white"))

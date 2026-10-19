@@ -12,6 +12,7 @@ import logging
 import math
 import uuid
 import weakref
+from dataclasses import replace as _dc_replace
 
 from PyQt6.QtWidgets import (
     QAbstractGraphicsShapeItem, QGraphicsLineItem, QGraphicsPathItem,
@@ -22,9 +23,11 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
-from .constants import CRISP_AXIS_TOL, TOKEN_AUTO
+from .constants import CRISP_AXIS_TOL, FILL_LEGACY_COLOUR, TOKEN_AUTO
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
+from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
+                          PatternLayer, alpha as _fill_alpha)
 from .hatch_patterns import DEFAULT_TILE_REF
 from . import end_render as _er
 from .linetype_render import badge_pad_px, printed_factor
@@ -174,10 +177,10 @@ class Geometry2DMixin:
         # RG17: the display colour held before a panel flip to Reference
         # (transient, never serialized); _NO_PRIOR = nothing remembered.
         self._pre_reference_colour = _NO_PRIOR
-        self.fill_type: str = "none"          # "none" | "solid" | "hatch"
-        self.fill_pattern: str = _DEFAULT_FILL_PATTERN
-        self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
-        # fill colour lives in DisplayableItemMixin._display_fill_color
+        # Two-layer fill (UP1, fill_layers.py): background + pattern, each
+        # with its own colour / opacity. _display_fill_color is display-only
+        # on 2D geometry (paper pass), never the shape's own colour.
+        self.fill_layers = _EMPTY_FILL
         # Stroke style record (linetypes.md LT2-1): the source of truth for
         # linetype / weight / ends / authored colour. None on unstyled
         # subclasses (TextItem). Set by _init_stroke.
@@ -356,31 +359,51 @@ class Geometry2DMixin:
         return pen
 
     def _draws_fill(self) -> bool:
-        """Fill paints only on a non-reference item with a fill (RG4), and not
-        when the fill colour is No Fill (``""`` -- distinct from ``None`` =
-        unset, which paints the default grey)."""
-        return (getattr(self, "fill_type", "none") != "none"
-                and not self.reference
+        """Fill paints -- and the interior is a pick area (R14) -- when any
+        fill layer is set on a non-reference item (RG4), unless the effective
+        colour is No Fill (``""``)."""
+        return (not self.reference
+                and not self.fill_layers.is_empty
                 and self._fill_value() != "")
 
     def _fill_value(self):
-        """Fill colour in force: a per-instance Graphic Override ``fill`` wins
-        over the item's own ``_display_fill_color`` (the serialized fill, never
-        overwritten by the override path -- so Clear restores it and a save
-        while overridden keeps the own fill). ``None`` = unset."""
+        """Colour forced onto both fill layers (R13): a per-instance Graphic
+        Override ``fill`` wins, else the display-only ``_display_fill_color``
+        (paper pass); ``None`` = each layer paints its own colour. The
+        override path never touches ``fill_layers``, so Clear restores them
+        and a save while overridden keeps them."""
         ov = getattr(self, "_display_overrides", None) or {}
         if ov.get("fill") is not None:
             return ov["fill"]
         return getattr(self, "_display_fill_color", None)
 
-    def _fill_paint_colour(self) -> str:
-        """``#rrggbb`` the fill paints with right now: a ``token:*`` resolves
-        per paint on this item's surface (canvas ink / paper black), unset is
-        the default grey."""
+    def _layer_qcolor(self, own: str, opacity: float) -> QColor:
+        """Paint colour of one fill layer: the forced colour (``_fill_value``)
+        or the layer's own, resolved per paint on this item's surface, at the
+        layer's opacity."""
         v = self._fill_value()
-        if v is None:
-            return "#888888"
-        return resolve_colour(v, item=self).name()
+        col = resolve_colour(own if v is None else v, item=self)
+        col.setAlpha(_fill_alpha(opacity))
+        return col
+
+    def _paint_fill_layers(self, painter, to_scene) -> None:
+        """Both fill layers in one renderer call (UP1 §1). Callers gate on
+        ``_draws_fill()``; *to_scene* maps the painter frame to scene so the
+        pattern stays in scene axes (D-A11)."""
+        cp = self.get_closed_path()
+        if cp is None or cp.isEmpty():
+            return
+        from .hatch_render import paint_fill
+        bg = self.fill_layers.background
+        pat = self.fill_layers.pattern
+        paint_fill(painter, cp, scene=self.scene(),
+                   background=(None if bg is None
+                               else self._layer_qcolor(bg.color, bg.opacity)),
+                   tile_ref=None if pat is None else pat.ref,
+                   colour=(None if pat is None
+                           else self._layer_qcolor(pat.color, pat.opacity)),
+                   scale=1.0 if pat is None else pat.scale,
+                   to_scene=to_scene)
 
     def _lt_args(self) -> dict:
         """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
@@ -948,35 +971,18 @@ class Geometry2DMixin:
                 drawing_scale=sm.drawing_scale if sm is not None else None))
             props["Colour"] = {"type": "color", "value": self.style["colour"]}
         if self.is_fillable() and not self.reference:
-            props["Fill"] = {"type": "enum",
-                             "options": ["none", "solid", "hatch"],
-                             "value": self.fill_type}
-            if self.fill_type == "hatch":
-                from .hatch_patterns import (MISSING_PATTERN_LABEL, canonical_ref,
-                                             picker_exclude, tile_choices)
-                reg = self._tile_registry()
-                choices = tile_choices(reg, picker_exclude(self.scene()))
-                options = [n for n, _ in choices]
-                ref = canonical_ref(self.fill_pattern)
-                value = next((n for n, r in choices if r == ref), None)
-                if value is None:
-                    # D-A36: an unresolvable stored ref shows as missing (not as
-                    # the first option) and is kept until the user picks one.
-                    options = [MISSING_PATTERN_LABEL] + options
-                    value = MISSING_PATTERN_LABEL
-                props["Pattern"] = {"type": "enum", "options": options,
-                                    "value": value}
-            if self.fill_type in ("solid", "hatch"):
-                props["Fill Colour"] = {"type": "color",
-                                        "value": (self._display_fill_color
-                                                  if self._display_fill_color is not None
-                                                  else "#888888")}
-            if self.fill_type == "solid":
-                props["Fill Opacity"] = {
-                    "type":  "string",
-                    "value": str(round(self.fill_opacity * 100)),
-                    "suffix": "%",
-                }
+            from .hatch_patterns import picker_exclude
+            reg = self._tile_registry()
+            excl = picker_exclude(self.scene())
+            fl = self.fill_layers
+            props["Fill"] = {
+                "type": "fill", "value": fl.background, "pattern": False,
+                "registry": reg, "exclude": excl,
+                "tooltip": "Solid background colour and opacity (behind the pattern)"}
+            props["Fill Pattern"] = {
+                "type": "fill", "value": fl.pattern, "pattern": True,
+                "registry": reg, "exclude": excl,
+                "tooltip": "Hatch pattern drawn over the background: pattern, colour, opacity, scale"}
         return props
 
     def _geom2d_set(self, key: str, value) -> bool:
@@ -996,38 +1002,75 @@ class Geometry2DMixin:
             self._dim_edit(lambda v: self._set_style_field(key, v), value)
             return True
         if key == "Fill":
-            self.fill_type = str(value)
-            self.update()
+            if isinstance(value, str):
+                self._set_fill_kind(value)             # UP2 removes: menu shim
+            elif value is NO_LAYER or isinstance(value, BackgroundLayer):
+                self._dim_edit(lambda v: self._set_fill_layer("background", v), value)
+            return True
+        if key == "Fill Pattern":
+            if value is NO_LAYER or isinstance(value, PatternLayer):
+                self._set_pattern_layer_from_panel(value)
             return True
         if key == "Pattern":
-            from .hatch_patterns import (MISSING_PATTERN_LABEL, picker_exclude,
-                                         ref_from_value, ensure_pattern_available)
-            if str(value) == MISSING_PATTERN_LABEL:
-                return True               # D-A36: never rewrite the stored ref
-            old = self.fill_pattern
-            self.fill_pattern = ref_from_value(str(value), self._tile_registry(),
-                                               picker_exclude(self.scene()))
-            # D-A37: a library pattern loads into the project first. Set before
-            # the load so its one undo snapshot carries the new ref too; a
-            # failed load keeps the stored ref.
-            if not ensure_pattern_available(self.fill_pattern, self.scene()):
-                self.fill_pattern = old
-            self.update()
-            return True
-        if key == "Fill Colour":
-            self._display_fill_color = str(value)
-            self.update()
-            return True
-        if key == "Fill Opacity":
-            try:
-                pct = float(value)
-            except (TypeError, ValueError):
-                return True  # reject non-numeric; keep prior
-            pct = max(0.0, min(100.0, pct))
-            self.fill_opacity = pct / 100.0
-            self.update()
+            self._set_fill_pattern_ref(str(value))     # UP2 removes: menu shim
             return True
         return False
+
+    def _set_fill_layer(self, slot: str, value) -> None:
+        """Write one fill layer (``"background"`` / ``"pattern"``); NO_LAYER
+        turns it off."""
+        layer = None if value is NO_LAYER else value
+        self.fill_layers = _dc_replace(self.fill_layers, **{slot: layer})
+        self.update()
+
+    def _set_pattern_layer_from_panel(self, value) -> None:
+        """Panel / ribbon Fill Pattern pick: one undo step via ``_dim_edit``;
+        a Hatch-patterns-folder pattern loads into the project first (D-A37):
+        set before the load so its one undo snapshot carries it, and a failed
+        load restores the previous layers."""
+        from .hatch_patterns import (canonical_ref, ensure_pattern_available,
+                                     pattern_needs_load)
+        if value is not NO_LAYER:
+            value = _dc_replace(value, ref=canonical_ref(value.ref))
+            if pattern_needs_load(value.ref, self.scene()):
+                old = self.fill_layers
+                self._set_fill_layer("pattern", value)
+                if not ensure_pattern_available(value.ref, self.scene()):
+                    self.fill_layers = old
+                    self.update()
+                return
+        self._dim_edit(lambda v: self._set_fill_layer("pattern", v), value)
+
+    def _set_fill_kind(self, kind: str) -> None:
+        """Menu shim (removed by UP2): ``none`` clears both layers, ``solid``
+        / ``hatch`` turn the background / pattern on when off (new layers at
+        100 %, R10). The caller pushes the undo step."""
+        fl = self.fill_layers
+        if kind == "none":
+            self.fill_layers = _EMPTY_FILL
+        elif kind == "solid" and fl.background is None:
+            self.fill_layers = _dc_replace(fl, background=BackgroundLayer(FILL_LEGACY_COLOUR))
+        elif kind == "hatch" and fl.pattern is None:
+            self.fill_layers = _dc_replace(fl, pattern=PatternLayer(_DEFAULT_FILL_PATTERN))
+        self.update()
+
+    def _set_fill_pattern_ref(self, value: str) -> None:
+        """Menu shim (removed by UP2): set the pattern ref, creating the layer
+        when off. D-A36: the missing label never rewrites the stored ref;
+        D-A37: a library pattern loads first, a failed load keeps the old
+        layers. The caller pushes the undo step."""
+        from .hatch_patterns import (MISSING_PATTERN_LABEL, ensure_pattern_available,
+                                     picker_exclude, ref_from_value)
+        if value == MISSING_PATTERN_LABEL:
+            return
+        ref = ref_from_value(value, self._tile_registry(), picker_exclude(self.scene()))
+        old = self.fill_layers
+        pat = old.pattern
+        self.fill_layers = _dc_replace(
+            old, pattern=PatternLayer(ref) if pat is None else _dc_replace(pat, ref=ref))
+        if not ensure_pattern_available(ref, self.scene()):
+            self.fill_layers = old
+        self.update()
 
     def _set_reference_flag(self, key: str, on) -> None:
         """Panel flip (RG10): one undo step via ``_dim_edit``; the item takes
@@ -1074,14 +1117,10 @@ class Geometry2DMixin:
             d["style"] = normalize_style(self.style)
         if getattr(self, "layer", ""):
             d["layer"] = self.layer
-        if self.fill_type != "none":
-            d["fill"] = {
-                "type":    self.fill_type,
-                "pattern": self.fill_pattern,
-                "color":   (self._display_fill_color
-                            if self._display_fill_color is not None else "#888888"),
-                "opacity": self.fill_opacity,
-            }
+        from .fill_layers import to_record
+        rec = to_record(self.fill_layers)
+        if rec is not None:
+            d["fill"] = rec
         if self.reference:
             d["reference"] = True
             d["printed"] = bool(self.printed)
@@ -1115,15 +1154,8 @@ class Geometry2DMixin:
             pen.setCosmetic(True)
             self.setPen(pen)
         self.layer = data.get("layer", "")
-        f = data.get("fill")
-        # Legacy {type, ...} records only; the two-layer shape is read by
-        # fill_layers once the item carries layers (UP1 Task 7).
-        if isinstance(f, dict) and "type" in f:
-            self.fill_type = f.get("type", "none")
-            from .hatch_patterns import canonical_ref
-            self.fill_pattern = canonical_ref(f.get("pattern", _DEFAULT_FILL_PATTERN))
-            self._display_fill_color = f.get("color")
-            self.fill_opacity = f.get("opacity", 0.45)
+        from .fill_layers import from_record
+        self.fill_layers = from_record(data.get("fill"))
 
 
 def _scene_hit_width(item) -> float:
@@ -1476,13 +1508,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
         if self._draws_fill():
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._fill_paint_colour(),
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+            self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
         self._paint_lt_badge(painter)
@@ -2062,16 +2088,11 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                 painter.setWorldTransform(self._rotation_transform(), True)
             # Draw fill FIRST (behind the outline).
             if self._draws_fill():
-                cp = self.get_closed_path()
-                if cp is not None:
-                    from .displayable_item import draw_fill
-                    # The painter frame is rotated: painter-local → item via the
-                    # rotation, then item → scene (Qt row-vector order), so the
-                    # hatch stays in scene axes (D-A11).
-                    draw_fill(painter, cp, self.scene(), self.fill_type,
-                              self.fill_pattern, self._fill_paint_colour(),
-                              alpha=int(round(self.fill_opacity * 255)),
-                              to_scene=self._rotation_transform() * self.sceneTransform())
+                # The painter frame is rotated: painter-local → item via the
+                # rotation, then item → scene (Qt row-vector order), so the
+                # hatch stays in scene axes (D-A11).
+                self._paint_fill_layers(
+                    painter, self._rotation_transform() * self.sceneTransform())
             # Linetype dashes draw in the UNROTATED item frame (stroke_pieces()
             # already carry the rotation), after the fill so it stays behind.
             self._paint_routed_stroke(painter, option, widget, rs,
@@ -2426,13 +2447,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline)
         if self._draws_fill():
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._fill_paint_colour(),
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+            self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawEllipse(self.rect()))
         if self.isSelected():
@@ -2772,13 +2787,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         rs = self._sync_stroke_pen()
         # Draw fill FIRST (behind the outline); only applies when arc is closed
         if self._draws_fill():
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._fill_paint_colour(),
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+            self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
         if self.isSelected():
@@ -3085,13 +3094,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         option.state &= ~QStyle.StateFlag.State_Selected
         rs = self._sync_stroke_pen()
         if self._draws_fill():
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._fill_paint_colour(),
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+            self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
         if self.isSelected():
@@ -3358,13 +3361,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         rs = self._sync_stroke_pen()
         if self._draws_fill():
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._fill_paint_colour(),
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+            self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
         if self.isSelected():
@@ -3793,13 +3790,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         rs = self._sync_stroke_pen()
         if self._draws_fill():
-            cp = self.get_closed_path()
-            if cp is not None:
-                from .displayable_item import draw_fill
-                draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._fill_paint_colour(),
-                          alpha=int(round(self.fill_opacity * 255)),
-                          to_scene=self.sceneTransform())
+            self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
         if self.isSelected():

@@ -615,8 +615,8 @@ def _apply_geo2d(item, color, opacity, visible, fill_color=None):
     """Apply display settings to a 2D draw-geometry item (LineItem, PolylineItem, etc.).
 
     Stroke colour is stored in _display_color; the paint() methods read it and
-    apply it to the pen before delegating to super().paint().  Fill colour is
-    already handled by draw_fill() in each paint() via _display_fill_color; a
+    apply it to the pen before delegating to super().paint().  Fill paints
+    from each shape's own ``fill_layers`` (UP1); a
     Graphic Override / instance ``fill`` (token, hex or ``""`` = No Fill) is
     read from ``_display_overrides["fill"]`` by ``Geometry2DMixin._fill_value``.
     The apply path never writes ``_display_fill_color`` (the item's own

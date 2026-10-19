@@ -16,6 +16,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import tool_geometry as tg
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import LineItem
 from tests._modify_tools_helpers import PRIMITIVES
 
@@ -141,14 +142,13 @@ def test_style_inherited(qapp):
         src.style["weight"] = "Heavy"
         src._sync_stroke_pen()
         if src.is_fillable():
-            src.fill_type = "solid"
-            src._display_fill_color = "#00ff00"
+            src.fill_layers = FillLayers(background=BackgroundLayer("#00ff00", 0.45))
         new = tg.offset_item(src, 5.0)
         assert new.style == src.style, name
         assert new.style["weight"] == "Heavy", name
         if src.is_fillable():
-            assert new.fill_type == "solid", name
-            assert new._display_fill_color == "#00ff00", name
+            assert new.fill_layers == src.fill_layers, name
+            assert new.fill_layers.background.color == "#00ff00", name
 
 
 def test_source_is_not_mutated(qapp):
@@ -343,9 +343,9 @@ def test_closed_spline_offsets_its_control_loop_and_keeps_fill(qapp):
     """Closed spline (first == last control point): control loop ±d, mitered
     at every vertex incl. the seam; stays closed, keeps its fill, same knots."""
     src = _closed_spline()                      # square loop 100 x 100
-    src.fill_type = "solid"
+    src.fill_layers = FillLayers(background=BackgroundLayer("#888888", 0.45))
     out = tg.offset_item(src, 5.0)
-    assert out.is_closed() and out.fill_type == "solid" and out.is_fillable()
+    assert out.is_closed() and out.fill_layers == src.fill_layers and out.is_fillable()
     assert out._knots == src._knots
     assert [(round(p.x(), 3), round(p.y(), 3)) for p in out._control_points] ==         [(-5, 5), (105, 5), (105, -105), (-5, -105), (-5, 5)]
     inward = tg.offset_item(src, -5.0)

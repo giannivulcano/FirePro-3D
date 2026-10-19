@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor, QImage, QPainter
 
 from firepro3d import hatch_render as hr
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import RectangleItem
 from firepro3d.model_space import Model_Space
 
@@ -29,8 +30,7 @@ def _scene(filled, load_patterns):
     load_patterns(sc)                    # D-A39: Diagonal is a project block
     r = RectangleItem(QPointF(0, 0), QPointF(2000, 1000))
     if filled:
-        r.fill_type, r.fill_pattern = "hatch", "diagonal"
-        r._display_fill_color, r.fill_opacity = "#000000", 1.0
+        r.fill_layers = FillLayers(pattern=PatternLayer("diagonal", "#000000", 1.0, 1.0))
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[r.to_dict()], origin=(0, 0))
     sc.register_block_definition(d)

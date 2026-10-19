@@ -13,6 +13,7 @@ import pytest
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtTest import QTest
 
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from tests._modify_tools_helpers import PRIMITIVES, add_primitive
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
@@ -376,10 +377,8 @@ def test_committed_item_inherits_style(qapp, name):
         item.style["weight"] = "Heavy"
         item._sync_stroke_pen()
         if item.is_fillable():
-            item.fill_type = "hatch"
-            item.fill_pattern = "ANSI31"
-            item._display_fill_color = "#00ff00"
-            item.fill_opacity = 0.7
+            item.fill_layers = FillLayers(
+                pattern=PatternLayer("ANSI31", "#00ff00", 0.7, 1.0))
         scene._modify_ctl.start("offset")
         move(view, QPointF(400, -400))
         _type_distance(scene, "5")
@@ -388,9 +387,8 @@ def test_committed_item_inherits_style(qapp, name):
         assert new.style == item.style
         assert new.style["weight"] == "Heavy"
         if item.is_fillable():
-            assert (new.fill_type, new.fill_pattern, new._display_fill_color,
-                    new.fill_opacity) == ("hatch", "ANSI31", "#00ff00",
-                                          pytest.approx(0.7))
+            assert new.fill_layers == FillLayers(
+                pattern=PatternLayer("ANSI31", "#00ff00", 0.7, 1.0))
     finally:
         close_view(view, scene)
 

@@ -11,8 +11,7 @@ Path B — undo snapshot:
     scene._capture_network() / scene._restore_network(state)
     Rebuilds draw geometry items from their to_dict / from_dict in place.
 
-Both paths verify that level, _level_offset_mm, fill_type, and
-_display_fill_color survive a round-trip without any information loss.
+Both paths verify that level, _level_offset_mm and fill_layers survive a round-trip without any information loss.
 
 Additionally (Task 5):
 - RegularPolygonItem round-trips through both paths.
@@ -30,7 +29,9 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
 from firepro3d.level_manager import LevelManager
+from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
 from firepro3d.geometry_2d import RectangleItem, RegularPolygonItem, PolylineItem
+from firepro3d.hatch_patterns import DEFAULT_TILE_REF
 from firepro3d.scale_manager import ScaleManager
 
 
@@ -45,14 +46,22 @@ def _make_scene(qapp):
     return s
 
 
+def _layers(kind="none", color="#888888") -> FillLayers:
+    """Layers a pre-UP1 ``fill_type`` / colour pair stood for (opacity 0.45)."""
+    if kind == "solid":
+        return FillLayers(background=BackgroundLayer(color, 0.45))
+    if kind == "hatch":
+        return FillLayers(pattern=PatternLayer(DEFAULT_TILE_REF, color, 0.45, 1.0))
+    return FillLayers()
+
+
 def _add_rect(scene, level="Level 2", offset=250.0, fill="solid",
               color="#123456") -> RectangleItem:
     """Create and register a RectangleItem with mixin fields set."""
     r = RectangleItem(QPointF(0, 0), QPointF(100, 100))
     r.level = level
     r._level_offset_mm = offset
-    r.fill_type = fill
-    r._display_fill_color = color
+    r.fill_layers = _layers(fill, color)
     scene._draw_rects.append(r)
     scene.addItem(r)
     return r
@@ -126,8 +135,7 @@ def test_undo_roundtrip_offset_and_fill(qapp):
 
     # Mutate in-place
     r._level_offset_mm = 0.0
-    r.fill_type = "none"
-    r._display_fill_color = None
+    r.fill_layers = FillLayers()
 
     # Restore
     scene._restore_network(state)
@@ -139,8 +147,7 @@ def test_undo_roundtrip_offset_and_fill(qapp):
     restored = scene._draw_rects[0]
 
     # Level/offset are gone from primitives (C3); fill still round-trips.
-    assert restored.fill_type == "hatch"
-    assert restored._display_fill_color == "#ffcc00"
+    assert restored.fill_layers == _layers("hatch", "#ffcc00")
 
 
 def test_undo_roundtrip_multiple_rects(qapp):
@@ -153,35 +160,32 @@ def test_undo_roundtrip_multiple_rects(qapp):
 
     # Wipe both rects' fill fields
     for r in scene._draw_rects:
-        r.fill_type = "hatch"
+        r.fill_layers = _layers("hatch")
 
     scene._restore_network(state)
 
     assert len(scene._draw_rects) == 2
 
-    fill_types = {r.fill_type for r in scene._draw_rects}
-    assert "none" in fill_types
-    assert "solid" in fill_types
+    kinds = {("bg" if r.fill_layers.background is not None else "")
+             + ("pat" if r.fill_layers.pattern is not None else "")
+             for r in scene._draw_rects}
+    assert kinds == {"", "bg"}                 # the "none" and the "solid" rect
 
 
 def test_to_dict_from_dict_direct(qapp):
     """Unit-level check: to_dict / from_dict round-trip fill (level-less — C3)."""
     r = RectangleItem(QPointF(10, 20), QPointF(110, 120))
-    r.fill_type = "solid"
-    r.fill_pattern = "grid"
-    r._display_fill_color = "#deadbe"
+    r.fill_layers = FillLayers(background=BackgroundLayer("#deadbe", 0.45))
 
     d = r.to_dict()
 
     # Level-less primitive: no level keys in the payload (C3).
     assert "level" not in d
     assert "level_offset_mm" not in d
-    assert d["fill"]["type"] == "solid"
-    assert d["fill"]["color"] == "#deadbe"
+    assert d["fill"] == {"background": {"color": "#deadbe", "opacity": 0.45}}
 
     r2 = RectangleItem.from_dict(d)
-    assert r2.fill_type == "solid"
-    assert r2._display_fill_color == "#deadbe"
+    assert r2.fill_layers == FillLayers(background=BackgroundLayer("#deadbe", 0.45))
 
 
 # ── Task 5: RegularPolygonItem + closed PolylineItem dual serialization ───────

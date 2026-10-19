@@ -77,6 +77,6 @@ def _rebuild_path_from_elements(elements: list) -> "QPainterPath":
 # ---------------------------------------------------------------------------
 # NOTE: HatchItem has been RETIRED (2026-08-22).
 # Fills are now a property of 2-D geometry items (PolylineItem, RectangleItem,
-# CircleItem) via Geometry2DMixin (fill_type / fill_pattern / fill_opacity).
+# CircleItem) via Geometry2DMixin (two-layer fill_layers, UP1).
 # Legacy "hatches" entries in old .fpd files are migrated on load in scene_io.
 # ---------------------------------------------------------------------------

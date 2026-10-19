@@ -1681,7 +1681,7 @@ class Model_View(QGraphicsView):
         if not getattr(target, "is_fillable", lambda: False)():
             return None
 
-        from .hatch_patterns import canonical_ref, tile_choices
+        from .hatch_patterns import tile_choices
 
         fill_menu = parent_menu.addMenu("Fill")
 
@@ -1694,7 +1694,8 @@ class Model_View(QGraphicsView):
                 # The Pattern setter loads a library pattern first (D-A37,
                 # ensure_pattern_available); a refused load leaves the fill.
                 target.set_property("Pattern", pattern)
-                if canonical_ref(getattr(target, "fill_pattern", None)) != pattern:
+                pat = getattr(getattr(target, "fill_layers", None), "pattern", None)
+                if pat is None or pat.ref != pattern:
                     return
             target.set_property("Fill", fill_type)
             target.update()

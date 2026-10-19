@@ -96,7 +96,7 @@ def halo_is_area(item) -> bool:
 
     Areas: 2D primitives whose fill paints (``_draws_fill()`` -- a reference
     item's hidden fill is not an area, RG4), other items with
-    ``fill_type != "none"``, classes flagged
+    a non-empty ``fill_layers``, classes flagged
     ``HALO_AREA = True`` (the list is owned by selection-mode.md §4.1), and any
     item whose trace falls back to ``shape()`` (text boxes, SVG). A block is a
     composite (``halo_trace_path``) whose filled parts and text boxes come
@@ -110,8 +110,8 @@ def halo_is_area(item) -> bool:
         if draws_fill():                      # (reference, RG4) is no area
             return True
     else:
-        fill = getattr(item, "fill_type", None)
-        if fill is not None and fill != "none":
+        fl = getattr(item, "fill_layers", None)
+        if fl is not None and not fl.is_empty:
             return True
     if getattr(item, "HALO_AREA", False):
         return True

@@ -2,6 +2,7 @@
 from PyQt6.QtCore import QPointF
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 
@@ -54,8 +55,8 @@ def test_legacy_fill_pattern_canonicalised_on_load(qapp):
     d = r.to_dict()
     d["fill"] = {"type": "hatch", "pattern": "diagonal", "color": "#000000", "opacity": 1.0}
     r2 = RectangleItem.from_dict(d)
-    assert r2.fill_pattern == hp.BUILTIN_DIAGONAL
-    assert r2.to_dict()["fill"]["pattern"] == hp.BUILTIN_DIAGONAL
+    assert r2.fill_layers.pattern.ref == hp.BUILTIN_DIAGONAL
+    assert r2.to_dict()["fill"]["pattern"]["ref"] == hp.BUILTIN_DIAGONAL
 
 
 def test_pattern_reference_is_a_registry_dependency(qapp):
@@ -63,7 +64,7 @@ def test_pattern_reference_is_a_registry_dependency(qapp):
     pat = _tile_def("Zig")
     sc.register_block_definition(pat)
     r = RectangleItem(QPointF(0, 0), QPointF(10, 10))
-    r.fill_type, r.fill_pattern = "hatch", pat.id
+    r.fill_layers = FillLayers(pattern=PatternLayer(pat.id))
     host = BlockDefinition.new(name="Host", library="L", series="S",
                                origin=(0, 0), primitives=[r.to_dict()])
     sc.register_block_definition(host)
@@ -76,7 +77,7 @@ def test_pattern_reference_is_a_registry_dependency(qapp):
 def test_builtin_pattern_ref_is_never_reported_missing(qapp):
     sc = Model_Space()
     r = RectangleItem(QPointF(0, 0), QPointF(10, 10))
-    r.fill_type, r.fill_pattern = "hatch", "diagonal"
+    r.fill_layers = FillLayers(pattern=PatternLayer("diagonal"))
     host = BlockDefinition.new(
         name="Host", library="L", series="S", origin=(0, 0),
         primitives=[r.to_dict(),
@@ -94,15 +95,17 @@ def test_project_tile_named_like_builtin_is_pickable(qapp, shipped_hatches):
     sc.register_block_definition(proj)
     rect = RectangleItem(QPointF(0, 0), QPointF(10, 10))
     sc.addItem(rect)
-    rect.fill_type = "hatch"
-    opts = rect.get_properties()["Pattern"]["options"]
+    rect.set_property("Fill", "hatch")                 # menu shim: pattern layer on
+    row = rect.get_properties()["Fill Pattern"]
+    opts = [n for n, _ in hp.tile_choices(row["registry"], row["exclude"])]
     assert "Diagonal" in opts and "Diagonal (project)" in opts
     assert len(set(opts)) == len(opts)
     rect.set_property("Pattern", "Diagonal (project)")
-    assert rect.fill_pattern == proj.id
-    assert rect.get_properties()["Pattern"]["value"] == "Diagonal (project)"
+    assert rect.fill_layers.pattern.ref == proj.id
+    row = rect.get_properties()["Fill Pattern"]
+    assert hp.display_name(row["value"].ref, row["registry"], row["exclude"]) == "Diagonal (project)"
     rect.set_property("Pattern", "Diagonal")
-    assert rect.fill_pattern == hp.BUILTIN_DIAGONAL
+    assert rect.fill_layers.pattern.ref == hp.BUILTIN_DIAGONAL
 
 
 def test_tile_dict_is_a_copy(qapp, shipped_hatches):

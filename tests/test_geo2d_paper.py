@@ -16,7 +16,9 @@ from PyQt6.QtGui import QImage, QPainter, QColor
 from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.model_space import Model_Space
+from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
 from firepro3d.geometry_2d import RectangleItem, CircleItem
+from firepro3d.hatch_patterns import canonical_ref
 from tests._paper_iso_helpers import _DetailMgrStub
 
 
@@ -67,7 +69,7 @@ def _row_interior_nonwhite(img, y, lo, hi):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_solid_fill_rectangle_plots_on_paper(qapp):
-    """A RectangleItem with fill_type='solid' must produce non-white pixels
+    """A RectangleItem with a background fill layer must produce non-white pixels
     within the viewport interior when rendered through a paper viewport."""
     ms = Model_Space()
     lm = LevelManager()
@@ -77,10 +79,8 @@ def test_solid_fill_rectangle_plots_on_paper(qapp):
 
     rect = RectangleItem(QPointF(200, 200), QPointF(800, 800))
     rect.level = "Level 1"
-    rect.fill_type = "solid"
-    rect.fill_pattern = "diagonal"
-    rect.fill_opacity = 0.8
-    rect._display_fill_color = "#333333"   # dark grey — clearly non-white on paper
+    # dark grey at 0.8 — clearly non-white on paper
+    rect.fill_layers = FillLayers(background=BackgroundLayer("#333333", 0.8))
     assert rect.style["colour"] == "token:auto"   # default Automatic outline (HF1)
     canvas_ink = rect.pen().color().name()        # resolved canvas ink, restored after render
     ms._draw_rects.append(rect)
@@ -104,7 +104,7 @@ def test_solid_fill_rectangle_plots_on_paper(qapp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_hatch_fill_circle_plots_on_paper(qapp, shipped_hatches):
-    """A CircleItem with fill_type='hatch' must produce non-white interior
+    """A CircleItem with a pattern fill layer must produce non-white interior
     pixels when rendered through a paper viewport."""
     ms = Model_Space()
     shipped_hatches(ms)                   # D-A39: Diagonal is a project block
@@ -115,9 +115,8 @@ def test_hatch_fill_circle_plots_on_paper(qapp, shipped_hatches):
 
     circle = CircleItem(QPointF(500, 500), 300)
     circle.level = "Level 1"
-    circle.fill_type = "hatch"
-    circle.fill_pattern = "diagonal"
-    circle._display_fill_color = "#000000"
+    circle.fill_layers = FillLayers(
+        pattern=PatternLayer(canonical_ref("diagonal"), "#000000", 0.45, 1.0))
     assert circle.style["colour"] == "token:auto"   # default Automatic (HF1)
     canvas_ink = circle.pen().color().name()
     ms._draw_circles.append(circle)

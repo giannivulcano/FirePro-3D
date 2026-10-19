@@ -7,7 +7,9 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import LineItem, RectangleItem
+from firepro3d.hatch_patterns import DEFAULT_TILE_REF
 from firepro3d.model_space import Model_Space
 from firepro3d.text_item import TextAnnotationData, TextItem
 from tests.lt5_support import half_arrow
@@ -110,7 +112,7 @@ def _text_end():
 
 def _hatch_end():
     r = RectangleItem(QPointF(-3.0, -1.5), QPointF(0.0, 1.5))
-    r.fill_type = "hatch"
+    r.fill_layers = FillLayers(pattern=PatternLayer(DEFAULT_TILE_REF, "#888888", 0.45, 1.0))
     return _end_of("HatchEnd", [r.to_dict()])
 
 

@@ -4,6 +4,7 @@ from PyQt6.QtGui import QColor
 
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.block_editor import BlockEditorWidget
+from firepro3d.fill_layers import FillLayers, PatternLayer
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 
@@ -273,8 +274,7 @@ def _g5_scene():
     sc.set_block_tile({**sc.block_tile, "size": "model"})
     pat = w.commit_block("Zig", "L", "S")
     r = RectangleItem(QPointF(-200, -200), QPointF(200, 200))
-    r.fill_type, r.fill_pattern = "hatch", pat.id
-    r._display_fill_color, r.fill_opacity = "#ff0000", 1.0
+    r.fill_layers = FillLayers(pattern=PatternLayer(pat.id, "#ff0000", 1.0, 1.0))
     host_def = BlockDefinition.new(name="Host", library="L", series="S",
                                    origin=(0, 0), primitives=[r.to_dict()])
     proj.register_block_definition(host_def)
@@ -507,25 +507,28 @@ def _hatched_rect(scene, ref):
     from firepro3d.geometry_2d import RectangleItem
     r = RectangleItem(QPointF(0, 0), QPointF(40, -40))
     scene.addItem(r)
-    r.fill_type, r.fill_pattern = "hatch", ref
+    r.fill_layers = FillLayers(pattern=PatternLayer(ref))
     return r
 
 
 def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp, shipped_hatches):
     from firepro3d.hatch_patterns import BUILTIN_DIAGONAL, MISSING_PATTERN_LABEL
     from firepro3d.property_manager import PropertyManager
+    from firepro3d.ui_kit import FillSwatch
     proj = Model_Space()
     shipped_hatches(proj)                 # D-A39: Diagonal is a project block
     r = _hatched_rect(proj, "deadbeef-no-such-tile")
     pm = PropertyManager()
     pm.show_properties([r])
     qapp.processEvents()
-    combo = pm._prop_widgets["Pattern"]
-    assert combo.currentText() == MISSING_PATTERN_LABEL
-    r.set_property("Pattern", MISSING_PATTERN_LABEL)
-    assert r.fill_pattern == "deadbeef-no-such-tile"
+    # The enum combo's <missing pattern> label is retired with the row type:
+    # the Fill Pattern swatch carries the stored layer, ref intact.
+    sw = next(s for s in pm.findChildren(FillSwatch) if s._context == "Fill Pattern")
+    assert sw.layer().ref == "deadbeef-no-such-tile"
+    r.set_property("Pattern", MISSING_PATTERN_LABEL)   # menu shim: D-A36 keeps the ref
+    assert r.fill_layers.pattern.ref == "deadbeef-no-such-tile"
     r.set_property("Pattern", "Diagonal")
-    assert r.fill_pattern == BUILTIN_DIAGONAL
+    assert r.fill_layers.pattern.ref == BUILTIN_DIAGONAL
 
 
 def test_editor_pickers_exclude_the_edited_block_and_cycles(qapp):
@@ -547,8 +550,12 @@ def test_editor_pickers_exclude_the_edited_block_and_cycles(qapp):
     w = BlockEditorWidget(proj, block_id=x.id)
     w.seed_from_definition(x)
     r = _hatched_rect(w.editor_scene, z.id)
-    opts = r.get_properties()["Pattern"]["options"]
+    def _names(row):
+        from firepro3d.hatch_patterns import tile_choices
+        return [n for n, _ref in tile_choices(row["registry"], row["exclude"])]
+
+    opts = _names(r.get_properties()["Fill Pattern"])
     assert "Zpat" in opts
     assert "Xpat" not in opts and "Ypat" not in opts      # self + would-cycle
-    plan = _hatched_rect(proj, z.id).get_properties()["Pattern"]["options"]
+    plan = _names(_hatched_rect(proj, z.id).get_properties()["Fill Pattern"])
     assert {"Xpat", "Ypat", "Zpat"} <= set(plan)

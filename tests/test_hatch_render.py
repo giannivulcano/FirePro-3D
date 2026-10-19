@@ -243,15 +243,15 @@ def test_offset_viewport_stamps_its_bottom_right(qapp, shipped_hatches):
     from PyQt6.QtTest import QTest
     from PyQt6.QtWidgets import QGraphicsView, QGridLayout, QWidget
     from firepro3d.block_definition import BlockDefinition
+    from firepro3d.fill_layers import FillLayers, PatternLayer
     from firepro3d.geometry_2d import RectangleItem
     from firepro3d.model_space import Model_Space
 
     scene = Model_Space()
     shipped_hatches(scene)
     r = RectangleItem(QPointF(-100000, -100000), QPointF(100000, 100000))
-    r.fill_type = "hatch"
-    r.fill_pattern = "diagonal"                            # 424 mm cells at 1:100
-    r._display_fill_color = "#ff0000"
+    r.fill_layers = FillLayers(pattern=PatternLayer(   # 424 mm cells at 1:100
+        "diagonal", "#ff0000", 0.45, 1.0))
     d = BlockDefinition.new(name="Slab", library="Project", series="",
                             primitives=[r.to_dict()], origin=(0.0, 0.0))
     scene.register_block_definition(d)

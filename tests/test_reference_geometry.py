@@ -7,7 +7,10 @@ from PyQt6.QtCore import QPointF
 from firepro3d.geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                                    PolylineItem, RectangleItem,
                                    RegularPolygonItem, SplineItem)
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.block_definition import is_scaffold, is_scaffold_item
+
+_SOLID = FillLayers(background=BackgroundLayer("#888888", 0.45))   # the old fill_type="solid"
 from firepro3d.colour_tokens import resolve_colour
 
 
@@ -104,7 +107,7 @@ def _lit(img):
 def test_reference_circle_paints_hairline_dashed_without_fill(qapp):
     c = CircleItem(QPointF(0, 0), 50.0)
     c.style["weight"] = "Thick"            # paper_display LineWeightDef("Thick", 0.50)
-    c.fill_type = "solid"
+    c.fill_layers = _SOLID
     normal = _lit(_render_item(c))
     c2 = CircleItem.from_dict(c.to_dict())
     c2.reference = True
@@ -129,7 +132,7 @@ def test_paint_never_writes_display_colour_into_saved_data(qapp):
 def test_printed_reference_compiles_unstyled_dashed_op_and_no_fill(qapp):
     from firepro3d.block_definition import BlockDefinition
     c = CircleItem(QPointF(0, 0), 50.0)
-    c.fill_type = "solid"
+    c.fill_layers = _SOLID
     c.reference, c.printed = True, True
     d = BlockDefinition.new(name="n", library="", series="",
                             primitives=[c.to_dict()], origin=(0.0, 0.0))
@@ -264,7 +267,7 @@ def test_hidden_fill_is_not_clickable_or_a_halo_area(qapp):
     s = Model_Space(scene_role="block_editor")
     normal, ref = CircleItem(QPointF(0, 0), 50.0), CircleItem(QPointF(300, 0), 50.0)
     for c in (normal, ref):
-        c.fill_type = "solid"
+        c.fill_layers = _SOLID
         s.addItem(c); s._draw_circles.append(c)
     ref.reference = True
     assert normal.shape().contains(QPointF(0, 0)) and halo_is_area(normal)

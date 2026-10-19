@@ -92,7 +92,7 @@ class TestPlanContextMenu:
         assert hatch_labels, f"'Hatch' missing from Fill submenu: {action_texts}"
 
     def test_fill_solid_action_sets_fill_type_and_pushes_undo(self, qapp):
-        """Triggering 'Solid' sets rect.fill_type == 'solid' and pushes one undo step."""
+        """Triggering 'Solid' turns the background layer on and pushes one undo step."""
         ms, view = _make_scene_and_view(qapp)
         rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
         ms.addItem(rect)
@@ -109,8 +109,8 @@ class TestPlanContextMenu:
         assert solid_act is not None, "Solid action not found in Fill submenu"
         solid_act.trigger()
 
-        assert rect.fill_type == "solid", (
-            f"Expected fill_type='solid' after triggering Solid action, got '{rect.fill_type}'"
+        assert rect.fill_layers.background is not None, (
+            f"Expected a background layer after triggering Solid action, got {rect.fill_layers}"
         )
         after = _undo_stack_size(ms)
         assert after == before + 1, (
@@ -159,7 +159,7 @@ class TestPlanContextMenu:
         # Picking a pattern stores its id (D-A29).
         act = next(a for a in hatch_act.menu().actions() if a.text() == "Horizontal")
         act.trigger()
-        assert rect.fill_pattern == "builtin-hatch-horizontal"
+        assert rect.fill_layers.pattern.ref == "builtin-hatch-horizontal"
 
     def test_hatch_submenu_lists_and_stores_project_tile(self, qapp):
         """A project tile on the scene is listed and picking it stores its block id."""
@@ -180,7 +180,7 @@ class TestPlanContextMenu:
         act = next((a for a in hatch_act.menu().actions() if a.text() == "Zig"), None)
         assert act is not None, [a.text() for a in hatch_act.menu().actions()]
         act.trigger()
-        assert rect.fill_pattern == d.id
+        assert rect.fill_layers.pattern.ref == d.id
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ class TestEntityContextMenu:
         assert hatch_labels, f"'Hatch' missing: {action_texts}"
 
     def test_fill_solid_action_entity_path_sets_fill_type_and_undo(self, qapp):
-        """Entity path: Solid action sets fill_type and pushes one undo step."""
+        """Entity path: Solid action turns the background on and pushes one undo step."""
         ms = Model_Space()
         rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
         ms.addItem(rect)
@@ -242,8 +242,8 @@ class TestEntityContextMenu:
         assert solid_act is not None
         solid_act.trigger()
 
-        assert rect.fill_type == "solid", (
-            f"Expected 'solid', got '{rect.fill_type}'"
+        assert rect.fill_layers.background is not None, (
+            f"Expected a background layer, got {rect.fill_layers}"
         )
         after = _undo_stack_size(ms)
         assert after == before + 1, (

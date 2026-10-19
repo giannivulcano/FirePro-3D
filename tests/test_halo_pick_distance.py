@@ -6,6 +6,7 @@ from PyQt6.QtGui import QTransform
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem,
                              QGraphicsItem, QGraphicsPathItem)
 
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.node import Node
 from firepro3d.gridline import GridlineItem
@@ -37,7 +38,7 @@ def test_unfilled_rect_measures_to_its_outline(qapp):
 
 def test_filled_rect_inside_is_a_direct_hit(qapp):
     r = RectangleItem(QPointF(0, 0), QPointF(100, 100))
-    r.fill_type = "solid"
+    r.fill_layers = FillLayers(background=BackgroundLayer("#888888", 0.45))
     keep = _in_scene(r)
     assert halo_is_area(r)
     assert halo_pick_distance_px(r, QPointF(50, 50), QTransform()) == 0.0
