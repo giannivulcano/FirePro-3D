@@ -6,10 +6,11 @@ Verifies:
      (Placement dropped as property-panel redundant; Fill folded into the
      condensed Graphic Override group; the legacy Constraints group retired
      with the prototype — parametric-constraint-system.md §2).
-  2. Driving the Fill-type control to 'solid' routes through the undo path:
-     rect.fill_type == 'solid' AND exactly one undo step was pushed.
-  3. The fill controls are DISABLED when a LineItem (non-fillable) is selected
-     (the Graphic Override group stays enabled — stroke override applies).
+  2. Picking a pattern on the ribbon Fill Pattern swatch (UP1) writes the
+     rect's pattern layer AND pushes exactly one undo step.
+  3. The Fill / Fill Pattern swatches are DISABLED when a LineItem
+     (non-fillable) is selected (the Graphic Override group stays enabled —
+     stroke override applies).
 """
 from __future__ import annotations
 
@@ -127,42 +128,39 @@ def test_geo2d_tab_has_edit_graphic_override(main_window, qapp, clean_scene):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Test 2: Fill-type control routes through undo path (one undo step pushed)
+# Test 2: Fill Pattern swatch routes through undo path (one undo step pushed)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_fill_type_control_routes_through_undo(main_window, qapp, clean_scene):
-    """Driving the Fill-type combo to 'solid' must set rect.fill_type and push
-    exactly one snapshot onto the model undo stack."""
+def _ribbon_fill_swatches(main_window, tab_title):
+    """FillSwatches on the named contextual tab page (the property panel also
+    hosts FillSwatches, so select the ribbon's by page ancestry)."""
+    from firepro3d.ui_kit import FillSwatch
+    idx = _titles(main_window).index(tab_title)
+    page = main_window.ribbon._stack.widget(idx)
+    return page.findChildren(FillSwatch)
+
+
+def test_fill_pattern_swatch_routes_through_one_undo_step(
+        main_window, qapp, clean_scene, monkeypatch):
+    """Picking a pattern on the ribbon Fill Pattern swatch writes the pattern
+    layer of the selected rect and pushes exactly one undo step."""
+    from PyQt6.QtCore import Qt
+    from firepro3d import colour_picker
+    from firepro3d.fill_layers import PatternLayer
+    from firepro3d.hatch_patterns import DEFAULT_TILE_REF
     rect = _make_rect(main_window.scene)
     rect.setSelected(True)
     qapp.processEvents()
 
-    # Capture undo stack depth before change
+    sw = next(s for s in _ribbon_fill_swatches(main_window, "Modify | Rectangle")
+              if s._context == "Fill Pattern")
+    new = PatternLayer(DEFAULT_TILE_REF, "token:auto", 1.0, 1.0)
+    monkeypatch.setattr(colour_picker, "pick_fill", lambda *a, **k: new)
     before_pos = main_window.scene._undo_pos
-
-    # Find the fill-type combo (QComboBox with "none"/"solid"/"hatch" options)
-    from PyQt6.QtWidgets import QComboBox
-    tabs = _titles(main_window)
-    idx = tabs.index("Modify | Rectangle")
-    page = main_window.ribbon._stack.widget(idx)
-    combos = page.findChildren(QComboBox)
-
-    fill_combo = None
-    for c in combos:
-        items = [c.itemText(i) for i in range(c.count())]
-        if "none" in items and "solid" in items and "hatch" in items:
-            fill_combo = c
-            break
-    assert fill_combo is not None, "Could not find Fill-type combo on geo2d page"
-
-    # Drive the combo to "solid"
-    fill_combo.setCurrentText("solid")
-    fill_combo.activated.emit(fill_combo.currentIndex())
+    QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
     qapp.processEvents()
 
-    assert rect.fill_type == "solid", (
-        f"Expected fill_type 'solid'; got {rect.fill_type!r}"
-    )
+    assert rect.fill_layers.pattern == new
     assert main_window.scene._undo_pos == before_pos + 1, (
         f"Expected exactly one undo step pushed; "
         f"before={before_pos}, after={main_window.scene._undo_pos}"
@@ -174,7 +172,7 @@ def test_fill_type_control_routes_through_undo(main_window, qapp, clean_scene):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_fill_controls_disabled_for_non_fillable(main_window, qapp, clean_scene):
-    """A LineItem (non-fillable) disables the fill-type control in the Graphic
+    """A LineItem (non-fillable) disables the Fill / Fill Pattern swatches in the Graphic
     Override group (the group itself stays enabled — stroke override applies)."""
     ln = _make_line(main_window.scene)
     ln.setSelected(True)
@@ -183,17 +181,9 @@ def test_fill_controls_disabled_for_non_fillable(main_window, qapp, clean_scene)
     tabs = _titles(main_window)
     assert "Modify | Line" in tabs, f"Expected 'Modify | Line' tab; got {tabs}"
 
-    idx = tabs.index("Modify | Line")
-    page = main_window.ribbon._stack.widget(idx)
-
-    from PyQt6.QtWidgets import QComboBox
-    fill_combo = None
-    for c in page.findChildren(QComboBox):
-        items = {c.itemText(i) for i in range(c.count())}
-        if {"none", "solid", "hatch"} <= items:
-            fill_combo = c
-            break
-    assert fill_combo is not None, "fill-type combo not found in Graphic Override group"
-    assert not fill_combo.isEnabled(), (
-        "fill controls must be disabled when a non-fillable line is selected"
-    )
+    swatches = _ribbon_fill_swatches(main_window, "Modify | Line")
+    assert {s._context for s in swatches} == {"Fill", "Fill Pattern"}, swatches
+    for sw in swatches:
+        assert not sw.isEnabled(), (
+            "fill swatches must be disabled when a non-fillable line is selected"
+        )

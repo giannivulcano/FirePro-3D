@@ -2873,17 +2873,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._build_geo2d_graphic_override_group(page)
 
     def _build_geo2d_graphic_override_group(self, page) -> None:
-        """Condensed 'Graphic Override' group: stroke + fill overrides in one
-        narrow group (folds the old wide 'Fill' group + the stroke/clear
-        override actions). All writes route through ``set_property`` /
-        the override handlers + ``push_undo_state``; an empty/non-fillable
-        selection disables the group."""
+        """Condensed 'Graphic Override' group: stroke override + the shape's
+        Fill / Fill Pattern swatches (UP1) + Clear in one narrow group.
+        Fill writes route through ``set_property`` inside one
+        ``deferred_undo_push``; the stroke/clear handlers push their own
+        undo state. An empty selection disables the group; a non-fillable
+        selection disables the two fill swatches."""
         from PyQt6.QtWidgets import (
-            QComboBox, QLabel, QToolButton, QLineEdit,
+            QLabel, QToolButton,
             QWidget, QVBoxLayout, QHBoxLayout,
         )
         from firepro3d import theme as _th
-        from firepro3d.hatch_patterns import tile_choices, canonical_ref
+        from firepro3d.hatch_patterns import picker_exclude
+        from firepro3d.ui_kit import FillSwatch
         from firepro3d.icons import themed_icon, LIGHT, DARK
 
         _syncing = [False]
@@ -2904,42 +2906,29 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                     f"background: {hex_color}; }}"
                     f"QToolButton:hover {{ border-color: {t2.accent_primary}; }}")
 
-        def _fill_of(it):
-            """Stored fill colour; unset (None) paints the default grey, while
-            ``""`` is No Fill and a ``token:*`` is kept as is."""
-            v = getattr(it, "_display_fill_color", None)
-            return "#888888" if v is None else v
-
-        # Row 1: Stroke swatch + Fill type + Pattern
+        # Row 1: Stroke swatch + Fill swatch (UP1: background layer)
         row1 = QWidget(); r1 = QHBoxLayout(row1)
         r1.setContentsMargins(2, 2, 2, 0); r1.setSpacing(3)
         stroke_btn = QToolButton(); stroke_btn.setFixedSize(24, 22)
         stroke_btn.setToolTip("Override the stroke (line) colour")
         stroke_btn.setStyleSheet(_swatch_style("#ffffff"))
-        fill_combo = QComboBox(); fill_combo.addItems(["none", "solid", "hatch"])
-        fill_combo.setMaximumWidth(62); fill_combo.setToolTip("Fill type")
-        pattern_combo = QComboBox()
-
-        def _fill_pattern_items():
-            pattern_combo.clear()
-            for name, ref in tile_choices(self.scene.block_registry):
-                pattern_combo.addItem(name, ref)
-
-        pattern_combo.setMaximumWidth(78); pattern_combo.setToolTip("Hatch pattern")
+        fill_sw = FillSwatch(None, pattern=False, context="Fill",
+                             registry=self.scene.block_registry,
+                             exclude=picker_exclude(self.scene), show_label=False)
+        fill_sw.setToolTip("Fill: solid background colour and opacity")
         r1.addWidget(QLabel("Stroke:")); r1.addWidget(stroke_btn)
-        r1.addWidget(QLabel("Fill:")); r1.addWidget(fill_combo); r1.addWidget(pattern_combo)
+        r1.addWidget(QLabel("Fill:")); r1.addWidget(fill_sw)
 
-        # Row 2: Fill swatch + Opacity + Clear
+        # Row 2: Fill Pattern swatch + Clear
         row2 = QWidget(); r2 = QHBoxLayout(row2)
         r2.setContentsMargins(2, 0, 2, 2); r2.setSpacing(3)
-        fill_btn = QToolButton(); fill_btn.setFixedSize(24, 22)
-        fill_btn.setToolTip("Override the fill colour"); fill_btn.setStyleSheet(_swatch_style("#888888"))
-        opacity_edit = QLineEdit("45"); opacity_edit.setMaximumWidth(36)
-        opacity_edit.setToolTip("Fill opacity 0–100 %")
+        pat_sw = FillSwatch(None, pattern=True, context="Fill Pattern",
+                            registry=self.scene.block_registry,
+                            exclude=picker_exclude(self.scene), show_label=False)
+        pat_sw.setToolTip("Fill pattern: pattern, colour, opacity and scale")
         clear_btn = QToolButton(); clear_btn.setText("Clear")
         clear_btn.setToolTip("Revert stroke/fill overrides to category defaults")
-        r2.addWidget(QLabel("Fill:")); r2.addWidget(fill_btn)
-        r2.addWidget(QLabel("Opa%:")); r2.addWidget(opacity_edit)
+        r2.addWidget(QLabel("Pattern:")); r2.addWidget(pat_sw)
         r2.addWidget(clear_btn)
 
         outer = QWidget(); ol = QVBoxLayout(outer)
@@ -2957,93 +2946,32 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             try:
                 targets = _fillable_targets()
                 g.setEnabled(bool(self.scene.selectedItems()))
+                fill_sw.setEnabled(bool(targets)); pat_sw.setEnabled(bool(targets))
                 if not targets:
-                    fill_combo.setEnabled(False); pattern_combo.setEnabled(False)
-                    fill_btn.setEnabled(False); opacity_edit.setEnabled(False)
                     return
-                fill_combo.setEnabled(True); pattern_combo.setEnabled(True)
-                fill_btn.setEnabled(True); opacity_edit.setEnabled(True)
 
                 def uniform(getter):
                     vals = {getter(it) for it in targets}
                     return vals.pop() if len(vals) == 1 else None
-                ft = uniform(lambda it: it.fill_type)
-                fill_combo.setCurrentText(ft if ft is not None else "")
-                _fill_pattern_items()
-                pat = uniform(lambda it: it.fill_pattern)
-                pattern_combo.setCurrentIndex(
-                    pattern_combo.findData(canonical_ref(pat)) if pat is not None else -1)
-                col = uniform(lambda it: _fill_of(it))
-                if col is not None:
-                    fill_btn.setStyleSheet(_swatch_style(col))
-                opa = uniform(lambda it: round(it.fill_opacity * 100))
-                opacity_edit.setText("" if opa is None else str(opa))
+                fill_sw.set_layer(uniform(lambda it: it.fill_layers.background))
+                pat_sw.set_layer(uniform(lambda it: it.fill_layers.pattern))
             finally:
                 _syncing[0] = False
 
         _sync()
 
-        def _on_fill_type(_i):
-            if _syncing[0]:
-                return
-            new_val = fill_combo.currentText()
-            apply = [t for t in _fillable_targets() if t.fill_type != new_val]
-            if not apply:
-                return
-            self.scene.push_undo_state()
-            for t in apply:
-                t.set_property("Fill", new_val)
-            _sync()
-
-        def _on_pattern(_i):
-            if _syncing[0]:
-                return
-            new_val = pattern_combo.currentData()
-            apply = [t for t in _fillable_targets()
-                     if canonical_ref(t.fill_pattern) != new_val]
-            if not apply:
-                return
-            self.scene.push_undo_state()
-            # The Pattern setter loads a library pattern into the project
-            # first (D-A37, hatch_patterns.ensure_pattern_available).
-            for t in apply:
-                t.set_property("Pattern", new_val)
-            _sync()     # a refused load / a newly loaded project tile
-
-        def _on_fill_colour():
+        def _apply_fill(key, layer):
             targets = _fillable_targets()
-            if not targets:
+            if _syncing[0] or not targets:
                 return
-            existing = _fill_of(targets[0])
-            hex_val = colour_picker.pick_colour(existing, page, "Fill")
-            if hex_val is not None:
-                apply = [t for t in targets if _fill_of(t) != hex_val]
-                if not apply:
-                    return
-                self.scene.push_undo_state()
-                for t in apply:
-                    t.set_property("Fill Colour", hex_val)
-                fill_btn.setStyleSheet(_swatch_style(hex_val))
+            # One undo step for the whole selection (setters request it).
+            with self.scene.deferred_undo_push():
+                for t in targets:
+                    t.set_property(key, layer)
+            _sync()     # a refused library load / mixed values
 
-        def _on_opacity():
-            if _syncing[0]:
-                return
-            try:
-                pct = float(opacity_edit.text())
-            except (ValueError, TypeError):
-                return
-            pct = max(0.0, min(100.0, pct))
-            apply = [t for t in _fillable_targets() if abs(t.fill_opacity * 100 - pct) > 0.5]
-            if not apply:
-                return
-            self.scene.push_undo_state()
-            for t in apply:
-                t.set_property("Fill Opacity", pct)
-
-        fill_combo.activated.connect(_on_fill_type)
-        pattern_combo.activated.connect(_on_pattern)
-        fill_btn.clicked.connect(_on_fill_colour)
-        opacity_edit.editingFinished.connect(_on_opacity)
+        fill_sw.layerChanged.connect(lambda v: _apply_fill("Fill", v))
+        pat_sw.layerChanged.connect(lambda v: _apply_fill("Fill Pattern", v))
         stroke_btn.clicked.connect(self._graphic_override_stroke)
         clear_btn.clicked.connect(self._graphic_override_clear)
 
