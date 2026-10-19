@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Hatch & Fill — rectangle hatch blank (false alarm) — 2026-10-19
+
+- [x] [type:bug] Hatched rectangle paints no hatch lines (any position) while a circle inside it hatches; hatch draws black, not its fill colour [P2] [subject:CAD] [done:2026-10-19]
+  - Details: found 2026-10-19 by the UP1 Task 2 G1 golden probe at `692a2a04` (no render change since base `bc0b96b2`). A loose `RectangleItem.from_dict` and a placed block instance with a legacy fill `{"type": "hatch", "pattern": "diagonal", "color": "#cc3333", "opacity": 0.45}` (any opacity) at x=10,y=10,w=120,h=120 render the stroke only, with 0 interior hatch pixels. A strict-interior pixel count (stroke excluded) shows 0 at every rect position tried: (13,17,100,90), (0,0,160,160) and (1000,1000,120,120). The earlier "some rects hatch" counts included the stroke. A circle cx=cy=70, r=60, which lies inside the first rect, shows 159 interior pixels, so tile phase is not the cause. RectangleItem hatch looks broken on both the loose and the block-compiled paths. Separately, the circle `#228822` hatch renders black. This may be the existing B&W / "By block" line below; check it first. Reproduce with `tests/test_up1_legacy_fill_golden.py` (the `rect_hatch_alias` golden records the blank). UP1 keeps today's look (R11), so fixing this re-baselines that golden.
+  - Closed 2026-10-19 as a false alarm (user confirmed): the probe rendered 160 mm at 1 mm/px, below one ~300 mm diagonal-hatch pitch, so no hatch line could land inside either shape (the circle "159 px" count was wrong: its golden interior was 0). At 20 mm/px both the rectangle and the circle hatch, in their own colour (`#228822`; `#cc3333` at 0.45 → `#e8a3a3`), loose and block-compiled alike. G1 goldens re-captured at that scale with a content check (`334c5672`).
+
 ## Hatch & Fill — unified picker design — 2026-10-18
 
 - [x] [type:design] Unified colour + hatch picker: pattern selection, No Fill and fill opacity live in one picker widget [P2] [subject:UX] [done:2026-10-18]
