@@ -337,6 +337,10 @@ TOKEN_AUTO = "token:auto"        # theme ink on canvas, black on paper / B&W
 TOKEN_ACCENT = "token:accent"    # theme accent on canvas, light accent on paper
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 
+# UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
+FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)
+FILL_LEGACY_OPACITY = 0.45           # legacy record without an opacity key
+
 # Transform ghost (scene-tools.md D11; mockup gate B 2026-09-25)
 TRANSFORM_GHOST_DIM_OPACITY = 0.35      # originals' opacity multiplier during a transform
 TRANSFORM_GHOST_TRACE_WIDTH_PX = 1.0    # solid accent trace over the HALO glow
