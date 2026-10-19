@@ -23,7 +23,7 @@ import math
 from collections import OrderedDict
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QTransform
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap, QTransform
 
 from .constants import (DRAFTING_CANVAS_SCALE, HATCH_LATTICE_CACHE_MAX_CELLS,
                         HATCH_LOD_MAX_CELLS, HATCH_LOD_MIN_CELL_PX,
@@ -377,3 +377,30 @@ def paint_swatch(painter, rect: QRectF, tile_ref: str | None, colour: QColor,
                       pen, colour, t)
     finally:
         painter.restore()
+
+
+def pattern_preview(tile_ref: str | None, colour: QColor, w: int, h: int,
+                    registry=None, background: QColor | None = None) -> QPixmap:
+    """Pattern swatch pixmap -- the one preview for the picker Pattern row,
+    the fill swatch chip and the Display Manager (UP1; promoted from the
+    Display Manager's former fill-icon helper).
+
+    Args:
+        tile_ref: Pattern tile id / legacy name.
+        colour: Pattern colour.
+        w: Pixmap width (px).
+        h: Pixmap height (px).
+        registry: Project block registry, or None (see ``paint_swatch``).
+        background: Swatch ground; None = the Display Manager dark ground.
+    """
+    pix = QPixmap(w, h)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    try:
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        ground = QColor("#2b2b2b") if background is None else background  # theme-exempt: DM swatch ground (pre-UP1 value)
+        paint_swatch(p, QRectF(0, 0, w, h), tile_ref, colour, registry,
+                     background=ground)
+    finally:
+        p.end()
+    return pix

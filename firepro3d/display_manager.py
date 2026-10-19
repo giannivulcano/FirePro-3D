@@ -18,9 +18,9 @@ from PyQt6.QtWidgets import (
     QHeaderView, QWidget, QLabel, QComboBox,
     QAbstractItemView, QTabWidget, QLineEdit,
 )
-from PyQt6.QtGui import (QColor, QFont, QBrush, QPen, QPainter, QPixmap,
+from PyQt6.QtGui import (QColor, QFont, QBrush, QPen,
                          QIcon)
-from PyQt6.QtCore import Qt, QSettings, QByteArray, QRectF, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, QByteArray, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
 import os
@@ -247,24 +247,6 @@ def _fill_qcolor(value) -> QColor:
     if value == "":
         return QColor(0, 0, 0, 0)
     return resolve_colour(value)
-
-
-def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
-                    pattern: str = BUILTIN_DIAGONAL, registry=None) -> QPixmap:
-    """Return a small pixmap showing solid or hatch swatch."""
-    pix = QPixmap(w, h)
-    pix.fill(QColor("transparent"))
-    p = QPainter(pix)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    col = _fill_qcolor(hex_color)
-    if mode == "hatch":
-        from .hatch_render import paint_swatch
-        paint_swatch(p, QRectF(0, 0, w, h), pattern, col, registry,
-                     background=QColor("#2b2b2b"))
-    else:
-        p.fillRect(0, 0, w, h, col)
-    p.end()
-    return pix
 
 
 # ---------------------------------------------------------------------------
@@ -1026,9 +1008,9 @@ class SectionPatternDialog(QDialog):
         return self._combo.currentData() or self._orig_pattern
 
     def _refresh_preview(self):
-        pix = _make_fill_icon("hatch", self._cur_color, 60, 20,
-                              pattern=self._current_pattern(),
-                              registry=self._registry)
+        from .hatch_render import pattern_preview
+        pix = pattern_preview(self._current_pattern(), _fill_qcolor(self._cur_color),
+                              60, 20, self._registry)
         self._preview.setPixmap(pix)
 
     def get_result(self) -> tuple[str, str, float]:
@@ -1755,8 +1737,9 @@ class DisplayManager(QDialog):
             section_btn.setProperty("_color", section)
             section_btn.setProperty("_pattern", _sec_pat)
             section_btn.setProperty("_section_scale", section_scale)
-            pix = _make_fill_icon("hatch", section, 40, 20, pattern=_sec_pat,
-                                  registry=self._scene.block_registry)
+            from .hatch_render import pattern_preview
+            pix = pattern_preview(_sec_pat, _fill_qcolor(section), 40, 20,
+                                  self._scene.block_registry)
             section_btn.setIcon(QIcon(pix))
             section_btn.setIconSize(pix.size())
             section_btn.setStyleSheet(
@@ -1959,8 +1942,9 @@ class DisplayManager(QDialog):
             if pattern:
                 btn.setProperty("_pattern", pattern)
             pat = btn.property("_pattern") or BUILTIN_DIAGONAL
-            pix = _make_fill_icon("hatch", hex_color, 40, 20, pattern=pat,
-                                  registry=self._scene.block_registry)
+            from .hatch_render import pattern_preview
+            pix = pattern_preview(pat, _fill_qcolor(hex_color), 40, 20,
+                                  self._scene.block_registry)
             btn.setIcon(QIcon(pix))
             btn.setIconSize(pix.size())
             btn.setText("")
