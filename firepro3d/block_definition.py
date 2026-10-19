@@ -140,7 +140,8 @@ def _local_path(item) -> QPainterPath:
 
 
 def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
-    """Fill / pattern op for a primitive's per-item ``fill`` record (fixes H1).
+    """Background FILL op then PATTERN op for a primitive's ``fill`` record
+    (UP1: two layers, read by ``fill_layers.from_record`` -- new or legacy).
 
     The clip is the item's closed path through its pos/rotation, origin-relative;
     the pattern origin is the container origin (definition (0,0) -> (-ox, -oy)).
@@ -148,8 +149,9 @@ def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
     """
     if getattr(item, "reference", False):
         return []
-    f = prim.get("fill")
-    if not isinstance(f, dict) or f.get("type", "none") == "none":
+    from .fill_layers import alpha, from_record
+    fl = from_record(prim.get("fill"))
+    if fl.is_empty:
         return []
     gcp = getattr(item, "get_closed_path", None)
     cp = gcp() if gcp is not None else None
@@ -157,12 +159,16 @@ def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
         return []
     clip = item.mapToParent(cp)
     clip.translate(-ox, -oy)
-    colour = f.get("color") or "#888888"
-    alpha = int(round(float(f.get("opacity", 0.45)) * 255))
-    if f.get("type") == "solid":
-        return [RenderOp(FILL, clip, colour=colour, alpha=alpha)]
-    return [RenderOp(PATTERN, clip, colour=colour, alpha=alpha,
-                     tile_ref=item.fill_pattern, origin=QPointF(-ox, -oy))]
+    ops = []
+    bg = fl.background
+    if bg is not None:
+        ops.append(RenderOp(FILL, clip, colour=bg.color, alpha=alpha(bg.opacity)))
+    pat = fl.pattern
+    if pat is not None:
+        ops.append(RenderOp(PATTERN, clip, colour=pat.color, alpha=alpha(pat.opacity),
+                            tile_ref=pat.ref, origin=QPointF(-ox, -oy),
+                            scale=pat.scale))
+    return ops
 
 
 def _norm_tile(tile) -> dict | None:

@@ -1116,7 +1116,9 @@ class Geometry2DMixin:
             self.setPen(pen)
         self.layer = data.get("layer", "")
         f = data.get("fill")
-        if f:
+        # Legacy {type, ...} records only; the two-layer shape is read by
+        # fill_layers once the item carries layers (UP1 Task 7).
+        if isinstance(f, dict) and "type" in f:
             self.fill_type = f.get("type", "none")
             from .hatch_patterns import canonical_ref
             self.fill_pattern = canonical_ref(f.get("pattern", _DEFAULT_FILL_PATTERN))

@@ -10,7 +10,7 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 
 from __future__ import annotations
 
-from .hatch_patterns import canonical_ref
+from .fill_layers import pattern_ref
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, ENDS, is_end_ref,
                            is_linetype_ref, override_refs)
 
@@ -51,11 +51,9 @@ def prim_refs(primitives) -> set[str]:
             out |= override_refs(p.get("overrides"))[1]      # WM2 H4
         if p.get("reference"):
             continue                              # RG15: hidden refs
-        f = p.get("fill")
-        if isinstance(f, dict) and f.get("type") == "hatch":
-            ref = canonical_ref(f.get("pattern"))
-            if ref:
-                out.add(ref)
+        ref = pattern_ref(p.get("fill"))
+        if ref:
+            out.add(ref)
         st = p.get("style")
         if isinstance(st, dict):
             if is_linetype_ref(st.get("linetype")):

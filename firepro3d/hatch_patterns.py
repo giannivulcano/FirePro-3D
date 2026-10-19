@@ -353,10 +353,10 @@ def ensure_pattern_available(ref: str | None, scene) -> bool:
 
 
 def _fill_ref(primitive) -> str | None:
-    f = primitive.get("fill") if isinstance(primitive, dict) else None
-    if isinstance(f, dict) and f.get("type") == "hatch":
-        return canonical_ref(f.get("pattern"))
-    return None
+    if not isinstance(primitive, dict):
+        return None
+    from .fill_layers import pattern_ref      # lazy: fill_layers imports us
+    return pattern_ref(primitive.get("fill"))
 
 
 def project_pattern_refs(scene) -> set[str]:

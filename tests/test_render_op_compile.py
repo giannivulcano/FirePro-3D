@@ -97,3 +97,44 @@ def test_non_pattern_ops_carry_no_frame(qapp):
     from firepro3d.block_pose import pose_matrix
     op = RenderOp(FILL, QPainterPath())
     assert op.mapped(pose_matrix(0, 0, 45.0)).pattern_frame is None
+
+
+def _prim_with_fill(fill):
+    d = RectangleItem(QPointF(0, 0), QPointF(100, 50)).to_dict()
+    d["fill"] = fill
+    return d
+
+
+def test_two_layer_record_emits_fill_then_pattern_with_scale(qapp):
+    ops = _defn([_prim_with_fill({
+        "background": {"color": "#0000ff", "opacity": 0.25},
+        "pattern": {"ref": "builtin-hatch-diagonal", "color": "#00ff00",
+                    "opacity": 0.5, "scale": 2.5}})]).render_ops()
+    assert [o.kind for o in ops] == [FILL, PATTERN, STROKE]
+    bg, pat = ops[0], ops[1]
+    assert (bg.colour, bg.alpha) == ("#0000ff", 64)
+    assert (pat.colour, pat.alpha, pat.scale) == ("#00ff00", 128, 2.5)
+    assert pat.tile_ref == "builtin-hatch-diagonal" and pat.origin == QPointF(0, 0)
+    assert bg.path.boundingRect() == pat.path.boundingRect()
+
+
+def test_pattern_only_record_emits_pattern_op(qapp):
+    ops = _defn([_prim_with_fill({"pattern": {"ref": "abc"}})]).render_ops()
+    assert [o.kind for o in ops] == [PATTERN, STROKE]
+    assert ops[0].colour == "token:auto" and ops[0].alpha == 255
+
+
+def test_legacy_hatch_record_reads_ref_from_record_not_item(qapp):
+    ops = _defn([_prim_with_fill({"type": "hatch", "pattern": "diagonal",
+                                  "color": "#ff0000", "opacity": 0.45})]).render_ops()
+    assert [o.kind for o in ops] == [PATTERN, STROKE]
+    assert ops[0].tile_ref == "builtin-hatch-diagonal" and ops[0].alpha == 115
+
+
+def test_prim_refs_and_fill_ref_read_both_record_shapes(qapp):
+    from firepro3d.block_registry import prim_refs
+    from firepro3d.hatch_patterns import _fill_ref
+    new = _prim_with_fill({"pattern": {"ref": "tile-x"}})
+    old = _prim_with_fill({"type": "hatch", "pattern": "diagonal"})
+    assert "tile-x" in prim_refs([new]) and "builtin-hatch-diagonal" in prim_refs([old])
+    assert _fill_ref(new) == "tile-x" and _fill_ref(old) == "builtin-hatch-diagonal"
