@@ -46,13 +46,37 @@ def test_legacy_records_read_same_look(rec, want):
     assert from_record(rec) == want
 
 
-@pytest.mark.parametrize("rec", [None, "solid", 3, [], {"background": "x"},
-                                 {"pattern": {"ref": ""}}, {"type": "solid", "opacity": "x"},
-                                 {"background": {"color": 5}}])
-def test_malformed_records_read_empty_or_partial_never_raise(rec):
+@pytest.mark.parametrize("rec, has_bg", [
+    (None, False), ("solid", False), (3, False), ([], False),
+    ({"background": "x"}, False),
+    ({"pattern": {"ref": ""}}, False),
+    ({"pattern": {"ref": 5}}, False),                       # new-shape non-str ref
+    ({"type": "solid", "opacity": "x"}, True),              # legacy default colour kept
+    ({"background": {"color": 5}}, False),
+])
+def test_malformed_records_read_empty_or_partial_never_raise(rec, has_bg):
     fl = from_record(rec)
     assert isinstance(fl, FillLayers)
     assert fl.pattern is None
+    assert (fl.background is not None) == has_bg
+
+
+@pytest.mark.parametrize("op", [None, float("nan"), True, "x"])
+def test_legacy_bad_opacity_reads_default(op):
+    fl = from_record({"type": "solid", "color": "#000000", "opacity": op})
+    assert fl.background == BackgroundLayer("#000000", 0.45)
+
+
+@pytest.mark.parametrize("op", [False, True, float("nan"), None])
+def test_new_shape_bad_opacity_reads_default_one(op):
+    fl = from_record({"background": {"color": "#000000", "opacity": op}})
+    assert fl.background.opacity == 1.0
+
+
+@pytest.mark.parametrize("pat", [["a"], {"a": 1}, 5, True])
+def test_legacy_non_str_pattern_falls_back_to_default_tile(pat):
+    fl = from_record({"type": "hatch", "pattern": pat, "color": "#ff0000"})
+    assert fl.pattern == PatternLayer("builtin-hatch-diagonal", "#ff0000", 0.45, 1.0)
 
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf"), "x"])

@@ -67,6 +67,8 @@ def alpha(opacity: float) -> int:
 
 
 def _opacity(value, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         v = float(value)
     except (TypeError, ValueError):
@@ -126,7 +128,8 @@ def _from_legacy(rec: dict) -> FillLayers:
     if kind == "solid":
         return FillLayers(background=BackgroundLayer(col, op))
     if kind == "hatch":
-        ref = _canonical(rec.get("pattern") or _default_ref())
+        pat = rec.get("pattern")
+        ref = _canonical(pat) if isinstance(pat, str) and pat else _default_ref()
         return FillLayers(pattern=PatternLayer(ref, col, op, 1.0))
     return EMPTY
 
