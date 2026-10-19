@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-18  # HF1 Account: Automatic default stroke + fill-colour/Graphic Override pointers (rest not re-audited); prior AC3 Account (§4 Auto Constrain pointer extended to shape-click joins, D152-D154); prior AC2 Account (§4 Auto Constrain pointer extended to H / V, D148-D151); prior AC1 Account (§4 Auto Constrain pointer; the geometry_drawing_controller line / polyline capture + commit hooks are owned by parametric-constraint-system.md §13); prior 2026-10-13 reference geometry Account (RG1-RG18 landed: reference/printed flag model replaces ReferenceLineItem in §1; §3.6 distinguished; §4 authoring-scene wording, Space reference toggle, arc flip to Shift+Space, line variant retired; §6 keys + legacy read; §7 Reference Geometry category); prior 2026-10-12 block mirror/scale Account (pointer only: §1.2 block instances carry their own reflect / scale hooks → block-system "Instance pose"); prior LT5 Account (pointer only: ends, closing clears ends, reflect mirrored → linetypes.md LT5); prior LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
-verified-commit: 084b43e0   # HF1 Account (pointers only); prior 0060101c AC3 Account (pointer only); prior 312b8dd1 AC2 Account (pointer only); prior ebd7dc0c AC1 Account (pointer only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (pointer); prior 220b5b55 LT5 Account (pointer); prior be7c88a LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-19  # UP1 Account: s1 reference-look + s1.1 fill state (verified at 902c5c0e), rest not re-audited; prior 2026-10-18 HF1 Account: Automatic default stroke + fill-colour/Graphic Override pointers (rest not re-audited); prior AC3 Account (§4 Auto Constrain pointer extended to shape-click joins, D152-D154); prior AC2 Account (§4 Auto Constrain pointer extended to H / V, D148-D151); prior AC1 Account (§4 Auto Constrain pointer; the geometry_drawing_controller line / polyline capture + commit hooks are owned by parametric-constraint-system.md §13); prior 2026-10-13 reference geometry Account (RG1-RG18 landed: reference/printed flag model replaces ReferenceLineItem in §1; §3.6 distinguished; §4 authoring-scene wording, Space reference toggle, arc flip to Shift+Space, line variant retired; §6 keys + legacy read; §7 Reference Geometry category); prior 2026-10-12 block mirror/scale Account (pointer only: §1.2 block instances carry their own reflect / scale hooks → block-system "Instance pose"); prior LT5 Account (pointer only: ends, closing clears ends, reflect mirrored → linetypes.md LT5); prior LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: 902c5c0e   # UP1 Account (fill state only); prior 084b43e0 HF1 Account (pointers only); prior 0060101c AC3 Account (pointer only); prior 312b8dd1 AC2 Account (pointer only); prior ebd7dc0c AC1 Account (pointer only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (pointer); prior 220b5b55 LT5 Account (pointer); prior be7c88a LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -92,8 +92,8 @@ exact class) treat it like its normal class. Contract:
 - **Look.** A reference item paints one fixed look: cosmetic width-1 dashed pen in its display
   colour (derived per paint, never written into saved data — `_reference_pen`), no linetype
   pieces, no end blocks, no fill; its selection highlight stays dashed. The style record and fill
-  data are kept untouched, so flipping back restores them. `_draws_fill()` (fill_type set and not
-  reference) gates every fill paint, the `shape()` interior hit area and the HALO area;
+  data are kept untouched, so flipping back restores them. `_draws_fill()` (any fill layer set, not
+  reference, effective colour not No Fill — UP1) gates every fill paint, the `shape()` interior hit area and the HALO area;
   `is_fillable()` is unchanged (it answers "has a closed path").
 - **Printed.** `printed=False` (default) → scaffolding: **saved** in the block / schematic and
   re-seeded on reopen, never rendered in placed instances, Explode or sheet output
@@ -133,17 +133,22 @@ carrying `level`/`level_offset_mm` is read-and-ignored on `from_dict`.
 > `block-system.md` (instance level-scope) + `view-relationships.md §7.3` (Z model) — Rule A.
 - `layer` — source-layer tag for imported reference geometry (empty for authored primitives;
   omitted from `to_dict` when empty). Owned by `reference-graphic-model.md` (R1); noted here per Rule A.
-- Fill state: `fill_type` (`none`/`solid`/`hatch`), `fill_pattern`, `fill_opacity`
-  (default 0.45, solid only), fill colour on `_display_color`'s sibling
-  `_display_fill_color`. `is_fillable()` is true iff `get_closed_path()` returns
-  non-None. Fill is rendered in each item's own `paint()` via `draw_fill()`.
-  *(HF1: the fill colour is a hex, a `token:*` or `""` (No Fill, distinct from `None` = unset).
-  `_fill_value()` returns the per-instance Graphic Override `fill` if set, else the item's own
-  `_display_fill_color`; the override is display-only — `to_dict` never saves it. Tokens resolve per
-  paint. Owned by [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).)*
-  `fill_pattern` (serialized as `fill.pattern`) is a **pattern tile block id**; legacy
-  pattern names are read through the alias table and canonicalised on load. Registry,
-  picker (unresolvable-ref rule) and renderer → `hatch-and-fill.md` D-A29 / D-A36 (Rule A).
+- Fill state (UP1): `fill_layers` (`fill_layers.FillLayers` — an optional background layer + an
+  optional pattern layer, each with its own colour / opacity; the pattern also a scale) replaces the
+  old single `fill_type` / `fill_pattern` / `fill_opacity` model. `is_fillable()` is true iff
+  `get_closed_path()` returns non-None. Both layers are painted by the mixin's `_paint_fill_layers`
+  (one `hatch_render.paint_fill` call); `displayable_item.draw_fill` is retired. The serialized
+  `fill` record, its legacy `{type, pattern, color, opacity}` reading, the defaults and the panel /
+  picker contract → [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md)
+  (Rule A: not restated here).
+  *(HF1: a layer colour is a hex, a `token:*` or `""` (No Fill, distinct from `None` = unset).
+  `_fill_value()` returns the per-instance Graphic Override `fill` if set, else the display-only
+  `_display_fill_color`, and that value is forced onto both layers; the override is display-only —
+  `to_dict` never saves it. Tokens resolve per paint. Owned by
+  [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).)*
+  The pattern layer's `ref` is a **pattern tile block id**; legacy pattern names are read through the
+  alias table and canonicalised on load. Registry, picker (unresolvable-ref rule) and renderer →
+  `hatch-and-fill.md` D-A29 / D-A36 (Rule A).
 - Property rows (`_geom2d_properties`) + setter (`_geom2d_set`) + dual-path
   serialization stamps (`_geom2d_to_dict`/`_geom2d_from_dict`).
 - `_uid` — stable primitive id (uuid4 hex, CS1 2026-10-02): minted at construction,

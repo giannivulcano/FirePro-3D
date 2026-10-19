@@ -1,7 +1,7 @@
 ---
 status: partial          # HF1 BUILT 2026-10-18 (merge 084b43e0, feat/hf1-colour-tokens): colour tokens (token:auto / token:accent), per-paint resolver, theme bus, SAVE_VERSION 11 + .fpdb marker migration, universal picker -- see "HF1 build design". Prior: HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-18  # HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: 084b43e0   # HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+last-verified: 2026-10-19  # UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: 902c5c0e   # UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
@@ -13,7 +13,8 @@ applies-to:
   - firepro3d/capability_frame.py   # Block Editor capability frame base (CapabilityFrameItem, tag, frame_for) — shared with linetypes.md LT4 (RepeatFrame), owned here
   - firepro3d/tile_frame.py         # Block Editor pattern-tile frame (TileFrame) + tile panel rows
   - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files (D-A39; the shipped index.json was removed 2026-10-10)
-  - firepro3d/displayable_item.py   # draw_fill / draw_section_hatch adapters only (the mixin's other state is owned elsewhere)
+  - firepro3d/displayable_item.py   # draw_section_hatch adapter only (draw_fill retired by UP1; the mixin's other state is owned elsewhere)
+  - firepro3d/fill_layers.py        # UP1: FillLayers / BackgroundLayer / PatternLayer + fill record read/write (contract = superpowers/specs/2026-10-18-up1-two-layer-fill-design.md)
 source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns as blocks + theme-Automatic colours (2026-10-01)"]
 ---
 
@@ -115,11 +116,13 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   paper scale. Filled tile ops are drawn in the pattern colour.
 - **`paint_swatch`** — picker / Display Manager swatch through the same
   `stamp_lattice` (preview ≡ render, H3); resolves via `preview_tile`.
-- **Adapters** (`displayable_item.py`): `draw_fill` (per-item 2D fill —
-  solid → background, hatch → tile, both at the item alpha; HF3 retires it)
-  and `draw_section_hatch` (walls / floor slabs section cut: section fill +
-  pattern + scale) are thin `paint_fill` wrappers passing the item's
-  `sceneTransform()` as `to_scene`.
+- **Adapters** (`displayable_item.py`): `draw_section_hatch` (walls / floor slabs section cut: section fill +
+  pattern + scale) is a thin `paint_fill` wrapper passing the item's
+  `sceneTransform()` as `to_scene`. The 2D-shape fill no longer has an adapter here: the shape mixin
+  calls `paint_fill` directly for its two layers (UP1; `draw_fill` retired) —
+  [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md).
+- **`pattern_preview`** — the one preview pixmap helper (picker Pattern row, fill swatch chip, Display
+  Manager; UP1, promoted from the Display Manager's former fill-icon helper); same `stamp_lattice` path.
 - **Block Editor capability frame** (`capability_frame.py`, this file's home
   since LT4 generalised the HF2 tile frame). `CapabilityFrameItem` is the
   shared non-primitive overlay of the Block Editor's capability
@@ -155,15 +158,15 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
 
 | Hop | Where | Key |
 |---|---|---|
-| 2D item state | `geometry_2d.Geometry2DMixin` | `fill_type`, `fill_pattern` (tile block id; legacy names canonicalised on load), `fill_opacity` (0..1), colour in `_display_fill_color` |
-| Serialize | `_geom2d_to_dict` / `_from_dict` | `"fill": {type, pattern, color, opacity}` (omitted when none) |
+| 2D item state | `geometry_2d.Geometry2DMixin` | `fill_layers` (UP1: background + pattern layers, each with colour / opacity; pattern ref canonicalised on load) — shape and record in [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md) |
+| Serialize | `_geom2d_to_dict` / `_from_dict` | the `"fill"` record via `fill_layers.to_record` / `from_record` (omitted when empty; legacy `{type, pattern, color, opacity}` read at load, no version bump) — same doc |
 | Block compile | `block_definition._fill_ops` → `RenderOp` | primitive fill → a `fill` / `pattern` op before its stroke (origin = container origin); painted by `BlockInstance` via `paint_fill` with the pose — compile contract → [`block-system.md`](block-system.md) |
 | Block tile | `BlockDefinition.tile` | `{w, h, row_shift, size: model\|drafting}` or None — owned by `block-system.md` |
 | Section (DM) | `display_manager` | `section`, `section_pattern` (tile ref; factory defaults still legacy `"diagonal"`, read via alias), `section_scale`; DM `fill` colour still uses a `"hatch:#rrggbb"` prefix |
 | Paper | `paper_display` | pens remapped; pattern lines use the "Hatch" category weight (weight-only row); 2D fill colour not remapped |
 | Import | `pdf_import_worker`, `dxf_import_worker` | no fill emitted (unchanged by HF2; D-A22/D-A23 unbuilt) |
 
-`fill_pattern` and `section_pattern` now share one vocabulary (tile refs);
+A shape's pattern layer ref and `section_pattern` now share one vocabulary (tile refs);
 the DM `"hatch:"` colour-mode prefix and the differing opacity units (0..1 vs
 0..100) remain until D-A17 / Fill Types.
 
@@ -177,8 +180,8 @@ the DM `"hatch:"` colour-mode prefix and the differing opacity units (0..1 vs
 | H4 | `diagonal.svg` was dead (shadowed by the built-in) | registry probe | **RESOLVED** `59a05b4` (`graphics/hatch_patterns/` deleted) |
 | H5 | `draw_svg_hatch` used ReplaceClip (`setClipPath` default) — the paper-viewport bleed class `paper-space.md §6.2` | code read | **RESOLVED** `976d4c7` (`paint_fill` IntersectClip) |
 | H6 | Tile size read `scene.views()[0]` (the vestigial view) | already filed (vestigial-view scale todo) | **RESOLVED** `976d4c7` for hatch (device scale from the painter); the general vestigial-view todo is separate |
-| H7 | Fill undo ordering — context menus + ribbon Graphic Override call `push_undo_state()` before `set_property`; redo loses the fill | probe: redo → none | **OPEN** (`entity_context_menu` still pushes first at 53e1773) |
-| H8 | Hatch drawn at the solid opacity with no UI to change it | code read | **OPEN** (Fill Opacity row is solid-only; `draw_fill` uses the item alpha for both) |
+| H7 | Fill undo ordering — context menus + ribbon Graphic Override call `push_undo_state()` before `set_property`; redo loses the fill | probe: redo → none | **PARTLY CLOSED** by UP1: the ribbon Graphic Override fill swatches now write inside one `deferred_undo_push` (the setters request the push). **Still OPEN** for the two context-menu Fill submenus (`entity_context_menu`, `model_view`), which still call `push_undo_state()` before `set_property` — UP2 reroutes them |
+| H8 | Hatch drawn at the solid opacity with no UI to change it | code read | **CLOSED** by UP1: each fill layer carries its own opacity, edited in the picker's fill modes; the solid-only Fill Opacity row and `draw_fill` are retired — [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md) |
 | H9 | Dead code: `refresh_patterns`, `is_builtin`, `make_hatch_tile`, `DEFAULT_PATTERNS`, `wall._draw_hatch`, `MainWindow._build_fill_group`, `annotations._rebuild_path_from_elements` | whole-repo grep | **PARTLY RESOLVED** — the four `hatch_patterns` names gone `59a05b4`, `_build_fill_group` deleted `9538ab4`; **still dead**: `wall._draw_hatch`, `annotations._rebuild_path_from_elements` |
 | H10 | Roof exposes DM section pattern/colour that `roof.py` never draws | code read | **OPEN** (D-A17 removes the column) |
 | H11 | No angle / origin anchoring — tiles started at the clip bbox, so the pattern swam when the shape moved | code read | **RESOLVED** `976d4c7` (lattice anchored at the container origin, stamped in scene axes) |
@@ -223,7 +226,8 @@ until that doc is approved.
   model — edited through the house picker's fill mode (UP1, UP2 in
   `todo_open.md`). No dissolve, no `prim["fill"]` migration, no "Region from
   this shape"; Filled Regions (HF3/HF4) cover areas that are not one shape.
-  Until UP1 lands, today's single-layer per-item fill stands.)*
+  **Built by UP1** (2026-10-19): as-built contract in
+  [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md).)*
 - **D-A26** Click inside selects (lowest pick priority — lines win); boundary
   is snappable even when the outline is Invisible; HALO traces the boundary.
 
@@ -548,7 +552,7 @@ the D-A21 HF1 scope above.
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
-- `2d-geometry.md` fill section → `fill.pattern` is a tile id linked here (**done, HF2 Account**); per-item fill dissolved (D-A16) — **D-A16 reversed 2026-10-18**: the section instead gains the two-layer shape fill with UP1.
+- `2d-geometry.md` fill section → `fill.pattern` is a tile id linked here (**done, HF2 Account**); per-item fill dissolved (D-A16) — **D-A16 reversed 2026-10-18**: the section instead gained the two-layer shape fill with UP1 (**done, UP1 Account** — pointer + `fill_layers` replace the single-fill description).
 - `ui-design-system.md` D6 → picker gains token choices (D-A18) (**done, HF1 Account** — D6 colour block + amendment).
 - `docs/architecture/theming.md` → element colours may be tokens resolved by surface (D-A19) (**done, HF1 Account** — theme bus pointer).
 - `block-system.md` → tile capability + pattern refs in the registry (D-A9, D-A34, D-A39: **done, HF2 Account** — "Pattern-tile capability (HF2)"); Fill Type bundling (D-A15) — pending.

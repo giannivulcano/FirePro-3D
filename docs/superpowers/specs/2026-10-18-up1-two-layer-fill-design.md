@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-18 (UP1 /todo run, Phase 3); unbuilt. Consolidating contract for the shape-fill change across ui-design-system D6, 2d-geometry 1.1, hatch-and-fill (H8, data path, adapters) and property-panel (row types) -- those specs get one-line pointers here at Account (Rule A).
-last-verified: 2026-10-18
-verified-commit: 16e26485
+status: current           # BUILT 2026-10-19 (UP1, merged 902c5c0e); designed 2026-10-18 (Phase 3). The durable home of the two-layer shape-fill contract -- ui-design-system D6, 2d-geometry 1.1, hatch-and-fill (H8, data path, adapters), property-panel (row types), ribbon-bar (Graphic Override) and scene-io carry one-line pointers here (Rule A). As-built deltas: see "As-built amendments".
+last-verified: 2026-10-19
+verified-commit: 902c5c0e
 applies-to:
   - firepro3d/fill_layers.py           # NEW: FillLayers / BackgroundLayer / PatternLayer, record read (new + legacy) / write
   - firepro3d/geometry_2d.py           # Geometry2DMixin fill state, _draws_fill, paint, rows, set_property, to/from dict
@@ -92,7 +92,11 @@ New layers created by the UI start at opacity 1.0 (R10); loaded layers keep thei
 
 **Shape state.** `Geometry2DMixin.fill_layers: FillLayers` replaces `fill_type`, `fill_pattern`
 and `fill_opacity`. `_display_fill_color` is no longer the shape's own colour: on 2D geometry it is
-a display-only slot written only by paper monochrome mode (`paper_display`), never serialized.
+a display-only slot, never serialized, and effectively unused: the paper pass writes it only in
+`paper_display._apply_generic` (which a non-reference shape never reaches -- shapes take
+`_apply_construction`, which does not write it -- and a Reference Geometry shape paints no fill),
+and `display_manager._apply_geo2d` never writes it. (Consequence: shape fills print in their own
+colour on B&W sheets -- filed as a +1 on the "Hatch colour on B&W sheets" backlog line.)
 `_geom2d_to_dict` writes `d["fill"] = to_record(...)` when non-empty; `_geom2d_from_dict` reads
 `from_record(data.get("fill"))`.
 
@@ -134,9 +138,9 @@ The block sits below the Recent row, above the footer (D3). Entry point
 `pick_fill(initial: BackgroundLayer | PatternLayer | None, parent=None, *, pattern: bool,
 context="") -> layer | NO_LAYER | None` (None = cancel). Recents still record the colour only.
 
-**One preview helper.** `display_manager._make_fill_icon` moves to `hatch_render` with a
-`background` parameter (default the old `#2b2b2b`) and serves the picker Pattern row, the swatch
-chip and the Display Manager.
+**One preview helper.** `display_manager._make_fill_icon` moved to `hatch_render` as
+`pattern_preview`, with a `background` parameter (default the old `#2b2b2b`). It serves the
+picker Pattern row, the swatch chip and the Display Manager.
 
 **`ui_kit.FillSwatch`.** Reuses `_Chip`; the chip paints the background colour, or the pattern
 preview for a pattern layer, or the shared No-Fill glyph; emits `layerChanged(object)` (a layer or
@@ -157,16 +161,16 @@ Override writes `_display_overrides` and is unaffected.
 
 ## Acceptance Criteria
 
-- [ ] AC1 Picker fill mode: `"pattern"` shows Pattern row (None + tiles + More...), Opacity,
+- [x] AC1 Picker fill mode: `"pattern"` shows Pattern row (None + tiles + More...), Opacity,
       Scale; `"fill"` shows Opacity only; `"colour"` shows neither (R4/R5/R9).
-- [ ] AC2 Every closed non-reference shape shows Fill + Fill Pattern swatches, default none; the
+- [x] AC2 Every closed non-reference shape shows Fill + Fill Pattern swatches, default none; the
       old four fill rows are gone (R6/R8, H8).
-- [ ] AC3 Two-layer model rendered by one `paint_fill` call, each layer at its own opacity, pattern
+- [x] AC3 Two-layer model rendered by one `paint_fill` call, each layer at its own opacity, pattern
       at its scale; block instances render the same through the compiled ops (R3/R9).
-- [ ] AC4 New layers start at 100 % opacity; loaded opacity kept (R10).
-- [ ] AC5 Legacy `solid` / `hatch` records load and render identically (R11, D1).
-- [ ] AC6 Override colour recolours both layers (R13); pick area per R14.
-- [ ] AC7 Context-menu fill entries still work through the shim until UP2.
+- [x] AC4 New layers start at 100 % opacity; loaded opacity kept (R10).
+- [x] AC5 Legacy `solid` / `hatch` records load and render identically (R11, D1).
+- [x] AC6 Override colour recolours both layers (R13); pick area per R14.
+- [x] AC7 Context-menu fill entries still work through the shim until UP2.
 
 ## Verification Checklist (guards, VC3)
 
@@ -179,20 +183,38 @@ Override writes `_display_overrides` and is unaffected.
 - G5 Override Fill colour recolours both layers (pixel sample on a bg + pattern shape).
 - G6 A pattern-only shape picks on its interior through the real HALO pick; a no-fill shape does
   not.
-- G7 Undo/redo + copy round-trip preserve both layers (to_dict parity, `test_serializer_parity`).
+- G7 Undo/redo + copy round-trip preserve both layers (to_dict parity; guarded by
+  `tests/test_up1_shape_fill.py::test_round_trip_copy_and_undo_preserve_both_layers` -- `test_serializer_parity`
+  has no filled shape and does not cover it).
 - G8 A multi-select apply of Fill Pattern writes every target.
 - G9 The context-menu "Hatch -> pattern" path turns the pattern layer on (shim).
 - Each guard shown RED with its change reverted; keep-green per VC5 (fill tests listed in
   `.todo/up1-1b-findings.md` + a whole-repo grep for every retired symbol: `fill_type`,
   `fill_pattern`, `fill_opacity`, `draw_fill`, `_make_fill_icon`, the four row keys).
 
+## As-built amendments (2026-10-19)
+
+- **Ribbon Graphic Override fill controls** (Phase-4 ruling): the geo2d group's fill controls are two
+  `FillSwatch`es (Fill, Fill Pattern) beside the stroke swatch and Clear. They write the shape's own
+  layers through `set_property` inside one `deferred_undo_push`, re-sync on every selection change while
+  the group lives, and skip reference shapes (a selection with no fillable non-reference shape disables
+  them). Group wiring: `ribbon-bar.md` (geo2d tab).
+- **Scale sanitised at paint:** `Geometry2DMixin._paint_fill_layers` treats a non-finite or <= 0 pattern
+  scale as 1.0 (a programmatic `set_property` bypasses the picker's field validation).
+- **One preview helper:** `hatch_render.pattern_preview` (the former `display_manager._make_fill_icon`)
+  serves the picker Pattern row, the `FillSwatch` chip and the Display Manager.
+- **Context-menu shim** stays until UP2; the two context-menu Fill submenus still push undo before
+  `set_property` (`hatch-and-fill.md` H7, now open for them only).
+
 ## Existing Code Context
 
 - Renderer, adapters and data path: `hatch-and-fill.md` sections 2-3.
 - Fill readers today: `geometry_2d._geom2d_to_dict` / `_from_dict`, `block_definition._fill_ops`,
   `block_registry.prim_refs`, `hatch_patterns._fill_ref`, `project_pattern_refs`.
-- Display-only writers of `_display_fill_color` on 2D geometry: `paper_display` (monochrome mode
-  + snapshot restore). `display_manager._apply_geo2d` never writes it.
+- Writers of `_display_fill_color` on 2D geometry: none that matter. `paper_display._apply_construction`
+  (the shape path) never writes it; only `_apply_generic` does, reached by Reference Geometry (no fill
+  painted); the paper snapshot/restore only round-trips the existing value.
+  `display_manager._apply_geo2d` never writes it.
 - Picker: `colour_picker.ColourPickerDialog` (body, Theme / Standard / Greys / Recent rows,
   footer), `pick_colour`; `ui_kit.Swatch` / `_Chip`; `property_manager` row dispatch.
 
@@ -205,5 +227,6 @@ Override writes `_display_overrides` and is unaffected.
 
 ## Out of scope
 
-- Rerouting the context menus, Graphic Override controls and `SectionPatternDialog` (UP2).
+- Rerouting the context menus and `SectionPatternDialog` (UP2). (The ribbon Graphic Override fill controls
+  were pulled into UP1 -- see "As-built amendments".)
 - Fill Types (D-A14), By Pattern colour (D-A12 / WM-8) for shapes, Filled Regions (HF3/HF4).

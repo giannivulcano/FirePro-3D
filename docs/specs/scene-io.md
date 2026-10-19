@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-18  # HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: 084b43e0  # HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-10-19  # UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: 902c5c0e  # UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -51,7 +51,7 @@ design areas) or on each item's `to_dict`/`from_dict` (geometry, walls, blocks�
 `Model_Space.SAVE_VERSION` (11 since HF1 — **version-gated**: `colour_migration.migrate_project_payload`
 runs on the raw payload before any `from_dict` when `version < 11`, converting legacy default colours to
 `token:auto`; `.fpdb` files carry a `colour_tokens: 1` marker instead of a version — rules owned by
-[`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md). 10 since LT2 was informational; primitive migration is
+[`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md). The 2D-shape `fill` record (UP1 two layers) adds **no** version bump or marker — a single read-time reader normalises the legacy record, see [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md) D1. 10 since LT2 was informational; primitive migration is
 key-presence driven, and `load_from_file` installs the file's weight table + aliases
 before any parse — see [`linetypes.md`](linetypes.md) "LT2" H-a / H-g) and `project_info`, `scale`, `display_settings`,
 `paper_display`, `levels`, `plan_views`, `active_level`, and the entity

@@ -208,7 +208,8 @@ model, paper sheets and blocks (containment C5). It replaced the retired
 
 The model dimension tool and `DimensionAnnotation` were retired (containment
 C1/C8), as was `HatchItem` — fills are now properties of the 2D geometry items
-(`fill_type` / `fill_pattern` / `fill_opacity` on `Geometry2DMixin`); patterns and fill
+(two-layer `fill_layers` on `Geometry2DMixin`, contract in
+[`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md)); patterns and fill
 rendering → [`hatch-and-fill.md`](../specs/hatch-and-fill.md).
 
 ### 2D geometry

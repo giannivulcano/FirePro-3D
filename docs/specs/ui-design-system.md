@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-10-18  # HF1 Account: D6 "Colour inputs" / colour_picker block rewritten to the shipped signatures (Swatch / pick_colour / ColourPickerDialog take no opt-in flags; Theme row; "A" badge; theme_bus relatch); prior AC2 Account: ActionRowList / PatternList parent-before-setVisible kit rule verified against ui_kit.py + its guard; prior ET1 Account: new "Tooltips" section verified against firepro3d/tooltips.py + the G7 guards; prior LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 084b43e0   # HF1 Account (merge feat/hf1-colour-tokens; D6 colour block only); prior 312b8dd1 AC2 ui_kit window-flash fix (kit rule only); prior e221ca0e ET1 tooltip wrap (Tooltips section only); prior b9b1094 LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-10-19  # UP1 Account: D6 picker modes / pick_fill / FillSwatch signatures + No-alpha amendment (verified at 902c5c0e); prior 2026-10-18 HF1 Account: D6 "Colour inputs" / colour_picker block rewritten to the shipped signatures (Swatch / pick_colour / ColourPickerDialog take no opt-in flags; Theme row; "A" badge; theme_bus relatch); prior AC2 Account: ActionRowList / PatternList parent-before-setVisible kit rule verified against ui_kit.py + its guard; prior ET1 Account: new "Tooltips" section verified against firepro3d/tooltips.py + the G7 guards; prior LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 902c5c0e   # UP1 Account (D6 fill-mode block only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; D6 colour block only); prior 312b8dd1 AC2 ui_kit window-flash fix (kit rule only); prior e221ca0e ET1 tooltip wrap (Tooltips section only); prior b9b1094 LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -122,9 +122,9 @@ chrome ignored the house theme. One modal `ColourPickerDialog(HouseDialog)` plus
 point, `colour_picker.pick_colour`, now serve every call site. Grill-locked choices:
 - **Modal, not an anchored popup:** it keeps today's Cancel/OK semantics and one undo step.
 - **Fixed palette:** AutoCAD ACI plus greys. These are drawing colours and don't change with the theme.
-- **No alpha:** opacity stays its own property wherever it exists. *(Amended 2026-10-18, unified-picker design run R4–R6/R9, as-proposed until UP1 ships: a **fill mode** of the picker adds a Pattern row of preview tiles, an Opacity control and a pattern Scale, opened from the "Fill" / "Fill Pattern" swatches; stroke, text and line pickers stay colour-only with no alpha. Tracked as UP1/UP2 in `todo_open.md`.)*
+- **No alpha:** opacity stays its own property wherever it exists. *(Amended 2026-10-18, unified-picker design run R4–R6/R9, **shipped by UP1**: `ColourPickerDialog` takes `mode="colour" | "fill" | "pattern"` and `colour_picker.pick_fill` opens the fill / pattern modes — a Fill block below the Recent row with an Opacity control and, in pattern mode, a Pattern row of preview tiles and a Scale — from `ui_kit.FillSwatch`; stroke, text and line pickers stay `mode="colour"` with no alpha. Fill semantics, defaults and the layer model are owned by [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md); remaining call-site rerouting is UP2 in `todo_open.md`.)*
 - **No eyedropper or custom slots:** deferred.
-- **No Fill** is a chip at the end of the Standard row. *(Amended 2026-10-18, HF1 smoke ruling: one universal picker. Every call site shows every row — the Theme row (Automatic / Accent), No Fill and Standard / Recents / custom — and every property it edits honours a token and `""`; `""` draws nothing. Per-caller opt-in flags are retired. Fill opacity moving into the picker is the filed "Unified colour + hatch picker" design task, so **No alpha** holds until that task lands.)*
+- **No Fill** is a chip at the end of the Standard row. *(Amended 2026-10-18, HF1 smoke ruling: one universal picker. Every call site shows every row — the Theme row (Automatic / Accent), No Fill and Standard / Recents / custom — and every property it edits honours a token and `""`; `""` draws nothing. Per-caller opt-in flags are retired. Fill opacity moving into the picker landed with UP1 (previous bullet), so **No alpha** now holds for `mode="colour"` only.)*
 
 Rejected: an Office-style anchored flyout (two surfaces), and a full picker inside a popup.
 
@@ -334,6 +334,11 @@ class Swatch(QWidget):                  # painted chip + label → opens the hou
                                         # or "token:auto" / "token:accent" (chip = resolved colour + small "A"
                                         # corner badge, label "Automatic" / "Accent")
     # Subscribes to theme.theme_bus().changed to re-latch its label colour and repaint the chip.
+class FillSwatch(QWidget):              # fill-layer chip + label → colour_picker.pick_fill (UP1)
+    def __init__(self, layer=None, parent=None, *, pattern: bool, context="Fill",
+                 registry=None, exclude=(), show_label=True): ...
+    layerChanged = pyqtSignal(object)   # a BackgroundLayer / PatternLayer, or fill_layers.NO_LAYER (layer off)
+    # Layer model + picker modes -> docs/superpowers/specs/2026-10-18-up1-two-layer-fill-design.md
 def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None  # the ONE No-Fill glyph
 def no_fill_icon(w: int, h: int) -> QIcon                             # same glyph for QPushButton swatches
 ```
@@ -346,11 +351,14 @@ def pick_colour(initial, parent=None, context="") -> str | None
     # ""   → No Fill / no colour (always offered)
     # "token:auto" / "token:accent" → a Theme-row pick (always offered)
     # "#rrggbb" LOWER-case (QColor.name() parity — stored data unchanged)
+def pick_fill(initial, parent=None, *, pattern: bool, context="", registry=None, exclude=())
+    # UP1: layer | NO_LAYER | None (cancelled); mode "fill" (pattern=False) or "pattern"
 class ColourPickerDialog(HouseDialog):  # modal; title "Colour" + caller context label
     def __init__(self, parent=None, *, initial="#000000", context="",
-                 theme=None): ...
+                 theme=None, mode="colour", layer=None, registry=None, exclude=()): ...
     def current_value(self) -> str      # display form (upper-case hex) / token / ""
     def result_value(self) -> str | None
+    def result_layer(self)              # fill / pattern modes: layer | NO_LAYER | None
 STANDARD, GREYS                         # fixed CAD palette (ACI + 10-step greys), theme-independent
 load_recents(); push_recent(hex); clear_recents()   # QSettings "ui/colour_picker/recents", MRU 10
 ```
@@ -361,7 +369,7 @@ load_recents(); push_recent(hex); clear_recents()   # QSettings "ui/colour_picke
   `tests/test_no_native_colour_dialog.py` fails if `QColorDialog` reappears anywhere in app code.
 - **One universal picker (D6 amendment 2026-10-18):** there are no opt-in flags. Every call site shows the
   overline **Theme** row (Automatic / Accent chips, each drawn in its current-canvas colour), No Fill, and
-  Standard / Recents / custom; every property it edits must accept a `token:*` and `""`. What each token
+  Standard / Recents / custom; every property it edits must accept a `token:*` and `""` (UP1 exception: in `mode="pattern"` the No Fill chip is hidden — the Pattern row's None chip means "pattern off"). What each token
   resolves to, per surface, is owned by [hatch-and-fill.md "HF1 build design"](hatch-and-fill.md).
 - **Recents** are recorded on OK only (never on Cancel, No Fill or a token pick — hex only): app-wide, most
   recent first, case-insensitive dedupe, capped at 10.
