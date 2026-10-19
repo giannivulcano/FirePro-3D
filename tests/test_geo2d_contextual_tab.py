@@ -246,3 +246,18 @@ def test_fill_pattern_swatch_multi_select_writes_all_in_one_undo_step(
     qapp.processEvents()
     assert a.fill_layers.pattern == new and b.fill_layers.pattern == new
     assert main_window.scene._undo_pos == before + 1
+
+
+def test_ribbon_fill_swatches_disabled_for_reference_shape(main_window, qapp, clean_scene):
+    """A reference-flagged rectangle (RG4: no fill rows in the property panel)
+    disables both ribbon fill swatches, like a non-fillable line."""
+    r = _make_rect(main_window.scene)
+    r.reference = True
+    r.setSelected(True)
+    qapp.processEvents()
+
+    tab = next(t for t in _titles(main_window) if t.startswith("Modify |"))
+    swatches = _ribbon_fill_swatches(main_window, tab)
+    assert {s._context for s in swatches} == {"Fill", "Fill Pattern"}, swatches
+    for sw in swatches:
+        assert not sw.isEnabled(), "reference shapes take no fill from the ribbon"

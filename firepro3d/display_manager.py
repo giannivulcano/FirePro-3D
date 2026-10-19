@@ -619,8 +619,9 @@ def _apply_geo2d(item, color, opacity, visible, fill_color=None):
     from each shape's own ``fill_layers`` (UP1); a
     Graphic Override / instance ``fill`` (token, hex or ``""`` = No Fill) is
     read from ``_display_overrides["fill"]`` by ``Geometry2DMixin._fill_value``.
-    The apply path never writes ``_display_fill_color`` (the item's own
-    serialized fill), so Clear restores it and a save keeps it.
+    The apply path never writes ``_display_fill_color`` on 2D geometry (it is
+    display-only there; the shape's own fill lives in ``fill_layers``), so
+    Clear restores the shape and a save keeps its fill.
     """
     item._display_color = color
     item.setVisible(visible)

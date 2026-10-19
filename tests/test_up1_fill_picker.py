@@ -237,3 +237,23 @@ def test_pattern_chip_double_click_accepts_with_that_pattern(qapp, monkeypatch, 
     QTest.mouseDClick(chip, Qt.MouseButton.LeftButton)
     assert d.result() == QDialog.DialogCode.Accepted
     assert d.result_layer() == PatternLayer(chip.value, "token:auto", 1.0, 1.0)
+
+
+# G3 (stroke side): a stroke ui_kit.Swatch opens the plain colour picker, with
+# no opacity / scale / pattern block, through its real chip click.
+def test_stroke_swatch_click_opens_picker_without_fill_block(qapp, monkeypatch):
+    from firepro3d import ui_kit
+    seen = []
+
+    def fake_exec(self):
+        seen.append(self)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(cp.ColourPickerDialog, "exec", fake_exec)
+    sw = ui_kit.Swatch("#ff0000", context="Stroke")
+    sw.show()
+    qapp.processEvents()
+    QTest.mouseClick(sw._chip, Qt.MouseButton.LeftButton)
+    assert len(seen) == 1, "the chip click did not open the picker"
+    d = seen[0]
+    assert d._opacity is None and d._scale is None and d._pattern_chips == []

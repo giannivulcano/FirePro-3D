@@ -33,7 +33,8 @@ from .block_definition import BlockDefinition
 from .block_pose import (check_scale, is_upright, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver, resolve_colour
-from .constants import LINETYPE_WINDOW_MIN_PERIODS, TOKEN_AUTO
+from .constants import (FILL_LEGACY_COLOUR, LINETYPE_WINDOW_MIN_PERIODS,
+                        TOKEN_AUTO)
 from .geometry_2d import constraint_tint
 from .render_op import (STROKE, FILL, PATTERN, TEXT, apply_overrides,
                         pattern_orient as _pattern_orient)
@@ -1182,7 +1183,7 @@ class BlockInstance(QGraphicsObject):
         """Fill / pattern op: boundary posed; pattern stamped in the pose's
         rotation / mirror frame, never its scale (D-A11 block-pose exception)."""
         paint_fill = _hr.paint_fill              # module import (hot path)
-        col = resolve_colour(op.colour or "#888888", item=self)
+        col = resolve_colour(op.colour or FILL_LEGACY_COLOUR, item=self)
         col.setAlpha(op.alpha)
         if op.kind == FILL:
             paint_fill(painter, pose.map(op.path), scene=self.scene(),

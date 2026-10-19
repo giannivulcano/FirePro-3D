@@ -304,3 +304,48 @@ def test_reference_shape_keeps_layers_but_hides_rows_and_paint(qapp):
     assert not r._draws_fill()
     assert "Fill" not in r.get_properties() and "Fill Pattern" not in r.get_properties()
     assert r.to_dict()["fill"] == {"background": {"color": "#0000ff", "opacity": 1.0}}
+
+
+# S-M4: a shape's pattern layer keeps its (library-only) ref in the project's
+# pattern set, so a save carries the tile.
+def test_shape_pattern_ref_is_collected_by_project_pattern_refs(qapp):
+    from firepro3d import hatch_patterns
+    from firepro3d.model_space import Model_Space
+    ref = "library-only-zig"
+    assert ref != hatch_patterns.DEFAULT_TILE_REF
+    ms = Model_Space()
+    r = _rect(); ms.addItem(r)
+    r.fill_layers = FillLayers(None, PatternLayer(ref))
+    assert ref in hatch_patterns.project_pattern_refs(ms)
+
+
+# S-M7: a background + pattern record paints the same pixels as a loose shape
+# and as a block-instance primitive (the two paint paths share the record).
+def test_background_and_pattern_loose_matches_block_instance(qapp, shipped_hatches):
+    from firepro3d.block_definition import BlockDefinition
+    from tests.test_up1_legacy_fill_golden import (
+        _INNER, _POS, _RECT, _SPAN, _render as _g_render, _scene)
+    prim = dict(_RECT)
+    prim["fill"] = {"background": {"color": "#3366cc", "opacity": 0.5},
+                    "pattern": {"ref": "builtin-hatch-diagonal", "color": "#cc3333",
+                                "opacity": 1.0, "scale": 1.0}}
+    loose_item = RectangleItem.from_dict(prim)
+    assert not loose_item.fill_layers.is_empty
+    assert loose_item.fill_layers.background is not None
+    assert loose_item.fill_layers.pattern is not None
+    ms = _scene(qapp, shipped_hatches)
+    ms.addItem(loose_item)
+    loose = _g_render(ms, QRectF(0, 0, _SPAN, _SPAN))
+
+    ms2 = _scene(qapp, shipped_hatches)
+    d = BlockDefinition.new(name="Parity", library="L", series="S",
+                            origin=(0.0, 0.0), primitives=[loose_item.to_dict()])
+    ms2.register_block_definition(d)
+    ms2.place_block_instance(d.id, _POS)
+    block = _g_render(ms2, QRectF(_POS[0], _POS[1], _SPAN, _SPAN))
+
+    white = QColor("white").rgba()
+    inked = sum(1 for y in _INNER for x in _INNER if loose.pixel(x, y) != white)
+    assert inked == len(_INNER) ** 2, "background layer did not paint"
+    assert len({loose.pixel(x, y) for y in _INNER for x in _INNER}) > 1, "no pattern over the background"
+    assert loose == block
