@@ -14,6 +14,8 @@ Property types recognised from ``get_properties()`` dict:
     enum       — QComboBox with fixed options list
     combo      — alias for enum
     color      — colour swatch (ui_kit.Swatch → colour_picker)
+    fill       — fill-layer swatch (ui_kit.FillSwatch → colour_picker.pick_fill;
+                 meta: value = layer or None, pattern = bool, registry, exclude)
     level_ref  — QComboBox populated from LevelManager
     button     — QPushButton that calls meta["callback"] when clicked
     dimension  — DimensionEdit for mm-based values (requires value_mm in meta)
@@ -338,6 +340,16 @@ class PropertyManager(QWidget):
                     lambda hexv, k=key: self._apply_property(k, hexv)
                 )
                 widget = sw
+
+            # ── fill (UP1 fill-layer swatch) ──────────────────────────────
+            elif prop_type == "fill":
+                from firepro3d.ui_kit import FillSwatch
+                fs = FillSwatch(meta.get("value"), pattern=bool(meta.get("pattern")),
+                                context=key, registry=meta.get("registry"),
+                                exclude=meta.get("exclude", ()))
+                fs.layerChanged.connect(
+                    lambda layer, k=key: self._apply_property(k, layer))
+                widget = fs
 
             # ── level_ref (level dropdown from LevelManager) ──────────────
             elif prop_type == "level_ref":

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QLineEdit, QToolButton)
 
 from .colour_tokens import is_token, resolve_colour, token_label
+from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .theme import M, detect as _detect, theme_bus
 
 
@@ -1133,6 +1134,103 @@ class Swatch(QWidget):
 
     def hex(self):
         return self._hex
+
+
+class _FillChip(_Chip):
+    """Fill-layer chip (UP1): a background paints its colour (``_Chip``), a
+    pattern its shared preview, none the shared No-Fill glyph."""
+
+    def __init__(self, parent=None, registry=None):
+        super().__init__("", parent)
+        self._layer = None
+        self._registry = registry
+
+    def set_layer(self, layer):
+        self._layer = layer
+        self.set_color(layer.color if isinstance(layer, BackgroundLayer) else "")
+
+    def paintEvent(self, event):
+        lyr = self._layer
+        if not isinstance(lyr, PatternLayer):
+            super().paintEvent(event)
+            return
+        from .hatch_render import pattern_preview
+        t = _detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.drawPixmap(r.toRect(), pattern_preview(
+            lyr.ref, resolve_colour(lyr.color), max(1, int(r.width())),
+            max(1, int(r.height())), self._registry, background=QColor(t.bg_sunken)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(t.border_subtle), 1))
+        p.drawRoundedRect(r, 3, 3)
+
+
+class FillSwatch(QWidget):
+    """Fill-layer field (UP1): chip + label. Opens ``colour_picker.pick_fill``
+    in fill (``pattern=False``) or pattern mode on click and emits
+    ``layerChanged`` with the new layer or ``fill_layers.NO_LAYER``."""
+
+    layerChanged = pyqtSignal(object)
+
+    def __init__(self, layer=None, parent=None, *, pattern: bool,
+                 context="Fill", registry=None, exclude=(), show_label=True):
+        super().__init__(parent)
+        self._layer = layer
+        self._pattern = pattern
+        self._context = context
+        self._registry = registry
+        self._exclude = exclude
+        t = _detect()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(M.PROP_HEX_GAP)
+        lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self._chip = _FillChip(registry=registry)
+        self._chip.setToolTip(f"Pick {context.lower()}")
+        self._chip.clicked.connect(self._pick)
+        self._label = QLabel()
+        self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
+        self._label.setVisible(show_label)
+        lay.addWidget(self._chip)
+        lay.addWidget(self._label)
+        lay.addStretch(1)
+        self.set_layer(layer)
+        theme_bus().changed.connect(self._on_theme)
+
+    def _on_theme(self):
+        self._label.setStyleSheet(
+            f"color: {_detect().muted}; font-size: {M.PROP_FIELD_FS}px;")
+        self._chip.update()
+
+    def _text_for(self, layer) -> str:
+        if layer is None:
+            return "None"
+        pct = f"{round(layer.opacity * 100)}%"
+        if isinstance(layer, PatternLayer):
+            from .hatch_patterns import display_name
+            return f"{display_name(layer.ref, self._registry, self._exclude)} · {pct}"
+        return f"{Swatch._text_for(layer.color)} · {pct}"
+
+    def _pick(self):
+        from . import colour_picker
+        v = colour_picker.pick_fill(self._layer, self, pattern=self._pattern,
+                                    context=self._context, registry=self._registry,
+                                    exclude=self._exclude)
+        if v is None:
+            return
+        self.set_layer(None if v is NO_LAYER else v)
+        # Emit last: a listener may rebuild the panel and delete this widget.
+        self.layerChanged.emit(v)
+
+    def set_layer(self, layer):
+        self._layer = layer
+        self._chip.set_layer(layer)
+        self._label.setText(self._text_for(layer))
+
+    def layer(self):
+        return self._layer
 
 
 class _ActionRow(QWidget):
