@@ -328,7 +328,9 @@ def test_background_and_pattern_loose_matches_block_instance(qapp, shipped_hatch
     prim = dict(_RECT)
     prim["fill"] = {"background": {"color": "#3366cc", "opacity": 0.5},
                     "pattern": {"ref": "builtin-hatch-diagonal", "color": "#cc3333",
-                                "opacity": 1.0, "scale": 1.0}}
+                                "opacity": 0.5, "scale": 0.5}}
+    # Non-default pattern opacity and scale: a block compile that dropped the
+    # PATTERN op's alpha or scale (RenderOp defaults 255 / 1.0) must show.
     loose_item = RectangleItem.from_dict(prim)
     assert not loose_item.fill_layers.is_empty
     assert loose_item.fill_layers.background is not None
@@ -349,3 +351,13 @@ def test_background_and_pattern_loose_matches_block_instance(qapp, shipped_hatch
     assert inked == len(_INNER) ** 2, "background layer did not paint"
     assert len({loose.pixel(x, y) for y in _INNER for x in _INNER}) > 1, "no pattern over the background"
     assert loose == block
+
+    # The non-default values must change the render, or the parity above
+    # would not prove the block path carries them.
+    plain = dict(_RECT)
+    plain["fill"] = {"background": {"color": "#3366cc", "opacity": 0.5},
+                     "pattern": {"ref": "builtin-hatch-diagonal", "color": "#cc3333",
+                                 "opacity": 1.0, "scale": 1.0}}
+    ms3 = _scene(qapp, shipped_hatches)
+    ms3.addItem(RectangleItem.from_dict(plain))
+    assert _g_render(ms3, QRectF(0, 0, _SPAN, _SPAN)) != loose

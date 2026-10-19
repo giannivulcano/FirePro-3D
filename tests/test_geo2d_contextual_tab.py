@@ -261,3 +261,27 @@ def test_ribbon_fill_swatches_disabled_for_reference_shape(main_window, qapp, cl
     assert {s._context for s in swatches} == {"Fill", "Fill Pattern"}, swatches
     for sw in swatches:
         assert not sw.isEnabled(), "reference shapes take no fill from the ribbon"
+
+
+def test_ribbon_fill_pattern_skips_reference_shape_in_mixed_selection(
+        main_window, qapp, clean_scene, monkeypatch):
+    """A reference rect selected with a normal rect: the ribbon pick writes
+    the normal rect only, in one undo step."""
+    from PyQt6.QtCore import Qt
+    from firepro3d import colour_picker
+    from firepro3d.fill_layers import PatternLayer
+    from firepro3d.hatch_patterns import DEFAULT_TILE_REF
+    ref_rect = _make_rect(main_window.scene)
+    ref_rect.reference = True
+    normal = _make_rect(main_window.scene)
+    ref_rect.setSelected(True)
+    normal.setSelected(True)
+    qapp.processEvents()
+    new = PatternLayer(DEFAULT_TILE_REF, "token:auto", 1.0, 1.0)
+    monkeypatch.setattr(colour_picker, "pick_fill", lambda *x, **k: new)
+    before = main_window.scene._undo_pos
+    QTest.mouseClick(_ribbon_swatch(main_window, "Fill Pattern")._chip, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert normal.fill_layers.pattern == new
+    assert ref_rect.fill_layers.pattern is None
+    assert main_window.scene._undo_pos == before + 1

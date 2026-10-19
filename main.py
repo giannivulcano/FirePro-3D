@@ -2877,8 +2877,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Fill / Fill Pattern swatches (UP1) + Clear in one narrow group.
         Fill writes route through ``set_property`` inside one
         ``deferred_undo_push``; the stroke/clear handlers push their own
-        undo state. An empty selection disables the group; a non-fillable
-        selection disables the two fill swatches."""
+        undo state. An empty selection disables the group; a selection with
+        no fillable, non-reference shape disables the two fill swatches. Both
+        re-sync on every selection change while the group lives."""
         from PyQt6.QtWidgets import (
             QLabel, QToolButton,
             QWidget, QVBoxLayout, QHBoxLayout,
@@ -2960,6 +2961,25 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 _syncing[0] = False
 
         _sync()
+
+        # The group is rebuilt only when the contextual tab changes, so a
+        # selection that grows or shrinks within the tab re-syncs here; the
+        # connection drops with the group's widgets.
+        from PyQt6 import sip
+        scene = self.scene
+
+        def _on_selection():
+            if not sip.isdeleted(outer):
+                _sync()
+
+        def _disconnect(*_):
+            try:
+                scene.selectionChanged.disconnect(_on_selection)
+            except (TypeError, RuntimeError):
+                pass
+
+        scene.selectionChanged.connect(_on_selection)
+        outer.destroyed.connect(_disconnect)
 
         def _apply_fill(key, layer):
             targets = _fillable_targets()
