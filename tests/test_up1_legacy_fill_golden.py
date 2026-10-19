@@ -3,9 +3,10 @@ change. Goldens are generated on the pre-UP1 tree:
 
     FP3D_REGEN_UP1_GOLDEN=1 ./venv/Scripts/python.exe -m pytest tests/test_up1_legacy_fill_golden.py
 
-``rect_hatch_alias`` records today's blank rectangle hatch (a filed bug: a
-RectangleItem hatch currently renders nothing); ``circle_hatch_full`` is the
-hatch-render guard.
+Shapes span several hatch pitches (the shipped diagonal hatch is ~300 mm apart),
+rendered at 20 mm per pixel, so the hatch goldens hold real hatch lines; every
+render is also checked for content (hatch partly inked, solid fully inked) so a
+blank golden cannot pass.
 
 Real paths: ``RectangleItem/CircleItem.from_dict`` + paint, and
 ``BlockDefinition`` compile + ``BlockInstance`` paint in a ``Model_Space``.
@@ -23,12 +24,13 @@ from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import CircleItem, RectangleItem
 
 GOLDEN_DIR = Path(__file__).parent / "data" / "up1_legacy_fill"
-_SIZE = 160
+_SIZE = 160                      # image px
+_SPAN = 3200.0                   # scene mm rendered into the image (20 mm/px)
 _POS = (5000.0, 5000.0)          # instance away from the origin marker
 
-_RECT = {"type": "draw_rectangle", "x": 10.0, "y": 10.0, "w": 120.0, "h": 120.0,
+_RECT = {"type": "draw_rectangle", "x": 200.0, "y": 200.0, "w": 2400.0, "h": 2400.0,
          "color": "#000000", "lineweight": 1.0}
-_CIRC = {"type": "draw_circle", "cx": 70.0, "cy": 70.0, "radius": 60.0,
+_CIRC = {"type": "draw_circle", "cx": 1400.0, "cy": 1400.0, "radius": 1200.0,
          "color": "#000000", "lineweight": 1.0}
 
 CASES = {
@@ -42,6 +44,9 @@ CASES = {
     "rect_solid_defaults": dict(_RECT, fill={"type": "solid"}),
 }
 _FACTORY = {"draw_rectangle": RectangleItem, "draw_circle": CircleItem}
+
+# Central 50x50 px square (scene 900..1900 mm): strictly inside both shapes.
+_INNER = range(45, 95)
 
 
 def _render(scene, src: QRectF) -> QImage:
@@ -58,6 +63,17 @@ def _scene(qapp, shipped_hatches):
     ms = Model_Space()
     shipped_hatches(ms)
     return ms
+
+
+def _assert_content(case: str, img: QImage) -> None:
+    """A hatch interior is partly inked; a solid interior is fully inked."""
+    white = QColor("white").rgba()
+    inked = sum(1 for y in _INNER for x in _INNER if img.pixel(x, y) != white)
+    total = len(_INNER) ** 2
+    if CASES[case]["fill"]["type"] == "hatch":
+        assert 0 < inked < total, f"{case}: hatch interior inked {inked}/{total}"
+    else:
+        assert inked == total, f"{case}: solid interior inked {inked}/{total}"
 
 
 def _check(name: str, img: QImage) -> None:
@@ -77,7 +93,9 @@ def test_loose_shape_legacy_fill_matches_golden(qapp, shipped_hatches, case):
     prim = CASES[case]
     item = _FACTORY[prim["type"]].from_dict(prim)
     ms.addItem(item)
-    _check(f"{case}__loose", _render(ms, QRectF(0, 0, _SIZE, _SIZE)))
+    img = _render(ms, QRectF(0, 0, _SPAN, _SPAN))
+    _assert_content(case, img)
+    _check(f"{case}__loose", img)
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -87,4 +105,6 @@ def test_block_instance_legacy_fill_matches_golden(qapp, shipped_hatches, case):
                             origin=(0.0, 0.0), primitives=[CASES[case]])
     ms.register_block_definition(d)
     ms.place_block_instance(d.id, _POS)
-    _check(f"{case}__block", _render(ms, QRectF(_POS[0], _POS[1], _SIZE, _SIZE)))
+    img = _render(ms, QRectF(_POS[0], _POS[1], _SPAN, _SPAN))
+    _assert_content(case, img)
+    _check(f"{case}__block", img)
