@@ -522,7 +522,9 @@ def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp, shipped_
     pm.show_properties([r])
     qapp.processEvents()
     # The enum combo's <missing pattern> label is retired with the row type:
-    # the Fill Pattern swatch carries the stored layer, ref intact.
+    # the Fill Pattern swatch carries the stored layer, ref intact. (The
+    # missing-chip indication itself is asserted in tests/test_up1_fill_picker.py::
+    # test_unknown_initial_ref_is_kept_as_a_missing_chip.)
     sw = next(s for s in pm.findChildren(FillSwatch) if s._context == "Fill Pattern")
     assert sw.layer().ref == "deadbeef-no-such-tile"
     r.set_property("Pattern", MISSING_PATTERN_LABEL)   # menu shim: D-A36 keeps the ref

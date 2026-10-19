@@ -84,3 +84,50 @@ def test_label_text_per_layer(qapp):
     assert s._label.text().endswith("· 100%")
     s.set_layer(None)
     assert s._label.text() == "None"
+
+
+def test_set_layer_treats_no_layer_as_off(qapp):
+    """The public setter normalises NO_LAYER -> None (no AttributeError)."""
+    from firepro3d.ui_kit import FillSwatch
+    s = FillSwatch(BackgroundLayer("#00ff00", 0.45), pattern=False, context="Fill")
+    s.set_layer(NO_LAYER)
+    assert s.layer() is None
+    assert s._label.text() == "None"
+    assert s._chip._layer is None
+
+
+def _pixels(chip):
+    img = chip.grab().toImage()
+    return img, {img.pixel(x, y) for x in range(img.width()) for y in range(img.height())}
+
+
+def test_fill_chip_paints_all_three_branches(qapp, shipped_hatches):
+    """grab() over _FillChip.paintEvent: none glyph, background colour, pattern."""
+    from PyQt6.QtGui import QColor
+    from firepro3d.theme import detect
+    from firepro3d.ui_kit import FillSwatch
+    reg = shipped_hatches(None)
+    s = FillSwatch(None, pattern=False, context="Fill", registry=reg)
+    chip = s._chip
+    none_img, none_px = _pixels(chip)
+    assert len(none_px) > 1                                  # the No-Fill glyph, not a flat chip
+    s.set_layer(BackgroundLayer("#00ff00", 1.0))
+    img, px = _pixels(chip)
+    assert img.pixelColor(img.width() // 2, img.height() // 2) == QColor("#00ff00")
+    assert px != none_px
+    sunken = QColor(detect().bg_sunken)
+    s.set_layer(PatternLayer("builtin-hatch-diagonal", "#ff0000", 1.0, 1.0))
+    img, _px = _pixels(chip)
+    inner = [img.pixelColor(x, y) for x in range(3, img.width() - 3)
+             for y in range(3, img.height() - 3)]
+    assert any(c != sunken for c in inner)                   # pattern strokes drawn
+    assert any(c == sunken for c in inner)                   # over the sunken background
+
+
+def test_theme_change_restyles_the_label(qapp):
+    from firepro3d.theme import detect, theme_bus
+    from firepro3d.ui_kit import FillSwatch
+    s = FillSwatch(None, pattern=False, context="Fill")
+    s._label.setStyleSheet("")
+    theme_bus().changed.emit()
+    assert detect().muted in s._label.styleSheet()

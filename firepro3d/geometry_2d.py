@@ -396,13 +396,17 @@ class Geometry2DMixin:
         from .hatch_render import paint_fill
         bg = self.fill_layers.background
         pat = self.fill_layers.pattern
+        # A programmatic set_property bypasses PatternLayer's own scale
+        # validation: sanitise here so a bad scale never reaches the renderer.
+        scale = (pat.scale if pat is not None and math.isfinite(pat.scale)
+                 and pat.scale > 0 else 1.0)
         paint_fill(painter, cp, scene=self.scene(),
                    background=(None if bg is None
                                else self._layer_qcolor(bg.color, bg.opacity)),
                    tile_ref=None if pat is None else pat.ref,
                    colour=(None if pat is None
                            else self._layer_qcolor(pat.color, pat.opacity)),
-                   scale=1.0 if pat is None else pat.scale,
+                   scale=scale,
                    to_scene=to_scene)
 
     def _lt_args(self) -> dict:

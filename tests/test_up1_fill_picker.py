@@ -140,6 +140,16 @@ def test_unknown_initial_ref_is_kept_as_a_missing_chip(qapp, monkeypatch, shippe
     assert cp.pick_fill(init, None, pattern=True, registry=reg).ref == "no-such-tile"  # D-A36
 
 
+@pytest.mark.parametrize("mode", ["fill", "pattern"])
+def test_no_layer_seed_opens_with_defaults(qapp, shipped_hatches, mode):
+    """layer=NO_LAYER (what a cleared swatch hands back) seeds opacity 100 / scale 1."""
+    reg = shipped_hatches(None)
+    d = _dlg(qapp, initial=cp.NO_FILL, mode=mode, layer=NO_LAYER, registry=reg)
+    assert d._opacity.value() == 100
+    if mode == "pattern":
+        assert d._scale.text() == "1"
+
+
 def test_recents_record_colour_only(qapp, monkeypatch):
     cp.clear_recents()
     _accept_with(monkeypatch, lambda d: QTest.mouseClick(_palette_chip(d, "#0000FF"),

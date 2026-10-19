@@ -71,7 +71,9 @@ def _assert_content(case: str, img: QImage) -> None:
     inked = sum(1 for y in _INNER for x in _INNER if img.pixel(x, y) != white)
     total = len(_INNER) ** 2
     if CASES[case]["fill"]["type"] == "hatch":
-        assert 0 < inked < total, f"{case}: hatch interior inked {inked}/{total}"
+        # Hatch lines ink ~116 of the 2500 interior px; a lone stray pixel
+        # must not pass for a hatch.
+        assert 20 < inked < total, f"{case}: hatch interior inked {inked}/{total}"
     else:
         assert inked == total, f"{case}: solid interior inked {inked}/{total}"
 

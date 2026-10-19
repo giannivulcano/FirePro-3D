@@ -187,3 +187,62 @@ def test_fill_controls_disabled_for_non_fillable(main_window, qapp, clean_scene)
         assert not sw.isEnabled(), (
             "fill swatches must be disabled when a non-fillable line is selected"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test 4-6 (UP1 T8 review): background key, sync into the swatch, multi-select
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ribbon_swatch(main_window, context):
+    return next(s for s in _ribbon_fill_swatches(main_window, "Modify | Rectangle")
+                if s._context == context)
+
+
+def test_fill_swatch_writes_background_only(main_window, qapp, clean_scene, monkeypatch):
+    """The ribbon Fill chip writes the background layer (not the pattern)."""
+    from PyQt6.QtCore import Qt
+    from firepro3d import colour_picker
+    from firepro3d.fill_layers import BackgroundLayer
+    rect = _make_rect(main_window.scene)
+    rect.setSelected(True)
+    qapp.processEvents()
+    new = BackgroundLayer("#336699", 0.6)
+    monkeypatch.setattr(colour_picker, "pick_fill", lambda *a, **k: new)
+    QTest.mouseClick(_ribbon_swatch(main_window, "Fill")._chip, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert rect.fill_layers.background == new
+    assert rect.fill_layers.pattern is None
+
+
+def test_ribbon_pattern_swatch_syncs_to_the_selected_shape(main_window, qapp, clean_scene):
+    """Selecting a rect that already has a pattern layer shows it in the
+    ribbon Fill Pattern swatch (and its background in the Fill swatch)."""
+    from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
+    from firepro3d.hatch_patterns import DEFAULT_TILE_REF
+    rect = _make_rect(main_window.scene)
+    rect.fill_layers = FillLayers(BackgroundLayer("#112233", 0.5),
+                                  PatternLayer(DEFAULT_TILE_REF, "#ff0000", 0.7, 2.0))
+    rect.setSelected(True)
+    qapp.processEvents()
+    assert _ribbon_swatch(main_window, "Fill Pattern").layer() == rect.fill_layers.pattern
+    assert _ribbon_swatch(main_window, "Fill").layer() == rect.fill_layers.background
+
+
+def test_fill_pattern_swatch_multi_select_writes_all_in_one_undo_step(
+        main_window, qapp, clean_scene, monkeypatch):
+    from PyQt6.QtCore import Qt
+    from firepro3d import colour_picker
+    from firepro3d.fill_layers import PatternLayer
+    from firepro3d.hatch_patterns import DEFAULT_TILE_REF
+    a = _make_rect(main_window.scene)
+    b = _make_rect(main_window.scene)
+    a.setSelected(True)
+    b.setSelected(True)
+    qapp.processEvents()
+    new = PatternLayer(DEFAULT_TILE_REF, "token:auto", 1.0, 1.0)
+    monkeypatch.setattr(colour_picker, "pick_fill", lambda *x, **k: new)
+    before = main_window.scene._undo_pos
+    QTest.mouseClick(_ribbon_swatch(main_window, "Fill Pattern")._chip, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert a.fill_layers.pattern == new and b.fill_layers.pattern == new
+    assert main_window.scene._undo_pos == before + 1

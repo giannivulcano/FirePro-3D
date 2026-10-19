@@ -1225,6 +1225,9 @@ class FillSwatch(QWidget):
         self.layerChanged.emit(v)
 
     def set_layer(self, layer):
+        """Show *layer*; ``None`` and ``NO_LAYER`` both mean the layer is off."""
+        if layer is NO_LAYER:
+            layer = None
         self._layer = layer
         self._chip.set_layer(layer)
         self._label.setText(self._text_for(layer))

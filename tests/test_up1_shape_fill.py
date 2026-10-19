@@ -234,6 +234,69 @@ def test_context_menu_hatch_entry_turns_pattern_on(qapp, shipped_hatches):
     assert r.fill_layers.is_empty
 
 
+def _hatch_menu_via(path, ms, r):
+    """The Fill > Hatch submenu of *r* built by the entity (A) or view (B) path."""
+    from PyQt6.QtWidgets import QMenu
+    menu = QMenu()
+    if path == "entity":
+        from firepro3d.entity_context_menu import _attach_fill_submenu
+        _attach_fill_submenu(menu, r)
+    else:
+        from firepro3d.model_view import Model_View
+        Model_View._build_fill_submenu(menu, ms, r)
+    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
+    return menu, next(a.menu() for a in fill.actions() if a.text() == "Hatch")
+
+
+# A refused library load (D-A37) leaves the shape unfilled: the Hatch entry must
+# not go on to turn a default pattern on (both menus carry the guard).
+@pytest.mark.parametrize("path", ["entity", "view"])
+def test_refused_library_load_leaves_hatch_entry_unfilled(qapp, monkeypatch, tmp_path, path):
+    from PyQt6.QtCore import QSettings
+    from firepro3d import app_data, block_library as bl, hatch_patterns
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    # One pattern in the Hatch patterns folder, none in the project: library-only.
+    root = tmp_path / "patterns_root"; root.mkdir()
+    QSettings("GV", "FirePro3D").setValue(app_data.HATCH_DIR_KEY, str(root))
+    bl.save_to_library(BlockDefinition.new(
+        name="Zig", library="System", series="Hatches", origin=(0.0, 0.0),
+        primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
+        tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"}), root=str(root))
+    ms = Model_Space()
+    r = _rect(); ms.addItem(r)
+    assert r.fill_layers.is_empty
+    monkeypatch.setattr(hatch_patterns, "ensure_pattern_available", lambda *a, **k: False)
+    menu, hatch = _hatch_menu_via(path, ms, r)       # keep *menu* alive: it owns *hatch*
+    acts = hatch.actions()
+    assert acts, "no library pattern offered"
+    acts[0].trigger()
+    assert r.fill_layers.is_empty, r.fill_layers
+
+
+# Programmatic set_property bypasses PatternLayer's own scale check: the paint
+# sanitises a bad scale to 1.0.
+@pytest.mark.parametrize("bad", [0.0, float("nan"), -1.0])
+def test_bad_pattern_scale_paints_like_scale_one(qapp, shipped_hatches, bad):
+    def render_with(scale):
+        ms = _ms_with_hatches(shipped_hatches)
+        r = _rect(); ms.addItem(r)
+        r.set_property("Fill Pattern", PatternLayer("builtin-hatch-diagonal", "#00ff00", 1.0, scale))
+        return _render(ms)
+    assert render_with(bad) == render_with(1.0)
+
+
+# Absence of "fill" in a record means empty (to_dict omits empty fills).
+def test_from_dict_without_fill_key_clears_layers(qapp):
+    r = _rect()
+    r.fill_layers = FillLayers(BackgroundLayer("#0000ff"), PatternLayer("builtin-hatch-diagonal"))
+    d = r.to_dict()
+    d.pop("fill")
+    r._geom2d_from_dict(d)
+    assert r.fill_layers.is_empty
+
+
 def test_reference_shape_keeps_layers_but_hides_rows_and_paint(qapp):
     r = _rect()
     r.fill_layers = FillLayers(BackgroundLayer("#0000ff"))

@@ -123,11 +123,21 @@ def test_pattern_only_record_emits_pattern_op(qapp):
     assert ops[0].colour == "token:auto" and ops[0].alpha == 255
 
 
-def test_legacy_hatch_record_reads_ref_from_record_not_item(qapp):
+def test_legacy_hatch_record_compiles_to_canonical_pattern_op(qapp):
     ops = _defn([_prim_with_fill({"type": "hatch", "pattern": "diagonal",
                                   "color": "#ff0000", "opacity": 0.45})]).render_ops()
     assert [o.kind for o in ops] == [PATTERN, STROKE]
     assert ops[0].tile_ref == "builtin-hatch-diagonal" and ops[0].alpha == 115
+
+
+def test_legacy_solid_record_defaults(qapp):
+    """Legacy solid: "" colour = No Fill (no ops); an absent colour takes the
+    old default grey at the legacy 0.45 opacity (alpha 115)."""
+    assert [o.kind for o in _defn([_prim_with_fill(
+        {"type": "solid", "color": ""})]).render_ops()] == [STROKE]
+    ops = _defn([_prim_with_fill({"type": "solid"})]).render_ops()
+    assert [o.kind for o in ops] == [FILL, STROKE]
+    assert (ops[0].colour, ops[0].alpha) == ("#888888", 115)
 
 
 def test_prim_refs_and_fill_ref_read_both_record_shapes(qapp):

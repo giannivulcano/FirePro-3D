@@ -110,6 +110,8 @@ def halo_is_area(item) -> bool:
         if draws_fill():                      # (reference, RG4) is no area
             return True
     else:
+        # Non-2D fallback: serves stand-ins that carry ``fill_layers`` but no
+        # ``_draws_fill`` (real 2D items take the branch above).
         fl = getattr(item, "fill_layers", None)
         if fl is not None and not fl.is_empty:
             return True

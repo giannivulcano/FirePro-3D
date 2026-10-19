@@ -31,8 +31,6 @@ def test_dm_swatch_tone_for_unknown_ref(qapp):
 
 
 def test_pattern_preview_background_parameter(qapp):
-    from PyQt6.QtGui import QColor
-    from firepro3d.hatch_render import pattern_preview
     pix = pattern_preview("no-such-pattern", QColor("#ff0000"), 40, 20, None,
                           background=QColor("#00ff00"))
     assert pix.width() == 40 and pix.height() == 20
