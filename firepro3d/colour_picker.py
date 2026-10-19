@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QRegularExpression, QSettings,
-                          pyqtSignal)
+                          QLocale, pyqtSignal)
 from PyQt6.QtGui import (QColor, QPainter, QPen, QLinearGradient, QBrush,
                          QRegularExpressionValidator, QDoubleValidator)
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
@@ -378,7 +378,9 @@ class ColourPickerDialog(HouseDialog):
             lay, "Recent", [(v, v) for v in rec] + [(None, "")] * (RECENTS_MAX - len(rec)))
 
         if mode == "pattern":
-            self._standard_row_chips[-1].hide()       # No Fill: the None chip owns "off"
+            for c in self._standard_row_chips:        # No Fill: the None chip owns "off"
+                if c.value == NO_FILL:
+                    c.hide()
         if mode in ("fill", "pattern"):
             self._build_fill_block(lay, registry, exclude)
 
@@ -450,15 +452,18 @@ class ColourPickerDialog(HouseDialog):
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         self._opacity = Stepper()
         self._opacity.setRange(0, 100)
-        self._opacity.setValue(round((layer.opacity if layer is not None else 1.0) * 100))
+        op0 = layer.opacity if isinstance(layer, (BackgroundLayer, PatternLayer)) else 1.0
+        self._opacity.setValue(round(op0 * 100))
         self._opacity.setToolTip("Fill opacity (0–100 %)")
         grid.addWidget(QLabel("Opacity"), 0, 0)
         grid.addWidget(self._opacity, 0, 1)
         grid.addWidget(QLabel("%"), 0, 2)
         if self._mode == "pattern":
-            self._scale = QLineEdit(f"{layer.scale:g}" if layer is not None else "1")
+            sc0 = layer.scale if isinstance(layer, PatternLayer) else 1.0
+            self._scale = QLineEdit(f"{sc0:g}")
             self._scale.setFixedHeight(M.PROP_FIELD_H)
             v = QDoubleValidator(0.0001, 1.0e6, 4, self)
+            v.setLocale(QLocale.c())               # _scale_value parses with float()
             v.setNotation(QDoubleValidator.Notation.StandardNotation)
             self._scale.setValidator(v)
             self._scale.setToolTip("Pattern scale (a positive multiplier)")

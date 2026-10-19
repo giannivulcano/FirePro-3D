@@ -146,3 +146,84 @@ def test_recents_record_colour_only(qapp, monkeypatch):
                                                          Qt.MouseButton.LeftButton))
     cp.pick_fill(None, None, pattern=False)
     assert cp.load_recents() == ["#0000FF"]
+
+
+# ── T5 review round: locale, needs_load, default colour, exclude, dbl-click ──
+
+def test_scale_field_is_locale_independent(qapp, monkeypatch, shipped_hatches):
+    from PyQt6.QtCore import QLocale
+    reg = shipped_hatches(None)
+    prior = QLocale()
+    QLocale.setDefault(QLocale(QLocale.Language.German, QLocale.Country.Germany))
+    try:
+        def drive(d):
+            QTest.mouseClick(d._pattern_chips[1], Qt.MouseButton.LeftButton)
+            d._scale.clear()
+            d._scale.setFocus()
+            QTest.keyClicks(d._scale, "2.5")
+            seen["acceptable"] = d._scale.hasAcceptableInput()
+        seen = {}
+        _accept_with(monkeypatch, drive)
+        got = cp.pick_fill(None, None, pattern=True, registry=reg)
+    finally:
+        QLocale.setDefault(prior)
+    # a German validator leaves "2.5" Intermediate (and accepts "2,5", which
+    # float() cannot parse): the field must treat "." as the decimal point
+    assert seen["acceptable"]
+    assert isinstance(got, PatternLayer) and got.scale == 2.5
+
+
+def test_pattern_needs_load_cases(qapp, tmp_path):
+    from PyQt6.QtCore import QPointF, QSettings
+    from firepro3d import app_data, block_library as bl, hatch_patterns as hp
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    root = tmp_path / "patterns_root"
+    root.mkdir()
+    QSettings("GV", "FirePro3D").setValue(app_data.HATCH_DIR_KEY, str(root))
+    pat = BlockDefinition.new(
+        name="Zig", library="System", series="Hatches", origin=(0.0, 0.0),
+        primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
+        tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
+    bl.save_to_library(pat, root=str(root))
+    ms = Model_Space()
+    assert hp.pattern_needs_load(pat.id, ms) is True            # library-only
+    assert hp.pattern_needs_load(None, ms) is False
+    assert hp.pattern_needs_load(pat.id, None) is False
+    assert hp.ensure_pattern_available(pat.id, ms) is True      # loads it
+    assert hp.pattern_needs_load(pat.id, ms) is False           # now in registry
+
+
+def test_pick_fill_pattern_default_colour_is_auto(qapp, monkeypatch, shipped_hatches):
+    reg = shipped_hatches(None)
+    seen = {}
+    def drive(d):
+        seen["ref"] = d._pattern_chips[1].value
+        QTest.mouseClick(d._pattern_chips[1], Qt.MouseButton.LeftButton)   # no colour click
+    _accept_with(monkeypatch, drive)
+    got = cp.pick_fill(None, None, pattern=True, registry=reg)
+    assert got == PatternLayer(seen["ref"], "token:auto", 1.0, 1.0)        # D2
+
+
+def test_exclude_removes_ref_from_chips_and_more_menu(qapp, monkeypatch, shipped_hatches):
+    from firepro3d.hatch_patterns import tile_choices
+    from firepro3d.theme import M
+    monkeypatch.setattr(M, "COLOUR_PATTERN_ROW_MAX", 2)
+    reg = shipped_hatches(None)
+    choices = tile_choices(reg, ())
+    in_row, in_menu = choices[0], choices[2]
+    d = _dlg(qapp, initial="token:auto", mode="pattern", registry=reg,
+             exclude=(in_row[1], in_menu[1]))
+    assert in_row[1] not in [c.value for c in d._pattern_chips]
+    assert in_menu[0] not in [a.text() for a in d._more_btn.menu().actions()]
+    assert len(d._pattern_chips) == 1 + 2                       # None + still a full row
+
+
+def test_pattern_chip_double_click_accepts_with_that_pattern(qapp, monkeypatch, shipped_hatches):
+    reg = shipped_hatches(None)
+    d = _dlg(qapp, initial="token:auto", mode="pattern", registry=reg)
+    chip = d._pattern_chips[2]
+    QTest.mouseDClick(chip, Qt.MouseButton.LeftButton)
+    assert d.result() == QDialog.DialogCode.Accepted
+    assert d.result_layer() == PatternLayer(chip.value, "token:auto", 1.0, 1.0)

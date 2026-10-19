@@ -180,6 +180,31 @@ def capability_choices(flag, folder_fn, registry=None, exclude=(), *,
     return out
 
 
+def capability_needs_load(ref, scene, folder_fn, *, keywords=()) -> bool:
+    """True when *ref* is a folder block not yet in the project registry.
+
+    The shared test behind ``ensure_capability_available``: a falsy ref, a
+    keyword, no scene, no registry, or an id already in the project registry
+    needs nothing; otherwise the ref needs a load when the folder holds it.
+
+    Args:
+        ref: The picked ref (a block id or a keyword).
+        scene: The scene the picked value lives in (plan or Block Editor).
+        folder_fn: Zero-arg callable -> ``[(name, block_id, path)]``.
+        keywords: Refs that are never block ids (nothing to load).
+
+    Returns:
+        True when picking *ref* would load a folder block.
+    """
+    if not ref or ref in keywords or scene is None:
+        return False
+    project = getattr(scene, "_block_registry_owner", None) or scene
+    reg = getattr(project, "block_registry", None)
+    if reg is None or reg.get(ref) is not None:
+        return False
+    return any(bid == ref for _name, bid, _path in folder_fn())
+
+
 def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
     """Load a folder block into the project before its id is stored.
 
@@ -198,12 +223,9 @@ def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
         False only when *ref* is a folder block that failed to load (the
         caller must not keep it); True otherwise.
     """
-    if not ref or ref in keywords or scene is None:
+    if not capability_needs_load(ref, scene, folder_fn, keywords=keywords):
         return True
     project = getattr(scene, "_block_registry_owner", None) or scene
-    reg = getattr(project, "block_registry", None)
-    if reg is None or reg.get(ref) is not None:
-        return True
     for name, bid, path in folder_fn():
         if bid == ref:
             from .blocks_browser import ensure_block_loaded
