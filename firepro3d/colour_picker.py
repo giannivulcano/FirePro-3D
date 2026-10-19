@@ -12,16 +12,19 @@ can monkeypatch one attribute. See docs/specs/ui-design-system.md.
 """
 from __future__ import annotations
 
+import math
+
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QRegularExpression, QSettings,
                           pyqtSignal)
 from PyQt6.QtGui import (QColor, QPainter, QPen, QLinearGradient, QBrush,
-                         QRegularExpressionValidator)
+                         QRegularExpressionValidator, QDoubleValidator)
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QLineEdit, QGridLayout, QDialog, QDialogButtonBox,
-                             QPushButton)
+                             QPushButton, QToolButton, QMenu)
 
 from .colour_tokens import is_token, resolve_colour, token_label
 from .constants import TOKEN_ACCENT, TOKEN_AUTO
+from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .house_dialog import HouseDialog
 from .theme import M, detect
 from .ui_kit import Stepper, paint_no_fill
@@ -242,6 +245,63 @@ class _PaletteChip(QWidget):
             self.committed.emit(self.value)
 
 
+class _PatternChip(QWidget):
+    """Pattern-row chip (UP1): ``value`` is a tile ref, or None for the None
+    chip (pattern off). Painted by the shared preview (``pattern_preview``)."""
+    picked = pyqtSignal(object)
+    committed = pyqtSignal(object)
+
+    def __init__(self, value, tip, registry=None, parent=None, theme=None):
+        super().__init__(parent)
+        self._t = theme
+        self.value = value
+        self.selected = False
+        self._registry = registry
+        self._colour = QColor("#808080")      # theme-exempt: replaced by set_colour before show
+        self.setFixedSize(M.COLOUR_PATTERN_CHIP_W, M.COLOUR_CHIP)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tip)
+
+    def set_selected(self, on):
+        self.selected = on
+        self.update()
+
+    def set_colour(self, qc):
+        self._colour = QColor(qc)
+        self.update()
+
+    def paintEvent(self, e):
+        t = self._t or detect()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        ring = M.COLOUR_SEL_RING
+        r = QRectF(self.rect()).adjusted(ring + 0.5, ring + 0.5, -ring - 0.5, -ring - 0.5)
+        rad = M.COLOUR_CHIP_RADIUS
+        if self.value is None:
+            paint_no_fill(p, r, rad)
+        else:
+            from .hatch_render import pattern_preview
+            p.drawPixmap(r.toRect(), pattern_preview(
+                self.value, self._colour, max(1, int(r.width())),
+                max(1, int(r.height())), self._registry,
+                background=QColor(t.bg_sunken)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(t.line_strong), 1))
+        p.drawRoundedRect(r, rad, rad)
+        if self.selected:
+            p.setPen(QPen(QColor(t.accent), ring))
+            o = QRectF(self.rect()).adjusted(ring / 2, ring / 2, -ring / 2, -ring / 2)
+            p.drawRoundedRect(o, rad + 1, rad + 1)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.picked.emit(self.value)
+
+    def mouseDoubleClickEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.committed.emit(self.value)
+
+
 def _section_label(text):
     lbl = QLabel(text.upper())
     lbl.setProperty("role", "overline")          # build_dialog_qss: accent 10px 600
@@ -252,12 +312,24 @@ class ColourPickerDialog(HouseDialog):
     """House colour picker. Read the outcome with ``result_value()``."""
 
     def __init__(self, parent=None, *, initial="#000000", context="",
-                 theme=None):
+                 theme=None, mode="colour", layer=None, registry=None,
+                 exclude=()):
+        """``mode``: ``"colour"`` (today's dialog), ``"fill"`` (adds Opacity;
+        No Fill = background off) or ``"pattern"`` (adds the Pattern row,
+        Opacity and Scale; No Fill hidden). ``layer`` seeds the Fill block."""
         super().__init__(parent, title="Colour", icon=None, theme=theme)
         self.setFixedWidth(M.COLOUR_DLG_W)
         self._token = initial if is_token(initial) else None
         self._syncing = False
         self._chips: list[_PaletteChip] = []
+        self._mode = mode
+        self._layer = layer
+        self._pattern_ref = layer.ref if isinstance(layer, PatternLayer) else None
+        self._pattern_chips: list[_PatternChip] = []
+        self._more_btn = None
+        self._opacity = None
+        self._scale = None
+        self._result_layer = None
         if initial == NO_FILL:
             start = NO_FILL
         elif self._token:
@@ -304,6 +376,11 @@ class ColourPickerDialog(HouseDialog):
         rec = load_recents()
         self._recent_row_chips = self._add_row(
             lay, "Recent", [(v, v) for v in rec] + [(None, "")] * (RECENTS_MAX - len(rec)))
+
+        if mode == "pattern":
+            self._standard_row_chips[-1].hide()       # No Fill: the None chip owns "off"
+        if mode in ("fill", "pattern"):
+            self._build_fill_block(lay, registry, exclude)
 
         btns = self.set_footer_buttons(primary=("OK", self.accept), cancel=True)
         self._ok_btn = btns["primary"]
@@ -361,6 +438,90 @@ class ColourPickerDialog(HouseDialog):
         self._chips.extend(chips)
         return chips
 
+    def _build_fill_block(self, lay, registry, exclude):
+        """Fill block below the Recent row (D3): Pattern row (pattern mode),
+        Opacity, Scale (pattern mode)."""
+        lay.addSpacing(M.COLOUR_SEC_GAP)
+        lay.addWidget(_section_label("Fill"))
+        lay.addSpacing(4)
+        layer = self._layer
+        if self._mode == "pattern":
+            self._add_pattern_row(lay, registry, exclude)
+        grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
+        self._opacity = Stepper()
+        self._opacity.setRange(0, 100)
+        self._opacity.setValue(round((layer.opacity if layer is not None else 1.0) * 100))
+        self._opacity.setToolTip("Fill opacity (0–100 %)")
+        grid.addWidget(QLabel("Opacity"), 0, 0)
+        grid.addWidget(self._opacity, 0, 1)
+        grid.addWidget(QLabel("%"), 0, 2)
+        if self._mode == "pattern":
+            self._scale = QLineEdit(f"{layer.scale:g}" if layer is not None else "1")
+            self._scale.setFixedHeight(M.PROP_FIELD_H)
+            v = QDoubleValidator(0.0001, 1.0e6, 4, self)
+            v.setNotation(QDoubleValidator.Notation.StandardNotation)
+            self._scale.setValidator(v)
+            self._scale.setToolTip("Pattern scale (a positive multiplier)")
+            grid.addWidget(QLabel("Scale"), 1, 0)
+            grid.addWidget(self._scale, 1, 1)
+        grid.setColumnStretch(3, 1)
+        lay.addLayout(grid)
+
+    def _add_pattern_row(self, lay, registry, exclude):
+        """None chip, the first ``M.COLOUR_PATTERN_ROW_MAX`` tiles, then
+        "More..." with the rest (``tile_choices`` -- the one pattern source).
+        An unresolvable current ref shows first as a missing chip (D-A36)."""
+        from .hatch_patterns import MISSING_PATTERN_LABEL, tile_choices
+        choices = tile_choices(registry, exclude)
+        refs = [r for _n, r in choices]
+        row = QHBoxLayout(); row.setSpacing(M.COLOUR_CHIP_GAP); row.setContentsMargins(0, 0, 0, 0)
+        shown = [(None, "None (no pattern)")]
+        if self._pattern_ref is not None and self._pattern_ref not in refs:
+            shown.append((self._pattern_ref, MISSING_PATTERN_LABEL))
+        shown += [(r, n) for n, r in choices[:M.COLOUR_PATTERN_ROW_MAX]]
+        for value, tip in shown:
+            c = _PatternChip(value, tip, registry, theme=self._theme)
+            c.picked.connect(self._on_pattern)
+            c.committed.connect(self._on_pattern_commit)
+            row.addWidget(c)
+            self._pattern_chips.append(c)
+        rest = choices[M.COLOUR_PATTERN_ROW_MAX:]
+        if rest:
+            btn = QToolButton()
+            btn.setText("More…")
+            btn.setCheckable(True)
+            btn.setToolTip("More patterns")
+            menu = QMenu(btn)
+            for name, ref in rest:
+                act = menu.addAction(name)
+                act.triggered.connect(lambda _=False, r=ref: self._on_pattern(r))
+            btn.setMenu(menu)
+            btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            row.addWidget(btn)
+            self._more_btn = btn
+        row.addStretch(1)
+        lay.addLayout(row)
+
+    def _on_pattern(self, ref):
+        self._pattern_ref = ref
+        self._sync_widgets()
+
+    def _on_pattern_commit(self, ref):
+        self._on_pattern(ref)
+        self.accept()
+
+    def _scale_value(self) -> float:
+        prior = self._layer.scale if isinstance(self._layer, PatternLayer) else 1.0
+        try:
+            v = float(self._scale.text())
+        except (TypeError, ValueError):
+            return prior
+        return v if math.isfinite(v) and v > 0.0 else prior
+
+    def result_layer(self):
+        """Fill-mode outcome: a layer, ``NO_LAYER`` (layer off) or None (cancelled)."""
+        return self._result_layer
+
     # ── state ──────────────────────────────────────────────────────────────
     def current_value(self) -> str:
         if self._token:
@@ -401,6 +562,14 @@ class ColourPickerDialog(HouseDialog):
                 st.setValue(val)
             for chip in self._chips:
                 chip.set_selected(chip.value is not None and chip.value == v)
+            if self._pattern_chips:
+                shown = False
+                for chip in self._pattern_chips:
+                    chip.set_selected(chip.value == self._pattern_ref)
+                    chip.set_colour(self._color)
+                    shown = shown or chip.value == self._pattern_ref
+                if self._more_btn is not None:
+                    self._more_btn.setChecked(not shown)
         finally:
             self._syncing = False
 
@@ -449,11 +618,24 @@ class ColourPickerDialog(HouseDialog):
     # ── outcome ────────────────────────────────────────────────────────────
     def accept(self):
         self._result_value = self.current_value()
-        push_recent(self._result_value)          # no-op for NO_FILL
+        push_recent(self._result_value)          # no-op for NO_FILL; colour only
+        if self._mode in ("fill", "pattern"):
+            v = self._result_value
+            col = v.lower() if v.startswith("#") else v
+            op = self._opacity.value() / 100.0
+            if self._mode == "fill":
+                self._result_layer = (NO_LAYER if v == NO_FILL
+                                      else BackgroundLayer(col, op))
+            elif self._pattern_ref is None:
+                self._result_layer = NO_LAYER
+            else:
+                self._result_layer = PatternLayer(self._pattern_ref, col, op,
+                                                  self._scale_value())
         super().accept()
 
     def reject(self):
         self._result_value = None
+        self._result_layer = None
         super().reject()
 
 
@@ -470,3 +652,33 @@ def pick_colour(initial, parent=None, context=""):
     finally:
         dlg.deleteLater()
     return None if v is None else v.lower()
+
+
+def pick_fill(initial, parent=None, *, pattern: bool, context="",
+              registry=None, exclude=()):
+    """Open the picker in fill mode (``pattern=False``: background colour +
+    opacity) or pattern mode (pattern + colour + opacity + scale).
+
+    Args:
+        initial: The current ``BackgroundLayer`` / ``PatternLayer``, or None.
+        parent: Dialog parent.
+        pattern: Pattern mode when True.
+        context: Header context label.
+        registry: Project block registry for the Pattern row (pattern mode).
+        exclude: Tile ids the Pattern row must not offer (``picker_exclude``).
+
+    Returns:
+        A layer, ``NO_LAYER`` (turn the layer off) or None (cancelled).
+    """
+    if initial is not None:
+        colour = initial.color
+    else:
+        colour = TOKEN_AUTO if pattern else NO_FILL      # D2 / unfilled shape
+    dlg = ColourPickerDialog(parent, initial=colour, context=context,
+                             mode="pattern" if pattern else "fill",
+                             layer=initial, registry=registry, exclude=exclude)
+    try:
+        code = dlg.exec()
+        return dlg.result_layer() if code == QDialog.DialogCode.Accepted else None
+    finally:
+        dlg.deleteLater()

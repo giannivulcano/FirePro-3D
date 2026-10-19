@@ -229,6 +229,8 @@ class _Metrics:
     COLOUR_CHIP_RADIUS = 3      # chip corner radius
     COLOUR_SEL_RING = 2         # selected-chip accent ring width
     COLOUR_SEC_GAP = 12         # space above each palette section label
+    COLOUR_PATTERN_CHIP_W = 40  # picker Pattern-row preview chip width (UP1)
+    COLOUR_PATTERN_ROW_MAX = 6  # preview tiles shown before "More..." (UP1)
     COLOUR_PREVIEW_H = 40       # New/Current preview chip height
 
     # Block Editor Open… picker (block_open_dialog.py — mockup values 2026-09-30)

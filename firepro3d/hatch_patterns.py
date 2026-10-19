@@ -352,6 +352,20 @@ def ensure_pattern_available(ref: str | None, scene) -> bool:
     return ensure_capability_available(ref, scene, library_patterns)
 
 
+def pattern_needs_load(ref: str | None, scene) -> bool:
+    """True when *ref* is a Hatch-patterns-folder pattern not yet in the
+    project (picking it loads it, D-A37) -- the same test
+    ``ensure_capability_available`` makes before loading."""
+    ref = canonical_ref(ref)
+    if not ref or scene is None:
+        return False
+    project = getattr(scene, "_block_registry_owner", None) or scene
+    reg = getattr(project, "block_registry", None)
+    if reg is None or reg.get(ref) is not None:
+        return False
+    return any(bid == ref for _name, bid, _path in library_patterns())
+
+
 def _fill_ref(primitive) -> str | None:
     if not isinstance(primitive, dict):
         return None
