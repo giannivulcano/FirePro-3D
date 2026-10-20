@@ -923,10 +923,13 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     mm per model mm), so a raw ``lw_mm`` would plot at ``lw_mm × paper_scale`` —
     a sub-pixel hairline at architectural scales. Dividing by ``paper_scale``
     (non-cosmetic) makes it plot at ``lw_mm`` on paper regardless of scale,
-    matching the gridline/underlay convention (§9.9.1).
+    matching the gridline/underlay convention (§9.9.1). A named authored
+    weight replaces the category weight (LT2-5 / WM-12); the category weight
+    is the By Linetype / unstyled fallback.
     """
     from PyQt6.QtGui import QColor
     from .colour_tokens import is_token, resolve_colour   # circular at import time
+    from .stroke_style import is_named_weight             # circular at import time
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         if color_mode != PaperColorMode.FULL_COLOR:
@@ -940,7 +943,14 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
                    or (st.get("colour") if st is not None else None))
             if is_token(tok):
                 pen.setColor(resolve_colour(tok, item=item))
-        pen.setWidthF(lw_mm / max(paper_scale, 1e-9))
+        # LT2-5 on paper: a named weight (after the LT3-8 cascade -- By
+        # Linetype takes a dashed linetype's dash weight) plots at its own
+        # mm; By Linetype with no dash weight / unstyled -> the category.
+        rs_fn = getattr(item, "_resolved_stroke", None)
+        rs = rs_fn() if rs_fn is not None else None
+        mm = (resolve_line_weight_mm(rs.weight)
+              if rs is not None and is_named_weight(rs.weight) else lw_mm)
+        pen.setWidthF(mm / max(paper_scale, 1e-9))
         pen.setCosmetic(False)
         item.setPen(pen)
     item.setOpacity(cat["opacity"] / 100.0)

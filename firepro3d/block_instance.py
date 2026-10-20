@@ -40,9 +40,9 @@ from .render_op import (STROKE, FILL, PATTERN, TEXT, apply_overrides,
                         pattern_orient as _pattern_orient)
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
-from .stroke_style import (BY_BLOCK, BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
+from .stroke_style import (BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
                            canvas_px, has_ends, is_as_authored, is_end_ref,
-                           is_linetype_ref, linetype_block,
+                           is_linetype_ref, is_named_weight, linetype_block,
                            normalize_overrides, override_args, resolve_ends,
                            resolve_stroke)
 
@@ -1174,10 +1174,9 @@ class BlockInstance(QGraphicsObject):
         (``_paper_pen_width``); a named weight plots at its own mm divided by
         the viewport scale (the §9.9.1 pattern).
         """
-        w = weight
-        if w is None or w in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY) or not self._paper_scale:
+        if not is_named_weight(weight) or not self._paper_scale:
             return self._paper_pen_width
-        return _pd.resolve_line_weight_mm(w) / max(self._paper_scale, 1e-9)
+        return _pd.resolve_line_weight_mm(weight) / max(self._paper_scale, 1e-9)
 
     def _paint_fill_op(self, painter, pose, op) -> None:
         """Fill / pattern op: boundary posed; pattern stamped in the pose's
