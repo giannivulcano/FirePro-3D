@@ -295,3 +295,43 @@ class TestPlacedInstance:
             plan.place_block_instance(defn.id, (0.0, 0.0))
             img = _render(plan, QRectF(0, 0, 120, 120))
             assert (not _is_white(_px(img, 10, 60))) is expect_ink, outline
+
+
+class TestReviewGuards:
+    def test_halo_is_area_with_empty_fill(self, qapp):
+        from firepro3d.halo import halo_is_area
+        r = ring_region()
+        r.fill_layers = FillLayers()
+        r.outline = False
+        assert halo_is_area(r) is True
+
+    def test_outline_on_default_colour_resolves_to_theme_ink(self, qapp):
+        from firepro3d.colour_tokens import resolve_colour
+        from firepro3d.constants import TOKEN_AUTO
+        r = ring_region()
+        r.fill_layers = FillLayers()
+        r.outline = True
+        assert getattr(r, "_display_color", None) is None
+        s = QGraphicsScene()
+        s.addItem(r)
+        img = _render(s)
+        # theme ink may be white under a dark theme: assert the pen colour
+        assert r.pen().color() == resolve_colour(TOKEN_AUTO, item=r)
+        ink = resolve_colour(TOKEN_AUTO, item=r)
+        if not _is_white(ink):
+            assert not _is_white(_px(img, 10, 60))
+
+    def test_empty_fill_round_trips_with_no_key(self, qapp):
+        r = ring_region()
+        r.fill_layers = FillLayers()
+        d = r.to_dict()
+        assert "fill" not in d
+        assert FilledRegionItem.from_dict(d).fill_layers == FillLayers()
+
+    def test_unknown_piece_type_logs_a_warning(self, qapp, caplog):
+        import logging
+        d = ring_region().to_dict()
+        d["loops"][1][0]["type"] = "no_such_type"
+        with caplog.at_level(logging.WARNING, logger="firepro3d.filled_region"):
+            FilledRegionItem.from_dict(d)
+        assert any("unknown" in m and "no_such_type" in m for m in caplog.messages)

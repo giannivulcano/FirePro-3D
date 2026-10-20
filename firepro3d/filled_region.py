@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QStyle
 from .constants import TOKEN_AUTO, Z_FILLED_REGION
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import BackgroundLayer, FillLayers
-from .geometry_2d import Geometry2DMixin, _scene_hit_width
+from .geometry_2d import Geometry2DMixin, _manip_wraps, _scene_hit_width
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
     """A static-boundary area object (type ``"draw_filled_region"``)."""
 
     _REFERENCE_CAPABLE = False      # no Reference form (like text)
+    HALO_AREA = True    # D-A26: halo measures the area even with no fill (flag list: selection-mode.md 4.1)
 
     def __init__(self, loops: list[list[dict]] | None = None,
                  color: str = TOKEN_AUTO, lineweight: float = 1.0):
@@ -156,7 +157,7 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
             self._paint_routed_stroke(painter, option, widget, rs,
                                       lambda p: p.drawPath(self.path()))
             self._paint_lt_badge(painter)
-        elif self.isSelected():
+        elif self.isSelected() and not _manip_wraps(self):
             # Invisible outline: a dashed cosmetic trace is the only selection cue.
             pen = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
@@ -185,7 +186,6 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
                   data.get("lineweight", 1.0))
         obj.outline = bool(data.get("outline", False))
         obj._geom2d_from_dict(data)
-        obj._rebuild_path()
         return obj
 
     # -- panel -------------------------------------------------------------
