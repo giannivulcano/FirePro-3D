@@ -32,7 +32,8 @@ from PyQt6.QtCore import QSettings
 
 from .constants import DEFAULT_LEVEL
 from . import theme as th
-from .colour_tokens import resolve_colour, resolve_pen_brush
+from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
+from .displayable_item import draw_section_hatch
 from .halo_selection import HaloSelectionMixin
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
 
@@ -241,6 +242,37 @@ class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, _SrcEllipse):
     """Read-only ellipse proxy (sprinklers)."""
 
     HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
+
+
+class _ElevCutRect(_ElevProxyRect):
+    """A cut cross-section (wall / slab): Section colour body + Section
+    pattern hatch inside the rect, outline in the category Colour (s5)."""
+
+    _section_src = None
+    _pattern = "diagonal"
+    _hatch_scene = None      # the model scene (pattern registry / drafting factor)
+
+    def set_section(self, section_src, pattern, hatch_scene):
+        self._section_src = section_src
+        self._pattern = pattern or "diagonal"
+        self._hatch_scene = hatch_scene
+
+    def _draw_shape(self, painter):
+        pen, _brush = self.resolved_pen_brush()
+        path = QPainterPath()
+        path.addRect(self.rect())
+        draw_section_hatch(painter, path, self._hatch_scene,
+                           color=pen.color(), pattern=self._pattern,
+                           line_width=1.0,
+                           section_fill=section_fill_colour(self._section_src, self),
+                           hatch_scale=1.0)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(self.rect())
+
+
+class _ElevCutEllipse(_ElevProxyEllipse):
+    """A cut pipe: filled circle of the drawn OD in the Section colour (s5)."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -998,6 +1030,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._project_floor_slabs()
         self._project_roofs()
         self._project_gridlines()
+        self._render_cut_items()
         self._project_geometry_2d()
         self._assign_depth_z_values()
 
@@ -1098,9 +1131,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if zone == ZONE_HIDDEN:
                 continue
             if zone == ZONE_CUT:
-                # Task 5 renders the cross-section; until then a cut wall
-                # falls through to the behind rendering below.
                 self._cut_items.append(("wall", wall, (h_lo, h_hi, base_z, top_z)))
+                continue
 
             # Project to elevation H axis
             h_values = [self._project(wx, wy, 0)[0]
@@ -1286,8 +1318,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if zone == ZONE_HIDDEN:
                 continue
             if zone == ZONE_CUT:
-                # Task 5 draws the cut circle; until then fall through.
                 self._cut_items.append(("pipe", pipe, (h_cut, z1 + t_cut * (z2 - z1))))
+                continue
 
             h1, v1 = self._project(wx1, wy1, z1)
             h2, v2 = self._project(wx2, wy2, z2)
@@ -1407,8 +1439,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if zone == ZONE_HIDDEN:
                 continue
             if zone == ZONE_CUT:
-                # Task 5 draws the chord; until then fall through.
                 self._cut_items.append(("slab", slab, (h_lo, h_hi, bot_z, top_z)))
+                continue
             clipped = self._clip_h(h_min, h_max)
             if clipped is None:
                 continue
@@ -1512,6 +1544,78 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             rect.setZValue(-70)
             self.addItem(rect)
 
+    # ── Cut items (spec s5) ──────────────────────────────────────────────
+
+    def _render_cut_items(self):
+        """Draw every footprint the classification put AT the cut (s5)."""
+        from .constants import PIPE_COLORS as _PIPE_COLORS
+        wall_props = self._wall_display_props()
+        floor_props = self._floor_display_props()
+        pipe_sec = self._pipe_display_props()["section"]
+        pen_black = QPen(QColor(0, 0, 0), 1)
+        pen_black.setCosmetic(True)
+        for kind, src, data in self._cut_items:
+            if kind in ("wall", "slab"):
+                props = wall_props if kind == "wall" else floor_props
+                h_lo, h_hi, z_bot, z_top = data
+                spans = (self._wall_cut_spans(src, z_bot, z_top) if kind == "wall"
+                         else [(z_bot, z_top)])
+                for z0, z1 in spans:
+                    if z1 - z0 < 1.0 or h_hi - h_lo < 0.5:
+                        continue
+                    rect = _ElevCutRect(h_lo, -z1, h_hi - h_lo, z1 - z0)
+                    rect.setPen(pen_black)
+                    rect.set_colour_src(pen=props["color"])
+                    rect.set_section(props["section"], props["section_pattern"], self._ms)
+                    rect.setOpacity(props["opacity"] / 100.0)
+                    rect.setData(_ROLE_SOURCE, src)
+                    rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                    self.addItem(rect)
+                    self._register_depth_item(0.0, rect)
+            elif kind == "pipe":
+                h, z = data
+                od = src.display_width_mm() * getattr(src, "_display_scale", 1.0)
+                col_name = src._properties.get("Colour", {}).get("value", "Red")
+                own = _PIPE_COLORS.get(col_name, "#e62828")
+                circ = _ElevCutEllipse(h - od / 2.0, -z - od / 2.0, od, od)
+                pen = QPen(QColor(own), 1)
+                pen.setCosmetic(True)
+                circ.setPen(pen)
+                circ.set_colour_src(pen=own, brush=pipe_sec or own)
+                circ.setData(_ROLE_SOURCE, src)
+                circ.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                self.addItem(circ)
+                self._register_depth_item(0.0, circ)
+
+    def _wall_cut_spans(self, wall, base_z: float, top_z: float) -> list[tuple[float, float]]:
+        """Vertical spans of the cut face: the whole wall, or -- when the
+        crossing falls inside an opening -- below the sill (windows) and above
+        the head (s5). Scene coords for the along-wall test."""
+        import math as _math
+        a = wall.centerline_angle_rad()
+        p1 = wall.centerline_pt1
+        ux, uy = _math.cos(a), _math.sin(a)
+        ma, mb = self._marker.cut_a, self._marker.cut_b
+        cx, cy = mb.x() - ma.x(), mb.y() - ma.y()
+        den = ux * cy - uy * cx
+        if abs(den) < 1e-9:
+            return [(base_z, top_z)]                       # collinear: no opening carve
+        t = ((ma.x() - p1.x()) * cy - (ma.y() - p1.y()) * cx) / den   # along-wall offset
+        for op in getattr(wall, "openings", None) or []:
+            half = op.width_scene() / 2.0
+            if not (op._offset_along - half <= t <= op._offset_along + half):
+                continue
+            op_lvl = getattr(op, "level", None) or getattr(wall, "_base_level", None)
+            z0 = (self._level_z(op_lvl) if op_lvl else 0.0) + op._sill_mm
+            z1 = z0 + op._height_mm
+            spans = []
+            if getattr(op, "_type", "blank") == "window" and z0 > base_z:
+                spans.append((base_z, min(z0, top_z)))
+            if z1 < top_z:
+                spans.append((max(z1, base_z), top_z))
+            return spans
+        return [(base_z, top_z)]
+
     # ── Display manager helpers ──────────────────────────────────────────
 
     def _wall_display_props(self) -> dict:
@@ -1523,6 +1627,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             "opacity": int(float(s.value("display/Wall/opacity", 100))),
             "visible": str(s.value("display/Wall/visible", "true")).lower() not in ("false", "0"),
             "has_explicit_fill": s.contains("display/Wall/fill"),
+            "section": s.value("display/Wall/section", "#666666"),
+            "section_pattern": s.value("display/Wall/section_pattern", "diagonal"),
         }
 
     def _roof_display_props(self) -> dict:
@@ -1543,7 +1649,14 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             "fill":    s.value("display/Floor/fill",    "#8888cc"),
             "opacity": int(float(s.value("display/Floor/opacity", 100))),
             "visible": str(s.value("display/Floor/visible", "true")).lower() not in ("false", "0"),
+            "section": s.value("display/Floor/section", "#666666"),
+            "section_pattern": s.value("display/Floor/section_pattern", "diagonal"),
         }
+
+    def _pipe_display_props(self) -> dict:
+        """Read the Pipe Section colour (None in the default row)."""
+        s = QSettings("GV", "FirePro3D")
+        return {"section": s.value("display/Pipe/section", None)}
 
     def _gridline_display_props(self) -> dict:
         """Read Grid Line display properties from QSettings (display manager)."""
