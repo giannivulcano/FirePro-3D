@@ -2612,7 +2612,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_line": "Line", "draw_rectangle": "Rectangle",
         "draw_circle": "Circle", "draw_ellipse": "Ellipse", "draw_arc": "Arc",
         "draw_spline": "Spline", "polyline": "Polyline", "polygon": "Polygon",
-        "text": "Text", "dimension": "Dimension",
+        "text": "Text", "dimension": "Dimension", "pick_region": "Pick Point",
         # Edit / Modify (scene-tools.md)
         "copy_base": "Copy", ModifyToolsController.CUT_BUTTON_KEY: "Cut",
         "paste": "Paste", "duplicate": "Duplicate", "move": "Move",
@@ -3351,7 +3351,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             elif label == "Paste":
                 b.setEnabled(scene.clipboard_payload() is not None)
         if fb is not None and not sip.isdeleted(fb):
-            fb.setEnabled(bool(Model_Space.fill_candidates(selected)))
+            fb.setEnabled(True)      # HF4 AC1: no selection -> Pick point; candidates -> HF3
         self._refresh_constrain_buttons()
 
     def _connect_modify_refresh(self, scene) -> None:
@@ -5096,11 +5096,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Text — the 9th primitive (contract C5). Authored here (and in Paper)
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
-        # Fill (HF3 R8): a button, not a mode -- fires like Explode.
+        # Fill (HF3 R8 / HF4 AC1): a button, not a mode -- with no boundary candidates selected it enters Pick point.
         self._be_fill_btn = _editor_only(
             g.add_small_button("Fill", _I("fill_icon.svg"),
                                lambda: self._active_scene().fill_selected_items()),
-            "Fill — make a Filled Region from the selected closed outline(s)")
+            "Fill: select closed curves, or click with nothing selected to pick a point")
 
         # --- Edit + Modify (scene-tools.md D1; editor-only) ---
         self._be_modify_buttons = {

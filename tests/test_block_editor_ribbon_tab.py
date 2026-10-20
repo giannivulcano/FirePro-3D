@@ -449,26 +449,33 @@ def test_closing_last_editor_to_empty_canvas_leaves_page_disabled(mw, qapp):
 
 # ── HF3: the Fill button (R8) ────────────────────────────────────────────────
 
-def test_fill_button_is_editor_only_and_selection_gated(mw, qapp):
+def test_fill_button_is_editor_only_always_enabled(mw, qapp):
+    """HF4 AC1: Fill is live whenever a Block Editor is active -- with nothing
+    selected it enters Pick point; with boundary candidates it runs HF3."""
     from PyQt6.QtCore import QPointF
     from firepro3d.geometry_2d import LineItem
     mw.block_editor_manager.open_new()
     qapp.processEvents()
     fill = _buttons(_group(_page(mw, PAGE), "2D Geometry"))["Fill"]
     assert fill is mw._be_fill_btn and fill in _editor_only_buttons(mw)
-    assert fill.toolTip() == "Fill — make a Filled Region from the selected closed outline(s)"
-    assert not fill.isEnabled()                              # empty selection
+    assert fill.toolTip() == "Fill: select closed curves, or click with nothing selected to pick a point"
+    mw._refresh_modify_buttons()
+    assert fill.isEnabled()                                  # empty selection: still enabled
     es = _editors(mw)[0].editor_scene
+    QTest.mouseClick(fill, Qt.MouseButton.LeftButton)        # nothing selected -> Pick point
+    qapp.processEvents()
+    assert es.mode == "pick_region"
+    es.set_mode(None)
     a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
     for ln in (LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, a)):
         es.addItem(ln); es._draw_lines.append(ln); ln.setSelected(True)
     qapp.processEvents()
     mw._refresh_modify_buttons()
     assert fill.isEnabled()
-    QTest.mouseClick(fill, Qt.MouseButton.LeftButton)         # the real button -> fill_selected_items
+    QTest.mouseClick(fill, Qt.MouseButton.LeftButton)        # candidates -> HF3 chain closure
     qapp.processEvents()
     assert len(es._filled_regions) == 1 and es.selectedItems() == es._filled_regions
     mw._refresh_modify_buttons()
-    assert not fill.isEnabled()                              # a region alone is no candidate (R15)
+    assert fill.isEnabled()                                  # a region alone is no candidate, but the button stays live
     mw.central_tabs.setCurrentIndex(_plan_index(mw))
     qapp.processEvents()

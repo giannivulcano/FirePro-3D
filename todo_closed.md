@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Hatch & Fill — HF4 Pick-point region finder — 2026-10-20
+
+- [x] [type:feature] HF4 — Pick-point region finder: windowed arrangement from `halo_scene_path` edges, 1 mm weld, face-at-click with islands, exact-curve rebuild, hover preview + "Not enclosed" hint [subject:CAD] [P1] [done:2026-10-20]
+  - Build: branch `feat/hf4-pick-region` (16 commits, a165f399..b523515c); design `docs/superpowers/specs/2026-10-20-hf4-pick-region-design.md` (AC1-AC9). Shipped `region_finder.py` (flatten + bucket split, 1 mm weld + T-gap, prune with open ends, half-edge face walk, one-level islands, exact Line/Arc/Circle/Bezier-chain rebuild via `geometry_2d.bezier_sub`), `pick_region` mode in `model_space.py` (Fill with no candidates enters it; cached windowed arrangement, doubling window, boundary nudge, shared `_commit_region`, 150 ms debounce fallback), hover overlay in `model_view.drawForeground` (accent tint + trace, red Not-enclosed label + open-end ring), Fill button always live in the Block Editor. Snap-engine region snaps were already shipped by HF3 (stale in the line). Guards: `tests/test_region_finder.py`, `tests/test_pick_region_mode.py`, `tests/test_pick_region_perf.py` (G12: grid median 30.7 ms, circles 9.6 ms vs 50 ms bar, idle host). Smoke 13 rows passed 2026-10-20. VC6 full suite skipped on the user's instruction (keep-green 188 passed).
+  - Details: concept HD3; D-A3–D-A6. Perf bar ≤ 50 ms/move on ~500 primitives (confirm bench with user first). Guards G1, G2, G12 (hover bar). Depends HF3. New `region_finder.py`, `model_space.py`, `snap_engine.py` (region boundary snaps). Tier Large.
+  - +1 occurrence 2026-10-20 (HF3 smoke, user ruling): the user's intended creation is click-inside-a-face (circle + two crossing lines -> 4 quadrants), which HF3's chain closure refuses by design (R3). Ratified at the HF3 smoke gate: (a) keep both modes -- the HF3 Select-objects Fill button stays, Pick point is a second entry; (b) one click = the face under it only (one region per click; two opposite quadrants = two regions), no accumulate mode; (c) HF4 runs as its own /todo after HF3 merges. Build on HF3's `FilledRegionItem.from_pieces` and the add/select/undo tail of `model_space.fill_selected_items` (share it, don't copy it).
+
 ## Hatch & Fill — HF3 FilledRegion primitive + Select-objects creation + D-A13 + H9 — 2026-10-20
 
 - [x] [type:feature] HF3 — FilledRegion primitive (for areas that are not one shape) + Select-objects creation + modify-tool rules D-A13 + dead-code removal (H9) [subject:CAD] [P1] [done:2026-10-20]

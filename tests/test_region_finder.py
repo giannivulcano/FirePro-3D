@@ -1,0 +1,334 @@
+"""region_finder guards (HF4 design, Verification Checklist). Later tasks append classes."""
+import math
+
+import pytest
+from PyQt6.QtCore import QPointF, QRectF
+
+
+def _bez_pt(b, t):
+    u = 1.0 - t
+    return (u**3 * b[0][0] + 3*u*u*t * b[1][0] + 3*u*t*t * b[2][0] + t**3 * b[3][0],
+            u**3 * b[0][1] + 3*u*u*t * b[1][1] + 3*u*t*t * b[2][1] + t**3 * b[3][1])
+
+
+class TestBezierSub:
+    def test_sub_bezier_matches_source_curve(self):
+        from firepro3d.geometry_2d import bezier_sub
+        b = ((0.0, 0.0), (30.0, 80.0), (70.0, -40.0), (100.0, 10.0))
+        sub = bezier_sub(b, 0.25, 0.75)
+        assert len(sub) == 4
+        for k in range(11):
+            s = k / 10
+            x, y = _bez_pt(sub, s)
+            ex, ey = _bez_pt(b, 0.25 + 0.5 * s)
+            assert math.hypot(x - ex, y - ey) < 1e-9
+
+    def test_constants_exist(self):
+        from firepro3d import constants as c
+        assert c.REGION_FINDER_SAGITTA_MM == 0.1
+        assert c.REGION_FINDER_POLYLINE_MM == 0.2
+        assert c.REGION_FINDER_WINDOW_MM == 50.0
+        assert c.REGION_FINDER_NUDGE_MM == 0.5
+        assert c.REGION_FINDER_DEBOUNCE_MS == 150
+        assert c.REGION_FINDER_BUCKETS == 32
+
+
+class TestFlattenSplit:
+    def test_rect_flattens_to_four_line_segments_with_tags(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import _flatten
+        a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 50), QPointF(0, 50)
+        items = [LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, a)]
+        pieces = _flatten(items, QRectF(-10, -10, 120, 70))
+        assert len(pieces) == 4
+        assert all(p.tag.kind == "line" and p.tag.t0 == 0.0 and p.tag.t1 == 1.0 for p in pieces)
+        assert {p.tag.item for p in pieces} == set(items)
+
+    def test_circle_flattens_within_sagitta_and_keeps_cubics(self, qapp):
+        from firepro3d.constants import REGION_FINDER_SAGITTA_MM
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import _flatten
+        circ = CircleItem(QPointF(0, 0), 40.0)
+        pieces = _flatten([circ], QRectF(-50, -50, 100, 100))
+        assert len(pieces) >= 16
+        assert all(p.tag.kind == "curve" and p.tag.bez is not None for p in pieces)
+        # every flattened chord's midpoint lies within the sagitta of the circle
+        for p in pieces:
+            mx, my = (p.x0 + p.x1) / 2, (p.y0 + p.y1) / 2
+            assert abs(math.hypot(mx, my) - 40.0) <= REGION_FINDER_SAGITTA_MM + 1e-6
+        # the chain is continuous and closed
+        for p, q in zip(pieces, pieces[1:]):
+            assert math.hypot(p.x1 - q.x0, p.y1 - q.y0) < 1e-9
+        assert math.hypot(pieces[-1].x1 - pieces[0].x0, pieces[-1].y1 - pieces[0].y0) < 1e-9
+
+    def test_segments_outside_window_dropped(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import _flatten
+        inside = LineItem(QPointF(0, 0), QPointF(10, 0))
+        outside = LineItem(QPointF(500, 500), QPointF(510, 500))
+        pieces = _flatten([inside, outside], QRectF(-20, -20, 40, 40))
+        assert [p.tag.item for p in pieces] == [inside]
+
+    def test_cross_splits_both_segments_and_interpolates_tags(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import _flatten, _split_all
+        h = LineItem(QPointF(0, 50), QPointF(100, 50))
+        v = LineItem(QPointF(25, 0), QPointF(25, 100))
+        win = QRectF(-10, -10, 120, 120)
+        pieces = _split_all(_flatten([h, v], win), win)
+        assert len(pieces) == 4
+        hp = sorted((p for p in pieces if p.tag.item is h), key=lambda p: p.x0)
+        assert (hp[0].x0, hp[0].x1) == (0.0, 25.0) and (hp[1].x0, hp[1].x1) == (25.0, 100.0)
+        assert hp[0].tag.t0 == 0.0 and abs(hp[0].tag.t1 - 0.25) < 1e-9
+        assert abs(hp[1].tag.t0 - 0.25) < 1e-9 and hp[1].tag.t1 == 1.0
+
+    def test_split_count_matches_five_by_five_grid(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import _flatten, _split_all
+        items = [LineItem(QPointF(0, 20 * i), QPointF(100, 20 * i)) for i in range(5)]
+        items += [LineItem(QPointF(20 * i, 0), QPointF(20 * i, 100)) for i in range(5)]
+        win = QRectF(-5, -5, 110, 110)
+        pieces = _split_all(_flatten(items, win), win)
+        # each of the 10 lines meets 6 grid points (x or y = 0,20,...,100, both ends
+        # included), so it is cut into 5 pieces: 10 lines x 5 pieces = 50
+        assert len(pieces) == 50
+
+
+def _square(x0, y0, size):
+    from firepro3d.geometry_2d import LineItem
+    a, b = QPointF(x0, y0), QPointF(x0 + size, y0)
+    c, d = QPointF(x0 + size, y0 + size), QPointF(x0, y0 + size)
+    return [LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, a)]
+
+
+def _loop_pts(pieces):
+    return [(p.x0, p.y0) for p in pieces]
+
+
+class TestWeld:
+    def test_gap_within_weld_closes(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import Arrangement
+        a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+        items = [LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, QPointF(0, 0.8))]
+        arr = Arrangement.build(items, QRectF(-10, -10, 120, 120))
+        face = arr.face_at(QPointF(50, 50))
+        assert face is not None and not face.islands
+        assert arr.nearest_open_end(QPointF(50, 50)) is None
+
+    def test_t_gap_welds_dangling_end_into_edge_interior(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import Arrangement
+        # a square whose top edge overshoots; the left edge stops 0.6 mm short of the top edge
+        items = [LineItem(QPointF(-20, 0), QPointF(120, 0)), LineItem(QPointF(100, 0), QPointF(100, 100)),
+                 LineItem(QPointF(100, 100), QPointF(0, 100)), LineItem(QPointF(0, 100), QPointF(0, 0.6))]
+        arr = Arrangement.build(items, QRectF(-30, -10, 160, 120))
+        face = arr.face_at(QPointF(50, 50))
+        assert face is not None
+        assert abs(face.area - 100 * 100) < 100 * 1.0 * 2   # within the 1 mm weld slack
+
+
+class TestFaces:
+    def test_circle_two_lines_four_quadrants(self, qapp):
+        from firepro3d.geometry_2d import CircleItem, LineItem
+        from firepro3d.region_finder import Arrangement
+        items = [CircleItem(QPointF(0, 0), 40.0),
+                 LineItem(QPointF(-60, 0), QPointF(60, 0)), LineItem(QPointF(0, -60), QPointF(0, 60))]
+        arr = Arrangement.build(items, QRectF(-70, -70, 140, 140))
+        faces = [arr.face_at(QPointF(sx * 15, sy * 15)) for sx in (1, -1) for sy in (1, -1)]
+        assert all(f is not None for f in faces)
+        for f in faces:
+            assert abs(f.area - math.pi * 40 * 40 / 4) < 5.0   # flattened at 0.1 mm sagitta
+            assert not f.islands
+        # the four faces are distinct (different piece sets)
+        assert len({frozenset(id(p.tag) for p in f.outer) for f in faces}) == 4
+        # outside the circle: unbounded -> None, and nothing to leak
+        assert arr.face_at(QPointF(55, 55)) is None
+        assert arr.nearest_open_end(QPointF(55, 55)) is not None   # the line stubs past the circle are open ends
+
+    def test_ring_between_concentric_circles_has_island(self, qapp):
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 40.0), CircleItem(QPointF(0, 0), 15.0)],
+                                QRectF(-50, -50, 100, 100))
+        ring = arr.face_at(QPointF(30, 0))
+        assert ring is not None and len(ring.islands) == 1
+        from firepro3d.constants import REGION_FINDER_SAGITTA_MM
+        # face.area is the inscribed flattened polygon: its deficit is bounded by sagitta x perimeter
+        assert 0 < math.pi * 40 * 40 - ring.area < REGION_FINDER_SAGITTA_MM * 2 * math.pi * 40
+        assert ring.path.contains(QPointF(30, 0)) and not ring.path.contains(QPointF(0, 0))
+        inner = arr.face_at(QPointF(0, 0))
+        assert inner is not None and not inner.islands
+
+    def test_ring_found_from_the_island_side_of_the_ray(self, qapp):
+        from firepro3d.constants import REGION_FINDER_SAGITTA_MM
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 40.0), CircleItem(QPointF(0, 0), 15.0)],
+                                QRectF(-50, -50, 100, 100))
+        ring = arr.face_at(QPointF(-30, 0))     # the +X ray meets the inner circle first
+        assert ring is not None and len(ring.islands) == 1
+        assert 0 < math.pi * 40 * 40 - ring.area < REGION_FINDER_SAGITTA_MM * 2 * math.pi * 40
+
+    def test_outer_face_found_left_of_and_above_an_island(self, qapp):
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build(_square(0, 0, 100) + _square(30, 30, 40), QRectF(-10, -10, 120, 120))
+        for pt in (QPointF(10, 50), QPointF(50, 90)):
+            f = arr.face_at(pt)
+            assert f is not None and len(f.islands) == 1
+            assert abs(f.area - 100 * 100) < 1e-6
+        inner = arr.face_at(QPointF(50, 50))    # the ray hits the inner square's own edge from inside
+        assert inner is not None and not inner.islands
+        assert abs(inner.area - 40 * 40) < 1e-6
+
+    def test_collinear_overlapping_segments_close_a_face(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import Arrangement, rebuild
+        P = QPointF
+        items = [LineItem(P(0, 0), P(100, 0)), LineItem(P(50, 0), P(150, 0)), LineItem(P(100, 0), P(200, 0)),
+                 LineItem(P(0, 0), P(0, 50)), LineItem(P(0, 50), P(200, 50)), LineItem(P(200, 50), P(200, 0))]
+        arr = Arrangement.build(items, QRectF(-10, -10, 220, 70))
+        face = arr.face_at(P(100, 25))
+        assert face is not None and abs(face.area - 200 * 50) < 1.0
+        loops = rebuild(face)
+        assert all(type(x).__name__ == "LineItem" for x in loops[0])
+        assert len(loops[0]) <= 6
+
+    def test_small_circle_face_keeps_its_area(self, qapp):
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 5.0)], QRectF(-10, -10, 20, 20))
+        face = arr.face_at(QPointF(0, 0))
+        assert face is not None
+        # 2 mm chords on r=5 -> a 16-gon: measured deficit 1.985 mm2 (true 78.54, polygon 76.55);
+        # the bound is 2x that. Before the chord floor the weld decimated it to ~59 (deficit ~19).
+        deficit = math.pi * 25 - face.area
+        assert 0 < deficit < 4.0
+        assert len(face.outer) >= 12
+
+    def test_one_level_islands(self, qapp):
+        from firepro3d.region_finder import Arrangement
+        items = _square(0, 0, 100) + _square(30, 30, 40) + _square(45, 45, 10)
+        arr = Arrangement.build(items, QRectF(-10, -10, 120, 120))
+        outer = arr.face_at(QPointF(10, 10))
+        assert outer is not None and len(outer.islands) == 1
+        assert abs(abs(_signed_area(_loop_pts(outer.islands[0]))) - 40 * 40) < 1e-6
+
+    def test_gap_over_weld_leaks_with_open_end(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import Arrangement
+        a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+        items = [LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, QPointF(0, 1.5))]
+        arr = Arrangement.build(items, QRectF(-10, -10, 120, 120))
+        assert arr.face_at(QPointF(50, 50)) is None
+        end = arr.nearest_open_end(QPointF(50, 50))
+        assert end is not None
+        assert min(math.hypot(end.x() - 0, end.y() - 0), math.hypot(end.x() - 0, end.y() - 1.5)) < 1e-6
+
+    def test_open_space_has_no_face_and_no_open_end(self, qapp):
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build(_square(0, 0, 100), QRectF(-200, -200, 500, 500))
+        assert arr.face_at(QPointF(150, 150)) is None
+        assert arr.nearest_open_end(QPointF(150, 150)) is None
+
+    def test_zero_area_face_refused(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import Arrangement
+        # two coincident lines -> one welded edge, no face anywhere near it
+        items = [LineItem(QPointF(0, 0), QPointF(100, 0)), LineItem(QPointF(0, 0), QPointF(100, 0))]
+        arr = Arrangement.build(items, QRectF(-10, -10, 120, 20))
+        assert arr.face_at(QPointF(50, 0.2)) is None
+
+    def test_nudge_moves_point_off_edge(self, qapp):
+        from firepro3d.constants import REGION_FINDER_NUDGE_MM
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build(_square(0, 0, 100), QRectF(-10, -10, 120, 120))
+        on_edge = QPointF(50, 100.0)                     # exactly on the bottom edge
+        inward = arr.nudge(on_edge, motion=QPointF(0, 2))   # cursor was moving +y: it came from inside
+        assert abs(inward.y() - (100.0 - REGION_FINDER_NUDGE_MM)) < 1e-9
+        assert arr.face_at(inward) is not None
+        outward = arr.nudge(on_edge, motion=QPointF(0, -2))
+        assert abs(outward.y() - (100.0 + REGION_FINDER_NUDGE_MM)) < 1e-9
+        assert arr.nudge(QPointF(50, 50), motion=QPointF(0, 2)) == QPointF(50, 50)   # far from any edge
+
+
+def _signed_area(pts):
+    s = 0.0
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
+        s += x0 * y1 - x1 * y0
+    return s / 2
+
+
+def _path_samples(path, n=400):
+    return [path.pointAtPercent(k / n) for k in range(n + 1)]
+
+
+def _max_dev_to_sources(region_loop_path, source_paths, n=400):
+    """Max distance from samples of the rebuilt loop to the nearest dense sample of any source."""
+    src = [q for sp in source_paths for q in _path_samples(sp, 2000)]
+    worst = 0.0
+    for p in _path_samples(region_loop_path, n):
+        worst = max(worst, min(math.hypot(p.x() - q.x(), p.y() - q.y()) for q in src))
+    return worst
+
+
+class TestRebuild:
+    def test_quadrant_is_one_arc_two_lines(self, qapp):
+        from firepro3d.curve_chain import loop_path
+        from firepro3d.geometry_2d import ArcItem, CircleItem, LineItem
+        from firepro3d.halo import halo_scene_path
+        from firepro3d.region_finder import Arrangement, rebuild
+        items = [CircleItem(QPointF(0, 0), 40.0),
+                 LineItem(QPointF(-60, 0), QPointF(60, 0)), LineItem(QPointF(0, -60), QPointF(0, 60))]
+        arr = Arrangement.build(items, QRectF(-70, -70, 140, 140))
+        loops = rebuild(arr.face_at(QPointF(15, 15)))
+        assert len(loops) == 1
+        types = sorted(type(p).__name__ for p in loops[0])
+        assert types == ["ArcItem", "LineItem", "LineItem"]
+        arc = next(p for p in loops[0] if isinstance(p, ArcItem))
+        assert abs(arc._radius - 40.0) < 1e-6
+        assert abs(arc._span_deg - 90.0) < 0.5            # one quadrant (ArcItem stores CCW span)
+        assert abs(arc._start_deg - 270.0) < 0.5          # scene (+x,+y) quadrant = y-up 270..360 (yup_angle = atan2(-dy, dx))
+        dev = _max_dev_to_sources(loop_path(loops[0]), [halo_scene_path(i) for i in items])
+        assert dev <= 0.2
+
+    def test_full_circle_face_rebuilds_as_circle(self, qapp):
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement, rebuild
+        circ = CircleItem(QPointF(10, 20), 30.0)
+        loops = rebuild(Arrangement.build([circ], QRectF(-30, -20, 80, 80)).face_at(QPointF(10, 20)))
+        assert len(loops) == 1 and len(loops[0]) == 1 and isinstance(loops[0][0], CircleItem)
+        assert loops[0][0] is not circ
+
+    def test_mixed_boundary_types_and_tolerance(self, qapp):
+        """G2 mixed: line + spline + one rect edge -> Line/Spline/Line within 0.2 mm."""
+        from firepro3d.curve_chain import loop_path
+        from firepro3d.geometry_2d import LineItem, RectangleItem, SplineItem
+        from firepro3d.halo import halo_scene_path
+        from firepro3d.region_finder import Arrangement, rebuild
+        # face = rect corner (0,0) -spline-> (100,60) -line-> (150,100) on the rect's
+        # bottom edge (T-gap weld) -> bottom edge back to (0,100) -> left edge up to (0,0)
+        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+        spline = SplineItem([QPointF(0, 0), QPointF(20, 50), QPointF(60, 70), QPointF(100, 60)])
+        line = LineItem(QPointF(100, 60), QPointF(150, 100))
+        items = [rect, spline, line]
+        arr = Arrangement.build(items, QRectF(-10, -10, 220, 120))
+        face = arr.face_at(QPointF(30, 85))
+        assert face is not None and not face.islands
+        loops = rebuild(face)
+        assert len(loops) == 1
+        kinds = [type(p).__name__ for p in loops[0]]
+        assert kinds.count("SplineItem") == 1 and kinds.count("LineItem") == 3 and "PolylineItem" not in kinds
+        dev = _max_dev_to_sources(loop_path(loops[0]), [halo_scene_path(i) for i in items])
+        assert dev <= 0.2
+
+    def test_ring_rebuilds_two_loops_for_from_pieces(self, qapp):
+        from firepro3d.filled_region import FilledRegionItem
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement, rebuild
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 40.0), CircleItem(QPointF(0, 0), 15.0)],
+                                QRectF(-50, -50, 100, 100))
+        loops = rebuild(arr.face_at(QPointF(30, 0)))
+        region = FilledRegionItem.from_pieces(loops)
+        assert len(region._loops) == 2
+        assert region.path().contains(QPointF(30, 0)) and not region.path().contains(QPointF(0, 0))

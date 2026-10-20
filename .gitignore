@@ -46,6 +46,7 @@ docs/superpowers/plans/
 .testhome/
 _probe*.py
 _t.txt
+tests/_perf_pick_region.txt
 
 # Local UI mockups (served slider pages, throwaway)
 .mockups/

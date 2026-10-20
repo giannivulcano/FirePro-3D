@@ -3396,6 +3396,27 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def bezier_sub(b: tuple, t0: float, t1: float) -> tuple:
+    """Control points of the cubic Bézier *b*'s piece ``[t0, t1]`` (blossoming).
+
+    Args:
+        b: Four ``(x, y)`` control points.
+        t0: Start parameter in ``[0, 1]``.
+        t1: End parameter in ``[0, 1]`` (``t1 < t0`` yields the reversed piece).
+
+    Returns:
+        Four ``(x, y)`` control points of the sub-curve, an exact cubic.
+    """
+    def _blossom(a, c, e):
+        q = list(b)
+        for t in (a, c, e):
+            q = [((1 - t) * q[k][0] + t * q[k + 1][0],
+                  (1 - t) * q[k][1] + t * q[k + 1][1]) for k in range(len(q) - 1)]
+        return q[0]
+    return (_blossom(t0, t0, t0), _blossom(t0, t0, t1),
+            _blossom(t0, t1, t1), _blossom(t1, t1, t1))
+
+
 def _is_bezier_chain(n: int, degree: int, knots, weights) -> bool:
     """True for a non-rational clamped cubic whose every interior knot has
     multiplicity 3 — i.e. a chain of cubic Bézier spans (``n == 3k + 1``)."""
@@ -3513,21 +3534,10 @@ def periodic_spline_polyline(control_points: list[QPointF], degree: int,
                 return False
         return True
 
-    def _sub(b, t0, t1):
-        """Bézier control points of the piece [t0, t1] (blossoming)."""
-        def _blossom(a, c, e):
-            q = list(b)
-            for t in (a, c, e):
-                q = [((1 - t) * q[k][0] + t * q[k + 1][0],
-                      (1 - t) * q[k][1] + t * q[k + 1][1]) for k in range(len(q) - 1)]
-            return q[0]
-        return (_blossom(t0, t0, t0), _blossom(t0, t0, t1),
-                _blossom(t0, t1, t1), _blossom(t1, t1, t1))
-
     out: list[QPointF] = []
 
     def _emit(b, t0, t1, depth=0):
-        piece = _sub(b, t0, t1)
+        piece = bezier_sub(b, t0, t1)
         if depth >= 16 or _flat(piece):
             out.append(QPointF(*_pt(b, t0)))
             return

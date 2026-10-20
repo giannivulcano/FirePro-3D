@@ -86,7 +86,7 @@ from .network_codec import (
 _LOOSE_AUTHORING_MODES = frozenset({
     "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse",
     "draw_spline", "polyline", "draw_arc", "polygon",
-    "text", "dimension",
+    "text", "dimension", "pick_region",
 })
 
 # Status hint shown when an authoring/modify mode is refused because the
@@ -295,6 +295,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rects: list[RectangleItem] = []
         self._draw_circles: list[CircleItem] = []
         self._draw_dim_hint: "str | None" = None              # live dim overlay for Model_View
+        # HF4 Pick point: (path, open_end, enclosed, covered) while in the mode, else None
+        self._pick_region_preview: "tuple | None" = None
+        self._pick_region_arr: "tuple | None" = None     # (window, undo_pos, n_items, Arrangement)
+        self._pick_region_last_pt: "QPointF | None" = None
+        self._pick_region_last_motion: "QPointF | None" = None   # last non-zero cursor motion
+        self._pick_region_slow: bool = False             # last build > REGION_FINDER_DEBOUNCE_MS
+        self._pick_region_timer = None                   # QTimer for the debounced hover
+        self._pick_region_pending: "QPointF | None" = None
         self._draw_line_anchor: "QPointF | None" = None       # first click for line
         # RG6: Space toggles reference placement in every 2D shape tool;
         # reset per placement (set_mode).  _last_instruction remembers the
@@ -1411,6 +1419,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(self._roof_rect_preview)
                 self._roof_rect_preview = None
 
+        if mode != "pick_region":
+            self._pick_region_preview = None
+            self._pick_region_arr = None
+            self._pick_region_last_pt = None
+            self._pick_region_last_motion = None
+            self._pick_region_pending = None
+            self._pick_region_slow = False
+            if self._pick_region_timer is not None:
+                self._pick_region_timer.stop()
+            for v in self.views():
+                v.viewport().update()
+
         # Clean up manual room drawing state
         if mode != "room_manual":
             if self._room_manual_active is not None:
@@ -1540,6 +1560,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "wall":            "Pick wall start point  ·  Space = alignment",
             "floor":           "Pick first point",
             "room":            "Click inside a closed wall region",
+            "pick_region":     "Click inside an enclosed area (Esc to finish)",
             "room_manual":     "Pick first room boundary point",
             "opening":         "Click on a wall to place an opening  ·  Space = alignment",
             "door":            "Click on a wall to place door",
@@ -2491,27 +2512,156 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 and it.isVisible()]
 
     def fill_selected_items(self):
-        """Fill button (R8): a Filled Region from the selected closed outline(s).
+        """Fill button (R8): a Filled Region from the selected closed outline(s),
+        or -- with no boundary candidates selected (HF4 AC1) -- enter Pick point.
 
-        Block-Editor-only (containment C1). On failure the status bar says
-        why and nothing changes (R5). Returns the new region, or None.
+        Block-Editor-only (containment C1). On a chain failure the status bar
+        says why and nothing changes (R5). Returns the new region, or None.
         """
         from .curve_chain import close_loops
         if self.scene_role != "block_editor":
             return None
         pieces = self.fill_candidates(self.selectedItems())
+        if not pieces:
+            self.clearSelection()
+            self.set_mode("pick_region")
+            self._show_status("Click inside an enclosed area (Esc to finish)", 4000)
+            return None
         result = close_loops(pieces)
         if result.reason is not None:
             self._show_status(result.reason, 4000)
             return None
-        region = FilledRegionItem.from_pieces(result.loops)     # static copies (D-A1, R10)
+        return self._commit_region(result.loops)
+
+    def _commit_region(self, loops: list) -> "FilledRegionItem":
+        """Shared creation tail (HF3 R10/R12): static region from *loops*, added,
+        selected alone, one undo step, status."""
+        region = FilledRegionItem.from_pieces(loops)     # static copies (D-A1, R10)
         self.addItem(region)
         self._filled_regions.append(region)
         self.clearSelection()
-        region.setSelected(True)                                  # R12
+        region.setSelected(True)                          # R12
         self.push_undo_state()
-        self._show_status(f"Filled Region created ({len(result.loops)} loops)", 3000)
+        self._show_status(f"Filled Region created ({len(loops)} loops)", 3000)
         return region
+
+    # ── Pick point (HF4 design §2) ──────────────────────────────────────
+    def _pick_region_candidates(self, window) -> list:
+        """Boundary items in *window*: visible 2D primitives (``fill_candidates``)
+        plus posed stand-ins of every visible block instance (AC3)."""
+        from .block_snap_geometry import posed_primitives
+        hits = self.items(window, Qt.ItemSelectionMode.IntersectsItemBoundingRect)
+        out = self.fill_candidates(hits)
+        for it in hits:
+            if isinstance(it, BlockInstance) and it.isVisible():
+                out.extend(posed_primitives(it.definition(), it._pose_key()))
+        return out
+
+    def _pick_region_arrangement(self, window):
+        """The arrangement for *window*, cached until the scene changes
+        (undo position or item count) or the window differs."""
+        import time
+        from .constants import REGION_FINDER_DEBOUNCE_MS
+        from .region_finder import Arrangement
+        key = (window, self._undo_pos, len(self.items()))
+        cached = self._pick_region_arr
+        if cached is not None and cached[:3] == key:
+            return cached[3]
+        t0 = time.perf_counter()
+        arr = Arrangement.build(self._pick_region_candidates(window), window)
+        self._pick_region_slow = (time.perf_counter() - t0) * 1000.0 > REGION_FINDER_DEBOUNCE_MS
+        self._pick_region_arr = key + (arr,)
+        return arr
+
+    def _pick_region_face(self, pt):
+        """``(face, arrangement)`` for *pt*: the window starts at
+        ``REGION_FINDER_WINDOW_MM`` (or the cached window when it holds *pt*)
+        and doubles until a face is found or it covers the scene bounds."""
+        from .constants import REGION_FINDER_WINDOW_MM
+        bounds = self.itemsBoundingRect()
+        cached = self._pick_region_arr
+        if cached is not None and cached[0].contains(pt):
+            size = max(cached[0].width(), REGION_FINDER_WINDOW_MM)
+            window = cached[0]
+        else:
+            size = REGION_FINDER_WINDOW_MM
+            window = QRectF(pt.x() - size / 2, pt.y() - size / 2, size, size)
+        while True:
+            arr = self._pick_region_arrangement(window)
+            face = arr.face_at(pt)
+            if face is not None or bounds.isEmpty() or window.contains(bounds):
+                return face, arr
+            size *= 2
+            window = QRectF(pt.x() - size / 2, pt.y() - size / 2, size, size)
+
+    def _pick_region_covered(self, pt) -> bool:
+        """AC7: an existing Filled Region already covers *pt*."""
+        return any(r.path().contains(r.mapFromScene(pt)) for r in self._filled_regions)
+
+    def _pick_region_query_point(self, pt):
+        """*pt* nudged off a boundary toward the side the cursor came from."""
+        last = self._pick_region_last_pt
+        self._pick_region_last_pt = QPointF(pt)
+        cached = self._pick_region_arr
+        if last is None or cached is None or not cached[0].contains(pt):
+            return QPointF(pt)
+        dx, dy = pt.x() - last.x(), pt.y() - last.y()
+        if dx * dx + dy * dy > 0.0:               # a click at the hover point has zero motion:
+            self._pick_region_last_motion = QPointF(dx, dy)   # keep the last real one
+        motion = self._pick_region_last_motion
+        if motion is None:
+            return QPointF(pt)
+        return cached[3].nudge(pt, motion)
+
+    def _pick_region_hover(self, pt) -> None:
+        """Compute the preview tuple for *pt* and repaint the views."""
+        q = self._pick_region_query_point(pt)
+        face, arr = self._pick_region_face(q)
+        if face is not None:
+            if self._pick_region_covered(q):
+                self._pick_region_preview = (None, None, True, True)
+            else:
+                self._pick_region_preview = (face.path, None, True, False)
+        else:
+            self._pick_region_preview = (None, arr.nearest_open_end(q), False, False)
+        for v in self.views():
+            v.viewport().update()
+
+    def _move_pick_region(self, event, snapped) -> None:
+        from .constants import REGION_FINDER_DEBOUNCE_MS
+        pt = event.scenePos()
+        if not self._pick_region_slow:
+            self._pick_region_hover(pt)
+            return
+        # D-A25 fallback: a slow scene hovers on a single-shot debounce.
+        self._pick_region_pending = QPointF(pt)
+        if self._pick_region_timer is None:
+            self._pick_region_timer = QTimer(self)    # parented: dies with the scene, never fires on a torn-down one
+            self._pick_region_timer.setSingleShot(True)
+            self._pick_region_timer.timeout.connect(self._pick_region_fire)
+        self._pick_region_timer.start(REGION_FINDER_DEBOUNCE_MS)
+
+    def _pick_region_fire(self) -> None:
+        pt = self._pick_region_pending
+        self._pick_region_pending = None
+        if pt is not None and self.mode == "pick_region":
+            self._pick_region_hover(pt)
+
+    def _press_pick_region(self, event, pos, snapped, item_under, node_under, pipe_under) -> None:
+        """AC2/AC4/AC6/AC7: one click = one region of the clicked face; stay in mode."""
+        from .region_finder import rebuild
+        q = self._pick_region_query_point(pos)
+        face, _arr = self._pick_region_face(q)
+        if face is None:
+            self._show_status("Not enclosed", 3000)
+            return
+        if self._pick_region_covered(q):
+            self._show_status("This area already has a Filled Region", 3000)
+            return
+        self._commit_region(rebuild(face))
+        self._pick_region_preview = None          # next move re-evaluates (now covered)
+        for v in self.views():
+            v.viewport().update()
 
     def explode_selected_blocks(self) -> list:
         """Explode the selected block instances (Block Editor Modify ▸ Explode).
@@ -4844,6 +4994,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     # ── Dispatch table: mode string → move-handler method name ─────────
     _MOVE_DISPATCH = {
+        "pick_region":              "_move_pick_region",
         "pipe":                     "_move_pipe",
         "set_scale":                "_move_set_scale",
         "design_area":              "_move_design_area",
@@ -5472,6 +5623,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     })
 
     _PRESS_DISPATCH = {
+        "pick_region":              "_press_pick_region",
         None:                       "_press_select_item",
         "select":                   "_press_select_item",
         "sprinkler":                "_press_sprinkler",
@@ -7628,6 +7780,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._spr_ctl.confirm_design_area()
             # Stay in design_area mode so more areas can be defined;
             # Esc or a tool switch leaves the mode.
+            event.accept()
+            return
+        # HF4 AC6: right-click ends Pick point.
+        if self.mode == "pick_region":
+            self.set_mode(None)
             event.accept()
             return
         hit_items = self.items(event.scenePos())

@@ -394,11 +394,14 @@ class TestFillSelected:
         assert len(es._filled_regions) == 1
         assert log[-1] == "Not enclosed -- 3 curve(s) have an open end"
 
-    def test_nothing_eligible(self, qapp):
+    def test_nothing_eligible_enters_pick_point(self, qapp):
+        """HF4 AC1: no boundary candidates selected -> Pick point mode, not a
+        refusal (the NO_CANDIDATES reason is now reached only via close_loops)."""
         es = editor_scene()
         log = _statuses(es)
         assert es.fill_selected_items() is None
-        assert log[-1] == "Select closed shapes or curves that form a closed outline"
+        assert es.mode == "pick_region" and es._filled_regions == []
+        assert log[-1] == "Click inside an enclosed area (Esc to finish)"
 
     def test_plan_scene_is_a_no_op(self, qapp):
         plan = Model_Space()

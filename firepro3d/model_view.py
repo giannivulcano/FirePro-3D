@@ -452,6 +452,53 @@ class Model_View(QGraphicsView):
 
             painter.restore()
 
+        # ── 4b. Pick point hover overlay (HF4 design §3; viewport coords) ──
+        preview = getattr(scene, "_pick_region_preview", None)
+        if preview is not None:
+            p_path, open_end, enclosed, covered = preview
+            painter.save()
+            painter.resetTransform()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            if enclosed and not covered and p_path is not None:
+                accent = QColor(th.detect().accent)
+                tint = QColor(accent)
+                tint.setAlpha(64)                                   # ~25 %
+                vp_path = self.viewportTransform().map(p_path)
+                painter.fillPath(vp_path, tint)
+                pen = QPen(accent, 1.5)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(vp_path)
+            elif not enclosed and not covered:
+                red = QColor(200, 30, 30)
+                if vp_cursor:
+                    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+                    painter.setFont(QFont("Consolas", 9))
+                    fm = painter.fontMetrics()
+                    text = "Not enclosed"
+                    tr = fm.boundingRect(text)
+                    tx, ty = vp_cursor.x() + 14, vp_cursor.y() - 6
+                    # boundingRect's top is already -ascent: translate by the baseline
+                    bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty)
+                    if tx + bg.width() + 6 > self.viewport().width():
+                        tx = vp_cursor.x() - tr.width() - 14           # flip left
+                        bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty)
+                    if bg.top() < 0:
+                        ty = vp_cursor.y() + tr.height() + 6           # flip below
+                        bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty)
+                    painter.fillRect(bg, QColor(200, 30, 30, 210))
+                    painter.setPen(QPen(QColor("#ffffff")))
+                    painter.drawText(tx, ty, text)
+                if open_end is not None:
+                    c = self.viewportTransform().map(open_end)
+                    pen = QPen(red, 2.0)
+                    pen.setCosmetic(True)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawEllipse(c, 6.0, 6.0)
+            painter.restore()
+
         # ── 5. Drag-drop overlay (viewport coordinates) ────────────────────
         if getattr(self, "_drop_highlight", False):
             painter.save()
@@ -1652,6 +1699,11 @@ class Model_View(QGraphicsView):
             return
         scene = self.scene()
         if scene is None:
+            return
+
+        # HF4 AC6: right-click ends Pick point (scene owns the mode exit).
+        if getattr(scene, "mode", None) == "pick_region":
+            super().contextMenuEvent(event)
             return
 
         # Let the scene handle entity-specific context menus first
