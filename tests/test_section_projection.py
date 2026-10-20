@@ -90,3 +90,29 @@ def test_classify_point_never_cut():
 def test_degenerate_cut_rejected():
     with pytest.raises(ValueError):
         SectionBasis.from_cut((0.0, 0.0), (0.0, 0.0), look_sign=1, depth_mm=1.0)
+
+
+def _cardinal_scene(section_scene_for, card):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.wall import WallSegment
+    ms, sec = section_scene_for(card)
+    w = WallSegment(QPointF(-3000.0, 1000.0), QPointF(2000.0, -1500.0))   # oblique wall
+    ms._walls.append(w)
+    ms.addItem(w)
+    sec.rebuild()
+    return ms, sec
+
+
+@pytest.mark.parametrize("card", ["north", "south", "east", "west"])
+def test_cardinal_scene_wall_rect_matches_old_projection(qapp, section_scene_for, card):
+    """The cardinal marker's basis reproduces _world_to_elev: the wall rect's
+    h-extent equals min/max of the old table applied to the quad corners."""
+    from firepro3d.section_scene import _ElevProxyRect, _ROLE_SOURCE
+    ms, sec = _cardinal_scene(section_scene_for, card)
+    rects = [it for it in sec.items() if isinstance(it, _ElevProxyRect)
+             and it.data(_ROLE_SOURCE) is ms._walls[0]]
+    assert len(rects) == 1
+    r = rects[0].rect()
+    corners = [sec._scene_to_world(p.x(), p.y()) for p in ms._walls[0].mitered_quad()]
+    hs = [_OLD_H[card](wx, wy) for wx, wy in corners]
+    assert (r.left(), r.right()) == pytest.approx((min(hs), max(hs)), abs=1e-6)

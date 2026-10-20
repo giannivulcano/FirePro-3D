@@ -14,7 +14,7 @@ Drives the manipulator's handle ``on_press``/``on_drag``/``on_release``
 lifecycle directly (mirrors ``_drive_grip`` in
 ``tests/test_manip_griphandle_gridline_parity.py``) — robust offscreen where a
 posted grip-drag is fiddly. Asserts OBSERVABLE ground truth (the override dict),
-not internals. Uses the ``elevation_scene_for`` fixture (real Model_Space) from
+not internals. Uses the ``section_scene_for`` fixture (real Model_Space) from
 conftest.py.
 
 Note: the datum §3.1 no-lateral-move twin already lives in
@@ -57,7 +57,7 @@ def _drive_grip(scene, g, index, start, path,
 
 def test_find_grip_hit_retired(qapp):
     from firepro3d import section_scene as es
-    assert not hasattr(es.ElevationScene, "_find_grip_hit")
+    assert not hasattr(es.SectionScene, "_find_grip_hit")
 
 
 def test_elevation_view_has_no_paintevent_grip_loop(qapp):
@@ -68,11 +68,11 @@ def test_elevation_view_has_no_paintevent_grip_loop(qapp):
 
 # ── Grip byte-parity (manipulator-driven) ────────────────────────────────────
 
-def test_gridline_grip_byte_parity_via_manipulator(qapp, elevation_scene_for):
+def test_gridline_grip_byte_parity_via_manipulator(qapp, section_scene_for):
     """Dragging the bottom endpoint (index 1) via the manipulator grip lifecycle
     to y=80 commits the SAME override entry as the legacy apply_grip + commit
     path, and the commit_hook fires ("grip")."""
-    _ms, elev = elevation_scene_for("north")
+    _ms, elev = section_scene_for("north")
     g = _add_gridline(elev, label="A", h=100.0, v_top=-50.0, v_bot=50.0)
 
     # Record commit_hook firings (parity: one "grip" commit per gesture).

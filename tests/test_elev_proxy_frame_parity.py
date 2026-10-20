@@ -11,7 +11,7 @@ and an explicit ``manip_handles() -> []`` that authoritatively suppresses the
 rigid resize fallback (no ``manip_scale``/``manip_rotate``) so zero handles
 surface. Interior-drag is inert (bakes nothing).
 
-Uses the ``elevation_scene_for`` fixture (real Model_Space) from conftest.py.
+Uses the ``section_scene_for`` fixture (real Model_Space) from conftest.py.
 """
 from PyQt6.QtWidgets import QGraphicsRectItem
 
@@ -38,9 +38,9 @@ def test_proxy_capabilities_translate_only(qapp):
         assert proxy.manip_handles() == [], cls.__name__
 
 
-def test_proxy_selection_shows_frame_zero_handles(qapp, elevation_scene_for):
+def test_proxy_selection_shows_frame_zero_handles(qapp, section_scene_for):
     """A selected proxy shows the manipulator frame with zero editing handles."""
-    _ms, elev = elevation_scene_for("north")
+    _ms, elev = section_scene_for("north")
     proxy = _ElevProxyRect(0.0, 0.0, 100.0, 50.0)
     proxy.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
     elev.addItem(proxy)

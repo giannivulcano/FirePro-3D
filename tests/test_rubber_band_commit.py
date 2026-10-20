@@ -84,8 +84,8 @@ def test_escape_during_band_cancels(qapp):
     assert v._rb_active is False
 
 
-def test_elevation_commit_emits_selection_changed_once(qapp, elevation_scene_for):
-    _ms, elev = elevation_scene_for("north")
+def test_elevation_commit_emits_selection_changed_once(qapp, section_scene_for):
+    _ms, elev = section_scene_for("north")
     proxies = []
     for i in range(50):
         r = _ElevProxyRect(i * 10, 0, 5, 5)

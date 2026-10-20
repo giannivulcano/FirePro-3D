@@ -34,6 +34,7 @@ from .constants import DEFAULT_LEVEL
 from . import theme as th
 from .colour_tokens import resolve_colour, resolve_pen_brush
 from .halo_selection import HaloSelectionMixin
+from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -646,20 +647,21 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     entitySelected = pyqtSignal(object)   # picked legacy entity
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
 
-    def __init__(self, direction: str, model_space: "Model_Space",
+    def __init__(self, marker, model_space: "Model_Space",
                  level_manager: "LevelManager", scale_manager: "ScaleManager",
                  parent=None):
         super().__init__(parent)
-        self._direction = direction.lower()
+        self._marker = marker
+        self._direction = marker.cardinal or "section"   # legacy readers (tests, tab titles)
+        self._basis = None                                # refreshed per rebuild
         self._ms = model_space
         self._lm = level_manager
         self._sm = scale_manager
+        self._refresh_basis()    # projections work before the first rebuild
         self._show_datums = True
 
-        # Per-view Z-extent overrides keyed by gridline label.
-        # Populated when the user grip-drags a gridline top/bottom.
-        # Serialization is handled by to_dict() / from_dict().
-        self._gridline_z_overrides: dict[str, dict] = {}
+        # Per-view Z-extent overrides keyed by gridline label live on the
+        # marker (see the ``_gridline_z_overrides`` property) so they persist.
         # Keyed by gridline label → {"v_top": float, "v_bot": float}
 
         # Grip-drag state (mirrors Model_Space pattern). KEPT after the legacy
@@ -886,6 +888,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return self._direction
 
     @property
+    def marker(self):
+        return self._marker
+
+    @property
+    def basis(self):
+        return self._basis
+
+    @property
+    def _gridline_z_overrides(self) -> dict:
+        return self._marker.gridline_z_overrides
+
+    @property
     def show_datums(self) -> bool:
         return self._show_datums
 
@@ -893,32 +907,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def show_datums(self, val: bool):
         self._show_datums = val
         self.rebuild()
-
-    # ── Serialization ────────────────────────────────────────────────────
-
-    def to_dict(self) -> dict:
-        """Serialize per-view state for project save.
-
-        Currently persists gridline Z-extent overrides so that user-adjusted
-        top/bottom extents survive a project reload.
-
-        Note:
-            Wiring into the project save/load cycle (scene_io.py or
-            ElevationManager) is a follow-up step; this method provides the
-            data payload.
-        """
-        return {
-            "gridline_z_overrides": self._gridline_z_overrides,
-        }
-
-    def from_dict(self, d: dict) -> None:
-        """Restore per-view state from a project dict produced by to_dict().
-
-        Args:
-            d: Mapping as returned by to_dict().  Missing keys are silently
-               ignored so older project files load without error.
-        """
-        self._gridline_z_overrides = d.get("gridline_z_overrides", {})
 
     # ── Coordinate projection ────────────────────────────────────────────
 
@@ -931,24 +919,20 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         ppm = self._ppm()
         return sx / ppm, -sy / ppm
 
-    def _world_to_elev(self, wx: float, wy: float, wz: float) -> tuple[float, float]:
-        """Project world (mm) coords onto elevation 2D plane.
+    def _refresh_basis(self):
+        """Rebuild the oblique basis from the marker's current geometry."""
+        a = self._scene_to_world(self._marker.cut_a.x(), self._marker.cut_a.y())
+        b = self._scene_to_world(self._marker.cut_b.x(), self._marker.cut_b.y())
+        self._basis = SectionBasis.from_cut(a, b, self._marker.look_sign,
+                                            self._marker.depth_mm / self._ppm())
 
-        Returns (h, v) where h is horizontal scene coord and v = -wz
-        (Qt Y increases downward, Z increases upward).
+    def _project(self, wx: float, wy: float, wz: float) -> tuple[float, float]:
+        """Project world (mm) coords onto the section 2D plane.
+
+        Returns (h, v) where h is the horizontal scene coord along the cut
+        line and v = -wz (Qt Y increases downward, Z increases upward).
         """
-        d = self._direction
-        if d == "north":
-            h = -wx       # looking south: East (+X) on left, West (-X) on right
-        elif d == "south":
-            h = wx        # looking north: West (-X) on left, East (+X) on right
-        elif d == "east":
-            h = wy        # looking west: South (-Y) on left, North (+Y) on right
-        elif d == "west":
-            h = -wy       # looking east: North (+Y) on left, South (-Y) on right
-        else:
-            h = -wx
-        return h, -wz
+        return self._basis.project(wx, wy, wz)
 
     def _level_z(self, level_name: str) -> float:
         lvl = self._lm.get(level_name)
@@ -971,6 +955,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def rebuild(self):
         """Clear and re-project all entities from the model."""
         self._apply_theme_colours()
+        if self._marker.auto_fit(self._ms):
+            pass                                  # geometry re-seeded (s4.3); basis below reads it
+        self._refresh_basis()
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
@@ -1046,7 +1033,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         has_explicit_fill = props.get("has_explicit_fill", False)
 
         ppm = self._ppm()
-        d = self._direction
 
         # Collect all wall rects with their depth for sorting
         wall_rects: list[tuple[float, QGraphicsRectItem]] = []
@@ -1078,7 +1064,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 corners_world.append((wx, wy))
 
             # Project to elevation H axis
-            h_values = [self._world_to_elev(wx, wy, 0)[0]
+            h_values = [self._project(wx, wy, 0)[0]
                         for wx, wy in corners_world]
             h_min = min(h_values)
             h_max = max(h_values)
@@ -1092,16 +1078,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             all_wy = [c[1] for c in corners_world]
             centroid_x = sum(all_wx) / len(all_wx)
             centroid_y = sum(all_wy) / len(all_wy)
-            if d == "north":
-                depth = centroid_y   # camera at +Y, closer = larger Y
-            elif d == "south":
-                depth = -centroid_y  # camera at -Y, closer = smaller Y
-            elif d == "east":
-                depth = centroid_x   # camera at +X, closer = larger X
-            elif d == "west":
-                depth = -centroid_x
-            else:
-                depth = centroid_y
+            depth = self._basis.sort_key(centroid_x, centroid_y)
 
             # Elevation scene rect: (h_min, -top_z) to (h_max, -base_z)
             v_top = -top_z      # Qt Y for top of wall
@@ -1150,7 +1127,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         bg_brush = self.backgroundBrush()
         void_color = bg_brush.color() if bg_brush.color().isValid() else QColor("white")
 
-        d = self._direction
         frame_pen = QPen(self._edge_color, 1)
         frame_pen.setCosmetic(True)
 
@@ -1173,8 +1149,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 # ── Convert to world mm then to elevation H ───────────────
                 wl_x, wl_y = self._scene_to_world(*p_left)
                 wr_x, wr_y = self._scene_to_world(*p_right)
-                h_left = self._world_to_elev(wl_x, wl_y, 0)[0]
-                h_right = self._world_to_elev(wr_x, wr_y, 0)[0]
+                h_left = self._project(wl_x, wl_y, 0)[0]
+                h_right = self._project(wr_x, wr_y, 0)[0]
                 h_min = min(h_left, h_right)
                 h_max = max(h_left, h_right)
                 width = h_max - h_min
@@ -1198,16 +1174,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 # ── Depth (same convention as _project_walls) ─────────────
                 wc_x = (wl_x + wr_x) / 2.0
                 wc_y = (wl_y + wr_y) / 2.0
-                if d == "north":
-                    depth = wc_y
-                elif d == "south":
-                    depth = -wc_y
-                elif d == "east":
-                    depth = wc_x
-                elif d == "west":
-                    depth = -wc_x
-                else:
-                    depth = wc_y
+                depth = self._basis.sort_key(wc_x, wc_y)
 
                 # ── Void rect (interrupts wall poché) ─────────────────────
                 void_rect = _ElevProxyRect(h_min, v_top, width, v_bottom - v_top)
@@ -1251,7 +1218,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
     def _project_pipes(self):
         from .constants import PIPE_COLORS as _PIPE_COLORS
-        d = self._direction
         pipe_items: list[tuple[float, QGraphicsLineItem]] = []
 
         for pipe in self._ms.sprinkler_system.pipes:
@@ -1264,8 +1230,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             z1 = getattr(n1, "z_pos", 0.0)
             z2 = getattr(n2, "z_pos", 0.0)
 
-            h1, v1 = self._world_to_elev(wx1, wy1, z1)
-            h2, v2 = self._world_to_elev(wx2, wy2, z2)
+            h1, v1 = self._project(wx1, wy1, z1)
+            h2, v2 = self._project(wx2, wy2, z2)
 
             col_name = pipe._properties.get("Colour", {}).get("value", "Red")
             color = QColor(_PIPE_COLORS.get(col_name, "#e62828"))
@@ -1280,16 +1246,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             # Depth for sorting
             cx = (wx1 + wx2) / 2
             cy = (wy1 + wy2) / 2
-            if d == "north":
-                depth = cy
-            elif d == "south":
-                depth = -cy
-            elif d == "east":
-                depth = cx
-            elif d == "west":
-                depth = -cx
-            else:
-                depth = cy
+            depth = self._basis.sort_key(cx, cy)
             pipe_items.append((depth, line))
 
         for depth, line in pipe_items:
@@ -1299,7 +1256,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Sprinklers ───────────────────────────────────────────────────────
 
     def _project_sprinklers(self):
-        d = self._direction
         spr_items: list[tuple[float, QGraphicsEllipseItem]] = []
 
         for node in self._ms.sprinkler_system.nodes:
@@ -1307,7 +1263,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 continue
             wx, wy = self._scene_to_world(node.scenePos().x(), node.scenePos().y())
             z = getattr(node, "z_pos", 0.0)
-            h, v = self._world_to_elev(wx, wy, z)
+            h, v = self._project(wx, wy, z)
 
             orient = node.sprinkler._properties.get(
                 "Orientation", {}).get("value", "Upright")
@@ -1327,16 +1283,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             ellipse.setData(_ROLE_SOURCE, node)
             ellipse.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsSelectable, True)
 
-            if d == "north":
-                depth = wy
-            elif d == "south":
-                depth = -wy
-            elif d == "east":
-                depth = wx
-            elif d == "west":
-                depth = -wx
-            else:
-                depth = wy
+            depth = self._basis.sort_key(wx, wy)
             spr_items.append((depth, ellipse))
 
         for depth, ellipse in spr_items:
@@ -1353,7 +1300,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         dm_fill = props["fill"]
         dm_opacity = props["opacity"] / 100.0
 
-        d = self._direction
         # Each entry: (depth, mask_rect, visible_rect)
         slab_rects: list[tuple[float, QGraphicsRectItem, QGraphicsRectItem]] = []
 
@@ -1380,23 +1326,14 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             for pt in pts:
                 wx, wy = self._scene_to_world(pt.x(), pt.y())
                 world_pts.append((wx, wy))
-                h, _ = self._world_to_elev(wx, wy, 0)
+                h, _ = self._project(wx, wy, 0)
                 h_vals.append(h)
             h_min, h_max = min(h_vals), max(h_vals)
 
             # Compute depth (same convention as walls)
             cx = sum(w[0] for w in world_pts) / len(world_pts)
             cy = sum(w[1] for w in world_pts) / len(world_pts)
-            if d == "north":
-                depth = cy
-            elif d == "south":
-                depth = -cy
-            elif d == "east":
-                depth = cx
-            elif d == "west":
-                depth = -cx
-            else:
-                depth = cy
+            depth = self._basis.sort_key(cx, cy)
 
             # Elevation view is Y-down: higher world-Z projects to a more
             # negative v-coordinate, so negate both boundaries.
@@ -1457,7 +1394,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             # Project all vertices and draw outline polygon
             elev_pts = []
             for vx, vy, vz in verts:
-                h, v = self._world_to_elev(vx, vy, vz)
+                h, v = self._project(vx, vy, vz)
                 elev_pts.append(QPointF(h, v))
 
             if not elev_pts:
@@ -1562,8 +1499,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
             wx1, wy1 = self._scene_to_world(line_geom.x1(), line_geom.y1())
             wx2, wy2 = self._scene_to_world(line_geom.x2(), line_geom.y2())
-            h1, _ = self._world_to_elev(wx1, wy1, 0)
-            h2, _ = self._world_to_elev(wx2, wy2, 0)
+            h1, _ = self._project(wx1, wy1, 0)
+            h2, _ = self._project(wx2, wy2, 0)
             h_avg = (h1 + h2) / 2.0
 
             levels = self._lm.levels
@@ -1626,8 +1563,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 continue
             wx1, wy1 = self._scene_to_world(lg.x1(), lg.y1())
             wx2, wy2 = self._scene_to_world(lg.x2(), lg.y2())
-            h1, _ = self._world_to_elev(wx1, wy1, 0)
-            h2, _ = self._world_to_elev(wx2, wy2, 0)
+            h1, _ = self._project(wx1, wy1, 0)
+            h2, _ = self._project(wx2, wy2, 0)
             h_vals.extend([h1, h2])
 
         if not h_vals:
@@ -1690,6 +1627,3 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Selection ────────────────────────────────────────────────────────
     # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable
     # flags, routed through _on_selection_changed() which emits entitySelected.
-
-
-ElevationScene = SectionScene   # retired alias -- removed in Task 3

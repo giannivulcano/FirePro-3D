@@ -36,13 +36,13 @@ def _projected_rect_for(elev, slab):
     return None
 
 
-def test_absolute_top_and_bottom_project_at_true_z(qapp, elevation_scene_for):
+def test_absolute_top_and_bottom_project_at_true_z(qapp, section_scene_for):
     """Absolute top=3000, absolute bottom=2800 → v_top=-3000, v_bottom=-2800.
 
     Retired model would have used level.elevation(0) + offset(0) = 0 and
     thickness 150 → v_top=0, v_bottom=150. This asserts the true z_range.
     """
-    scene, elev = elevation_scene_for(direction="north")
+    scene, elev = section_scene_for(direction="north")
     slab = FloorSlab(points=_square())
     slab._top_mode = "absolute"
     slab._top_abs_z_mm = 3000.0
@@ -68,13 +68,13 @@ def test_absolute_top_and_bottom_project_at_true_z(qapp, elevation_scene_for):
     assert v_bottom != pytest.approx(150.0)
 
 
-def test_level_top_with_offset_projects_at_true_z(qapp, elevation_scene_for):
+def test_level_top_with_offset_projects_at_true_z(qapp, section_scene_for):
     """Top = Level 2 (3048mm) + 500 offset, thickness bottom 200.
 
     top_z = 3548, bot_z = 3348. Retired model (level=Level 1 default, offset 0,
     thickness 150) would give v_top=0 / v_bottom=150.
     """
-    scene, elev = elevation_scene_for(direction="north")
+    scene, elev = section_scene_for(direction="north")
     slab = FloorSlab(points=_square())
     slab._top_mode = "level"
     slab._top_level = "Level 2"        # default LevelManager: Level 2 @ 3048mm
@@ -97,12 +97,12 @@ def test_level_top_with_offset_projects_at_true_z(qapp, elevation_scene_for):
     assert v_bottom == pytest.approx(-3348.0)
 
 
-def test_cross_level_span_projects_full_height(qapp, elevation_scene_for):
+def test_cross_level_span_projects_full_height(qapp, section_scene_for):
     """Top = Level 3 (6096), bottom = Level 1 (0): a 6096mm spanning slab.
 
     Retired model would collapse this to a fixed 150mm rect at z=0.
     """
-    scene, elev = elevation_scene_for(direction="north")
+    scene, elev = section_scene_for(direction="north")
     slab = FloorSlab(points=_square())
     slab._top_mode = "level"
     slab._top_level = "Level 3"        # 6096mm
@@ -128,10 +128,10 @@ def test_cross_level_span_projects_full_height(qapp, elevation_scene_for):
     assert abs(v_bottom - v_top) == pytest.approx(6096.0)
 
 
-def test_unresolvable_slab_is_skipped(qapp, elevation_scene_for):
+def test_unresolvable_slab_is_skipped(qapp, section_scene_for):
     """A slab whose level-relative top references a missing level resolves to
     None and must be skipped (degenerate-safe), not projected at z=0."""
-    scene, elev = elevation_scene_for(direction="north")
+    scene, elev = section_scene_for(direction="north")
     slab = FloorSlab(points=_square())
     slab._top_mode = "level"
     slab._top_level = "NoSuchLevel"

@@ -415,23 +415,23 @@ def shown_model_view(qapp):
 
 
 @pytest.fixture
-def elevation_scene_for(qapp):
-    """Factory fixture returning a callable ``(direction) -> (model_scene, elev_scene)``.
-
-    Creates a fresh Model_Space with a LevelManager (Level 1 at 0.0 mm) and a
-    ScaleManager (uncalibrated, so pixels_per_mm == 1.0), then wraps it in an
-    ElevationScene bound to the requested direction.
+def section_scene_for(qapp):
+    """Factory ``(direction="north") -> (model_scene, section_scene)``: a fresh
+    Model_Space + LevelManager (Level 1 at 0.0) + uncalibrated ScaleManager
+    (pixels_per_mm == 1.0), wrapped in a SectionScene bound to a cardinal
+    marker (auto-extent).
 
     Usage in tests::
 
-        def test_foo(qapp, elevation_scene_for):
-            scene, elev = elevation_scene_for("north")
+        def test_foo(qapp, section_scene_for):
+            scene, elev = section_scene_for("north")
             ...
     """
     from firepro3d.model_space import Model_Space
     from firepro3d.level_manager import LevelManager
     from firepro3d.scale_manager import ScaleManager
     from firepro3d.section_scene import SectionScene
+    from firepro3d.section_marker import SectionMarker, building_bbox
 
     def _factory(direction: str = "north"):
         ms = Model_Space()
@@ -439,7 +439,8 @@ def elevation_scene_for(qapp):
         ms._level_manager = lm
         sm = ScaleManager()
         ms.scale_manager = sm
-        elev = SectionScene(direction=direction, model_space=ms,
+        marker = SectionMarker.cardinal(direction, building_bbox(ms))
+        elev = SectionScene(marker, model_space=ms,
                             level_manager=lm, scale_manager=sm)
         return ms, elev
 

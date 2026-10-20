@@ -25,18 +25,18 @@ def _grid():
 
 # ── (1) bubble label resolve ────────────────────────────────────────────────
 
-def test_bubble_label_grandchild_resolves_to_gridline(qapp, elevation_scene_for):
-    _ms, elev = elevation_scene_for("north")
+def test_bubble_label_grandchild_resolves_to_gridline(qapp, section_scene_for):
+    _ms, elev = section_scene_for("north")
     g = _grid()
     elev.addItem(g)
     label = g.bubble1._label                     # QGraphicsTextItem in the bubble
     assert elev._halo_resolve(label) is g
 
 
-def test_bubble_label_hover_lights_gridline(qapp, elevation_scene_for):
+def test_bubble_label_hover_lights_gridline(qapp, section_scene_for):
     """Hovering the label text (via halo_update) resolves the gridline as the
     HALO-highlighted item, not just the identity-resolve unit above."""
-    _ms, elev = elevation_scene_for("north")
+    _ms, elev = section_scene_for("north")
     g = _grid()
     elev.addItem(g)
     label = g.bubble1._label

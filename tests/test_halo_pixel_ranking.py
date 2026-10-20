@@ -85,13 +85,13 @@ def test_gridline_bubble_hover_resolves_to_gridline(qapp):
     assert got and got[0] is gl
 
 
-def test_elev_proxy_rect_interior_is_a_direct_hit(qapp, elevation_scene_for):
+def test_elev_proxy_rect_interior_is_a_direct_hit(qapp, section_scene_for):
     """A solid elevation projection (wall/void/slab/roof, or a sprinkler via
     _ElevProxyEllipse) is a HALO_AREA — the cursor deep in its interior, far
     from any edge, must still be a direct (0 px) hit. Regression guard for
     the controller-flagged issue: these are real solid objects users hover
     INSIDE, not thin outlines judged by edge distance."""
-    _ms, elev = elevation_scene_for("north")
+    _ms, elev = section_scene_for("north")
     r = _ElevProxyRect(1000, 1000, 500, 500)
     r.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
     elev.addItem(r)

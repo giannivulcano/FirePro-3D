@@ -57,10 +57,10 @@ def _token_floor_dm():
 
 @pytest.mark.parametrize("name,ink", [("dark", "#e6e9ec"), ("light", "#1c2024")])
 def test_i1_elevation_token_category_paints_theme_ink(
-        qapp, force_theme, elevation_scene_for, name, ink):
+        qapp, force_theme, section_scene_for, name, ink):
     force_theme(name)
     _token_floor_dm()
-    ms, elev = elevation_scene_for("north")
+    ms, elev = section_scene_for("north")
     _floor_slab(ms)
     elev.rebuild()
     px = _view_pixels(elev, QRectF(-500, -3500, 5000, 2000))
@@ -456,13 +456,13 @@ def _elevation_sheet_pdf(tmp_path, elev, scale=0.01):
     return out
 
 
-def _auto_wall_and_accent_gridline_elevation(elevation_scene_for):
+def _auto_wall_and_accent_gridline_elevation(section_scene_for):
     from firepro3d.gridline import GridlineItem
     from firepro3d.wall import WallSegment
     s = QSettings("GV", "FirePro3D")             # conftest-isolated
     s.setValue("display/Wall/color", TOKEN_AUTO)
     s.setValue("display/Grid Line/color", "token:accent")
-    ms, elev = elevation_scene_for("north")
+    ms, elev = section_scene_for("north")
     wall = WallSegment(QPointF(0, 0), QPointF(2000, 0))
     wall._colour = TOKEN_AUTO                    # the wall's own colour: Automatic
     ms.addItem(wall)
@@ -481,14 +481,14 @@ def _auto_wall_and_accent_gridline_elevation(elevation_scene_for):
     ("BW", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
 ], ids=["full-colour", "bw"])
 def test_e1_elevation_on_sheet_plots_paper_colours(
-        qapp, tmp_path, force_theme, elevation_scene_for, mode, wall_rgb, grid_rgb):
+        qapp, tmp_path, force_theme, section_scene_for, mode, wall_rgb, grid_rgb):
     """An Automatic wall and an Accent gridline in an elevation view placed in
     a sheet viewport plot black / paper green (black on B&W) through the real
     export_pdf path -- never the dark theme's canvas ink / accent."""
     from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
     force_theme("dark")
     save_paper_color_mode(getattr(PaperColorMode, mode))
-    elev = _auto_wall_and_accent_gridline_elevation(elevation_scene_for)
+    elev = _auto_wall_and_accent_gridline_elevation(section_scene_for)
     pdf = _elevation_sheet_pdf(tmp_path, elev)
     strokes, fills = _plot_colours(pdf)
     assert not (strokes | fills) & _CANVAS_RGB, (strokes, fills)

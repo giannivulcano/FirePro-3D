@@ -26,8 +26,8 @@ def _proxy(x, y, w, h):
     return r
 
 
-def _shown_view(elevation_scene_for):
-    _ms, elev = elevation_scene_for("north")
+def _shown_view(section_scene_for):
+    _ms, elev = section_scene_for("north")
     view = ElevationView(elev)
     view.resize(600, 600)
     view.show()
@@ -68,8 +68,8 @@ def _vp(view, scene_pt):
 
 # ── HALO hover ──────────────────────────────────────────────────────────────
 
-def test_hover_highlights_top_ranked(qapp, elevation_scene_for):
-    elev, view = _shown_view(elevation_scene_for)
+def test_hover_highlights_top_ranked(qapp, section_scene_for):
+    elev, view = _shown_view(section_scene_for)
     g = _grid(h=100.0)
     elev.addItem(g)
     # Fit so the gridline is comfortably on screen, then hover over its body.
@@ -81,8 +81,8 @@ def test_hover_highlights_top_ranked(qapp, elevation_scene_for):
 
 # ── HALO-committed click ─────────────────────────────────────────────────────
 
-def test_click_commits_halo_item(qapp, elevation_scene_for):
-    elev, view = _shown_view(elevation_scene_for)
+def test_click_commits_halo_item(qapp, section_scene_for):
+    elev, view = _shown_view(section_scene_for)
     g = _grid(h=100.0)
     elev.addItem(g)
     view.fit_to_screen()
@@ -92,8 +92,8 @@ def test_click_commits_halo_item(qapp, elevation_scene_for):
     assert elev.selectedItems() == [g]
 
 
-def test_empty_click_deselects(qapp, elevation_scene_for):
-    elev, view = _shown_view(elevation_scene_for)
+def test_empty_click_deselects(qapp, section_scene_for):
+    elev, view = _shown_view(section_scene_for)
     g = _grid(h=100.0)
     elev.addItem(g)
     g.setSelected(True)
@@ -105,7 +105,7 @@ def test_empty_click_deselects(qapp, elevation_scene_for):
     assert elev.selectedItems() == []
 
 
-def test_ctrl_click_toggles(qapp, elevation_scene_for):
+def test_ctrl_click_toggles(qapp, section_scene_for):
     """Ctrl+click routes through the HALO-commit press and universally toggles.
 
     Two well-separated gridlines: plain-click A (selects A, frame at A), then
@@ -114,7 +114,7 @@ def test_ctrl_click_toggles(qapp, elevation_scene_for):
     the real posted-event envelope. (Toggle-OFF of a framed item is consumed by
     the frame's move gesture — the shared plan-scene manipulator contract — so it
     is not asserted here via a full click.)"""
-    elev, view = _shown_view(elevation_scene_for)
+    elev, view = _shown_view(section_scene_for)
     a = _grid(label="A", h=1000.0)
     b = _grid(label="B", h=9000.0)
     elev.addItem(a)
@@ -133,12 +133,12 @@ def test_ctrl_click_toggles(qapp, elevation_scene_for):
     assert a.isSelected() and b.isSelected()
 
 
-def test_ctrl_click_toggles_off_via_scene(qapp, elevation_scene_for):
+def test_ctrl_click_toggles_off_via_scene(qapp, section_scene_for):
     """Ctrl-toggle REMOVE path, driven at the scene press with the manipulator
     hidden so the frame does not intercept (the frame-move interception is a
     separate, tested contract). Confirms the HALO-commit press removes a
     selected item on Ctrl+click."""
-    elev, view = _shown_view(elevation_scene_for)
+    elev, view = _shown_view(section_scene_for)
     g = _grid(label="A", h=100.0)
     elev.addItem(g)
     view.fit_to_screen()
@@ -154,8 +154,8 @@ def test_ctrl_click_toggles_off_via_scene(qapp, elevation_scene_for):
 
 # ── Window vs crossing band ─────────────────────────────────────────────────
 
-def test_window_vs_crossing_band(qapp, elevation_scene_for):
-    elev, view = _shown_view(elevation_scene_for)
+def test_window_vs_crossing_band(qapp, section_scene_for):
+    elev, view = _shown_view(section_scene_for)
     inside = _proxy(1000, 1000, 500, 500)       # fully inside a big band
     straddle = _proxy(4800, 1000, 800, 500)      # crosses the band's right edge
     elev.addItem(inside)
@@ -182,11 +182,11 @@ def test_window_vs_crossing_band(qapp, elevation_scene_for):
 
 # ── Spacebar HALO cycle (F-1) ────────────────────────────────────────────────
 
-def test_spacebar_cycles_overlapping_candidates(qapp, elevation_scene_for):
+def test_spacebar_cycles_overlapping_candidates(qapp, section_scene_for):
     """Spacebar (_halo_cycle) advances the HALO highlight through overlapping
     candidates. ElevationScene mixes in HaloSelectionMixin, so it must inherit
     _halo_cycle (F-1: it was only on Model_Space, so Spacebar silently no-op'd)."""
-    _ms, elev = elevation_scene_for("north")
+    _ms, elev = section_scene_for("north")
     # Two overlapping selectable items at the same spot → ≥2 HALO candidates.
     a = _proxy(1000, 1000, 500, 500)
     b = _proxy(1000, 1000, 500, 500)

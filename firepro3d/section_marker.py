@@ -204,6 +204,212 @@ class SectionBasis:
         return ZONE_BEHIND if self._in_box(self.h(*p), self.d(*p)) else ZONE_HIDDEN
 
 
+def building_bbox(model_space) -> QRectF:
+    """Plan-scene bbox of gridlines and every displayable item, plus
+    ``CROP_MARGIN`` (spec s4.3). Empty project -> the +/-FALLBACK_HALF box."""
+    rect = QRectF()
+    lists = (getattr(model_space, "_gridlines", []), getattr(model_space, "_walls", []),
+             getattr(model_space, "_floor_slabs", []), getattr(model_space, "_roofs", []),
+             getattr(model_space, "_rooms", []), getattr(model_space, "_block_instances", []))
+    ss = getattr(model_space, "sprinkler_system", None)
+    if ss is not None:
+        lists = lists + (list(ss.nodes), list(ss.pipes))
+    for items in lists:
+        for it in items:
+            try:
+                r = it.sceneBoundingRect()
+            except RuntimeError:          # deleted C++ object
+                continue
+            if r.isNull():
+                continue
+            rect = r if rect.isNull() else rect.united(r)
+    if rect.isNull():
+        rect = QRectF(-FALLBACK_HALF, -FALLBACK_HALF, 2 * FALLBACK_HALF, 2 * FALLBACK_HALF)
+    return rect.adjusted(-CROP_MARGIN, -CROP_MARGIN, CROP_MARGIN, CROP_MARGIN)
+
+
+def cardinal_cut(direction: str, box: QRectF):
+    """``((ax, ay), (bx, by), depth)`` in plan-scene coords for a cardinal
+    whose crop box is *box*: the cut line is the box edge on the camera side
+    (scene top = world north), the look side is the box interior."""
+    l, t, r, b = box.left(), box.top(), box.right(), box.bottom()
+    if direction == "north":
+        return (r, t), (l, t), box.height()
+    if direction == "south":
+        return (l, b), (r, b), box.height()
+    if direction == "east":
+        return (r, b), (r, t), box.width()
+    if direction == "west":
+        return (l, t), (l, b), box.width()
+    raise ValueError(direction)
+
+
+CARDINALS = ("north", "south", "east", "west")
+
+
+class _CardinalAttr:
+    """``SectionMarker.cardinal(direction, box)`` builds a cardinal marker while
+    ``marker.cardinal`` reads its direction -- one name, two access paths (the
+    plan and its tests use both; a classmethod and a property cannot share it)."""
+
+    def __get__(self, obj, owner):
+        if obj is None:
+            return owner._cardinal_marker
+        return obj._cardinal
+
+
+class SectionMarker(QGraphicsItem):
+    """A section's cut line + crop box on the plan (spec s6).
+
+    Geometry is plan-scene coordinates (``DetailMarker.crop_rect`` convention);
+    ``SectionScene`` converts to world through ``_scene_to_world``. Paint,
+    grips, menu and properties are added in a later task; this core carries
+    the fields, the dict round-trip and the cardinal auto-extent fit.
+    """
+
+    HALO_AREA = True
+
+    def __init__(self, name: str, cut_a: QPointF, cut_b: QPointF,
+                 look_sign: int = 1, depth_mm: float = 10000.0,
+                 cardinal: "str | None" = None, auto_extent: bool = False,
+                 parent: QGraphicsItem | None = None):
+        super().__init__(parent)
+        self._name = name
+        self._a = QPointF(cut_a)
+        self._b = QPointF(cut_b)
+        self._look = 1 if look_sign >= 0 else -1
+        self._depth = float(depth_mm)
+        self._cardinal = cardinal
+        self._auto_extent = bool(auto_extent) if cardinal else False
+        self.gridline_z_overrides: dict[str, dict] = {}
+        self._manager = None                     # set by SectionManager
+        self.PAPER_EXCLUDED = cardinal is not None    # s6.4: cardinals never plot
+        self._exclude_from_bulk_select = True
+        self.level = DEFAULT_LEVEL               # display-manager categorization
+        self._display_overrides: dict = {}
+        self._marker_color = QColor(GRID_COLOR)
+        self._fill_color = QColor("#1a1a2e")
+        self._display_font_size: int | None = None
+        self.setZValue(Z_OVERLAY)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+
+    @classmethod
+    def _cardinal_marker(cls, direction: str, box: QRectF) -> "SectionMarker":
+        a, b, depth = cardinal_cut(direction, box)
+        return cls(direction.title(), QPointF(*a), QPointF(*b), 1, depth,
+                   cardinal=direction, auto_extent=True)
+
+    # -- fields -----------------------------------------------------------
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @name.setter
+    def name(self, v: str):
+        self._name = str(v)
+        self.update()
+
+    @property
+    def cut_a(self) -> QPointF:
+        return QPointF(self._a)
+
+    @property
+    def cut_b(self) -> QPointF:
+        return QPointF(self._b)
+
+    @property
+    def look_sign(self) -> int:
+        return self._look
+
+    @property
+    def depth_mm(self) -> float:
+        return self._depth
+
+    cardinal = _CardinalAttr()    # class access = factory, instance access = direction
+
+    @property
+    def auto_extent(self) -> bool:
+        return self._auto_extent
+
+    @property
+    def view_type(self) -> str:
+        return "elevation" if self._cardinal else "section"
+
+    @property
+    def view_name(self) -> str:
+        """The name consumers key on: the direction for a cardinal (s7.2)."""
+        return self._cardinal if self._cardinal else self._name
+
+    def normal_scene(self) -> tuple[float, float]:
+        """Unit look normal in plan-scene coords (y-down): ``look * (D.y, -D.x)``."""
+        dx, dy = self._b.x() - self._a.x(), self._b.y() - self._a.y()
+        L = math.hypot(dx, dy) or 1.0
+        return self._look * dy / L, -self._look * dx / L
+
+    def box_polygon(self) -> QPolygonF:
+        nx, ny = self.normal_scene()
+        far = QPointF(nx * self._depth, ny * self._depth)
+        return QPolygonF([self._a, self._b, self._b + far, self._a + far])
+
+    # -- mutation (grips / menu / manager call these) -----------------------
+    def set_geometry(self, a: QPointF, b: QPointF, depth_mm: float, *, user: bool = True):
+        self.prepareGeometryChange()
+        self._a, self._b, self._depth = QPointF(a), QPointF(b), float(depth_mm)
+        if user and self._cardinal:
+            self._auto_extent = False            # first user edit owns the box (s4.3)
+        self.update()
+        self._notify()
+
+    def flip(self):
+        self._look = -self._look
+        self.update()
+        self._notify()
+
+    def _notify(self):
+        mgr = self._manager
+        if mgr is not None:
+            mgr.on_marker_geometry_changed(self)
+
+    def auto_fit(self, model_space) -> bool:
+        """Re-seed a cardinal's box from the building; True when geometry moved."""
+        if not self._auto_extent or not self._cardinal:
+            return False
+        a, b, depth = cardinal_cut(self._cardinal, building_bbox(model_space))
+        a, b = QPointF(*a), QPointF(*b)
+        if a == self._a and b == self._b and depth == self._depth:
+            return False
+        self.prepareGeometryChange()
+        self._a, self._b, self._depth = a, b, depth
+        self.update()
+        return True
+
+    # -- geometry stubs (Task 8 replaces) --------------------------------------
+    def boundingRect(self) -> QRectF:
+        return self.box_polygon().boundingRect().adjusted(-MARKER_SIZE, -MARKER_SIZE,
+                                                          MARKER_SIZE, MARKER_SIZE)
+
+    def paint(self, painter, option, widget=None):
+        pass
+
+    # -- serialization (spec s8) ------------------------------------------------
+    def to_dict(self) -> dict:
+        return {"name": self._name,
+                "cut_a": [self._a.x(), self._a.y()],
+                "cut_b": [self._b.x(), self._b.y()],
+                "look_sign": self._look, "depth_mm": self._depth,
+                "cardinal": self._cardinal, "auto_extent": self._auto_extent,
+                "gridline_z_overrides": dict(self.gridline_z_overrides)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SectionMarker":
+        m = cls(d["name"], QPointF(*d["cut_a"]), QPointF(*d["cut_b"]),
+                int(d.get("look_sign", 1)), float(d.get("depth_mm", 10000.0)),
+                cardinal=d.get("cardinal"), auto_extent=bool(d.get("auto_extent", False)))
+        m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+        return m
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SharedCropBox — single dashed rectangle for all elevation markers
 # ─────────────────────────────────────────────────────────────────────────────

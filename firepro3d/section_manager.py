@@ -69,7 +69,9 @@ class SectionManager:
             del self._views[direction]
 
         # Create new scene + view
-        scene = SectionScene(direction, self._ms, self._lm, self._sm)
+        from .section_marker import SectionMarker, building_bbox
+        marker = SectionMarker.cardinal(direction, building_bbox(self._ms))
+        scene = SectionScene(marker, self._ms, self._lm, self._sm)
         view = SectionView(scene, self._sm)
         scene.rebuild()
 

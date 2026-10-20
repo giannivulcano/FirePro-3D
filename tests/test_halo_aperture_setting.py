@@ -81,11 +81,11 @@ def test_model_view_reads_halo_aperture_global(qapp):
         hs.HALO_APERTURE_PX = saved
 
 
-def test_elevation_view_reads_halo_aperture_global(qapp, elevation_scene_for):
+def test_elevation_view_reads_halo_aperture_global(qapp, section_scene_for):
     from firepro3d.elevation_view import ElevationView
     saved = hs.HALO_APERTURE_PX
     try:
-        _ms, elev = elevation_scene_for("north")
+        _ms, elev = section_scene_for("north")
         line = LineItem(QPointF(20.0, 0.0), QPointF(100.0, 0.0))
         elev.addItem(line)
         view = ElevationView(elev)
