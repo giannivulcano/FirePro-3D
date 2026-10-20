@@ -26,6 +26,17 @@ def _interior(img, lo=30, hi=90, step=2):
     return [QColor(img.pixel(x, y)) for y in range(lo, hi, step) for x in range(lo, hi, step)]
 
 
+@pytest.fixture(autouse=True)
+def _collect_qt_garbage():
+    """Collect each test's unparented panels/scenes at teardown, between
+    tests. Left to the cyclic GC, they were collected inside a later test's
+    processEvents (a Model_View build) and killed the process (0xC0000409;
+    reproduced at aeab43ff). No processEvents here: that is the hazard."""
+    import gc
+    yield
+    gc.collect()
+
+
 def _rect():
     return RectangleItem(QPointF(10, 10), QPointF(110, 110))
 
@@ -214,44 +225,24 @@ def test_multi_select_fill_pattern_writes_every_shape(qapp, monkeypatch):
     assert a.fill_layers.pattern == new and b.fill_layers.pattern == new
 
 
-# G9 / AC7: the context-menu Hatch -> pattern path turns the pattern layer on (shim).
-def test_context_menu_hatch_entry_turns_pattern_on(qapp, shipped_hatches):
-    from PyQt6.QtWidgets import QMenu
-    from firepro3d.entity_context_menu import _attach_fill_submenu
-    ms = _ms_with_hatches(shipped_hatches)
-    r = _rect(); ms.addItem(r)
-    menu = QMenu(); _attach_fill_submenu(menu, r)
-    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
-    hatch = next(a.menu() for a in fill.actions() if a.text() == "Hatch")
-    act = hatch.actions()[0]
-    act.trigger()
-    assert r.fill_layers.pattern is not None
-    solid = next(a for a in fill.actions() if a.text() == "Solid")
-    solid.trigger()
-    assert r.fill_layers.background is not None
-    none = next(a for a in fill.actions() if a.text() == "None")
-    none.trigger()
-    assert r.fill_layers.is_empty
-
-
-def _hatch_menu_via(path, ms, r):
-    """The Fill > Hatch submenu of *r* built by the entity (A) or view (B) path."""
-    from PyQt6.QtWidgets import QMenu
-    menu = QMenu()
+def _fill_pattern_action(path, ms, r):
+    """The "Fill Pattern…" action for *r* from the entity (A) or plan (B) menu;
+    returns (menu, action) — keep *menu* alive, it owns the action."""
+    r.setSelected(True)
     if path == "entity":
-        from firepro3d.entity_context_menu import _attach_fill_submenu
-        _attach_fill_submenu(menu, r)
+        menu = ms._build_entity_context_menu(r)
     else:
+        from PyQt6.QtWidgets import QApplication
         from firepro3d.model_view import Model_View
-        Model_View._build_fill_submenu(menu, ms, r)
-    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
-    return menu, next(a.menu() for a in fill.actions() if a.text() == "Hatch")
+        view = Model_View(ms); QApplication.processEvents()
+        menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
+        menu._keep_view = view
+    return menu, next(a for a in menu.actions() if a.text() == "Fill Pattern…")
 
 
-# A refused library load (D-A37) leaves the shape unfilled: the Hatch entry must
-# not go on to turn a default pattern on (both menus carry the guard).
+# A refused library load (D-A37) leaves the shape unfilled through both menus.
 @pytest.mark.parametrize("path", ["entity", "view"])
-def test_refused_library_load_leaves_hatch_entry_unfilled(qapp, monkeypatch, tmp_path, path):
+def test_refused_library_load_leaves_menu_pick_unfilled(qapp, monkeypatch, tmp_path, path):
     from PyQt6.QtCore import QSettings
     from firepro3d import app_data, block_library as bl, hatch_patterns
     from firepro3d.block_definition import BlockDefinition
@@ -268,10 +259,10 @@ def test_refused_library_load_leaves_hatch_entry_unfilled(qapp, monkeypatch, tmp
     r = _rect(); ms.addItem(r)
     assert r.fill_layers.is_empty
     monkeypatch.setattr(hatch_patterns, "ensure_pattern_available", lambda *a, **k: False)
-    menu, hatch = _hatch_menu_via(path, ms, r)       # keep *menu* alive: it owns *hatch*
-    acts = hatch.actions()
-    assert acts, "no library pattern offered"
-    acts[0].trigger()
+    zig = next(bid for n, bid, _p in hatch_patterns.library_patterns() if n == "Zig")
+    monkeypatch.setattr(colour_picker, "pick_fill", lambda *a, **k: PatternLayer(zig))
+    menu, act = _fill_pattern_action(path, ms, r)
+    act.trigger()
     assert r.fill_layers.is_empty, r.fill_layers
 
 
@@ -304,6 +295,18 @@ def test_reference_shape_keeps_layers_but_hides_rows_and_paint(qapp):
     assert not r._draws_fill()
     assert "Fill" not in r.get_properties() and "Fill Pattern" not in r.get_properties()
     assert r.to_dict()["fill"] == {"background": {"color": "#0000ff", "opacity": 1.0}}
+
+
+# G5 (UP2 AC6): the string-value menu shim is gone — legacy kind strings and
+# the "Pattern" key change nothing.
+def test_menu_shim_is_removed(qapp):
+    r = _rect()
+    r.set_property("Fill", "solid")
+    r.set_property("Fill", "hatch")
+    r.set_property("Pattern", "Diagonal")
+    assert r.fill_layers.is_empty, r.fill_layers
+    assert not hasattr(r, "_set_fill_kind")
+    assert not hasattr(r, "_set_fill_pattern_ref")
 
 
 # S-M4: a shape's pattern layer keeps its (library-only) ref in the project's

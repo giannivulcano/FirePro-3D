@@ -512,7 +512,7 @@ def _hatched_rect(scene, ref):
 
 
 def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp, shipped_hatches):
-    from firepro3d.hatch_patterns import BUILTIN_DIAGONAL, MISSING_PATTERN_LABEL
+    from firepro3d.hatch_patterns import BUILTIN_DIAGONAL
     from firepro3d.property_manager import PropertyManager
     from firepro3d.ui_kit import FillSwatch
     proj = Model_Space()
@@ -527,9 +527,7 @@ def test_panel_shows_missing_for_an_unresolvable_ref_and_keeps_it(qapp, shipped_
     # test_unknown_initial_ref_is_kept_as_a_missing_chip.)
     sw = next(s for s in pm.findChildren(FillSwatch) if s._context == "Fill Pattern")
     assert sw.layer().ref == "deadbeef-no-such-tile"
-    r.set_property("Pattern", MISSING_PATTERN_LABEL)   # menu shim: D-A36 keeps the ref
-    assert r.fill_layers.pattern.ref == "deadbeef-no-such-tile"
-    r.set_property("Pattern", "Diagonal")
+    r.set_property("Fill Pattern", PatternLayer(BUILTIN_DIAGONAL))
     assert r.fill_layers.pattern.ref == BUILTIN_DIAGONAL
 
 

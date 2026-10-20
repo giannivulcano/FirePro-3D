@@ -175,7 +175,7 @@ def _rect_in(ms):
     rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
     ms.addItem(rect)
     ms._draw_rects.append(rect)            # the undo snapshot's draw list
-    rect.set_property("Fill", "hatch")
+    rect.set_property("Fill Pattern", PatternLayer(hp.DEFAULT_TILE_REF))
     ms.push_undo_state()
     return rect
 
@@ -199,7 +199,7 @@ def test_picking_via_the_property_setter_loads_then_stores(hatch_dir):
     assert rect2.fill_layers.pattern == PatternLayer(hp.DEFAULT_TILE_REF)
 
 
-def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir):
+def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir, monkeypatch):
     p = _pattern()
     bl.save_to_library(p, root=str(hatch_dir))
     ms = Model_Space()
@@ -207,19 +207,18 @@ def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir):
     ms.addItem(rect)
     rect.setSelected(True)
     ms.push_undo_state()
+    from firepro3d import colour_picker
+    monkeypatch.setattr(colour_picker, "pick_fill",
+                        lambda *a, **k: PatternLayer(p.id))
     menu = ms._build_entity_context_menu(rect)
-    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
-    hatch = next(a.menu() for a in fill.actions() if a.text() == "Hatch")
-    act = next((a for a in hatch.actions() if a.text() == "Zig"), None)
-    assert act is not None, [a.text() for a in hatch.actions()]
-    act.trigger()
+    next(a for a in menu.actions() if a.text() == "Fill Pattern…").trigger()
     assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
     ms.undo()                                        # one step removes the load
     assert p.id not in ms._block_definitions
 
 
-def test_picking_in_the_plan_context_menu_loads(hatch_dir):
+def test_picking_in_the_plan_context_menu_loads(hatch_dir, monkeypatch):
     from PyQt6.QtWidgets import QApplication
     from firepro3d.model_view import Model_View
     p = _pattern()
@@ -230,10 +229,11 @@ def test_picking_in_the_plan_context_menu_loads(hatch_dir):
     rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
     ms.addItem(rect)
     rect.setSelected(True)
+    from firepro3d import colour_picker
+    monkeypatch.setattr(colour_picker, "pick_fill",
+                        lambda *a, **k: PatternLayer(p.id))
     menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
-    hatch = next(a.menu() for a in fill.actions() if a.text() == "Hatch")
-    next(a for a in hatch.actions() if a.text() == "Zig").trigger()
+    next(a for a in menu.actions() if a.text() == "Fill Pattern…").trigger()
     assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
 
@@ -247,7 +247,7 @@ def test_picking_in_a_block_editor_loads_into_the_project(hatch_dir):
     w = BlockEditorManager(QTabWidget(), project).open_new()
     rect = RectangleItem(QPointF(0, 0), QPointF(20, 10))
     w._add_primitive(rect)
-    rect.set_property("Fill", "hatch")
+    rect.set_property("Fill Pattern", PatternLayer(hp.DEFAULT_TILE_REF))
     assert "Zig" in _choice_names(rect.get_properties()["Fill Pattern"])
     rect.set_property("Fill Pattern", PatternLayer(p.id))
     assert rect.fill_layers.pattern.ref == p.id
@@ -260,7 +260,7 @@ def test_loaded_pattern_is_saved_and_bundled(hatch_dir, tmp_path):
     bl.save_to_library(p, root=str(hatch_dir))
     ms = Model_Space()
     rect = _rect_in(ms)
-    rect.set_property("Pattern", "Zig")
+    rect.set_property("Fill Pattern", PatternLayer(p.id))
     out = tmp_path / "proj.fpd"
     ms.save_to_file(str(out))
     assert p.id in json.loads(out.read_text(encoding="utf-8"))["block_definitions"]

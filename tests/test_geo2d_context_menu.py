@@ -1,15 +1,11 @@
 """test_geo2d_context_menu.py
 ==============================
-Tests for the Fill submenu on 2D closed shapes in Model_View's two
-context-menu paths:
+UP2 (R7): both right-click paths offer "Fill…" / "Fill Pattern…" (the UP1
+picker) for the selected fillable 2D shapes, never the retired Fill submenu.
 
-  PATH A — entity path: Model_Space._show_entity_context_menu (called when
-            _find_entity_at returns the item; called directly to avoid blocking exec).
-  PATH B — generic/thin path: Model_View._build_plan_context_menu (called
-            directly, the established pattern from test_gridline_array_offset).
-
-Both paths must expose a "Fill" submenu when the target/selection is fillable,
-and must NOT expose it for a non-fillable LineItem.
+  PATH A — entity path: Model_Space._build_entity_context_menu (production
+            builder, no exec).
+  PATH B — plan path: Model_View._build_plan_context_menu.
 """
 
 from __future__ import annotations
@@ -53,212 +49,157 @@ def _undo_stack_size(scene) -> int:
     return len(getattr(scene, "_undo_stack", []))
 
 
+FILL = "Fill…"
+FILL_PATTERN = "Fill Pattern…"
+
+
+def _action(menu, text):
+    return next((a for a in menu.actions() if a.text() == text), None)
+
+
+def _undoable_rects(ms, n=2):
+    """*n* selected rects on the undo snapshot's draw list, baseline pushed."""
+    rects = []
+    for i in range(n):
+        r = RectangleItem(QPointF(300 * i, 0), QPointF(300 * i + 200, 100))
+        ms.addItem(r); ms._draw_rects.append(r); r.setSelected(True)
+        rects.append(r)
+    ms.push_undo_state()
+    return rects
+
+
+def _stub_pick(monkeypatch, result):
+    """Replace colour_picker.pick_fill; returns the list of recorded calls."""
+    from firepro3d import colour_picker
+    calls = []
+    def fake(initial, parent=None, **kw):
+        calls.append((initial, kw))
+        return result
+    monkeypatch.setattr(colour_picker, "pick_fill", fake)
+    return calls
+
+
 # ---------------------------------------------------------------------------
 # PATH B: Model_View._build_plan_context_menu
 # ---------------------------------------------------------------------------
 
 class TestPlanContextMenu:
-    """Tests for the generic/thin path (_build_plan_context_menu)."""
+    """PATH B — plan view generic menu."""
 
-    def test_fill_submenu_present_for_fillable_selected(self, qapp):
-        """A selected fillable RectangleItem makes the Fill submenu appear."""
+    def test_entries_replace_submenu_for_two_fillable(self, qapp):
+        """G1(B): 2 fillable rects → both entries, no Fill submenu."""
         ms, view = _make_scene_and_view(qapp)
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
-
+        _undoable_rects(ms)
         menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None, (
-            "Fill submenu missing from _build_plan_context_menu when a "
-            f"fillable item is selected; actions={_menu_action_texts(menu)}"
-        )
+        texts = _menu_action_texts(menu)
+        assert FILL in texts and FILL_PATTERN in texts, texts
+        assert _find_submenu(menu, "Fill") is None, texts
 
-    def test_fill_submenu_contains_none_solid_hatch(self, qapp):
-        """The Fill submenu has at least None, Solid, and Hatch actions."""
-        ms, view = _make_scene_and_view(qapp)
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
-
-        menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None
-        action_texts = [a.text() for a in fill_sub.actions() if not a.isSeparator()]
-        assert "None" in action_texts, f"'None' missing from Fill submenu: {action_texts}"
-        assert "Solid" in action_texts, f"'Solid' missing from Fill submenu: {action_texts}"
-        # Hatch may be a sub-submenu action or a direct action
-        hatch_labels = [t for t in action_texts if "Hatch" in t]
-        assert hatch_labels, f"'Hatch' missing from Fill submenu: {action_texts}"
-
-    def test_fill_solid_action_sets_fill_type_and_pushes_undo(self, qapp):
-        """Triggering 'Solid' turns the background layer on and pushes one undo step."""
-        ms, view = _make_scene_and_view(qapp)
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
-
-        before = _undo_stack_size(ms)
-        menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None
-
-        solid_act = next(
-            (a for a in fill_sub.actions() if a.text() == "Solid"), None
-        )
-        assert solid_act is not None, "Solid action not found in Fill submenu"
-        solid_act.trigger()
-
-        assert rect.fill_layers.background is not None, (
-            f"Expected a background layer after triggering Solid action, got {rect.fill_layers}"
-        )
-        after = _undo_stack_size(ms)
-        assert after == before + 1, (
-            f"Expected exactly one new undo step; stack was {before}, now {after}"
-        )
-
-    def test_no_fill_submenu_for_line_item(self, qapp):
-        """A LineItem (not fillable) must not have a Fill submenu."""
+    def test_no_entries_for_line_item(self, qapp):
+        """G1(B): a lone LineItem → neither entry."""
         ms, view = _make_scene_and_view(qapp)
         line = LineItem(QPointF(0, 0), QPointF(200, 0))
-        ms.addItem(line)
-        line.setSelected(True)
+        ms.addItem(line); line.setSelected(True)
+        texts = _menu_action_texts(
+            view._build_plan_context_menu(ms, ms.selectedItems(), "select"))
+        assert FILL not in texts and FILL_PATTERN not in texts, texts
 
-        menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is None, (
-            "Fill submenu unexpectedly present for a non-fillable LineItem; "
-            f"actions={_menu_action_texts(menu)}"
-        )
-
-    def test_hatch_submenu_contains_patterns(self, qapp, shipped_hatches):
-        """The Hatch sub-submenu lists every pattern choice (project + folder tiles)."""
-        from firepro3d.hatch_patterns import tile_choices
+    def test_fill_pattern_writes_both_one_undo_step(self, qapp, monkeypatch, shipped_hatches):
+        """G2: Fill Pattern… → brick on both rects; +1 undo; undo → none; redo → back."""
+        from firepro3d.fill_layers import PatternLayer
+        from firepro3d.hatch_patterns import BUILTIN_BRICK
         ms, view = _make_scene_and_view(qapp)
-        shipped_hatches(ms)               # D-A39: the shipped patterns are project blocks
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
-
+        shipped_hatches(ms)
+        _undoable_rects(ms)
+        pos0 = ms._undo_pos
+        layer = PatternLayer(BUILTIN_BRICK)
+        _stub_pick(monkeypatch, layer)
         menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None
-
-        # Find Hatch action and its submenu
-        hatch_act = next(
-            (a for a in fill_sub.actions() if "Hatch" in a.text() and a.menu()), None
-        )
-        assert hatch_act is not None, (
-            "Hatch action with a patterns sub-submenu not found in Fill submenu"
-        )
-        pattern_texts = [a.text() for a in hatch_act.menu().actions() if not a.isSeparator()]
-        for name, _ref in tile_choices(ms.block_registry):
-            assert name in pattern_texts, (
-                f"Pattern '{name}' missing from Hatch submenu: {pattern_texts}"
-            )
-        # Picking a pattern stores its id (D-A29).
-        act = next(a for a in hatch_act.menu().actions() if a.text() == "Horizontal")
-        act.trigger()
-        assert rect.fill_layers.pattern.ref == "builtin-hatch-horizontal"
-
-    def test_hatch_submenu_lists_and_stores_project_tile(self, qapp):
-        """A project tile on the scene is listed and picking it stores its block id."""
-        from firepro3d.block_definition import BlockDefinition
-        from firepro3d.geometry_2d import LineItem
-        ms, view = _make_scene_and_view(qapp)
-        d = BlockDefinition.new(
-            name="Zig", library="L", series="S", origin=(0.0, 0.0),
-            primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
-            tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
-        ms.register_block_definition(d)
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
-        menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-        hatch_act = next(a for a in _find_submenu(menu, "Fill").actions()
-                         if "Hatch" in a.text() and a.menu())
-        act = next((a for a in hatch_act.menu().actions() if a.text() == "Zig"), None)
-        assert act is not None, [a.text() for a in hatch_act.menu().actions()]
-        act.trigger()
-        assert rect.fill_layers.pattern.ref == d.id
+        _action(menu, FILL_PATTERN).trigger()
+        assert [r.fill_layers.pattern for r in ms._draw_rects] == [layer, layer]
+        assert ms._undo_pos == pos0 + 1
+        ms.undo()                                   # items rebuilt: re-read the list
+        assert [r.fill_layers.pattern for r in ms._draw_rects] == [None, None]
+        ms.redo()
+        assert [r.fill_layers.pattern for r in ms._draw_rects] == [layer, layer]
 
 
 # ---------------------------------------------------------------------------
-# PATH A: Model_Space._show_entity_context_menu (entity path)
+# PATH A: Model_Space._build_entity_context_menu (entity path)
 # ---------------------------------------------------------------------------
 
 class TestEntityContextMenu:
-    """Tests for the entity path (_show_entity_context_menu via build_entity_context_menu)."""
+    """PATH A — entity right-click menu."""
 
-    def _capture_entity_menu(self, ms, target):
-        """Build the entity menu through the production builder (no exec)."""
-        return ms._build_entity_context_menu(target)
-
-    def test_fill_submenu_present_for_fillable_target(self, qapp):
-        """Entity-path menu contains a Fill submenu when the target is fillable."""
+    def test_entries_replace_submenu_for_fillable_selection(self, qapp):
+        """G1(A): fillable selection → Fill… + Fill Pattern…, no Fill submenu."""
         ms = Model_Space()
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
+        a, b = _undoable_rects(ms)
+        menu = ms._build_entity_context_menu(a)
+        texts = _menu_action_texts(menu)
+        assert FILL in texts and FILL_PATTERN in texts, texts
+        assert _find_submenu(menu, "Fill") is None, texts
 
-        menu = self._capture_entity_menu(ms, rect)
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None, (
-            "Fill submenu missing from entity-path menu for fillable RectangleItem; "
-            f"actions={_menu_action_texts(menu)}"
-        )
-
-    def test_fill_submenu_contains_none_solid_hatch_entity_path(self, qapp):
-        """Entity path Fill submenu has None, Solid, and Hatch."""
+    def test_entries_show_when_clicked_item_is_not_fillable(self, qapp):
+        """AC1: ≥1 fillable in the selection is enough (clicked a line)."""
         ms = Model_Space()
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
+        (r,) = _undoable_rects(ms, 1)
+        line = LineItem(QPointF(0, 0), QPointF(200, 0))
+        ms.addItem(line); line.setSelected(True)
+        texts = _menu_action_texts(ms._build_entity_context_menu(line))
+        assert FILL in texts and FILL_PATTERN in texts, texts
 
-        menu = self._capture_entity_menu(ms, rect)
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None
-        action_texts = [a.text() for a in fill_sub.actions() if not a.isSeparator()]
-        assert "None" in action_texts
-        assert "Solid" in action_texts
-        hatch_labels = [t for t in action_texts if "Hatch" in t]
-        assert hatch_labels, f"'Hatch' missing: {action_texts}"
-
-    def test_fill_solid_action_entity_path_sets_fill_type_and_undo(self, qapp):
-        """Entity path: Solid action turns the background on and pushes one undo step."""
-        ms = Model_Space()
-        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-        ms.addItem(rect)
-        rect.setSelected(True)
-
-        before = _undo_stack_size(ms)
-        menu = self._capture_entity_menu(ms, rect)
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is not None
-
-        solid_act = next(
-            (a for a in fill_sub.actions() if a.text() == "Solid"), None
-        )
-        assert solid_act is not None
-        solid_act.trigger()
-
-        assert rect.fill_layers.background is not None, (
-            f"Expected a background layer, got {rect.fill_layers}"
-        )
-        after = _undo_stack_size(ms)
-        assert after == before + 1, (
-            f"Expected one new undo step; before={before}, after={after}"
-        )
-
-    def test_no_fill_submenu_for_line_item_entity_path(self, qapp):
-        """Entity path: LineItem must not have a Fill submenu."""
+    def test_no_entries_for_line_or_reference_only(self, qapp):
+        """G1(A): no fillable (a line; a reference rect) → neither entry."""
         ms = Model_Space()
         line = LineItem(QPointF(0, 0), QPointF(200, 0))
-        ms.addItem(line)
-        line.setSelected(True)
+        ms.addItem(line); line.setSelected(True)
+        ref = RectangleItem(QPointF(0, 0), QPointF(50, 50))
+        ms.addItem(ref); ref.set_property("Reference", True); ref.setSelected(True)
+        assert ref.reference
+        for target in (line, ref):
+            texts = _menu_action_texts(ms._build_entity_context_menu(target))
+            assert FILL not in texts and FILL_PATTERN not in texts, texts
+            assert _find_submenu(ms._build_entity_context_menu(target), "Fill") is None
 
-        menu = self._capture_entity_menu(ms, line)
-        fill_sub = _find_submenu(menu, "Fill")
-        assert fill_sub is None, (
-            "Fill submenu unexpectedly present for LineItem in entity path"
-        )
+    def test_fill_no_layer_turns_every_background_off_one_step(self, qapp, monkeypatch):
+        """G3: Fill… → NO_LAYER clears both backgrounds in one undo step."""
+        from firepro3d.fill_layers import NO_LAYER, BackgroundLayer
+        ms = Model_Space()
+        a, b = _undoable_rects(ms)
+        for r in (a, b):
+            r.set_property("Fill", BackgroundLayer("#ff0000", 1.0))
+        pos0 = ms._undo_pos
+        _stub_pick(monkeypatch, NO_LAYER)
+        menu = ms._build_entity_context_menu(a)     # unparented: keep it alive
+        _action(menu, FILL).trigger()
+        assert a.fill_layers.background is None and b.fill_layers.background is None
+        assert ms._undo_pos == pos0 + 1
+
+    def test_picker_args_and_cancel(self, qapp, monkeypatch, shipped_hatches):
+        """G4: pattern mode, initial = clicked shape's layer, registry/exclude
+        as the panel passes; cancel (None) writes nothing, pushes nothing."""
+        from firepro3d.fill_layers import PatternLayer
+        from firepro3d.hatch_patterns import (BUILTIN_BRICK, BUILTIN_DIAGONAL,
+                                              picker_exclude)
+        ms = Model_Space(); shipped_hatches(ms)
+        a, b = _undoable_rects(ms)
+        a.set_property("Fill Pattern", PatternLayer(BUILTIN_DIAGONAL))
+        b.set_property("Fill Pattern", PatternLayer(BUILTIN_BRICK))
+        pos0 = ms._undo_pos
+        before = (a.fill_layers, b.fill_layers)
+        calls = _stub_pick(monkeypatch, None)
+        menu = ms._build_entity_context_menu(b)     # unparented: keep it alive
+        _action(menu, FILL_PATTERN).trigger()
+        ((initial, kw),) = calls
+        assert initial == b.fill_layers.pattern            # the clicked shape
+        assert kw["pattern"] is True
+        assert kw["registry"] is ms.block_registry
+        assert frozenset(kw["exclude"]) == picker_exclude(ms)   # frozenset (hatch_patterns.py:253)
+        assert (a.fill_layers, b.fill_layers) == before    # cancel: no change
+        assert ms._undo_pos == pos0
+        calls.clear()
+        menu = ms._build_entity_context_menu(a)
+        _action(menu, FILL).trigger()
+        ((initial, kw),) = calls
+        assert initial is None and kw["pattern"] is False  # no background yet

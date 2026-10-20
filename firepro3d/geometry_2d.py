@@ -23,12 +23,11 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
-from .constants import CRISP_AXIS_TOL, FILL_LEGACY_COLOUR, TOKEN_AUTO
+from .constants import CRISP_AXIS_TOL, TOKEN_AUTO
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
                           PatternLayer, alpha as _fill_alpha)
-from .hatch_patterns import DEFAULT_TILE_REF
 from . import end_render as _er
 from .linetype_render import badge_pad_px, printed_factor
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
@@ -40,7 +39,6 @@ from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
                            toggle_mirrored)
 from .view_scale import scene_hit_width
 
-_DEFAULT_FILL_PATTERN = DEFAULT_TILE_REF
 _NO_PRIOR = object()      # "no display colour remembered" (RG17), distinct from None
 # End-slot values that are never an end-block id (stroke_style.is_end_ref):
 # the LT5 _item_ends fast-path gate.
@@ -1006,17 +1004,12 @@ class Geometry2DMixin:
             self._dim_edit(lambda v: self._set_style_field(key, v), value)
             return True
         if key == "Fill":
-            if isinstance(value, str):
-                self._set_fill_kind(value)             # UP2 removes: menu shim
-            elif value is NO_LAYER or isinstance(value, BackgroundLayer):
+            if value is NO_LAYER or isinstance(value, BackgroundLayer):
                 self._dim_edit(lambda v: self._set_fill_layer("background", v), value)
             return True
         if key == "Fill Pattern":
             if value is NO_LAYER or isinstance(value, PatternLayer):
                 self._set_pattern_layer_from_panel(value)
-            return True
-        if key == "Pattern":
-            self._set_fill_pattern_ref(str(value))     # UP2 removes: menu shim
             return True
         return False
 
@@ -1044,37 +1037,6 @@ class Geometry2DMixin:
                     self.update()
                 return
         self._dim_edit(lambda v: self._set_fill_layer("pattern", v), value)
-
-    def _set_fill_kind(self, kind: str) -> None:
-        """Menu shim (removed by UP2): ``none`` clears both layers, ``solid``
-        / ``hatch`` turn the background / pattern on when off (new layers at
-        100 %, R10). The caller pushes the undo step."""
-        fl = self.fill_layers
-        if kind == "none":
-            self.fill_layers = _EMPTY_FILL
-        elif kind == "solid" and fl.background is None:
-            self.fill_layers = _dc_replace(fl, background=BackgroundLayer(FILL_LEGACY_COLOUR))
-        elif kind == "hatch" and fl.pattern is None:
-            self.fill_layers = _dc_replace(fl, pattern=PatternLayer(_DEFAULT_FILL_PATTERN))
-        self.update()
-
-    def _set_fill_pattern_ref(self, value: str) -> None:
-        """Menu shim (removed by UP2): set the pattern ref, creating the layer
-        when off. D-A36: the missing label never rewrites the stored ref;
-        D-A37: a library pattern loads first, a failed load keeps the old
-        layers. The caller pushes the undo step."""
-        from .hatch_patterns import (MISSING_PATTERN_LABEL, ensure_pattern_available,
-                                     picker_exclude, ref_from_value)
-        if value == MISSING_PATTERN_LABEL:
-            return
-        ref = ref_from_value(value, self._tile_registry(), picker_exclude(self.scene()))
-        old = self.fill_layers
-        pat = old.pattern
-        self.fill_layers = _dc_replace(
-            old, pattern=PatternLayer(ref) if pat is None else _dc_replace(pat, ref=ref))
-        if not ensure_pattern_available(ref, self.scene()):
-            self.fill_layers = old
-        self.update()
 
     def _set_reference_flag(self, key: str, on) -> None:
         """Panel flip (RG10): one undo step via ``_dim_edit``; the item takes

@@ -1,46 +1,58 @@
 """Shared entity context menu used by plan, elevation, and 3D views."""
 
+import contextlib
+
 from PyQt6.QtWidgets import QMenu
 
 
-def _attach_fill_submenu(menu: QMenu, target) -> None:
-    """Append a Fill submenu to *menu* when *target* is a fillable 2D shape.
+def fillable_targets(selected, target=None) -> list:
+    """The shapes a fill pick writes (UP2): closed, ``set_property``-capable,
+    non-reference 2D shapes in *selected*, the right-clicked *target* first
+    (when fillable) so the picker opens on its layer."""
+    def ok(it):
+        return (callable(getattr(it, "is_fillable", None)) and it.is_fillable()
+                and hasattr(it, "set_property")
+                and not getattr(it, "reference", False))
+    out = [target] if target is not None and ok(target) else []
+    out += [it for it in selected if it is not target and ok(it)]
+    return out
 
-    Mutations route through scene.push_undo_state() + target.set_property(),
-    the same undo idiom used by the ribbon / property panel.
-    """
-    if target is None or not getattr(target, "is_fillable", lambda: False)():
+
+def add_fill_actions(menu: QMenu, targets: list) -> None:
+    """Append "Fill…" / "Fill Pattern…" (UP2, R7) when *targets* is non-empty:
+    each opens ``colour_picker.pick_fill`` on ``targets[0]``'s layer and writes
+    the pick to every target as one undo step."""
+    if not targets:
         return
+    menu.addAction("Fill…").triggered.connect(
+        lambda _=False: _pick_and_apply(targets, pattern=False))
+    menu.addAction("Fill Pattern…").triggered.connect(
+        lambda _=False: _pick_and_apply(targets, pattern=True))
 
-    from .hatch_patterns import tile_choices
 
-    fill_menu = menu.addMenu("Fill")
-
-    def _apply(fill_type, pattern=None):
-        sc = target.scene()
-        if sc is None:
-            return
-        sc.push_undo_state()
-        if pattern is not None:
-            # The Pattern setter loads a library pattern first (D-A37,
-            # ensure_pattern_available); a refused load leaves the fill as is.
-            target.set_property("Pattern", pattern)
-            pat = getattr(getattr(target, "fill_layers", None), "pattern", None)
-            if pat is None or pat.ref != pattern:
-                return
-        target.set_property("Fill", fill_type)
-        target.update()
-
-    fill_menu.addAction("None").triggered.connect(lambda _=False: _apply("none"))
-    fill_menu.addAction("Solid").triggered.connect(lambda _=False: _apply("solid"))
-
-    hatch_menu = fill_menu.addMenu("Hatch")
-    reg = getattr(target.scene(), "block_registry", None)
+def _pick_and_apply(targets: list, *, pattern: bool) -> None:
+    """Picker → ``set_property("Fill"|"Fill Pattern", layer)`` on every target
+    inside ``deferred_undo_push`` (the ribbon idiom). The setter owns the
+    library load (D-A37); cancel (None) changes nothing."""
+    from . import colour_picker
     from .hatch_patterns import picker_exclude
-    for name, ref in tile_choices(reg, picker_exclude(target.scene())):
-        hatch_menu.addAction(name).triggered.connect(
-            lambda _=False, r=ref: _apply("hatch", r)
-        )
+    first = targets[0]
+    sc = first.scene()
+    if sc is None:
+        return
+    views = sc.views()
+    key = "Fill Pattern" if pattern else "Fill"
+    fl = first.fill_layers
+    layer = colour_picker.pick_fill(
+        fl.pattern if pattern else fl.background, views[0] if views else None,
+        pattern=pattern, context=key,
+        registry=first._tile_registry(), exclude=picker_exclude(sc))
+    if layer is None:
+        return
+    defer = getattr(sc, "deferred_undo_push", None)
+    with defer() if callable(defer) else contextlib.nullcontext():
+        for t in targets:
+            t.set_property(key, layer)
 
 
 def build_entity_context_menu(
@@ -143,10 +155,11 @@ def build_entity_context_menu(
             if on_offset_gridline is not None:
                 menu.addAction("Offset Gridline…").triggered.connect(on_offset_gridline)
 
-    # ── Fill submenu (closed 2D shapes only) ──
-    if target is not None and getattr(target, "is_fillable", lambda: False)():
+    # ── Fill / Fill Pattern (closed 2D shapes; UP2 picker) ──
+    fill_targets = fillable_targets(selected, target)
+    if fill_targets:
         menu.addSeparator()
-        _attach_fill_submenu(menu, target)
+        add_fill_actions(menu, fill_targets)
 
     menu.addSeparator()
 
