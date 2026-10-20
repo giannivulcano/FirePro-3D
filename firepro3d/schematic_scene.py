@@ -14,6 +14,7 @@ from .geometry_2d import (
     ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem, RectangleItem,
     RegularPolygonItem, SplineItem,
 )
+from .filled_region import FilledRegionItem
 from .text_item import TextItem
 
 _CLS_TO_LIST = {
@@ -23,13 +24,14 @@ _CLS_TO_LIST = {
     EllipseItem: "_draw_ellipses",
     SplineItem: "_draw_splines",
     PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
+    FilledRegionItem: "_filled_regions",
     TextItem: "_texts",
 }
 
 # gather order: drawn primitives + text (reference shapes included), then nested blocks
 _PRIMITIVE_LISTS = ("_draw_lines", "_draw_rects", "_draw_circles",
                     "_draw_arcs", "_draw_ellipses", "_draw_splines",
-                    "_polylines", "_draw_polygons", "_texts")
+                    "_polylines", "_draw_polygons", "_filled_regions", "_texts")
 
 
 def add_primitive(scene, item) -> None:

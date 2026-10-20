@@ -31,6 +31,7 @@ from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
 from .handle_snap import HandleSnapResult
@@ -357,6 +358,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_ellipses: list[EllipseItem] = []
         # Spline drawing
         self._draw_splines: list[SplineItem] = []
+        self._filled_regions: list[FilledRegionItem] = []   # HF3 (Block Editor only)
         # Holds the first click point.  In centre-first this is the arc centre
         # throughout.  In start-first (``_arc_variant == "start"``) it TRANSIENTLY
         # holds the START point until ``_commit_draw_arc_rim_at`` overwrites it
@@ -977,6 +979,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             EllipseItem:         self._draw_ellipses,
             SplineItem:          self._draw_splines,
             RegularPolygonItem:  self._draw_polygons,
+            FilledRegionItem:    self._filled_regions,
             TextItem:            self._texts,   # containment C5 (no subclass)
             GridlineItem:        self._gridlines,
         }
@@ -2885,6 +2888,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
             "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
             "draw_splines":       [s.to_dict()  for s in self._draw_splines],
+            "filled_regions":     [r.to_dict()  for r in self._filled_regions],
             "polygons":           [p.to_dict()  for p in self._draw_polygons],
             "texts":              [t.to_dict()  for t in self._texts],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
@@ -3031,6 +3035,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_splines.clear()
 
+            for item in list(self._filled_regions):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._filled_regions.clear()
+
             for item in list(self._draw_polygons):
                 if item.scene() is self:
                     self.removeItem(item)
@@ -3121,6 +3130,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 si = SplineItem.from_dict(d)
                 self.addItem(si)
                 self._draw_splines.append(si)
+
+            for d in state.get("filled_regions", []):
+                fr = FilledRegionItem.from_dict(d)
+                self.addItem(fr)
+                self._filled_regions.append(fr)
 
             for d in state.get("polygons", []):
                 pg = RegularPolygonItem.from_dict(d)
@@ -8226,6 +8240,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "arc":            (ArcItem, "_draw_arcs"),
         "draw_ellipse":   (EllipseItem, "_draw_ellipses"),
         "draw_spline":    (SplineItem, "_draw_splines"),
+        "draw_filled_region": (FilledRegionItem, "_filled_regions"),
         "polygon":        (RegularPolygonItem, "_draw_polygons"),
         "text":           (TextItem, "_texts"),
     }

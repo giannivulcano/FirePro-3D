@@ -832,14 +832,17 @@ def _category_for_item(item) -> str | None:
             RectangleItem, CircleItem, ArcItem,
             EllipseItem, SplineItem, RegularPolygonItem,
         )
+        from .filled_region import FilledRegionItem
         if isinstance(item, (PolylineItem, LineItem,
                              RectangleItem, CircleItem, ArcItem,
-                             EllipseItem, SplineItem, RegularPolygonItem)):
+                             EllipseItem, SplineItem, RegularPolygonItem,
+                             FilledRegionItem)):
             return "Construction"
     except ImportError:  # pragma: no cover - defensive fallback
         if cls_name in ("PolylineItem", "LineItem",
                         "RectangleItem", "CircleItem", "ArcItem",
-                        "EllipseItem", "SplineItem", "RegularPolygonItem"):
+                        "EllipseItem", "SplineItem", "RegularPolygonItem",
+                        "FilledRegionItem"):
             return "Construction"
     return None
 

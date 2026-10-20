@@ -453,6 +453,7 @@ class SceneTools:
         items.extend(getattr(self._scene, "_draw_splines", []))
         items.extend(self._scene._polylines)
         items.extend(self._scene._draw_polygons)
+        items.extend(getattr(self._scene, "_filled_regions", []))   # HF3: last among shapes
         # Text (containment C5) — appended last (callers that key off this
         # list order stay stable).
         items.extend(getattr(self._scene, "_texts", []))

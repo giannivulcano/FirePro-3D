@@ -463,6 +463,7 @@ class SceneIOMixin:
                     + len(payload.get("reference_lines", [])) + len(payload.get("draw_rectangles", []))
                     + len(payload.get("draw_circles", [])) + len(payload.get("draw_arcs", []))
                     + len(payload.get("draw_ellipses", [])) + len(payload.get("draw_splines", []))
+                    + len(payload.get("filled_regions", []))
                     + len(payload.get("polygons", [])) + len(payload.get("texts", []))
                     + len(payload.get("hatches", []))
                     + sum(1 for a in payload.get("annotations", []) if a.get("type") in ("note", "dimension"))
@@ -520,6 +521,7 @@ class SceneIOMixin:
         self._draw_ellipses = []
         self._draw_splines = []
         self._draw_polygons = []
+        self._filled_regions = []
         self._texts = []
         for inst in list(getattr(self, "_block_instances", [])):
             if inst.scene() is self:

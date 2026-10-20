@@ -108,7 +108,7 @@ def project_scale_label(drawing_scale) -> str:
 # slot in LT5.
 STYLED_TYPES = frozenset({
     "polyline", "draw_line", "draw_rectangle", "draw_circle", "arc",
-    "polygon", "draw_ellipse", "draw_spline",
+    "polygon", "draw_ellipse", "draw_spline", "draw_filled_region",
 })
 
 
