@@ -6370,7 +6370,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Break (2-point) ──────────────────────────────────────────────
     def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._break_target is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "broken")
             if hit is not None:
                 self._break_target = hit
                 self._break_highlight = self._tools._highlight_item(hit)
@@ -6399,13 +6399,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Fillet ───────────────────────────────────────────────────────
     def _press_fillet(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._fillet_item1 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "filleted")
             if hit is not None and isinstance(hit, LineItem):
                 self._fillet_item1 = hit
                 self._fillet_highlight1 = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Click second line")
         elif self._fillet_item2 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "filleted")
             if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
                 self._fillet_item2 = hit
                 self._fillet_highlight2 = self._tools._highlight_item(hit)

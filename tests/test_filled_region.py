@@ -506,3 +506,58 @@ class TestSnapHaloPick:
         assert es.itemAt(QPointF(30, 30), QTransform()) is ln
         assert es.itemAt(QPointF(30, 50), QTransform()) is r
 
+
+# -- Task 7: D-A13 tool matrix (G9c) --
+from firepro3d.selection_manipulator import bake_translate
+
+
+def _fill_pixel_moves(es, region, before_pt, after_pt):
+    region.fill_layers = FillLayers(background=BackgroundLayer("#0000ff", 1.0))
+    img = _render(es, QRectF(0, 0, 240, 240), 240)
+    return (not _is_white(_px(img, int(after_pt.x()), int(after_pt.y())))
+            and _is_white(_px(img, int(before_pt.x()), int(before_pt.y()))))
+
+
+def _rect_close(r: QRectF, x, y, w, h) -> bool:
+    return all(abs(a - b) < 1e-6 for a, b in
+               ((r.left(), x), (r.top(), y), (r.width(), w), (r.height(), h)))
+
+
+class TestToolMatrix:
+    def test_move_through_bake_translate(self, qapp):
+        es = editor_scene()
+        r = add_region(es)
+        assert bake_translate(r, 100, 0)                 # selection_manipulator._bake_move's call
+        assert _rect_close(r.path().boundingRect(), 110, 10, 100, 100)
+        assert _fill_pixel_moves(es, r, QPointF(20, 20), QPointF(120, 20))
+
+    def test_rotate_mirror_scale_hooks_are_the_tools_hooks(self, qapp):
+        es = editor_scene()
+        r = add_region(es)
+        assert hasattr(r, "manip_reflect") and hasattr(r, "manip_scale_about") and hasattr(r, "manip_rotate")
+        r.manip_rotate(180.0, QPointF(60, 60))
+        assert _rect_close(r.path().boundingRect(), 10, 10, 100, 100)
+        r.manip_reflect(QPointF(60, 0), QPointF(60, 1))
+        assert _rect_close(r.path().boundingRect(), 10, 10, 100, 100)
+        r.manip_scale_about(QPointF(10, 10), 0.5)
+        assert _rect_close(r.path().boundingRect(), 10, 10, 50, 50)
+
+    @pytest.mark.parametrize("tool, verb", [("offset", "offset"), ("trim", "trimmed"),
+                                            ("extend", "extended"), ("break", "broken"),
+                                            ("fillet", "filleted")])
+    def test_refused_tools_leave_it_unchanged_with_a_status(self, qapp, make_model_space, tool, verb):
+        from tests._snap_polish_helpers import click         # click(view, scene_pt)
+        scene = make_model_space()
+        view = scene.views()[0]
+        scene.scene_role = "block_editor"
+        r = add_region(scene)
+        r.setSelected(True)
+        d0 = r.to_dict(); pos0 = scene._undo_pos
+        log = _statuses(scene)
+        if tool == "offset":
+            scene._modify_ctl.begin_offset([r])
+        else:
+            scene.set_mode(tool)
+            click(view, QPointF(20, 20))     # inside the region (its shape() is the area), on no curve
+        assert r.to_dict() == d0 and scene._undo_pos == pos0
+        assert f"Filled Regions can't be {verb}" in log
