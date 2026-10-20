@@ -1,7 +1,7 @@
 ---
 status: current           # BUILT 2026-10-19 (UP1, merged 902c5c0e); designed 2026-10-18 (Phase 3). The durable home of the two-layer shape-fill contract -- ui-design-system D6, 2d-geometry 1.1, hatch-and-fill (H8, data path, adapters), property-panel (row types), ribbon-bar (Graphic Override) and scene-io carry one-line pointers here (Rule A). As-built deltas: see "As-built amendments".
-last-verified: 2026-10-19
-verified-commit: 902c5c0e
+last-verified: 2026-10-20  # UP2 Account: compatibility shim removed, context-menu as-built note; prior 2026-10-19 UP1
+verified-commit: ab930f58  # UP2 (shim notes only); prior 902c5c0e UP1
 applies-to:
   - firepro3d/fill_layers.py           # NEW: FillLayers / BackgroundLayer / PatternLayer, record read (new + legacy) / write
   - firepro3d/geometry_2d.py           # Geometry2DMixin fill state, _draws_fill, paint, rows, set_property, to/from dict
@@ -157,7 +157,8 @@ existing rule for `"color"` rows -- the plan's first step probes that rule (P4) 
 `set_property("Pattern", ref)` keep their meaning, mapped onto the layers (`none` clears both,
 `solid` enables the background keeping any colour, `hatch` enables the pattern), so
 `entity_context_menu` and `Model_View` fill submenus keep working until UP2 reroutes them. Graphic
-Override writes `_display_overrides` and is unaffected.
+Override writes `_display_overrides` and is unaffected. **Removed 2026-10-20 by UP2 (`ab930f58`):**
+string `"Fill"` values and the `"Pattern"` key are now no-ops; layers are the only write path.
 
 ## Acceptance Criteria
 
@@ -204,7 +205,9 @@ Override writes `_display_overrides` and is unaffected.
 - **One preview helper:** `hatch_render.pattern_preview` (the former `display_manager._make_fill_icon`)
   serves the picker Pattern row, the `FillSwatch` chip and the Display Manager.
 - **Context-menu shim** stays until UP2; the two context-menu Fill submenus still push undo before
-  `set_property` (`hatch-and-fill.md` H7, now open for them only).
+  `set_property` (`hatch-and-fill.md` H7, now open for them only). *UP2 (2026-10-20): the menus open
+  the picker ("Fill…" / "Fill Pattern…", one `deferred_undo_push`, `879a262b`) and the shim is gone
+  (`ab930f58`); H7 closed. AC7 / G9 are superseded by UP2's guards in `tests/test_geo2d_context_menu.py`.*
 
 ## Existing Code Context
 
