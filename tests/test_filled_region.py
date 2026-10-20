@@ -335,3 +335,81 @@ class TestReviewGuards:
         with caplog.at_level(logging.WARNING, logger="firepro3d.filled_region"):
             FilledRegionItem.from_dict(d)
         assert any("unknown" in m and "no_such_type" in m for m in caplog.messages)
+
+
+# ── Task 4: creation UX (R5, R8, R12, R15) ──
+from firepro3d.text_item import TextAnnotationData, TextItem
+
+
+def _square_in(es):
+    a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+    lines = [LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, a)]
+    for ln in lines:
+        es.addItem(ln); es._draw_lines.append(ln)
+    return lines
+
+
+class TestFillSelected:
+    def test_fill_creates_one_region_selected_alone_sources_kept(self, qapp):
+        es = editor_scene()
+        lines = _square_in(es)
+        circ = CircleItem(QPointF(50, 50), 15)
+        es.addItem(circ); es._draw_circles.append(circ)
+        txt = TextItem(TextAnnotationData(text="x", x=10.0, y=10.0, height_mm=100.0))
+        es.addItem(txt); es._texts.append(txt)
+        for it in lines + [circ, txt]:
+            it.setSelected(True)
+        pos0 = es._undo_pos
+        log = _statuses(es)
+        region = es.fill_selected_items()
+        assert isinstance(region, FilledRegionItem) and es._filled_regions == [region]
+        assert es.selectedItems() == [region]
+        assert len(region._loops) == 2 and len(es._draw_lines) == 4 and len(es._draw_circles) == 1
+        assert region.fill_layers == FillLayers(background=BackgroundLayer("token:auto", 1.0))
+        assert es._undo_pos == pos0 + 1
+        assert log[-1] == "Filled Region created (2 loops)"
+
+    def test_failed_fill_changes_nothing(self, qapp):
+        es = editor_scene()
+        lines = _square_in(es)
+        es.removeItem(lines[3]); es._draw_lines.remove(lines[3])
+        for ln in lines[:3]:
+            ln.setSelected(True)
+        n0, pos0 = len(es.items()), es._undo_pos
+        log = _statuses(es)
+        assert es.fill_selected_items() is None
+        assert es._filled_regions == [] and len(es.items()) == n0 and es._undo_pos == pos0
+        assert len(es.selectedItems()) == 3
+        assert log[-1].startswith("Not enclosed")
+
+    def test_region_and_reference_pieces_are_ignored(self, qapp):
+        es = editor_scene()
+        lines = _square_in(es)
+        lines[0].reference = True
+        r = add_region(es)
+        for it in lines + [r]:
+            it.setSelected(True)
+        log = _statuses(es)
+        assert es.fill_selected_items() is None
+        assert len(es._filled_regions) == 1
+        assert log[-1] == "Not enclosed -- 3 curve(s) have an open end"
+
+    def test_nothing_eligible(self, qapp):
+        es = editor_scene()
+        log = _statuses(es)
+        assert es.fill_selected_items() is None
+        assert log[-1] == "Select closed shapes or curves that form a closed outline"
+
+    def test_plan_scene_is_a_no_op(self, qapp):
+        plan = Model_Space()
+        lines = _square_in(plan)
+        for ln in lines:
+            ln.setSelected(True)
+        assert plan.fill_selected_items() is None and plan._filled_regions == []
+
+    def test_fill_candidates_helper(self, qapp):
+        es = editor_scene()
+        lines = _square_in(es)
+        r = add_region(es)
+        assert Model_Space.fill_candidates(lines + [r]) == lines
+

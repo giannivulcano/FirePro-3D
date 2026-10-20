@@ -2478,6 +2478,41 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             d._instances.remove(inst)
         self.blockInstancesChanged.emit()
 
+    # ── Filled Region (HF3) ────────────────────────────────────────────
+    @staticmethod
+    def fill_candidates(items) -> list:
+        """The boundary-capable members of *items*: the 8 shapes, not
+        reference-flagged, visible. Regions, text, blocks are dropped (R15)."""
+        from .geometry_2d import Geometry2DMixin
+        return [it for it in items
+                if isinstance(it, Geometry2DMixin)
+                and not isinstance(it, (FilledRegionItem, TextItem))
+                and not getattr(it, "reference", False)
+                and it.isVisible()]
+
+    def fill_selected_items(self):
+        """Fill button (R8): a Filled Region from the selected closed outline(s).
+
+        Block-Editor-only (containment C1). On failure the status bar says
+        why and nothing changes (R5). Returns the new region, or None.
+        """
+        from .curve_chain import close_loops
+        if self.scene_role != "block_editor":
+            return None
+        pieces = self.fill_candidates(self.selectedItems())
+        result = close_loops(pieces)
+        if result.reason is not None:
+            self._show_status(result.reason, 4000)
+            return None
+        region = FilledRegionItem.from_pieces(result.loops)     # static copies (D-A1, R10)
+        self.addItem(region)
+        self._filled_regions.append(region)
+        self.clearSelection()
+        region.setSelected(True)                                  # R12
+        self.push_undo_state()
+        self._show_status(f"Filled Region created ({len(result.loops)} loops)", 3000)
+        return region
+
     def explode_selected_blocks(self) -> list:
         """Explode the selected block instances (Block Editor Modify ▸ Explode).
 
