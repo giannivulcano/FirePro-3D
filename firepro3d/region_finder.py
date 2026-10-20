@@ -559,3 +559,108 @@ class Arrangement:
         return QPointF(pt.x() + side * nx * REGION_FINDER_NUDGE_MM,
                        pt.y() + side * ny * REGION_FINDER_NUDGE_MM)
 
+
+# ── 6. Rebuild exact pieces ─────────────────────────────────────────────────
+
+def _run_key(piece: Piece) -> tuple:
+    from .geometry_2d import ArcItem, CircleItem, EllipseItem, SplineItem
+    tag = piece.tag
+    it = tag.item
+    if tag.kind == "line":
+        return ("line", id(it), tag.elem)
+    if isinstance(it, (CircleItem, ArcItem)):
+        return ("arc", id(it))
+    if isinstance(it, (SplineItem, EllipseItem)):
+        return ("bez", id(it))
+    return ("poly", id(it))
+
+
+def _runs(pieces: list[Piece]):
+    runs: list = []
+    for p in pieces:
+        k = _run_key(p)
+        if runs and runs[-1][0] == k:
+            runs[-1][1].append(p)
+        else:
+            runs.append((k, [p]))
+    # a loop may start mid-run: merge a last run that continues the first
+    if len(runs) > 1 and runs[0][0] == runs[-1][0]:
+        k, last = runs.pop()
+        runs[0] = (k, last + runs[0][1])
+    return runs
+
+
+def _arc_from_run(run: list[Piece]):
+    from .arc_math import yup_angle
+    from .geometry_2d import ArcItem, CircleItem
+    it = run[0].tag.item
+    local_c = it.rect().center() if isinstance(it, CircleItem) else it._center
+    c = it.sceneTransform().map(QPointF(local_c))
+    first = QPointF(run[0].x0, run[0].y0)
+    last = QPointF(run[-1].x1, run[-1].y1)
+    r = math.hypot(first.x() - c.x(), first.y() - c.y())
+    if math.hypot(first.x() - last.x(), first.y() - last.y()) < 1e-6:
+        return CircleItem(c, r)
+    midp = run[len(run) // 2]
+    mid = QPointF(midp.x0, midp.y0) if len(run) > 1 else QPointF((midp.x0 + midp.x1) / 2, (midp.y0 + midp.y1) / 2)
+    a0, a1, am = yup_angle(c, first), yup_angle(c, last), yup_angle(c, mid)
+    ccw = (a1 - a0) % 360.0
+    if (am - a0) % 360.0 <= ccw:
+        return ArcItem(c, r, a0, ccw)
+    return ArcItem(c, r, a1, (a0 - a1) % 360.0)
+
+
+def _spline_from_run(run: list[Piece]):
+    """One clamped Bézier-chain SplineItem over the run's consecutive cubic
+    sub-ranges (``_is_bezier_chain`` form: ``3k+1`` control points, interior
+    knots of multiplicity 3)."""
+    from .geometry_2d import SplineItem
+    spans: list = []
+    for p in run:
+        t = p.tag
+        if spans and spans[-1][0] == t.elem:
+            spans[-1][2] = t.t1
+        else:
+            spans.append([t.elem, t.t0, t.t1, t.bez])
+    cps: list = []
+    for elem, t0, t1, bez in spans:
+        s = bezier_sub(bez, t0, t1)
+        if not cps:
+            cps.append(QPointF(*s[0]))
+        cps.extend(QPointF(*q) for q in s[1:])
+    k = len(spans)
+    knots = [0.0] * 4
+    for i in range(1, k):
+        knots += [float(i)] * 3
+    knots += [float(k)] * 4
+    return SplineItem(cps, degree=3, knots=knots)
+
+
+def _polyline_from_run(run: list[Piece]):
+    from .geometry_2d import PolylineItem
+    pl = PolylineItem(QPointF(run[0].x0, run[0].y0))
+    for p in run:
+        pl.append_point(QPointF(p.x1, p.y1))
+    return pl
+
+
+def _rebuild_loop(pieces: list[Piece]) -> list:
+    from .geometry_2d import LineItem
+    out: list = []
+    for key, run in _runs(pieces):
+        kind = key[0]
+        if kind == "line":
+            out.append(LineItem(QPointF(run[0].x0, run[0].y0), QPointF(run[-1].x1, run[-1].y1)))
+        elif kind == "arc":
+            out.append(_arc_from_run(run))
+        elif kind == "bez":
+            out.append(_spline_from_run(run))
+        else:
+            out.append(_polyline_from_run(run))
+    return out
+
+
+def rebuild(face: Face) -> list[list]:
+    """Loops of live shapes for ``FilledRegionItem.from_pieces``: loop 0 is
+    the outer cycle, then the islands (design §1 rebuild table)."""
+    return [_rebuild_loop(face.outer)] + [_rebuild_loop(isl) for isl in face.islands]

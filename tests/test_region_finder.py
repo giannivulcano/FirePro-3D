@@ -212,3 +212,77 @@ def _signed_area(pts):
         s += x0 * y1 - x1 * y0
     return s / 2
 
+
+def _path_samples(path, n=400):
+    return [path.pointAtPercent(k / n) for k in range(n + 1)]
+
+
+def _max_dev_to_sources(region_loop_path, source_paths, n=400):
+    """Max distance from samples of the rebuilt loop to the nearest dense sample of any source."""
+    src = [q for sp in source_paths for q in _path_samples(sp, 2000)]
+    worst = 0.0
+    for p in _path_samples(region_loop_path, n):
+        worst = max(worst, min(math.hypot(p.x() - q.x(), p.y() - q.y()) for q in src))
+    return worst
+
+
+class TestRebuild:
+    def test_quadrant_is_one_arc_two_lines(self, qapp):
+        from firepro3d.curve_chain import loop_path
+        from firepro3d.geometry_2d import ArcItem, CircleItem, LineItem
+        from firepro3d.halo import halo_scene_path
+        from firepro3d.region_finder import Arrangement, rebuild
+        items = [CircleItem(QPointF(0, 0), 40.0),
+                 LineItem(QPointF(-60, 0), QPointF(60, 0)), LineItem(QPointF(0, -60), QPointF(0, 60))]
+        arr = Arrangement.build(items, QRectF(-70, -70, 140, 140))
+        loops = rebuild(arr.face_at(QPointF(15, 15)))
+        assert len(loops) == 1
+        types = sorted(type(p).__name__ for p in loops[0])
+        assert types == ["ArcItem", "LineItem", "LineItem"]
+        arc = next(p for p in loops[0] if isinstance(p, ArcItem))
+        assert abs(arc._radius - 40.0) < 1e-6
+        assert abs(arc._span_deg - 90.0) < 0.5            # one quadrant (ArcItem stores CCW span)
+        assert abs(arc._start_deg - 270.0) < 0.5          # scene (+x,+y) quadrant = y-up 270..360 (yup_angle = atan2(-dy, dx))
+        dev = _max_dev_to_sources(loop_path(loops[0]), [halo_scene_path(i) for i in items])
+        assert dev <= 0.2
+
+    def test_full_circle_face_rebuilds_as_circle(self, qapp):
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement, rebuild
+        circ = CircleItem(QPointF(10, 20), 30.0)
+        loops = rebuild(Arrangement.build([circ], QRectF(-30, -20, 80, 80)).face_at(QPointF(10, 20)))
+        assert len(loops) == 1 and len(loops[0]) == 1 and isinstance(loops[0][0], CircleItem)
+        assert loops[0][0] is not circ
+
+    def test_mixed_boundary_types_and_tolerance(self, qapp):
+        """G2 mixed: line + spline + one rect edge -> Line/Spline/Line within 0.2 mm."""
+        from firepro3d.curve_chain import loop_path
+        from firepro3d.geometry_2d import LineItem, RectangleItem, SplineItem
+        from firepro3d.halo import halo_scene_path
+        from firepro3d.region_finder import Arrangement, rebuild
+        # face = rect corner (0,0) -spline-> (100,60) -line-> (150,100) on the rect's
+        # bottom edge (T-gap weld) -> bottom edge back to (0,100) -> left edge up to (0,0)
+        rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+        spline = SplineItem([QPointF(0, 0), QPointF(20, 50), QPointF(60, 70), QPointF(100, 60)])
+        line = LineItem(QPointF(100, 60), QPointF(150, 100))
+        items = [rect, spline, line]
+        arr = Arrangement.build(items, QRectF(-10, -10, 220, 120))
+        face = arr.face_at(QPointF(30, 85))
+        assert face is not None and not face.islands
+        loops = rebuild(face)
+        assert len(loops) == 1
+        kinds = [type(p).__name__ for p in loops[0]]
+        assert kinds.count("SplineItem") == 1 and kinds.count("LineItem") == 3 and "PolylineItem" not in kinds
+        dev = _max_dev_to_sources(loop_path(loops[0]), [halo_scene_path(i) for i in items])
+        assert dev <= 0.2
+
+    def test_ring_rebuilds_two_loops_for_from_pieces(self, qapp):
+        from firepro3d.filled_region import FilledRegionItem
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement, rebuild
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 40.0), CircleItem(QPointF(0, 0), 15.0)],
+                                QRectF(-50, -50, 100, 100))
+        loops = rebuild(arr.face_at(QPointF(30, 0)))
+        region = FilledRegionItem.from_pieces(loops)
+        assert len(region._loops) == 2
+        assert region.path().contains(QPointF(30, 0)) and not region.path().contains(QPointF(0, 0))
