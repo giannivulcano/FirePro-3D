@@ -350,7 +350,7 @@ CHAIN_GAP_REPORT_FACTOR = 10.0
 # ── Pick-point region finder (HF4 design §1-§2) ─────────────────────────────
 # Flattening sagitta for curved path elements (cubics) before the arrangement.
 REGION_FINDER_SAGITTA_MM = 0.1
-# Max deviation of the polyline fallback when a piece has no exact rebuild (design bar, D-A26;
+# Max deviation of the polyline fallback when a piece has no exact rebuild (design bar, D-A25;
 # held implicitly by the SAGITTA flatten above and guarded by
 # tests/test_region_finder.py::test_mixed_boundary_types_and_tolerance -- no runtime consumer).
 REGION_FINDER_POLYLINE_MM = 0.2
