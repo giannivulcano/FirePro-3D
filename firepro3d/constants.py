@@ -362,6 +362,9 @@ REGION_FINDER_DEBOUNCE_MS = 150
 REGION_FINDER_BUCKETS = 32
 # Inward push (mm) of the sample point used to test which cycle an island lies in; must stay below CHAIN_WELD_MM.
 REGION_FINDER_ISLAND_SAMPLE_MM = 0.05
+# Flattening stops subdividing once a chord is this short, so the weld never merges
+# consecutive vertices of one curve (small circles stayed faceted otherwise).
+REGION_FINDER_MIN_CHORD_MM = 2 * CHAIN_WELD_MM
 
 # UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
 FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)

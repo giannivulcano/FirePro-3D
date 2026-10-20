@@ -19,7 +19,8 @@ from PyQt6.QtGui import QPainterPath
 
 from .constants import (CHAIN_MIN_LOOP_AREA_MM2, CHAIN_WELD_MM,
                         REGION_FINDER_BUCKETS, REGION_FINDER_ISLAND_SAMPLE_MM,
-                        REGION_FINDER_NUDGE_MM, REGION_FINDER_SAGITTA_MM)
+                        REGION_FINDER_MIN_CHORD_MM, REGION_FINDER_NUDGE_MM,
+                        REGION_FINDER_SAGITTA_MM)
 from .arc_math import yup_angle
 from .geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                           PolylineItem, SplineItem, bezier_sub)
@@ -110,7 +111,8 @@ def _emit_seg(out: list, win: tuple, p, q, tag: Tag) -> None:
 
 def _flatten_cubic(out, win, item, elem, b, t0=0.0, t1=1.0, depth=0) -> None:
     piece = bezier_sub(b, t0, t1)
-    if depth >= 16 or _flat_enough(piece, REGION_FINDER_SAGITTA_MM):
+    chord = math.hypot(piece[3][0] - piece[0][0], piece[3][1] - piece[0][1])
+    if depth >= 16 or _flat_enough(piece, REGION_FINDER_SAGITTA_MM) or chord <= REGION_FINDER_MIN_CHORD_MM:
         _emit_seg(out, win, piece[0], piece[3], Tag(item, elem, "curve", b, t0, t1))
         return
     tm = (t0 + t1) / 2
@@ -123,8 +125,9 @@ def _flatten(items, window: QRectF) -> list[Piece]:
 
     ``MoveTo``/``LineTo`` -> one segment; ``CurveTo`` (cubic; what circles,
     arcs, ellipses and splines draw) -> adaptive subdivision at
-    ``REGION_FINDER_SAGITTA_MM``. Segments wholly outside the window (padded
-    by the weld tolerance) are dropped.
+    ``REGION_FINDER_SAGITTA_MM`` (never below ``REGION_FINDER_MIN_CHORD_MM``
+    chords, so the weld cannot decimate a small curve). Segments wholly
+    outside the window (padded by the weld tolerance) are dropped.
     """
     pad = CHAIN_WELD_MM
     win = (window.left() - pad, window.top() - pad, window.right() + pad, window.bottom() + pad)

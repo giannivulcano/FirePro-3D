@@ -194,6 +194,18 @@ class TestFaces:
         assert all(type(x).__name__ == "LineItem" for x in loops[0])
         assert len(loops[0]) <= 6
 
+    def test_small_circle_face_keeps_its_area(self, qapp):
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 5.0)], QRectF(-10, -10, 20, 20))
+        face = arr.face_at(QPointF(0, 0))
+        assert face is not None
+        # 2 mm chords on r=5 -> a 16-gon: measured deficit 1.985 mm2 (true 78.54, polygon 76.55);
+        # the bound is 2x that. Before the chord floor the weld decimated it to ~59 (deficit ~19).
+        deficit = math.pi * 25 - face.area
+        assert 0 < deficit < 4.0
+        assert len(face.outer) >= 12
+
     def test_one_level_islands(self, qapp):
         from firepro3d.region_finder import Arrangement
         items = _square(0, 0, 100) + _square(30, 30, 40) + _square(45, 45, 10)
