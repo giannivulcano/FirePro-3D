@@ -1,7 +1,7 @@
 ---
 status: proposal          # concept ratified 2026-10-20 (brainstorm sections 1-5, approach A); unbuilt -- slices PH1-PH8
 last-verified: 2026-10-20
-verified-commit: 812ff748
+verified-commit: 6661c9ff
 applies-to:
   - firepro3d/displayable_item.py
   - firepro3d/paper_display.py

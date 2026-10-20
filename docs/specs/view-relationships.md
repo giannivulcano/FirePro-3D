@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-18  # HF1 Account: elevation-colour pointer only (rest not re-audited); prior 2026-09-18
-verified-commit: 084b43e0  # HF1 Account (pointer only); prior 5cd5941
+last-verified: 2026-10-20  # phasing design Account: §7.4 disclosure + phase-display pointer only (rest not re-audited); prior 2026-10-18 (HF1 elevation-colour pointer), 2026-09-18
+verified-commit: 6661c9ff  # phasing design (pointer only); prior 084b43e0, 5cd5941
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
@@ -375,7 +375,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 
 ### 7.4 Drafting overrides — catalog (current state: aspirational)
 
-> **Honest disclosure: the override system described below does not exist in code today.** Detail views inherit all rendering from the plan they crop; paper viewports are passive `Model_Space` renderings with no per-viewport state. The catalog below is the *target contract* for the future override subsystem, listed here so that view markers and view instances can be designed not to preclude it.
+> **Honest disclosure: the override system described below does not exist in code today.** Detail views inherit all rendering from the plan they crop. Paper viewports do hold per-viewport state, but no graphics overrides: crop, scale, level isolation (§6.5) and `hidden_detail_ids` (`paper-space.md` §5.2). *(2026-10-20:)* the first designed override in this catalog is **phase display** (rows 1 + 3 "by phase"), owned by [`project-phasing.md`](project-phasing.md) (proposal). Per D-PH7 it lives on the sheet viewport and the canvas tab for now; view-level defaults stay with the view-templates session below. The catalog below is the *target contract* for the future override subsystem, listed here so that view markers and view instances can be designed not to preclude it.
 
 **Override unit:** the **view instance**. (Same instance shown in two paper viewports renders identically.) Per-paper-viewport overrides on top are deferred.
 
