@@ -9,7 +9,7 @@ from PyQt6.QtCore import QPointF, QEvent, Qt
 from PyQt6.QtGui import QColor, QMouseEvent, QTransform
 from PyQt6.QtWidgets import QApplication, QGraphicsItem
 
-from firepro3d.elevation_scene import ElevGridlineItem, _ElevProxyRect
+from firepro3d.section_scene import ElevGridlineItem, _ElevProxyRect
 from firepro3d.elevation_view import ElevationView
 
 

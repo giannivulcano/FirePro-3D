@@ -41,7 +41,7 @@ class TestDialogReconciliation:
 
 class TestElevationProjection:
     def test_vertical_projects_to_north(self, scene):
-        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        from firepro3d.section_scene import _is_cardinal_for_elevation
         p1, p2 = QPointF(1000, 0), QPointF(1000, 5000)
         assert _is_cardinal_for_elevation(p1, p2, "north") is True
         assert _is_cardinal_for_elevation(p1, p2, "south") is True
@@ -49,7 +49,7 @@ class TestElevationProjection:
         assert _is_cardinal_for_elevation(p1, p2, "west") is False
 
     def test_angled_projects_to_nothing(self, scene):
-        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        from firepro3d.section_scene import _is_cardinal_for_elevation
         p1, p2 = QPointF(0, 0), QPointF(5000, 5000)
         for d in ("north", "south", "east", "west"):
             assert _is_cardinal_for_elevation(p1, p2, d) is False

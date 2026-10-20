@@ -8,7 +8,7 @@ from conftest.py — no full MainWindow.
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 
-from firepro3d.elevation_scene import ElevGridlineItem
+from firepro3d.section_scene import ElevGridlineItem
 
 
 def _grid(label="A", h=100.0):

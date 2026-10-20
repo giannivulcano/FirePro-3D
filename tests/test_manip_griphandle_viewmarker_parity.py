@@ -7,7 +7,7 @@ present only when the marker is selected and the crop box is visible.
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.view_marker import ViewMarkerManager, ViewMarkerArrow
+from firepro3d.section_marker import ViewMarkerManager, ViewMarkerArrow
 from firepro3d.manip_handle import GripHandle
 from firepro3d.manip_math import HandleRole
 

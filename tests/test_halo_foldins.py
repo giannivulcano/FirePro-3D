@@ -14,7 +14,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QImage, QPainter, QTransform
 
 from firepro3d import theme as th
-from firepro3d.elevation_scene import ElevGridlineItem
+from firepro3d.section_scene import ElevGridlineItem
 from firepro3d.halo import paint_rubber_band
 
 

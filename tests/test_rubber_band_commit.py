@@ -6,7 +6,7 @@ from PyQt6.QtGui import QMouseEvent, QTransform
 from PyQt6.QtWidgets import QApplication, QGraphicsItem
 
 from firepro3d import halo
-from firepro3d.elevation_scene import _ElevProxyRect
+from firepro3d.section_scene import _ElevProxyRect
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View

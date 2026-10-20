@@ -17,7 +17,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d.floor_slab import FloorSlab
-from firepro3d.elevation_scene import _ROLE_SOURCE
+from firepro3d.section_scene import _ROLE_SOURCE
 
 
 def _square(size=2000.0):

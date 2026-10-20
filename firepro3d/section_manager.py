@@ -1,6 +1,6 @@
 """
-elevation_manager.py
-====================
+section_manager.py
+==================
 Creates and manages elevation view tabs in the central tab widget.
 
 Each direction (North/South/East/West) gets at most one tab.  Opening an
@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import QTabWidget
 from PyQt6.QtCore import QTimer
 
-from .elevation_scene import ElevationScene
-from .elevation_view import ElevationView
+from .section_scene import SectionScene
+from .elevation_view import SectionView
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from .scale_manager import ScaleManager
 
 
-class ElevationManager:
+class SectionManager:
     """Manages elevation view tabs (one per compass direction).
 
     Parameters
@@ -47,13 +47,13 @@ class ElevationManager:
         self._sm = scale_manager
         self._tabs = tab_widget
 
-        # direction → (ElevationScene, ElevationView, tab_index)
-        self._views: dict[str, tuple[ElevationScene, ElevationView]] = {}
+        # direction → (SectionScene, SectionView, tab_index)
+        self._views: dict[str, tuple[SectionScene, SectionView]] = {}
 
-    def open_elevation(self, direction: str) -> ElevationView:
+    def open_elevation(self, direction: str) -> SectionView:
         """Open or switch to an elevation view tab for *direction*.
 
-        Returns the ElevationView widget.
+        Returns the SectionView widget.
         """
         direction = direction.lower()
         tab_name = f"Elevation: {direction.title()}"
@@ -69,8 +69,8 @@ class ElevationManager:
             del self._views[direction]
 
         # Create new scene + view
-        scene = ElevationScene(direction, self._ms, self._lm, self._sm)
-        view = ElevationView(scene, self._sm)
+        scene = SectionScene(direction, self._ms, self._lm, self._sm)
+        view = SectionView(scene, self._sm)
         scene.rebuild()
 
         idx = self._tabs.addTab(view, tab_name)
@@ -99,11 +99,11 @@ class ElevationManager:
         for d in list(self._views.keys()):
             self.close_elevation(d)
 
-    def get_view(self, direction: str) -> ElevationView | None:
+    def get_view(self, direction: str) -> SectionView | None:
         entry = self._views.get(direction.lower())
         return entry[1] if entry else None
 
-    def get_scene(self, direction: str) -> ElevationScene | None:
+    def get_scene(self, direction: str) -> SectionScene | None:
         entry = self._views.get(direction.lower())
         return entry[0] if entry else None
 
@@ -115,3 +115,6 @@ class ElevationManager:
         """Rebuild all open elevation scenes (e.g. after level changes)."""
         for scene, view in self._views.values():
             scene.rebuild()
+
+
+ElevationManager = SectionManager   # retired alias -- removed in Task 11

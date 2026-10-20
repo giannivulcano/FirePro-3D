@@ -15,7 +15,7 @@ Uses the ``elevation_scene_for`` fixture (real Model_Space) from conftest.py.
 """
 from PyQt6.QtWidgets import QGraphicsRectItem
 
-from firepro3d.elevation_scene import (
+from firepro3d.section_scene import (
     _ElevProxyRect, _ElevProxyLine, _ElevProxyEllipse,
 )
 from firepro3d.selection_manipulator import item_capabilities

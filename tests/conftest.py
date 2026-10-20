@@ -431,7 +431,7 @@ def elevation_scene_for(qapp):
     from firepro3d.model_space import Model_Space
     from firepro3d.level_manager import LevelManager
     from firepro3d.scale_manager import ScaleManager
-    from firepro3d.elevation_scene import ElevationScene
+    from firepro3d.section_scene import SectionScene
 
     def _factory(direction: str = "north"):
         ms = Model_Space()
@@ -439,8 +439,8 @@ def elevation_scene_for(qapp):
         ms._level_manager = lm
         sm = ScaleManager()
         ms.scale_manager = sm
-        elev = ElevationScene(direction=direction, model_space=ms,
-                              level_manager=lm, scale_manager=sm)
+        elev = SectionScene(direction=direction, model_space=ms,
+                            level_manager=lm, scale_manager=sm)
         return ms, elev
 
     return _factory

@@ -428,7 +428,7 @@ def test_unstyled_geometry_no_stroke_draws_nothing(ms):
 
 def test_elevation_gridline_no_fill_bubble_is_transparent(elevation_scene_for):
     from PyQt6.QtCore import QSettings
-    from firepro3d.elevation_scene import ElevGridlineItem
+    from firepro3d.section_scene import ElevGridlineItem
     from firepro3d.gridline import GridlineItem
     ms, elev = elevation_scene_for("north")
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="A")

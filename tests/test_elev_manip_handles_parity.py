@@ -1,7 +1,7 @@
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QFont
 
-from firepro3d.elevation_scene import ElevGridlineItem, ElevDatumItem
+from firepro3d.section_scene import ElevGridlineItem, ElevDatumItem
 
 
 def _grid():

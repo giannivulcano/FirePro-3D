@@ -421,7 +421,7 @@ def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
     """ViewMarkerArrow is PAPER_EXCLUDED (hidden for the pass), so its
     ``_apply_marker`` token branch is unreachable; pin that and the restore."""
     from firepro3d.paper_display import PaperColorMode
-    from firepro3d.view_marker import ViewMarkerArrow
+    from firepro3d.section_marker import ViewMarkerArrow
     from firepro3d.model_space import Model_Space
     force_theme("dark")
     ms = Model_Space()
@@ -497,7 +497,7 @@ def test_e1_elevation_on_sheet_plots_paper_colours(
     if mode == "BW":
         assert _PAPER_GREEN not in strokes | fills
     # the model-side items still hold their canvas resolution afterwards
-    from firepro3d.elevation_scene import ElevGridlineItem
+    from firepro3d.section_scene import ElevGridlineItem
     (g,) = [i for i in elev.items() if isinstance(i, ElevGridlineItem)]
     assert g._grid_color.name() == "#63be8b"
 

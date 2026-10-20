@@ -412,8 +412,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # Elevation Manager — QGraphicsScene-based elevation views
         # (connect after elevation_manager is created below)
-        from firepro3d.elevation_manager import ElevationManager
-        self.elevation_manager = ElevationManager(
+        from firepro3d.section_manager import SectionManager
+        self.elevation_manager = SectionManager(
             self.scene, self.level_mgr, self.scene.scale_manager,
             self.central_tabs,
         )
@@ -1435,7 +1435,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _create_elevation_markers(self):
         """Create N/S/E/W elevation markers in the 2D plan view."""
-        from firepro3d.view_marker import ViewMarkerManager
+        from firepro3d.section_marker import ViewMarkerManager
         from firepro3d.display_manager import apply_category_defaults
         self._view_marker_mgr = ViewMarkerManager(self.scene)
         self._view_marker_mgr.create_elevation_markers()

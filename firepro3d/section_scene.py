@@ -1,6 +1,6 @@
 """
-elevation_scene.py
-==================
+section_scene.py
+================
 QGraphicsScene that projects 3D model entities onto a vertical elevation plane.
 
 Each elevation direction (North/South/East/West) projects onto a different axis:
@@ -640,7 +640,7 @@ class ElevDatumItem(QGraphicsLineItem):
         self.update()
 
 
-class ElevationScene(HaloSelectionMixin, QGraphicsScene):
+class SectionScene(HaloSelectionMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
     entitySelected = pyqtSignal(object)   # picked legacy entity
@@ -1690,3 +1690,6 @@ class ElevationScene(HaloSelectionMixin, QGraphicsScene):
     # ── Selection ────────────────────────────────────────────────────────
     # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable
     # flags, routed through _on_selection_changed() which emits entitySelected.
+
+
+ElevationScene = SectionScene   # retired alias -- removed in Task 3

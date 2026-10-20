@@ -13,12 +13,12 @@ TIERS = {
     "Entities": [
         "node", "pipe", "sprinkler", "room", "wall", "fitting", "roof",
         "floor_slab", "wall_opening", "annotations", "geometry_2d",
-        "gridline", "grid_line", "view_marker", "underlay",
+        "gridline", "grid_line", "section_marker", "underlay",
         "water_supply", "design_area",
     ],
     "Managers": [
         "display_manager", "level_manager", "scale_manager",
-        "elevation_manager",
+        "section_manager",
     ],
     "Analysis": [
         "hydraulic_solver", "hydraulic_report", "hydraulic_node_badge",
@@ -36,7 +36,7 @@ TIERS = {
         "entity_context_menu",
     ],
     "Views": [
-        "view_3d", "elevation_scene", "elevation_view", "paper_space",
+        "view_3d", "section_scene", "elevation_view", "paper_space",
     ],
     "Utilities": [
         "cad_math", "geometry_utils", "geometry_intersect", "format_utils",

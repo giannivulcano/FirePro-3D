@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsView
 
 from firepro3d import halo_selection as hs
 from firepro3d.design_area import DesignArea
-from firepro3d.elevation_scene import _ElevProxyRect
+from firepro3d.section_scene import _ElevProxyRect
 from firepro3d.geometry_2d import LineItem, CircleItem
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space

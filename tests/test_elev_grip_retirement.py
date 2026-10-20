@@ -25,7 +25,7 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.elevation_scene import ElevGridlineItem
+from firepro3d.section_scene import ElevGridlineItem
 
 
 def _add_gridline(scene, label="A", h=100.0, v_top=-50.0, v_bot=50.0):
@@ -56,7 +56,7 @@ def _drive_grip(scene, g, index, start, path,
 # ── Retirement guards ────────────────────────────────────────────────────────
 
 def test_find_grip_hit_retired(qapp):
-    from firepro3d import elevation_scene as es
+    from firepro3d import section_scene as es
     assert not hasattr(es.ElevationScene, "_find_grip_hit")
 
 

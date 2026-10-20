@@ -1,7 +1,7 @@
 """
 elevation_view.py
 =================
-QGraphicsView for displaying an ElevationScene.
+QGraphicsView for displaying a SectionScene.
 
 Provides middle-button pan, scroll-wheel zoom, F to fit, coordinate display.
 Matches the interaction patterns from Model_View.py.
@@ -16,8 +16,8 @@ from PyQt6.QtGui import QPainter, QKeySequence, QShortcut
 from . import theme as th
 
 
-class ElevationView(QGraphicsView):
-    """Display widget for an ElevationScene with pan/zoom interaction."""
+class SectionView(QGraphicsView):
+    """Display widget for a SectionScene with pan/zoom interaction."""
 
     cursorMoved = pyqtSignal(str)   # "H: … Z: …"
 
@@ -65,7 +65,7 @@ class ElevationView(QGraphicsView):
     # ── Select All (filter annotations) ──────────────────────────────────
 
     def _select_all_items(self):
-        from .elevation_scene import ElevGridlineItem, ElevDatumItem
+        from .section_scene import ElevGridlineItem, ElevDatumItem
         scene = self.scene()
         if scene:
             scene.blockSignals(True)
@@ -252,3 +252,6 @@ class ElevationView(QGraphicsView):
             h_str = f"{h:.0f} mm"
             z_str = f"{z:.0f} mm"
         self.cursorMoved.emit(f"H: {h_str}  Z: {z_str}")
+
+
+ElevationView = SectionView   # retired alias -- removed in Task 11

@@ -1,6 +1,6 @@
 """
-view_marker.py
-==============
+section_marker.py
+=================
 Elevation (and future section) view markers for the 2D Model plan view.
 
 All four elevation markers (N/S/E/W) share a **single bounding rectangle**.

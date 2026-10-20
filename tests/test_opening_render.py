@@ -58,7 +58,7 @@ def test_opening_projected_into_elevation(qapp, elevation_scene_for):
     WallOpening as _ROLE_SOURCE so elevation views can round-trip source refs."""
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
-    from firepro3d.elevation_scene import _ROLE_SOURCE
+    from firepro3d.section_scene import _ROLE_SOURCE
     from PyQt6.QtCore import QPointF
     scene, elev = elevation_scene_for(direction="north")
     w = WallSegment(QPointF(0, 0), QPointF(2000, 0), thickness_mm=200.0)
