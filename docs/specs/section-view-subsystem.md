@@ -1,563 +1,324 @@
-# Section View Subsystem — Design Spec
-
-**Date:** 2026-04-29
-**Complexity:** Large
-**Status:** Approved
-**Source tasks:** TODO.md — "Spec session: Section view subsystem — first-class arbitrary-cut-line section views [ref:view-relationships§4.1]"
-
 ---
+status: proposal          # designed 2026-10-20 (Phase 3 of the section-view build); flips to current at Account
+last-verified: 2026-10-20
+verified-commit: aeab43ff   # design probes ran against this HEAD (pre-build)
+applies-to:
+  - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
+  - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
+  - firepro3d/section_marker.py     # git mv of view_marker.py (build)
+  - firepro3d/elevation_scene.py    # until the move lands
+  - firepro3d/elevation_manager.py  # until the move lands
+  - firepro3d/view_marker.py        # until the move lands
+source-tasks: [todo_open.md 952 section view subsystem, 872 angled gridlines, 600 sheet plot edge/void colours, 767 flat 2D geometry (closed stale), 560 _live_scenes accessor]
+related: view-relationships.md (s4 taxonomy, s6 markers), paper-space.md (s6.2 paper render), display-manager spec (rows/columns)
+---
+
+# Section View Subsystem -- Design Spec
+
+> Revision 2 (2026-10-20). Supersedes the 2026-04-29 proposal in place. Decisions ratified at the
+> 2026-10-20 Phase 2 deltas grill (D1-D8, Q0) and the Phase 3 section approvals (S1-S5) are cited
+> by id; everything else is design detail that may change at plan or build time.
 
 ## 1. Goal
 
-Replace the existing cardinal-only elevation view system with a unified section view subsystem that supports arbitrary-angle cut planes, enabling fire protection engineers to create section views at any angle for pipe routing verification, sprinkler clearance checks, and AHJ submission documentation.
+Replace the cardinal-only elevation system with one section view subsystem: a vertical cut at any
+angle in plan, defined by a marker the user places with two clicks, whose own crop box sets what the
+view shows. The four cardinal elevations become permanent cardinal sections and keep their names.
 
-## 2. Motivation
+## 2. Motivation (Q0)
 
-The current elevation system is limited to N/S/E/W cardinal directions, doesn't persist markers across sessions (known gap in view-relationships §6.3), and can't show angled cuts through the building. Fire protection work requires section views at arbitrary angles to verify pipe penetrations through walls/floors, deflector-to-ceiling clearance, and routing compliance. This spec unifies the elevation and section view concepts into a single system, fixing the persistence gap as a side effect.
+AHJ submission sheets: place an angled marker on the plan, open it, check pipe / wall / floor
+crossings and deflector clearance, host the section in a sheet viewport with its callout plotted.
+Along the way the known gaps close: elevation markers never persisted (view-relationships s6.3),
+only exactly-cardinal gridlines project (872), and elevation edges / voids plot in canvas colours on
+sheets (600).
 
 ## 3. Architecture & Constraints
 
-### 3.1 Single unified view type
+### 3.1 One view type, generalized in place (Approach A, S0)
 
-Section views generalize elevation views. A cardinal elevation is a section at a fixed angle (0°/90°/180°/270°). One codebase handles both, eliminating the parallel `ElevationScene`/`ElevationView`/`ElevationManager` system.
+`ElevationScene` / `ElevationView` / `ElevationManager` / `ViewMarkerArrow` / `SharedCropBox` /
+`ViewMarkerManager` are not rewritten beside new modules; they are **moved and generalized**:
 
-### 3.2 Per-instance materialization
+| Move (`git mv`) | Classes |
+|---|---|
+| `elevation_scene.py` -> `section_scene.py` | `ElevationScene` -> `SectionScene`, `ElevationView` -> `SectionView` (in-scene item classes `ElevGridlineItem`, `_ElevProxyRect`, datum items keep their names) |
+| `elevation_manager.py` -> `section_manager.py` | `ElevationManager` -> `SectionManager` |
+| `view_marker.py` -> `section_marker.py` | `ViewMarkerArrow` + `SharedCropBox` + `ViewMarkerManager` -> `SectionMarker` |
 
-Section views materialize their own `QGraphicsScene` from the data model (same pattern as the existing elevation system). They do not share `ModelSpace`'s scene. Each section scene is rebuilt independently when the model changes.
+A cardinal elevation is a `SectionScene` whose basis is cardinal. History, the HF1 colour-token
+plumbing, halo, opening and slab rendering, and the gridline grips stay where they are; consumers
+and the existing elevation tests re-bind by name.
 
-### 3.3 Data flow
+### 3.2 Materialization
+
+Unchanged from today: each section scene materializes its own `QGraphicsScene` from the data model
+(view-relationships s5.3 pattern 2), rebuilt on a 100 ms debounce from `Model_Space.sceneModified`
+and directly when its marker's geometry changes. Selection reads back to the source item through
+`_ROLE_SOURCE`; no geometry editing in the section view.
+
+### 3.3 Constraints
+
+- Cardinal sections render **identically** to today's elevations on today's elevation test scenes
+  (acceptance d). The projection is origin-free (s4.1) so `h` values are bit-identical.
+- No new Display Manager columns (D2b); the "Elevation Marker" row is relabelled "Section Marker"
+  with its settings key unchanged (D8).
+- No `SAVE_VERSION` bump: the project file gains a `sections` key, absence seeds cardinals (D4).
+- No `_STATE_VERSION` bump: no dock or toolbar changes (S4 -- the 2026-04 "5 -> 6" item is dropped).
+- No new `Model_Space` signals beyond the existing `openViewRequested(view_type, name)`.
+- Cardinal view identity strings stay `"elevation"` + direction everywhere (s7.2) so saved sheets,
+  the project browser and the existing tests need no migration.
+
+## 4. Projection and classification (S1)
+
+### 4.1 Basis
+
+A section is `cut_a`, `cut_b` (world mm), `look_sign in {+1, -1}`, `depth_mm > 0`. Derived once per
+rebuild from the marker:
 
 ```
-Plan view (ModelSpace)
-  ↓ entities with 2D position + Z
-SectionScene
-  ↓ _world_to_section() projection
-  ↓ depth classification (cut / behind / hidden)
-  ↓ entity-specific rendering (hatch / lighter)
-SectionView (QGraphicsView)
-  ↓ pan/zoom/fit, selection
-  ↓ _ROLE_SOURCE sync-back
-Property panel ← selected source entity
+D = unit(B - A)                      # along the cut line
+N = look_sign * (-D.y, D.x)          # toward the look side ("behind" the cut)
+L = |B - A|
+h(p)  = p . D                        # origin-free: no (p - O) term
+v(p)  = -z                           # Qt Y down
+d(p)  = (p - A) . N                  # signed distance from the cut line; + = look side
+sort_key = -d                        # toward the camera; ascending sort = farthest first
 ```
 
-### 3.4 Constraints
+Cardinal equivalence (probed 2026-10-20 against `_world_to_elev` and the per-type depth chains):
 
-- No new signals on `ModelSpace` beyond the existing `openViewRequested`
-- Projection math must produce identical results to `ElevationScene._world_to_elev()` for cardinal angles (regression safety)
-- All entities exposing `z_range_mm()` must be projectable
-- `_STATE_VERSION` must be bumped to 6 (the OSNAP toolbar bumped it 4→5 on 2026-06-22, so current is 5)
-
-## 4. Design Decisions
-
-| Decision | Choice | Rationale |
-|---|---|---|
-| Primary use case | Full capability (routing + clearance + structure) | Fire protection needs all three for AHJ submissions |
-| Cut definition | Two-click line A→B with flip arrow | Matches Revit, intuitive for CAD users |
-| View depth | Adjustable near/far clip, default 5000mm | Drag handles in plan + property field |
-| Lateral extent | Bounded by A→B + padding | Keeps views focused, user controls width via grips |
-| Elevation relationship | Section subsumes elevation | One system, fixes persistence gap, less code |
-| Vertical extent | All levels by default | Full building sections for submissions, optional crop |
-| Cut vs projected | Hatched bold cut + lighter thinner behind | Industry standard for construction docs |
-| Marker visual | Line + arrows + bubbles + dashed extents | Standard AEC section marker |
-| Jogged sections | Not in v1 | Follow-up — complex projection stitching |
-| Break lines | Not in v1 | Follow-up — coordinate discontinuity complexity |
-| Migration | Section tool + N/S/E/W shortcuts | New capability without losing quick cardinal access |
-| Naming | Auto-increment numbers, cardinals get direction name | Consistent with detail view pattern |
-| Editability | Select + property edit, no in-scene geometry | Cross-view sync via `_ROLE_SOURCE` |
-
-## 5. Projection Math
-
-### 5.1 Cut plane coordinate system
-
-The cut plane is defined by:
-- **Origin `O`**: midpoint of A→B segment (world mm)
-- **Direction `D`**: unit vector along A→B, `D = normalize(B - A)`
-- **Look normal `N`**: perpendicular to `D`, pointing toward the look side. Default `N = (-D.y, D.x)` (left-hand perpendicular). Flip reverses sign: `N *= -1`
-
-### 5.2 Projection function
-
-```python
-def _world_to_section(self, wx: float, wy: float, wz: float) -> tuple[float, float]:
-    """Project world (mm) coords onto section 2D plane.
-    Returns (h, v) where h is along the cut line direction.
-    """
-    dx = wx - self._origin_x
-    dy = wy - self._origin_y
-    h = dx * self._dir_x + dy * self._dir_y    # dot with cut direction
-    v = -wz                                      # Qt Y convention
-    return h, v
-```
-
-### 5.3 Depth function
-
-```python
-def _compute_depth(self, wx: float, wy: float) -> float:
-    """Signed distance from cut plane along look direction.
-    depth ≈ 0  → at cut plane
-    depth > 0  → behind (in view)
-    depth < 0  → in front (not in view)
-    """
-    dx = wx - self._origin_x
-    dy = wy - self._origin_y
-    return dx * self._normal_x + dy * self._normal_y
-```
-
-### 5.4 Cardinal equivalence
-
-The existing `_world_to_elev()` uses hardcoded sign flips per direction. The generalized projection must produce identical H values. D and N are derived from the default perpendicular rule `N = (-D.y, D.x)`:
-
-| Direction | D | N | h = dot(pos-O, D) | Existing h | Match |
+| Cardinal | D | N | h | today's h | today's sort key |
 |---|---|---|---|---|---|
-| North (look toward -Y) | (-1, 0) | (0, -1) | `-(wx - Ox)` | `-wx` | yes (Ox=0) |
-| South (look toward +Y) | (1, 0) | (0, 1) | `wx - Ox` | `wx` | yes |
-| East (look toward -X) | (0, 1) | (-1, 0) | `wy - Oy` | `wy` | yes |
-| West (look toward +X) | (0, -1) | (1, 0) | `-(wy - Oy)` | `-wy` | yes |
+| North | (-1, 0) | (0, -1) | -wx | -wx | +y = -d |
+| South | (1, 0) | (0, 1) | wx | wx | -y = -d |
+| East | (0, 1) | (-1, 0) | wy | wy | +x = -d |
+| West | (0, -1) | (1, 0) | -wy | -wy | -x = -d |
 
-For painter Z sorting, existing code uses "distance toward camera" (ascending sort, larger = closer = on top). The generalized equivalent is `sort_depth = dot(pos - O, -N)`, which inverts the look-direction depth. The `_assign_depth_z_values()` ascending sort then places farther items behind and closer items on top — matching existing behavior.
+`_register_depth_item` / `_assign_depth_z_values` are unchanged (ascending on the key, Z from -50
+up by 0.01). Roofs keep their fixed Z, as today. Cut items register at `d = 0`.
 
-Unit tests verify cardinal equivalence by comparing projection output against the hardcoded `_world_to_elev()` values.
+### 4.2 Crop box = classification volume
 
-## 6. Cut Plane Filtering
+The marker's crop box is the rectangle `h in [A.D, B.D]`, `d in [0, depth_mm]`; vertically a section
+always spans all levels. Each item is classified by its **plan footprint** (wall mitered quad, pipe
+segment, slab / roof polygon, node point):
 
-### 6.1 Zone classification
+| Zone | Rule | Rendering |
+|---|---|---|
+| **cut** | footprint intersects segment A->B (collinear overlap counts, at the overlap midpoint); point items are never cut | s5 cut column |
+| **behind** | not cut; footprint intersects the box; projected extent clipped to `[h_A, h_B]` laterally, never vertically | s5 behind column (today's rendering) |
+| **hidden** | otherwise: in front, beyond `depth_mm`, or laterally outside | not drawn |
 
-Each entity is classified by its centroid depth:
+Retired from the 2026-04 proposal: centroid zones, `CUT_TOLERANCE`, 500 mm lateral padding, numeric
+far clip, 0.5 opacity for behind items.
 
-| Zone | Depth range | Rendering | Flags |
-|---|---|---|---|
-| **Front** | `depth < -CUT_TOLERANCE` | Hidden | — |
-| **Cut** | `abs(depth) ≤ CUT_TOLERANCE` | Bold outline + section hatch fill | `_is_section_cut = True` |
-| **Behind** | `CUT_TOLERANCE < depth ≤ far_clip` | Lighter pen (0.5 opacity), thinner stroke | `_is_behind_cut = True` |
-| **Beyond** | `depth > far_clip` | Hidden | — |
+### 4.3 Cardinal seed and auto-extent (S1 ruling)
 
-`CUT_TOLERANCE`: 150mm default (approximately half a standard wall thickness). Sufficient to capture walls whose centerline is near the cut plane.
+Today the plan-side crop box seeds from the gridline bbox + `CROP_MARGIN` (2000 mm), falling back to
++/-10 000 mm, and **the elevation scene never filters on it**. To keep cardinals equal to today's
+elevations the seed encloses everything: bbox of gridlines **and** all displayable plan items, plus
+`CROP_MARGIN`; the cut line is the box edge on the camera side (North: `A = (x_max, y_max)`,
+`B = (x_min, y_max)`); `depth_mm` = the box extent along N.
 
-### 6.2 Wall intersection override
+A cardinal marker carries `auto_extent = True`: while set, the box re-fits to the building on every
+rebuild. The first grip edit on that marker clears it; from then on it is a plain crop box the user
+owns, saved as such. Placed sections are never auto-extent.
 
-For walls, centroid depth alone can misclassify walls that are parallel to but near the cut line. If the cut line segment (A→B, extended by padding) geometrically intersects the wall's 2D quad polygon, that wall is classified as "cut" regardless of centroid depth.
+## 5. Rendering (S2)
 
-### 6.3 Lateral filtering
+**Behind = today's projection rendering, unchanged** (DM *Colour* pen, DM *Fill* brush with the
+wall's own colour as fallback, slab opaque mask + fill, opening void + frame), clipped laterally.
+D2's recorded "outline, no fill" was reconciled at S2: applying it would change every cardinal
+elevation and break acceptance (d). **Cut** adds the section columns only.
 
-An entity is hidden if its projected H-coordinate bounding box falls entirely outside `[h_min - padding, h_max + padding]`, where `h_min`/`h_max` are the projections of A and B onto the H-axis (always 0 and `length(AB)`). Default padding: 500mm.
+| Entity | cut | behind |
+|---|---|---|
+| Wall | cross-section rect: width = chord of the cut line through the mitered quad (along h), height = wall z-extent; brush = *Section colour* + *Section pattern* via `draw_section_hatch`; pen = Colour. A crossing inside an opening span draws only the wall above the head (and below the sill for windows) | today's rect + openings, clipped |
+| Pipe | filled circle at the crossing, diameter = the pipe's drawn OD, Section colour | today's line |
+| Sprinkler / node | never cut | today's glyph |
+| Floor slab | chord x thickness rect, section hatch | today's mask + fill |
+| Roof | **not cut-rendered in v1** (follow-up: mesh / plane intersection); a crossing roof shows as today's projected rect | today's rect, fixed Z |
+| Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`, bubble and label-keyed z-overrides as today; parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
+| Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`) | -- |
 
-## 7. Entity Projection Rules
+### 5.1 Sheet plot colours (600)
 
-### 7.1 Walls
+Three baked colours -- `_edge_color` (hex picked by canvas luminance), the opening-void brush
+(`backgroundBrush()`), the slab mask (`QColor(canvas_bg)`) -- become **colour sources resolved per
+paint** through the HF1 mechanism the wall and slab fills already use (`set_colour_src` /
+`resolve_colour`): a surface-relative *foreground* source for edges, a *background* source for voids
+and masks. On screen they resolve to the theme; in a sheet viewport to black / white. Whether
+`colour_tokens` already defines such a pair is a P4 probe and the first plan task.
 
-- **At cut**: Cross-section rectangle. Width = wall thickness measured perpendicular to cut line (project quad corners onto normal axis, `max - min`). Height = wall Z extent (`z_top - z_bottom`). Filled with section hatch via `draw_section_hatch()`.
-- **Behind cut**: Projected rectangle (same as existing elevation rendering). Lighter pen, reduced opacity, no fill.
+## 6. SectionMarker (S3)
 
-### 7.2 Pipes
+`SectionMarker(QGraphicsItem)` in `section_marker.py`. Fields: `name`, `cut_a`, `cut_b`,
+`look_sign`, `depth_mm`, `cardinal` (`"north" | "south" | "east" | "west" | None`), `auto_extent`
+(cardinals only), `gridline_z_overrides` (moved here from the scene so they persist).
 
-- **At cut**: Filled circle at the intersection point. Radius derived from pipe nominal diameter. Bold pen.
-- **Behind cut**: Projected line connecting node endpoints. Lighter pen, reduced opacity.
+- Shown on every plan level (a section cuts all levels).
+- `PAPER_EXCLUDED = True` **only when `cardinal` is set** (view-relationships s6.4: cardinal markers
+  never plot; placed sections plot by the default path). `_exclude_from_bulk_select = True`.
+- Visual (D6, carried over): cut line (solid cosmetic), the existing arrow-head polygon at each end
+  pointing to the look side, a bubble at A and B carrying the name -- always drawn; the crop box
+  (SharedCropBox's dashed look) and grips only while selected.
+- Grips -- DetailMarker's protocol (`grip_points / apply_grip / manip_bounds / manip_handles /
+  manip_translate`): `0` A, `1` B (endpoint style: that end moves, the line pivots on the other, the
+  box follows), `2` far-edge midpoint (constrained along N, sets `depth_mm`), `3` flip -- a new
+  click-only `FlipGripHandle` in `manip_handle.py` (none exists) toggling `look_sign`. Whole-marker
+  translate through `manip_translate`. Any grip edit on a cardinal clears `auto_extent`.
+- Double-click emits `openViewRequested("elevation", direction)` for a cardinal and
+  `openViewRequested("section", name)` otherwise.
+- Context menu (new; no marker has one today): **Open - Rename - Flip - Delete**. Cardinals:
+  Rename and Delete disabled (D5b, D8). Rename cascades by name to the open tab title and any sheet
+  viewport bound as `section:<name>`. Delete closes the tab and removes the marker.
+- Property panel (`get_properties`, DetailMarker pattern): Name, Depth (mm, `ScaleManager`
+  formatters), Flip toggle, read-only Cardinal.
+- Undo: grip commits and menu Flip / Delete call `push_undo_state` before mutating (s8).
 
-### 7.3 Floor slabs
+## 7. SectionManager and consumers (S4)
 
-- **At cut**: Horizontal rectangle spanning the slab's lateral extent, with thickness shown vertically. Section hatch fill.
-- **Behind cut**: Lighter horizontal band, reduced opacity.
+### 7.1 Manager
 
-### 7.4 Sprinklers
+`SectionManager(QObject)` in `section_manager.py` owns `markers: dict[name, SectionMarker]` and
+`_views: dict[name, (SectionScene, SectionView)]`.
 
-- **At cut**: Circle glyph (same as elevation), bold pen, color by orientation (Pendent=red, Upright=blue, Sidewall=green).
-- **Behind cut**: Same glyph, lighter pen, reduced opacity.
-
-### 7.5 Roofs
-
-- **At cut**: Cross-section from mesh intersection with cut plane. Hatched fill.
-- **Behind cut**: Projected bounding rect (same as existing elevation), lighter pen.
-
-### 7.6 Gridlines
-
-Projected as vertical lines regardless of depth — reference geometry always visible. Use existing `ElevGridlineItem` pattern with grip-drag Z-extent overrides.
-
-### 7.7 Level datums
-
-Horizontal dash-dot reference lines at each level's elevation. Always visible regardless of depth. Rendered in `drawForeground()` (same as existing elevation pattern).
-
-### 7.8 Nodes (without sprinklers)
-
-Point entities. At cut: small circle, bold pen. Behind cut: lighter circle. Classified by single-point depth.
-
-## 8. SectionScene Class
-
-### 8.1 File: `firepro3d/section_scene.py`
-
-New file, replaces `firepro3d/elevation_scene.py`.
-
-### 8.2 Constructor
-
-```python
-class SectionScene(QGraphicsScene):
-    entitySelected = pyqtSignal(object)
-
-    def __init__(self, name, cut_a, cut_b, look_sign, far_clip,
-                 model_space, level_manager, scale_manager):
+```
+seed_cardinals()                      # creates any missing N/S/E/W marker, auto_extent=True
+place_section(a, b) -> SectionMarker  # "Section N", look_sign=+1, depth seeded (s9)
+open_section(name) -> SectionView     # tab "Elevation: North" | "Section: Section 1" (D8)
+close_section(name); close_all(); clear()
+get_view(name); get_scene(name); get_or_build_scene(name)   # tab-less scene for sheets
+open_names; open_scenes               # public (560) -- replaces main._live_scenes reading em._views
+delete_section(name); rename_section(old, new); rebuild_all()
+to_list() -> list[dict]; from_list(data)
+sectionsChanged = pyqtSignal()        # place / rename / delete -> project browser refresh
 ```
 
-**Computed on construction:**
-- `_origin`: midpoint of A→B (world mm)
-- `_dir_x, _dir_y`: unit vector along A→B
-- `_normal_x, _normal_y`: perpendicular unit vector × `look_sign`
-- `_h_extent`: `length(AB)` (lateral range is `[0, _h_extent]`)
+`SectionScene(marker, model_space, level_manager, scale_manager)` reads the marker's geometry at each
+rebuild; the manager calls the open scene's `_schedule_rebuild` after a marker grip edit.
+`conftest.elevation_scene_for` becomes `section_scene_for(direction="north")`, building a cardinal
+marker; tests re-bind by name.
 
-### 8.3 Rebuild pipeline
+### 7.2 View identity (no migration)
 
-```
-rebuild()
-  → _project_level_datums()
-  → _project_walls()
-  → _project_pipes()
-  → _project_sprinklers()
-  → _project_floor_slabs()
-  → _project_roofs()
-  → _project_gridlines()
-  → _assign_depth_z_values()
-```
+| View | type | name | tab | browser | viewport id |
+|---|---|---|---|---|---|
+| cardinal | `"elevation"` | `North`.. | `Elevation: North` | Elevations group (static four) | `elevation:North` |
+| placed | `"section"` | `Section 1`.. | `Section: Section 1` | new **Sections** group, italic when hosted | `section:Section 1` |
 
-Each `_project_*` method:
-1. Iterates source entities from `model_space`
-2. Projects world coords via `_world_to_section()`
-3. Computes depth via `_compute_depth()`
-4. Applies lateral filter (H within extent + padding)
-5. Classifies zone (front/cut/behind/beyond)
-6. Creates `QGraphicsItem` with appropriate pen/brush for zone
-7. Sets `_ROLE_SOURCE` data role to source entity
-8. Registers depth for sorting via `_register_depth_item()`
+`main._on_open_view_requested` routes both; `ViewResolver.resolve` gains the `"section"` branch and
+both branches call `get_or_build_scene` (today `_resolve_elevation` returns `None` for a closed tab,
+which would leave a sheet blank after reload -- acceptance a). `resolve_level_context` and
+`SheetViewport` treat `"section"` exactly as `"elevation"` (own scene, no isolation).
 
-### 8.4 Depth sorting
+### 7.3 Other consumers
 
-Uses `sort_depth = dot(pos - O, -N)` (distance toward camera) for painter Z ordering. `_register_depth_item(sort_depth, *items)` collects all items, `_assign_depth_z_values()` sorts ascending and assigns incrementing painter Z-values. Items closer to camera get higher Z (drawn on top). Same algorithm as existing elevation.
+- `display_manager._is_elevation_marker` and `paper_display._category_for_item` match
+  `"SectionMarker"` instead of `"ViewMarkerArrow"`; row label "Section Marker", key kept.
+- `rebuild_all` call sites bind to `scene._section_manager`.
+- `main.py`: the three `_create_elevation_markers()` calls become `seed_cardinals()` after load;
+  `_views.clear()` / `_views.pop` become `close_all()` / `close_section()`; `_live_scenes` reads
+  `open_scenes`; the ribbon gains a "Section" `add_small_button` in the Build group beside Detail
+  with a `_mode_buttons["section"]` entry.
+- `docs/gen_ref_pages.py`, `SPEC-INDEX.md` and view-relationships s4 / s6 are updated at Account.
 
-### 8.5 Serialization
+## 8. Persistence and undo
 
-```python
-def to_dict(self) -> dict:
-    return {
-        "name": self._name,
-        "cut_a": {"x": self._cut_a[0], "y": self._cut_a[1]},
-        "cut_b": {"x": self._cut_b[0], "y": self._cut_b[1]},
-        "look_sign": self._look_sign,
-        "far_clip": self._far_clip,
-        "gridline_z_overrides": dict(self._gridline_z_overrides),
-    }
-```
+**Project file (D4).** `scene_io` payload gains `"sections": [marker.to_dict() ...]` with keys
+`name, cut_a, cut_b, look_sign, depth_mm, cardinal, auto_extent, gridline_z_overrides`. Load:
+`payload.get("sections")` -> `from_list` when present, then `seed_cardinals()` always (an old file
+or one missing a cardinal gets it re-seeded). No `SAVE_VERSION` bump.
 
-### 8.6 Debounced rebuild
+**Undo (acceptance e).** `Model_Space._capture_network` snapshots no markers today (detail markers
+included). It gains a `"sections"` entry (`to_list()`); restore diffs by name -- update survivors'
+geometry, remove deleted, re-add missing -- and leaves open tabs alone. Detail-marker undo stays out
+(follow-up).
 
-Timer-based rebuild (same as existing `ElevationScene._schedule_rebuild()`), triggered on model changes.
+## 9. Placement tool (D5)
 
-## 9. SectionView Class
+Mode `"section"` beside `"detail"` in `Model_Space`'s dispatch dicts. `_press_section` /
+`_move_section` mirror `_press_detail` / `_move_detail`: click 1 anchors A (snapped), a dashed
+preview line with a look-side hint follows the cursor; click 2 sets B -> `place_section(A, B)`:
+`look_sign = +1`, `depth_mm` = the building extent beyond the line (`max((c - A) . N)` over the
+building bbox corners; 10 000 mm when nothing lies on that side), `push_undo_state`, back to
+`select`. `|AB| < 100 mm` is rejected with a status message. Esc cancels. Status text follows the
+detail tool's wording.
 
-### 9.1 File: `firepro3d/section_view.py`
+## 10. Acceptance Criteria
 
-New file, replaces `firepro3d/elevation_view.py`.
+- [ ] (a) A placed section hosts in a sheet viewport (`section:<name>`) after save / reload; its marker plots on the host plan; cardinal markers never plot.
+- [ ] (b) 600: a dark-theme sheet viewport of a cardinal section `export_pdf`s edges black and opening voids / slab masks white.
+- [ ] (c) 560: `SectionManager.open_scenes` (and the schematic counterpart) are public; `_live_scenes` reads no private attribute.
+- [ ] (d) Cardinal sections produce identical scenes to today's elevations on the existing elevation test scenes (17 files / 161 tests re-bound and green).
+- [ ] (e) Marker place / grip move / flip / delete are each undoable.
+- [ ] (f) A project without a `sections` key seeds exactly four cardinals; round-trip restores markers, crop boxes, overrides.
+- [ ] 872: a gridline crossing the cut line draws vertical at the crossing; a parallel one is hidden.
+- [ ] Two-click "Section" tool creates `Section 1`, `Section 2`, ...; cardinals cannot be deleted or renamed.
+- [ ] Cut items carry Section colour + pattern; behind items carry today's rendering, laterally clipped.
+- [ ] 767 closed as stale (2D primitives are level-less, containment C3).
 
-### 9.2 Functionality
+## 11. Verification Checklist
 
-- `QGraphicsView` displaying a `SectionScene`
-- Pan (middle-mouse), zoom (scroll wheel), fit-to-view (F key)
-- Rubberband-drag selection
-- Grip handle rendering for gridline Z-extent overrides
-- Cursor coordinate display: "H: ___ Z: ___" format
-- Selection → `entitySelected` signal → property panel sync
+- [ ] Guard tests of s12 each shown RED with the rule reverted (VC3).
+- [ ] Whole-repo grep for every retired name (s3.1 table, `_create_elevation_markers`, `_is_cardinal_for_elevation`, `_world_to_elev`) returns only this spec's history notes.
+- [ ] Launch smoke: open each cardinal, place a 45 deg section, open it, host it on a sheet, export dark-theme PDF.
+- [ ] Old project loads with four cardinals; new project saves and reloads a placed section.
+- [ ] Full suite green on the final tree (VC6), the VC7-proved `test_empty_click_deselects` order flake excepted (filed, not patched).
 
-## 10. SectionMarker Class
+## 12. Test Strategy (S5)
 
-### 10.1 File: `firepro3d/section_marker.py`
-
-### 10.2 Visual elements
-
-- **Cut line**: solid cosmetic pen from A→B
-- **Direction arrows**: small filled triangles perpendicular to cut line at each endpoint, pointing toward look side
-- **Callout bubbles**: circles at A and B containing section number/letter. Radius matches `DetailMarker` bubble sizing
-- **Far clip extent lines**: dashed lines parallel to cut line, offset by `far_clip` on look side, connected by short perpendicular dashes at A and B
-
-### 10.3 Grip handles
-
-| Grip | Action |
+| File | Guards |
 |---|---|
-| A endpoint | Drag to move/rotate left side |
-| B endpoint | Drag to move/rotate right side |
-| Far clip midpoint | Drag perpendicular to adjust depth |
-| Direction arrow click | Flip `look_sign` (`*= -1`) |
-| Anywhere else | Drag to translate entire marker |
-
-### 10.4 Interaction
-
-- Double-click → `scene.openViewRequested.emit("section", self._name)`
-- Right-click context menu: Open, Rename, Flip Direction, Delete
-- `_exclude_from_bulk_select = True`
-
-### 10.5 Serialization
-
-```python
-def to_dict(self) -> dict:
-    return {
-        "name": self._name,
-        "cut_a": {"x": ..., "y": ...},   # world mm
-        "cut_b": {"x": ..., "y": ...},
-        "look_sign": self._look_sign,
-        "far_clip": self._far_clip,
-        "level_name": self._level_name,
-    }
-
-@classmethod
-def from_dict(cls, data, scale_manager) -> "SectionMarker": ...
-```
-
-## 11. SectionManager Class
-
-### 11.1 File: `firepro3d/section_manager.py`
-
-Replaces `firepro3d/elevation_manager.py`.
-
-### 11.2 Responsibilities
-
-- Owns all `SectionMarker` instances and open `SectionScene`/`SectionView` pairs
-- Auto-increment counter for section naming
-- Tab lifecycle: create, switch-to, close
-- Serialization: `to_list()` / `from_list()` for project file persistence
-
-### 11.3 Key methods
-
-```
-place_section(cut_a, cut_b, look_sign, far_clip) → SectionMarker
-open_section(name) → SectionView
-close_section(name)
-delete_section(name)
-rename_section(old, new)
-create_cardinal(direction)
-rebuild_all()
-to_list() → list[dict]
-from_list(data)
-```
-
-### 11.4 Cardinal shortcut logic
-
-`create_cardinal(direction)`:
-- Computes A→B from current scene bounding rect (or default 10000mm span if empty)
-- Angle: North=0°, East=90°, South=180°, West=270°
-- `look_sign` set to match existing elevation direction conventions
-- Name set to direction string ("North", "South", etc.) instead of auto-increment
-
-## 12. Section Placement Tool
-
-### 12.1 Mode: `"section"`
-
-New mode in `ModelSpace` mode system.
-
-### 12.2 Workflow
-
-1. User clicks "Section" ribbon button → enters `"section"` mode
-2. **Click 1**: A endpoint placed. Rubber-band line follows cursor
-3. **Click 2**: B endpoint placed. `SectionMarker` created with default depth (5000mm) and default look direction (left-hand perpendicular)
-4. Mode returns to `"select"`
-
-### 12.3 Integration
-
-- Both clicks snap via existing `_apply_snapping()` path
-- Status bar instruction: `"Click first point of section cut, then second point"`
-- Placing a marker pushes an undo state
-- Handler methods in `model_space.py`: `_on_press_section`, `_on_move_section`, `_on_press_section_pt2`
-
-## 13. MainWindow Integration
-
-### 13.1 Manager initialization
-
-Replace `ElevationManager` with `SectionManager` in `main.py`:
-
-```python
-self.section_manager = SectionManager(
-    self.scene, self.level_manager, self.scale_manager, self.central_tabs)
-self.scene._section_manager = self.section_manager
-self.level_widget.levelsChanged.connect(self.section_manager.rebuild_all)
-```
-
-### 13.2 View request handler
-
-Update `_on_open_view_requested()`:
-
-```python
-def _on_open_view_requested(self, view_type, name):
-    if view_type == "section":
-        self.section_manager.open_section(name)
-    elif view_type == "detail":
-        self._activate_detail_view(name)
-```
-
-### 13.3 Cardinal shortcuts
-
-Replace `_create_elevation_markers()` with:
-
-```python
-for direction in ("north", "south", "east", "west"):
-    self.section_manager.create_cardinal(direction)
-```
-
-### 13.4 Ribbon changes
-
-- Add "Section" button to Draw tab → enters `"section"` mode
-- Keep N/S/E/W buttons, rewired to `section_manager.create_cardinal()`
-
-### 13.5 Project file serialization
-
-Add `"sections"` key to project save/load alongside existing `"details"` key:
-
-```python
-# Save
-data["sections"] = self.section_manager.to_list()
-
-# Load
-if "sections" in data:
-    self.section_manager.from_list(data["sections"])
-```
-
-### 13.6 State version
-
-`_STATE_VERSION`: bump to 6 (the OSNAP toolbar bumped it 4→5 on 2026-06-22, so current is 5 → next is 6).
-
-## 14. Migration & Retirement
-
-### 14.1 Files retired
-
-| File | Replacement |
-|---|---|
-| `elevation_scene.py` | `section_scene.py` |
-| `elevation_view.py` | `section_view.py` |
-| `elevation_manager.py` | `section_manager.py` |
-
-### 14.2 Files modified
-
-| File | Changes |
-|---|---|
-| `main.py` | Replace elevation manager with section manager, update ribbon, update view request handler, add section serialization |
-| `model_space.py` | Add `"section"` mode handlers, replace `_elevation_manager` ref with `_section_manager` |
-| `view_marker.py` | `ViewMarkerArrow` and `SharedCropBox` retired (replaced by `SectionMarker`) |
-
-### 14.3 Backward compatibility
-
-Old project files without a `"sections"` key: load normally, no section markers. Cardinal sections created on first startup as before. No data migration needed — elevation views were never persisted.
-
-## 15. Edge Cases
-
-### 15.1 Empty section
-
-No entities within view box → only level datums and gridlines shown. No special handling.
-
-### 15.2 Scale not calibrated
-
-Projection uses `ppm = 1.0` fallback. Section views work but at wrong scale. Same behavior as existing elevation.
-
-### 15.3 Wall parallel to cut line
-
-Wall intersection override (§6.2) classifies as cut if the cut line crosses the wall quad, preventing misclassification by centroid depth alone.
-
-### 15.4 Pipe at exact cut plane
-
-Pipe crossing the cut plane at a single point: shown as filled circle (cross-section) at the intersection point.
-
-### 15.5 Very short cut line
-
-A→B distance less than 100mm: reject placement with a status bar warning. Prevents degenerate views.
-
-### 15.6 Coincident A and B
-
-Zero-length cut line: rejected at placement time. `SectionScene` constructor asserts `length(AB) > 0`.
-
-### 15.7 Old project files
-
-No `"sections"` key → no migration. Cardinal markers created fresh on startup. Existing elevation data was never persisted, so nothing is lost.
-
-## 16. Out of Scope (v1)
-
-- Jogged/stepped section lines (follow-up: multi-segment cut with stitched projection)
-- Break lines for vertical compression (follow-up: coordinate discontinuity management)
-- In-scene dimensions and annotations (depends on annotations spec)
-- Direct geometry editing in section view (future: bidirectional sync)
-- Vertical crop handles on section marker (future: restrict visible level range)
-
-## 17. Acceptance Criteria
-
-- [ ] `SectionMarker` placed via two-click tool with direction arrows, callout bubbles, and dashed extent lines
-- [ ] Section markers persist in project file via `to_dict()` / `from_dict()`
-- [ ] Double-click marker opens section view tab with projected geometry
-- [ ] Items at cut plane rendered with section hatch; items behind rendered lighter (0.5 opacity)
-- [ ] All entity types project correctly (walls, floors, pipes, nodes, sprinklers, gridlines, roofs)
-- [ ] Level datum lines rendered as horizontal dash-dot references
-- [ ] A/B endpoint grips, far clip drag, direction flip all functional
-- [ ] Cardinal shortcuts (N/S/E/W) create section markers at 0°/90°/180°/270° with default depth
-- [ ] `ElevationScene` / `ElevationView` / `ElevationManager` retired
-- [ ] Select entity in section → property panel shows properties, edits propagate back
-- [ ] Right-click context menu on marker (Open, Rename, Flip Direction, Delete)
-- [ ] Cardinal section views produce visually equivalent output to old elevation views
-- [ ] Projection math verified for arbitrary angles via unit tests
-
-## 18. Test Strategy
-
-### 18.1 Unit tests — Projection math (`tests/test_section_scene.py`)
-
-| Test | Verifies |
-|---|---|
-| `test_projection_cardinal_north` | Matches old `_world_to_elev()` for north |
-| `test_projection_cardinal_all` | All 4 cardinal directions equivalent to ElevationScene |
-| `test_projection_45_degrees` | Arbitrary angle produces correct H/V |
-| `test_projection_inverse` | Round-trip project → unproject recovers world coords |
-| `test_depth_at_cut_plane` | Entity on cut line → `depth ≈ 0`, classified as cut |
-| `test_depth_behind` | Behind cut → `0 < depth ≤ far_clip`, classified as behind |
-| `test_depth_front_hidden` | In front → hidden |
-| `test_depth_beyond_hidden` | Beyond far clip → hidden |
-| `test_lateral_clipping` | Outside A→B extent → hidden |
-| `test_wall_cut_intersection` | Cut line crossing wall quad → classified as cut |
-
-### 18.2 Unit tests — Marker (`tests/test_section_marker.py`)
-
-| Test | Verifies |
-|---|---|
-| `test_serialization_roundtrip` | `to_dict()` → `from_dict()` preserves all fields |
-| `test_flip_direction` | `look_sign` inverts, normal reverses |
-| `test_auto_increment_naming` | Sequential markers get "Section 1", "Section 2" |
-| `test_cardinal_naming` | Cardinal shortcuts get direction names |
-
-### 18.3 Integration tests (`tests/test_section_integration.py`)
-
-| Test | Verifies |
-|---|---|
-| `test_marker_to_view` | Place marker → double-click → tab opens with projected items |
-| `test_select_syncs_properties` | Select in section → property panel shows properties |
-| `test_rebuild_on_model_change` | Modify wall in plan → section scene rebuilds |
-| `test_cardinal_matches_old_elevation` | N/S/E/W section ≡ old ElevationScene output |
-
-## 19. Verification Checklist
-
-- [ ] All acceptance criteria met
-- [ ] All unit and integration tests pass
-- [ ] Cardinal sections produce visually equivalent results to old elevation views
-- [ ] No regressions in plan view, detail view, or 3D view
-- [ ] Section markers render correctly in both dark and light themes
-- [ ] Project file round-trip: save with sections → load → sections restored correctly
-- [ ] Old project files (no sections key) load without errors
-- [ ] `_STATE_VERSION` bump doesn't break existing saved layouts
-
-## 20. Existing Code Context
-
-| Component | File | Lines | Role |
-|---|---|---|---|
-| ElevationScene (retiring) | `elevation_scene.py` | 1-1302 | Cardinal projection, rebuild pipeline |
-| Projection math | `elevation_scene.py` | 660-682 | `_world_to_elev()` |
-| Wall projection | `elevation_scene.py` | 758-850 | Quad → rect, depth sorting |
-| Pipe projection | `elevation_scene.py` | 854-899 | Node → line, depth sorting |
-| Sprinkler projection | `elevation_scene.py` | 903-946 | Node → ellipse |
-| Floor slab projection | `elevation_scene.py` | 950-1024 | Mask + visible rect |
-| Roof projection | `elevation_scene.py` | 1028-1074 | 3D mesh → bounding rect |
-| Depth sorting | `elevation_scene.py` | 708-724 | Farthest-first Z assignment |
-| ElevationView (retiring) | `elevation_view.py` | 1-150 | Pan/zoom/fit, grips |
-| ElevationManager (retiring) | `elevation_manager.py` | 1-118 | Tab lifecycle |
-| ViewMarkerArrow (retiring) | `view_marker.py` | 121-314 | Cardinal marker visual |
-| SharedCropBox (retiring) | `view_marker.py` | 48-114 | Shared elevation crop |
-| DetailMarker (reference) | `detail_view.py` | 44-412 | Serialization pattern |
-| Section hatch | `displayable_item.py` | 30-81 | `draw_section_hatch()` |
-| Z-range filter | `level_manager.py` | 33-62 | `_apply_z_filter()` |
-| View request signal | `model_space.py` | 66 | `openViewRequested` |
-| Marker creation | `main.py` | 811-816 | `_create_elevation_markers()` |
-| State version | `main.py` | 2816 | `_STATE_VERSION = 4` (→ 6) |
+| `test_section_projection.py` | four cardinals vs the pre-rename `_world_to_elev` table (absolute h); 45 deg h / d on hand-computed points; painter order for three walls at increasing depth |
+| `test_section_classification.py` | real Wall / Pipe / FloorSlab on a cardinal and a 45 deg cut: cut / behind / hidden by footprint; lateral clip; parallel-adjacent wall is behind; auto-extent re-fits after a wall is added and stops after a grip edit |
+| `test_section_rendering.py` | cut wall brush = Section colour + pattern; behind wall brush = Fill; cut through an opening leaves the head; pipe cut-circle diameter |
+| `test_gridline_section.py` | 30 deg gridline -> vertical at crossing h; parallel absent; crossing outside `[h_A, h_B]` absent |
+| `test_section_sheet_plot.py` | dark theme, sheet viewport `export_pdf`: pixel probe edges black, void / mask white |
+| `test_section_marker.py` | grips 0-3; cardinal grip clears `auto_extent`; `to_dict` round-trip; `PAPER_EXCLUDED` only on cardinals; menu Delete / Rename disabled on cardinals |
+| `test_section_persistence.py` | `scene_io` round-trip; missing key seeds four; one missing cardinal re-seeded |
+| `test_section_undo.py` | place / grip / flip / delete undoable; open tab untouched |
+| `test_section_placement.py` | two clicks -> `Section 1`, `Section 2`; `< 100 mm` rejected; Esc cancels |
+| existing `test_elev_*` and coupled suites | cardinal-equivalence net, re-bound by name |
+
+Plan groups (FP6): G1 rename + basis + classification; G2 rendering + 872 + 600; G3 marker + grips
++ placement + undo + menu; G4 manager + consumers + persistence + browser / ribbon; G5 Account.
+First plan task probes the P4 items: `colour_tokens` surface-relative pair, how grip handles push
+undo elsewhere, the pipe OD source, marker level-visibility path.
+
+## 13. Edge Cases
+
+- Empty section: only datums and gridlines (no special handling).
+- Scale not calibrated: `_ppm()` falls back to 1.0 as today.
+- Wall parallel to and touching the cut line: collinear overlap counts as cut (s4.2).
+- Pipe exactly along the cut line: cut, circle at the overlap midpoint.
+- Coincident / sub-100 mm A, B: rejected at placement; `SectionScene` asserts `L > 0`.
+- A cardinal with `auto_extent` and an empty project: the +/-10 000 mm fallback box.
+- Hand-edited file missing a cardinal: `seed_cardinals()` restores it.
+
+## 14. Out of Scope (v1) -- filed as follow-ups at Account
+
+Roof cut-render (mesh / plane); cut vs projection line-weight DM columns (D2b); detail-marker undo;
+jogged / stepped sections; break lines; in-view dimensions; geometry editing in the section view;
+vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module names.
+
+## 15. Design-decision ledger
+
+| Id | Decision | Gate |
+|---|---|---|
+| Q0 | AHJ sheet sections are the workflow | Phase 2 grill 2026-10-20 |
+| D1 / D1b | cardinals become permanent sections with four independent markers; elevation classes retire | Phase 2 |
+| D2 / D2b | cut vs behind through existing DM columns only; behind keeps today's rendering | Phase 2, reconciled S2 |
+| D3 | depth = the section's own crop box in plan, seeded to the building extent | Phase 2 |
+| D4 | new `sections` key, no `SAVE_VERSION` bump | Phase 2 |
+| D5 / D5b | Section button beside Detail; cardinals permanent | Phase 2 |
+| D6 | bespoke marker / bubble / datum / hatch visuals carried over | Phase 2 |
+| D7a / D7b | gridlines crossing the cut project; 767 stale | Phase 2 |
+| D8 | cardinals keep "Elevation" naming; one DM marker row relabelled | Phase 2 |
+| S0 | Approach A: generalize in place + git mv | Phase 3 |
+| S1 | origin-free basis; footprint classification by crop box; cardinal auto-extent until touched | Phase 3 |
+| S2 | rendering table; roof cut-render deferred; 600 via per-paint colour sources | Phase 3 |
+| S3 | SectionMarker, 4 grips incl. FlipGripHandle, undo via network snapshot, context menu | Phase 3 |
+| S4 | cardinals keep `"elevation"` identity; `get_or_build_scene` for sheets; no `_STATE_VERSION` bump | Phase 3 |
+| S5 | module moves, guard tests, FP6 groups | Phase 3 |
