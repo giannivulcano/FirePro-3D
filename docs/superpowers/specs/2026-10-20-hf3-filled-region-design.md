@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-20, unbuilt; flips to current at the HF3 Account
-last-verified: 2026-10-20
-verified-commit: ea4172ec
+status: current           # BUILT 2026-10-20 on feat/hf3-filled-region (52337aa5..ff041f50), merge 66880197; smoke ok; VC6 deferred to the HF-series run. Shipped as designed; chamfer joined the refused tools (seam review); Edge Case "two coincident lines" enforced via CHAIN_MIN_LOOP_AREA_MM2.
+last-verified: 2026-10-20  # HF3 Account
+verified-commit: 66880197
 applies-to:
   - firepro3d/filled_region.py
   - firepro3d/curve_chain.py
@@ -108,7 +108,10 @@ end), closes each loop, `Qt.FillRule.OddEvenFill`.
 ```
 
 `fill` is omitted when empty (UP1 rule); `outline` true = the stroke is drawn with the normal
-`Geometry2DMixin` stroke fields. **Supersedes HD2's** `loops[].seg` schema, `fill_type` /
+`Geometry2DMixin` stroke fields. *As built:* each piece record is the shape's `to_dict()`
+with `_STRIP` keys (`fill`, `reference`, `printed`) removed; the piece's `uid` is kept in
+the loop record (it is inert — the pieces never enter a scene list), and Explode mints
+fresh uids through `_add_from_dict`. **Supersedes HD2's** `loops[].seg` schema, `fill_type` /
 `overrides` (HF5 adds `fill_type` *beside* `fill`), `origin` (the pattern origin is the path's
 bounding-rect origin per paint, as for shape fill) and `order` (draw order is z, section 4).
 

@@ -9,8 +9,8 @@ applies-to:
   - firepro3d/geometry_drawing_controller.py   # 2D-geometry placement handlers
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
   - firepro3d/selection_readouts.py   # DimSpec (primitive side, §8); controller governed by selection-mode.md §15
-last-verified: 2026-10-19  # UP1 Account: s1 reference-look + s1.1 fill state (verified at 902c5c0e), rest not re-audited; prior 2026-10-18 HF1 Account: Automatic default stroke + fill-colour/Graphic Override pointers (rest not re-audited); prior AC3 Account (§4 Auto Constrain pointer extended to shape-click joins, D152-D154); prior AC2 Account (§4 Auto Constrain pointer extended to H / V, D148-D151); prior AC1 Account (§4 Auto Constrain pointer; the geometry_drawing_controller line / polyline capture + commit hooks are owned by parametric-constraint-system.md §13); prior 2026-10-13 reference geometry Account (RG1-RG18 landed: reference/printed flag model replaces ReferenceLineItem in §1; §3.6 distinguished; §4 authoring-scene wording, Space reference toggle, arc flip to Shift+Space, line variant retired; §6 keys + legacy read; §7 Reference Geometry category); prior 2026-10-12 block mirror/scale Account (pointer only: §1.2 block instances carry their own reflect / scale hooks → block-system "Instance pose"); prior LT5 Account (pointer only: ends, closing clears ends, reflect mirrored → linetypes.md LT5); prior LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
-verified-commit: 902c5c0e   # UP1 Account (fill state only); prior 084b43e0 HF1 Account (pointers only); prior 0060101c AC3 Account (pointer only); prior 312b8dd1 AC2 Account (pointer only); prior ebd7dc0c AC1 Account (pointer only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (pointer); prior 220b5b55 LT5 Account (pointer); prior be7c88a LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
+last-verified: 2026-10-20  # HF3 Account: s1 table 10th row + s6 _filled_regions list + s7 category (pointers to hatch-and-fill "HF3 build design", verified at 66880197), rest not re-audited; prior 2026-10-19 UP1 Account: s1 reference-look + s1.1 fill state (verified at 902c5c0e), rest not re-audited; prior 2026-10-18 HF1 Account: Automatic default stroke + fill-colour/Graphic Override pointers (rest not re-audited); prior AC3 Account (§4 Auto Constrain pointer extended to shape-click joins, D152-D154); prior AC2 Account (§4 Auto Constrain pointer extended to H / V, D148-D151); prior AC1 Account (§4 Auto Constrain pointer; the geometry_drawing_controller line / polyline capture + commit hooks are owned by parametric-constraint-system.md §13); prior 2026-10-13 reference geometry Account (RG1-RG18 landed: reference/printed flag model replaces ReferenceLineItem in §1; §3.6 distinguished; §4 authoring-scene wording, Space reference toggle, arc flip to Shift+Space, line variant retired; §6 keys + legacy read; §7 Reference Geometry category); prior 2026-10-12 block mirror/scale Account (pointer only: §1.2 block instances carry their own reflect / scale hooks → block-system "Instance pose"); prior LT5 Account (pointer only: ends, closing clears ends, reflect mirrored → linetypes.md LT5); prior LT3 Account (pointer only: stroke_pieces + linetype paint routing, Linetype/Weight panel rows, missing-glyph bounds pad → linetypes.md LT3); prior 2026-10-04 2D stroke-bounds Account (§3 Geometry2DMixin.boundingRect pad); prior 2026-10-03  # HF2 Account (fill section only: fill.pattern = tile id → hatch-and-fill D-A29/D-A36; legacy HatchItem now clean-dropped, H12); prior 2026-10-02 arc CW-toggle Account: §4 Center/Start Space CCW<->CW (_draw_arc_cw, _arc_span_to; HUD Span unsigned); prior CS1 Account: primitive uid (mixin field + to_dict stamp); size-floor constants CIRCLE_MIN_RADIUS / ARC_MIN_RADIUS / RECT_MIN_SIZE (one home, read by the constraint solver); D23 reference-line scaffolding verified; prior 2026-10-01
+verified-commit: 66880197   # HF3 Account (Filled Region pointers only); prior 902c5c0e UP1 Account (fill state only); prior 084b43e0 HF1 Account (pointers only); prior 0060101c AC3 Account (pointer only); prior 312b8dd1 AC2 Account (pointer only); prior ebd7dc0c AC1 Account (pointer only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (pointer); prior 220b5b55 LT5 Account (pointer); prior be7c88a LT3 Account (pointers); prior 4c799ee stroke-bounds pad; prior 53e1773   # HF2 Account (fill section only); prior 467b62e arc CW-toggle (Center/Start Space flip); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior c8ff4f4 scene-tools P1 batch Account: §1.2 per-item reflect/scale (DD1), §3.5.2 periodic closed spline (DD7), §4 close_hit + shared close ring built (DD8); prior 4c48685 (Arc Span panel cap), dbeb8b6 (sec.4 either-point rule ratified), 892cf76, 762d083
 related-contract: model-space-containment-contract.md   # LANDED: primitives are Block-definition-local/level-less (C1/C3); Text is a primitive (C5); no model-space placement (C1/C7).
 ---
 
@@ -65,6 +65,7 @@ sharing `Geometry2DMixin` but with its own renderer + data model unified with pa
 | `RegularPolygonItem` | `QGraphicsPathItem` | **parametric** regular N-gon |
 | `EllipseItem` | `QGraphicsPathItem` | centre + rx/ry + **Y-up rotation** |
 | `SplineItem` | `QGraphicsPathItem` | **NURBS / B-spline** (control pts + degree + knots + weights), or a smooth **periodic closed** uniform cubic (`closed=True`, §3.5.2) |
+| `FilledRegionItem` (`filled_region.py`, HF3 2026-10-20) | `QGraphicsPathItem` | **Filled Region** — loops of parentless shape pieces (OddEven; loop 0 outer), two-layer fill, optional outline; Block Editor only; no grips. Owned by [`hatch-and-fill.md`](hatch-and-fill.md) ("HF3 build design") |
 
 `GridlineItem` is **not** a 2D-geometry item (it is a datum; see `grid-system.md`).
 
@@ -682,16 +683,24 @@ C3 slice from `level_manager.py`, `view_3d.py`, `elevation_scene.py`). A new ite
 still threads the collect helpers that enumerate the sibling lists: `_items_on_level`,
 `_all_geometry_items` (`scene_tools.py`), the "2D Geometry" category collector
 (`display_manager.py`). Grep `_draw_arcs` across `firepro3d/` to find them all.
+The 10th list is `_filled_regions` (file key `filled_regions`, type
+`draw_filled_region`, HF3) — it threads every seam above; its record is owned by
+[`hatch-and-fill.md`](hatch-and-fill.md) "HF3 build design".
 
 ## 7. Display
 
 The **"2D Geometry"** Display-Manager category owns colour / visibility / opacity
-for all the **non-reference** 2D-geometry item types (mirrors Design Area; no per-category
-line-weight yet). Fill is a per-item property, independent of the category. Reference-flagged
+for all the **non-reference** 2D-geometry item types, Filled Regions included (HF3 R13;
+mirrors Design Area; no per-category line-weight yet). Fill is a per-item property,
+independent of the category. Reference-flagged
 shapes (§1) belong to their own **"Reference Geometry"** category (colour + show/hide-all across
 every 2D class list; renamed from "Reference Lines" — saved QSettings and a project's
 `display_settings["Reference Lines"]` migrate to the new key); `paper_display._category_for_item`
-checks the `reference` flag before the 2D-class checks.
+checks the `reference` flag before the 2D-class checks. Naming note (HF3 Account): on
+paper the same non-reference classes, Filled Regions included, fall under the pen-only
+**"Construction"** paper category (`paper_display.py`), while the model-side Display
+Manager key is **"2D Geometry"** — two names for one item set, by design (paper categories
+are pen tables, [`paper-space.md`](paper-space.md)).
 
 ## 8. Selection dimension readouts (as-built 2026-09-24, `feat/selection-dim-readouts`)
 

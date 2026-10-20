@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-19  # UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: 902c5c0e  # UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-10-20  # HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: 66880197  # HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -58,7 +58,8 @@ before any parse — see [`linetypes.md`](linetypes.md) "LT2" H-a / H-g) and `pr
 collections: `nodes`, `pipes`, `annotations` (dimensions + notes), `underlays`,
 `water_supply`, `design_areas`, the construction-geometry keys (`polylines`,
 `draw_lines`, `reference_lines`, `draw_rectangles`, `draw_circles`, `draw_arcs`,
-`draw_ellipses`, `draw_splines`, `polygons`), `texts` (unified `TextItem`
+`draw_ellipses`, `draw_splines`, `polygons`, `filled_regions` — HF3, record owned by
+[`hatch-and-fill.md`](hatch-and-fill.md) "HF3 build design"), `texts` (unified `TextItem`
 primitives, containment C5), `gridlines`, `walls`,
 `floor_slabs`, `roofs`, `rooms`, `block_definitions` (embedded by id),
 `blocks` (instances referencing definition ids), `constraints` (indexed against
@@ -97,7 +98,7 @@ invariant**:
 - **Forbidden content is read-but-discarded, silently.** On load, the payload
   keys for loose geometry (`polylines`, `draw_lines`, `reference_lines`,
   `draw_rectangles`, `draw_circles`, `draw_arcs`, `draw_ellipses`,
-  `draw_splines`, `polygons`), the top-level `texts` key (**standalone model
+  `draw_splines`, `polygons`, `filled_regions` — HF3, dropped by the same rule), the top-level `texts` key (**standalone model
   text** — C1 retires it; block-content text lives in `block_definitions` and
   paper text in `sheets`, both of which survive), the `note` and `dimension`
   entries in `annotations`, the `constraints` block, and any legacy hatch are
