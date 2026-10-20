@@ -341,6 +341,11 @@ COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 # Filled Region chain closure (hatch-and-fill.md D-A6): two curve ends weld
 # when within this distance. Join keeps its own literal TOL for now (follow-up).
 CHAIN_WELD_MM = 1.0
+# A chain whose ends meet but encloses less than this area is degenerate (e.g. two coincident lines).
+CHAIN_MIN_LOOP_AREA_MM2 = 1.0
+# The gap reason is reported only for a best unmatched end pair within this multiple of
+# CHAIN_WELD_MM; farther apart -> the open-end reason instead.
+CHAIN_GAP_REPORT_FACTOR = 10.0
 
 # UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
 FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)

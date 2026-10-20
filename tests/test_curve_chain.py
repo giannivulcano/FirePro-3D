@@ -5,7 +5,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d.constants import CHAIN_WELD_MM
-from firepro3d.curve_chain import ChainResult, close_loops
+from firepro3d.curve_chain import ChainResult, close_loops, loop_area, loop_path
 from firepro3d.geometry_2d import ArcItem, CircleItem, LineItem, RectangleItem
 
 
@@ -37,6 +37,33 @@ def test_reversed_piece_still_chains(qapp):
     pieces[2] = LineItem(QPointF(0, 100), QPointF(100, 100))   # drawn backwards
     r = close_loops(pieces)
     assert r.reason is None and len(r.loops) == 1
+    assert math.isclose(loop_area(loop_path(r.loops[0])), 100.0 * 100.0, rel_tol=0.02)
+
+
+def test_first_piece_reversed_still_chains(qapp):
+    pieces = _square()
+    pieces[0] = LineItem(QPointF(100, 0), QPointF(0, 0))       # first piece drawn backwards
+    r = close_loops(pieces)
+    assert r.reason is None and len(r.loops) == 1
+    assert math.isclose(loop_area(loop_path(r.loops[0])), 100.0 * 100.0, rel_tol=0.02)
+
+
+def test_two_arcs_loop_path_area_is_circle_area(qapp):
+    r = close_loops([ArcItem(QPointF(0, 0), 50, 0.0, 180.0),
+                     ArcItem(QPointF(0, 0), 50, 180.0, 180.0)])
+    assert math.isclose(loop_area(loop_path(r.loops[0])), math.pi * 50.0 ** 2, rel_tol=0.02)
+
+
+def test_two_coincident_lines_fail_with_open_end_reason(qapp):
+    r = close_loops([LineItem(QPointF(0, 0), QPointF(100, 0)),
+                     LineItem(QPointF(0, 0), QPointF(100, 0))])
+    assert r.loops == []
+    assert r.reason == "Not enclosed -- 2 curve(s) have an open end"
+
+
+def test_lone_line_reports_open_end_not_gap(qapp):
+    r = close_loops([LineItem(QPointF(0, 0), QPointF(5, 0))])
+    assert r.reason == "Not enclosed -- 1 curve(s) have an open end"
 
 
 def test_circle_plus_square_two_loops_outer_first(qapp):
@@ -76,6 +103,5 @@ def test_two_arcs_make_a_loop(qapp):
 
 
 def test_loop_area_helper_is_positive_for_square(qapp):
-    from firepro3d.curve_chain import loop_area, loop_path
     r = close_loops(_square())
     assert math.isclose(loop_area(loop_path(r.loops[0])), 100.0 * 100.0, rel_tol=0.02)

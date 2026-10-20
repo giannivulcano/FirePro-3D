@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
 
-from .constants import CHAIN_WELD_MM
+from .constants import CHAIN_GAP_REPORT_FACTOR, CHAIN_MIN_LOOP_AREA_MM2, CHAIN_WELD_MM
 
 NO_CANDIDATES = "Select closed shapes or curves that form a closed outline"
 
@@ -26,6 +26,8 @@ class ChainResult:
 
 def scene_path(piece) -> QPainterPath:
     """The piece's geometry in scene coordinates (parentless pieces: own pos/rotation)."""
+    # Lazy: block_definition imports the primitive classes (and, from Task 2 on,
+    # filled_region, which imports this module) -- a top-level import would cycle.
     from .block_definition import _local_path
     return piece.mapToScene(_local_path(piece))
 
@@ -114,19 +116,24 @@ def close_loops(pieces, tol: float = CHAIN_WELD_MM) -> ChainResult:
                     chain.insert(0, p); head = a; unused.remove(p); grown = True; break
                 if _dist(head, a) <= tol:
                     chain.insert(0, p); head = b; unused.remove(p); grown = True; break
-        if _dist(head, tail) <= tol:
+        if _dist(head, tail) <= tol and loop_area(loop_path(chain)) > CHAIN_MIN_LOOP_AREA_MM2:
             loops.append(chain)
         else:
             stuck.append((chain, head, tail))     # head/tail tracked live (orientation-safe)
     if stuck:
-        free = [pt for _ch, h, t in stuck for pt in (h, t)]
+        # (point, owning single-piece chain index or None): a lone piece's own two
+        # ends are not a "gap" (its length), so those pairs are skipped.
+        free = [(pt, k if len(ch) == 1 else None)
+                for k, (ch, h, t) in enumerate(stuck) for pt in (h, t)]
         best = None
         for i in range(len(free)):
             for j in range(i + 1, len(free)):
-                d = _dist(free[i], free[j])
+                if free[i][1] is not None and free[i][1] == free[j][1]:
+                    continue
+                d = _dist(free[i][0], free[j][0])
                 if d > tol and (best is None or d < best[0]):
-                    best = (d, free[i])
-        if best is not None and best[0] < 10.0 * tol:
+                    best = (d, free[i][0])
+        if best is not None and best[0] < CHAIN_GAP_REPORT_FACTOR * tol:
             d, at = best
             return ChainResult(reason=f"Not enclosed -- gap of {d:.1f} mm at "
                                       f"({at.x():.0f}, {at.y():.0f})")
