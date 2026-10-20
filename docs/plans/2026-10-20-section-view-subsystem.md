@@ -1614,7 +1614,7 @@ def _plan_with_marker(cardinal=None):
     from firepro3d.model_space import Model_Space
     ms = Model_Space()
     if cardinal:
-        m = SectionMarker.cardinal(cardinal, QRectF(-5000.0, -5000.0, 10000.0, 10000.0))
+        m = SectionMarker.for_cardinal(cardinal, QRectF(-5000.0, -5000.0, 10000.0, 10000.0))
     else:
         m = SectionMarker("Section 1", QPointF(0.0, 0.0), QPointF(6000.0, 0.0), 1, 3000.0)
     m._manager = _Mgr()
@@ -1630,17 +1630,17 @@ def test_grip_points_and_apply_grip_endpoints_pivot_and_box_follows(qapp):
     assert pts[2] == QPointF(3000.0, -3000.0)          # far-edge midpoint (look side = scene-up)
     m.apply_grip(1, QPointF(6000.0, 3000.0))           # B moves; A stays; depth unchanged
     assert m.cut_a == QPointF(0.0, 0.0) and m.cut_b == QPointF(6000.0, 3000.0)
-    assert m.depth_mm == 3000.0
+    assert m.depth == 3000.0
     assert ("geom", "Section 1") in m._manager.calls
 
 
 def test_depth_grip_is_constrained_along_normal(qapp):
     ms, m = _plan_with_marker()
     m.apply_grip(2, QPointF(4500.0, -5000.0))          # off-axis drag: only the normal component counts
-    assert m.depth_mm == pytest.approx(5000.0)
+    assert m.depth == pytest.approx(5000.0)
     assert m.cut_a == QPointF(0.0, 0.0) and m.cut_b == QPointF(6000.0, 0.0)
     m.apply_grip(2, QPointF(4500.0, 2000.0))           # dragged through the cut line: clamped to the minimum
-    assert m.depth_mm == pytest.approx(100.0)
+    assert m.depth == pytest.approx(100.0)
 
 
 def test_flip_grip_toggles_look_sign_one_undo_step(qapp):
@@ -1732,7 +1732,7 @@ def test_get_properties_and_set_property(qapp):
     assert props["Cardinal"]["readonly"] is True and props["Cardinal"]["value"] == "-"
     assert props["Flip"]["type"] == "bool" and props["Flip"]["value"] is False
     m.set_property("Depth", "4500")
-    assert m.depth_mm == pytest.approx(4500.0)
+    assert m.depth == pytest.approx(4500.0)
     m.set_property("Flip", True)
     assert m.look_sign == -1
     m.set_property("Name", "Stair")
@@ -2002,7 +2002,7 @@ Rename the module docstring to describe `SectionMarker` + `SectionBasis`.
 
 `tests/test_manip_griphandle_viewmarker_parity.py` (11 tests on `ViewMarkerArrow` + `SharedCropBox` grips): the contract it guarded -- legacy grip path == manipulator path on the shared box -- is retired with the box. Rewrite to **four** tests on `SectionMarker` under the real manipulator: `default` handles count == 4 with the right classes; a live `EndpointGripHandle` drag of grip 1 through `SelectionManipulator` (press / move / release on a shown `Model_View`) moves B and pushes exactly one undo state; a `FlipGripHandle` click through the view toggles `look_sign` with one undo push; Esc mid-drag restores B. Reuse the file's existing view / event helpers.
 
-`tests/test_paper_marker_exclusion.py` (6 tests): replace every `ViewMarkerArrow` / `SharedCropBox` construction with `SectionMarker.cardinal(...)` (excluded) and a placed `SectionMarker(...)` (NOT excluded -- assert it is in the paper render set), keeping the file's `DetailMarker` cases unchanged.
+`tests/test_paper_marker_exclusion.py` (6 tests): replace every `ViewMarkerArrow` / `SharedCropBox` construction with `SectionMarker.for_cardinal(...)` (excluded) and a placed `SectionMarker(...)` (NOT excluded -- assert it is in the paper render set), keeping the file's `DetailMarker` cases unchanged.
 
 - [ ] **Step 6: Run**
 
@@ -2255,7 +2255,7 @@ class _UndoMgr:
         for name, d in want.items():
             if name in self.markers:
                 m = self.markers[name]
-                m.set_geometry(QPointF(*d["cut_a"]), QPointF(*d["cut_b"]), d["depth_mm"], user=False)
+                m.set_geometry(QPointF(*d["cut_a"]), QPointF(*d["cut_b"]), d["depth"], user=False)
                 if m.look_sign != d["look_sign"]:
                     m.flip()
             else:
@@ -2416,9 +2416,9 @@ def test_place_section_names_and_depth_seed(mgr):
     assert (s1.name, s2.name) == ("Section 1", "Section 2")
     assert s1.look_sign == 1 and s1.scene() is ms and not s1.auto_extent
     # depth = max((c - A) . N) over the building bbox corners (N_s = (0, -1) here) = 6000 + wall half-width.
-    assert s1.depth_mm == pytest.approx(6000.0 + w.half_thickness_scene(), abs=1.0)
+    assert s1.depth == pytest.approx(6000.0 + w.half_thickness_scene(), abs=1.0)
     s3 = m.place_section(QPointF(0.0, -20000.0), QPointF(5000.0, -20000.0))  # look side (scene-up) is empty
-    assert s3.name == "Section 3" and s3.depth_mm == 10000.0                 # -> 10 000 mm fallback (s9)
+    assert s3.name == "Section 3" and s3.depth == 10000.0                 # -> 10 000 mm fallback (s9)
 
 
 def test_open_section_tab_titles_and_identity(mgr):
@@ -2599,7 +2599,7 @@ class SectionManager(QObject):
             if c in self.markers:
                 continue
             box = box or building_bbox(self._ms)
-            self._adopt(SectionMarker.cardinal(c, box))
+            self._adopt(SectionMarker.for_cardinal(c, box))
 
     def next_name(self) -> str:
         self._counter += 1
@@ -2787,7 +2787,7 @@ class SectionManager(QObject):
             if m is None:
                 self._adopt(SectionMarker.from_dict(d))
                 continue
-            m.set_geometry(QPointF(*d["cut_a"]), QPointF(*d["cut_b"]), d["depth_mm"], user=False)
+            m.set_geometry(QPointF(*d["cut_a"]), QPointF(*d["cut_b"]), d["depth"], user=False)
             if m.look_sign != d["look_sign"]:
                 m.flip()
             m._auto_extent = bool(d.get("auto_extent", False)) if m.cardinal else False
@@ -2950,7 +2950,7 @@ def test_round_trip_restores_placed_section(qapp, tmp_path):
     assert set(mgr2.markers) == set(CARDINALS) | {"Section 1"}
     s2 = mgr2.markers["Section 1"]
     assert s2.to_dict() == s.to_dict()
-    assert mgr2.markers["north"].auto_extent is False and mgr2.markers["north"].depth_mm == 7777.0
+    assert mgr2.markers["north"].auto_extent is False and mgr2.markers["north"].depth == 7777.0
     assert mgr2.markers["south"].auto_extent is True
 
 

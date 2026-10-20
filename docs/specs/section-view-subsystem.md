@@ -73,7 +73,8 @@ and directly when its marker's geometry changes. Selection reads back to the sou
 
 ### 4.1 Basis
 
-A section is `cut_a`, `cut_b` (world mm), `look_sign in {+1, -1}`, `depth_mm > 0`. Derived once per
+A section is `cut_a`, `cut_b`, `look_sign in {+1, -1}`, `depth_mm > 0` (world mm; the marker stores
+plan-scene units -- s6 -- and `SectionScene` converts through `_scene_to_world` / ppm). Derived once per
 rebuild from the marker:
 
 ```
@@ -154,8 +155,10 @@ and masks. On screen they resolve to the theme; in a sheet viewport to black / w
 ## 6. SectionMarker (S3)
 
 `SectionMarker(QGraphicsItem)` in `section_marker.py`. Fields: `name`, `cut_a`, `cut_b`,
-`look_sign`, `depth_mm`, `cardinal` (`"north" | "south" | "east" | "west" | None`), `auto_extent`
+`look_sign`, `depth`, `cardinal` (`"north" | "south" | "east" | "west" | None`), `auto_extent`
 (cardinals only), `gridline_z_overrides` (moved here from the scene so they persist).
+`cut_a`, `cut_b`, `depth` are **plan-scene units** (mm at ppm 1; the `DetailMarker.crop_rect`
+convention) -- G1 review ruling 2026-10-20; `CROP_MARGIN`, `MIN_CUT_LEN`, `FALLBACK_HALF` likewise.
 
 - Shown on every plan level (a section cuts all levels).
 - `PAPER_EXCLUDED = True` **only when `cardinal` is set** (view-relationships s6.4: cardinal markers
@@ -165,7 +168,7 @@ and masks. On screen they resolve to the theme; in a sheet viewport to black / w
   (SharedCropBox's dashed look) and grips only while selected.
 - Grips -- DetailMarker's protocol (`grip_points / apply_grip / manip_bounds / manip_handles /
   manip_translate`): `0` A, `1` B (endpoint style: that end moves, the line pivots on the other, the
-  box follows), `2` far-edge midpoint (constrained along N, sets `depth_mm`), `3` flip -- a new
+  box follows), `2` far-edge midpoint (constrained along N, sets `depth`), `3` flip -- a new
   click-only `FlipGripHandle` in `manip_handle.py` (none exists) toggling `look_sign`. Whole-marker
   translate through `manip_translate`. Any grip edit on a cardinal clears `auto_extent`.
 - Double-click emits `openViewRequested("elevation", direction)` for a cardinal and
@@ -227,7 +230,7 @@ which would leave a sheet blank after reload -- acceptance a). `resolve_level_co
 ## 8. Persistence and undo
 
 **Project file (D4).** `scene_io` payload gains `"sections": [marker.to_dict() ...]` with keys
-`name, cut_a, cut_b, look_sign, depth_mm, cardinal, auto_extent, gridline_z_overrides`. Load:
+`name, cut_a, cut_b, look_sign, depth, cardinal, auto_extent, gridline_z_overrides`. Load:
 `payload.get("sections")` -> `from_list` when present, then `seed_cardinals()` always (an old file
 or one missing a cardinal gets it re-seeded). No `SAVE_VERSION` bump.
 
@@ -241,7 +244,7 @@ geometry, remove deleted, re-add missing -- and leaves open tabs alone. Detail-m
 Mode `"section"` beside `"detail"` in `Model_Space`'s dispatch dicts. `_press_section` /
 `_move_section` mirror `_press_detail` / `_move_detail`: click 1 anchors A (snapped), a dashed
 preview line with a look-side hint follows the cursor; click 2 sets B -> `place_section(A, B)`:
-`look_sign = +1`, `depth_mm` = the building extent beyond the line (`max((c - A) . N)` over the
+`look_sign = +1`, `depth` = the building extent beyond the line (`max((c - A) . N)` over the
 building bbox corners; 10 000 mm when nothing lies on that side), `push_undo_state`, back to
 `select`. `|AB| < 100 mm` is rejected with a status message. Esc cancels. Status text follows the
 detail tool's wording.
