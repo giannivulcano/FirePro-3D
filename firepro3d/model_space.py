@@ -299,6 +299,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._pick_region_preview: "tuple | None" = None
         self._pick_region_arr: "tuple | None" = None     # (window, undo_pos, n_items, Arrangement)
         self._pick_region_last_pt: "QPointF | None" = None
+        self._pick_region_last_motion: "QPointF | None" = None   # last non-zero cursor motion
         self._pick_region_slow: bool = False             # last build > REGION_FINDER_DEBOUNCE_MS
         self._pick_region_timer = None                   # QTimer for the debounced hover
         self._pick_region_pending: "QPointF | None" = None
@@ -1422,7 +1423,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._pick_region_preview = None
             self._pick_region_arr = None
             self._pick_region_last_pt = None
+            self._pick_region_last_motion = None
             self._pick_region_pending = None
+            self._pick_region_slow = False
+            if self._pick_region_timer is not None:
+                self._pick_region_timer.stop()
             for v in self.views():
                 v.viewport().update()
 
@@ -2600,7 +2605,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         cached = self._pick_region_arr
         if last is None or cached is None or not cached[0].contains(pt):
             return QPointF(pt)
-        return cached[3].nudge(pt, QPointF(pt.x() - last.x(), pt.y() - last.y()))
+        dx, dy = pt.x() - last.x(), pt.y() - last.y()
+        if dx * dx + dy * dy > 0.0:               # a click at the hover point has zero motion:
+            self._pick_region_last_motion = QPointF(dx, dy)   # keep the last real one
+        motion = self._pick_region_last_motion
+        if motion is None:
+            return QPointF(pt)
+        return cached[3].nudge(pt, motion)
 
     def _pick_region_hover(self, pt) -> None:
         """Compute the preview tuple for *pt* and repaint the views."""

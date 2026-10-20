@@ -88,6 +88,7 @@ class TestMode:
         ev = QMouseEvent(QEvent.Type.MouseButtonPress, vp, view.viewport().mapToGlobal(vp),
                          Qt.MouseButton.RightButton, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(view.viewport(), ev)
+        assert len(scene._filled_regions) == 0
         from PyQt6.QtGui import QContextMenuEvent
         cev = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, vp.toPoint(), view.viewport().mapToGlobal(vp).toPoint())
         QApplication.sendEvent(view.viewport(), cev)
@@ -207,6 +208,54 @@ class TestClick:
         assert scene._pick_region_preview[2] is False            # rebuilt: the gap is seen
 
 
+class TestNudgeAndEdges:
+    def _two_squares(self, scene):
+        _add(scene, _square(-100, -50, 100) + _square(0, -50, 100))   # shared edge at x=0
+
+    def _commit_on_edge(self, view, scene, from_x):
+        """Approach the shared edge from *from_x* side with two moves, move onto
+        the edge (within 0.5 mm), click; return the committed region."""
+        scene.set_mode("pick_region")
+        sign = 1 if from_x > 0 else -1
+        move(view, QPointF(sign * 30, 0)); move(view, QPointF(sign * 10, 0))
+        move(view, QPointF(sign * 0.2, 0)); click(view, QPointF(sign * 0.2, 0))
+        assert len(scene._filled_regions) == 1
+        return scene._filled_regions[0]
+
+    def test_click_on_edge_fills_side_cursor_came_from_left(self, pick):
+        view, scene = pick
+        self._two_squares(scene)
+        r = self._commit_on_edge(view, scene, -1)
+        assert r.path().contains(QPointF(-50, 0)) and not r.path().contains(QPointF(50, 0))
+
+    def test_click_on_edge_fills_side_cursor_came_from_right(self, pick):
+        view, scene = pick
+        self._two_squares(scene)
+        r = self._commit_on_edge(view, scene, 1)
+        assert r.path().contains(QPointF(50, 0)) and not r.path().contains(QPointF(-50, 0))
+
+    def test_lone_line_hover_and_click_not_enclosed(self, pick):
+        from firepro3d.geometry_2d import LineItem
+        view, scene = pick
+        _add(scene, [LineItem(QPointF(0, 0), QPointF(100, 0))])
+        scene.set_mode("pick_region")
+        log = _statuses(scene)
+        move(view, QPointF(50, 20))
+        path, open_end, enclosed, covered = scene._pick_region_preview
+        assert not enclosed and not covered
+        click(view, QPointF(50, 20))
+        assert log[-1] == "Not enclosed" and scene._filled_regions == []
+
+    def test_set_mode_resets_pick_state(self, pick):
+        view, scene = pick
+        self._two_squares(scene)
+        scene.set_mode("pick_region")
+        move(view, QPointF(-30, 0)); move(view, QPointF(-10, 0))
+        assert scene._pick_region_last_motion is not None
+        scene.set_mode(None)
+        assert scene._pick_region_last_motion is None and scene._pick_region_slow is False
+
+
 def _area(path):
     from PyQt6.QtGui import QTransform
     k = 64.0                      # production flatten scale (LINETYPE_CURVE_FLATTEN_SCALE)
@@ -231,14 +280,14 @@ class TestHover:
         _add(scene, _square(-40, -40, 80))
         scene.set_mode("pick_region")
         QApplication.processEvents()
-        self._px(view, QPointF(0, 0))                            # discard the first-paint grab
-        before = self._px(view, QPointF(0, 0))
+        self._px(view, QPointF(20, 20))                          # discard the first-paint grab
+        before = self._px(view, QPointF(20, 20))                 # interior, away from the crosshair
         before_out = self._px(view, QPointF(100, 100))
         move(view, QPointF(0, 0))
         path, open_end, enclosed, covered = scene._pick_region_preview
         assert enclosed and not covered and path is not None and path.contains(QPointF(0, 0))
         QApplication.processEvents()
-        inside = self._px(view, QPointF(0, 0))
+        inside = self._px(view, QPointF(20, 20))
         outside = self._px(view, QPointF(100, 100))
         assert inside != before and inside != outside            # accent tint painted inside only
         assert outside == before_out
@@ -268,7 +317,9 @@ class TestHover:
         assert ring.red() > 150 and ring.green() < 100                     # red ring stroke
         # label background: 2 px left of the text origin (inside the 4 px padding, no glyph there)
         vp = view._last_vp_pos
-        label_bg = self._vp_px(view, vp.x() + 14 - 2, vp.y() - 24)
+        from PyQt6.QtGui import QFont, QFontMetrics
+        asc = QFontMetrics(QFont("Consolas", 9)).ascent()
+        label_bg = self._vp_px(view, vp.x() + 14 - 2, vp.y() - 6 - asc // 2)   # ty - ascent/2
         assert label_bg.red() > 150 and label_bg.green() < 100             # red "Not enclosed" background
         # no accent tint inside the leaking area (a pixel away from the label)
         assert self._px(view, QPointF(20, 20)) == inside_before

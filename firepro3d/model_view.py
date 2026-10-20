@@ -479,7 +479,14 @@ class Model_View(QGraphicsView):
                     text = "Not enclosed"
                     tr = fm.boundingRect(text)
                     tx, ty = vp_cursor.x() + 14, vp_cursor.y() - 6
-                    bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty - tr.height())
+                    # boundingRect's top is already -ascent: translate by the baseline
+                    bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty)
+                    if tx + bg.width() + 6 > self.viewport().width():
+                        tx = vp_cursor.x() - tr.width() - 14           # flip left
+                        bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty)
+                    if bg.top() < 0:
+                        ty = vp_cursor.y() + tr.height() + 6           # flip below
+                        bg = tr.adjusted(-4, -2, 4, 2).translated(tx, ty)
                     painter.fillRect(bg, QColor(200, 30, 30, 210))
                     painter.setPen(QPen(QColor("#ffffff")))
                     painter.drawText(tx, ty, text)
