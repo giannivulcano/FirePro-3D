@@ -438,9 +438,11 @@ class TestExplode:
         es = editor_scene()
         r = add_region(es, FilledRegionItem(ring_region().to_dict()["loops"], color="#123456"))
         assert r.style["colour"] == "#123456"           # the ctor colour lands in the record
+        assert r.outline is False                        # Invisible outline (design section 4)
         r.setSelected(True)
         new = es.explode_selected_blocks()
         assert len(new) == 5 and all(it.style == r.style for it in new)
+        assert all(it.isVisible() for it in new)         # pieces are ordinary stroked curves
 
     def test_block_and_region_explode_together(self, qapp):
         es = editor_scene()
@@ -454,6 +456,18 @@ class TestExplode:
         new = es.explode_selected_blocks()
         assert len(new) == 6 and es._block_instances == [] and es._filled_regions == []
         assert es._undo_pos == pos0 + 1
+
+    def test_region_beside_an_unexplodable_block_still_explodes(self, qapp):
+        """Design section 4 'handles both': a missing-definition block beside a
+        region does not refuse the whole Explode; the block stays, the region goes."""
+        es = editor_scene()
+        orphan = es.place_block_instance("no-such-block", (0.0, 0.0))
+        r = add_region(es)
+        orphan.setSelected(True); r.setSelected(True)
+        log = _statuses(es)
+        new = es.explode_selected_blocks()
+        assert len(new) == 5 and es._filled_regions == [] and orphan.scene() is es
+        assert not any("can't be exploded" in m for m in log)
 
     def test_no_block_no_region_status(self, qapp):
         es = editor_scene()

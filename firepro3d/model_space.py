@@ -2534,7 +2534,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if not insts and not regions:
             self._show_status("Select a block or Filled Region to explode", 3000)
             return []
-        if insts and not any(can_explode(i) for i in insts):
+        # A region beside un-explodable blocks still explodes (design 4,
+        # "handles both"); explode_instances skips the blocks it can't.
+        if insts and not regions and not any(can_explode(i) for i in insts):
             self._show_status("The selected block can't be exploded "
                               "(missing or imported-reference definition)", 4000)
             return []

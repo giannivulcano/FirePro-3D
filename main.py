@@ -3339,14 +3339,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except RuntimeError:
             return
         has_sel = bool(selected)
-        has_block = any(isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
+        can_explode_sel = any(isinstance(i, (BlockInstance, FilledRegionItem))
+                              for i in selected)
         for label, b in buttons.items():
             if sip.isdeleted(b):
                 continue
             if label in self._MODIFY_NEEDS_SELECTION:
                 b.setEnabled(has_sel)
             elif label == "Explode":
-                b.setEnabled(has_block)
+                b.setEnabled(can_explode_sel)
             elif label == "Paste":
                 b.setEnabled(scene.clipboard_payload() is not None)
         if fb is not None and not sip.isdeleted(fb):
