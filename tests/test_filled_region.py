@@ -571,3 +571,11 @@ class TestToolMatrix:
             click(view, QPointF(20, 20))     # inside the region (its shape() is the area), on no curve
         assert r.to_dict() == d0 and scene._undo_pos == pos0
         assert f"Filled Regions can't be {verb}" in log
+
+
+# -- Task 8: H9 dead code (R14) --
+class TestDeadCode:
+    def test_h9_functions_are_gone(self):
+        from firepro3d import annotations, wall
+        assert not hasattr(wall.WallSegment, "_draw_hatch")
+        assert not hasattr(annotations, "_rebuild_path_from_elements")
