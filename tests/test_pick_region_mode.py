@@ -217,3 +217,70 @@ def _area(path):
         for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
             s += x0 * y1 - x1 * y0
     return s / 2
+
+
+class TestHover:
+    def _px(self, view, scene_pt):
+        img = view.grab().toImage()
+        vp = view.viewportTransform().map(scene_pt)
+        vo = view.viewport().mapTo(view, vp.toPoint())
+        return QColor(img.pixel(vo.x(), vo.y()))
+
+    def test_hover_face_sets_preview_and_paints_tint(self, pick):
+        view, scene = pick
+        _add(scene, _square(-40, -40, 80))
+        scene.set_mode("pick_region")
+        QApplication.processEvents()
+        self._px(view, QPointF(0, 0))                            # discard the first-paint grab
+        before = self._px(view, QPointF(0, 0))
+        before_out = self._px(view, QPointF(100, 100))
+        move(view, QPointF(0, 0))
+        path, open_end, enclosed, covered = scene._pick_region_preview
+        assert enclosed and not covered and path is not None and path.contains(QPointF(0, 0))
+        QApplication.processEvents()
+        inside = self._px(view, QPointF(0, 0))
+        outside = self._px(view, QPointF(100, 100))
+        assert inside != before and inside != outside            # accent tint painted inside only
+        assert outside == before_out
+
+    def _vp_px(self, view, vp_x, vp_y):
+        """Pixel of the grabbed view at viewport coords (vp_x, vp_y)."""
+        from PyQt6.QtCore import QPoint
+        img = view.grab().toImage()
+        vo = view.viewport().mapTo(view, QPoint(int(vp_x), int(vp_y)))
+        return QColor(img.pixel(vo.x(), vo.y()))
+
+    def test_hover_gap_sets_label_and_ring(self, pick):
+        from firepro3d.geometry_2d import LineItem
+        view, scene = pick
+        a, b, c, d = QPointF(-40, -40), QPointF(40, -40), QPointF(40, 40), QPointF(-40, 40)
+        _add(scene, [LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, QPointF(-40, -38.5))])
+        scene.set_mode("pick_region")
+        inside_before = self._px(view, QPointF(20, 20))
+        move(view, QPointF(0, 0))
+        path, open_end, enclosed, covered = scene._pick_region_preview
+        assert not enclosed and not covered and open_end is not None
+        assert abs(open_end.x() + 40.0) < 1e-6 and -40.0 - 1e-6 <= open_end.y() <= -38.5 + 1e-6
+        QApplication.processEvents()
+        # 6 px ring (pen 2 px) around the open end: sample 6 px to its right in viewport space
+        c = view.viewportTransform().map(open_end)
+        ring = self._vp_px(view, c.x() + 6.0, c.y())
+        assert ring.red() > 150 and ring.green() < 100                     # red ring stroke
+        # label background: 2 px left of the text origin (inside the 4 px padding, no glyph there)
+        vp = view._last_vp_pos
+        label_bg = self._vp_px(view, vp.x() + 14 - 2, vp.y() - 24)
+        assert label_bg.red() > 150 and label_bg.green() < 100             # red "Not enclosed" background
+        # no accent tint inside the leaking area (a pixel away from the label)
+        assert self._px(view, QPointF(20, 20)) == inside_before
+
+    def test_covered_face_paints_nothing(self, pick):
+        view, scene = pick
+        _add(scene, _square(-40, -40, 80))
+        scene.set_mode("pick_region")
+        move(view, QPointF(0, 0)); click(view, QPointF(0, 0))
+        QApplication.processEvents()
+        filled = self._px(view, QPointF(0, 0))
+        move(view, QPointF(1, 1))
+        QApplication.processEvents()
+        assert scene._pick_region_preview[3] is True
+        assert self._px(view, QPointF(0, 0)) == filled          # region fill only, no accent tint on top
