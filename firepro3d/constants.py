@@ -22,6 +22,7 @@ Z_BELOW_GEOMETRY = -100   # origin cross, items below all geometry
 Z_UNDERLAY       = -79    # underlays/imports (initial; overridden at runtime)
 Z_ROOF           = -75    # roof items (initial; overridden at runtime)
 Z_CONSTRUCTION   = 1      # construction geometry (lines, rects, circles, arcs)
+Z_FILLED_REGION  = -1     # Filled Region: under every 2D shape (default z 0), above the origin cross (D-A7)
 Z_DESIGN_AREA    = 2      # design area boundary
 Z_PIPE           = 5      # pipes (initial; overridden at runtime)
 Z_NODE           = 10     # nodes (initial; overridden at runtime)
@@ -336,6 +337,10 @@ TOKEN_PREFIX = "token:"
 TOKEN_AUTO = "token:auto"        # theme ink on canvas, black on paper / B&W
 TOKEN_ACCENT = "token:accent"    # theme accent on canvas, light accent on paper
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
+
+# Filled Region chain closure (hatch-and-fill.md D-A6): two curve ends weld
+# when within this distance. Join keeps its own literal TOL for now (follow-up).
+CHAIN_WELD_MM = 1.0
 
 # UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
 FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)
