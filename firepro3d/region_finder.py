@@ -18,9 +18,11 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainterPath
 
 from .constants import (CHAIN_MIN_LOOP_AREA_MM2, CHAIN_WELD_MM,
-                        REGION_FINDER_BUCKETS, REGION_FINDER_NUDGE_MM,
-                        REGION_FINDER_SAGITTA_MM)
-from .geometry_2d import bezier_sub
+                        REGION_FINDER_BUCKETS, REGION_FINDER_ISLAND_SAMPLE_MM,
+                        REGION_FINDER_NUDGE_MM, REGION_FINDER_SAGITTA_MM)
+from .arc_math import yup_angle
+from .geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
+                          PolylineItem, SplineItem, bezier_sub)
 from .geometry_intersect import line_line_intersection
 from .halo import halo_scene_path
 
@@ -67,22 +69,18 @@ class Piece:
                      Tag(t.item, t.elem, t.kind, t.bez, t.t0 + dt * u0, t.t0 + dt * u1))
 
     def reversed(self) -> "Piece":
+        """This segment traversed end to start (tag parameters swapped)."""
         t = self.tag
         return Piece(self.x1, self.y1, self.x0, self.y0,
                      Tag(t.item, t.elem, t.kind, t.bez, t.t1, t.t0))
 
     def bbox(self) -> tuple:
+        """``(xmin, ymin, xmax, ymax)`` of the segment."""
         return (min(self.x0, self.x1), min(self.y0, self.y1),
                 max(self.x0, self.x1), max(self.y0, self.y1))
 
 
 # ── 1. Flatten ──────────────────────────────────────────────────────────────
-
-def _bez_pt(b, t):
-    u = 1.0 - t
-    return (u**3 * b[0][0] + 3*u*u*t * b[1][0] + 3*u*t*t * b[2][0] + t**3 * b[3][0],
-            u**3 * b[0][1] + 3*u*u*t * b[1][1] + 3*u*t*t * b[2][1] + t**3 * b[3][1])
-
 
 def _flat_enough(b, sagitta: float) -> bool:
     """Control points within *sagitta* of the chord -> one segment suffices."""
@@ -171,6 +169,21 @@ def _param_on(p: Piece, q: QPointF) -> float:
     return ((q.x() - p.x0) * dx + (q.y() - p.y0) * dy) / L2
 
 
+def _collinear_overlap(a: Piece, b: Piece) -> bool:
+    """True when *b* lies within the weld tolerance of *a*'s infinite line and
+    the two segments' projections overlap (they share a stretch)."""
+    dx, dy = a.x1 - a.x0, a.y1 - a.y0
+    L = math.hypot(dx, dy)
+    if L < _EPS:
+        return False
+    for x, y in ((b.x0, b.y0), (b.x1, b.y1)):
+        if abs((x - a.x0) * dy - (y - a.y0) * dx) / L > CHAIN_WELD_MM:
+            return False
+    t0 = _param_on(a, QPointF(b.x0, b.y0))
+    t1 = _param_on(a, QPointF(b.x1, b.y1))
+    return min(t0, t1) < 1.0 - _EPS and max(t0, t1) > _EPS
+
+
 def _bucket_grid(pieces: list[Piece], window: QRectF):
     """``{(bx, by): [piece index, ...]}`` over a REGION_FINDER_BUCKETS² grid."""
     B = REGION_FINDER_BUCKETS
@@ -202,17 +215,22 @@ def _split_all(pieces: list[Piece], window: QRectF) -> list[Piece]:
             bi = boxes[i]
             for b in range(a + 1, len(members)):
                 j = members[b]
+                bj = boxes[j]
+                if bi[2] < bj[0] or bj[2] < bi[0] or bi[3] < bj[1] or bj[3] < bi[1]:
+                    continue
                 key = (i, j) if i < j else (j, i)
                 if key in seen:
                     continue
                 seen.add(key)
-                bj = boxes[j]
-                if bi[2] < bj[0] or bj[2] < bi[0] or bi[3] < bj[1] or bj[3] < bi[1]:
-                    continue
                 pi, pj = pieces[i], pieces[j]
                 q = line_line_intersection(QPointF(pi.x0, pi.y0), QPointF(pi.x1, pi.y1),
                                            QPointF(pj.x0, pj.y0), QPointF(pj.x1, pj.y1))
                 if q is None:
+                    if _collinear_overlap(pi, pj):
+                        cuts[i].append(_param_on(pi, QPointF(pj.x0, pj.y0)))
+                        cuts[i].append(_param_on(pi, QPointF(pj.x1, pj.y1)))
+                        cuts[j].append(_param_on(pj, QPointF(pi.x0, pi.y0)))
+                        cuts[j].append(_param_on(pj, QPointF(pi.x1, pi.y1)))
                     continue
                 cuts[i].append(_param_on(pi, q))
                 cuts[j].append(_param_on(pj, q))
@@ -361,6 +379,15 @@ def _prune(verts, edges):
 
 # ── 5. Half-edges + faces ───────────────────────────────────────────────────
 
+def _poly_path(pts) -> QPainterPath:
+    """Closed straight-line path through *pts*."""
+    p = QPainterPath(QPointF(*pts[0]))
+    for x, y in pts[1:]:
+        p.lineTo(x, y)
+    p.closeSubpath()
+    return p
+
+
 def _signed_area(pts) -> float:
     s = 0.0
     n = len(pts)
@@ -413,21 +440,19 @@ class Arrangement:
             k = lst.index(twin)
             self._next[h] = lst[k - 1] if len(lst) > 1 else twin
         # all bounded cycles, enumerated once for island lookup
-        self._cycles: list = []      # [(frozenset(half-edges), pts, area)]
+        # [(frozenset(half-edges), pts, area, half-edge list, QPainterPath)]
+        self._cycles: list = []
         visited = [False] * (2 * n)
         for h0 in range(2 * n):
             if visited[h0]:
                 continue
-            cyc = self._walk(h0)
-            if cyc is None:
-                visited[h0] = True
-                continue
+            cyc = self._walk(h0)   # always closes: _next is a permutation of the half-edges
             for h in cyc:
                 visited[h] = True
             pts = [verts[self._origin[h]] for h in cyc]
             area = _signed_area(pts)
             if area > 0:
-                self._cycles.append((frozenset(cyc), pts, area, cyc))
+                self._cycles.append((frozenset(cyc), pts, area, cyc, _poly_path(pts)))
 
     # -- construction ------------------------------------------------------
     @classmethod
@@ -480,20 +505,15 @@ class Arrangement:
         bx, by = self._verts[self._target[h]]
         dx, dy = bx - ax, by - ay
         L = math.hypot(dx, dy) or 1.0
-        return QPointF((ax + bx) / 2 - dy / L * 0.05, (ay + by) / 2 + dx / L * 0.05)
+        k = REGION_FINDER_ISLAND_SAMPLE_MM
+        return QPointF((ax + bx) / 2 - dy / L * k, (ay + by) / 2 + dx / L * k)
 
     def _islands(self, outer_set, outer_path: QPainterPath) -> list:
-        inside = [(s, pts, area, cyc) for (s, pts, area, cyc) in self._cycles
-                  if s != outer_set and outer_path.contains(self._sample_inside(cyc))]
-        paths = []
-        for _, pts, _, _ in inside:
-            p = QPainterPath(QPointF(*pts[0]))
-            for x, y in pts[1:]:
-                p.lineTo(x, y)
-            p.closeSubpath()
-            paths.append(p)
+        inside = [c for c in self._cycles
+                  if c[0] != outer_set and outer_path.contains(self._sample_inside(c[3]))]
+        paths = [c[4] for c in inside]
         out = []
-        for i, (s, pts, area, cyc) in enumerate(inside):
+        for i, (_s, _pts, _area, cyc, _path) in enumerate(inside):
             sample = self._sample_inside(cyc)
             if any(j != i and paths[j].contains(sample) for j in range(len(inside))):
                 continue       # nested deeper than one level
@@ -505,17 +525,23 @@ class Arrangement:
         h0 = self._ray_start(pt)
         if h0 is None:
             return None
-        cyc = self._walk(h0)
-        if cyc is None:
-            return None
+        cyc = self._walk(h0)   # always closes: _next is a permutation of the half-edges
         pts = [self._verts[self._origin[h]] for h in cyc]
         area = _signed_area(pts)
-        if area <= 0 or area < CHAIN_MIN_LOOP_AREA_MM2:
+        if area <= 0:
+            # The ray met an island's exterior cycle first: fall back to the
+            # smallest positive cycle whose polygon contains the point.
+            best = None
+            for (_s, cpts, carea, ccyc, cpath) in self._cycles:
+                if (best is None or carea < best[0]) and cpath.contains(pt):
+                    best = (carea, ccyc, cpts, cpath)
+            if best is None:
+                return None
+            area, cyc, pts, outer_path = best
+        else:
+            outer_path = _poly_path(pts)
+        if area < CHAIN_MIN_LOOP_AREA_MM2:
             return None
-        outer_path = QPainterPath(QPointF(*pts[0]))
-        for x, y in pts[1:]:
-            outer_path.lineTo(x, y)
-        outer_path.closeSubpath()
         islands = self._islands(frozenset(cyc), outer_path)
         path = QPainterPath()
         path.setFillRule(Qt.FillRule.OddEvenFill)
@@ -563,7 +589,6 @@ class Arrangement:
 # ── 6. Rebuild exact pieces ─────────────────────────────────────────────────
 
 def _run_key(piece: Piece) -> tuple:
-    from .geometry_2d import ArcItem, CircleItem, EllipseItem, SplineItem
     tag = piece.tag
     it = tag.item
     if tag.kind == "line":
@@ -591,8 +616,6 @@ def _runs(pieces: list[Piece]):
 
 
 def _arc_from_run(run: list[Piece]):
-    from .arc_math import yup_angle
-    from .geometry_2d import ArcItem, CircleItem
     it = run[0].tag.item
     local_c = it.rect().center() if isinstance(it, CircleItem) else it._center
     c = it.sceneTransform().map(QPointF(local_c))
@@ -614,7 +637,6 @@ def _spline_from_run(run: list[Piece]):
     """One clamped Bézier-chain SplineItem over the run's consecutive cubic
     sub-ranges (``_is_bezier_chain`` form: ``3k+1`` control points, interior
     knots of multiplicity 3)."""
-    from .geometry_2d import SplineItem
     spans: list = []
     for p in run:
         t = p.tag
@@ -637,7 +659,6 @@ def _spline_from_run(run: list[Piece]):
 
 
 def _polyline_from_run(run: list[Piece]):
-    from .geometry_2d import PolylineItem
     pl = PolylineItem(QPointF(run[0].x0, run[0].y0))
     for p in run:
         pl.append_point(QPointF(p.x1, p.y1))
@@ -645,7 +666,6 @@ def _polyline_from_run(run: list[Piece]):
 
 
 def _rebuild_loop(pieces: list[Piece]) -> list:
-    from .geometry_2d import LineItem
     out: list = []
     for key, run in _runs(pieces):
         kind = key[0]

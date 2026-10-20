@@ -360,6 +360,8 @@ REGION_FINDER_NUDGE_MM = 0.5
 REGION_FINDER_DEBOUNCE_MS = 150
 # Bucket grid side used to pair segments for crossing tests.
 REGION_FINDER_BUCKETS = 32
+# Inward push (mm) of the sample point used to test which cycle an island lies in; must stay below CHAIN_WELD_MM.
+REGION_FINDER_ISLAND_SAMPLE_MM = 0.05
 
 # UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
 FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)

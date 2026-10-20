@@ -160,6 +160,40 @@ class TestFaces:
         inner = arr.face_at(QPointF(0, 0))
         assert inner is not None and not inner.islands
 
+    def test_ring_found_from_the_island_side_of_the_ray(self, qapp):
+        from firepro3d.constants import REGION_FINDER_SAGITTA_MM
+        from firepro3d.geometry_2d import CircleItem
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build([CircleItem(QPointF(0, 0), 40.0), CircleItem(QPointF(0, 0), 15.0)],
+                                QRectF(-50, -50, 100, 100))
+        ring = arr.face_at(QPointF(-30, 0))     # the +X ray meets the inner circle first
+        assert ring is not None and len(ring.islands) == 1
+        assert 0 < math.pi * 40 * 40 - ring.area < REGION_FINDER_SAGITTA_MM * 2 * math.pi * 40
+
+    def test_outer_face_found_left_of_and_above_an_island(self, qapp):
+        from firepro3d.region_finder import Arrangement
+        arr = Arrangement.build(_square(0, 0, 100) + _square(30, 30, 40), QRectF(-10, -10, 120, 120))
+        for pt in (QPointF(10, 50), QPointF(50, 90)):
+            f = arr.face_at(pt)
+            assert f is not None and len(f.islands) == 1
+            assert abs(f.area - 100 * 100) < 1e-6
+        inner = arr.face_at(QPointF(50, 50))    # the ray hits the inner square's own edge from inside
+        assert inner is not None and not inner.islands
+        assert abs(inner.area - 40 * 40) < 1e-6
+
+    def test_collinear_overlapping_segments_close_a_face(self, qapp):
+        from firepro3d.geometry_2d import LineItem
+        from firepro3d.region_finder import Arrangement, rebuild
+        P = QPointF
+        items = [LineItem(P(0, 0), P(100, 0)), LineItem(P(50, 0), P(150, 0)), LineItem(P(100, 0), P(200, 0)),
+                 LineItem(P(0, 0), P(0, 50)), LineItem(P(0, 50), P(200, 50)), LineItem(P(200, 50), P(200, 0))]
+        arr = Arrangement.build(items, QRectF(-10, -10, 220, 70))
+        face = arr.face_at(P(100, 25))
+        assert face is not None and abs(face.area - 200 * 50) < 1.0
+        loops = rebuild(face)
+        assert all(type(x).__name__ == "LineItem" for x in loops[0])
+        assert len(loops[0]) <= 6
+
     def test_one_level_islands(self, qapp):
         from firepro3d.region_finder import Arrangement
         items = _square(0, 0, 100) + _square(30, 30, 40) + _square(45, 45, 10)
