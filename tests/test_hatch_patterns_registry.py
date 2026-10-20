@@ -95,16 +95,18 @@ def test_project_tile_named_like_builtin_is_pickable(qapp, shipped_hatches):
     sc.register_block_definition(proj)
     rect = RectangleItem(QPointF(0, 0), QPointF(10, 10))
     sc.addItem(rect)
-    rect.set_property("Fill", "hatch")                 # menu shim: pattern layer on
+    rect.set_property("Fill Pattern", PatternLayer(hp.DEFAULT_TILE_REF))
     row = rect.get_properties()["Fill Pattern"]
-    opts = [n for n, _ in hp.tile_choices(row["registry"], row["exclude"])]
+    choices = hp.tile_choices(row["registry"], row["exclude"])
+    opts = [n for n, _ in choices]
     assert "Diagonal" in opts and "Diagonal (project)" in opts
     assert len(set(opts)) == len(opts)
-    rect.set_property("Pattern", "Diagonal (project)")
+    by_name = dict(choices)
+    rect.set_property("Fill Pattern", PatternLayer(by_name["Diagonal (project)"]))
     assert rect.fill_layers.pattern.ref == proj.id
     row = rect.get_properties()["Fill Pattern"]
     assert hp.display_name(row["value"].ref, row["registry"], row["exclude"]) == "Diagonal (project)"
-    rect.set_property("Pattern", "Diagonal")
+    rect.set_property("Fill Pattern", PatternLayer(by_name["Diagonal"]))
     assert rect.fill_layers.pattern.ref == hp.BUILTIN_DIAGONAL
 
 

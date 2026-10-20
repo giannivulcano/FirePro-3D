@@ -297,6 +297,18 @@ def test_reference_shape_keeps_layers_but_hides_rows_and_paint(qapp):
     assert r.to_dict()["fill"] == {"background": {"color": "#0000ff", "opacity": 1.0}}
 
 
+# G5 (UP2 AC6): the string-value menu shim is gone — legacy kind strings and
+# the "Pattern" key change nothing.
+def test_menu_shim_is_removed(qapp):
+    r = _rect()
+    r.set_property("Fill", "solid")
+    r.set_property("Fill", "hatch")
+    r.set_property("Pattern", "Diagonal")
+    assert r.fill_layers.is_empty, r.fill_layers
+    assert not hasattr(r, "_set_fill_kind")
+    assert not hasattr(r, "_set_fill_pattern_ref")
+
+
 # S-M4: a shape's pattern layer keeps its (library-only) ref in the project's
 # pattern set, so a save carries the tile.
 def test_shape_pattern_ref_is_collected_by_project_pattern_refs(qapp):

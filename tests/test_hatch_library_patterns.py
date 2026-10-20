@@ -175,7 +175,7 @@ def _rect_in(ms):
     rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
     ms.addItem(rect)
     ms._draw_rects.append(rect)            # the undo snapshot's draw list
-    rect.set_property("Fill", "hatch")
+    rect.set_property("Fill Pattern", PatternLayer(hp.DEFAULT_TILE_REF))
     ms.push_undo_state()
     return rect
 
@@ -247,7 +247,7 @@ def test_picking_in_a_block_editor_loads_into_the_project(hatch_dir):
     w = BlockEditorManager(QTabWidget(), project).open_new()
     rect = RectangleItem(QPointF(0, 0), QPointF(20, 10))
     w._add_primitive(rect)
-    rect.set_property("Fill", "hatch")
+    rect.set_property("Fill Pattern", PatternLayer(hp.DEFAULT_TILE_REF))
     assert "Zig" in _choice_names(rect.get_properties()["Fill Pattern"])
     rect.set_property("Fill Pattern", PatternLayer(p.id))
     assert rect.fill_layers.pattern.ref == p.id
@@ -260,7 +260,7 @@ def test_loaded_pattern_is_saved_and_bundled(hatch_dir, tmp_path):
     bl.save_to_library(p, root=str(hatch_dir))
     ms = Model_Space()
     rect = _rect_in(ms)
-    rect.set_property("Pattern", "Zig")
+    rect.set_property("Fill Pattern", PatternLayer(p.id))
     out = tmp_path / "proj.fpd"
     ms.save_to_file(str(out))
     assert p.id in json.loads(out.read_text(encoding="utf-8"))["block_definitions"]
