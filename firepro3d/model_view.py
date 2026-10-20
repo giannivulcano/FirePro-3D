@@ -1654,6 +1654,11 @@ class Model_View(QGraphicsView):
         if scene is None:
             return
 
+        # HF4 AC6: right-click ends Pick point (scene owns the mode exit).
+        if getattr(scene, "mode", None) == "pick_region":
+            super().contextMenuEvent(event)
+            return
+
         # Let the scene handle entity-specific context menus first
         scene_pos = self.mapToScene(event.pos())
         target = scene._find_entity_at(scene_pos) if hasattr(scene, "_find_entity_at") else None
