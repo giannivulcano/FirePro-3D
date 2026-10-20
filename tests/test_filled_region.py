@@ -474,3 +474,35 @@ class TestExplode:
         log = _statuses(es)
         assert es.explode_selected_blocks() == []
         assert log[-1] == "Select a block or Filled Region to explode"
+
+
+# -- Task 6: snap / HALO / pick (D-A26) --
+import math
+from firepro3d.halo import halo_is_area
+
+
+class TestSnapHaloPick:
+    def test_collect_yields_piece_endpoints_with_outline_off(self, qapp):
+        es = editor_scene()
+        r = add_region(es)
+        pts = [p for k, p, _n in es._snap_engine._collect(r) if k == "endpoint"]
+        for exp in (QPointF(10, 10), QPointF(110, 10), QPointF(110, 110), QPointF(10, 110)):
+            assert any(math.hypot(p.x() - exp.x(), p.y() - exp.y()) < 0.01 for p in pts), exp
+        centers = [p for k, p, _n in es._snap_engine._collect(r) if k == "center"]
+        assert any(math.hypot(p.x() - 60, p.y() - 60) < 0.01 for p in centers)
+
+    def test_halo_is_area_with_and_without_fill(self, qapp):
+        r = ring_region()
+        es = editor_scene(); add_region(es, r)
+        assert halo_is_area(r)                      # halo.py:108-111 via _draws_fill()
+        r.fill_layers = FillLayers()
+        assert halo_is_area(r)                      # HALO_AREA = True (D-A26): still an area with no fill
+
+    def test_crossing_line_wins_the_pick(self, qapp):
+        es = editor_scene()
+        r = add_region(es)
+        ln = LineItem(QPointF(0, 30), QPointF(200, 30))
+        es.addItem(ln); es._draw_lines.append(ln)
+        assert es.itemAt(QPointF(30, 30), QTransform()) is ln
+        assert es.itemAt(QPointF(30, 50), QTransform()) is r
+

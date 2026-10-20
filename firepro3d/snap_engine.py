@@ -69,6 +69,12 @@ _BOX_CENTER = 8               # emitted as "center"
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 
+def _is_filled_region(item) -> bool:
+    """True for a HF3 FilledRegionItem (lazy import: avoids an import cycle)."""
+    from .filled_region import FilledRegionItem
+    return isinstance(item, FilledRegionItem)
+
+
 def _safe_scale(scale: float) -> float:
     """A view m11() scale guarded against zero/negative (→ 1.0)."""
     return scale if scale > 0 else 1.0
@@ -1812,6 +1818,13 @@ class SnapEngine:
                                         (a.y() + b.y()) / 2), None))
             if self.snap_center:
                 pts.append(("center", QPointF(item._center), None))
+
+        # ── FilledRegionItem (HF3 D-A26; before the generic path fallback) ─
+        elif _is_filled_region(item):
+            # The boundary pieces snap even with the outline Invisible --
+            # the region exposes its (scene-less) pieces.
+            for piece in item.pieces:
+                pts.extend(self._collect(piece))
 
         # ── Generic QGraphicsPathItem (DXF imports, etc.) ────────────────
         elif isinstance(item, QGraphicsPathItem):
