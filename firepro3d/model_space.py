@@ -6431,13 +6431,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._chamfer_item1 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "chamfered")
             if hit is not None and isinstance(hit, LineItem):
                 self._chamfer_item1 = hit
                 self._chamfer_highlight1 = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Click second line")
         elif self._chamfer_item2 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "chamfered")
             if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
                 self._chamfer_item2 = hit
                 self._chamfer_highlight2 = self._tools._highlight_item(hit)
@@ -7884,7 +7884,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._draw_ellipses, self._draw_splines, self._draw_polygons,
-                    self._gridlines,
+                    self._filled_regions, self._gridlines,
                     self._walls, self._floor_slabs, self._roofs]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:

@@ -515,6 +515,22 @@ class TestSnapHaloPick:
         assert es.itemAt(QPointF(30, 30), QTransform()) is ln
         assert es.itemAt(QPointF(30, 50), QTransform()) is r
 
+    def test_trim_click_on_a_crossing_line_arms_the_line(self, qapp, make_model_space):
+        # VC9 Minor 3: the region's shape() is its area, so a line crossing the
+        # interior must still win the edit tools' pick (no refusal status).
+        from tests._snap_polish_helpers import click
+        scene = make_model_space()
+        view = scene.views()[0]
+        scene.scene_role = "block_editor"
+        r = add_region(scene)
+        ln = LineItem(QPointF(0, 30), QPointF(200, 30))
+        scene.addItem(ln); scene._draw_lines.append(ln)
+        log = _statuses(scene)
+        scene.set_mode("trim")
+        click(view, QPointF(30, 30))
+        assert scene._trim_edge is ln and scene.mode == "trim_pick"
+        assert not any("Filled Regions can't" in s for s in log)
+
 
 # -- Task 7: D-A13 tool matrix (G9c) --
 from firepro3d.selection_manipulator import bake_translate
@@ -554,7 +570,7 @@ class TestToolMatrix:
     @pytest.mark.parametrize("tool, verb", [("offset", "offset"), ("trim", "trimmed"),
                                             ("extend", "extended"), ("break", "broken"),
                                             ("break_at_point", "broken"),
-                                            ("fillet", "filleted")])
+                                            ("fillet", "filleted"), ("chamfer", "chamfered")])
     def test_refused_tools_leave_it_unchanged_with_a_status(self, qapp, make_model_space, tool, verb):
         from tests._snap_polish_helpers import click         # click(view, scene_pt)
         scene = make_model_space()
