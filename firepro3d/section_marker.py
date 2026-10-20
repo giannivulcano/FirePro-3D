@@ -14,6 +14,7 @@ Designed to be reusable for section views (view_type="section" + angle).
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -39,6 +40,168 @@ if TYPE_CHECKING:
 # Triangle size = 3× the gridline bubble diameter
 MARKER_SIZE = BUBBLE_RADIUS_MM * 6.0   # ~1219mm — matches 3× bubble size
 CROP_MARGIN = 2000.0                   # mm — default crop box padding
+
+MIN_CUT_LEN = 100.0          # mm -- shorter cuts are refused at placement (spec s9)
+FALLBACK_HALF = 10000.0      # mm -- auto-extent box when the project is empty (spec s13)
+
+ZONE_CUT = "cut"
+ZONE_BEHIND = "behind"
+ZONE_HIDDEN = "hidden"
+
+
+@dataclass(frozen=True)
+class SectionBasis:
+    """Origin-free oblique basis of one section (spec s4.1), world mm.
+
+    ``h(p) = p . D`` (along the cut, no origin term so cardinals match the
+    retired ``_world_to_elev`` bit for bit), ``d(p) = (p - A) . N`` (signed
+    distance from the cut line, + on the look side), ``v = -z``.
+    """
+
+    ax: float
+    ay: float
+    dx: float
+    dy: float
+    nx: float
+    ny: float
+    length: float
+    depth: float
+
+    @classmethod
+    def from_cut(cls, a, b, look_sign: int, depth_mm: float) -> "SectionBasis":
+        ax, ay = float(a[0]), float(a[1])
+        bx, by = float(b[0]), float(b[1])
+        length = math.hypot(bx - ax, by - ay)
+        if length <= 0.0 or depth_mm <= 0.0:
+            raise ValueError("degenerate section: zero cut length or depth")
+        dx, dy = (bx - ax) / length, (by - ay) / length
+        s = 1 if look_sign >= 0 else -1
+        return cls(ax, ay, dx, dy, s * -dy, s * dx, length, float(depth_mm))
+
+    # -- projection --------------------------------------------------------
+    def h(self, x: float, y: float) -> float:
+        return x * self.dx + y * self.dy
+
+    def d(self, x: float, y: float) -> float:
+        return (x - self.ax) * self.nx + (y - self.ay) * self.ny
+
+    def project(self, x: float, y: float, z: float) -> tuple[float, float]:
+        return self.h(x, y), -z
+
+    def sort_key(self, x: float, y: float) -> float:
+        """Ascending sort = farthest first (today's ``_assign_depth_z_values``)."""
+        return -self.d(x, y)
+
+    @property
+    def h_a(self) -> float:
+        return self.h(self.ax, self.ay)
+
+    @property
+    def h_b(self) -> float:
+        return self.h(self.ax + self.dx * self.length, self.ay + self.dy * self.length)
+
+    @property
+    def h_min(self) -> float:
+        return min(self.h_a, self.h_b)
+
+    @property
+    def h_max(self) -> float:
+        return max(self.h_a, self.h_b)
+
+    # -- classification (spec s4.2) ------------------------------------------
+    def _in_box(self, h: float, d: float, eps: float = 1e-9) -> bool:
+        return (self.h_min - eps <= h <= self.h_max + eps
+                and -eps <= d <= self.depth + eps)
+
+    def _cut_params(self, p, q) -> list[float]:
+        """Params t in [0, 1] along p->q where the segment meets the cut
+        segment A->B; a collinear overlap returns its two end params."""
+        d1, d2 = self.d(*p), self.d(*q)
+        h1, h2 = self.h(*p), self.h(*q)
+        eps = 1e-9
+        if abs(d1) <= eps and abs(d2) <= eps:                 # collinear
+            lo, hi = sorted((h1, h2))
+            ov_lo, ov_hi = max(lo, self.h_min), min(hi, self.h_max)
+            if ov_lo > ov_hi + eps:
+                return []
+            if abs(h2 - h1) <= eps:
+                return [0.0] if self._in_box(h1, 0.0) else []
+            return sorted(((ov_lo - h1) / (h2 - h1), (ov_hi - h1) / (h2 - h1)))
+        if (d1 > eps and d2 > eps) or (d1 < -eps and d2 < -eps):
+            return []
+        t = d1 / (d1 - d2)
+        h = h1 + t * (h2 - h1)
+        return [t] if self.h_min - eps <= h <= self.h_max + eps else []
+
+    def classify_segment(self, p, q):
+        """``(zone, h_at_cut, t_at_cut)`` for a segment footprint (pipe)."""
+        ts = self._cut_params(p, q)
+        if ts:
+            t = sum(ts) / len(ts)                      # overlap midpoint when collinear
+            x = p[0] + t * (q[0] - p[0])
+            y = p[1] + t * (q[1] - p[1])
+            return ZONE_CUT, self.h(x, y), t
+        if self._segment_meets_box(p, q):
+            return ZONE_BEHIND, None, None
+        return ZONE_HIDDEN, None, None
+
+    def _segment_meets_box(self, p, q) -> bool:
+        """Liang-Barsky clip of p->q against the (h, d) box."""
+        h1, d1, h2, d2 = self.h(*p), self.d(*p), self.h(*q), self.d(*q)
+        t0, t1 = 0.0, 1.0
+        for dp, lo, hi in ((h2 - h1, self.h_min - h1, self.h_max - h1),
+                           (d2 - d1, 0.0 - d1, self.depth - d1)):
+            if abs(dp) < 1e-12:
+                if lo > 0.0 or hi < 0.0:
+                    return False
+                continue
+            ta, tb = lo / dp, hi / dp
+            if ta > tb:
+                ta, tb = tb, ta
+            t0, t1 = max(t0, ta), min(t1, tb)
+            if t0 > t1:
+                return False
+        return True
+
+    def classify_polygon(self, pts):
+        """``(zone, h_lo, h_hi)`` for a closed footprint (wall quad, slab)."""
+        n = len(pts)
+        if n < 3:
+            return ZONE_HIDDEN, None, None
+        poly = QPolygonF([QPointF(x, y) for x, y in pts])
+        hs = []
+        for i in range(n):
+            p, q = pts[i], pts[(i + 1) % n]
+            for t in self._cut_params(p, q):
+                hs.append(self.h(p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+        a = QPointF(self.ax, self.ay)
+        b = QPointF(self.ax + self.dx * self.length, self.ay + self.dy * self.length)
+        for end, h_end in ((a, self.h_a), (b, self.h_b)):
+            if poly.containsPoint(end, Qt.FillRule.OddEvenFill):
+                hs.append(h_end)
+        if hs:
+            return ZONE_CUT, min(hs), max(hs)
+        # Behind: footprint meets the box. Vertex in box, box corner in
+        # footprint, or an edge crossing a box edge.
+        if any(self._in_box(self.h(x, y), self.d(x, y)) for x, y in pts):
+            return ZONE_BEHIND, None, None
+        corners = self._box_corners()
+        if any(poly.containsPoint(QPointF(cx, cy), Qt.FillRule.OddEvenFill) for cx, cy in corners):
+            return ZONE_BEHIND, None, None
+        for i in range(n):
+            if self._segment_meets_box(pts[i], pts[(i + 1) % n]):
+                return ZONE_BEHIND, None, None
+        return ZONE_HIDDEN, None, None
+
+    def _box_corners(self):
+        a = (self.ax, self.ay)
+        b = (self.ax + self.dx * self.length, self.ay + self.dy * self.length)
+        far = (self.nx * self.depth, self.ny * self.depth)
+        return [a, b, (b[0] + far[0], b[1] + far[1]), (a[0] + far[0], a[1] + far[1])]
+
+    def classify_point(self, p) -> str:
+        """Points (nodes) are never cut (spec s4.2)."""
+        return ZONE_BEHIND if self._in_box(self.h(*p), self.d(*p)) else ZONE_HIDDEN
 
 
 # ─────────────────────────────────────────────────────────────────────────────
