@@ -926,10 +926,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         a = self._scene_to_world(self._marker.cut_a.x(), self._marker.cut_a.y())
         b = self._scene_to_world(self._marker.cut_b.x(), self._marker.cut_b.y())
         self._basis = SectionBasis.from_cut(a, b, self._marker.look_sign,
-                                            self._marker.depth_mm / self._ppm())
+                                            self._marker.depth / self._ppm())
 
     def zone_of(self, source) -> str:
-        """Zone the last rebuild assigned to *source* (cut / behind / hidden)."""
+        """Zone the last rebuild assigned to *source* (cut / behind / hidden).
+
+        Keyed by ``id(source)``; valid only within one rebuild."""
         return self._zones.get(id(source), ZONE_HIDDEN)
 
     def _wall_zone(self, wall) -> str:
@@ -982,11 +984,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def rebuild(self):
         """Clear and re-project all entities from the model."""
         self._apply_theme_colours()
-        if self._marker.auto_fit(self._ms):
-            pass                                  # geometry re-seeded (s4.3); basis below reads it
+        self._marker.auto_fit(self._ms)           # geometry re-seeded (s4.3); basis below reads it
         self._refresh_basis()
-        self._zones: dict[int, str] = {}
-        self._cut_items: list = []
+        self._zones = {}
+        self._cut_items = []
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
@@ -1336,7 +1337,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             z = getattr(node, "z_pos", 0.0)
             h, v = self._project(wx, wy, z)
 
-            orient =node.sprinkler._properties.get(
+            orient = node.sprinkler._properties.get(
                 "Orientation", {}).get("value", "Upright")
             if orient == "Pendent":
                 color = QColor("#ff3232")

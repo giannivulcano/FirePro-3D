@@ -439,7 +439,7 @@ def section_scene_for(qapp):
         ms._level_manager = lm
         sm = ScaleManager()
         ms.scale_manager = sm
-        marker = SectionMarker.cardinal(direction, building_bbox(ms))
+        marker = SectionMarker.for_cardinal(direction, building_bbox(ms))
         elev = SectionScene(marker, model_space=ms,
                             level_manager=lm, scale_manager=sm)
         return ms, elev

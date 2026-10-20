@@ -93,7 +93,7 @@ def test_auto_extent_refits_then_stops_after_grip(qapp, section_scene_for):
     box1 = m.box_polygon().boundingRect()
     assert box1.left() < box0.left() - 20000.0                  # re-fit followed the building
     assert sec.zone_of(ms._walls[0]) == ZONE_BEHIND              # and the wall renders
-    m.set_geometry(m.cut_a, m.cut_b, m.depth_mm, user=True)      # a grip edit (same numbers)
+    m.set_geometry(m.cut_a, m.cut_b, m.depth, user=True)      # a grip edit (same numbers)
     assert m.auto_extent is False
     _wall(ms, (60000.0, 0.0), (61000.0, 0.0))
     sec.rebuild()

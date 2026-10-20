@@ -39,10 +39,10 @@ if TYPE_CHECKING:
 
 # Triangle size = 3× the gridline bubble diameter
 MARKER_SIZE = BUBBLE_RADIUS_MM * 6.0   # ~1219mm — matches 3× bubble size
-CROP_MARGIN = 2000.0                   # mm — default crop box padding
+CROP_MARGIN = 2000.0                   # plan-scene units (mm at ppm 1) — default crop box padding
 
-MIN_CUT_LEN = 100.0          # mm -- shorter cuts are refused at placement (spec s9)
-FALLBACK_HALF = 10000.0      # mm -- auto-extent box when the project is empty (spec s13)
+MIN_CUT_LEN = 100.0          # plan-scene units (mm at ppm 1) -- shorter cuts are refused at placement (spec s9)
+FALLBACK_HALF = 10000.0      # plan-scene units (mm at ppm 1) -- auto-extent box when the project is empty (spec s13)
 
 ZONE_CUT = "cut"
 ZONE_BEHIND = "behind"
@@ -247,21 +247,11 @@ def cardinal_cut(direction: str, box: QRectF):
 CARDINALS = ("north", "south", "east", "west")
 
 
-class _CardinalAttr:
-    """``SectionMarker.cardinal(direction, box)`` builds a cardinal marker while
-    ``marker.cardinal`` reads its direction -- one name, two access paths (the
-    plan and its tests use both; a classmethod and a property cannot share it)."""
-
-    def __get__(self, obj, owner):
-        if obj is None:
-            return owner._cardinal_marker
-        return obj._cardinal
-
-
 class SectionMarker(QGraphicsItem):
     """A section's cut line + crop box on the plan (spec s6).
 
-    Geometry is plan-scene coordinates (``DetailMarker.crop_rect`` convention);
+    Geometry (``cut_a``, ``cut_b``, ``depth``) is in plan-scene units -- mm at
+    ppm 1 (``DetailMarker.crop_rect`` convention);
     ``SectionScene`` converts to world through ``_scene_to_world``. Paint,
     grips, menu and properties are added in a later task; this core carries
     the fields, the dict round-trip and the cardinal auto-extent fit.
@@ -270,7 +260,7 @@ class SectionMarker(QGraphicsItem):
     HALO_AREA = True
 
     def __init__(self, name: str, cut_a: QPointF, cut_b: QPointF,
-                 look_sign: int = 1, depth_mm: float = 10000.0,
+                 look_sign: int = 1, depth: float = 10000.0,
                  cardinal: "str | None" = None, auto_extent: bool = False,
                  parent: QGraphicsItem | None = None):
         super().__init__(parent)
@@ -278,7 +268,7 @@ class SectionMarker(QGraphicsItem):
         self._a = QPointF(cut_a)
         self._b = QPointF(cut_b)
         self._look = 1 if look_sign >= 0 else -1
-        self._depth = float(depth_mm)
+        self._depth = float(depth)
         self._cardinal = cardinal
         self._auto_extent = bool(auto_extent) if cardinal else False
         self.gridline_z_overrides: dict[str, dict] = {}
@@ -295,7 +285,7 @@ class SectionMarker(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
     @classmethod
-    def _cardinal_marker(cls, direction: str, box: QRectF) -> "SectionMarker":
+    def for_cardinal(cls, direction: str, box: QRectF) -> "SectionMarker":
         a, b, depth = cardinal_cut(direction, box)
         return cls(direction.title(), QPointF(*a), QPointF(*b), 1, depth,
                    cardinal=direction, auto_extent=True)
@@ -323,10 +313,12 @@ class SectionMarker(QGraphicsItem):
         return self._look
 
     @property
-    def depth_mm(self) -> float:
+    def depth(self) -> float:
         return self._depth
 
-    cardinal = _CardinalAttr()    # class access = factory, instance access = direction
+    @property
+    def cardinal(self) -> "str | None":
+        return self._cardinal
 
     @property
     def auto_extent(self) -> bool:
@@ -353,9 +345,9 @@ class SectionMarker(QGraphicsItem):
         return QPolygonF([self._a, self._b, self._b + far, self._a + far])
 
     # -- mutation (grips / menu / manager call these) -----------------------
-    def set_geometry(self, a: QPointF, b: QPointF, depth_mm: float, *, user: bool = True):
+    def set_geometry(self, a: QPointF, b: QPointF, depth: float, *, user: bool = True):
         self.prepareGeometryChange()
-        self._a, self._b, self._depth = QPointF(a), QPointF(b), float(depth_mm)
+        self._a, self._b, self._depth = QPointF(a), QPointF(b), float(depth)
         if user and self._cardinal:
             self._auto_extent = False            # first user edit owns the box (s4.3)
         self.update()
@@ -397,14 +389,14 @@ class SectionMarker(QGraphicsItem):
         return {"name": self._name,
                 "cut_a": [self._a.x(), self._a.y()],
                 "cut_b": [self._b.x(), self._b.y()],
-                "look_sign": self._look, "depth_mm": self._depth,
+                "look_sign": self._look, "depth": self._depth,
                 "cardinal": self._cardinal, "auto_extent": self._auto_extent,
                 "gridline_z_overrides": dict(self.gridline_z_overrides)}
 
     @classmethod
     def from_dict(cls, d: dict) -> "SectionMarker":
         m = cls(d["name"], QPointF(*d["cut_a"]), QPointF(*d["cut_b"]),
-                int(d.get("look_sign", 1)), float(d.get("depth_mm", 10000.0)),
+                int(d.get("look_sign", 1)), float(d.get("depth", 10000.0)),
                 cardinal=d.get("cardinal"), auto_extent=bool(d.get("auto_extent", False)))
         m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
         return m
