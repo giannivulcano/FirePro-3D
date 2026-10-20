@@ -199,7 +199,7 @@ def test_picking_via_the_property_setter_loads_then_stores(hatch_dir):
     assert rect2.fill_layers.pattern == PatternLayer(hp.DEFAULT_TILE_REF)
 
 
-def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir):
+def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir, monkeypatch):
     p = _pattern()
     bl.save_to_library(p, root=str(hatch_dir))
     ms = Model_Space()
@@ -207,19 +207,18 @@ def test_picking_via_the_entity_context_menu_loads_then_stores(hatch_dir):
     ms.addItem(rect)
     rect.setSelected(True)
     ms.push_undo_state()
+    from firepro3d import colour_picker
+    monkeypatch.setattr(colour_picker, "pick_fill",
+                        lambda *a, **k: PatternLayer(p.id))
     menu = ms._build_entity_context_menu(rect)
-    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
-    hatch = next(a.menu() for a in fill.actions() if a.text() == "Hatch")
-    act = next((a for a in hatch.actions() if a.text() == "Zig"), None)
-    assert act is not None, [a.text() for a in hatch.actions()]
-    act.trigger()
+    next(a for a in menu.actions() if a.text() == "Fill Pattern…").trigger()
     assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
     ms.undo()                                        # one step removes the load
     assert p.id not in ms._block_definitions
 
 
-def test_picking_in_the_plan_context_menu_loads(hatch_dir):
+def test_picking_in_the_plan_context_menu_loads(hatch_dir, monkeypatch):
     from PyQt6.QtWidgets import QApplication
     from firepro3d.model_view import Model_View
     p = _pattern()
@@ -230,10 +229,11 @@ def test_picking_in_the_plan_context_menu_loads(hatch_dir):
     rect = RectangleItem(QPointF(0, 0), QPointF(200, 100))
     ms.addItem(rect)
     rect.setSelected(True)
+    from firepro3d import colour_picker
+    monkeypatch.setattr(colour_picker, "pick_fill",
+                        lambda *a, **k: PatternLayer(p.id))
     menu = view._build_plan_context_menu(ms, ms.selectedItems(), "select")
-    fill = next(a.menu() for a in menu.actions() if a.text() == "Fill")
-    hatch = next(a.menu() for a in fill.actions() if a.text() == "Hatch")
-    next(a for a in hatch.actions() if a.text() == "Zig").trigger()
+    next(a for a in menu.actions() if a.text() == "Fill Pattern…").trigger()
     assert rect.fill_layers.pattern.ref == p.id
     assert p.id in ms._block_definitions
 

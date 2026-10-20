@@ -1719,57 +1719,6 @@ class Model_View(QGraphicsView):
         menu = self._build_plan_context_menu(scene, selected, mode)
         menu.exec(event.globalPos())
 
-    # ── Fill submenu helper ────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_fill_submenu(parent_menu: QMenu, scene, target) -> QMenu | None:
-        """Build and attach a Fill submenu to *parent_menu* for *target*.
-
-        Returns the created QMenu, or None if *target* is not fillable.
-        The submenu is appended to *parent_menu* before returning.
-        Mutations route through push_undo_state + item.set_property — the same
-        undo idiom used by the ribbon / property panel.
-        """
-        if not getattr(target, "is_fillable", lambda: False)():
-            return None
-
-        from .hatch_patterns import tile_choices
-
-        fill_menu = parent_menu.addMenu("Fill")
-
-        def _apply(fill_type, pattern=None):
-            sc = target.scene()
-            if sc is None:
-                return
-            sc.push_undo_state()
-            if pattern is not None:
-                # The Pattern setter loads a library pattern first (D-A37,
-                # ensure_pattern_available); a refused load leaves the fill.
-                target.set_property("Pattern", pattern)
-                pat = getattr(getattr(target, "fill_layers", None), "pattern", None)
-                if pat is None or pat.ref != pattern:
-                    return
-            target.set_property("Fill", fill_type)
-            target.update()
-
-        none_act = fill_menu.addAction("None")
-        none_act.triggered.connect(lambda _=False: _apply("none"))
-
-        solid_act = fill_menu.addAction("Solid")
-        solid_act.triggered.connect(lambda _=False: _apply("solid"))
-
-        hatch_menu = fill_menu.addMenu("Hatch")
-        from .hatch_patterns import picker_exclude
-        _sc = target.scene()
-        for name, ref in tile_choices(getattr(_sc, "block_registry", None),
-                                      picker_exclude(_sc)):
-            act = hatch_menu.addAction(name)
-            act.triggered.connect(
-                lambda _=False, r=ref: _apply("hatch", r)
-            )
-
-        return fill_menu
-
     def _build_plan_context_menu(self, scene, selected, mode) -> QMenu:
         """Build the generic plan-view right-click menu and return it (no exec).
 
@@ -1843,11 +1792,13 @@ class Model_View(QGraphicsView):
                     menu.addAction("Explode").triggered.connect(
                         lambda _checked=False: scene.explode_selected_blocks())
 
-            # Fill submenu: shown when exactly one fillable item is selected
-            fillable = [i for i in selected if getattr(i, "is_fillable", lambda: False)()]
-            if len(fillable) == 1:
+            # Fill / Fill Pattern: the UP1 picker for every selected fillable
+            # shape (UP2 — entity_context_menu owns the helper).
+            from .entity_context_menu import add_fill_actions, fillable_targets
+            fill_targets = fillable_targets(selected)
+            if fill_targets:
                 menu.addSeparator()
-                self._build_fill_submenu(menu, scene, fillable[0])
+                add_fill_actions(menu, fill_targets)
         else:
             show_all_act = menu.addAction("Show All Hidden")
             show_all_act.triggered.connect(scene._show_all_hidden)
