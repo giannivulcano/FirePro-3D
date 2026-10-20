@@ -347,6 +347,20 @@ CHAIN_MIN_LOOP_AREA_MM2 = 1.0
 # CHAIN_WELD_MM; farther apart -> the open-end reason instead.
 CHAIN_GAP_REPORT_FACTOR = 10.0
 
+# ── Pick-point region finder (HF4 design §1-§2) ─────────────────────────────
+# Flattening sagitta for curved path elements (cubics) before the arrangement.
+REGION_FINDER_SAGITTA_MM = 0.1
+# Max deviation of the polyline fallback when a piece has no exact rebuild.
+REGION_FINDER_POLYLINE_MM = 0.2
+# Initial square window (side, mm) around the cursor; doubles until a face is found.
+REGION_FINDER_WINDOW_MM = 50.0
+# A query point this close to an edge is nudged off it, to the side the cursor came from.
+REGION_FINDER_NUDGE_MM = 0.5
+# Hover rebuilds slower than this (ms) switch moves to a single-shot debounce (D-A25).
+REGION_FINDER_DEBOUNCE_MS = 150
+# Bucket grid side used to pair segments for crossing tests.
+REGION_FINDER_BUCKETS = 32
+
 # UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
 FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)
 FILL_LEGACY_OPACITY = 0.45           # legacy record without an opacity key
