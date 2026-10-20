@@ -22,6 +22,7 @@ from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .filled_region import FilledRegionItem
 from .end_render import SCREEN_FIXED
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
@@ -37,6 +38,7 @@ _PRIMITIVE_FACTORY = {
     "polygon": RegularPolygonItem,
     "draw_ellipse": EllipseItem,
     "draw_spline": SplineItem,
+    "draw_filled_region": FilledRegionItem,   # HF3
     "text": TextItem,
 }
 
@@ -604,6 +606,8 @@ class BlockDefinition:
                                                 float(item._angle))))
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
+            if isinstance(item, FilledRegionItem) and not item.outline:
+                continue                                  # HF3 R11: Invisible outline = no STROKE op
             if getattr(item, "reference", False):     # printed reference (RG4)
                 ops.append(RenderOp(STROKE, path, pen=item._reference_pen()))
                 continue

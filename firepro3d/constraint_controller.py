@@ -69,9 +69,10 @@ TYPED_TOL = 1e-6        # D31: a typed value lands within this (mm / rad)
 HONOUR_TOL = 1e-6
 HONOUR_RATIO = 1.1
 # Every tracking list that holds an editor primitive with a ``_uid``, including
-# the adapter-less ones (spline, D5): a record that names one still resolves
+# the adapter-less ones (spline D5, filled region HF3 -- rigid body: no handles,
+# no adapter): a record that names one still resolves
 # for Save (§6.4) even though it can never be solved in v1.
-_PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines",)
+_PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines", "_filled_regions")
 
 
 @dataclass(frozen=True)

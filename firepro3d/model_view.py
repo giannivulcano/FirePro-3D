@@ -1778,8 +1778,10 @@ class Model_View(QGraphicsView):
             # smoke 1); Explode in the Block Editor only (containment C1).
             from .block_instance import BlockInstance
             blocks = [i for i in selected if isinstance(i, BlockInstance)]
+            from .filled_region import FilledRegionItem
+            regions = [i for i in selected if isinstance(i, FilledRegionItem)]
             in_editor = getattr(scene, "scene_role", None) == "block_editor"
-            if len(blocks) == 1 or (blocks and in_editor):
+            if len(blocks) == 1 or ((blocks or regions) and in_editor):
                 menu.addSeparator()
                 if len(blocks) == 1:
                     menu.addAction("Edit Block").triggered.connect(

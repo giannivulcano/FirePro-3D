@@ -31,6 +31,7 @@ from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
+from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
 from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
 from .handle_snap import HandleSnapResult
@@ -357,6 +358,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._draw_ellipses: list[EllipseItem] = []
         # Spline drawing
         self._draw_splines: list[SplineItem] = []
+        self._filled_regions: list[FilledRegionItem] = []   # HF3 (Block Editor only)
         # Holds the first click point.  In centre-first this is the arc centre
         # throughout.  In start-first (``_arc_variant == "start"``) it TRANSIENTLY
         # holds the START point until ``_commit_draw_arc_rim_at`` overwrites it
@@ -977,6 +979,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             EllipseItem:         self._draw_ellipses,
             SplineItem:          self._draw_splines,
             RegularPolygonItem:  self._draw_polygons,
+            FilledRegionItem:    self._filled_regions,
             TextItem:            self._texts,   # containment C5 (no subclass)
             GridlineItem:        self._gridlines,
         }
@@ -2475,6 +2478,41 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             d._instances.remove(inst)
         self.blockInstancesChanged.emit()
 
+    # ── Filled Region (HF3) ────────────────────────────────────────────
+    @staticmethod
+    def fill_candidates(items) -> list:
+        """The boundary-capable members of *items*: the 8 shapes, not
+        reference-flagged, visible. Regions, text, blocks are dropped (R15)."""
+        from .geometry_2d import Geometry2DMixin
+        return [it for it in items
+                if isinstance(it, Geometry2DMixin)
+                and not isinstance(it, (FilledRegionItem, TextItem))
+                and not getattr(it, "reference", False)
+                and it.isVisible()]
+
+    def fill_selected_items(self):
+        """Fill button (R8): a Filled Region from the selected closed outline(s).
+
+        Block-Editor-only (containment C1). On failure the status bar says
+        why and nothing changes (R5). Returns the new region, or None.
+        """
+        from .curve_chain import close_loops
+        if self.scene_role != "block_editor":
+            return None
+        pieces = self.fill_candidates(self.selectedItems())
+        result = close_loops(pieces)
+        if result.reason is not None:
+            self._show_status(result.reason, 4000)
+            return None
+        region = FilledRegionItem.from_pieces(result.loops)     # static copies (D-A1, R10)
+        self.addItem(region)
+        self._filled_regions.append(region)
+        self.clearSelection()
+        region.setSelected(True)                                  # R12
+        self.push_undo_state()
+        self._show_status(f"Filled Region created ({len(result.loops)} loops)", 3000)
+        return region
+
     def explode_selected_blocks(self) -> list:
         """Explode the selected block instances (Block Editor Modify ▸ Explode).
 
@@ -2492,10 +2530,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.scene_role != "block_editor":
             return []
         insts = [i for i in self.selectedItems() if isinstance(i, BlockInstance)]
-        if not insts:
-            self._show_status("Select a block to explode", 3000)
+        regions = [i for i in self.selectedItems() if isinstance(i, FilledRegionItem)]
+        if not insts and not regions:
+            self._show_status("Select a block or Filled Region to explode", 3000)
             return []
-        if not any(can_explode(i) for i in insts):
+        # A region beside un-explodable blocks still explodes (design 4,
+        # "handles both"); explode_instances skips the blocks it can't.
+        if insts and not regions and not any(can_explode(i) for i in insts):
             self._show_status("The selected block can't be exploded "
                               "(missing or imported-reference definition)", 4000)
             return []
@@ -2518,6 +2559,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             new = []
             for i in insts:
                 new.extend(explode_instances(self, [i], flatten, uid_map=maps[i._uid]))
+            for r in regions:                       # HF3 R6: a region -> its boundary pieces
+                new.extend(self._explode_region(r))
         except Exception:
             logging.getLogger(__name__).exception("block explode failed; state restored")
             self._restore_network(before)
@@ -2537,6 +2580,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .constraint_controller import removed_status
             self._show_status(removed_status(n), 4000)
         return new
+
+    def _explode_region(self, region) -> list:
+        """Replace *region* with live copies of its pieces (design section 4):
+        new shapes via ``_add_from_dict`` (fresh uids), the region's stroke
+        record copied on, no fill. The caller owns selection + the undo step."""
+        from .stroke_style import copy_style
+        out = []
+        for piece in region.pieces:
+            item = self._add_from_dict(piece.to_dict())
+            if item is None:
+                continue
+            copy_style(region, item)
+            out.append(item)
+        self.removeItem(region)
+        if region in self._filled_regions:
+            self._filled_regions.remove(region)
+        return out
 
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.
@@ -2885,6 +2945,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
             "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
             "draw_splines":       [s.to_dict()  for s in self._draw_splines],
+            "filled_regions":     [r.to_dict()  for r in self._filled_regions],
             "polygons":           [p.to_dict()  for p in self._draw_polygons],
             "texts":              [t.to_dict()  for t in self._texts],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
@@ -3031,6 +3092,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_splines.clear()
 
+            for item in list(self._filled_regions):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._filled_regions.clear()
+
             for item in list(self._draw_polygons):
                 if item.scene() is self:
                     self.removeItem(item)
@@ -3121,6 +3187,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 si = SplineItem.from_dict(d)
                 self.addItem(si)
                 self._draw_splines.append(si)
+
+            for d in state.get("filled_regions", []):
+                fr = FilledRegionItem.from_dict(d)
+                self.addItem(fr)
+                self._filled_regions.append(fr)
 
             for d in state.get("polygons", []):
                 pg = RegularPolygonItem.from_dict(d)
@@ -6299,7 +6370,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Break (2-point) ──────────────────────────────────────────────
     def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._break_target is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "broken")
             if hit is not None:
                 self._break_target = hit
                 self._break_highlight = self._tools._highlight_item(hit)
@@ -6315,7 +6386,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Break at Point ───────────────────────────────────────────────
     def _press_break_at_point(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._break_at_target is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "broken")
             if hit is not None:
                 self._break_at_target = hit
                 self._break_at_highlight = self._tools._highlight_item(hit)
@@ -6328,13 +6399,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Fillet ───────────────────────────────────────────────────────
     def _press_fillet(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._fillet_item1 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "filleted")
             if hit is not None and isinstance(hit, LineItem):
                 self._fillet_item1 = hit
                 self._fillet_highlight1 = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Click second line")
         elif self._fillet_item2 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "filleted")
             if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
                 self._fillet_item2 = hit
                 self._fillet_highlight2 = self._tools._highlight_item(hit)
@@ -6360,13 +6431,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._chamfer_item1 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "chamfered")
             if hit is not None and isinstance(hit, LineItem):
                 self._chamfer_item1 = hit
                 self._chamfer_highlight1 = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Click second line")
         elif self._chamfer_item2 is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "chamfered")
             if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
                 self._chamfer_item2 = hit
                 self._chamfer_highlight2 = self._tools._highlight_item(hit)
@@ -7653,7 +7724,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         is_block = isinstance(target, BlockInstance)
         # Explode is Block-Editor-only (containment C1); Edit Block is offered
         # on the plan too (smoke 1) and opens the block's editor tab.
-        nested_block = self.scene_role == "block_editor" and is_block
+        can_explode_here = self.scene_role == "block_editor" and (
+            is_block or isinstance(target, FilledRegionItem))
         return build_entity_context_menu(
             selected,
             target,
@@ -7686,7 +7758,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ),
             on_explode=(
                 (lambda: self.explode_selected_blocks())
-                if nested_block else None
+                if can_explode_here else None
             ),
         )
 
@@ -7812,7 +7884,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._draw_ellipses, self._draw_splines, self._draw_polygons,
-                    self._gridlines,
+                    self._filled_regions, self._gridlines,
                     self._walls, self._floor_slabs, self._roofs]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:
@@ -8226,6 +8298,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "arc":            (ArcItem, "_draw_arcs"),
         "draw_ellipse":   (EllipseItem, "_draw_ellipses"),
         "draw_spline":    (SplineItem, "_draw_splines"),
+        "draw_filled_region": (FilledRegionItem, "_filled_regions"),
         "polygon":        (RegularPolygonItem, "_draw_polygons"),
         "text":           (TextItem, "_texts"),
     }

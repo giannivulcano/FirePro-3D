@@ -405,7 +405,9 @@ class ModifyToolsController:
         """True for loose 2D geometry Offset can act on (D9: not Text)."""
         from .geometry_2d import Geometry2DMixin
         from .text_item import TextItem
+        from .filled_region import FilledRegionItem
         return (isinstance(it, Geometry2DMixin) and not isinstance(it, TextItem)
+                and not isinstance(it, FilledRegionItem)
                 and it.parentItem() is None)
 
     def begin_offset(self, sel) -> bool:
@@ -419,6 +421,8 @@ class ModifyToolsController:
         """
         s = self._scene
         cands = [it for it in sel if self._offsettable(it)]
+        if not cands and any(type(it).__name__ == "FilledRegionItem" for it in sel):
+            s._show_status("Filled Regions can't be offset", 3000)
         s.set_mode("offset")
         if len(cands) == 1:
             self._arm_offset_source(cands[0])
@@ -444,6 +448,10 @@ class ModifyToolsController:
         if hit:
             self._arm_offset_source(
                 min(hit, key=lambda i: tg.distance_to_item(i, pos)))
+        else:
+            from .filled_region import FilledRegionItem
+            if any(isinstance(i, FilledRegionItem) for i in s.items(pos)):
+                s._show_status("Filled Regions can't be offset", 3000)
 
     def move_offset_side(self, event, snapped):
         """``offset_side`` cursor: side (+ distance unless locked); ghost follows."""

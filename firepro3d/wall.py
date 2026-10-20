@@ -46,7 +46,6 @@ ALIGN_CENTER   = "Center"
 ALIGN_LEFT     = "Left"
 ALIGN_RIGHT    = "Right"
 
-_HATCH_SPACING = 6.0      # cosmetic pixel spacing for 2D hatch lines
 _SELECTION_COLOR = QColor("red")
 
 
@@ -400,46 +399,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     painter.drawLine(p1l, p1r)
                 if not solid_pt2:
                     painter.drawLine(p2l, p2r)
-
-    def _draw_hatch(self, painter, p1l, p1r, p2r, p2l):
-        """Draw diagonal hatch lines inside the wall quad."""
-        dfc = self._display_fill_color
-        hatch_col = resolve_colour(self._colour if dfc is None else dfc, item=self)
-        pen = QPen(hatch_col, 0.5)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-
-        # Use bounding rect for hatch coverage
-        xs = [p.x() for p in (p1l, p1r, p2r, p2l)]
-        ys = [p.y() for p in (p1l, p1r, p2r, p2l)]
-        x_min, x_max = min(xs), max(xs)
-        y_min, y_max = min(ys), max(ys)
-
-        # Hatch spacing in scene units — scale with zoom
-        sc = self.scene()
-        views = sc.views() if sc else []
-        scale = abs(views[0].transform().m11()) if views else 1.0
-        spacing = _HATCH_SPACING / max(scale, 1e-6)
-
-        # Build clip polygon
-        clip = QPainterPath()
-        clip.addPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
-        clip.closeSubpath()
-
-        # Draw 45-degree lines
-        diag = math.hypot(x_max - x_min, y_max - y_min)
-        n_lines = int(diag * 2 / spacing) + 1
-        start = x_min + y_min - diag
-        for i in range(n_lines):
-            c = start + i * spacing
-            # Line: x + y = c  → y = c - x
-            lp1 = QPointF(x_min, c - x_min)
-            lp2 = QPointF(x_max, c - x_max)
-            line_path = QPainterPath()
-            line_path.moveTo(lp1)
-            line_path.lineTo(lp2)
-            clipped = clip.intersected(line_path)
-            painter.drawPath(clipped)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 

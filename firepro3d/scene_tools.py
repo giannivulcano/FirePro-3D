@@ -453,10 +453,21 @@ class SceneTools:
         items.extend(getattr(self._scene, "_draw_splines", []))
         items.extend(self._scene._polylines)
         items.extend(self._scene._draw_polygons)
+        items.extend(getattr(self._scene, "_filled_regions", []))   # HF3: last among shapes
         # Text (containment C5) — appended last (callers that key off this
         # list order stay stable).
         items.extend(getattr(self._scene, "_texts", []))
         return items
+
+    def _find_tool_target(self, pos, verb: str):
+        """``_find_geometry_at`` for the edit tools: a Filled Region is never a
+        target (D-A13) -- it says so in the status bar and yields None."""
+        from .filled_region import FilledRegionItem
+        hit = self._find_geometry_at(pos)
+        if isinstance(hit, FilledRegionItem):
+            self._scene._show_status(f"Filled Regions can't be {verb}", 3000)
+            return None
+        return hit
 
     def _find_geometry_at(self, pos: QPointF):
         """Find the geometry item nearest to pos (within tolerance)."""
@@ -572,7 +583,7 @@ class SceneTools:
 
         if self._scene.mode == "trim":
             # Phase 1: select cutting edge
-            item = self._find_geometry_at(pos)
+            item = self._find_tool_target(pos, "trimmed")
             if item is not None:
                 self._scene._trim_edge = item
                 self._scene._trim_edge_highlight = self._highlight_item(item)
@@ -584,7 +595,7 @@ class SceneTools:
 
         elif self._scene.mode == "trim_pick":
             # Phase 2: click segment to trim at intersection with cutting edge
-            item = self._find_geometry_at(pos)
+            item = self._find_tool_target(pos, "trimmed")
             if item is None or item is self._scene._trim_edge:
                 return
 
@@ -734,7 +745,7 @@ class SceneTools:
         from .geometry_2d import LineItem, ArcItem, PolylineItem
 
         if self._scene.mode == "extend":
-            item = self._find_geometry_at(pos)
+            item = self._find_tool_target(pos, "extended")
             if item is not None:
                 self._scene._extend_boundary = item
                 self._scene._extend_boundary_highlight = self._highlight_item(item, "#00aa00")

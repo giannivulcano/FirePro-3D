@@ -242,8 +242,8 @@ def test_entering_editor_switches_page_and_leaving_restores(mw, qapp):
     page = _page(mw, PAGE)
     for title in ("Definition", "2D Geometry"):
         for label, b in _buttons(_group(page, title)).items():
-            if label in ("Edit Attributes", "Save as Template"):
-                continue      # placeholder / schematic-only (SV3)
+            if label in ("Edit Attributes", "Save as Template", "Fill"):
+                continue      # placeholder / schematic-only (SV3) / selection-gated (HF3)
             assert b.isEnabled(), label
             assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, label
     # Edit/Modify follow _refresh_modify_buttons (empty editor selection).
@@ -445,3 +445,30 @@ def test_closing_last_editor_to_empty_canvas_leaves_page_disabled(mw, qapp):
     finally:
         mw._activate_plan_view("Level 1")
         qapp.processEvents()
+
+
+# ── HF3: the Fill button (R8) ────────────────────────────────────────────────
+
+def test_fill_button_is_editor_only_and_selection_gated(mw, qapp):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    fill = _buttons(_group(_page(mw, PAGE), "2D Geometry"))["Fill"]
+    assert fill is mw._be_fill_btn and fill in _editor_only_buttons(mw)
+    assert fill.toolTip() == "Fill — make a Filled Region from the selected closed outline(s)"
+    assert not fill.isEnabled()                              # empty selection
+    es = _editors(mw)[0].editor_scene
+    a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+    for ln in (LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, a)):
+        es.addItem(ln); es._draw_lines.append(ln); ln.setSelected(True)
+    qapp.processEvents()
+    mw._refresh_modify_buttons()
+    assert fill.isEnabled()
+    QTest.mouseClick(fill, Qt.MouseButton.LeftButton)         # the real button -> fill_selected_items
+    qapp.processEvents()
+    assert len(es._filled_regions) == 1 and es.selectedItems() == es._filled_regions
+    mw._refresh_modify_buttons()
+    assert not fill.isEnabled()                              # a region alone is no candidate (R15)
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    qapp.processEvents()

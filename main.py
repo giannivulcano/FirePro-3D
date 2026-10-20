@@ -3323,11 +3323,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         from PyQt6 import sip
         from firepro3d.block_instance import BlockInstance
+        from firepro3d.filled_region import FilledRegionItem
         buttons = getattr(self, "_be_modify_buttons", None) or {}
+        fb = getattr(self, "_be_fill_btn", None)
         if not getattr(self, "_block_ribbon_active", False):
             for b in buttons.values():
                 if not sip.isdeleted(b):
                     b.setEnabled(False)
+            if fb is not None and not sip.isdeleted(fb):
+                fb.setEnabled(False)
             return
         scene = self._active_scene()
         try:
@@ -3335,16 +3339,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except RuntimeError:
             return
         has_sel = bool(selected)
-        has_block = any(isinstance(i, BlockInstance) for i in selected)
+        can_explode_sel = any(isinstance(i, (BlockInstance, FilledRegionItem))
+                              for i in selected)
         for label, b in buttons.items():
             if sip.isdeleted(b):
                 continue
             if label in self._MODIFY_NEEDS_SELECTION:
                 b.setEnabled(has_sel)
             elif label == "Explode":
-                b.setEnabled(has_block)
+                b.setEnabled(can_explode_sel)
             elif label == "Paste":
                 b.setEnabled(scene.clipboard_payload() is not None)
+        if fb is not None and not sip.isdeleted(fb):
+            fb.setEnabled(bool(Model_Space.fill_candidates(selected)))
         self._refresh_constrain_buttons()
 
     def _connect_modify_refresh(self, scene) -> None:
@@ -5089,6 +5096,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Text — the 9th primitive (contract C5). Authored here (and in Paper)
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
+        # Fill (HF3 R8): a button, not a mode -- fires like Explode.
+        self._be_fill_btn = _editor_only(
+            g.add_small_button("Fill", _I("fill_icon.svg"),
+                               lambda: self._active_scene().fill_selected_items()),
+            "Fill — make a Filled Region from the selected closed outline(s)")
 
         # --- Edit + Modify (scene-tools.md D1; editor-only) ---
         self._be_modify_buttons = {

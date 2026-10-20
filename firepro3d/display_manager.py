@@ -602,7 +602,7 @@ def _is_geo2d_item(item) -> bool:
     """Check if item is one of the 8 draw-geometry classes (avoids circular imports)."""
     return type(item).__name__ in (
         "LineItem", "PolylineItem", "RectangleItem", "CircleItem", "ArcItem",
-        "EllipseItem", "SplineItem", "RegularPolygonItem"
+        "EllipseItem", "SplineItem", "RegularPolygonItem", "FilledRegionItem"
     )
 
 
@@ -3355,10 +3355,12 @@ def _items_for_category_static(scene, key: str) -> list:
         items.extend(getattr(scene, "_draw_ellipses", []))
         items.extend(getattr(scene, "_draw_splines", []))
         items.extend(getattr(scene, "_draw_polygons", []))
+        items.extend(getattr(scene, "_filled_regions", []))
         return [i for i in items if not getattr(i, "reference", False)]
     elif key == "Reference Geometry":
         lists = ("_polylines", "_draw_lines", "_draw_rects", "_draw_circles",
-                 "_draw_arcs", "_draw_ellipses", "_draw_splines", "_draw_polygons")
+                 "_draw_arcs", "_draw_ellipses", "_draw_splines", "_draw_polygons",
+                 "_filled_regions")
         return [i for a in lists for i in getattr(scene, a, [])
                 if getattr(i, "reference", False)]
     return []
