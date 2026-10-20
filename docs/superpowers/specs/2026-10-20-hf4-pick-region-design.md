@@ -1,9 +1,11 @@
 ---
-status: proposal          # approved 2026-10-20 (brainstorm sections 1-3); unbuilt
-last-verified: 2026-10-20
-verified-commit: 7c674a92
+status: current           # BUILT 2026-10-20 (merge bb7074b8, feat/hf4-pick-region); approved 2026-10-20 (brainstorm sections 1-3). Account 2026-10-20: §1 chord floor, §2 nudge side + Esc status wording reconciled to the code; constants list extended
+last-verified: 2026-10-20  # HF4 Account (merge bb7074b8): §1-§3 re-read against region_finder.py / model_space.py / model_view.py / constants.py
+verified-commit: bb7074b8
 applies-to:
-  - firepro3d/region_finder.py
+  - firepro3d/region_finder.py   # Arrangement (flatten, split, weld, prune, half-edges, face_at, islands, nudge) + rebuild
+  - firepro3d/model_space.py     # pick_region mode only (_pick_region_* / _commit_region); the rest of the file is owned elsewhere
+  - firepro3d/model_view.py      # drawForeground pick-region overlay only
 source-tasks: [HF4 (todo_open.md, Hatch & Fill slices)]
 ---
 
@@ -70,8 +72,9 @@ Phase 2 (2026-10-20, AskUserQuestion), all on the user-visible axis:
   `model_space.py` / `model_view.py`.
 - Constants reused: `CHAIN_WELD_MM` (1 mm weld), `CHAIN_MIN_LOOP_AREA_MM2` (degenerate face
   guard) from `constants.py`; new ones (flatten sagitta 0.1 mm, polyline fallback 0.2 mm,
-  initial window 50 mm, boundary-click nudge 0.5 mm, hover debounce 150 ms, bucket count 32)
-  go in `constants.py` under a `REGION_FINDER_*` prefix.
+  initial window 50 mm, boundary-click nudge 0.5 mm, hover debounce 150 ms, bucket count 32,
+  island sample push 0.05 mm, chord floor 2 x weld) live in `constants.py` under the
+  `REGION_FINDER_*` prefix (values owned there, Rule A).
 
 ## Design
 
@@ -81,7 +84,9 @@ Phase 2 (2026-10-20, AskUserQuestion), all on the user-visible axis:
 
 1. *Flatten.* For each candidate item, walk `halo_scene_path(item)` element by element:
    `MoveTo`/`LineTo` -> one segment; `CurveTo` (cubic, as splines and ellipses are drawn) ->
-   adaptive subdivision at sagitta <= `REGION_FINDER_SAGITTA_MM`. Every segment carries a
+   adaptive subdivision at sagitta <= `REGION_FINDER_SAGITTA_MM`, never below a chord of
+   `REGION_FINDER_MIN_CHORD_MM` (2 x weld, user-ratified 2026-10-20 at Phase 5: a 1 mm chord
+   welded into its neighbour decimated small circles by ~25 % area). Every segment carries a
    **tag** `(item, element_index, t0, t1)` -- the source element and its parameter sub-range.
    Only the window-clipped part of the path is kept (segments wholly outside are dropped).
 2. *Split.* Segments are bucketed by bounding box into a `bucket x bucket` grid over the
@@ -141,7 +146,8 @@ region holds static copies (D-A1).
   `None` the window doubles and rebuilds until a face is found or the window covers
   `itemsBoundingRect()`; a cursor inside the current window reuses the arrangement.
 - **Boundary click (concept Edge Case)**: a query point within `REGION_FINDER_NUDGE_MM` of an
-  edge is nudged that distance to the edge's side facing the cursor's last motion vector.
+  edge is nudged that distance to the side the cursor **came from** (opposite the last
+  non-zero motion vector; a click with no motion since the last move keeps the last one).
 - `mouseMoveEvent` (mode branch): compute `face_at`; if a face is found and an existing
   region's `shape()` contains the point -> preview `(None, None, True, True)`; else store
   `_pick_region_preview = (path, open_end, enclosed, covered)` = `(face.path, None, True,
@@ -150,7 +156,8 @@ region holds static copies (D-A1).
   D-A25 fallback).
 - `mousePressEvent` left: covered -> status *"This area already has a Filled Region"*; no face
   -> status *"Not enclosed"*; face -> `_commit_region(rebuild(face))`, stay in mode. Right
-  click and Esc -> `set_mode(None)` (the generic cancel), preview cleared, status cleared.
+  click and Esc -> `set_mode(None)` (the generic cancel), preview and debounce timer cleared;
+  the status message is not cleared, it times out like every `_show_status` message.
 - `main.py`: the Fill button is enabled whenever a Block Editor tab is active (the
   `fill_candidates`-gated enable rule in `_refresh_modify_buttons` is removed); its tooltip
   says *"Fill: select closed curves, or click with nothing selected to pick a point"*.
@@ -166,13 +173,16 @@ region holds static copies (D-A1).
 
 ## Acceptance Criteria
 
-- [ ] AC1-AC9 above, each by its guard in the table below.
-- [ ] Testing expectations: `tests/test_region_finder.py` (pure geometry) and
+- [x] AC1-AC9 above, each by its guard in the table below (smoke 13 rows passed 2026-10-20).
+- [x] Testing expectations: `tests/test_region_finder.py` (pure geometry) and
   `tests/test_pick_region_mode.py` (real scene + view, posted events); G12 bench `perf`-marked
-  in its own process.
-- [ ] Spec amendments at Account: `hatch-and-fill.md` D-A3 "Pick point = HF4" -> BUILT pointer;
+  in its own process (`tests/test_pick_region_perf.py`: grid median 30.7 ms, circles 9.6 ms on
+  an idle host, bar 50 ms).
+- [x] Spec amendments at Account: `hatch-and-fill.md` D-A3 "Pick point = HF4" -> BUILT pointer;
   D-A6 leak highlight -> built (ring); concept HD3 -> pointer to this doc; `SPEC-INDEX.md` gains
-  `region_finder.py`.
+  `region_finder.py` (all done 2026-10-20).
+- Known gaps filed in `todo_open.md`: AC3 ignore-list / D-A25 debounce / AC8 ellipse-arc guards;
+  per-move `itemsBoundingRect()` hoist; dim-HUD label rect (same idiom as the Not-enclosed label).
 
 ## Verification Checklist
 

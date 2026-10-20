@@ -1,7 +1,7 @@
 ---
-status: partial           # HF3 built 2026-10-20 (HD2 amended: loops of primitive records; HD3 Select objects = chain closure); HF1 built 2026-10-18; HF2 built 2026-10-03 (HD4/HD4a); HF4–HF9 unbuilt. Concept ratified 2026-10-01 (grill Q1–Q27 + brainstorm sections 1–6). HD4a "Built-ins + alias" code table superseded by D-A39 (blocks only) — as-built lives in specs/hatch-and-fill.md §1–§3
-last-verified: 2026-10-20  # HF3 Account (status + HD2/HD3 amendment note only; design text left as approved); prior 2026-10-03 HF2 Account (status + supersession note only)
-verified-commit: 66880197  # HF3 Account (merge feat/hf3-filled-region); prior 53e1773
+status: partial           # HF4 built 2026-10-20 (HD3 Pick point = region_finder arrangement, build contract 2026-10-20-hf4-pick-region-design.md); HF3 built 2026-10-20 (HD2 amended: loops of primitive records; HD3 Select objects = chain closure); HF1 built 2026-10-18; HF2 built 2026-10-03 (HD4/HD4a); HF5–HF9 unbuilt. Concept ratified 2026-10-01 (grill Q1–Q27 + brainstorm sections 1–6). HD4a "Built-ins + alias" code table superseded by D-A39 (blocks only) — as-built lives in specs/hatch-and-fill.md §1–§3
+last-verified: 2026-10-20  # HF4 Account (status + HD3 build note only; design text left as approved); prior HF3 Account (status + HD2/HD3 amendment note only); prior 2026-10-03 HF2 Account (status + supersession note only)
+verified-commit: bb7074b8  # HF4 Account (merge feat/hf4-pick-region); prior 66880197 HF3 Account; prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py
   - firepro3d/hatch_render.py       # HF2
@@ -83,8 +83,11 @@ as real fills, not line soup.
 > `fill_type` / `overrides` / `origin` / `order` are superseded (HF5 adds
 > `fill_type` beside `fill`). **HD3 Select objects** shipped as *chain closure*
 > (`curve_chain.close_loops`, endpoint matching within `CHAIN_WELD_MM`); the
-> arrangement (steps 2–5) stays HF4's Pick-point finder. Build contract:
-> `2026-10-20-hf3-filled-region-design.md`. The text below is the approved
+> arrangement (steps 2–5) shipped as **HF4's Pick-point finder** 2026-10-20
+> (`region_finder.py`: flatten + bucket split + weld + prune + half-edge face
+> walk + one-level islands, exact rebuild; `pick_region` mode + hover overlay).
+> Build contracts: `2026-10-20-hf3-filled-region-design.md` (HF3),
+> `2026-10-20-hf4-pick-region-design.md` (HF4). The text below is the approved
 > concept, left as ratified.
 
 It joins the existing primitive registries (block compile, Explode, clipboard

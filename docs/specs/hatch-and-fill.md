@@ -1,7 +1,7 @@
 ---
-status: partial          # HF3 BUILT 2026-10-20 (merge 66880197, feat/hf3-filled-region): FilledRegionItem (filled_region.py) + curve_chain.py Select-objects Fill, D-A13 refusals, Explode, H9 closed -- see "HF3 build design". Prior: HF1 BUILT 2026-10-18 (merge 084b43e0, feat/hf1-colour-tokens): colour tokens (token:auto / token:accent), per-paint resolver, theme bus, SAVE_VERSION 11 + .fpdb marker migration, universal picker -- see "HF1 build design". Prior: HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-20  # HF3 Account: Filled Region rules (D-A2/D-A3/D-A5/D-A7/D-A13/D-A26) re-stated against the build, H9 resolved, "HF3 build design" pointer, applies-to + filled_region.py / curve_chain.py (verified at 66880197; sections 1-4 otherwise not re-audited); prior 2026-10-19 UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: 66880197   # HF3 Account (merge feat/hf3-filled-region; Filled Region rules + H9 + applies-to); prior 902c5c0e UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+status: partial          # HF4 BUILT 2026-10-20 (merge bb7074b8, feat/hf4-pick-region): Pick-point region finder (region_finder.py) + pick_region mode + hover overlay -- see "HF4 build design". Prior: HF3 BUILT 2026-10-20 (merge 66880197, feat/hf3-filled-region): FilledRegionItem (filled_region.py) + curve_chain.py Select-objects Fill, D-A13 refusals, Explode, H9 closed -- see "HF3 build design". Prior: HF1 BUILT 2026-10-18 (merge 084b43e0, feat/hf1-colour-tokens): colour tokens (token:auto / token:accent), per-paint resolver, theme bus, SAVE_VERSION 11 + .fpdb marker migration, universal picker -- see "HF1 build design". Prior: HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
+last-verified: 2026-10-20  # HF4 Account: D-A3..D-A6 + D-A25 re-stated against the build, §2 Pick-point pointer, "HF4 build design" pointer, applies-to + region_finder.py (verified at bb7074b8; sections 1-4 otherwise not re-audited); prior HF3 Account: Filled Region rules (D-A2/D-A3/D-A5/D-A7/D-A13/D-A26) re-stated against the build, H9 resolved, "HF3 build design" pointer, applies-to + filled_region.py / curve_chain.py (verified at 66880197; sections 1-4 otherwise not re-audited); prior 2026-10-19 UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: bb7074b8   # HF4 Account (merge feat/hf4-pick-region; D-A3..D-A6/D-A25 + applies-to); prior 66880197 HF3 Account (merge feat/hf3-filled-region; Filled Region rules + H9 + applies-to); prior 902c5c0e UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
@@ -17,6 +17,7 @@ applies-to:
   - firepro3d/fill_layers.py        # UP1: FillLayers / BackgroundLayer / PatternLayer + fill record read/write (contract = superpowers/specs/2026-10-18-up1-two-layer-fill-design.md)
   - firepro3d/filled_region.py      # HF3: FilledRegionItem -- loops of primitive records, two-layer fill, delegated transforms, Explode pieces (build contract = superpowers/specs/2026-10-20-hf3-filled-region-design.md)
   - firepro3d/curve_chain.py        # HF3: close_loops chain closure for Select-objects Fill (CHAIN_WELD_MM, D-A6); pure geometry
+  - firepro3d/region_finder.py      # HF4: Pick-point arrangement (flatten, split, weld, prune, face walk, islands, nudge) + exact rebuild; pure geometry (build contract = superpowers/specs/2026-10-20-hf4-pick-region-design.md, which also owns the pick_region mode in model_space.py and the overlay in model_view.py)
 source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns as blocks + theme-Automatic colours (2026-10-01)"]
 ---
 
@@ -157,8 +158,10 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   that are not one shape are a **Filled Region** (HF3, `filled_region.py`):
   its `get_closed_path()` is the OddEven path over its boundary loops, so
   `_fill_ops` / `paint_fill` / HALO work on it unchanged; the boundary comes
-  from Select objects via `curve_chain.close_loops` (crossings are HF4's
-  arrangement). Build contract: "HF3 build design" below.
+  from Select objects via `curve_chain.close_loops`, or from Pick point via
+  `region_finder.Arrangement` + `rebuild` (HF4: crossings split faces, islands
+  become inner loops). Build contracts: "HF3 build design" / "HF4 build
+  design" below.
 
 ## 3. As-built: data path
 
@@ -213,19 +216,34 @@ until that doc is approved.
   (fallback). Sketch / Edit Boundary deferred. *(**Select objects BUILT by HF3**
   as chain closure — select first, click the Block Editor **Fill** button,
   immediate (R3/R8); several closed loops → one region, OddEven (R4); a failed
-  Fill reports why in the status bar and creates nothing (R5). **Pick point =
-  HF4** (the HD3 arrangement; crossings such as a circle cut by two lines fail
-  Select objects by design). HF3 smoke ruling 2026-10-20: both modes stay;
-  a pick fills the clicked face only, one region per click.)*
+  Fill reports why in the status bar and creates nothing (R5). **Pick point
+  BUILT by HF4** (`region_finder.py`, `pick_region` mode): the Fill button is
+  always live in the Block Editor; with no boundary candidates selected
+  (empty, or only text / regions / reference / hidden) it enters Pick point
+  and stays there — one click = the clicked face, one region + one undo step
+  per click, last region selected, Esc / right-click ends the mode (AC1, AC6);
+  a click inside a face an existing region covers is refused with "This area
+  already has a Filled Region" (AC7). HF3 smoke ruling 2026-10-20: both modes
+  stay; a pick fills the clicked face only, one region per click.)*
 - **D-A4** A pick fills exactly the clicked connected face; anything inside any
-  closed island stays empty (no island-style option).
+  closed island stays empty (no island-style option). *(HF4: the face is the
+  tightest-left half-edge cycle around the click; one level of islands becomes
+  inner loops, OddEven handles deeper nesting; faces under
+  `CHAIN_MIN_LOOP_AREA_MM2` are refused; the boundary is rebuilt as exact
+  Line / Arc / Circle / Bezier-chain pieces, polyline fallback ≤ 0.2 mm.)*
 - **D-A5** Boundary candidates: visible 2D primitives + block geometry in the
   same container. Ignored: text, other regions, reference-flagged shapes,
   viewport contents and frames, hidden items. *(HF3 R15: the Select-objects
   candidate filter drops regions, text, block instances, hidden and
-  `reference`-flagged shapes silently.)*
+  `reference`-flagged shapes silently. HF4 Pick point: the same filter, plus
+  each visible placed block instance contributes its posed geometry through
+  `block_snap_geometry.posed_primitives` stand-ins — AC3.)*
 - **D-A6** Gaps ≤ 1 mm (container units) count as closed; otherwise hover shows
   a red "Not enclosed" hint and nothing is created (leak highlight nice-to-have).
+  *(HF4 BUILT: `CHAIN_WELD_MM` vertex weld + T-gap weld; hover shows the red
+  cursor label and a red ring at the nearest pruned open end — the leak
+  highlight — and a click there reports "Not enclosed" in the status bar; an
+  enclosed face shows the accent tint + boundary trace, AC4/AC5.)*
 - **D-A7** Own optional outline (line style, default Invisible). Authored
   regions draw behind other geometry; manual draw order deferred. Exception:
   imported regions keep source paint order (D-A22). *(HF3: `outline` flag,
@@ -325,7 +343,10 @@ until that doc is approved.
 
 **Bars & guards**
 - **D-A25** Perf bars: hover preview ≤ 50 ms/move on ~500 primitives (else
-  compute on ≥150 ms pause); curve boundary ≤ 0.2 mm; PDF underlay with fills ≤
+  compute on ≥150 ms pause) *(HF4: `tests/test_pick_region_perf.py`, grid /
+  circles scenes ratified 2026-10-20; the 150 ms debounce engages when a window
+  build exceeds `REGION_FINDER_DEBOUNCE_MS`)*; curve boundary ≤ 0.2 mm *(HF4:
+  `REGION_FINDER_POLYLINE_MM`)*; PDF underlay with fills ≤
   1.5× stroke-only frame time; 200 hatched block instances ≤ 0.15 ms extra each (D-A35, amended);
   theme switch ≤ 500 ms for 1,000 token items.
 - **D-A27** Guard set G1–G12 (ring, mixed boundary + gap, angle invariance,
@@ -588,6 +609,22 @@ delegation and the guard table (`tests/test_filled_region.py`,
 `tests/test_curve_chain.py`). Known gaps filed in `todo_open.md`: linetype-tile
 Fill unverified, `main` family / element rows, second-phase refusal clicks,
 Join adopting `curve_chain`.
+
+## HF4 build design — Pick-point region finder (approved 2026-10-20; **SHIPPED** 2026-10-20, merge `bb7074b8`)
+
+The *how* is owned by
+[`2026-10-20-hf4-pick-region-design.md`](../superpowers/specs/2026-10-20-hf4-pick-region-design.md)
+(status `current`): rulings AC1–AC9, `region_finder.Arrangement` (flatten at
+`REGION_FINDER_SAGITTA_MM` with the `REGION_FINDER_MIN_CHORD_MM` floor, bucketed
+split, weld, prune with open ends, half-edge face walk, one-level islands,
+boundary nudge) and `rebuild` (exact pieces for `FilledRegionItem.from_pieces`
+via `geometry_2d.bezier_sub`), the `pick_region` mode in `model_space.py`
+(cached windowed arrangement, doubling window, shared `_commit_region` tail,
+debounce fallback) and the hover overlay in `model_view.drawForeground`; the
+guard table (`tests/test_region_finder.py`, `tests/test_pick_region_mode.py`,
+`tests/test_pick_region_perf.py`). Known gaps filed in `todo_open.md`: AC3 /
+D-A25 debounce / AC8 ellipse-arc guards, per-move bounds hoist, dim-HUD label
+rect.
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
 
