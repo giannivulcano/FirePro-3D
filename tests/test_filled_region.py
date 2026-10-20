@@ -491,6 +491,15 @@ class TestSnapHaloPick:
         centers = [p for k, p, _n in es._snap_engine._collect(r) if k == "center"]
         assert any(math.hypot(p.x() - 60, p.y() - 60) < 0.01 for p in centers)
 
+    def test_collect_recurses_into_a_circle_piece(self, qapp):
+        es = editor_scene()
+        r = add_region(es, ring_region())      # island: circle r=15 at (60, 60)
+        snaps = list(es._snap_engine._collect(r))
+        quads = [p for k, p, _n in snaps if k == "quadrant"]
+        assert any(math.hypot(p.x() - 75, p.y() - 60) < 0.01 for p in quads), quads
+        centers = [p for k, p, _n in snaps if k == "center"]
+        assert sum(math.hypot(p.x() - 60, p.y() - 60) < 0.01 for p in centers) >= 1
+
     def test_halo_is_area_with_and_without_fill(self, qapp):
         r = ring_region()
         es = editor_scene(); add_region(es, r)
@@ -544,6 +553,7 @@ class TestToolMatrix:
 
     @pytest.mark.parametrize("tool, verb", [("offset", "offset"), ("trim", "trimmed"),
                                             ("extend", "extended"), ("break", "broken"),
+                                            ("break_at_point", "broken"),
                                             ("fillet", "filleted")])
     def test_refused_tools_leave_it_unchanged_with_a_status(self, qapp, make_model_space, tool, verb):
         from tests._snap_polish_helpers import click         # click(view, scene_pt)

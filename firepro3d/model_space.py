@@ -6386,7 +6386,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Break at Point ───────────────────────────────────────────────
     def _press_break_at_point(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._break_at_target is None:
-            hit = self._tools._find_geometry_at(pos)
+            hit = self._tools._find_tool_target(pos, "broken")
             if hit is not None:
                 self._break_at_target = hit
                 self._break_at_highlight = self._tools._highlight_item(hit)
