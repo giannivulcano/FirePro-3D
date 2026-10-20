@@ -658,6 +658,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._lm = level_manager
         self._sm = scale_manager
         self._refresh_basis()    # projections work before the first rebuild
+        self._zones: dict[int, str] = {}
+        self._cut_items: list = []
         self._show_datums = True
 
         # Per-view Z-extent overrides keyed by gridline label live on the
@@ -926,6 +928,31 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._basis = SectionBasis.from_cut(a, b, self._marker.look_sign,
                                             self._marker.depth_mm / self._ppm())
 
+    def zone_of(self, source) -> str:
+        """Zone the last rebuild assigned to *source* (cut / behind / hidden)."""
+        return self._zones.get(id(source), ZONE_HIDDEN)
+
+    def _wall_zone(self, wall) -> str:
+        """Zone of *wall*: the one _project_walls recorded, else classified
+        from its footprint (walls the wall pass skipped -- Display Manager
+        hidden, zero height -- still carry their openings, as before)."""
+        zone = self._zones.get(id(wall))
+        if zone is not None:
+            return zone
+        try:
+            quad = wall.mitered_quad()
+        except Exception:
+            quad = wall.quad_points()
+        pts = [self._scene_to_world(p.x(), p.y()) for p in quad]
+        zone = self._basis.classify_polygon(pts)[0]
+        self._zones[id(wall)] = zone
+        return zone
+
+    def _clip_h(self, h_min: float, h_max: float):
+        """Lateral clip to the crop box; None when nothing remains (s4.2)."""
+        lo, hi = max(h_min, self._basis.h_min), min(h_max, self._basis.h_max)
+        return (lo, hi) if hi - lo >= 0.5 else None
+
     def _project(self, wx: float, wy: float, wz: float) -> tuple[float, float]:
         """Project world (mm) coords onto the section 2D plane.
 
@@ -958,6 +985,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         if self._marker.auto_fit(self._ms):
             pass                                  # geometry re-seeded (s4.3); basis below reads it
         self._refresh_basis()
+        self._zones: dict[int, str] = {}
+        self._cut_items: list = []
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
@@ -1063,11 +1092,24 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 wx, wy = self._scene_to_world(pt.x(), pt.y())
                 corners_world.append((wx, wy))
 
+            zone, h_lo, h_hi = self._basis.classify_polygon(corners_world)
+            self._zones[id(wall)] = zone
+            if zone == ZONE_HIDDEN:
+                continue
+            if zone == ZONE_CUT:
+                # Task 5 renders the cross-section; until then a cut wall
+                # falls through to the behind rendering below.
+                self._cut_items.append(("wall", wall, (h_lo, h_hi, base_z, top_z)))
+
             # Project to elevation H axis
             h_values = [self._project(wx, wy, 0)[0]
                         for wx, wy in corners_world]
             h_min = min(h_values)
             h_max = max(h_values)
+            clipped = self._clip_h(h_min, h_max)
+            if clipped is None:
+                continue
+            h_min, h_max = clipped
             width = h_max - h_min
             if width < 0.5:
                 continue
@@ -1133,6 +1175,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         for wall in getattr(self._ms, "_walls", []):
             if not getattr(wall, "openings", None):
                 continue
+            # Task 5 renders head / sill for cut walls; until then only
+            # walls behind the cut carry their openings.
+            if self._wall_zone(wall) != ZONE_BEHIND:
+                continue
 
             for op in wall.openings:
                 # ── Along-wall endpoints in scene coords ──────────────────
@@ -1153,6 +1199,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 h_right = self._project(wr_x, wr_y, 0)[0]
                 h_min = min(h_left, h_right)
                 h_max = max(h_left, h_right)
+                clipped = self._clip_h(h_min, h_max)
+                if clipped is None:
+                    continue
+                h_min, h_max = clipped
                 width = h_max - h_min
                 if width < 0.5:
                     continue
@@ -1230,8 +1280,26 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             z1 = getattr(n1, "z_pos", 0.0)
             z2 = getattr(n2, "z_pos", 0.0)
 
+            zone, h_cut, t_cut = self._basis.classify_segment((wx1, wy1), (wx2, wy2))
+            self._zones[id(pipe)] = zone
+            if zone == ZONE_HIDDEN:
+                continue
+            if zone == ZONE_CUT:
+                # Task 5 draws the cut circle; until then fall through.
+                self._cut_items.append(("pipe", pipe, (h_cut, z1 + t_cut * (z2 - z1))))
+
             h1, v1 = self._project(wx1, wy1, z1)
             h2, v2 = self._project(wx2, wy2, z2)
+
+            # Lateral clip to the crop box, by parameter (either orientation).
+            lo, hi = self._basis.h_min, self._basis.h_max
+            if abs(h2 - h1) > 1e-9:
+                ta = (lo - h1) / (h2 - h1)
+                tb = (hi - h1) / (h2 - h1)
+                t0, t1 = max(0.0, min(ta, tb)), min(1.0, max(ta, tb))
+                if t0 < t1:
+                    h1, v1, h2, v2 = (h1 + t0 * (h2 - h1), v1 + t0 * (v2 - v1),
+                                      h1 + t1 * (h2 - h1), v1 + t1 * (v2 - v1))
 
             col_name = pipe._properties.get("Colour", {}).get("value", "Red")
             color = QColor(_PIPE_COLORS.get(col_name, "#e62828"))
@@ -1262,10 +1330,13 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if not node.has_sprinkler():
                 continue
             wx, wy = self._scene_to_world(node.scenePos().x(), node.scenePos().y())
+            self._zones[id(node)] = self._basis.classify_point((wx, wy))
+            if self._zones[id(node)] == ZONE_HIDDEN:
+                continue
             z = getattr(node, "z_pos", 0.0)
             h, v = self._project(wx, wy, z)
 
-            orient = node.sprinkler._properties.get(
+            orient =node.sprinkler._properties.get(
                 "Orientation", {}).get("value", "Upright")
             if orient == "Pendent":
                 color = QColor("#ff3232")
@@ -1329,6 +1400,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 h, _ = self._project(wx, wy, 0)
                 h_vals.append(h)
             h_min, h_max = min(h_vals), max(h_vals)
+
+            zone, h_lo, h_hi = self._basis.classify_polygon(world_pts)
+            self._zones[id(slab)] = zone
+            if zone == ZONE_HIDDEN:
+                continue
+            if zone == ZONE_CUT:
+                # Task 5 draws the chord; until then fall through.
+                self._cut_items.append(("slab", slab, (h_lo, h_hi, bot_z, top_z)))
+            clipped = self._clip_h(h_min, h_max)
+            if clipped is None:
+                continue
+            h_min, h_max = clipped
 
             # Compute depth (same convention as walls)
             cx = sum(w[0] for w in world_pts) / len(world_pts)
@@ -1400,12 +1483,23 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if not elev_pts:
                 continue
 
+            # Roofs are never cut-rendered in v1 (s5): classify only to drop
+            # hidden roofs and clip laterally.
+            zone = self._basis.classify_polygon(
+                [(vx, vy) for vx, vy, vz in verts])[0]
+            self._zones[id(roof)] = zone
+            if zone == ZONE_HIDDEN:
+                continue
+
             # Draw convex hull outline (simplified)
             h_vals = [p.x() for p in elev_pts]
             v_vals = [p.y() for p in elev_pts]
+            clipped = self._clip_h(min(h_vals), max(h_vals))
+            if clipped is None:
+                continue
             rect = _ElevProxyRect(
-                min(h_vals), min(v_vals),
-                max(h_vals) - min(h_vals), max(v_vals) - min(v_vals),
+                clipped[0], min(v_vals),
+                clipped[1] - clipped[0], max(v_vals) - min(v_vals),
             )
             pen = QPen(QColor(0, 0, 0), 1)
             pen.setCosmetic(True)
