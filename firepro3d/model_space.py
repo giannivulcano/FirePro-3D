@@ -2636,7 +2636,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # D-A25 fallback: a slow scene hovers on a single-shot debounce.
         self._pick_region_pending = QPointF(pt)
         if self._pick_region_timer is None:
-            self._pick_region_timer = QTimer()
+            self._pick_region_timer = QTimer(self)    # parented: dies with the scene, never fires on a torn-down one
             self._pick_region_timer.setSingleShot(True)
             self._pick_region_timer.timeout.connect(self._pick_region_fire)
         self._pick_region_timer.start(REGION_FINDER_DEBOUNCE_MS)

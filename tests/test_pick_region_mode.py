@@ -214,11 +214,15 @@ class TestNudgeAndEdges:
 
     def _commit_on_edge(self, view, scene, from_x):
         """Approach the shared edge from *from_x* side with two moves, move onto
-        the edge (within 0.5 mm), click; return the committed region."""
+        the edge (x=0 after the view's pixel rounding), click; return the
+        committed region."""
+        from firepro3d.constants import REGION_FINDER_NUDGE_MM
         scene.set_mode("pick_region")
         sign = 1 if from_x > 0 else -1
         move(view, QPointF(sign * 30, 0)); move(view, QPointF(sign * 10, 0))
         move(view, QPointF(sign * 0.2, 0)); click(view, QPointF(sign * 0.2, 0))
+        # premise: the click landed on (or within nudge distance of) the shared edge
+        assert abs(scene._pick_region_last_pt.x()) <= REGION_FINDER_NUDGE_MM
         assert len(scene._filled_regions) == 1
         return scene._filled_regions[0]
 
