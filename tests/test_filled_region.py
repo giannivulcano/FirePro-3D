@@ -413,3 +413,50 @@ class TestFillSelected:
         r = add_region(es)
         assert Model_Space.fill_candidates(lines + [r]) == lines
 
+
+# ── Task 5: Explode (R6) ──
+class TestExplode:
+    def test_region_explodes_to_its_pieces_in_one_undo_step(self, qapp):
+        es = editor_scene()
+        r = add_region(es)                        # 4 lines + 1 circle
+        old_uids = {rec.get("uid") for loop in r.to_dict()["loops"] for rec in loop}
+        r.setSelected(True)
+        es.push_undo_state()
+        pos0 = es._undo_pos
+        new = es.explode_selected_blocks()
+        assert r.scene() is None and es._filled_regions == []
+        assert len(new) == 5 and len(es._draw_lines) == 4 and len(es._draw_circles) == 1
+        assert all(i.isSelected() for i in new)
+        assert all(it.fill_layers.is_empty for it in new)
+        new_uids = [it._uid for it in new]
+        assert len(set(new_uids)) == 5 and not (set(new_uids) & old_uids)
+        assert es._undo_pos == pos0 + 1
+        es.undo()
+        assert len(es._filled_regions) == 1 and es._draw_lines == [] and es._draw_circles == []
+
+    def test_exploded_pieces_carry_the_region_stroke_record(self, qapp):
+        es = editor_scene()
+        r = add_region(es, FilledRegionItem(ring_region().to_dict()["loops"], color="#123456"))
+        assert r.style["colour"] == "#123456"           # the ctor colour lands in the record
+        r.setSelected(True)
+        new = es.explode_selected_blocks()
+        assert len(new) == 5 and all(it.style == r.style for it in new)
+
+    def test_block_and_region_explode_together(self, qapp):
+        es = editor_scene()
+        d = BlockDefinition.new(name="B", library="L", series="S", origin=(0.0, 0.0),
+                                primitives=[LineItem(QPointF(0, 0), QPointF(10, 0)).to_dict()])
+        es.register_block_definition(d)
+        inst = es.place_block_instance(d.id, (200.0, 200.0))
+        r = add_region(es)
+        inst.setSelected(True); r.setSelected(True)
+        pos0 = es._undo_pos
+        new = es.explode_selected_blocks()
+        assert len(new) == 6 and es._block_instances == [] and es._filled_regions == []
+        assert es._undo_pos == pos0 + 1
+
+    def test_no_block_no_region_status(self, qapp):
+        es = editor_scene()
+        log = _statuses(es)
+        assert es.explode_selected_blocks() == []
+        assert log[-1] == "Select a block or Filled Region to explode"

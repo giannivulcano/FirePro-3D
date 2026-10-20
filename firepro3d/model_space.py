@@ -2530,10 +2530,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.scene_role != "block_editor":
             return []
         insts = [i for i in self.selectedItems() if isinstance(i, BlockInstance)]
-        if not insts:
-            self._show_status("Select a block to explode", 3000)
+        regions = [i for i in self.selectedItems() if isinstance(i, FilledRegionItem)]
+        if not insts and not regions:
+            self._show_status("Select a block or Filled Region to explode", 3000)
             return []
-        if not any(can_explode(i) for i in insts):
+        if insts and not any(can_explode(i) for i in insts):
             self._show_status("The selected block can't be exploded "
                               "(missing or imported-reference definition)", 4000)
             return []
@@ -2556,6 +2557,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             new = []
             for i in insts:
                 new.extend(explode_instances(self, [i], flatten, uid_map=maps[i._uid]))
+            for r in regions:                       # HF3 R6: a region -> its boundary pieces
+                new.extend(self._explode_region(r))
         except Exception:
             logging.getLogger(__name__).exception("block explode failed; state restored")
             self._restore_network(before)
@@ -2575,6 +2578,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .constraint_controller import removed_status
             self._show_status(removed_status(n), 4000)
         return new
+
+    def _explode_region(self, region) -> list:
+        """Replace *region* with live copies of its pieces (design section 4):
+        new shapes via ``_add_from_dict`` (fresh uids), the region's stroke
+        record copied on, no fill. The caller owns selection + the undo step."""
+        from .stroke_style import copy_style
+        out = []
+        for piece in region.pieces:
+            item = self._add_from_dict(piece.to_dict())
+            if item is None:
+                continue
+            copy_style(region, item)
+            out.append(item)
+        self.removeItem(region)
+        if region in self._filled_regions:
+            self._filled_regions.remove(region)
+        return out
 
     def make_block_from_selection(self, items, origin, name, library, series):
         """Consume construction primitives into a new block definition + one instance.
@@ -7702,7 +7722,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         is_block = isinstance(target, BlockInstance)
         # Explode is Block-Editor-only (containment C1); Edit Block is offered
         # on the plan too (smoke 1) and opens the block's editor tab.
-        nested_block = self.scene_role == "block_editor" and is_block
+        can_explode_here = self.scene_role == "block_editor" and (
+            is_block or isinstance(target, FilledRegionItem))
         return build_entity_context_menu(
             selected,
             target,
@@ -7735,7 +7756,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             ),
             on_explode=(
                 (lambda: self.explode_selected_blocks())
-                if nested_block else None
+                if can_explode_here else None
             ),
         )
 

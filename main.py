@@ -3339,7 +3339,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except RuntimeError:
             return
         has_sel = bool(selected)
-        has_block = any(isinstance(i, BlockInstance) for i in selected)
+        has_block = any(isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
         for label, b in buttons.items():
             if sip.isdeleted(b):
                 continue
