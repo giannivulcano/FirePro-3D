@@ -2938,10 +2938,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         g.add_widget(outer)
 
         def _fillable_targets():
-            return [it for it in self.scene.selectedItems()
-                    if callable(getattr(it, "is_fillable", None))
-                    and it.is_fillable() and hasattr(it, "set_property")
-                    and not getattr(it, "reference", False)]
+            from firepro3d.entity_context_menu import fillable_targets
+            return fillable_targets(self.scene.selectedItems())
 
         def _sync():
             _syncing[0] = True
