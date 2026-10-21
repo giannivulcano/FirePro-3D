@@ -421,6 +421,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene._section_manager = self.section_manager
         self.level_widget.levelsChanged.connect(self.section_manager.rebuild_all)
         self.section_manager.sectionsChanged.connect(self._refresh_section_browser)
+        # Every open path (browser, marker menu, placement tool, sheet navigation)
+        # is wired exactly once, per scene / per view, by these two signals.
+        self.section_manager.sceneBuilt.connect(self._on_section_scene_built)
+        self.section_manager.viewOpened.connect(self._on_section_view_opened)
         self.project_browser.activateSectionView.connect(self._activate_section_view)
         self.project_browser.deleteSectionView.connect(self._delete_section_view)
 
@@ -1428,28 +1432,23 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _activate_elevation(self, direction: str):
         """Open or switch to an elevation view tab from the project browser."""
-        already_open = direction.lower() in self.section_manager.open_names
-        view = self.section_manager.open_section(direction)
-        if view is not None and not already_open:
-            # Wire signals only once on first open
-            scene = view.scene()
-            if scene is not None:
-                scene.entitySelected.connect(self.prop_manager.show_properties)
-            view.cursorMoved.connect(self.footer.set_coord)
+        self.section_manager.open_section(direction)   # wiring: sceneBuilt / viewOpened
 
     def _activate_section_view(self, name: str):
         """Open or switch to a placed section's tab (project browser / marker)."""
-        already_open = name in self.section_manager.open_names
-        view = self.section_manager.open_section(name)
-        if view is not None and not already_open:
-            scene = view.scene()
-            if scene is not None:
-                scene.entitySelected.connect(self.prop_manager.show_properties)
-            view.cursorMoved.connect(self.footer.set_coord)
+        self.section_manager.open_section(name)        # wiring: sceneBuilt / viewOpened
+
+    def _on_section_scene_built(self, scene):
+        """Once per SectionScene: route its selection to the property panel."""
+        scene.entitySelected.connect(self.prop_manager.show_properties)
+
+    def _on_section_view_opened(self, view):
+        """Once per SectionView: show the cursor H/Z in the footer."""
+        view.cursorMoved.connect(self.footer.set_coord)
 
     def _delete_section_view(self, name: str):
-        self.scene.push_undo_state()
         self.section_manager.delete_section(name)
+        self.scene.push_undo_state()                   # post-action snapshot (undo convention)
 
     def _refresh_section_browser(self):
         self.project_browser.refresh_sections(self.section_manager.section_names)
@@ -2409,7 +2408,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             scenes.extend(sm.open_scenes)
         ss = getattr(self, "schematic_scenes", None)     # SchematicSceneManager
         if ss is not None:
-            scenes.extend(ss._scenes.values())          # {block_id: scene}
+            scenes.extend(ss.scenes)
         return scenes
 
     def _on_theme_bus_changed(self) -> None:

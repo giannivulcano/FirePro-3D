@@ -38,6 +38,7 @@ CROP_MARGIN = 2000.0                   # plan-scene units (mm at ppm 1) — defa
 
 MIN_CUT_LEN = 100.0          # plan-scene units (mm at ppm 1) -- shorter cuts are refused at placement (spec s9)
 FALLBACK_HALF = 10000.0      # plan-scene units (mm at ppm 1) -- auto-extent box when the project is empty (spec s13)
+DEFAULT_DEPTH = 10000.0      # plan-scene units (mm at ppm 1) -- depth when nothing lies on the look side / field absent (spec s9)
 
 ZONE_CUT = "cut"
 ZONE_BEHIND = "behind"
@@ -255,7 +256,7 @@ class SectionMarker(QGraphicsItem):
     HALO_AREA = True
 
     def __init__(self, name: str, cut_a: QPointF, cut_b: QPointF,
-                 look_sign: int = 1, depth: float = 10000.0,
+                 look_sign: int = 1, depth: float = DEFAULT_DEPTH,
                  cardinal: "str | None" = None, auto_extent: bool = False,
                  parent: QGraphicsItem | None = None):
         super().__init__(parent)
@@ -523,7 +524,7 @@ class SectionMarker(QGraphicsItem):
         act_flip = menu.addAction("Flip")
         act_flip.triggered.connect(self._flip_with_undo)
         act_delete = menu.addAction("Delete")
-        act_delete.triggered.connect(lambda: mgr is not None and mgr.delete_section(self._name))
+        act_delete.triggered.connect(self._delete_with_undo)
         if self._cardinal:
             act_rename.setEnabled(False)
             act_delete.setEnabled(False)
@@ -533,11 +534,27 @@ class SectionMarker(QGraphicsItem):
         self.build_context_menu().exec(event.screenPos())
         event.accept()
 
-    def _push_undo(self):
-        sc = self.scene()
+    def _push_undo(self, sc=None):
+        sc = sc if sc is not None else self.scene()
         push = getattr(sc, "push_undo_state", None)
         if push is not None:
             push()
+
+    def _delete_with_undo(self):
+        """Menu Delete: mutate first, then snapshot (post-action convention)."""
+        sc = self.scene()                         # the marker leaves the scene on delete
+        if self._manager is not None:
+            self._manager.delete_section(self._name)
+            self._push_undo(sc)
+
+    def _rename_with_undo(self, new: str):
+        """Rename through the manager; one undo step when the name actually changed."""
+        if self._manager is None or not new or new == self._name:
+            return
+        old = self._name
+        self._manager.rename_section(old, new)
+        if self._name != old:
+            self._push_undo()
 
     def _flip_with_undo(self):
         self.flip()
@@ -546,8 +563,8 @@ class SectionMarker(QGraphicsItem):
     def _prompt_rename(self):
         from PyQt6.QtWidgets import QInputDialog
         new, ok = QInputDialog.getText(None, "Rename Section", "Name:", text=self._name)
-        if ok and new and new != self._name and self._manager is not None:
-            self._manager.rename_section(self._name, new)
+        if ok:
+            self._rename_with_undo(new)
 
     # -- property panel (DetailMarker pattern) -------------------------------------------
     def _fmt(self, mm: float) -> str:
@@ -566,9 +583,7 @@ class SectionMarker(QGraphicsItem):
 
     def set_property(self, key: str, value):
         if key == "Name" and not self._cardinal:
-            new = str(value)
-            if new and new != self._name and self._manager is not None:
-                self._manager.rename_section(self._name, new)
+            self._rename_with_undo(str(value))
         elif key == "Depth":
             from .scale_manager import ScaleManager
             mm = ScaleManager.parse_dimension(str(value))
@@ -595,7 +610,7 @@ class SectionMarker(QGraphicsItem):
     @classmethod
     def from_dict(cls, d: dict) -> "SectionMarker":
         m = cls(d["name"], QPointF(*d["cut_a"]), QPointF(*d["cut_b"]),
-                int(d.get("look_sign", 1)), float(d.get("depth", 10000.0)),
+                int(d.get("look_sign", 1)), float(d.get("depth", DEFAULT_DEPTH)),
                 cardinal=d.get("cardinal"), auto_extent=bool(d.get("auto_extent", False)))
         m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
         return m

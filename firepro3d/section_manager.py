@@ -20,15 +20,12 @@ from PyQt6.QtWidgets import QTabWidget
 from .section_scene import SectionScene
 from .elevation_view import SectionView
 from .section_marker import (SectionMarker, CARDINALS, building_bbox,
-                             CROP_MARGIN, FALLBACK_HALF, MIN_CUT_LEN)
+                             CROP_MARGIN, FALLBACK_HALF, MIN_CUT_LEN, DEFAULT_DEPTH)
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
     from .level_manager import LevelManager
     from .scale_manager import ScaleManager
-
-
-DEFAULT_DEPTH = 10000.0     # plan-scene units (mm at ppm 1) -- depth when nothing lies on the look side (spec s9)
 
 
 def _valid_record(d) -> bool:
@@ -44,7 +41,22 @@ def _valid_record(d) -> bool:
     vals = (ax, ay, bx, by, depth)
     if not all(math.isfinite(v) for v in vals):
         return False
+    if d.get("cardinal") is None and str(d["name"]).lower() in CARDINALS:
+        return False                      # a placed name that lowercases to a cardinal key is unreachable
     return math.hypot(bx - ax, by - ay) >= MIN_CUT_LEN and depth > 0.0
+
+
+def _same_cut(m: "SectionMarker", d: dict, tol: float = 1e-6) -> bool:
+    """True when marker *m* has exactly the geometry of snapshot record *d*."""
+    try:
+        return (abs(m.cut_a.x() - float(d["cut_a"][0])) <= tol
+                and abs(m.cut_a.y() - float(d["cut_a"][1])) <= tol
+                and abs(m.cut_b.x() - float(d["cut_b"][0])) <= tol
+                and abs(m.cut_b.y() - float(d["cut_b"][1])) <= tol
+                and abs(m.depth - float(d["depth"])) <= tol
+                and m.look_sign == int(d["look_sign"]))
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
 
 
 class SectionManager(QObject):
@@ -58,6 +70,8 @@ class SectionManager(QObject):
     """
 
     sectionsChanged = pyqtSignal()        # place / rename / delete -> browser refresh
+    sceneBuilt = pyqtSignal(object)       # once per SectionScene construction (wire entitySelected)
+    viewOpened = pyqtSignal(object)       # once per SectionView construction (wire cursorMoved)
 
     def __init__(self, model_space: "Model_Space", level_manager: "LevelManager",
                  scale_manager: "ScaleManager", tab_widget: QTabWidget, parent=None):
@@ -111,7 +125,9 @@ class SectionManager(QObject):
         bb = building_bbox(self._ms)
         empty = QRectF(-FALLBACK_HALF - CROP_MARGIN, -FALLBACK_HALF - CROP_MARGIN,
                        2 * (FALLBACK_HALF + CROP_MARGIN), 2 * (FALLBACK_HALF + CROP_MARGIN))
-        if bb == empty:                                       # building_bbox's empty-project return
+        if all(math.isclose(a, b, abs_tol=1e-6) for a, b in (
+                (bb.left(), empty.left()), (bb.top(), empty.top()),
+                (bb.width(), empty.width()), (bb.height(), empty.height()))):   # building_bbox's empty-project return
             return DEFAULT_DEPTH
         bb = bb.adjusted(CROP_MARGIN, CROP_MARGIN, -CROP_MARGIN, -CROP_MARGIN)   # the building itself, no padding
         nx, ny = SectionMarker("probe", a, b, 1, 1.0).normal_scene()
@@ -141,7 +157,8 @@ class SectionManager(QObject):
     def rename_section(self, old: str, new: str) -> None:
         key = self._key(old)
         m = self.markers.get(key)
-        if m is None or m.cardinal or not new or new == old or self._key(new) in self.markers:
+        if (m is None or m.cardinal or not new or new == old
+                or new.lower() in CARDINALS or self._key(new) in self.markers):
             return
         self.markers.pop(key)
         m.name = new
@@ -181,6 +198,7 @@ class SectionManager(QObject):
         scene = SectionScene(m, self._ms, self._lm, self._sm)
         scene.rebuild()
         self._views[key] = (scene, None)
+        self.sceneBuilt.emit(scene)
         return scene
 
     def open_section(self, name: str) -> SectionView | None:
@@ -197,6 +215,7 @@ class SectionManager(QObject):
             return None
         scene = self.get_or_build_scene(key)
         view = SectionView(scene, self._sm)
+        self.viewOpened.emit(view)
         idx = self._tabs.addTab(view, self._tab_title(m))
         self._tabs.setCurrentIndex(idx)
         QTimer.singleShot(50, view.fit_to_screen)
@@ -279,35 +298,69 @@ class SectionManager(QObject):
         for d in data or []:
             if not isinstance(d, dict) or not _valid_record(d):
                 continue
-            m = SectionMarker.from_dict(d)
-            if m.cardinal is not None and m.cardinal not in CARDINALS:
-                continue
-            if m.view_name in self.markers:
+            m = self._marker_from_record(d)
+            if m is None or m.view_name in self.markers:
                 continue
             self._adopt(m)
+        self._recount()
+        self.sectionsChanged.emit()
+
+    @staticmethod
+    def _marker_from_record(d: dict) -> "SectionMarker | None":
+        """A marker from a snapshot / file record, or None when it is not
+        buildable (hand-edited file, spec s13) -- never raises."""
+        try:
+            m = SectionMarker.from_dict(d)
+            if m.cardinal is not None and m.cardinal not in CARDINALS:
+                return None
+            return m
+        except (TypeError, ValueError, KeyError, IndexError):
+            return None
+
+    def _recount(self) -> None:
+        """Name counter = the highest ``Section N`` suffix present (0 when none)."""
+        n = 0
+        for m in self.markers.values():
             parts = m.name.split()
             if not m.cardinal and len(parts) >= 2:
                 try:
-                    self._counter = max(self._counter, int(parts[-1]))
+                    n = max(n, int(parts[-1]))
                 except ValueError:
                     pass
-        self.sectionsChanged.emit()
+        self._counter = n
 
     def restore_from_list(self, data: list[dict]) -> None:
         """Undo restore: diff by name -- update survivors in place, remove
-        deleted, re-add missing; open tabs are left alone (s8)."""
-        want = {(d["cardinal"] or d["name"]): d for d in data if _valid_record(d)}
-        for key in list(self.markers):
-            if key not in want and not self.markers[key].cardinal:
-                self.delete_section(key)
+        deleted, re-add missing; open tabs are left alone (s8).
+
+        A wanted name that is missing is paired with an unwanted placed marker
+        of identical geometry and treated as a rename (``rename_section``), so
+        undoing a rename keeps the tab, the marker object and the sheet bindings.
+        """
+        want = {(d.get("cardinal") or d["name"]): d
+                for d in data if isinstance(d, dict) and _valid_record(d)}
+        unwanted = [k for k, m in self.markers.items() if k not in want and not m.cardinal]
+        for key, d in want.items():
+            if key in self.markers or d.get("cardinal"):
+                continue
+            for old in unwanted:
+                if _same_cut(self.markers[old], d):
+                    self.rename_section(old, d["name"])
+                    unwanted.remove(old)
+                    break
+        for key in unwanted:
+            self.delete_section(key)
         for key, d in want.items():
             m = self.markers.get(key)
             if m is None:
-                self._adopt(SectionMarker.from_dict(d))
+                new = self._marker_from_record(d)
+                if new is not None:
+                    self._adopt(new)
                 continue
             m.set_geometry(QPointF(*d["cut_a"]), QPointF(*d["cut_b"]), d["depth"], user=False)
             if m.look_sign != d["look_sign"]:
                 m.flip()
             m._auto_extent = bool(d.get("auto_extent", False)) if m.cardinal else False
             m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+        self._recount()
         self.sectionsChanged.emit()

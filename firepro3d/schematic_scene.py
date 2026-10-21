@@ -112,6 +112,11 @@ class SchematicSceneManager:
         self._keys: dict = {}
         project_scene.blockDefinitionsChanged.connect(self._on_definitions_changed)
 
+    @property
+    def scenes(self) -> list:
+        """Every live render scene (public read-only view; one per placed schematic)."""
+        return list(self._scenes.values())
+
     def _schematic(self, block_id):
         d = self._project.get_block_definition(block_id)
         return d if d is not None and d.kind == "schematic" else None

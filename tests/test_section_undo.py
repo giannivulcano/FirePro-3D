@@ -62,3 +62,48 @@ def test_snapshot_without_manager_has_no_sections_key(qapp):
     from firepro3d.model_space import Model_Space
     s = Model_Space()
     assert "sections" not in s._capture_network()
+
+
+def _menu_action(marker, text):
+    menu = marker.build_context_menu()
+    marker._menu_ref = menu                      # actions die with the menu
+    return next(a for a in menu.actions() if a.text() == text)
+
+
+def test_menu_delete_is_one_undo_step_and_redoable(ms):
+    """F2 (a): the REAL menu Delete action pushes AFTER the mutation."""
+    mgr = ms._section_manager
+    m = mgr.place_section(QPointF(0, 0), QPointF(5000, 0)); ms.push_undo_state()
+    _menu_action(m, "Delete").trigger()
+    assert "Section 1" not in mgr.markers
+    ms.undo()
+    assert "Section 1" in mgr.markers
+    ms.redo()
+    assert "Section 1" not in mgr.markers
+
+
+def test_main_delete_section_view_pushes_after_the_mutation(ms):
+    """F2 (b): main._delete_section_view bound to the real manager and scene."""
+    import types
+    from main import MainWindow
+    mgr = ms._section_manager
+    mgr.place_section(QPointF(0, 0), QPointF(5000, 0)); ms.push_undo_state()
+    host = types.SimpleNamespace(scene=ms, section_manager=mgr)
+    MainWindow._delete_section_view(host, "Section 1")
+    assert "Section 1" not in mgr.markers
+    ms.undo()
+    assert "Section 1" in mgr.markers
+    ms.redo()
+    assert "Section 1" not in mgr.markers
+
+
+def test_rename_is_an_undo_step_that_restores_the_old_name(ms):
+    """F2 (c): the marker's rename path (menu / property panel) pushes after renaming."""
+    mgr = ms._section_manager
+    m = mgr.place_section(QPointF(0, 0), QPointF(5000, 0)); ms.push_undo_state()
+    m.set_property("Name", "Stair")
+    assert m.name == "Stair" and "Stair" in mgr.markers
+    ms.undo()
+    assert mgr.markers["Section 1"] is m and m.name == "Section 1" and "Stair" not in mgr.markers
+    ms.redo()
+    assert m.name == "Stair"

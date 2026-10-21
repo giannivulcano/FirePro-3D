@@ -77,6 +77,20 @@ def test_open_scenes_public_and_live_scenes_uses_it(mgr):
     import inspect, main as _main
     src = inspect.getsource(_main.MainWindow._live_scenes)
     assert "open_scenes" in src and "._views" not in src              # 560: no private read
+    assert "._scenes" not in src                                      # nor the schematic manager's
+
+
+def test_schematic_manager_scenes_property_is_public_read_only(qapp):
+    from firepro3d.model_space import Model_Space
+    from firepro3d.schematic_scene import SchematicSceneManager
+    mgr = SchematicSceneManager(Model_Space())
+    sentinel = object()
+    mgr._scenes["bid"] = sentinel
+    assert mgr.scenes == [sentinel]
+    mgr.scenes.clear()                                                # a copy: the store is untouched
+    assert mgr._scenes == {"bid": sentinel}
+    with pytest.raises(AttributeError):
+        mgr.scenes = []
 
 
 def test_get_or_build_scene_without_tab(mgr):
@@ -189,3 +203,93 @@ def test_restore_from_list_updates_survivor_in_place(mgr):
     m.restore_from_list(snap)
     assert m.markers["Section 1"] is s and s.cut_b == QPointF(5000, 0) and s.look_sign == 1
     assert "Section 2" not in m.markers and gone.scene() is None
+
+
+def _main_window():
+    from firepro3d.view_3d import View3D  # noqa: F401 -- heavy import before MainWindow (HF1 pattern)
+    import main as _main_module
+    _main_module.View3D = View3D
+    from main import MainWindow
+    return MainWindow()
+
+
+def test_views_wired_once_on_every_open_path(qapp):
+    """F1: close + reopen a cardinal tab must not double-connect entitySelected, and a
+    section opened by the placement tool's path (place_section + open_section) gets
+    the footer cursor feed and the property-panel routing."""
+    from tests._mainwindow_helpers import dispose_main_window
+    win = _main_window()
+    try:
+        props, coords = [], []
+        win.prop_manager.show_properties = lambda *a: props.append(a)   # looked up at connect time
+        win.footer.set_coord = lambda text: coords.append(text)
+        sm = win.section_manager
+        win._activate_elevation("north")
+        idx = next(i for i in range(win.central_tabs.count())
+                   if win.central_tabs.tabText(i) == "Elevation: North")
+        win._on_tab_close_requested(idx)                                 # user closes the tab
+        assert "north" not in sm.open_names
+        win._activate_elevation("north")                                 # ... and reopens it
+        scene = sm.get_scene("north")
+        props.clear()                                                    # opening may emit None selections
+        scene.entitySelected.emit("probe")
+        assert props == [("probe",)]                                     # once, not twice
+        # Placement path: the manager is driven directly, main's _activate_* never runs.
+        marker = sm.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+        sm.open_section(marker.view_name)
+        sec_scene, sec_view = sm.get_scene("Section 1"), sm.get_view("Section 1")
+        props.clear(); coords.clear()
+        sec_scene.entitySelected.emit("sec")
+        sec_view.cursorMoved.emit("H: 1  Z: 2")
+        assert props == [("sec",)]
+        assert coords == ["H: 1  Z: 2"]
+    finally:
+        dispose_main_window(win)
+
+
+def test_rename_refuses_cardinal_names(mgr):
+    m, ms, tabs = mgr
+    m.seed_cardinals()
+    s = m.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+    for bad in ("North", "north", "EAST"):
+        m.rename_section("Section 1", bad)
+        assert s.name == "Section 1" and "Section 1" in m.markers
+
+
+def test_from_list_skips_placed_record_named_like_a_cardinal(mgr):
+    m, ms, tabs = mgr
+    rec = SectionMarker("North", QPointF(0, 0), QPointF(5000, 0)).to_dict()   # cardinal null
+    m.from_list([rec])
+    assert m.markers == {}
+
+
+def test_undo_restore_pairs_a_rename_and_keeps_tab_marker_and_sheet_binding(mgr):
+    """F3: undo across a rename is a rename back, not delete + re-add."""
+    m, ms, tabs = mgr
+    s = m.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+    view = m.open_section("Section 1")
+    class _VP:
+        source_view_type, source_view_name = "section", "Section 1"
+    class _Sheet:
+        sheet_views = [_VP]
+    vp = _VP
+    ms._sheets = [_Sheet]
+    before = m.to_list()
+    m.rename_section("Section 1", "Stair")
+    after = m.to_list()
+    assert vp.source_view_name == "Stair"
+    m.restore_from_list(before)
+    assert m.markers["Section 1"] is s and "Stair" not in m.markers
+    assert m.get_view("Section 1") is view and tabs.count() == 1
+    assert tabs.tabText(0) == "Section: Section 1" and vp.source_view_name == "Section 1"
+    m.restore_from_list(after)                                       # redo
+    assert m.markers["Stair"] is s and m.get_view("Stair") is view
+    assert tabs.tabText(0) == "Section: Stair" and vp.source_view_name == "Stair"
+
+
+def test_restore_recomputes_the_name_counter(mgr):
+    m, ms, tabs = mgr
+    snap = m.to_list()
+    m.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+    m.restore_from_list(snap)
+    assert m.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0)).name == "Section 1"

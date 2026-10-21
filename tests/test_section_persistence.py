@@ -89,6 +89,15 @@ def test_hand_edited_unbuildable_records_do_not_crash_load(qapp, tmp_path):
         if d["name"] == "Section 1":
             d["cut_b"] = list(d["cut_a"])
     payload["sections"].append({"name": "Section 9"})
+    good = {"cut_a": [0.0, 0.0], "cut_b": [5000.0, 0.0], "look_sign": 1, "depth": 3000.0,
+            "cardinal": None, "auto_extent": False, "gridline_z_overrides": {}}
+    payload["sections"] += [
+        dict(good, name="Section 10", cut_a=["1", "2"]),                 # string coordinates
+        dict(good, name="Section 11", look_sign="x"),                    # non-numeric look_sign
+        dict(good, name="Section 12", gridline_z_overrides=[1, 2]),      # non-dict overrides
+        dict(good, name="Section 13", cardinal=["north"]),               # unhashable cardinal
+        dict(good, name="North"),                                        # placed name == a cardinal key
+    ]
     path.write_text(json.dumps(payload), encoding="utf-8")
     ms2, mgr2 = _scene_with_manager(qapp)
     ms2.load_from_file(str(path))
