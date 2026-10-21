@@ -50,3 +50,23 @@ def test_explode_one_level_copies_outer_values_to_child(qapp):
     made = explode_instances(ms, [inst], flatten=False)
     kids = [i for i in made if isinstance(i, BlockInstance)]
     assert len(kids) == 1 and kids[0].attributes == {"Mark": "X7"}
+
+
+def test_flatten_outermost_default_wins_without_override(qapp):
+    """A1 / A9: with no instance override, the nested child's text bakes the
+    OUTERMOST definition's default, not its own (the ``values=`` threading
+    through the flatten recursion -- a ``set_attributes`` copy alone cannot
+    carry a default)."""
+    ms = Model_Space(scene_role="block_editor")
+    child = BlockDefinition.new(name="C", library="", series="", origin=(0.0, 0.0),
+                                primitives=[_text("@[Mark]")])
+    child.attributes = [_attr("Mark", default="child")]
+    ms.register_block_definition(child)
+    host = BlockDefinition.new(
+        name="H", library="", series="", origin=(0.0, 0.0),
+        primitives=[{"type": "block_instance", "block_id": child.id, "x": 0.0, "y": 0.0}])
+    host.attributes = [_attr("Mark", default="host")]
+    ms.register_block_definition(host)
+    inst = ms.place_block_instance(host.id, (0.0, 0.0))   # no override
+    made = explode_instances(ms, [inst], flatten=True)
+    assert [t._data.text for t in made if isinstance(t, TextItem)] == ["host"]
