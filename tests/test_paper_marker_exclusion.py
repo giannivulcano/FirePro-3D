@@ -1,38 +1,56 @@
 """
 test_paper_marker_exclusion.py
 ==============================
-Verify that elevation-marker furniture (SharedCropBox, ViewMarkerArrow) is
-force-hidden during paper render and restored afterward — PAPER_EXCLUDED hard
-rule (concern 2).
+Verify that cardinal SectionMarkers are force-hidden during paper render and
+restored afterward (PAPER_EXCLUDED hard rule, concern 2) while a placed section's
+marker is NOT excluded (spec s6, view-relationships s6.4).
 """
-from PyQt6.QtCore import QRectF
+from PyQt6.QtCore import QPointF, QRectF
 
 
-def test_shared_cropbox_has_paper_excluded_flag(qapp):
-    from firepro3d.section_marker import SharedCropBox
-    box = SharedCropBox(QRectF(0, 0, 500, 500))
-    assert getattr(type(box), "PAPER_EXCLUDED", False) is True
+def _cardinal_marker():
+    from firepro3d.section_marker import SectionMarker
+    return SectionMarker.for_cardinal("north", QRectF(-5000.0, -5000.0, 10000.0, 10000.0))
 
 
-def test_view_marker_arrow_has_paper_excluded_flag(qapp):
-    from firepro3d.section_marker import ViewMarkerArrow
-    assert getattr(ViewMarkerArrow, "PAPER_EXCLUDED", False) is True
+def _placed_marker():
+    from firepro3d.section_marker import SectionMarker
+    return SectionMarker("Section 1", QPointF(0.0, 0.0), QPointF(6000.0, 0.0), 1, 3000.0)
 
 
-def test_elevation_furniture_hidden_during_paper_render_then_restored(qapp):
+def test_paper_excluded_flag_cardinal_yes_placed_no(qapp):
+    assert _cardinal_marker().PAPER_EXCLUDED is True
+    assert _placed_marker().PAPER_EXCLUDED is False
+
+
+def test_cardinal_marker_hidden_during_paper_render_then_restored(qapp):
     from PyQt6.QtWidgets import QGraphicsScene
-    from firepro3d.section_marker import SharedCropBox
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
 
     model = QGraphicsScene()
-    box = SharedCropBox(QRectF(0, 0, 500, 500))
-    box.setVisible(True)
-    model.addItem(box)
+    card = _cardinal_marker()
+    card.setVisible(True)
+    model.addItem(card)
 
-    saved = apply_paper_overrides(model, QRectF(0, 0, 500, 500))
-    assert box.isVisible() is False          # force-hidden during paper render
+    saved = apply_paper_overrides(model, QRectF(-6000, -6000, 12000, 12000))
+    assert card.isVisible() is False         # force-hidden during paper render
     restore_model_display(saved)
-    assert box.isVisible() is True           # restored after
+    assert card.isVisible() is True          # restored after
+
+
+def test_placed_marker_is_in_the_paper_render_set(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+
+    model = QGraphicsScene()
+    card, placed = _cardinal_marker(), _placed_marker()
+    model.addItem(card); model.addItem(placed)
+
+    saved = apply_paper_overrides(model, QRectF(-6000, -6000, 12000, 12000))
+    assert card.isVisible() is False         # cardinals never plot
+    assert placed.isVisible() is True        # a placed section plots by the default path
+    restore_model_display(saved)
+    assert card.isVisible() is True and placed.isVisible() is True
 
 
 def _make_detail_marker(name, rect):

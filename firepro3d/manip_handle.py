@@ -711,6 +711,40 @@ class GridlineGripHandle(EndpointGripHandle):
             restore(self._gl_snapshot)
 
 
+class FlipGripHandle(GripHandle):
+    """A click-only grip: the press/release toggles the item (``item.flip()``)
+    and commits one undo step itself, because the manipulator's commit hook
+    only runs for a *moved* drag (``GripHandle.on_release``). No drag
+    semantics: a drag is ignored, Esc does nothing. Used by SectionMarker
+    (index 3) to toggle ``look_sign`` (spec s6).
+    """
+
+    def __init__(self, item, index: int):
+        super().__init__(item, index, circular=True)
+
+    def cursor(self, m):
+        return QCursor(Qt.CursorShape.PointingHandCursor)
+
+    def on_press(self, m) -> None:
+        self._snapshot = list(self.item.grip_points())
+
+    def on_drag(self, m, scene_pos, mods) -> None:
+        pass                                   # click-only
+
+    def on_release(self, m, scene_pos, mods) -> None:
+        self.item.flip()
+        m._end_drag()
+        hook = getattr(m, "_commit_hook", None)
+        if hook is not None:
+            hook("grip")
+        rebake = getattr(m, "rebake", None)       # _finish rebakes only a moved drag
+        if rebake is not None:
+            rebake()                              # re-seat the flip grip on the new side
+
+    def on_cancel(self, m) -> None:
+        pass
+
+
 def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset(),
                          translate: "frozenset[int] | set[int]" = frozenset()):
     """Build the default live-apply ``GripHandle`` list for a U3-migrated item.

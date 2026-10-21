@@ -418,14 +418,15 @@ def test_id_detail_marker_token_full_colour_paper_then_canvas(qapp, force_theme)
 
 
 def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
-    """ViewMarkerArrow is PAPER_EXCLUDED (hidden for the pass), so its
+    """A cardinal SectionMarker is PAPER_EXCLUDED (hidden for the pass), so its
     ``_apply_marker`` token branch is unreachable; pin that and the restore."""
+    from PyQt6.QtCore import QRectF
     from firepro3d.paper_display import PaperColorMode
-    from firepro3d.section_marker import ViewMarkerArrow
+    from firepro3d.section_marker import SectionMarker
     from firepro3d.model_space import Model_Space
     force_theme("dark")
     ms = Model_Space()
-    m = ViewMarkerArrow("north")
+    m = SectionMarker.for_cardinal("north", QRectF(-5000.0, -5000.0, 10000.0, 10000.0))
     ms.addItem(m)
     before = m._marker_color.name()
     saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)

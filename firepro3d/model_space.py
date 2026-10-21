@@ -38,7 +38,7 @@ from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings, auto_label)
-from .section_marker import ViewMarkerArrow
+from .section_marker import SectionMarker
 from .colour_tokens import preview_colour, resolve_colour
 from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
@@ -5856,7 +5856,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         break
                     continue
                 if ((isinstance(i, (WallSegment, FloorSlab, RoofItem, Room,
-                                    ViewMarkerArrow))
+                                    SectionMarker))
                         or type(i).__name__ == "DetailMarker")
                         and i.flags()
                         & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
