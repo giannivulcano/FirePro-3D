@@ -181,3 +181,20 @@ def test_panel_button_row_disabled_without_attributes(qapp):
     plain = _plain_def(ms)
     p = ms.place_block_instance(plain.id, (100.0, 0.0))
     assert p.get_properties()["Edit attributes"]["enabled"] is False
+
+
+def test_block_editor_nested_instance_offers_no_edit_attributes(qapp, monkeypatch):
+    """VC9 F2 (A1/D10): inside the Block Editor a placed child's panel button
+    is disabled and ``open_edit_attributes`` refuses -- the nested record
+    drops ``attributes`` at Save, so values entered there would be lost."""
+    opened = []
+    monkeypatch.setattr("firepro3d.block_attributes_dialog.EditAttributesDialog.exec",
+                        lambda self: opened.append(self._inst) or 1)
+    ms = Model_Space(scene_role="block_editor")
+    d = BlockDefinition.new(name="Tag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[_LINE, _text("@[Mark]")])
+    d.attributes = [_attr("Mark", default="A1")]
+    ms.register_block_definition(d)
+    inst = ms.place_block_instance(d.id, (0.0, 0.0))
+    assert inst.get_properties()["Edit attributes"]["enabled"] is False
+    assert ms.open_edit_attributes(inst) is False and opened == []

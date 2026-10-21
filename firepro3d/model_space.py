@@ -3597,9 +3597,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def open_edit_attributes(self, inst) -> bool:
         """Open the Edit Attributes dialog for *inst* (SB1a A3). Returns
-        False (no dialog) when its definition declares no attributes."""
+        False (no dialog) when its definition declares no attributes, or in
+        the Block Editor (a nested record carries no ``attributes``, A1/D10)."""
         d = inst.definition()
-        if d is None or not d.effective_attributes():
+        if (d is None or not d.effective_attributes()
+                or self.scene_role == "block_editor"):
             return False
         from .block_attributes_dialog import EditAttributesDialog
         parent = self.views()[0].window() if self.views() else None

@@ -728,7 +728,10 @@ class BlockInstance(QGraphicsObject):
         """Closed areas that count as a direct HALO hit.
 
         Fill / pattern clips (posed like the paint) and text frame boxes
-        (full pose, DD2). Memoised on (compiled ops, full pose).
+        (full pose, DD2). A bound text op (SB1a S2) adds the box of its
+        *resolved* glyphs as paint draws them (``_text_path``) -- the
+        definition's frame boxes below are sized to the authored ``@[key]``
+        token. Memoised on (compiled ops, full pose).
         """
         ops = self.render_ops()
         key = self._pose_key()
@@ -739,6 +742,17 @@ class BlockInstance(QGraphicsObject):
             for op in ops:
                 if op.kind in (FILL, PATTERN):
                     area = area.united(pose.map(op.path))
+            for op in self._bound_ops():
+                if op.kind != TEXT:
+                    continue
+                r = self._text_path(op).boundingRect()
+                if r.isEmpty():
+                    continue
+                p = QPainterPath()
+                p.addPolygon(QPolygonF([pose.map(r.topLeft()), pose.map(r.topRight()),
+                                        pose.map(r.bottomRight()), pose.map(r.bottomLeft())]))
+                p.closeSubpath()
+                area = area.united(p)
             d = self.definition()
             if d is not None:
                 full = self.full_pose_transform()
@@ -1366,7 +1380,10 @@ class BlockInstance(QGraphicsObject):
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
         d = self.definition()
-        has_attrs = bool(d is not None and d.effective_attributes())
+        # A1/D10: a nested child inside the Block Editor carries no instance
+        # values (the nested record drops ``attributes``), so the row is off.
+        has_attrs = bool(d is not None and d.effective_attributes()
+                         and getattr(sc, "scene_role", None) != "block_editor")
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}

@@ -170,3 +170,25 @@ def test_keep_upright_mirrored_reads_unmirrored(qapp):
     refl = QTransform(); refl.translate(cx, 0); refl.scale(-1, 1); refl.translate(-cx, 0)
     assert not _same_path(refl.map(pb.path), QTransform.fromTranslate(
         pb.text_frame[0] - pa.text_frame[0], 0).map(pa.path))
+
+
+def test_shape_covers_resolved_glyphs_not_token_box(qapp):
+    """VC9 F1: the hit shape of a bound text op spans the *resolved* string
+    (here far longer than the authored ``@[Mark]`` token), so a click near
+    the glyphs' right edge selects the instance."""
+    ms = Model_Space()
+    d = BlockDefinition.new(name="T", library="", series="", origin=(0.0, 0.0),
+                            primitives=[_text("@[Mark]")])
+    d.attributes = [_attr("Mark", default="Conference Room 101")]
+    ms.register_block_definition(d)
+    inst = ms.place_block_instance(d.id, (0.0, 0.0))
+    assert d.render_ops() == []                         # text-only: static list empty
+    glyph = _texts(inst)[0].path.boundingRect()
+    token = d.text_snap_points()[0]                     # authored-token frame box
+    token_right = max(p.x() for p in token)
+    assert glyph.right() > token_right + 10.0           # the mismatch is real
+    sh = inst.shape()
+    assert not sh.isEmpty() and inst.boundingRect().contains(glyph)
+    probe = QPointF(glyph.right() - 0.1 * glyph.width(), glyph.center().y())
+    assert sh.contains(probe)
+    assert inst.halo_area_path().contains(probe)
