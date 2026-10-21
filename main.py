@@ -5012,6 +5012,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     _BE_NO_EDITOR_TIP = "Open or create a block to edit"
     # Save as Template is live only on a Schematic tab (schematics.md D-S6, SV3).
     _BE_TEMPLATE_BLOCK_TIP = "Only a schematic can be saved as a template"
+    _BE_ATTR_SCHEMATIC_TIP = "Schematics have no attributes"
 
     def _init_block_editor_tab(self, _I):
         """Build Tab 6: Block Editor — permanent, built once (layout A).
@@ -5071,11 +5072,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             gd.add_small_button("Import", _I("block_manager_icon.svg"),
                                 self._be_import),
             "Import DXF/DWG/PDF geometry into the editor")
-        # Placeholder (user exception to D15): permanently disabled until wired.
+        # SB1a: opens the Block Editor's Attributes editor (the panel's Block
+        # view "Edit attributes..." button is the same verb); a schematic has
+        # no attributes (schematics.md D-S14), see _sync_capability_buttons.
         self._be_attr_btn = _editor_only(
             gd.add_small_button("Edit Attributes", _I("block_manager_icon.svg"),
                                 self._be_edit_attributes),
-            "Edit block attributes (coming soon)")
+            "Edit Attributes — declare the block's attributes; text "
+            "primitives reference them as @[key] fields")
         self._be_tile_btn = _editor_only(
             gd.add_small_button("Pattern Tile", _I("pattern_tile_icon.svg"),
                                 self._be_toggle_tile, checkable=True),
@@ -5477,16 +5481,17 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         *active* = a Block Editor tab is current. Inactive: every Definition /
         2D Geometry / Edit / Modify button is disabled and tooltipped
         ``_BE_NO_EDITOR_TIP`` (the Block group stays live). Active: real
-        tooltips back, buttons enabled (Edit Attributes stays a disabled
-        placeholder), then Edit/Modify narrowed by ``_refresh_modify_buttons``
-        against the editor scene's selection.
+        tooltips back, buttons enabled, then Edit/Modify narrowed by
+        ``_refresh_modify_buttons`` against the editor scene's selection and
+        the kind-gated buttons (capabilities, Save as Template, Edit
+        Attributes) by ``_sync_capability_buttons``.
         """
         from PyQt6 import sip
         for b, tip in getattr(self, "_be_editor_only", ()):
             if sip.isdeleted(b):
                 continue
             b.setToolTip(tip if active else self._BE_NO_EDITOR_TIP)
-            b.setEnabled(active and b is not self._be_attr_btn)
+            b.setEnabled(active)
         if active:
             self._connect_modify_refresh(self._active_scene())
             self._refresh_modify_buttons()
@@ -5747,9 +5752,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             btn.setEnabled(schematic)
             btn.setToolTip(tips.get(id(btn), btn.toolTip()) if schematic
                            else self._BE_TEMPLATE_BLOCK_TIP)
+        # Edit Attributes: a schematic declares no attributes (SB1a / D-S14).
+        btn = getattr(self, "_be_attr_btn", None)
+        if btn is not None and not sip.isdeleted(btn) and w is not None:
+            btn.setEnabled(not schematic)
+            btn.setToolTip(self._BE_ATTR_SCHEMATIC_TIP if schematic
+                           else tips.get(id(btn), btn.toolTip()))
 
     def _be_edit_attributes(self):
-        pass   # wired later — block attribute authoring
+        """Ribbon Edit Attributes (block tabs only; a schematic has none, D-S14)."""
+        w = self._active_editor_widget()
+        if w is not None and w.kind != "schematic":
+            w.open_attributes_editor()
 
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown

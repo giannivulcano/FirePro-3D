@@ -222,12 +222,32 @@ def test_no_editor_disables_editor_groups_with_tooltip(mw, qapp):
         qapp.processEvents()
 
 
-def test_edit_attributes_stays_disabled_with_an_editor(mw, qapp):
-    mw.block_editor_manager.open_new()
+def test_edit_attributes_opens_the_attributes_editor(mw, qapp, monkeypatch):
+    """SB1a smoke ruling 2026-10-21: the Definition group's Edit Attributes
+    button (the pre-SB1a placeholder) is live on a block editor and opens the
+    Attributes editor for the current editor; a schematic keeps it disabled
+    (schematics.md D-S14)."""
+    from firepro3d import block_attributes_editor as bae
+    opened = []
+    monkeypatch.setattr(bae.AttributesEditorDialog, "exec",
+                        lambda self: opened.append(self._editor) or 0)
+    w = mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    attr = _buttons(_group(_page(mw, PAGE), "Definition"))["Edit Attributes"]
+    assert attr.isEnabled()
+    assert attr.toolTip() not in (NO_EDITOR_TIP, "Edit block attributes (coming soon)")
+    QTest.mouseClick(attr, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert opened == [w]
+    # A schematic editor: disabled with the schematic tooltip, click inert.
+    mw.block_editor_manager.open_new(kind="schematic")
     qapp.processEvents()
     attr = _buttons(_group(_page(mw, PAGE), "Definition"))["Edit Attributes"]
     assert not attr.isEnabled()
-    assert attr.toolTip() == "Edit block attributes (coming soon)"
+    assert attr.toolTip() == mw._BE_ATTR_SCHEMATIC_TIP
+    QTest.mouseClick(attr, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert opened == [w]
 
 
 # ── G4: entering / leaving an editor tab ─────────────────────────────────────
@@ -242,8 +262,8 @@ def test_entering_editor_switches_page_and_leaving_restores(mw, qapp):
     page = _page(mw, PAGE)
     for title in ("Definition", "2D Geometry"):
         for label, b in _buttons(_group(page, title)).items():
-            if label in ("Edit Attributes", "Save as Template", "Fill"):
-                continue      # placeholder / schematic-only (SV3) / selection-gated (HF3)
+            if label in ("Save as Template", "Fill"):
+                continue      # schematic-only (SV3) / selection-gated (HF3)
             assert b.isEnabled(), label
             assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, label
     # Edit/Modify follow _refresh_modify_buttons (empty editor selection).
