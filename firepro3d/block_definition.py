@@ -13,8 +13,9 @@ import uuid
 from collections import OrderedDict
 
 from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
 
+from .block_attributes import BoundPrim, has_fields, normalise_attr
 from .block_pose import pose_matrix, valid_scale
 from .constants import BLOCK_VARIANT_CACHE_MAX
 
@@ -278,7 +279,7 @@ class BlockDefinition:
                  render_mode: str = "default", geoms: list[dict] | None = None,
                  constraints: list | None = None, tile: dict | None = None,
                  repeat: dict | None = None, end: dict | None = None,
-                 kind: str = "block"):
+                 kind: str = "block", host_category: str = ""):
         self.id = id
         self.version = int(version)
         self.name = name
@@ -291,7 +292,10 @@ class BlockDefinition:
         self.scale_mode = scale_mode
         # Set directly (not via the setter): the caches do not exist yet.
         self._origin = (float(origin[0]), float(origin[1]))
-        self.attributes = list(attributes)
+        self.attributes = [normalise_attr(a) for a in attributes]
+        # Host category (SB1a S1): which host kind supplies source=host values.
+        # Additive key -- absent => "" (no schema bump).
+        self.host_category: str = str(host_category)
         self.primitives = list(primitives)
         # Sketch constraint records (parametric-constraint-system.md §6.3);
         # additive key, absent => [] (no schema bump).
@@ -325,6 +329,8 @@ class BlockDefinition:
         self._variants: tuple | None = None   # (base ops list, OrderedDict) -- DD4
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
         self._text_snap_pts: list[list[QPointF]] | None = None
+        self._bound_prims: list | None = None    # BoundPrim list (SB1a S2)
+        self._eff_attrs: list | None = None      # effective_attributes cache
         self._instances: list = []   # BlockInstance backrefs (Task 4 wires notify)
         # Nested-block resolver (registry.get), injected by BlockRegistry (D5).
         self._resolve = None
@@ -381,6 +387,8 @@ class BlockDefinition:
         self._render_ops = None
         self._variants = None
         self._text_snap_pts = None
+        self._bound_prims = None
+        self._eff_attrs = None
         for inst in list(self._instances):
             inst.on_definition_changed()
 
@@ -400,6 +408,8 @@ class BlockDefinition:
         self._render_ops = None
         self._variants = None
         self._text_snap_pts = None
+        self._bound_prims = None
+        self._eff_attrs = None
 
     @property
     def tile(self) -> dict | None:
@@ -494,6 +504,32 @@ class BlockDefinition:
             self._render_ops = self._compile()
         return self._render_ops
 
+    def effective_attributes(self) -> list[dict]:
+        """This definition's attribute records plus, for every nested child
+        (recursively), the child's records whose key this definition does not
+        declare -- one key namespace, outermost wins (SB1a ruling A1).
+        Cached with the render ops."""
+        if self._eff_attrs is None:
+            out = [dict(a) for a in self.attributes]
+            seen = {a["key"] for a in out}
+            for prim in self.primitives:
+                if prim.get("type") != _NESTED_TYPE:
+                    continue
+                child = self._resolve_nested(prim)
+                if child is None or child.id in _COMPILING or child.id == self.id:
+                    continue
+                _COMPILING.add(self.id)
+                try:
+                    sub = child.effective_attributes()
+                finally:
+                    _COMPILING.discard(self.id)
+                for a in sub:
+                    if a["key"] not in seen:
+                        seen.add(a["key"])
+                        out.append(dict(a))
+            self._eff_attrs = out
+        return self._eff_attrs
+
     def render_ops_variant(self, mirrored: bool, scale: float) -> list[RenderOp]:
         """The compiled ops under a mirror / uniform scale (design DD4).
 
@@ -551,7 +587,6 @@ class BlockDefinition:
                     child = self._resolve_nested(prim)
                     if child is None or child.id in _COMPILING or child.id == self.id:
                         continue
-                    from PyQt6.QtGui import QTransform
                     t = _nested_pose(prim) * QTransform.fromTranslate(-ox, -oy)
                     _COMPILING.add(self.id)
                     try:
@@ -582,12 +617,14 @@ class BlockDefinition:
         gets its own op (authored blocks, unchanged).
         """
         if self.render_mode == "reference":
+            self._bound_prims = []
             return self._compile_reference()
         ox, oy = self.origin
         ops: list[RenderOp] = []
+        bound: list = []
         for prim in self.primitives:
             if prim.get("type") == _NESTED_TYPE:
-                ops.extend(self._nested_ops(prim, ox, oy))
+                ops.extend(self._nested_ops(prim, ox, oy, bound))
                 continue
             if is_scaffold(prim):
                 continue
@@ -600,7 +637,11 @@ class BlockDefinition:
             path = item.mapToParent(_local_path(item))   # honor prim pos/rotation
             path.translate(-ox, -oy)                       # origin-relative
             if hasattr(item, "render_outline_path"):
-                c = item.grip_points()[8]                # box centre (MOVE_GRIP_INDEX)
+                if has_fields(item.data.text) or getattr(item.data, "keep_upright", False):
+                    bound.append(BoundPrim(copy.deepcopy(prim),
+                                           QTransform.fromTranslate(-ox, -oy)))
+                    continue
+                c = item.grip_points()[8]               # box centre (MOVE_GRIP_INDEX)
                 ops.append(RenderOp(TEXT, path, colour=item.data.color,
                                     text_frame=(c.x() - ox, c.y() - oy,
                                                 float(item._angle))))
@@ -617,7 +658,6 @@ class BlockDefinition:
                 # Same map as the path: mapToParent (Qt transform, then pos --
                 # row-vector order) then the origin shift. Rect data rotation
                 # is already inside its stroke_pieces().
-                from PyQt6.QtGui import QTransform
                 from .path_walk import map_piece
                 t = item.transform() * QTransform.fromTranslate(
                     item.pos().x() - ox, item.pos().y() - oy)
@@ -633,7 +673,15 @@ class BlockDefinition:
                                 # phase anchor: this definition's origin
                                 origin=QPointF(0.0, 0.0) if pieces else None,
                                 ends=ends))
+        self._bound_prims = bound
         return ops
+
+    def bound_prims(self) -> list:
+        """Text prims excluded from the static list (fields or keep_upright),
+        nested children included, each with its definition-local transform
+        (design S2). Compiled with -- and invalidated with -- the render ops."""
+        self.render_ops()
+        return self._bound_prims if self._bound_prims is not None else []
 
     def _resolve_nested(self, prim):
         """The nested definition for *prim*, or None (missing / unresolvable)."""
@@ -641,7 +689,7 @@ class BlockDefinition:
             return None
         return self._resolve(prim.get("block_id", ""))
 
-    def _nested_ops(self, prim, ox, oy) -> list:
+    def _nested_ops(self, prim, ox, oy, bound: list) -> list:
         """B's cached ops mapped through the record pose, then A's origin shift.
 
         Qt ``QTransform`` composes row-vector style: ``p * (pose * shift)``
@@ -649,7 +697,6 @@ class BlockDefinition:
         ``mapToParent`` followed by ``translate(-ox, -oy)`` for primitives.
         An unresolvable or cyclic nested block yields the red placeholder.
         """
-        from PyQt6.QtGui import QTransform
         t = _nested_pose(prim) * QTransform.fromTranslate(-ox, -oy)
         child = self._resolve_nested(prim)
         if child is None or child.id in _COMPILING or child.id == self.id:
@@ -657,6 +704,7 @@ class BlockDefinition:
         _COMPILING.add(self.id)
         try:
             child_ops = child.render_ops()
+            child_bound = child.bound_prims()
         finally:
             _COMPILING.discard(self.id)
         from .render_op import apply_overrides
@@ -665,9 +713,9 @@ class BlockDefinition:
         # (and its records) resolved -- outermost wins (WM-6). Raw names
         # (load already canonicalised them): a compile inside the Display
         # Manager Cancel replay must not bake the renamed-away alias target.
-        return apply_overrides([op.mapped(t) for op in child_ops],
-                               *override_args(prim.get("overrides"),
-                                              canonical=False))
+        ov = override_args(prim.get("overrides"), canonical=False)
+        bound.extend(BoundPrim(b.prim, b.transform * t, ov) for b in child_bound)
+        return apply_overrides([op.mapped(t) for op in child_ops], *ov)
 
     def _compile_reference(self) -> list[RenderOp]:
         """Batched compile: accumulate each layer's geometry into one path.
@@ -729,7 +777,8 @@ class BlockDefinition:
             "series": self.series,
             "scale_mode": self.scale_mode,
             "origin": [self.origin[0], self.origin[1]],
-            "attributes": list(self.attributes),
+            "attributes": [dict(a) for a in self.attributes],
+            "host_category": self.host_category,
             "primitives": copy.deepcopy(self.primitives),
             "render_mode": self.render_mode,
             "constraints": [dict(c) for c in self.constraints],
@@ -759,4 +808,5 @@ class BlockDefinition:
             repeat=data.get("repeat"),
             end=data.get("end"),
             kind=data.get("kind", "block"),
+            host_category=data.get("host_category", ""),
         )

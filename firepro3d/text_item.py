@@ -106,13 +106,14 @@ class TextAnnotationData:
     border_corner: str = "square"                # 'square'|'round'|'chamfer'
     border_corner_radius_mm: float = 0.0         # 0 = auto proportional (TEXT_FRAME_CORNER_FRAC)
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
+    keep_upright: bool = False                   # SB1a A5: always readable in a block
     type: str = "text"                           # discriminator for future annotation types
 
     def to_dict(self) -> dict:
         # Saves canonical weight names (linetypes.md LT2-8 / H-g): a name an
         # undo / paper command restored after a rename writes as the new name.
         from .paper_display import canonical_weight_name
-        return {
+        d = {
             "type": self.type, "text": self.text,
             "x": self.x, "y": self.y,
             "height_mm": self.height_mm, "wrap_width_mm": self.wrap_width_mm,
@@ -128,6 +129,9 @@ class TextAnnotationData:
             "border_corner_radius_mm": self.border_corner_radius_mm,
             "angle": self.angle,
         }
+        if self.keep_upright:
+            d["keep_upright"] = True             # sparse (the `mirrored` convention)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "TextAnnotationData":
@@ -154,6 +158,7 @@ class TextAnnotationData:
             border_corner=d.get("border_corner", "square"),
             border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
             angle=float(d.get("angle", 0.0)),
+            keep_upright=bool(d.get("keep_upright", False)),
             type=d.get("type", "text"),
         )
 
