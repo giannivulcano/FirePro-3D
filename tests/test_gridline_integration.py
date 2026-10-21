@@ -39,20 +39,30 @@ class TestDialogReconciliation:
         assert len(scene._gridlines) == 0
 
 
-class TestElevationProjection:
-    def test_vertical_projects_to_north(self, scene):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        p1, p2 = QPointF(1000, 0), QPointF(1000, 5000)
-        assert _is_cardinal_for_elevation(p1, p2, "north") is True
-        assert _is_cardinal_for_elevation(p1, p2, "south") is True
-        assert _is_cardinal_for_elevation(p1, p2, "east") is False
-        assert _is_cardinal_for_elevation(p1, p2, "west") is False
+def _shown_in(section_scene_for, direction, p1, p2):
+    """True when the cardinal section ``direction`` projects a gridline p1->p2."""
+    from firepro3d.section_scene import ElevGridlineItem
+    ms, sec = section_scene_for(direction)
+    gl = GridlineItem(p1, p2, label="G")
+    ms._gridlines.append(gl)
+    ms.addItem(gl)
+    sec.rebuild()
+    return any(isinstance(it, ElevGridlineItem) for it in sec.items())
 
-    def test_angled_projects_to_nothing(self, scene):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
+
+class TestElevationProjection:
+    def test_vertical_projects_to_north(self, section_scene_for):
+        p1, p2 = QPointF(1000, 0), QPointF(1000, 5000)
+        assert _shown_in(section_scene_for, "north", p1, p2) is True
+        assert _shown_in(section_scene_for, "south", p1, p2) is True
+        assert _shown_in(section_scene_for, "east", p1, p2) is False
+        assert _shown_in(section_scene_for, "west", p1, p2) is False
+
+    def test_angled_projects_to_every_cardinal(self, section_scene_for):
+        """D7a: an oblique gridline crosses every cardinal cut line."""
         p1, p2 = QPointF(0, 0), QPointF(5000, 5000)
         for d in ("north", "south", "east", "west"):
-            assert _is_cardinal_for_elevation(p1, p2, d) is False
+            assert _shown_in(section_scene_for, d, p1, p2) is True
 
 
 class TestLockEnforcement:

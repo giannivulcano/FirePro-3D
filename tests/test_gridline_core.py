@@ -236,33 +236,46 @@ class TestSerialization:
         assert not hasattr(gl, "paper_height_mm")
 
 
+def _elev_gridline_h(section_scene_for, direction, p1, p2):
+    """Build the cardinal section ``direction`` over a model holding one
+    gridline p1->p2 (scene coords) and return its projected h, or None when
+    the section shows no such gridline (presence = ``ElevGridlineItem``)."""
+    from firepro3d.section_scene import ElevGridlineItem
+    ms, sec = section_scene_for(direction)
+    gl = GridlineItem(QPointF(*p1), QPointF(*p2), label="G")
+    ms._gridlines.append(gl)
+    ms.addItem(gl)
+    sec.rebuild()
+    items = [it for it in sec.items() if isinstance(it, ElevGridlineItem)]
+    assert len(items) <= 1
+    return items[0].line().x1() if items else None
+
+
 class TestElevationFiltering:
-    """Test the cardinal-only rule for elevation gridline visibility."""
+    """Gridline visibility in a cardinal section is derived from the cut line
+    (872, D7a): the infinite gridline must cross the cut inside the crop box."""
 
-    def test_vertical_in_north(self):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        assert _is_cardinal_for_elevation(QPointF(1000, 0), QPointF(1000, 5000), "north") is True
+    def test_vertical_in_north(self, section_scene_for):
+        h = _elev_gridline_h(section_scene_for, "north", (1000, 0), (1000, 5000))
+        assert h == pytest.approx(-1000.0)            # north: h = -world x
 
-    def test_vertical_not_in_east(self):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        assert _is_cardinal_for_elevation(QPointF(1000, 0), QPointF(1000, 5000), "east") is False
+    def test_vertical_not_in_east(self, section_scene_for):
+        assert _elev_gridline_h(section_scene_for, "east", (1000, 0), (1000, 5000)) is None
 
-    def test_horizontal_in_east(self):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        assert _is_cardinal_for_elevation(QPointF(0, 2000), QPointF(5000, 2000), "east") is True
+    def test_horizontal_in_east(self, section_scene_for):
+        assert _elev_gridline_h(section_scene_for, "east", (0, 2000), (5000, 2000)) is not None
 
-    def test_horizontal_not_in_north(self):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        assert _is_cardinal_for_elevation(QPointF(0, 2000), QPointF(5000, 2000), "north") is False
+    def test_horizontal_not_in_north(self, section_scene_for):
+        assert _elev_gridline_h(section_scene_for, "north", (0, 2000), (5000, 2000)) is None
 
-    def test_angled_in_no_elevation(self):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        p1, p2 = QPointF(0, 0), QPointF(3000, 4000)
+    def test_angled_in_every_elevation_at_its_crossing(self, section_scene_for):
+        """Ratified by D7a: an oblique gridline crosses every cardinal cut."""
+        p1, p2 = (0, 0), (3000, 3000)       # 45 degrees through the origin, scene coords
         for direction in ("north", "south", "east", "west"):
-            assert _is_cardinal_for_elevation(p1, p2, direction) is False
+            h = _elev_gridline_h(section_scene_for, direction, p1, p2)
+            assert h is not None, direction
 
-    def test_nearly_vertical_excluded(self):
-        from firepro3d.section_scene import _is_cardinal_for_elevation
-        p1 = QPointF(1000, 0)
-        p2 = QPointF(1000.1, 5000)  # dx=0.1, well above 1e-6 epsilon
-        assert _is_cardinal_for_elevation(p1, p2, "north") is False
+    def test_nearly_vertical_still_shows_in_north(self, section_scene_for):
+        """No epsilon rule any more: a 0.1 mm skew is a crossing like any other."""
+        h = _elev_gridline_h(section_scene_for, "north", (1000, 0), (1000.1, 5000))
+        assert h is not None

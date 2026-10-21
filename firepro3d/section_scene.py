@@ -45,28 +45,6 @@ if TYPE_CHECKING:
 # Data role for storing source entity reference on projected items
 _ROLE_SOURCE = Qt.ItemDataRole.UserRole
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Cardinal filtering for elevation gridlines
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CARDINAL_EPSILON = 1e-6
-
-
-def _is_cardinal_for_elevation(p1: QPointF, p2: QPointF, direction: str) -> bool:
-    """Return True if the gridline defined by p1,p2 should appear in the given elevation.
-
-    Only exactly-cardinal gridlines appear:
-    - North/South: show gridlines where dx == 0 (vertical)
-    - East/West: show gridlines where dy == 0 (horizontal)
-    """
-    dx = abs(p2.x() - p1.x())
-    dy = abs(p2.y() - p1.y())
-    if direction in ("north", "south"):
-        return dx < _CARDINAL_EPSILON
-    elif direction in ("east", "west"):
-        return dy < _CARDINAL_EPSILON
-    return False
-
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
@@ -1699,17 +1677,13 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         for gl in getattr(self._ms, "_gridlines", []):
             line_geom = gl.line()
 
-            # Filter: only cardinal gridlines appear in elevations
-            p1 = QPointF(line_geom.x1(), line_geom.y1())
-            p2 = QPointF(line_geom.x2(), line_geom.y2())
-            if not _is_cardinal_for_elevation(p1, p2, self._direction):
-                continue
-
+            # A gridline shows where its infinite line crosses the cut line
+            # inside the crop box (872, D7a); parallel / outside = absent.
             wx1, wy1 = self._scene_to_world(line_geom.x1(), line_geom.y1())
             wx2, wy2 = self._scene_to_world(line_geom.x2(), line_geom.y2())
-            h1, _ = self._project(wx1, wy1, 0)
-            h2, _ = self._project(wx2, wy2, 0)
-            h_avg = (h1 + h2) / 2.0
+            h_avg = self._gridline_crossing_h((wx1, wy1), (wx2, wy2))
+            if h_avg is None:
+                continue
 
             levels = self._lm.levels
             if not levels:
@@ -1745,42 +1719,21 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Level datums ─────────────────────────────────────────────────────
 
     def _datum_extent(self) -> tuple[float, float]:
-        """Compute H range for datum lines to match gridline extents.
+        """H range of the datum lines = the crop box (s5)."""
+        return self._basis.h_min, self._basis.h_max
 
-        Returns (h_min, h_max) in world mm based on the actual gridline
-        positions.  Falls back to DEFAULT_GRIDLINE_LENGTH_MM if no gridlines.
-        """
-        from .constants import DEFAULT_GRIDLINE_LENGTH_MM
-        ppm = self._ppm()
-
-        gridlines = getattr(self._ms, "_gridlines", [])
-        if not gridlines:
-            # Fallback: 1000" offset, 864" length (default gridline dims)
-            half = DEFAULT_GRIDLINE_LENGTH_MM / ppm / 2.0
-            return -half, half
-
-        # Gather H positions only from gridlines visible in this elevation
-        # (perpendicular to the view direction).  Parallel gridlines project
-        # to extreme H values and would make the datum lines way too long.
-        h_vals = []
-        for gl in gridlines:
-            lg = gl.line()
-            p1 = QPointF(lg.x1(), lg.y1())
-            p2 = QPointF(lg.x2(), lg.y2())
-            if not _is_cardinal_for_elevation(p1, p2, self._direction):
-                continue
-            wx1, wy1 = self._scene_to_world(lg.x1(), lg.y1())
-            wx2, wy2 = self._scene_to_world(lg.x2(), lg.y2())
-            h1, _ = self._project(wx1, wy1, 0)
-            h2, _ = self._project(wx2, wy2, 0)
-            h_vals.extend([h1, h2])
-
-        if not h_vals:
-            half = DEFAULT_GRIDLINE_LENGTH_MM / ppm / 2.0
-            return -half, half
-
-        margin = abs(max(h_vals) - min(h_vals)) * 0.2 + 500
-        return min(h_vals) - margin, max(h_vals) + margin
+    def _gridline_crossing_h(self, p, q):
+        """h of the crossing of the INFINITE gridline p->q with the cut line,
+        or None when parallel or outside [h_min, h_max] (872, D7a)."""
+        b = self._basis
+        d1, d2 = b.d(*p), b.d(*q)
+        if abs(d2 - d1) < 1e-9:
+            return None                                   # parallel to the cut
+        t = d1 / (d1 - d2)                                # unbounded: any t
+        h = b.h(p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]))
+        if not (b.h_min - 1e-9 <= h <= b.h_max + 1e-9):
+            return None
+        return h
 
     def _project_level_datums(self):
         if not self._show_datums:
