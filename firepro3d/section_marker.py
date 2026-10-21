@@ -23,6 +23,7 @@ from PyQt6.QtGui import (
     QPainterPathStroker,
 )
 
+from . import paper_display as _pd
 from .constants import DEFAULT_LEVEL, Z_OVERLAY
 from .gridline import BUBBLE_RADIUS_MM, GRID_COLOR
 
@@ -450,7 +451,6 @@ class SectionMarker(QGraphicsItem):
             painter.setPen(QPen(col.lighter(150)))
             painter.drawText(QRectF(c.x() - self._R, c.y() - self._R, 2 * self._R, 2 * self._R),
                              Qt.AlignmentFlag.AlignCenter, label)
-        from . import paper_display as _pd
         if self.isSelected() and not _pd.paper_pass_active():
             # Crop box: the retired SharedCropBox's dashed look, only while selected (s6)
             # and never on a sheet / PDF -- the paper pass does not clear selection (VC9 M4).
