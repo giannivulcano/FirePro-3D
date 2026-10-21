@@ -10,6 +10,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
+from .block_attributes import resolve_fields, resolve_values
 from .block_definition import _nested_pose, is_scaffold
 from .block_pose import is_upright, pose_matrix, valid_scale
 from .stroke_style import compose_overrides
@@ -195,7 +196,8 @@ def _bake(item, ov) -> None:
         sync()
 
 
-def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = None) -> list:
+def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = None,
+                      *, values: dict | None = None) -> list:
     """Replace each instance by its definition's contents; returns new items.
 
     Primitives are re-created via ``scene._add_from_dict`` and moved onto the
@@ -219,6 +221,8 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
             item this call creates (NB5). One map per exploded instance (the
             caller loops); records ``_add_from_dict`` skips (scaffolding) get
             no entry, which is NB5's drop path.
+        values: The outermost resolved attribute values, threaded through the
+            flatten recursion (A1/A9); ``None`` resolves from *instances*.
 
     Returns:
         The newly created scene items.
@@ -231,6 +235,11 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
         ox, oy = d.origin
         pose = instance_pose(inst)
         s = pose[4]
+        if values is None:
+            vals = resolve_values(d.effective_attributes(), inst.attributes,
+                                  inst.host_values())
+        else:
+            vals = values
         for i, rec in enumerate(d.primitives):
             key = record_key(rec, i)
             if rec.get("type") == _NESTED_TYPE:
@@ -241,11 +250,17 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                     overrides=compose_overrides(inst.overrides,
                                                 rec.get("overrides")),
                     **kw)
+                child_def = scene.get_block_definition(rec["block_id"])
+                if child_def is not None:
+                    ckeys = {a["key"] for a in child_def.effective_attributes()}
+                    child.set_attributes({k: v for k, v in inst.attributes.items()
+                                          if k in ckeys})
                 if uid_map is not None:
                     uid_map[key] = child._uid
                 if flatten:
                     sub = {} if uid_map is not None else None
-                    created.extend(explode_instances(scene, [child], flatten=True, uid_map=sub))
+                    created.extend(explode_instances(scene, [child], flatten=True,
+                                                     uid_map=sub, values=vals))
                     if sub:
                         uid_map.update({f"{key}/{k}": v for k, v in sub.items()})
                     if child.scene() is scene:      # unexplodable (missing) — keep it
@@ -256,7 +271,11 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
             if is_scaffold(rec):
                 continue   # non-printed reference line: scaffolding (D23)
             is_text = rec.get("type") == _TEXT_TYPE
+            keep = False
             if is_text:
+                rec = dict(rec)
+                rec["text"] = resolve_fields(str(rec.get("text", "")), vals)[0]
+                keep = bool(rec.pop("keep_upright", False))
                 c_def = _text_centre(rec)
                 if s != 1.0:
                     rec = _scaled_text_record(rec, s)
@@ -268,6 +287,8 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
             _bake(item, inst.overrides)
             if is_text:
                 _pose_text(item, inst, c_def, ox, oy)
+                if keep and not inst.block_mirrored() and not is_upright(item._angle):
+                    item.manip_rotate(180.0, item.grip_points()[8])
                 created.append(item)
                 continue
             pose_primitive(item, pose, ox, oy)
