@@ -1,11 +1,15 @@
 ---
-status: partial           # + instance mirror & uniform scale pose (2026-10-12); + library disk scan, index.json retired (2026-10-10); + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails + attribute authoring deferred; paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
-last-verified: 2026-10-18  # HF1 Account (pointer only: token pens + .fpdb colour_tokens marker); prior HF2 polish Account (pointers only: pose Scale scope + Explode hatch-angle gap point at hatch-and-fill D-A11); prior NB Account (pointers only: block_snap_geometry paths=True, DD8 rotation-as-variable, Explode remap); prior block-primitive-snap Account (pointers only: Explode pose_primitive / compose_pose, posed snap stand-ins bullet, applies-to + block_snap_geometry.py); prior 2026-10-13 reference geometry Account (scaffolding bullet -> flag form, prim_refs skips reference records RG15, Explode skips reference shapes); prior 2026-10-12 block mirror/scale Account: new "Instance pose: mirror & scale (2026-10-12)" section (the one home: P = T·R·S·M, variant op cache, reflect/scale hooks, sparse records + place_kwargs, readable text, Explode closed form, placement arrow flips, Mirrored / Scale rows, decisions + known gaps); Decision 8 arrow-flip note closed; Decision 9 "no rescale/mirror" retired; flyweight-core / property-row / I-O record shapes reconciled; applies-to + block_pose.py; prior placement batch Account: Decision 8 amended (Paste-style prototype ghost, Space / Shift+Space rotation, focus hand-off), HUD line + drag paragraph pointers; prior disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: 084b43e0   # HF1 Account (pointer only); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish; pointers only); prior b62aab92 NB Account (feat/nested-block-constraint-handles merge; pointers only); prior 5e4948d6 merge feat/block-primitive-snap (pointers only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+status: partial           # + attribute binding core (SB1a, 2026-10-21); + instance mirror & uniform scale pose (2026-10-12); + library disk scan, index.json retired (2026-10-10); + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails deferred (attribute authoring built by SB1a, 2026-10-21); paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
+last-verified: 2026-10-21  # SB1a Account (pointers only: attribute schema/binding, three new modules, D6/D9 amended); prior 2026-10-18 HF1 Account (pointer only: token pens + .fpdb colour_tokens marker); prior HF2 polish Account (pointers only: pose Scale scope + Explode hatch-angle gap point at hatch-and-fill D-A11); prior NB Account (pointers only: block_snap_geometry paths=True, DD8 rotation-as-variable, Explode remap); prior block-primitive-snap Account (pointers only: Explode pose_primitive / compose_pose, posed snap stand-ins bullet, applies-to + block_snap_geometry.py); prior 2026-10-13 reference geometry Account (scaffolding bullet -> flag form, prim_refs skips reference records RG15, Explode skips reference shapes); prior 2026-10-12 block mirror/scale Account: new "Instance pose: mirror & scale (2026-10-12)" section (the one home: P = T·R·S·M, variant op cache, reflect/scale hooks, sparse records + place_kwargs, readable text, Explode closed form, placement arrow flips, Mirrored / Scale rows, decisions + known gaps); Decision 8 arrow-flip note closed; Decision 9 "no rescale/mirror" retired; flyweight-core / property-row / I-O record shapes reconciled; applies-to + block_pose.py; prior placement batch Account: Decision 8 amended (Paste-style prototype ghost, Space / Shift+Space rotation, focus hand-off), HUD line + drag paragraph pointers; prior disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: 0c06b766   # SB1a Account (pointers only); prior 084b43e0 HF1 Account (pointer only); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish; pointers only); prior b62aab92 NB Account (feat/nested-block-constraint-handles merge; pointers only); prior 5e4948d6 merge feat/block-primitive-snap (pointers only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
-  - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile
-  - firepro3d/block_instance.py     # new — the lightweight placed scene entity
+  - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile; SB1a: bound_prims split, authored attributes / host_category / scale_mode
+  - firepro3d/block_instance.py     # new — the lightweight placed scene entity; SB1a: bound-text layer (_bound_ops), host_values() provider seam, set_attributes
+  - firepro3d/block_attributes.py   # SB1a (2026-10-21) — pure attribute schema, value formatting and @[key] resolver (design: superpowers/specs/2026-10-21-sb1a-block-binding-core-design.md)
+  - firepro3d/block_attributes_dialog.py  # SB1a — Edit Attributes dialog for a placed instance
+  - firepro3d/block_attributes_editor.py  # SB1a — Attributes editor dialog (Block Editor authoring)
+  - firepro3d/block_properties_info.py    # Block Editor Block-view panel (SB1a: Attributes section, Host category, Scale mode, Sample values rows)
   - firepro3d/block_library.py      # .fpdb I/O, disk walk (no index since 2026-10-10), divergence
   - firepro3d/capability_folder.py  # read_meta / owns_name / sanitize -- the shared per-file parse (library walk + capability scan)
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
@@ -19,7 +23,7 @@ applies-to:
   - firepro3d/block_editor.py       # v2 — BlockEditorManager + BlockEditorWidget + BlockSaveDialog
   - firepro3d/block_import_dialog.py # v2 — flattened BlockImportDialog (subclasses UnderlayImportDialog)
   - firepro3d/block_registry.py     # nested blocks — BlockRegistry (resolution / dependency / cycle / invalidation choke point)
-  - firepro3d/block_explode.py      # nested blocks — explode_instances (Block-Editor-only, C1); full-pose compose since 2026-10-12
+  - firepro3d/block_explode.py      # nested blocks — explode_instances (Block-Editor-only, C1); full-pose compose since 2026-10-12; SB1a: bakes resolved bound text + keep_upright
   - firepro3d/block_pose.py         # 2026-10-12 — pure instance-pose math (pose_matrix / reflect_pose / decompose_pose / is_upright / valid_scale / check_scale)
   - firepro3d/block_snap_geometry.py  # 2026-10-15 — posed scene-free snap stand-ins (posed_primitives; behaviour owned by snapping-engine.md §5 note 12); paths=True mode feeds the constraint handle table (parametric-constraint-system.md D105)
   - firepro3d/mime_types.py         # nested blocks — one home for in-app drag MIME types (MIME_BLOCK)
@@ -55,13 +59,15 @@ source-tasks:
 > sheets hold schematic viewports only — not restated here). The flyweight def/instance core, `.fpdb` library, Manager, and Block Editor
 > **stay current**. Invariants live once in the contract; this links up (Rule A).
 
-> **System Blocks (proposal, 2026-09-29).** A ratified concept extends this
-> subsystem, but none of it is built yet: bound `@[key]` text fields plus an attribute schema in
-> the reserved `attributes` slots (revisits decisions 6 and 9), `scale_mode:
-> "annotative"` activated, and a read-only shipped **System** library tier with a
+> **System Blocks (2026-09-29 concept; SB1a built 2026-10-21).** A ratified concept extends this
+> subsystem: bound `@[key]` text fields plus an attribute schema (revisits decisions 6 and 9),
+> `scale_mode: "annotative"` activated, and a read-only shipped **System** library tier with a
 > multi-root library. See `docs/superpowers/specs/2026-09-29-system-blocks-concept-design.md`.
-> This spec is amended in place as tasks SB1a/SB1b land. Until then the body below
-> is the current contract.
+> **SB1a (attribute authoring + binding core) is built** — schema, resolver, dialogs, `@[key]`
+> tokens, `keep_upright`, explode baking and the as-built reconciliations are owned by
+> `docs/superpowers/specs/2026-10-21-sb1a-block-binding-core-design.md` (not restated here).
+> The rest (System tier SB1b, annotative sizing SB1c, host values SB2/SB3) is unbuilt; this spec
+> is amended in place as those tasks land. Everything below not marked SB1a is the current contract.
 
 > **Reference-graphic unification (2026-09-17, `3c3b00c`).** `BlockDefinition`
 > gained a `render_mode` (`"default"` = per-primitive compile, unchanged for
@@ -340,7 +346,11 @@ Guards: `tests/test_block_pose.py`, `tests/test_block_mirror_scale*.py`,
    the nested definition updates every host), **acyclic** (no definition may contain itself
    directly or transitively — refused at drop, double-click, library load/reload and Save).
    Nested references are **level-less** like primitives (containment C3). Walls/pipes/features/
-   dimensions are refused. Attributes remain a future concern (the reserved `attributes` slot).
+   dimensions are refused. ~~Attributes remain a future concern (the reserved `attributes` slot).~~
+   **Amended 2026-10-21 (SB1a):** attribute authoring and binding are built — a definition declares
+   `attributes`, text primitives reference them with `@[key]` tokens, and `keep_upright` text is
+   supported; schema, resolver, dialogs and explode baking are owned by
+   `docs/superpowers/specs/2026-10-21-sb1a-block-binding-core-design.md`.
 7. **Make-from-selection consumes the selection** (deletes the linework, drops one `BlockInstance` at
    the picked origin — AutoCAD `BLOCK` semantics), fully undoable. Chosen over copy-in-place because
    it matches the mental model and exercises the def→instance path immediately.
@@ -372,8 +382,11 @@ Guards: `tests/test_block_pose.py`, `tests/test_block_mirror_scale*.py`,
    views~~ — **retired 2026-10-12:** a placed instance carries a mirror flag and a uniform scale on
    its own pose (plan and Block Editor alike) — see "Instance pose: mirror & scale" below.
    `scale_mode` (Real-size / Annotative) is unchanged and distinct: it is a definition-level
-   sizing mode, not the instance pose scale. **Attributes structure reserved in schema, no UI in
-   v1.**
+   sizing mode, not the instance pose scale. ~~**Attributes structure reserved in schema, no UI in
+   v1.**~~ **Amended 2026-10-21 (SB1a):** `attributes` is now read and authored (Attributes editor,
+   Edit Attributes dialog, `@[key]` bound text); `host_category` and `scale_mode` are authored
+   definition fields (`annotative` is stored but paints real size until SB1c). See
+   `docs/superpowers/specs/2026-10-21-sb1a-block-binding-core-design.md`.
 10. **v1 definitions are geometry-immutable** (no Editor yet). **The Manager is view-only**
     (2026-09-05): its details panel shows name/library/series read-only; the Manager's verbs are
     Load-from-Library / Save-to-Library / Reload / Delete / place. **All metadata editing
@@ -417,9 +430,10 @@ Guards: `tests/test_block_pose.py`, `tests/test_block_mirror_scale*.py`,
   "name": "Corner Joint",
   "library": "Typical Detail",      // tier 1
   "series": "Wall Joints",          // tier 2
-  "scale_mode": "real_size",        // enum; v1 sole value; "annotative" reserved
+  "scale_mode": "real_size",        // enum "real_size" | "annotative"; SB1a authors it, annotative paints real size until SB1c
   "origin": [x_mm, y_mm],           // vestigial since CS1: always [0, 0] on save (D4 — see below)
-  "attributes": [],                 // reserved; no UI in v1
+  "attributes": [],                 // SB1a: attribute records (record shape owned by the SB1a design doc)
+  "host_category": "",              // SB1a: "" = none; always written
   "primitives": [ { /* each primitive's own to_dict(), incl. "uid" */ } ],   // reuse geometry_2d items
   "constraints": [ /* sketch constraint records */ ]   // additive since CS1; absent => []
 }
@@ -437,7 +451,8 @@ record — the placed-instance shape minus level fields (containment C3):
 
 `pos` is definition-local (before the host's origin shift); `rotation` is Y-up CCW degrees (the
 `BlockInstance.pose_transform` convention). Files without such records load unchanged. Record
-producer: `BlockInstance.to_nested_dict`.
+producer: `BlockInstance.to_nested_dict`. SB1a: a nested record never carries `attributes` (stripped on load
+too); values live on the outermost placed instance.
 
 **Constraint foundation (CS1, 2026-10-02).** Additive, schema-1-compatible changes (no `schema`
 bump; `BlockDefinition.from_dict` ignores `schema`):
@@ -478,7 +493,7 @@ nested records ride inside each embedded definition's `primitives`.
   "block_definitions": { "<id>": { /* schema above, sans file wrapper */ } },
   "blocks": [                       // instances
     { "block_id": "<id>", "pos": [x_mm, y_mm], "rotation": <deg>,
-      "level": "Level 1", "attributes": {},
+      "level": "Level 1", "attributes": {},   // SB1a: {key: value} typed values / host overrides (key presence = override)
       "mirrored": true,             // 2026-10-12: written only when true
       "scale": <f> }                // 2026-10-12: written only when != 1
   ]
@@ -712,8 +727,8 @@ in its folder (`_drop_stale_index`); the shipped `system_blocks/Hatches/index.js
 > editable primitives, `preserve_curves`-gated on the DXF worker so the underlay path is unchanged;
 > schema in `2d-geometry.md §3.5.3`) + import rotation **ship in the curve-fidelity task**.
 > Partial-ellipse + PDF-Bézier curve import **shipped 2026-09-23 (block polish)** — exact, no
-> tessellation; contract in `2d-geometry.md §3.5.3`. **Deferred (P1 follow-ups):** block attribute
-> authoring, thumbnails, strict ribbon-tab hiding.
+> tessellation; contract in `2d-geometry.md §3.5.3`. **Deferred (P1 follow-ups):** ~~block attribute
+> authoring~~ (built by SB1a, 2026-10-21), thumbnails, strict ribbon-tab hiding.
 
 The **Block Editor** is the authoring surface for `BlockDefinition`s: a standalone canvas tab where
 the user draws/imports 2D geometry around the fixed (0,0) origin, sets metadata, and Saves a definition into the
@@ -1046,7 +1061,7 @@ Built on `feat/sv1-schematic-kind` (`b851b1aa`). The schematic contract is owned
 
 ### Deferred (v2.x)
 
-SVG import; attribute **authoring** (the `attributes` field is carried by clone, not edited);
+SVG import; ~~attribute **authoring**~~ (built by SB1a, 2026-10-21);
 trace-over-underlay import fallback; import layer-subset selection; calibrate-by-pick import scale;
 annotative `scale_mode`. *(Text-in-blocks shipped 2026-09-23.)*
 

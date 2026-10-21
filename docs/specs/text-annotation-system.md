@@ -1,9 +1,9 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); model-surface inline edit LANDED 2026-09-23 (feat/model-text-inline-edit); style presets/SHX/overrides deferred
-last-verified: 2026-10-18  # HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
-verified-commit: 084b43e0  # HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
+last-verified: 2026-10-21  # SB1a Account (pointer paragraph: keep_upright + Insert field / @[key]); prior 2026-10-18 HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
+verified-commit: 0c06b766  # SB1a Account (pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
 applies-to:
-  - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields)
+  - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields; SB1a keep_upright flag + Block Editor Insert field row)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
   - firepro3d/frame_group.py      # ribbon "Frame" group controller
   - firepro3d/ui_kit.py           # FontSelect + custom panel inputs Selector/Stepper/Swatch
@@ -162,6 +162,8 @@ existing bake-at-rest rotation `save()/restore()` block), when `data.border`:
    tracks the box on rotate.
 
 **Box rect (`_box_rect_local`, CS3c 2026-10-13):** width = the exact `textWidth()` (the wrap width) — never `document().size()`, which QTextDocument quantizes to a 1/64 grid (a 199.99 wrap reports 199.984375); height = `max(content height, box_height_mm / scale)`. In the Block Editor the constraint solver drives this box (wrap width, box height) — owned by `parametric-constraint-system.md` D59.
+
+**Block attribute binding (SB1a, 2026-10-21).** Two Block-Editor-only additions to the text primitive; the contract is owned by `docs/superpowers/specs/2026-10-21-sb1a-block-binding-core-design.md` (not restated here). **`@[key]` tokens:** the Block Editor's text panel gains an `Insert field` choice row (listing the definition's attribute keys) that appends `@[key]` to `Content`; the text stays a plain string, resolved per placed instance. **`keep_upright`:** `TextAnnotationData.keep_upright` (written to `to_dict` only when true) with a `Keep upright` bool row on the same surface; the text reads upright under instance rotation / mirror, turned about the text box centre. A plan-view text ignores both rows.
 
 `boundingRect`/`shape` already pad for the grip halo and cover the full box, so
 the stroked border needs no extra bounds growth (its half-weight is ≤ the grip

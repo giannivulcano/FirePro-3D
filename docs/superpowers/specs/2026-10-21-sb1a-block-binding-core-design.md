@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: built               # SB1a built 2026-10-21, merged 0c06b766; as-built deviations in "Reconciliations"
 last-verified: 2026-10-21
-verified-commit: 33afbc32   # branch base (main) at design time
+verified-commit: 0c06b766   # SB1a merge (design written at branch base 33afbc32)
 applies-to:
   - firepro3d/block_attributes.py          # new: attribute schema, formatting, resolver (pure)
   - firepro3d/block_attributes_dialog.py   # new: Edit Attributes dialog (placed instance)
@@ -24,7 +24,7 @@ parent-concept: docs/superpowers/specs/2026-09-29-system-blocks-concept-design.m
 
 # SB1a -- Block-Side Binding Core -- Design Spec
 
-> **Status: proposal.** Phase 1 of the System Blocks build (concept F1, F3, Q11;
+> **Status: built (2026-10-21, merged 0c06b766); see "Reconciliations (as built)" at the end for where the shipped code differs from the text below.** Phase 1 of the System Blocks build (concept F1, F3, Q11;
 > the concept's F4 System tier is SB1b and F6 annotative sizing is SB1c).
 > Everything the concept ratified is linked, not restated (Rule A). This doc owns
 > the SB1a rulings A1-A9 (Phase 2 grill, 2026-10-21) and the design sections
@@ -198,15 +198,15 @@ guarded here; the metric and threshold for the full G6 are confirmed before SB3.
 
 ## Acceptance Criteria
 
-- [ ] AC1 A placed instance renders `@[key]` text from its typed values, an override, or the provider; the static ops of two instances of one definition are the same list object (F1).
-- [ ] AC2 Definition `attributes`, `host_category`, `scale_mode`, prim `keep_upright` and instance `attributes` round-trip `.fpd`, `.fpdb` (schema 1 and bundled 2) and undo/redo (G2).
-- [ ] AC3 A nested bound prim resolves the outermost instance's values (A1).
-- [ ] AC4 `keep_upright` flips at 91 degrees, not at 89; a mirrored instance's glyphs read un-mirrored (A5).
-- [ ] AC5 Edit Attributes dialog opens from the right-click "Edit Attributes..." item and the panel button, absent/disabled when no attributes, double-click opens nothing; OK = exactly one undo entry; Override uncheck restores the binding (A3/A4).
-- [ ] AC6 Attributes editor: Add/Remove/reorder; rename cascades through text; Remove of a referenced key refused (A7); Insert field appends `@[key]`.
-- [ ] AC7 Preview shows sample values; raw-token toggle shows tokens (A6).
-- [ ] AC8 Explode yields a plain text primitive with the resolved string (A9).
-- [ ] AC9 Unknown token -> literal text + Block Manager warning.
+- [x] AC1 A placed instance renders `@[key]` text from its typed values, an override, or the provider; the static ops of two instances of one definition are the same list object (F1).
+- [x] AC2 Definition `attributes`, `host_category`, `scale_mode`, prim `keep_upright` and instance `attributes` round-trip `.fpd`, `.fpdb` (schema 1 and bundled 2) and undo/redo (G2).
+- [x] AC3 A nested bound prim resolves the outermost instance's values (A1).
+- [x] AC4 `keep_upright` flips at 91 degrees, not at 89; a mirrored instance's glyphs read un-mirrored (A5).
+- [x] AC5 Edit Attributes dialog opens from the right-click "Edit Attributes..." item and the panel button, absent/disabled when no attributes, double-click opens nothing; OK = exactly one undo entry; Override uncheck restores the binding (A3/A4).
+- [x] AC6 Attributes editor: Add/Remove/reorder; rename cascades through text; Remove of a referenced key refused (A7); Insert field appends `@[key]`.
+- [x] AC7 Preview shows sample values; raw-token toggle shows tokens (A6).
+- [x] AC8 Explode yields a plain text primitive with the resolved string (A9).
+- [x] AC9 Unknown token -> literal text + Block Manager warning.
 
 ## Verification Checklist (VC3 guards, real paths)
 
@@ -226,3 +226,17 @@ guarded here; the metric and threshold for the full G6 are confirmed before SB3.
 
 Google docstrings; relative imports; ASCII-only in new files; tests under
 `tests/test_sb1a_*.py` on `qapp` (no pytest-qt); pixel guards compare digests.
+
+## Reconciliations (as built, 2026-10-21)
+
+Where the shipped code (verified at 0c06b766) differs from the design text above. The code wins.
+
+- **A3 re-ruled at smoke:** double-click on a placed instance keeps its pre-SB1a behaviour (no block action). "Edit Attributes..." is a right-click item under "Edit Block" (`entity_context_menu.py` `on_edit_attributes`, `model_view.py` plan selection menu), gated by `Model_Space.can_edit_attributes` (definition has attributes; never offered in the Block Editor); the Block Properties panel button stays.
+- **Ribbon Edit Attributes** (Block Editor tab, Definition group): `main.py` `_be_edit_attributes` -> `BlockEditorWidget.open_attributes_editor`; disabled for a schematic by `_sync_capability_buttons` with `_BE_ATTR_SCHEMATIC_TIP` ("Schematics have no attributes").
+- **Bound memo key and flip:** S2 / D2 / Edge Cases said flip state is in the memo key and a 90/270 crossing rebuilds. Shipped: `BlockInstance._bound_ops` keys on `(resolved strings, mirrored, scale)`; the `keep_upright` turn is resolved at paint (`RenderOp.readable` + `BlockInstance._text_path`), so rotation never rebuilds bound ops.
+- **Pull-on-paint:** `resolve_values` + `resolve_fields` run on every `render_ops()` call (accepted; the key compare limits glyph rebuilds).
+- **One-level explode** (`flatten=False`, `block_explode.py`): the child gets only the parent's `inst.attributes` entries whose keys the child declares, so a `source: host` key with no override re-resolves against the child's own `host_values()` provider. Flatten threads the outermost resolved values instead.
+- **Host category** is a plain string row ("Host category") in the Block Editor Block view (`block_properties_info.py`), not a combo and not a row of the Attributes editor; `Scale mode` is an enum row there, plus a `Sample values` view-toggle row.
+- **Attributes editor row buttons** are the house glyph `QToolButton`s (`+` / minus / up / down), the titleblock-editor idiom (`block_attributes_editor.py`).
+- **Rename cascade and undo:** the editor commit is `BlockEditorWidget.apply_attributes_edit` (rename pass through every text item, one editor undo step). On Save of an existing definition, `commit_block_definition`'s edit-in-place branch runs `_apply_block_meta` -> `set_primitives` -> `_block_registry.invalidate`. `block_meta` rides every `Model_Space` undo snapshot (capture / `_restore_network`), the plan scene included.
+- **Block Manager warning** (AC9) is a "Fields" row on the Manager details panel (`block_manager.py`, via `block_attributes.unknown_tokens`).
