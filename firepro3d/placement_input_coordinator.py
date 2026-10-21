@@ -604,6 +604,10 @@ class PlacementInputCoordinator:
             # depth HUD steps.
             a = self._scene._draw_rect_anchor
             return QPointF(a) if a is not None else None
+        if self._scene.mode == "section":
+            # Section cut: the first click anchors ALIGN's H/V rays (spec s9).
+            a = self._scene._section_anchor
+            return QPointF(a) if a is not None else None
         if self._scene.mode == "draw_circle":
             a = self._scene._draw_circle_center
             return QPointF(a) if a is not None else None

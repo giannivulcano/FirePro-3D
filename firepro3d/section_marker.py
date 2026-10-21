@@ -351,6 +351,7 @@ class SectionMarker(QGraphicsItem):
         self._notify()
 
     def flip(self):
+        self.prepareGeometryChange()             # the glyph / apex / box move to the other side
         self._look = -self._look
         self.update()
         self._notify()
@@ -374,50 +375,121 @@ class SectionMarker(QGraphicsItem):
         return True
 
     # -- geometry helpers ------------------------------------------------------
-    _R = BUBBLE_RADIUS_MM * 3.0                              # bubble radius (old marker circle)
-    _HEAD = BUBBLE_RADIUS_MM * 3.0 / math.sin(math.radians(40))   # arrow-head reach (old _POINT_DIST)
+    # Cardinal glyph: the pre-build ``ViewMarkerArrow`` look, unchanged (smoke ruling
+    # 2026-10-21): one circle with the cardinal letter plus a filled wedge whose tip
+    # sits _CARDINAL_GAP outside the crop-box edge, on the edge's midline.
+    _R_CARDINAL = BUBBLE_RADIUS_MM * 3.0
+    _WEDGE_DIST = BUBBLE_RADIUS_MM * 3.0 / math.sin(math.radians(40))   # old _POINT_DIST
+    _CARDINAL_GAP = 25.0            # mm between the wedge tip and the crop-box edge (old manager)
+    # Section head (CAD standard, tuner-ratified 2026-10-21): a bubble centred on each
+    # cut endpoint with a full filled triangle whose base lies on the cut line through
+    # the centre; sides tangent to the circle and equal stick-out all round give
+    # half-base = height = R * sqrt(2).
+    _R_SECTION = BUBBLE_RADIUS_MM * 2.0
+    _TRI = math.sqrt(2.0)
+
+    @property
+    def _R(self) -> float:
+        return self._R_CARDINAL if self._cardinal else self._R_SECTION
 
     def _unit(self):
         dx, dy = self._b.x() - self._a.x(), self._b.y() - self._a.y()
         L = math.hypot(dx, dy) or 1.0
         return dx / L, dy / L, L
 
-    def _head_polygon(self, tip: QPointF, direction: tuple[float, float]) -> QPolygonF:
-        """The old ViewMarkerArrow wedge: tangent points at +/-40 deg around *direction*."""
-        R, D = self._R, self._HEAD
-        base = math.atan2(direction[1], direction[0])
-        alpha = math.acos(min(R / D, 1.0))
-        t1 = QPointF(tip.x() - D * math.cos(base) + R * math.cos(base + alpha),
-                     tip.y() - D * math.sin(base) + R * math.sin(base + alpha))
-        t2 = QPointF(tip.x() - D * math.cos(base) + R * math.cos(base - alpha),
-                     tip.y() - D * math.sin(base) + R * math.sin(base - alpha))
-        return QPolygonF([t1, tip, t2])
+    def _mid(self) -> QPointF:
+        return QPointF((self._a.x() + self._b.x()) / 2.0, (self._a.y() + self._b.y()) / 2.0)
 
-    def _bubble_centres(self):
+    def _cardinal_centre(self) -> QPointF:
+        """Circle centre of a cardinal glyph: outside the cut edge on its midline."""
+        nx, ny = self.normal_scene()
+        d = self._WEDGE_DIST + self._CARDINAL_GAP
+        mid = self._mid()
+        return QPointF(mid.x() - nx * d, mid.y() - ny * d)
+
+    def _wedge_geometry(self):
+        """``(centre, t1, t2, tip, a2_deg, sweep)`` of the cardinal wedge (old maths)."""
+        c, R, D = self._cardinal_centre(), self._R_CARDINAL, self._WEDGE_DIST
+        nx, ny = self.normal_scene()
+        base = math.atan2(ny, nx)
+        alpha = math.acos(min(R / D, 1.0))
+        t1 = QPointF(c.x() + R * math.cos(base + alpha), c.y() + R * math.sin(base + alpha))
+        t2 = QPointF(c.x() + R * math.cos(base - alpha), c.y() + R * math.sin(base - alpha))
+        tip = QPointF(c.x() + nx * D, c.y() + ny * D)
+        a1_deg = -math.degrees(base + alpha)
+        a2_deg = -math.degrees(base - alpha)
+        sweep = a1_deg - a2_deg
+        while sweep > 180:
+            sweep -= 360
+        while sweep < -180:
+            sweep += 360
+        return c, t1, t2, tip, a2_deg, sweep
+
+    def _wedge_path(self) -> QPainterPath:
+        c, t1, t2, tip, a2_deg, sweep = self._wedge_geometry()
+        R = self._R_CARDINAL
+        path = QPainterPath(t1)
+        path.lineTo(tip)
+        path.lineTo(t2)
+        path.arcTo(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R), a2_deg, sweep)
+        path.closeSubpath()
+        return path
+
+    def _head_polygon(self, c: QPointF) -> QPolygonF:
+        """Section head triangle at bubble centre *c*: base on the cut line, apex on the look side."""
+        R = self._R_SECTION * self._TRI
+        nx, ny = self.normal_scene()
+        ux, uy = -ny, nx
+        return QPolygonF([QPointF(c.x() - ux * R, c.y() - uy * R),
+                          QPointF(c.x() + nx * R, c.y() + ny * R),
+                          QPointF(c.x() + ux * R, c.y() + uy * R)])
+
+    def _label_angle(self) -> float:
+        """Degrees to rotate the section label so it reads along the cut, never upside down."""
         ux, uy, _L = self._unit()
-        off = self._R * 1.5
-        return (QPointF(self._a.x() - ux * off, self._a.y() - uy * off),
-                QPointF(self._b.x() + ux * off, self._b.y() + uy * off))
+        ang = math.degrees(math.atan2(uy, ux))
+        if ux < -1e-9 or (abs(ux) < 1e-9 and uy > 0):
+            ang += 180.0
+        return ang
+
+    def _label_font(self, label: str) -> QFont:
+        font = QFont("Consolas")
+        font.setBold(True)
+        fs = self._display_font_size if self._display_font_size else 10
+        shrink = 1.0 if len(label) <= 1 else 0.7
+        font.setPixelSize(max(1, int(self._R * (fs / 10.0) * shrink)))
+        return font
 
     def boundingRect(self) -> QRectF:
         r = self.box_polygon().boundingRect()
-        for c in self._bubble_centres():
-            r = r.united(QRectF(c.x() - self._R, c.y() - self._R, 2 * self._R, 2 * self._R))
-        m = self._HEAD + self._R
-        return r.adjusted(-m, -m, m, m)
+        if self._cardinal:
+            c, R = self._cardinal_centre(), self._R_CARDINAL
+            m = self._WEDGE_DIST + R
+            r = r.united(QRectF(c.x() - m, c.y() - m, 2 * m, 2 * m))
+        else:
+            m = self._R_SECTION * self._TRI
+            for end in (self._a, self._b):
+                r = r.united(QRectF(end.x() - m, end.y() - m, 2 * m, 2 * m))
+        pad = max(1.0, self._R * 0.08)
+        return r.adjusted(-pad, -pad, pad, pad)
 
     def shape(self) -> QPainterPath:
-        """Hittable: cut line (stroked), the two bubbles, the arrow heads; the
-        box edges only while selected (the interior is never hittable)."""
+        """Hittable: the glyph(s) and the cut line; the box edges only while
+        selected (the interior is never hittable)."""
         path = QPainterPath()
-        line = QPainterPath(self._a); line.lineTo(self._b)
-        stroker = QPainterPathStroker(); stroker.setWidth(max(20.0, self._R * 0.5))
-        path.addPath(stroker.createStroke(line))
-        for c in self._bubble_centres():
-            path.addEllipse(c, self._R, self._R)
-        nx, ny = self.normal_scene()
-        for end in (self._a, self._b):
-            path.addPolygon(self._head_polygon(QPointF(end.x() + nx * self._HEAD, end.y() + ny * self._HEAD), (nx, ny)))
+        if self._cardinal:
+            c, t1, t2, tip, _a2, _sweep = self._wedge_geometry()
+            path.addEllipse(c, self._R_CARDINAL, self._R_CARDINAL)
+            path.addPolygon(QPolygonF([t1, tip, t2]))
+            path.closeSubpath()
+        else:
+            line = QPainterPath(self._a); line.lineTo(self._b)
+            stroker = QPainterPathStroker(); stroker.setWidth(max(20.0, self._R * 0.5))
+            path.addPath(stroker.createStroke(line))
+            for end in (self._a, self._b):
+                path.addEllipse(end, self._R_SECTION, self._R_SECTION)
+                path.addPolygon(self._head_polygon(end))
+                path.closeSubpath()
         if self.isSelected():
             box = QPainterPath(); box.addPolygon(self.box_polygon()); box.closeSubpath()
             edge = QPainterPathStroker(); edge.setWidth(max(20.0, self._R * 0.5))
@@ -428,30 +500,47 @@ class SectionMarker(QGraphicsItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         col, fill = self._marker_color, self._fill_color
-        pen_w = max(1.0, self._R * 0.04)
-        # Cut line: solid, cosmetic.
-        line_pen = QPen(col, 1); line_pen.setCosmetic(True)
-        painter.setPen(line_pen)
-        painter.drawLine(self._a, self._b)
-        # Arrow heads at A and B pointing to the look side (D6: carried over).
-        nx, ny = self.normal_scene()
-        painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(col))
-        for end in (self._a, self._b):
-            tip = QPointF(end.x() + nx * self._HEAD, end.y() + ny * self._HEAD)
-            painter.drawPolygon(self._head_polygon(tip, (nx, ny)))
-        # Bubbles with the name (cardinal letter for cardinals) at both ends.
-        label = self._cardinal[0].upper() if self._cardinal else (self._name.split()[-1] if self._name.split() else "?")
-        font = QFont("Consolas"); font.setBold(True)
-        fs = self._display_font_size if self._display_font_size else 10
-        font.setPixelSize(max(1, int(self._R * (fs / 10.0) * (1.0 if len(label) <= 1 else 0.7))))
-        painter.setFont(font)
-        for c in self._bubble_centres():
-            painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(fill))
-            painter.drawEllipse(c, self._R, self._R)
+        R = self._R
+        pen_w = max(1.0, R * 0.04)
+        selected = self.isSelected() and not _pd.paper_pass_active()
+        if self._cardinal:
+            # The old ViewMarkerArrow paint: filled wedge, circle, letter.
+            c, t1, t2, tip, _a2, _sweep = self._wedge_geometry()
+            painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(col))
+            painter.drawPath(self._wedge_path())
+            painter.setBrush(QBrush(fill))
+            painter.drawEllipse(c, R, R)
+            if selected:
+                painter.setPen(QPen(col.lighter(150), max(1.0, R * 0.08)))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(c, R, R)
+                painter.drawLine(t1, tip)
+                painter.drawLine(t2, tip)
+            letter = self._cardinal[0].upper()
+            painter.setFont(self._label_font(letter))
             painter.setPen(QPen(col.lighter(150)))
-            painter.drawText(QRectF(c.x() - self._R, c.y() - self._R, 2 * self._R, 2 * self._R),
-                             Qt.AlignmentFlag.AlignCenter, label)
-        if self.isSelected() and not _pd.paper_pass_active():
+            painter.drawText(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R),
+                             Qt.AlignmentFlag.AlignCenter, letter)
+        else:
+            line_pen = QPen(col, 1); line_pen.setCosmetic(True)
+            painter.setPen(line_pen)
+            painter.drawLine(self._a, self._b)
+            label = self._name.split()[-1] if self._name.split() else "?"
+            font = self._label_font(label)
+            ang = self._label_angle()
+            for end in (self._a, self._b):
+                painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(col))
+                painter.drawPolygon(self._head_polygon(end))
+                painter.setBrush(QBrush(fill))
+                painter.drawEllipse(end, R, R)
+                painter.save()
+                painter.translate(end)
+                painter.rotate(ang)
+                painter.setFont(font)
+                painter.setPen(QPen(col.lighter(150)))
+                painter.drawText(QRectF(-R, -R, 2 * R, 2 * R), Qt.AlignmentFlag.AlignCenter, label)
+                painter.restore()
+        if selected:
             # Crop box: the retired SharedCropBox's dashed look, only while selected (s6)
             # and never on a sheet / PDF -- the paper pass does not clear selection (VC9 M4).
             box_pen = QPen(col, 1, Qt.PenStyle.DashLine); box_pen.setCosmetic(True)
@@ -459,43 +548,70 @@ class SectionMarker(QGraphicsItem):
             faint = QColor(col); faint.setAlpha(15)
             painter.setBrush(QBrush(faint))
             painter.drawPolygon(self.box_polygon())
-            hl = QPen(col.lighter(150), max(1.0, self._R * 0.08)); hl.setCosmetic(False)
-            painter.setPen(hl); painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawLine(self._a, self._b)
+            if not self._cardinal:
+                hl = QPen(col.lighter(150), max(1.0, R * 0.08)); hl.setCosmetic(False)
+                painter.setPen(hl); painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawLine(self._a, self._b)
 
-    # -- grip protocol (DetailMarker pattern) ---------------------------------------
+    # -- grip protocol: the crop box edits as a rectangle in the cut frame (DetailMarker's
+    # 8-grip layout; smoke ruling 2026-10-21 -- corners are never independent) ------------
+    # 0 A (near-left)  1 B (near-right)  2 far-right  3 far-left
+    # 4 near mid (moves the cut line, far edge fixed)  5 B edge mid  6 far mid (depth)  7 A edge mid
+    # 8 flip (click-only)
+    GRIP_FLIP = 8
+    GRIP_DEPTH = 6
+
     def grip_points(self) -> list[QPointF]:
         nx, ny = self.normal_scene()
-        mid = QPointF((self._a.x() + self._b.x()) / 2.0, (self._a.y() + self._b.y()) / 2.0)
-        far_mid = QPointF(mid.x() + nx * self._depth, mid.y() + ny * self._depth)
-        off = min(self._R * 1.5, self._depth * 0.5)       # stay clear of the depth grip
+        far = QPointF(nx * self._depth, ny * self._depth)
+        a, b = self._a, self._b
+        fa, fb = a + far, b + far
+        mid = self._mid()
+        off = min(self._R * 1.5, self._depth * 0.5)       # stay clear of the near/far mid grips
         flip = QPointF(mid.x() + nx * off, mid.y() + ny * off)
-        return [QPointF(self._a), QPointF(self._b), far_mid, flip]
+        return [QPointF(a), QPointF(b), fb, fa,
+                mid, (b + fb) / 2.0, (fa + fb) / 2.0, (a + fa) / 2.0,
+                flip]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        if index == 0:
-            if math.hypot(new_pos.x() - self._b.x(), new_pos.y() - self._b.y()) < MIN_CUT_LEN:
-                return
-            self.set_geometry(new_pos, self._b, self._depth)
-        elif index == 1:
-            if math.hypot(new_pos.x() - self._a.x(), new_pos.y() - self._a.y()) < MIN_CUT_LEN:
-                return
-            self.set_geometry(self._a, new_pos, self._depth)
-        elif index == 2:
-            nx, ny = self.normal_scene()
-            depth = (new_pos.x() - self._a.x()) * nx + (new_pos.y() - self._a.y()) * ny
-            self.set_geometry(self._a, self._b, max(MIN_CUT_LEN, depth))
-        # index 3 (flip) is click-only: FlipGripHandle.on_release calls flip().
+        if index == self.GRIP_FLIP:
+            return                                    # click-only: FlipGripHandle.on_release calls flip()
+        pts = self.grip_points()
+        if index < 0 or index >= len(pts) - 1:
+            return
+        ux, uy, _L = self._unit()
+        nx, ny = self.normal_scene()
+        dx, dy = new_pos.x() - pts[index].x(), new_pos.y() - pts[index].y()
+        t = dx * ux + dy * uy                         # along the cut
+        n = dx * nx + dy * ny                         # along the look normal
+        a, b, depth = QPointF(self._a), QPointF(self._b), self._depth
+        moves_a = index in (0, 3, 7)
+        moves_b = index in (1, 2, 5)
+        if moves_a:
+            a = QPointF(a.x() + ux * t, a.y() + uy * t)
+        if moves_b:
+            b = QPointF(b.x() + ux * t, b.y() + uy * t)
+        if index in (0, 1, 4):                        # near edge: the cut line moves, far edge stays
+            n = min(n, depth - MIN_CUT_LEN)
+            a = QPointF(a.x() + nx * n, a.y() + ny * n)
+            b = QPointF(b.x() + nx * n, b.y() + ny * n)
+            depth -= n
+        elif index in (2, 3, 6):                      # far edge: depth
+            depth = max(MIN_CUT_LEN, depth + n)
+        # Signed length along the ORIGINAL cut direction: an end never crosses the
+        # other (that would flip the look normal and throw the box to the other side).
+        if (b.x() - a.x()) * ux + (b.y() - a.y()) * uy < MIN_CUT_LEN:
+            return
+        self.set_geometry(a, b, depth)
 
     def manip_bounds(self) -> QRectF:
         return self.box_polygon().boundingRect()
 
     def manip_handles(self):
-        from .manip_handle import EndpointGripHandle, GripHandle, FlipGripHandle
-        return [EndpointGripHandle(self, 0, opposite_index=1),
-                EndpointGripHandle(self, 1, opposite_index=0),
-                GripHandle(self, 2, circular=False),
-                FlipGripHandle(self, 3)]
+        from .manip_handle import FlipGripHandle, default_grip_handles
+        handles = default_grip_handles(self, circular={0, 1, 2, 3})   # corners round, edge mids square
+        handles[self.GRIP_FLIP] = FlipGripHandle(self, self.GRIP_FLIP)
+        return handles
 
     def manip_translate(self, dx: float, dy: float):
         self.set_geometry(QPointF(self._a.x() + dx, self._a.y() + dy),

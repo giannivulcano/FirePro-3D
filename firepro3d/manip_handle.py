@@ -716,7 +716,7 @@ class FlipGripHandle(GripHandle):
     and commits one undo step itself, because the manipulator's commit hook
     only runs for a *moved* drag (``GripHandle.on_release``). No drag
     semantics: a drag is ignored, Esc does nothing. Used by SectionMarker
-    (index 3) to toggle ``look_sign`` (spec s6).
+    (``SectionMarker.GRIP_FLIP``) to toggle ``look_sign`` (spec s6).
     """
 
     def __init__(self, item, index: int):

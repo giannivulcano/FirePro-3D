@@ -102,3 +102,48 @@ def test_look_side_hint_reads_left_for_any_drag_direction(plan):
     for x, y in ((-1000.0, 0.0), (0.0, 1000.0)):       # right-to-left, then straight below A
         _move(view, x, y)
         assert "left" in (ms._draw_dim_hint or "")
+
+
+def test_first_click_arms_align_so_the_second_point_snaps_to_the_h_ray(qapp):
+    """Smoke ruling 2026-10-21: section placement must ALIGN like draw_line. After the
+    first click the anchor feeds ALIGN's H/V rays; a cursor a few px off the horizontal
+    through A lands exactly on it (real Model_View move + click)."""
+    from tests._snap_polish_helpers import click, close_view, make_view, move
+    view, scene = make_view(mode="section", scale=0.5)
+    try:
+        scene._section_manager = _PlaceMgr()
+        scene._snap_enabled = False                      # ALIGN only (no real snaps)
+        click(view, QPointF(0.0, 0.0))
+        assert scene._mode_placement_anchor() == QPointF(0.0, 0.0)
+        cursor = QPointF(3000.0, 8.0)                    # 4 px above the H ray at 0.5 px/mm
+        move(view, cursor)
+        res = scene._align_result
+        assert res is not None and res.snap_type in ("align_path", "align_intersection"), (
+            res, scene._snap_result)
+        assert scene._section_preview.line().p2() == QPointF(3000.0, 0.0)
+        click(view, cursor)
+        placed = scene._section_manager.placed
+        assert len(placed) == 1 and placed[0].cut_b == QPointF(3000.0, 0.0)
+    finally:
+        close_view(view, scene)
+
+
+def test_ctrl_second_click_constrains_the_cut_to_the_angle_increment(qapp):
+    from tests._snap_polish_helpers import click, close_view, make_view, move
+    view, scene = make_view(mode="section", scale=0.5)
+    try:
+        scene._section_manager = _PlaceMgr()
+        scene._snap_enabled = False
+        scene.set_align_enabled(False)                   # isolate the Ctrl constraint
+        click(view, QPointF(0.0, 0.0))
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        move(view, QPointF(4000.0, 500.0), ctrl)         # 7 deg off: rounds to 0 deg
+        p2 = scene._section_preview.line().p2()
+        assert p2.y() == pytest.approx(0.0, abs=1e-6) and p2.x() == pytest.approx(4031.129, abs=0.01)
+        click(view, QPointF(4000.0, 500.0), ctrl)
+        placed = scene._section_manager.placed
+        assert len(placed) == 1
+        assert placed[0].cut_b.y() == pytest.approx(0.0, abs=1e-6)
+        assert placed[0].cut_b.x() == pytest.approx(4031.129, abs=0.01)
+    finally:
+        close_view(view, scene)

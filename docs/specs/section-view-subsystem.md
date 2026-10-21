@@ -173,14 +173,31 @@ plan approval): s4.1's "world mm" is the derived basis, converted at `SectionSce
 - Shown on every plan level (a section cuts all levels).
 - `PAPER_EXCLUDED = True` **only when `cardinal` is set** (view-relationships s6.4: cardinal markers
   never plot; placed sections plot by the default path). `_exclude_from_bulk_select = True`.
-- Visual (D6, carried over): cut line (solid cosmetic), the existing arrow-head polygon at each end
-  pointing to the look side, a bubble at A and B carrying the name -- always drawn; the crop box
-  (SharedCropBox's dashed look) and grips only while selected.
-- Grips -- DetailMarker's protocol (`grip_points / apply_grip / manip_bounds / manip_handles /
-  manip_translate`): `0` A, `1` B (endpoint style: that end moves, the line pivots on the other, the
-  box follows), `2` far-edge midpoint (constrained along N, sets `depth`), `3` flip -- a new
-  click-only `FlipGripHandle` in `manip_handle.py` (none exists) toggling `look_sign`. Whole-marker
-  translate through `manip_translate`. Any grip edit on a cardinal clears `auto_extent`.
+- Visual -- two glyphs (smoke ruling 2026-10-21, served-tuner mockup; supersedes the D6 "carried
+  over" wording that Phase 3 approved from text alone):
+  - **Cardinal**: the pre-build `ViewMarkerArrow` look unchanged -- one circle of radius
+    `3 x BUBBLE_RADIUS_MM` with the cardinal letter and a filled wedge (tangents at +/-40 deg)
+    whose tip sits 25 mm outside its own crop-box edge on the edge's midline
+    (`_R_CARDINAL`, `_WEDGE_DIST`, `_CARDINAL_GAP`). No cut line is drawn for a cardinal.
+  - **Placed section**: the cut line (solid cosmetic) with a CAD-standard head at each end -- a
+    bubble of radius `2 x BUBBLE_RADIUS_MM` centred on the endpoint and a full filled triangle
+    whose base lies on the cut line through the centre, sides tangent to the circle, equal
+    stick-out all round (half-base = height = `R * sqrt(2)`, `_R_SECTION`, `_TRI`), apex on
+    the look side; the label (last token of the name) is rotated to read along the cut and
+    flipped 180 deg when the line points left so it is never upside down.
+  - Both: the crop box (SharedCropBox's dashed look) and grips only while selected.
+- Grips -- the crop box edits **as a rectangle in the cut frame** (DetailMarker's 8-grip layout;
+  corners are never independent -- smoke ruling 2026-10-21): `0` A / `1` B (near corners: that
+  end slides along the cut and the whole cut line moves along N, the far edge fixed), `2` / `3`
+  far corners (the end slides along the cut, `depth` changes), `4` near-edge midpoint (the cut
+  line moves along N, far edge fixed), `5` / `7` side midpoints (B / A slide along the cut only),
+  `6` far-edge midpoint (`GRIP_DEPTH`: constrained along N, sets `depth`), `8` flip
+  (`GRIP_FLIP`: the click-only `FlipGripHandle` toggling `look_sign`). Corners render round, edge
+  midpoints square (`default_grip_handles`). Cut length and `depth` floor at `MIN_CUT_LEN`; an end
+  never crosses the other (signed length along the cut before the drag must stay `>= MIN_CUT_LEN`,
+  else the drag frame is refused), so a grip never flips the look side.
+  Whole-marker translate through `manip_translate`. Any grip edit on a cardinal clears
+  `auto_extent`.
 - Double-click emits `openViewRequested("elevation", direction)` for a cardinal and
   `openViewRequested("section", name)` otherwise.
 - Context menu (new; no marker has one today): **Open - Rename - Flip - Delete**. Cardinals:
@@ -258,7 +275,10 @@ preview line with a look-side hint follows the cursor; click 2 sets B -> `place_
 `look_sign = +1`, `depth` = the building extent beyond the line (`max((c - A) . N)` over the
 building bbox corners; 10 000 mm when nothing lies on that side), `push_undo_state`, back to
 `select`. `|AB| < 100 mm` is rejected with a status message. Esc cancels. Status text follows the
-detail tool's wording.
+detail tool's wording. The second point aligns like `draw_line` (smoke ruling 2026-10-21): the
+first click is the ALIGN anchor (`PlacementInputCoordinator._mode_placement_anchor` has a
+`"section"` branch, so the H/V rays and the align-placement glyphs fire), and Ctrl constrains the
+cut to `_snap_angle_deg` increments through `_constrain_angle` on both the preview and the commit.
 
 ## 10. Acceptance Criteria
 
@@ -290,7 +310,7 @@ detail tool's wording.
 | `test_section_rendering.py` | cut wall brush = Section colour + pattern; behind wall brush = Fill; cut through an opening leaves the head; pipe cut-circle diameter |
 | `test_gridline_section.py` | 30 deg gridline -> vertical at crossing h; parallel absent; crossing outside `[h_A, h_B]` absent |
 | `test_section_sheet_plot.py` | dark theme, sheet viewport `export_pdf`: pixel probe edges black, void / mask white |
-| `test_section_marker.py` | grips 0-3; cardinal grip clears `auto_extent`; `to_dict` round-trip; `PAPER_EXCLUDED` only on cardinals; menu Delete / Rename disabled on cardinals |
+| `test_section_marker.py` | rect grips 0-8 (opposite corner fixed, ends never cross, depth/flip); head tangency + apex side; cardinal wedge tip 25 mm outside its edge; label angle; `shape()` covers the glyphs; cardinal grip clears `auto_extent`; `to_dict` round-trip; `PAPER_EXCLUDED` only on cardinals; menu Delete / Rename disabled on cardinals |
 | `test_section_persistence.py` | `scene_io` round-trip; missing key seeds four; one missing cardinal re-seeded |
 | `test_section_undo.py` | place / grip / flip / delete undoable; open tab untouched |
 | `test_section_placement.py` | two clicks -> `Section 1`, `Section 2`; `< 100 mm` rejected; Esc cancels |
@@ -327,13 +347,14 @@ vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module n
 | D3 | depth = the section's own crop box in plan, seeded to the building extent | Phase 2 |
 | D4 | new `sections` key, no `SAVE_VERSION` bump | Phase 2 |
 | D5 / D5b | Section button beside Detail; cardinals permanent | Phase 2 |
-| D6 | bespoke marker / bubble / datum / hatch visuals carried over | Phase 2 |
+| D6 | bespoke bubble / datum / hatch visuals carried over; marker glyphs superseded by D6r | Phase 2 |
+| D6r | cardinal = old ViewMarkerArrow glyph on its own box; section = 2x bubble on each endpoint + tangent triangle (R*sqrt(2)), label along the cut; crop box edits as a rect | smoke ruling 2026-10-21, served tuner |
 | D7a / D7b | gridlines crossing the cut project; 767 stale | Phase 2 |
 | D8 | cardinals keep "Elevation" naming; one DM marker row relabelled | Phase 2 |
 | S0 | Approach A: generalize in place + git mv | Phase 3 |
 | S1 | origin-free basis; footprint classification by crop box; cardinal auto-extent until touched | Phase 3 |
 | S2 | rendering table; roof cut-render deferred; 600 via per-paint colour sources | Phase 3 |
-| S3 | SectionMarker, 4 grips incl. FlipGripHandle, undo via network snapshot, context menu | Phase 3 |
+| S3 | SectionMarker, 4 grips (superseded by D6r: 8 rect grips + flip) incl. FlipGripHandle, undo via network snapshot, context menu | Phase 3 |
 | S4 | cardinals keep `"elevation"` identity; `get_or_build_scene` for sheets; no `_STATE_VERSION` bump | Phase 3 |
 | S5 | module moves, guard tests, FP6 groups | Phase 3 |
 | R1 | marker stores plan-scene coordinates; `SectionScene` converts to world via `_scene_to_world` (s6) | plan reconciliation 2026-10-20, ratified at plan approval |

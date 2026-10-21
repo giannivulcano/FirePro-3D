@@ -7461,7 +7461,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._section_preview = preview
             return
-        a, b = self._section_anchor, QPointF(snapped)
+        a = self._section_anchor
+        b = QPointF(snapped)
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            b = self._constrain_angle(a, b)           # Ctrl: angle increments, as draw_line
         from .section_marker import MIN_CUT_LEN
         if QLineF(a, b).length() < MIN_CUT_LEN:
             self._show_status(f"Section too short: the cut line must be at least {MIN_CUT_LEN:.0f} mm")
@@ -7485,6 +7488,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.preview_pipe.hide()
         if self._section_anchor is not None and self._section_preview is not None:
             a = self._section_anchor
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                snapped = self._constrain_angle(a, snapped)
             self._section_preview.setLine(QLineF(a, snapped))
             # Look-side hint: look_sign +1 puts the look normal (D.y, -D.x) always
             # screen-left of A->B, whatever the cut direction.

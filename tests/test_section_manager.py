@@ -124,7 +124,7 @@ def test_marker_grip_rebuilds_open_scene(mgr):
     s = m.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0)); m.open_section("Section 1")
     sc = m.get_scene("Section 1")
     sc._rebuild_timer.stop()
-    s.apply_grip(2, QPointF(2500.0, -4000.0))
+    s.apply_grip(s.GRIP_DEPTH, QPointF(2500.0, -4000.0))
     assert sc._rebuild_timer.isActive()                                 # scheduled by on_marker_geometry_changed
 
 

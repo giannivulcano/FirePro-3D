@@ -426,8 +426,11 @@ def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
     from firepro3d.model_space import Model_Space
     force_theme("dark")
     ms = Model_Space()
-    m = SectionMarker.for_cardinal("north", QRectF(-5000.0, -5000.0, 10000.0, 10000.0))
+    # The cardinal glyph sits OUTSIDE its own crop box (old ViewMarkerArrow look, 2026-10-21),
+    # so the box must be small enough that the glyph lies inside _pass's source rect.
+    m = SectionMarker.for_cardinal("north", QRectF(-3000.0, -3000.0, 6000.0, 6000.0))
     ms.addItem(m)
+    assert m.shape().boundingRect().intersects(QRectF(-5000, -5000, 10000, 10000))
     before = m._marker_color.name()
     saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
     assert not m.isVisible() and m._marker_color.name() == before
