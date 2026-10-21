@@ -20,6 +20,7 @@ def test_cut_wall_rect_uses_section_colour_and_pattern(qapp, section_scene_for):
     s.setValue("display/Wall/section", "#aa0000")
     s.setValue("display/Wall/section_pattern", "crosshatch")
     s.setValue("display/Wall/color", "#004400")
+    s.setValue("display/Wall/section_scale", 2.0)
     ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
     w = _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))
     sec.rebuild()
@@ -41,6 +42,37 @@ def test_cut_wall_rect_uses_section_colour_and_pattern(qapp, section_scene_for):
     assert hatch.call_count == 1
     assert hatch.call_args.kwargs["pattern"] == "crosshatch"
     assert hatch.call_args.kwargs["section_fill"].name() == "#aa0000"
+    assert hatch.call_args.kwargs["hatch_scale"] == 2.0     # DM Section Scale column
+
+
+def test_cut_hatch_is_drawn_against_the_section_scene(qapp, section_scene_for):
+    """The renderer reads the paper override off the scene it is handed
+    (paper_display sets it on the viewport's source = the SectionScene)."""
+    from unittest.mock import patch
+    from PyQt6.QtGui import QImage, QPainter
+    from PyQt6.QtWidgets import QStyleOptionGraphicsItem
+    from firepro3d.hatch_render import drafting_factor
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    w = _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))
+    sec.rebuild()
+    (item,) = _cut_items(sec, w)
+    sec._hatch_paper_scale = 0.02
+    img = QImage(64, 64, QImage.Format.Format_ARGB32); img.fill(0)
+    p = QPainter(img)
+    with patch("firepro3d.section_scene.draw_section_hatch") as hatch:
+        item.paint(p, QStyleOptionGraphicsItem(), None)
+    p.end()
+    assert hatch.call_args.args[2] is sec
+    with_override = drafting_factor(sec)
+    sec._hatch_paper_scale = None
+    assert with_override != drafting_factor(sec)
+    assert with_override == pytest.approx(50.0)
+
+
+def test_token_bg_has_no_picker_label():
+    from firepro3d.colour_tokens import token_label
+    from firepro3d.constants import TOKEN_BG
+    assert token_label(TOKEN_BG) is None
 
 
 def test_behind_wall_keeps_todays_fill(qapp, section_scene_for):

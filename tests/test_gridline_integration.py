@@ -58,8 +58,10 @@ class TestElevationProjection:
         assert _shown_in(section_scene_for, "east", p1, p2) is False
         assert _shown_in(section_scene_for, "west", p1, p2) is False
 
-    def test_angled_projects_to_every_cardinal(self, section_scene_for):
+    def test_diagonal_through_box_corners_shows_in_every_cardinal(self, section_scene_for):
         """D7a: an oblique gridline crosses every cardinal cut line."""
+        # This diagonal shows in all four only because it passes through the seeded
+        # crop-box corners; a general oblique line crosses two of the four.
         p1, p2 = QPointF(0, 0), QPointF(5000, 5000)
         for d in ("north", "south", "east", "west"):
             assert _shown_in(section_scene_for, d, p1, p2) is True

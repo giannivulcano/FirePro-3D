@@ -268,8 +268,10 @@ class TestElevationFiltering:
     def test_horizontal_not_in_north(self, section_scene_for):
         assert _elev_gridline_h(section_scene_for, "north", (0, 2000), (5000, 2000)) is None
 
-    def test_angled_in_every_elevation_at_its_crossing(self, section_scene_for):
+    def test_diagonal_through_box_corners_shows_in_every_cardinal(self, section_scene_for):
         """Ratified by D7a: an oblique gridline crosses every cardinal cut."""
+        # The (0,0)->(3000,3000) diagonal shows in all four only because it passes
+        # through the seeded crop-box corners; a general oblique line crosses two.
         p1, p2 = (0, 0), (3000, 3000)       # 45 degrees through the origin, scene coords
         for direction in ("north", "south", "east", "west"):
             h = _elev_gridline_h(section_scene_for, direction, p1, p2)

@@ -228,12 +228,14 @@ class _ElevCutRect(_ElevProxyRect):
 
     _section_src = None
     _pattern = "diagonal"
-    _hatch_scene = None      # the model scene (pattern registry / drafting factor)
+    _hatch_scene = None      # the SectionScene (paper override / block registry)
+    _hatch_scale = 1.0       # DM Section Scale column
 
-    def set_section(self, section_src, pattern, hatch_scene):
+    def set_section(self, section_src, pattern, hatch_scene, hatch_scale=1.0):
         self._section_src = section_src
         self._pattern = pattern or "diagonal"
         self._hatch_scene = hatch_scene
+        self._hatch_scale = hatch_scale
 
     def _draw_shape(self, painter):
         pen, _brush = self.resolved_pen_brush()
@@ -243,7 +245,7 @@ class _ElevCutRect(_ElevProxyRect):
                            color=pen.color(), pattern=self._pattern,
                            line_width=1.0,
                            section_fill=section_fill_colour(self._section_src, self),
-                           hatch_scale=1.0)
+                           hatch_scale=self._hatch_scale)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self.rect())
@@ -657,6 +659,17 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     entitySelected = pyqtSignal(object)   # picked legacy entity
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
 
+    # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
+    # set/cleared by paper_display on the viewport's source scene). Declared so
+    # the per-paint read in hatch_render hits.
+    _hatch_paper_scale = None
+
+    @property
+    def block_registry(self):
+        """The model scene's BlockRegistry (hatch_render reads it off the
+        scene it is handed)."""
+        return getattr(self._ms, "block_registry", None)
+
     def __init__(self, marker, model_space: "Model_Space",
                  level_manager: "LevelManager", scale_manager: "ScaleManager",
                  parent=None):
@@ -1034,7 +1047,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Foreground (datum lines) ─────────────────────────────────────────
 
     def drawForeground(self, painter, rect):
-        """Draw datum lines from the bubble to h_max (gridline extent).
+        """Draw datum lines from the bubble across the crop box (basis h_min..h_max).
 
         Drawn in foreground so lines remain visible even when the bubble
         has scrolled out of the viewport.
@@ -1186,8 +1199,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         for wall in getattr(self._ms, "_walls", []):
             if not getattr(wall, "openings", None):
                 continue
-            # Task 5 renders head / sill for cut walls; until then only
-            # walls behind the cut carry their openings.
+            # Cut walls' head / sill carve lives in _wall_cut_spans; the
+            # opening (void + frame) is drawn only for walls behind the cut.
             if self._wall_zone(wall) != ZONE_BEHIND:
                 continue
 
@@ -1543,7 +1556,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     rect = _ElevCutRect(h_lo, -z1, h_hi - h_lo, z1 - z0)
                     rect.setPen(pen_black)
                     rect.set_colour_src(pen=props["color"])
-                    rect.set_section(props["section"], props["section_pattern"], self._ms)
+                    rect.set_section(props["section"], props["section_pattern"], self,
+                                     hatch_scale=props["section_scale"])
                     rect.setOpacity(props["opacity"] / 100.0)
                     rect.setData(_ROLE_SOURCE, src)
                     rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -1606,6 +1620,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             "has_explicit_fill": s.contains("display/Wall/fill"),
             "section": s.value("display/Wall/section", "#666666"),
             "section_pattern": s.value("display/Wall/section_pattern", "diagonal"),
+            "section_scale": float(s.value("display/Wall/section_scale", 1.0) or 1.0),
         }
 
     def _roof_display_props(self) -> dict:
@@ -1628,6 +1643,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             "visible": str(s.value("display/Floor/visible", "true")).lower() not in ("false", "0"),
             "section": s.value("display/Floor/section", "#666666"),
             "section_pattern": s.value("display/Floor/section_pattern", "diagonal"),
+            "section_scale": float(s.value("display/Floor/section_scale", 1.0) or 1.0),
         }
 
     def _pipe_display_props(self) -> dict:

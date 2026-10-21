@@ -27,9 +27,9 @@ def is_token(value) -> bool:
 
 
 def token_label(value) -> str | None:
-    """UI label of a token ("Automatic" / "Accent"); None for hex."""
-    if not is_token(value):
-        return None
+    """UI label of a token ("Automatic" / "Accent"); None for hex / TOKEN_BG."""
+    if not is_token(value) or value == TOKEN_BG:
+        return None   # TOKEN_BG is internal, never offered in a picker
     return _LABELS.get(value, "Automatic")
 
 
