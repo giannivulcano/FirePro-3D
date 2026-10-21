@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Triangle size = 3× the gridline bubble diameter
 CROP_MARGIN = 2000.0                   # plan-scene units (mm at ppm 1) — default crop box padding
 
 MIN_CUT_LEN = 100.0          # plan-scene units (mm at ppm 1) -- shorter cuts are refused at placement (spec s9)
