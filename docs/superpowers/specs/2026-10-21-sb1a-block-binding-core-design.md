@@ -12,7 +12,10 @@ applies-to:
   - firepro3d/block_properties_info.py     # Block view: Attributes section, Host category, Scale mode
   - firepro3d/text_item.py                 # keep_upright flag; Insert field row (Block Editor surface)
   - firepro3d/block_editor.py              # sample-value preview + raw-token toggle
-  - firepro3d/model_space.py               # double-click on a placed instance opens the dialog
+  - firepro3d/model_space.py               # can_edit_attributes / open_edit_attributes; entity-menu Edit Attributes item; editor block_meta + sample preview
+  - firepro3d/model_view.py                # plan selection menu: Edit Attributes item
+  - firepro3d/entity_context_menu.py       # on_edit_attributes action
+  - main.py                                # ribbon Definition-group Edit Attributes (wired at smoke)
   - firepro3d/titleblock_template.py       # resolve_text / TOKEN_RE reused (no change)
 source-tasks:
   - "SB1a -- Block-side binding core (todo_open.md, [type:feature], System Blocks build)"
@@ -52,7 +55,7 @@ registry). Nothing user-visible changes for blocks without attributes.
 |---|---|
 | A1 | Nested bound text resolves against the **outermost placed instance's** values (one key namespace; outermost wins -- the WM2 override composition shape). Nested records carry no attributes dict. |
 | A2 | Host values come through **one provider seam**, `BlockInstance.host_values() -> dict | None` (default `None` -> placeholder). Editor: `host_category` free combo, `host_key` free text, field picker lists the block's own keys. G1 runs with a stub provider; SB2 swaps in the registry and populates the pickers. |
-| A3 | Instance values/overrides are edited in an **Edit Attributes dialog**, opened by double-click on a placed instance in Model Space (Block Editor nested double-click, D10, unchanged) and by an "Edit attributes..." property-panel button; no attributes -> double-click no-op, button disabled. |
+| A3 | Instance values/overrides are edited in an **Edit Attributes dialog**, opened from the right-click menu ("Edit Attributes..." under "Edit Block", on both the entity menu and the plan-view selection menu) and by an "Edit attributes..." property-panel button; no attributes -> no menu item, button disabled. *Re-ruled at smoke 2026-10-21:* double-click on a placed instance keeps its pre-SB1a behaviour (no block action; the Block Editor's nested double-click, D10, unchanged) -- the original ruling opened the dialog on double-click. The Block Editor's Attributes editor is also reachable from the ribbon's Definition group **Edit Attributes** button (the pre-SB1a placeholder, wired at smoke; disabled on a schematic). |
 | A4 | Dialog rows: label / source / value. Host rows show the resolved value read-only with an **Override** checkbox enabling an editor (uncheck = binding restored). OK = one undo step; Cancel discards. |
 | A5 | `keep_upright`: net text angle in (90, 270] degrees -> 180-degree flip about the text's own box centre; a mirrored instance also un-mirrors the glyphs. Pose-only (view-independent), so model and paper agree. |
 | A6 | `default` doubles as the preview sample (host attrs: sample only). Empty -> placeholder. A "show raw tokens" toggle. |
@@ -118,13 +121,15 @@ registry). Nothing user-visible changes for blocks without attributes.
   `None` / `""` -> `placeholder`; numbers -> `format_value`; then `resolve_text`
   per bound prim; unknown tokens stay literal (title-block DD-13 contract, A7).
 - **Edit Attributes dialog** (`block_attributes_dialog.py`, `QDialog`): rows per
-  A4; number rows carry a numeric validator. Entry: `Model_Space.
-  mouseDoubleClickEvent` gains a `BlockInstance` branch when `scene_role !=
-  "block_editor"` and the definition declares attributes; the instance panel gets a
+  A4; number rows carry a numeric validator. Entry: `Model_Space.can_edit_attributes
+  (inst)` gates an "Edit Attributes..." action in `_build_entity_context_menu`
+  (via `entity_context_menu.build_entity_context_menu(on_edit_attributes=)`) and
+  in `Model_View._build_plan_context_menu` (exactly one selected instance), both
+  calling `Model_Space.open_edit_attributes`; the instance panel gets a
   `"button"` row "Edit attributes..." (the `Edit Roof...` / `Edit Revisions...`
   idiom), disabled when none. OK -> `instance.set_attributes(new)` inside
   `Model_Space.deferred_undo_push` (G9: one undo step) + repaint; Cancel -> nothing.
-  Multi-select: the dialog acts on the one double-clicked instance.
+  Multi-select: the dialog acts on the one right-clicked (or sole selected) instance.
 - **Serialization** (G2): definition `attributes` / `host_category` / `scale_mode`
   ride `to_dict` / `from_dict` (`.fpdb` schema 1 and bundled 2, `.fpd` embed, undo
   snapshot); prim `keep_upright` rides `TextItem.to_dict`; instance `attributes`
@@ -140,7 +145,10 @@ registry). Nothing user-visible changes for blocks without attributes.
 - **Block view** (`block_properties_info.get_properties`): header "Attributes",
   read-only `Count`, `"button"` row "Edit attributes..." opening the **Attributes
   editor dialog** (`block_attributes_editor.py`, sharing row widgets with S3's
-  module): a table of records with Add / Remove / Up / Down. `Host category`
+  module): a table of records with the house `+` / minus / up / down glyph
+  buttons (smoke 2026-10-21; the titleblock-editor and pattern-row idiom). The
+  ribbon's Definition-group **Edit Attributes** button opens the same dialog
+  (schematic: disabled, D-S14). `Host category`
   (free combo) and `Scale mode` (real size / annotative) are rows in the Block
   view. OK commits one editor edit (one editor undo step; version bump at Save,
   as capability edits do). Rename cascades (A7) in the same commit; Remove of a
@@ -194,7 +202,7 @@ guarded here; the metric and threshold for the full G6 are confirmed before SB3.
 - [ ] AC2 Definition `attributes`, `host_category`, `scale_mode`, prim `keep_upright` and instance `attributes` round-trip `.fpd`, `.fpdb` (schema 1 and bundled 2) and undo/redo (G2).
 - [ ] AC3 A nested bound prim resolves the outermost instance's values (A1).
 - [ ] AC4 `keep_upright` flips at 91 degrees, not at 89; a mirrored instance's glyphs read un-mirrored (A5).
-- [ ] AC5 Edit Attributes dialog opens by double-click and panel button, disabled/no-op when no attributes; OK = exactly one undo entry; Override uncheck restores the binding (A3/A4).
+- [ ] AC5 Edit Attributes dialog opens from the right-click "Edit Attributes..." item and the panel button, absent/disabled when no attributes, double-click opens nothing; OK = exactly one undo entry; Override uncheck restores the binding (A3/A4).
 - [ ] AC6 Attributes editor: Add/Remove/reorder; rename cascades through text; Remove of a referenced key refused (A7); Insert field appends `@[key]`.
 - [ ] AC7 Preview shows sample values; raw-token toggle shows tokens (A6).
 - [ ] AC8 Explode yields a plain text primitive with the resolved string (A9).

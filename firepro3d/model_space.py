@@ -3595,13 +3595,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         self.push_undo_state()
 
-    def open_edit_attributes(self, inst) -> bool:
-        """Open the Edit Attributes dialog for *inst* (SB1a A3). Returns
-        False (no dialog) when its definition declares no attributes, or in
-        the Block Editor (a nested record carries no ``attributes``, A1/D10)."""
+    def can_edit_attributes(self, inst) -> bool:
+        """True when *inst* offers Edit Attributes here (SB1a A3): its
+        definition declares attributes and this is not the Block Editor (a
+        nested record carries no ``attributes``, A1/D10)."""
         d = inst.definition()
-        if (d is None or not d.effective_attributes()
-                or self.scene_role == "block_editor"):
+        return bool(d is not None and d.effective_attributes()
+                    and self.scene_role != "block_editor")
+
+    def open_edit_attributes(self, inst) -> bool:
+        """Open the Edit Attributes dialog for *inst* (SB1a A3: the right-click
+        "Edit Attributes…" item and the panel button). Returns False (no
+        dialog) when :meth:`can_edit_attributes` refuses."""
+        if not self.can_edit_attributes(inst):
             return False
         from .block_attributes_dialog import EditAttributesDialog
         parent = self.views()[0].window() if self.views() else None
@@ -7858,15 +7864,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.blockEditRequested.emit(hit.block_id)
                 event.accept()
                 return
-        # ── Model Space: double-click a placed instance with attributes ->
-        #    Edit Attributes dialog (SB1a A3). The Block Editor keeps D10.
-        if (event.button() == Qt.MouseButton.LeftButton
-                and self.scene_role != "block_editor"
-                and self.mode in (None, "select")):
-            hit = self._find_entity_at(event.scenePos())
-            if isinstance(hit, BlockInstance) and self.open_edit_attributes(hit):
-                event.accept()
-                return
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "pipe"
@@ -8076,6 +8073,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             on_edit_block=(
                 (lambda: self.blockEditRequested.emit(target.block_id))
                 if is_block else None
+            ),
+            # SB1a A3 (smoke re-ruling 2026-10-21): plan only, attributes declared.
+            on_edit_attributes=(
+                (lambda: self.open_edit_attributes(target))
+                if is_block and self.can_edit_attributes(target) else None
             ),
             on_explode=(
                 (lambda: self.explode_selected_blocks())

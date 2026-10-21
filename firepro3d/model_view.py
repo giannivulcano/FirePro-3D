@@ -1788,6 +1788,13 @@ class Model_View(QGraphicsView):
                     menu.addAction("Edit Block").triggered.connect(
                         lambda _checked=False, bid=blocks[0].block_id:
                             scene.blockEditRequested.emit(bid))
+                    # SB1a A3 (smoke re-ruling 2026-10-21): the same item the
+                    # scene's entity menu offers on a direct right-click.
+                    if (hasattr(scene, "can_edit_attributes")
+                            and scene.can_edit_attributes(blocks[0])):
+                        menu.addAction("Edit Attributes…").triggered.connect(
+                            lambda _checked=False, b=blocks[0]:
+                                scene.open_edit_attributes(b))
                 if in_editor:
                     menu.addAction("Explode").triggered.connect(
                         lambda _checked=False: scene.explode_selected_blocks())

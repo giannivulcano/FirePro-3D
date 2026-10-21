@@ -1379,11 +1379,11 @@ class BlockInstance(QGraphicsObject):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
-        d = self.definition()
         # A1/D10: a nested child inside the Block Editor carries no instance
-        # values (the nested record drops ``attributes``), so the row is off.
-        has_attrs = bool(d is not None and d.effective_attributes()
-                         and getattr(sc, "scene_role", None) != "block_editor")
+        # values (the nested record drops ``attributes``), so the row is off --
+        # the scene's can_edit_attributes gate, shared with the context menus.
+        has_attrs = bool(sc is not None and hasattr(sc, "can_edit_attributes")
+                         and sc.can_edit_attributes(self))
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}

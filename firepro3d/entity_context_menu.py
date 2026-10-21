@@ -74,6 +74,7 @@ def build_entity_context_menu(
     on_array_gridline=None,
     on_offset_gridline=None,
     on_edit_block=None,
+    on_edit_attributes=None,
     on_explode=None,
 ) -> QMenu:
     """Build and return a QMenu with standard entity actions.
@@ -97,6 +98,9 @@ def build_entity_context_menu(
         "Offset Gridline…" action (shown only when target is a GridlineItem).
     on_edit_block : callable or None
         "Edit Block" action (a block instance, plan or Block Editor — D10).
+    on_edit_attributes : callable or None
+        "Edit Attributes…" action (a placed instance whose definition declares
+        attributes, plan only — SB1a A3 as re-ruled at smoke 2026-10-21).
     on_explode : callable or None
         "Explode" action (Block Editor only — containment C1).
     """
@@ -106,9 +110,12 @@ def build_entity_context_menu(
     # ── Block instance (Edit Block: plan + editor; Explode: editor only) ──
     if on_edit_block is not None:
         menu.addAction("Edit Block").triggered.connect(on_edit_block)
+    if on_edit_attributes is not None:
+        menu.addAction("Edit Attributes…").triggered.connect(on_edit_attributes)
     if on_explode is not None:
         menu.addAction("Explode").triggered.connect(on_explode)
-    if on_edit_block is not None or on_explode is not None:
+    if (on_edit_block is not None or on_edit_attributes is not None
+            or on_explode is not None):
         menu.addSeparator()
 
     # ── Copy ──

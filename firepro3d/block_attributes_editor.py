@@ -1,7 +1,7 @@
 """Attributes editor for the Block Editor (SB1a S4 / A7).
 
 A table of attribute records (key, label, type, source, host key, default,
-prefix, suffix, precision, placeholder) with Add / Remove / Up / Down. OK
+prefix, suffix, precision, placeholder) with + / minus / up / down row buttons. OK
 validates (empty or duplicate keys refused inline; removing a key that text
 primitives still reference is refused with "used by N text fields") and
 applies through ``BlockEditorWidget.apply_attributes_edit`` -- renames
@@ -10,8 +10,8 @@ editor undo step.
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QPushButton,
-                             QTableWidget, QTableWidgetItem, QWidget)
+from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QTableWidget,
+                             QTableWidgetItem, QToolButton, QWidget)
 
 from .block_attributes import ATTR_SOURCES, ATTR_TYPES, references_of
 from .house_dialog import HouseDialog
@@ -37,9 +37,14 @@ class AttributesEditorDialog(HouseDialog):
             self._append(rec, orig=rec["key"])
         btns = QWidget()
         bl = QHBoxLayout(btns)
-        for label, slot in (("Add", self.add_row), ("Remove", self._remove_current),
-                            ("Up", lambda: self._move(-1)), ("Down", lambda: self._move(1))):
-            b = QPushButton(label)
+        # House glyph buttons (titleblock editor + / minus, pattern rows up / down triangles).
+        for glyph, tip, slot in (("+", "Add", self.add_row),
+                                 ("\u2212", "Remove", self._remove_current),
+                                 ("\u25b2", "Move up", lambda: self._move(-1)),
+                                 ("\u25bc", "Move down", lambda: self._move(1))):
+            b = QToolButton()
+            b.setText(glyph)
+            b.setToolTip(tip)
             b.clicked.connect(slot)
             bl.addWidget(b)
         bl.addStretch(1)

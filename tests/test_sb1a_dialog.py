@@ -110,27 +110,58 @@ def _plain_def(ms):
     return plain
 
 
-def test_double_click_opens_dialog_only_with_attributes(qapp, monkeypatch):
+def _labels(menu):
+    return [a.text() for a in menu.actions() if not a.isSeparator()]
+
+
+def test_right_click_menus_offer_edit_attributes_only_with_attributes(qapp, monkeypatch):
+    """A3 as re-ruled at smoke (2026-10-21): the scene's entity menu (direct
+    right-click) and the view's plan menu (selection right-click) carry
+    "Edit Attributes..." below "Edit Block" for a placed instance whose
+    definition declares attributes; a plain block gets neither."""
     opened = []
     monkeypatch.setattr("firepro3d.block_attributes_dialog.EditAttributesDialog.exec",
                         lambda self: opened.append(self._inst) or 1)
     ms, d, inst = _setup()
     plain = _plain_def(ms)
-    ms.place_block_instance(plain.id, (100.0, 0.0))
-    view = _shown_view(ms)
-    _dclick(view, 10.0, 0.0)
+    p = ms.place_block_instance(plain.id, (100.0, 0.0))
+    assert ms._find_entity_at(QPointF(10.0, 0.0)) is inst   # a real right-click hits it
+    m = ms._build_entity_context_menu(inst)
+    labels = _labels(m)
+    assert labels.index("Edit Block") + 1 == labels.index("Edit Attributes\u2026")
+    next(a for a in m.actions() if a.text() == "Edit Attributes\u2026").trigger()
     assert opened == [inst]
-    _dclick(view, 110.0, 0.0)               # no attributes: no dialog
-    assert opened == [inst]
-    view.close()
+    assert "Edit Attributes\u2026" not in _labels(ms._build_entity_context_menu(p))
+    from firepro3d.model_view import Model_View
+    mv = Model_View(ms)
+    try:
+        inst.setSelected(True)
+        gm = mv._build_plan_context_menu(ms, [inst], "select")
+        assert "Edit Attributes\u2026" in _labels(gm)
+        next(a for a in gm.actions() if a.text() == "Edit Attributes\u2026").trigger()
+        assert opened == [inst, inst]
+        inst.setSelected(False)
+        p.setSelected(True)
+        assert "Edit Attributes\u2026" not in _labels(
+            mv._build_plan_context_menu(ms, [p], "select"))
+    finally:
+        mv.close()
+        mv.deleteLater()
 
 
-def test_double_click_inert_in_block_editor(qapp, monkeypatch):
+def test_right_click_menu_inert_in_block_editor(qapp):
+    ms, d, inst = _setup()
+    ms.scene_role = "block_editor"
+    assert "Edit Attributes\u2026" not in _labels(ms._build_entity_context_menu(inst))
+    assert ms.can_edit_attributes(inst) is False
+
+
+def test_double_click_on_instance_opens_no_dialog(qapp, monkeypatch):
+    """A3 re-ruling: double-click keeps its pre-SB1a behaviour (no block action)."""
     opened = []
     monkeypatch.setattr("firepro3d.block_attributes_dialog.EditAttributesDialog.exec",
                         lambda self: opened.append(self._inst) or 1)
     ms, d, inst = _setup()
-    ms.scene_role = "block_editor"
     view = _shown_view(ms)
     _dclick(view, 10.0, 0.0)
     assert opened == []
