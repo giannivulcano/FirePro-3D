@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-20 (Phase 3 of the section-view build); flips to current at Account
-last-verified: 2026-10-20
-verified-commit: aeab43ff   # design probes ran against this HEAD (pre-build)
+status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
+last-verified: 2026-10-21  # Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -205,7 +205,9 @@ plan approval): s4.1's "world mm" is the derived basis, converted at `SectionSce
   viewport bound as `section:<name>`. Delete closes the tab and removes the marker.
 - Property panel (`get_properties`, DetailMarker pattern): Name, Depth (mm, `ScaleManager`
   formatters), Flip toggle, read-only Cardinal.
-- Undo: grip commits and menu Flip / Delete call `push_undo_state` before mutating (s8).
+- Undo: grip commits (the manipulator's commit hook) and menu Flip / Rename / Delete call
+  `push_undo_state` **after** mutating -- the post-action snapshot convention (s8; G3 ruling
+  2026-10-20). Rename pushes only when the name actually changed.
 
 ## 7. SectionManager and consumers (S4)
 
@@ -273,8 +275,9 @@ Mode `"section"` beside `"detail"` in `Model_Space`'s dispatch dicts. `_press_se
 `_move_section` mirror `_press_detail` / `_move_detail`: click 1 anchors A (snapped), a dashed
 preview line with a look-side hint follows the cursor; click 2 sets B -> `place_section(A, B)`:
 `look_sign = +1`, `depth` = the building extent beyond the line (`max((c - A) . N)` over the
-building bbox corners; 10 000 mm when nothing lies on that side), `push_undo_state`, back to
-`select`. `|AB| < 100 mm` is rejected with a status message. Esc cancels. Status text follows the
+building bbox corners; 10 000 mm when nothing lies on that side), then the new section's tab is
+opened (`open_section`; plan reconciliation R6 -- VC9 M2, recorded 2026-10-21: the user lands in
+the view they just cut), `push_undo_state`, back to `select`. `|AB| < 100 mm` is rejected with a status message. Esc cancels. Status text follows the
 detail tool's wording. The second point aligns like `draw_line` (smoke ruling 2026-10-21): the
 first click is the ALIGN anchor (`PlacementInputCoordinator._mode_placement_anchor` has a
 `"section"` branch, so the H/V rays and the align-placement glyphs fire), and Ctrl constrains the
@@ -295,11 +298,11 @@ cut to `_snap_angle_deg` increments through `_constrain_angle` on both the previ
 
 ## 11. Verification Checklist
 
-- [ ] Guard tests of s12 each shown RED with the rule reverted (VC3).
-- [ ] Whole-repo grep for every retired name (s3.1 table, `_create_elevation_markers`, `_is_cardinal_for_elevation`, `_world_to_elev`) returns only this spec's history notes.
-- [ ] Launch smoke: open each cardinal, place a 45 deg section, open it, host it on a sheet, export dark-theme PDF.
-- [ ] Old project loads with four cardinals; new project saves and reloads a placed section.
-- [ ] Full suite green on the final tree (VC6), the VC7-proved `test_empty_click_deselects` order flake excepted (filed, not patched).
+- [x] Guard tests of s12 each shown RED with the rule reverted (VC3) -- per group G1-G5 + the 2026-10-21 smoke fix round (8 guards).
+- [x] Whole-repo grep for every retired name (s3.1 table, `_create_elevation_markers`, `_is_cardinal_for_elevation`, `_world_to_elev`) returns only history notes (G5 Task 14; VC9 seam 5).
+- [x] Launch smoke 2026-10-21: cardinals, 45 deg section, grips, placement ALIGN/Ctrl -- re-entered Phase 2 for the marker visuals (D6r) and passed on the fix round ("good enough for now").
+- [x] Old project loads with four cardinals; new project saves and reloads a placed section (guards in `test_section_persistence.py`; smoke row).
+- [ ] Full suite on the final tree (VC6): **not run** -- skipped on the user's instruction 2026-10-21 (keep-green 321 + 290 + 91 and VC7 proofs only). Known pre-existing: `test_empty_click_deselects` (order flake), `test_block_drag_drop::test_space_rotates...`, `test_modify_tools_shortcuts::test_flip_mirror_keys...` -- each proved at base 98f0dc09, filed.
 
 ## 12. Test Strategy (S5)
 

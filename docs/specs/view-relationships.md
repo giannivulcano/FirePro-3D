@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-18  # HF1 Account: elevation-colour pointer only (rest not re-audited); prior 2026-09-18
-verified-commit: 084b43e0  # HF1 Account (pointer only); prior 5cd5941
+last-verified: 2026-10-21  # section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
+verified-commit: 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
@@ -170,7 +170,7 @@ This table enumerates every property in the data model that contributes to an ob
 | **Section** | Vertical line in plan + look direction + depth | Horizontal | `SectionView` rendering `SectionScene` (any-angle cut line; basis in `section-view-subsystem.md` §4) |
 | **3D** | None (full model) | Camera-controlled | `View3D` (PyVista/VTK — `view-3d.md`) |
 
-Section as a first-class subsystem with arbitrary cut lines is **planned**, not implemented. Today only the cardinal-line specialization (elevation) exists.
+Section is a first-class subsystem since 2026-10-21 (`section-view-subsystem.md`): any-angle cut lines placed with the Section tool, and the four cardinal elevations are its permanent cardinal specialization.
 
 ### 4.2 Parameterizations
 
@@ -180,7 +180,7 @@ A parameterization is a specialization of a base type that uses the same project
 |---|---|---|
 | **Detail view** | Plan | Adds a crop rectangle (`_clip_rect`) and a fit-to-crop transform. No independent scale or visibility overrides today (see §7.4). |
 | **Elevation view** | Section | Cut line is constrained to a cardinal axis (N/S/E/W); look direction implicit. |
-| **Section view** *(planned)* | Section | Removes the cardinal-axis constraint. |
+| **Section view** | Section | Removes the cardinal-axis constraint (placed `SectionMarker`, any angle). |
 
 ### 4.3 Paper viewport (frame, not a base type)
 
