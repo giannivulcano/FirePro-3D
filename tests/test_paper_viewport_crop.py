@@ -56,7 +56,7 @@ class _FakePlanMgr:
 def _resolver(model_scene, markers=None):
     from firepro3d.paper_space import ViewResolver
     return ViewResolver(model_scene, _FakePlanMgr(),
-                        _FakeDetailMgr(markers or {}), elevation_manager=None)
+                        _FakeDetailMgr(markers or {}), section_manager=None)
 
 
 def test_plan_viewport_size_derives_from_crop_and_scale(qapp):

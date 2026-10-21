@@ -156,7 +156,7 @@ def test_available_views_lists_schematics_by_name(qapp):
         detail_names = []
 
     class _EM:
-        open_directions = []
+        section_names = []
 
     ms = Model_Space()
     mgr = SchematicSceneManager(ms)

@@ -486,8 +486,8 @@ class TestViewResolver:
         elev_mgr = MagicMock()
         elev_scene = QGraphicsScene()
         elev_scene.addRect(0, 0, 5000, 3000)
-        elev_mgr.get_scene.return_value = elev_scene
-        elev_mgr.open_directions = ["north", "east"]
+        elev_mgr.get_or_build_scene.return_value = elev_scene
+        elev_mgr.section_names = []
 
         return ViewResolver(model_scene, plan_mgr, detail_mgr, elev_mgr)
 
@@ -530,7 +530,7 @@ class TestViewResolver:
         detail_mgr.detail_names = []
         detail_mgr.get_marker.return_value = None
         elev_mgr = MagicMock()
-        elev_mgr.get_scene.return_value = None
+        elev_mgr.get_or_build_scene.return_value = None
         resolver = ViewResolver(model_scene, plan_mgr, detail_mgr, elev_mgr)
         assert resolver.resolve("plan", "Nonexistent") is None
         assert resolver.resolve("detail", "Nonexistent") is None

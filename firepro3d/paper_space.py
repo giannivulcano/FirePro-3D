@@ -676,12 +676,12 @@ class ViewResolver:
     """
 
     def __init__(self, model_scene, plan_view_manager,
-                 detail_manager, elevation_manager, level_manager=None,
+                 detail_manager, section_manager, level_manager=None,
                  schematic_scenes=None):
         self._scene = model_scene
         self._pvm = plan_view_manager
         self._dm = detail_manager
-        self._em = elevation_manager
+        self._sm = section_manager          # SectionManager (cardinals + placed sections)
         self._level_manager = level_manager
         # SchematicSceneManager (schematics.md D-S10); None = no schematics.
         self._schematics = schematic_scenes
@@ -693,8 +693,8 @@ class ViewResolver:
             return self._resolve_plan(view_name)
         if view_type == "detail":
             return self._resolve_detail(view_name)
-        if view_type == "elevation":
-            return self._resolve_elevation(view_name)
+        if view_type in ("elevation", "section"):
+            return self._resolve_section(view_name)
         if view_type == "schematic":
             return self._resolve_schematic(view_name)
         return None
@@ -714,9 +714,13 @@ class ViewResolver:
             return None
         return (self._scene, marker.crop_rect)
 
-    def _resolve_elevation(self, name: str):
-        direction = name.lower()
-        scene = self._em.get_scene(direction)
+    def _resolve_section(self, name: str):
+        """(scene, extent) for a cardinal or placed section; the scene is
+        built tab-less when no tab is open so a reloaded sheet never goes
+        blank (spec s7.2, acceptance a)."""
+        if self._sm is None:
+            return None
+        scene = self._sm.get_or_build_scene(name)
         if scene is None:
             return None
         rect = scene.itemsBoundingRect()
@@ -750,7 +754,7 @@ class ViewResolver:
         """Return (level_name, view_height, view_depth) for a plan/detail view,
         or None when it cannot be resolved.
 
-        Elevation views live in a separate scene and need no isolation; a missing
+        Elevation and section views live in a separate scene and need no isolation; a missing
         level_manager or unresolvable view degrades to None (no isolation).
         Mirrors main._apply_plan_level / _apply_detail_level, incl. the
         detail->plan cut-plane inheritance.
@@ -786,6 +790,10 @@ class ViewResolver:
             result["Details"] = detail_names
         directions = ["North", "South", "East", "West"]
         result["Elevations"] = directions
+        if self._sm is not None:
+            names = self._sm.section_names
+            if names:
+                result["Sections"] = names
         if self._schematics is not None:
             # schematics.md D-S4 (SV4): the project's schematics by display
             # name; ``resolve`` takes the definition id (Input / Output).
@@ -1100,7 +1108,7 @@ class SheetViewport(QGraphicsObject):
             dict | None: A restore token, or ``None`` for the no-op path.
         """
         resolver = self._resolver
-        if resolver is None or self._data.source_view_type == "elevation":
+        if resolver is None or self._data.source_view_type in ("elevation", "section"):
             return None
         target = resolver.resolve_level_context(
             self._data.source_view_type, self._data.source_view_name)

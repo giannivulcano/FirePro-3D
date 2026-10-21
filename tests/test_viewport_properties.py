@@ -34,7 +34,7 @@ class _FakeDetailMgr:
 
 def _resolver(model):
     return ViewResolver(model, _FakePlanMgr(), _FakeDetailMgr(),
-                        elevation_manager=None)
+                        section_manager=None)
 
 
 @pytest.fixture
