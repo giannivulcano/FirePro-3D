@@ -36,7 +36,7 @@ from .colour_tokens import paint_resolver, resolve_colour
 from .constants import (FILL_LEGACY_COLOUR, LINETYPE_WINDOW_MIN_PERIODS,
                         TOKEN_AUTO)
 from .geometry_2d import constraint_tint
-from .render_op import (STROKE, FILL, PATTERN, TEXT, apply_overrides,
+from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
                         pattern_orient as _pattern_orient)
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
@@ -130,6 +130,9 @@ class BlockInstance(QGraphicsObject):
         self.overrides: dict = normalize_overrides(None)
         self._ov_args = None
         self._ov_cache = None      # (base ops list, args, derived list)
+        self._bound_cache = None   # (bound_prims list, key, bound ops) -- SB1a S2
+        self._combined_cache = None  # (static list, bound list, static + bound)
+        self._bound_builds = 0     # rebuild counter (G1 guard)
         self._pose_x = 0.0
         self._pose_y = 0.0
         self._pose_rot = 0.0   # Y-up CCW degrees
@@ -170,23 +173,90 @@ class BlockInstance(QGraphicsObject):
     def definition(self) -> Optional[BlockDefinition]:
         return self._resolver(self.block_id)
 
+    def host_values(self) -> Optional[dict]:
+        """The host-value provider seam (SB1a A2): ``{host_key: raw}`` or
+        None (no host -> placeholders). SB2 / SB3 override on host-aware
+        subclasses; a test stub returns a dict."""
+        return None
+
+    def set_attributes(self, values: dict) -> None:
+        """Replace the instance's attribute values / host overrides (A4 / D4:
+        a host key's presence is its override); repaint. Undo is the
+        caller's (the dialog's one ``deferred_undo_push``)."""
+        self.prepareGeometryChange()
+        self.attributes = dict(values)
+        self.update()
+
+    def _bound_ops(self) -> list:
+        """The per-instance bound text ops (design S2): one TEXT op per
+        ``BoundPrim``, text resolved through ``resolve_values``, glyphs built
+        by ``TextItem`` + ``_local_path``, mapped through the prim's
+        definition-local transform then this pose's S.M. Memoised on (bound
+        prim list identity, resolved strings, mirror, scale); the upright
+        turn (A5) is applied at paint by ``_text_path`` via ``readable``."""
+        d = self.definition()
+        if d is None:
+            return []
+        bps = d.bound_prims()
+        if not bps:
+            return []
+        from .block_attributes import resolve_fields, resolve_values
+        values = resolve_values(d.effective_attributes(), self.attributes,
+                                self.host_values())
+        strings = tuple(resolve_fields(str(b.prim.get("text", "")), values)[0]
+                        for b in bps)
+        key = (strings, self._pose_mirrored, float(f"{self._pose_scale:.9g}"))
+        c = self._bound_cache
+        if c is not None and c[0] is bps and c[1] == key:
+            return c[2]
+        from .block_definition import _local_path
+        from .text_item import TextItem
+        sm = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored, self._pose_scale)
+        out = []
+        for b, s in zip(bps, strings):
+            rec = dict(b.prim)
+            rec["text"] = s
+            item = TextItem.from_dict(rec)
+            path = item.mapToParent(_local_path(item))
+            centre = item.grip_points()[8]
+            op = RenderOp(TEXT, path, colour=item.data.color,
+                          text_frame=(centre.x(), centre.y(), float(item._angle)),
+                          readable=bool(rec.get("keep_upright", False)))
+            out.append(op.mapped(b.transform * sm))
+        self._bound_cache = (bps, key, out)
+        self._bound_builds += 1
+        return out
+
     def render_ops(self):
         """The definition's compiled ops under this placement's mirror / scale
         variant (design DD4) with the override applied (WM2 H2) -- the
         variant list itself while As Authored; else one derived list memoised
         on (variant list identity, override args), held so its identity can't
-        be recycled (the ``_posed_cache`` idiom)."""
+        be recycled (the ``_posed_cache`` idiom). Followed by this instance's
+        bound text ops (SB1a S2) when the definition has any -- the combined
+        list is memoised so identity-keyed caches (posed path, shape, snap
+        stand-ins) rebuild only when the static or bound part changes."""
         d = self.definition()
         base = (d.render_ops_variant(self._pose_mirrored, self._pose_scale)
                 if d is not None else [])
         a = self._ov_args
         if a is None:
-            return base
-        c = self._ov_cache
-        if c is not None and c[0] is base and c[1] == a:
-            return c[2]
-        out = apply_overrides(base, *a)
-        self._ov_cache = (base, a, out)
+            static = base
+        else:
+            c = self._ov_cache
+            if c is not None and c[0] is base and c[1] == a:
+                static = c[2]
+            else:
+                static = apply_overrides(base, *a)
+                self._ov_cache = (base, a, static)
+        bound = self._bound_ops()
+        if not bound:
+            return static
+        cc = self._combined_cache
+        if cc is not None and cc[0] is static and cc[1] is bound:
+            return cc[2]
+        out = static + bound
+        self._combined_cache = (static, bound, out)
         return out
 
     def set_overrides(self, ov, canonical: bool = True) -> None:
