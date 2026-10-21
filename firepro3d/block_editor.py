@@ -571,6 +571,7 @@ class BlockEditorWidget(QWidget):
         self.editor_scene.set_block_meta(
             {"attributes": defn.attributes, "host_category": defn.host_category,
              "scale_mode": defn.scale_mode}, push_undo=False)
+        self.editor_scene.refresh_sample_preview()   # texts seeded before the meta
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
         if migrated:

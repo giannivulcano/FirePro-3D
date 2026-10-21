@@ -284,6 +284,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data = data
         self._editing = False
         self._text_before_edit = data.text
+        # Block Editor sample preview (SB1a A6): shown in place of the
+        # authored text while not editing; ``_data.text`` is never touched.
+        self._display_text: str | None = None
 
         # Inline-edit session state (model surface; spec § Inline edit).
         self._caret_timer: QTimer | None = None
@@ -1187,6 +1190,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         for key in ("Level", "Level Offset", "Elevation"):
             geom2d.pop(key, None)
         props.update(geom2d)
+        sc = self.scene()
+        if sc is not None and getattr(sc, "scene_role", "") == "block_editor":
+            # Block Editor surface only (SB1a S4): the field picker + the
+            # keep_upright flag (a plan-view text ignores both).
+            keys = [a["key"] for a in getattr(sc, "block_meta", {}).get("attributes", [])]
+            props["Insert field"] = {"type": "enum", "options": [""] + keys, "value": ""}
+            props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
         return props
 
     def set_property(self, key: str, value) -> None:
@@ -1211,11 +1221,18 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                          # live-typed document.
             self._data.text = str(value)
             self.setPlainText(self._data.text)
+            self._refresh_preview()
         elif key == "Content":
             if str(value) == self._data.text:
                 return   # see "Text" above
             self._data.text = str(value)
             self.setPlainText(self._data.text)
+            self._refresh_preview()
+        elif key == "Insert field":
+            if str(value):
+                self._set_property_model("Content", self._data.text + f"@[{value}]")
+        elif key == "Keep upright":
+            self._data.keep_upright = bool(value)
         elif key == "Font":
             self._data.font_family = str(value)
         elif key == "Font Color":
@@ -1335,10 +1352,35 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """True when the block contains only whitespace."""
         return self.toPlainText().strip() == ""
 
+    def set_display_text(self, s: str | None) -> None:
+        """Block Editor sample preview (SB1a A6): show *s* in place of the
+        authored text while not editing; None restores the authored text.
+        ``_data.text`` (what ``to_dict`` writes) is never touched."""
+        self._display_text = s
+        self._reapply_display()
+
+    def _reapply_display(self) -> None:
+        if self._editing:
+            return
+        shown = self._data.text if self._display_text is None else self._display_text
+        if self.toPlainText() != shown:
+            self.prepareGeometryChange()
+            self.setPlainText(shown)
+            self._apply_format()
+
+    def _refresh_preview(self) -> None:
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "refresh_sample_preview"):
+            sc.refresh_sample_preview()
+        else:
+            self._reapply_display()
+
     def begin_edit(self) -> None:
         """Enter inline-edit mode: enable text interaction and take focus."""
         self._editing = True
         self._text_before_edit = self._data.text
+        if self._display_text is not None:
+            self.setPlainText(self._data.text)      # editing shows the raw text
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         sc = self.scene()
@@ -1356,6 +1398,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data.text = new_text
         self.prepareGeometryChange()
         self._apply_format()
+        self._refresh_preview()
         return new_text
 
     def cancel_edit(self) -> None:
@@ -1373,6 +1416,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.setPlainText(self._text_before_edit)
         self._data.text = self._text_before_edit
         self.prepareGeometryChange()
+        self._refresh_preview()
         self._apply_format()
         if scene is not None and getattr(scene, "_pending_text", None) is self:
             scene.commit_place_text(self)

@@ -146,3 +146,97 @@ def test_reorder_rows(qapp):
     dlg._move(1)
     assert dlg.try_accept() is True
     assert [a["key"] for a in sc.block_meta["attributes"]] == ["B", "A"]
+
+
+def test_insert_field_appends_token(qapp):
+    from firepro3d.text_item import TextItem
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("Room ")])
+    sc = w.editor_scene
+    sc.set_block_meta({"attributes": [_attr("Mark"), _attr("Area")]})
+    t = [it for it in sc.items() if isinstance(it, TextItem)][0]
+    props = t.get_properties()
+    assert props["Insert field"] == {"type": "enum", "options": ["", "Mark", "Area"], "value": ""}
+    assert props["Keep upright"] == {"type": "bool", "value": False}
+    n = len(sc._undo_stack)
+    t.set_property("Insert field", "Mark")
+    assert t._data.text == "Room @[Mark]"
+    assert len(sc._undo_stack) == n + 1
+    t.set_property("Keep upright", True)
+    assert t.to_dict()["keep_upright"] is True
+    assert len(sc._undo_stack) == n + 2
+    # a plan-view text has neither row
+    plain = Model_Space()
+    p = plain._add_from_dict(_text("x"))
+    assert "Insert field" not in p.get_properties() and "Keep upright" not in p.get_properties()
+
+
+def test_sample_preview_toggle(qapp):
+    from firepro3d.text_item import TextItem
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("Room @[Mark]")])
+    sc = w.editor_scene
+    t = [it for it in sc.items() if isinstance(it, TextItem)][0]
+    sc.set_block_meta({"attributes": [_attr("Mark", default="A1")]})
+    assert sc.show_sample_values is True
+    assert t.toPlainText() == "Room A1"          # A6: default doubles as sample
+    assert t._data.text == "Room @[Mark]"        # authored string intact
+    assert t.to_dict()["text"] == "Room @[Mark]"
+    sc.set_show_sample_values(False)             # "Show raw tokens"
+    assert t.toPlainText() == "Room @[Mark]"
+    sc.set_show_sample_values(True)
+    t.begin_edit()
+    assert t.toPlainText() == "Room @[Mark]"     # editing shows the raw text
+    t.setPlainText("Room @[Mark]!")
+    t.commit_edit()
+    assert t._data.text == "Room @[Mark]!" and t.toPlainText() == "Room A1!"
+
+
+def test_sample_preview_survives_undo_seed_and_commit(qapp):
+    """Restored / re-seeded texts re-preview; the committed primitive keeps the
+    authored token string, and the preview toggle is not an undo step."""
+    from firepro3d.text_item import TextItem
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("Room @[Mark]")])
+    sc = w.editor_scene
+    sc.set_block_meta({"attributes": [_attr("Mark", default="A1")]})
+    base = len(sc._undo_stack)
+    sc.set_show_sample_values(False)
+    sc.set_show_sample_values(True)
+    assert len(sc._undo_stack) == base
+    sc.push_undo_state()
+    sc.undo()
+    sc.redo()
+    t = [it for it in sc.items() if isinstance(it, TextItem)][0]
+    assert t.toPlainText() == "Room A1"
+    defn = w.commit_block("B", "L", "S")
+    assert [p["text"] for p in defn.primitives if p.get("type") == "text"] == ["Room @[Mark]"]
+    w2 = BlockEditorManager(QTabWidget(), project).open_for_definition(defn.id)
+    w2.seed_from_definition(defn)
+    t2 = [it for it in w2.editor_scene.items() if isinstance(it, TextItem)][0]
+    assert t2.toPlainText() == "Room A1" and t2._data.text == "Room @[Mark]"
+
+
+def test_sample_values_row_is_view_toggle(qapp):
+    from firepro3d.block_properties_info import BlockPropertiesInfo
+    project, w = _editor()
+    w.seed_from_dicts([_line()])
+    info = BlockPropertiesInfo(w.editor_scene, "B", editor=w)
+    assert info.get_properties()["Sample values"] == {"type": "bool", "value": True}
+    n = len(w.editor_scene._undo_stack)
+    info.set_property("Sample values", False)
+    assert w.editor_scene.show_sample_values is False
+    assert len(w.editor_scene._undo_stack) == n
+
+
+def test_panel_content_edit_refreshes_preview(qapp):
+    from firepro3d.text_item import TextItem
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("Room ")])
+    sc = w.editor_scene
+    sc.set_block_meta({"attributes": [_attr("Mark", default="A1")]})
+    t = [it for it in sc.items() if isinstance(it, TextItem)][0]
+    t.set_property("Insert field", "Mark")
+    assert t._data.text == "Room @[Mark]" and t.toPlainText() == "Room A1"
+    t.set_property("Content", "N @[Mark]")
+    assert t.toPlainText() == "N A1"

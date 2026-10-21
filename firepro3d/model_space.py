@@ -1769,6 +1769,28 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if hasattr(self, "refresh_sample_preview"):
             self.refresh_sample_preview()
 
+    def set_show_sample_values(self, on: bool) -> None:
+        """Block Editor: sample values (True) or raw @[key] tokens (A6)."""
+        self.show_sample_values = bool(on)
+        self.refresh_sample_preview()
+
+    def refresh_sample_preview(self) -> None:
+        """Re-resolve every text item's display text from the authored
+        attributes' defaults (SB1a A6). Off-editor: no-op."""
+        if self.scene_role != "block_editor":
+            return
+        from .block_attributes import has_fields, resolve_fields
+        values = ({a["key"]: a["default"] for a in self.block_meta["attributes"]}
+                  if self.show_sample_values else {})
+        for it in self.items():
+            if not isinstance(it, TextItem):
+                continue
+            txt = it._data.text
+            if has_fields(txt) and values:
+                it.set_display_text(resolve_fields(txt, values)[0])
+            else:
+                it.set_display_text(None)
+
     def set_block_capability(self, cap, *, push_undo: bool = True) -> None:
         """Set / clear the edited block's capability and sync the frame (H4-a).
 
@@ -3484,6 +3506,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             meta = state.get("block_meta")
             if meta is not None:
                 self.set_block_meta(meta, push_undo=False)
+            self.refresh_sample_preview()     # restored texts lose their display
 
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings
@@ -8646,6 +8669,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         self.addItem(item)
         getattr(self, attr).append(item)
+        if self.scene_role == "block_editor" and isinstance(item, TextItem):
+            self.refresh_sample_preview()            # a pasted text previews at once
         if getattr(item, "reference", False):        # RG18: the category colour
             from .display_manager import refresh_category_display
             refresh_category_display(item)

@@ -62,6 +62,8 @@ class BlockPropertiesInfo:
             props["Host category"] = {"type": "string", "value": meta["host_category"]}
             props["Scale mode"] = {"type": "enum", "options": ["Real size", "Annotative"],
                                    "value": _SCALE_LABELS.get(meta["scale_mode"], "Real size")}
+            props["Sample values"] = {"type": "bool",
+                                      "value": self._scene.show_sample_values}
         return props
 
     def _open_attributes_editor(self) -> None:
@@ -73,6 +75,9 @@ class BlockPropertiesInfo:
         if key == "Host category":
             self._scene.set_block_meta({**self._scene.block_meta,
                                         "host_category": str(value)})
+            return
+        if key == "Sample values":
+            self._scene.set_show_sample_values(bool(value))    # view toggle, no undo
             return
         if key == "Scale mode":
             self._scene.set_block_meta({**self._scene.block_meta,
