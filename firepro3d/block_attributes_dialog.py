@@ -28,6 +28,7 @@ class AttributeRow:
     resolved: QLabel          # host rows: the provider's value (read-only)
     override: QCheckBox | None
     editor: QLineEdit
+    seeded: tuple = (None, "")   # (override checked | None, editor text) at open
 
 
 class AttributeRowsWidget(QWidget):
@@ -37,6 +38,7 @@ class AttributeRowsWidget(QWidget):
                  host_values: dict | None, parent=None):
         super().__init__(parent)
         self.rows: list[AttributeRow] = []
+        self._prior = dict(instance_values)
         grid = QGridLayout(self)
         for h, col in (("Attribute", 0), ("Source", 1), ("Value", 2),
                        ("Override", 3), ("Edit", 4)):
@@ -69,14 +71,22 @@ class AttributeRowsWidget(QWidget):
             if ov is not None:
                 grid.addWidget(ov, i, 3)
             grid.addWidget(ed, i, 4)
-            self.rows.append(AttributeRow(key, rec, lab, src, res, ov, ed))
+            self.rows.append(AttributeRow(key, rec, lab, src, res, ov, ed,
+                                          (ov.isChecked() if ov else None, ed.text())))
 
     def values(self) -> dict:
         """The instance ``attributes`` dict these rows describe (D4: a host
         key is present only while its Override is checked; a number editor
-        with unacceptable text contributes nothing)."""
+        with unacceptable text contributes nothing). A row still in its
+        seeded state contributes exactly what it had before (the prior
+        value if the key was present, else nothing), so an untouched dialog
+        yields the instance's own ``attributes``."""
         out: dict = {}
         for r in self.rows:
+            if (r.override.isChecked() if r.override else None, r.editor.text()) == r.seeded:
+                if r.key in self._prior:
+                    out[r.key] = self._prior[r.key]
+                continue
             if r.override is not None and not r.override.isChecked():
                 continue
             if r.editor.validator() is not None and not r.editor.hasAcceptableInput():

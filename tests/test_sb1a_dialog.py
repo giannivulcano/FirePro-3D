@@ -88,52 +88,96 @@ def test_number_row_refuses_non_numeric(qapp):
     assert "Area" not in inst.attributes                # unacceptable text not stored
 
 
-def test_double_click_opens_dialog_only_with_attributes(qapp, monkeypatch):
-    class _Ev:                      # QGraphicsSceneMouseEvent is not constructible
-        def __init__(self, pos):
-            self._pos = QPointF(*pos)
-            self.accepted = False
-
-        def button(self):
-            return Qt.MouseButton.LeftButton
-
-        def scenePos(self):
-            return self._pos
-
-        def accept(self):
-            self.accepted = True
-
-    opened = []
-    monkeypatch.setattr("firepro3d.block_attributes_dialog.EditAttributesDialog.exec",
-                        lambda self: opened.append(self._inst) or 1)
+def _shown_view(ms):
     from PyQt6.QtWidgets import QGraphicsView
-    ms, d, inst = _setup()
-    view = QGraphicsView(ms)        # the HALO pick of a line-only block needs a view
+    view = QGraphicsView(ms)
     view.resize(600, 600)
     view.resetTransform()
-    ev = _Ev((10.0, 0.0))                        # on the static line
-    ms.mouseDoubleClickEvent(ev)
-    assert opened == [inst]
-    # a definition without attributes: no-op
+    view.show()
+    QTest.qWaitForWindowExposed(view)
+    return view
+
+
+def _dclick(view, x, y):
+    QTest.mouseDClick(view.viewport(), Qt.MouseButton.LeftButton,
+                      pos=view.mapFromScene(QPointF(x, y)))
+
+
+def _plain_def(ms):
     plain = BlockDefinition.new(name="P", library="", series="", origin=(0.0, 0.0),
                                 primitives=[_LINE, _text("plain")])
     ms.register_block_definition(plain)
-    p = ms.place_block_instance(plain.id, (100.0, 0.0))
-    ev2 = _Ev((110.0, 0.0))
-    try:
-        ms.mouseDoubleClickEvent(ev2)
-    except TypeError:               # fell through to the Qt base (stub event); not accepted
-        pass
-    assert ev2.accepted is False
+    return plain
+
+
+def test_double_click_opens_dialog_only_with_attributes(qapp, monkeypatch):
+    opened = []
+    monkeypatch.setattr("firepro3d.block_attributes_dialog.EditAttributesDialog.exec",
+                        lambda self: opened.append(self._inst) or 1)
+    ms, d, inst = _setup()
+    plain = _plain_def(ms)
+    ms.place_block_instance(plain.id, (100.0, 0.0))
+    view = _shown_view(ms)
+    _dclick(view, 10.0, 0.0)
     assert opened == [inst]
+    _dclick(view, 110.0, 0.0)               # no attributes: no dialog
+    assert opened == [inst]
+    view.close()
+
+
+def test_double_click_inert_in_block_editor(qapp, monkeypatch):
+    opened = []
+    monkeypatch.setattr("firepro3d.block_attributes_dialog.EditAttributesDialog.exec",
+                        lambda self: opened.append(self._inst) or 1)
+    ms, d, inst = _setup()
+    ms.scene_role = "block_editor"
+    view = _shown_view(ms)
+    _dclick(view, 10.0, 0.0)
+    assert opened == []
+    view.close()
+
+
+def test_ok_unchanged_pushes_nothing(qapp):
+    ms, d, inst = _setup()
+    n0 = len(ms._undo_stack)
+    dlg = EditAttributesDialog(inst, ms)
+    dlg.accept()
+    assert inst.attributes == {} and len(ms._undo_stack) == n0
+
+
+def test_untouched_non_numeric_number_row_kept(qapp):
+    ms, d, inst = _setup()
+    inst.set_attributes({"Area": "n/a"})
+    n0 = len(ms._undo_stack)
+    dlg = EditAttributesDialog(inst, ms)
+    dlg.accept()
+    assert inst.attributes == {"Area": "n/a"} and len(ms._undo_stack) == n0
+
+
+def test_resolved_label_reads_provider_not_override(qapp, monkeypatch):
+    ms, d, inst = _setup()
+    inst.set_attributes({"Area": "1"})
+    monkeypatch.setattr(inst, "host_values", lambda: {"Room.Area": "9"})
+    dlg = EditAttributesDialog(inst, ms)
+    r = dlg.rows.rows[1]
+    assert r.resolved.text() == "9.0"
+    assert r.editor.text() == "1" and r.override.isChecked() is True
+
+
+def test_number_row_empty_text_restores_binding(qapp):
+    ms, d, inst = _setup()
+    inst.set_attributes({"Area": "1"})
+    dlg = EditAttributesDialog(inst, ms)
+    r = dlg.rows.rows[1]
+    r.editor.setText("")
+    dlg.accept()
+    assert "Area" not in inst.attributes
 
 
 def test_panel_button_row_disabled_without_attributes(qapp):
     ms, d, inst = _setup()
     row = inst.get_properties()["Edit attributes"]
     assert row["type"] == "button" and row.get("enabled", True) is True
-    plain = BlockDefinition.new(name="P", library="", series="", origin=(0.0, 0.0),
-                                primitives=[_LINE, _text("plain")])
-    ms.register_block_definition(plain)
+    plain = _plain_def(ms)
     p = ms.place_block_instance(plain.id, (100.0, 0.0))
     assert p.get_properties()["Edit attributes"]["enabled"] is False
