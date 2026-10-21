@@ -679,7 +679,7 @@ legacy `reference_line` record type is read-only (loads as a flagged `LineItem`;
 **plan** scene they are permanently empty (loose geometry is gated out by C1 and
 clean-dropped on load by C8), so the primitives no longer participate in the plan-scene
 level-visibility / elevation-z / 3D-projection passes (those readers were deleted in the
-C3 slice from `level_manager.py`, `view_3d.py`, `elevation_scene.py`). A new item list
+C3 slice from `level_manager.py`, `view_3d.py`, `section_scene.py`). A new item list
 still threads the collect helpers that enumerate the sibling lists: `_items_on_level`,
 `_all_geometry_items` (`scene_tools.py`), the "2D Geometry" category collector
 (`display_manager.py`). Grep `_draw_arcs` across `firepro3d/` to find them all.

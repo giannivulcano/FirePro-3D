@@ -5,10 +5,10 @@ verified-commit: 084b43e0  # HF1 Account (pointer only); prior 5cd5941
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
-  - firepro3d/elevation_scene.py
+  - firepro3d/section_scene.py
   - firepro3d/elevation_view.py
-  - firepro3d/elevation_manager.py
-  - firepro3d/view_marker.py
+  - firepro3d/section_manager.py
+  - firepro3d/section_marker.py
   - firepro3d/detail_view.py
   - firepro3d/view_range_dialog.py
 ---
@@ -32,7 +32,7 @@ applies-to:
 > is unchanged. Per-section notes carry the deltas (Rule A).
 > **§3.3/§7.3 (2D-geometry level/z) reconciled:** 2026-09-18 against `geometry_2d.py` `Geometry2DMixin`
 > (level-less) + `block_instance.py` (level scope) + `level_manager.py` (commit `5cd5941`).
-> **§6.4 (marker paper-plotting) last-verified:** 2026-08-21 against `view_marker.py` (`PAPER_EXCLUDED`) + `paper_display.apply_paper_overrides` (commit `d553068`). Rendering path owned by `paper-space.md §6.2` (Rule A).
+> **§6.4 (marker paper-plotting) last-verified:** 2026-08-21 against the then-`view_marker.py` (now `section_marker.py`; `PAPER_EXCLUDED`) + `paper_display.apply_paper_overrides` (commit `d553068`). Rendering path owned by `paper-space.md §6.2` (Rule A).
 
 ---
 
@@ -62,15 +62,15 @@ These are explicitly out of scope and have their own future spec sessions:
 
 ## 2. Vocabulary
 
-The word "view" is overloaded in the codebase (`Model_View`, `View3D`, `ElevationView`, `DetailViewManager`, `ViewMarker`, `ViewRangeDialog`, `ViewCube`). The spec uses these explicit terms throughout:
+The word "view" is overloaded in the codebase (`Model_View`, `View3D`, `SectionView`, `DetailViewManager`, `SectionMarker`, `ViewRangeDialog`, `ViewCube`). The spec uses these explicit terms throughout:
 
 | Term | Meaning |
 |---|---|
 | **Data model** | The domain objects: `WallSegment`, `Pipe`, `Node`, `Sprinkler`, `Room`, `FloorSlab`, `Roof`, `Level`, etc. The single source of truth. Stored in the project file. |
 | **Base view type** | One of three abstract projections: **plan**, **section**, **3D**. See §4. |
 | **View instance** | A concrete configured projection: e.g. *"plan view, Level 2, view range 2700–4900 mm, scale 1:50"*. A project has many. |
-| **View widget** | The Qt object that renders an instance to the screen (`Model_View`, `ElevationView`, `View3D`). Implementation detail; the spec rarely talks about widgets directly. |
-| **View scene** | The `QGraphicsScene` a view widget renders. Today this is either the shared `Model_Space` (plan, detail, paper viewport) or a per-view scene rebuilt from the data model (`ElevationScene`). See §5. |
+| **View widget** | The Qt object that renders an instance to the screen (`Model_View`, `SectionView`, `View3D`). Implementation detail; the spec rarely talks about widgets directly. |
+| **View scene** | The `QGraphicsScene` a view widget renders. Today this is either the shared `Model_Space` (plan, detail, paper viewport) or a per-view scene rebuilt from the data model (`SectionScene`). See §5. |
 | **View marker** | A marker placed in a parent view that defines a child view instance: detail markers, elevation markers (and, planned, section markers). See §6. |
 | **Parameterization** | A specialization of a base view type that does not warrant being a base type of its own. Detail = parameterized plan. Elevation = parameterized section (cardinal cut line). |
 | **World Z** | Real elevation in millimeters. Data. See §3.2. |
@@ -97,8 +97,8 @@ Note that **view widget** and **view scene** are *implementation details*. The s
 Consequences:
 - The snap engine is 2D (canvas input only) — see `snapping-engine.md`.
 - The pipe placement methodology is plan-view-driven — see `pipe-placement-methodology.md`.
-- `ElevationView` provides pan / zoom / fit / coordinate display + **selection** (HALO hover, unified `SelectionManipulator` frame, scene-drawn rubber-band — see `selection-mode.md` elevation section) and annotation-extent grip editing; it exposes **no model-geometry editing tools**. Read-only proxies show the manipulator frame with **zero editing handles** (a no-op `manip_translate` grants only the wrap; interior-drag is inert). `View3D` provides orbit / pan / zoom / fit, click-pick, and whole-item **delete / hide** (no geometry editing) — its behaviour contract is `view-3d.md` (§10).
-- **Elevation colours (HF1):** elevation projection proxies keep their colour *sources* (hex / `token:*` / `""`) and resolve per paint, paper-aware, so a theme switch (the `MainWindow` theme-bus listener calls `elevation_manager.rebuild_all()`) and a sheet plot both get the right surface. Open gap: elevation edge lines and opening voids / floor-slab masks are still canvas-latched on sheets. Owner: [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).
+- `SectionView` provides pan / zoom / fit / coordinate display + **selection** (HALO hover, unified `SelectionManipulator` frame, scene-drawn rubber-band — see `selection-mode.md` elevation section) and annotation-extent grip editing; it exposes **no model-geometry editing tools**. Read-only proxies show the manipulator frame with **zero editing handles** (a no-op `manip_translate` grants only the wrap; interior-drag is inert). `View3D` provides orbit / pan / zoom / fit, click-pick, and whole-item **delete / hide** (no geometry editing) — its behaviour contract is `view-3d.md` (§10).
+- **Elevation colours (HF1):** elevation projection proxies keep their colour *sources* (hex / `token:*` / `""`) and resolve per paint, paper-aware, so a theme switch (the `MainWindow` theme-bus listener calls `SectionManager.rebuild_all()`) and a sheet plot both get the right surface. Open gap: elevation edge lines and opening voids / floor-slab masks are still canvas-latched on sheets. Owner: [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).
 - A future "edit model geometry in elevation" capability is still a **planned extension**: the spec must not introduce constraints that preclude it (e.g. must not assume Z is invisible to view widgets).
 
 ### 3.2 Two distinct Z systems
@@ -152,7 +152,7 @@ This table enumerates every property in the data model that contributes to an ob
 > **2D geometry is level-less (C3, landed).** The former **2D geometry** `level`/`_level_offset_mm`
 > rows are gone — a primitive is definition-local and carries no level (`2d-geometry.md §1.1`). Level
 > scope lives on the placed **Block instance** (the row above); mechanics owned by `block-system.md`.
-| **ViewMarker** (elevation/section) | `level` | str | "Level 1" | Marker sits on this level (no Z extent) | `view_marker.py:159` |
+| **SectionMarker** (cardinal elevation / placed section) | `level` | str | "Level 1" | Display-manager categorization only; the marker is shown on every plan level (`section-view-subsystem.md` §6) | `section_marker.py` |
 | **DetailMarker** | `level` | str | "Level 1" | Same | `detail_view.py:81` |
 | **DetailMarker** | `_view_height` / `_view_depth` | float \| None | None | Optional Z-range override; inherits from parent plan if None | `detail_view.py:61-62` |
 
@@ -167,7 +167,7 @@ This table enumerates every property in the data model that contributes to an ob
 | Base type | Cut plane | Look direction | Implementation today |
 |---|---|---|---|
 | **Plan** | Horizontal slab `[z_bottom, z_top]` | Top-down (-Z) | `Model_View` rendering `Model_Space` |
-| **Section** | Vertical line in plan + look direction + depth | Horizontal | `ElevationView` rendering `ElevationScene` (cardinal cut line only) |
+| **Section** | Vertical line in plan + look direction + depth | Horizontal | `SectionView` rendering `SectionScene` (any-angle cut line; basis in `section-view-subsystem.md` §4) |
 | **3D** | None (full model) | Camera-controlled | `View3D` (PyVista/VTK — `view-3d.md`) |
 
 Section as a first-class subsystem with arbitrary cut lines is **planned**, not implemented. Today only the cardinal-line specialization (elevation) exists.
@@ -207,7 +207,7 @@ FirePro3D's view system today is **hybrid**: some views share a scene, others re
 | **Plan** (`Model_View`) | `Model_Space` (shared) | Items live directly in the scene; data model items ARE the scene items |
 | **Detail** (`Model_View` with `_clip_rect`) | `Model_Space` (shared) | Same scene as plan; rendered through a clip rectangle |
 | **Paper viewport** (`PaperViewport`) | renders `Model_Space` into a target rect | Direct call to `Model_Space.render(painter, target, src)` |
-| **Elevation** (`ElevationView`) | `ElevationScene` (per-instance) | Rebuilt from the data model on demand (`ElevationScene.rebuild()` at `elevation_scene.py:614`; `ElevationManager.rebuild_all()` at `elevation_manager.py:114`); items are `ElevGridlineItem`, `ElevDatumItem`, etc. — distinct from plan items |
+| **Section / elevation** (`SectionView`) | `SectionScene` (per-instance) | Rebuilt from the data model on demand (`SectionScene.rebuild()`; `SectionManager.rebuild_all()`); items are `ElevGridlineItem`, `ElevDatumItem`, etc. — distinct from plan items. Owned by `section-view-subsystem.md` |
 | **3D** (`View3D`) | PyVista/VTK actors | Rebuilt from the data model (triggers + idle-while-hidden: `view-3d.md`) |
 
 The pattern is: **plan-family views share `Model_Space`; non-plan views materialize their own representation from the data model.**
@@ -242,17 +242,16 @@ Introducing a third pattern (e.g. a "shadow scene" with cloned items, or a globa
 | Marker | Created in | Produces | Persisted |
 |---|---|---|---|
 | **DetailMarker** | Plan | Detail view instance (parameterized plan, with crop) | Yes (project JSON, via `to_dict()`/`from_dict()` at `detail_view.py:379-412`) |
-| **ViewMarkerArrow** (elevation) | Plan | Elevation view instance (parameterized section, cardinal cut line) | Partial — see §6.3 |
-| **SectionMarker** *(planned)* | Plan | Section view instance | Not yet implemented |
+| **SectionMarker** (cardinal elevation or placed section) | Plan | Section view instance (any-angle cut line; cardinals are permanent sections) | Yes (project JSON `sections` key) — owned by `section-view-subsystem.md` §6, §8 |
 
 ### 6.2 Marker → instance binding (current)
 
 - **Detail markers** persist by name; the binding is `name → DetailMarker (geometry) + name → Model_View (open tab)`. Opening a detail by name calls `DetailViewManager.open_detail(name)` (`detail_view.py:469-501`) which creates a new `Model_View` with `_clip_rect` set to the marker's crop rectangle and fits the view.
-- **Elevation markers** are *ephemeral* in the scene: they hold a back-reference to `ViewMarkerManager` and a direction property (N/S/E/W). Double-clicking emits `scene.openViewRequested.emit("elevation", direction)`, which the UI handles by creating an `ElevationScene` + `ElevationView` on demand.
+- **Section markers** (cardinal elevations and placed sections) persist by name through `SectionManager`; binding, double-click routing and view identity are owned by `section-view-subsystem.md` §6–§7 (Rule A).
 
 ### 6.3 Known gap
 
-> **Elevation markers do not currently persist in the project file** the way detail markers do. Their *placement* (a shared crop box on plan) may persist via `SharedCropBox`, but the per-direction marker geometry and the open-tab state do not survive a save/reload in a documented way.
+> **Closed.** Elevation markers did not persist (the pre-section-view system). Section markers now persist under the project file's `sections` key and cardinals re-seed on load — see `section-view-subsystem.md` §8. Open-tab state still does not persist.
 
 This is a follow-up. The spec asserts the contract should be: **all view markers persist; opening a project restores the marker geometry; opening a marker's instance recreates it with the same parameters.** Anything that currently violates this contract is a bug to be fixed.
 
@@ -264,10 +263,9 @@ Whether a marker plots onto a sheet is decided during the paper-render pass
 
 | Marker | Plots on a sheet? | Mechanism |
 |---|---|---|
-| **ViewMarkerArrow** (elevation N/S/E/W) | **Never** — hard rule | class sets `PAPER_EXCLUDED = True`; force-hidden unconditionally, ignoring any Display-Manager category. Elevation markers + their `SharedCropBox` are authoring furniture, not drawing symbols. On-screen behavior is unchanged (shown on selection). |
-| **SharedCropBox** | **Never** — hard rule | same `PAPER_EXCLUDED` flag. It defines the elevation building-extent; it is a setup handle, not a plotted element. |
+| **SectionMarker, cardinal** (N/S/E/W elevation) | **Never** — hard rule | the instance sets `PAPER_EXCLUDED = True` only when `cardinal` is set; force-hidden unconditionally, ignoring any Display-Manager category. Cardinal markers (and their crop box, drawn by the marker itself) are authoring furniture, not drawing symbols. On-screen behavior is unchanged. |
 | **DetailMarker** | **Yes, by default** | plots as a drawing callout. Two exceptions during paper render: a **detail** viewport hides its *own* marker (self-hide); a **host-plan** viewport hides any marker whose name is in that viewport's per-sheet `hidden_detail_ids` set (right-click → "Hide detail on this sheet", undoable, per `paper-space.md §5.2/§6.2`). Nested/other detail markers still plot. |
-| **SectionMarker** *(planned)* | **Yes** (intent) | section/detail callouts are drawing symbols the AHJ needs; when built, `SectionMarker` will simply *not* set `PAPER_EXCLUDED`, so it plots by the default path. Recorded here so the distinction (elevation furniture vs section symbol) is not lost. |
+| **SectionMarker, placed** (`cardinal is None`) | **Yes** | section callouts are drawing symbols the AHJ needs; a placed marker sets `PAPER_EXCLUDED = False`, so it plots by the default path. The distinction (cardinal furniture vs placed section symbol) lives on the instance — `section-view-subsystem.md` §6. |
 
 ### 6.5 Per-viewport level isolation ("linked views") [2026-08-22]
 
@@ -358,7 +356,6 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 
 | Band | Value | Constant | Items |
 |---|---|---|---|
-| Below geometry | -200 | `Z_CROP_BOX` | `SharedCropBox` |
 | Below geometry | -100 | `Z_BELOW_GEOMETRY` | origin cross |
 | ~~Construction geometry~~ | ~~1~~ | ~~`Z_CONSTRUCTION`~~ | **Superseded 2026-08-22** — 2D geometry is now elevation-based via `Z_CAT_CONSTRUCTION` (see the category table above). `Z_CONSTRUCTION` remains only as a pre-apply default / `gridline.py` base. |
 | Design area | 2 | `Z_DESIGN_AREA` | `DesignArea` boundary |
@@ -424,9 +421,9 @@ For **3D views**, the rule does not apply: the GPU depth buffer handles ordering
 
 These are real unknowns the spec did not resolve and that should be answered in implementation tasks or follow-up specs:
 
-1. **Elevation markers persistence** — what's the actual current state? §6.3 records the gap; an investigation task should produce a definitive answer before any "view marker contract" implementation work.
+1. **Elevation markers persistence** — resolved: section markers persist under the `sections` key (§6.3; `section-view-subsystem.md` §8).
 2. **Room Z formula** — is the issue lookup fragility, sign convention, or a UI display path? §7.2 gives three hypotheses; investigation needed before fix.
-3. **Section view first cut** — does the first implementation reuse `ElevationScene` or introduce a new scene class? Out of scope for this spec; will be answered when the section subsystem gets its own spec session.
+3. **Section view first cut** — resolved: the section subsystem generalized the elevation scene in place (`SectionScene`); see `section-view-subsystem.md`.
 4. **Overrides storage shape** — when the override catalog (§7.4) ships, where do per-instance overrides live? On the view instance object? On a sidecar "view template" object? Resolved by the future view-templates spec.
 5. **3D view rebuild triggers** — what data-model changes invalidate the 3D representation today? Not investigated in this spec.
 

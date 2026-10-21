@@ -1,9 +1,9 @@
 """Scene-agnostic HALO preselection + scene-drawn rubber-band engine.
 
-Mixed into Model_Space (plan scene) and ElevationScene. The generic ranking /
+Mixed into Model_Space (plan scene) and SectionScene. The generic ranking /
 aperture-pick / band-query bodies live here; the 5 scene-specific hooks below
 have plan-neutral defaults that Model_Space overrides (Room/underlay/mode) and
-ElevationScene mostly inherits (see selection-mode.md elevation section)."""
+SectionScene mostly inherits (see selection-mode.md elevation section)."""
 from __future__ import annotations
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QTransform

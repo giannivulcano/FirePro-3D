@@ -34,9 +34,9 @@ Model_Space delegates specialized concerns to manager objects:
 | `DisplayManager` | `display_manager.py` | Per-category and per-instance visibility, colour, opacity |
 | `SprinklerSystem` | `sprinkler_system.py` | Network model (nodes, pipes, sprinklers collections) |
 | `PlanViewManager` | `level_manager.py` | Per-view cut-plane settings for plan tabs |
-| `ElevationManager` | `elevation_manager.py` | Elevation view tabs (N/S/E/W compass directions) |
+| `SectionManager` | `section_manager.py` | Section view tabs (cardinal elevations + placed sections; see `docs/specs/section-view-subsystem.md`) |
 
-Some managers (LevelManager, PlanViewManager, ElevationManager) are injected by `main.py` after construction. Others (ScaleManager, SnapEngine, SprinklerSystem) are created in `Model_Space.__init__`.
+Some managers (LevelManager, PlanViewManager, SectionManager) are injected by `main.py` after construction. Others (ScaleManager, SnapEngine, SprinklerSystem) are created in `Model_Space.__init__`.
 
 **Visibility interaction:** `LevelManager._set_level_vis()` checks `_display_overrides["visible"]` before applying level filtering. Items with `visible == False` are skipped entirely (no Z-ordering, opacity, or selectability changes). This ensures user-hidden items persist across level switches.
 

@@ -13,7 +13,7 @@ applies-to:
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
   - firepro3d/geometry_2d.py   # RectangleItem bake-at-rest + manip capabilities + rect_grip_resize; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon; U3 manip_handles on CircleItem + PolylineItem + SplineItem + LineItem + ArcItem
-  - firepro3d/view_marker.py             # U3: ViewMarkerArrow manip adapter -> shared SharedCropBox (parametric crop, translate-only caps, own outline dropped)
+  - firepro3d/section_marker.py          # U3 (originally view_marker.py): SectionMarker manip adapter (grip contract owned by section-view-subsystem.md s6)
   # U1 (universal rigid rotate) added manip_rotate to the parametric items —
   # governed here for the manipulator contract; each item's geometry is owned
   # by its own spec (see SPEC-INDEX): wall.py, node.py, gridline.py, room.py,
@@ -484,7 +484,7 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   Removed the `_item_uses_manip_handles` coexistence gate. The manipulator is now
   the sole render path, hit-test, and undo funnel. **Precondition proven:** every
   model-scene `grip_points()` item also provides `manip_handles()` (state-dependent
-  items — Room/DesignArea/ViewMarkerArrow — symmetric: grips empty ⟺ handles empty),
+  items — Room/DesignArea/SectionMarker — symmetric: grips empty ⟺ handles empty),
   so all three legs were already dead code. **KEPT:** `grip_points()`/`apply_grip()`
   (the mutation primitives `GripHandle` calls), the borrowed `_grip_item`/
   `_grip_dragging` scene state (read by the snap self-exclusion in
@@ -493,7 +493,7 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   …). **RENAMED:** `provides_handles_for` → `_is_box_native_single` — its arbitration
   role is gone, but the "single scale-capable (box-native) item → rigid resize
   handles" detection survives for `_active_handles`/`_frame_is_redundant`. Elevation
-  (`ElevationView.paintEvent` + `elevation_scene._find_grip_hit`), paper, and 3D have
+  (`SectionView.paintEvent` + the since-retired `_find_grip_hit`), paper, and 3D have
   their OWN independent grip paths — untouched, and folded in under U5.
 - **U5 — fold in selection + other scenes**:
   - ✅ **Leg A — plan-scene selection-mode + HALO DONE (2026-09-13):** integrated
@@ -507,13 +507,13 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
   - ✅ **Leg B — elevation handle providers DONE (2026-09-14):** the manipulator is
     now the sole grip owner in the elevation scene. Built via the extracted
     scene-agnostic **`HaloSelectionMixin`** (`halo_selection.py`, shared with
-    `Model_Space`); an `ElevationScene`-owned `SelectionManipulator`
+    `Model_Space`); an `SectionScene`-owned `SelectionManipulator`
     (`commit_hook` persists the gridline extent override, **no undo**;
     `handle_units="px"`; `exclude` = `_ElevBubble`); gridline/datum expose
     `manip_handles()` (extent grips) + an **axis-constrained `manip_translate`**
     (drops the pinned axis — §3.1); read-only proxies get a **no-op
     `manip_translate`** + `manip_handles() → []` (frame + zero handles). Legacy
-    `ElevationScene._find_grip_hit` + `ElevationView.paintEvent` grip loop retired
+    `SectionScene._find_grip_hit` + `SectionView.paintEvent` grip loop retired
     (borrowed `_grip_item`/`_grip_dragging` kept for `GripHandle`). **Contract
     refinement:** `_active_handles` now honours an item's *declared* (possibly
     **empty**) `manip_handles()` — the rigid resize fallback fires only when NO
@@ -882,21 +882,15 @@ with `_clip_rect` re-rendering the SAME scene clipped to the crop):
   `DetailMarker._paint_callout`) bright and the passive crop rect / boundary
   outline are removed (the mask edge shows the crop — the old "blue box" is gone).
 
-**ViewMarkerArrow — parametric shared crop (`view_marker.py`).** The N/S/E/W
-elevation markers all share ONE `SharedCropBox`. The selected marker's
-`manip_handles()` = `default_grip_handles(self)` — 8 SQUARE crop grips (corners +
-edge midpoints) forwarding to the shared box via the existing
-`grip_points`/`apply_grip`; resizing repositions all four markers to the new box
-edges (`_reposition_markers_to_rect`). `manip_bounds()` = the box's scene rect;
-`manip_translate()` moves the whole box + repositions the markers. Caps =
-`{translate}` (mirrors DetailMarker): NOT box-native, so the manipulator's dashed
-FRAME is the crop outline — `SharedCropBox`'s own dashed outline is dropped (pen
-`NoPen`), its faint fill kept. **`manip_translate` is mandatory, not optional:**
-the manipulator excludes items with no `"translate"` capability, so a resize-only
-marker would never be wrapped and its grips would not render — the move capability
-is a prerequisite of the migration. Axis-aligned (no `manip_rotate`; section-view
-angle deferred). State-dependent: an unselected marker's `grip_points()` is empty,
-so `manip_handles()` is empty and the coexistence gate reads "not migrated"
+**SectionMarker — grip contract (`section_marker.py`).** Retired history: the
+original ViewMarkerArrow / shared-crop-box passage (eight parametric crop grips on
+one box shared by four markers) no longer exists; the shared box is gone. The
+current grip contract (A / B endpoints, depth, flip, whole-marker translate) is
+owned by `section-view-subsystem.md` §6 (Rule A). What this spec still pins for
+the marker: `manip_translate` is mandatory — the manipulator excludes items with no
+`"translate"` capability, so a marker without it would never be wrapped and its
+grips would not render. State-dependent: an unselected marker's `grip_points()` is
+empty, so `manip_handles()` is empty and the coexistence gate reads "not migrated"
 (benign — nothing renders on either path; same resolved case as Room/DesignArea).
 **Rebake-ordering gotcha (2026-09-11 smoke fix):** `grip_points()` gates on
 `isSelected()` + box existence, **NOT** `box.isVisible()`. The manipulator builds

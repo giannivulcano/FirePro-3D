@@ -281,22 +281,18 @@ Geometry/offset commits (Origin X/Y, Length, Angle, Bubble 1/2 Offset) push **on
 
 ### 8.1 Gridline Filtering Rule
 
-Only exactly-cardinal gridlines appear in elevation views:
-
-- **North/South elevations:** Show gridlines where `dx == 0` (within epsilon `1e-6`)
-- **East/West elevations:** Show gridlines where `dy == 0` (within epsilon `1e-6`)
-- Angled gridlines (dx ≠ 0 and dy ≠ 0) never appear in any elevation view.
+A gridline appears in a section / elevation view where the infinite gridline crosses the section's cut line within the view's lateral extent; a gridline parallel to the cut line is hidden. This supersedes the earlier cardinal-only rule (angled gridlines now project, task 872). The rule and the crossing maths are owned by `section-view-subsystem.md` §5 (Rule A).
 
 ### 8.2 Projection
 
 For a qualifying gridline, the `ElevGridlineItem` is drawn as a vertical line in the elevation:
 
-- **H-position:** The gridline's perpendicular coordinate (X for vertical gridlines in N/S, Y for horizontal gridlines in E/W), sign-adjusted per the existing direction mapping table in `elevation_scene.py`.
+- **H-position:** The gridline's perpendicular coordinate (X for vertical gridlines in N/S, Y for horizontal gridlines in E/W), given by the section basis `h(p)` of `section-view-subsystem.md` §4.1 (for the cardinals, the same sign-adjusted X / Y mapping as before).
 - **V-extent (default):** Top of highest level to bottom of lowest level (full building height from `LevelManager`).
 
 ### 8.3 Per-View Z-Extent Overrides
 
-Each `ElevationScene` stores a dict mapping gridline labels to Z-extent overrides:
+Each section / elevation view stores (on its `SectionMarker`, so it persists) a dict mapping gridline labels to Z-extent overrides:
 
 ```python
 _gridline_z_overrides: dict[str, dict]  # label → {"v_top": float, "v_bot": float}
@@ -438,6 +434,8 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 
 ### 11.5 Elevation filtering — perpendicular cardinal only
 
+> **Superseded (task 872, section-view build):** angled gridlines now project at their crossing with a section's cut line — §8.1 and `section-view-subsystem.md` §5. The text below is the original decision, kept as history.
+
 **Chosen:** Only exactly-cardinal gridlines (dx=0 or dy=0 within epsilon) appear in elevations.
 **Rationale:** Projecting angled gridlines onto an elevation plane creates ambiguity about H-position. Cardinal-only is simple, predictable, and matches the convention that elevation views show perpendicular structural bays. Angled gridlines in sections are a future section-view feature.
 
@@ -534,7 +532,7 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | `firepro3d/align_engine.py` | `AlignEngine`, `ReferenceFeature`, `Guide`, `AlignResult` — entity-agnostic; owned by `Model_Space` |
 | `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
 | `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
-| `firepro3d/elevation_scene.py` | Elevation projection + `ElevGridlineItem` (filtering, Z-overrides) |
+| `firepro3d/section_scene.py` | Section / elevation projection + `ElevGridlineItem` (crossing filter, Z-overrides) |
 | `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors, `ALIGN_PATH_TOL_PX`, `ALIGN_GUIDE_COLOR`, `ALIGN_GUIDE_DASH`, `ALIGN_GLYPH_PX`) |
 | `main.py` | Draw-tab ribbon "Gridline" button; default seed + post-seed undo-stack reset; "ALIGN" status-bar pill; F11 shortcut; `align/enabled` QSettings restore |
 

@@ -723,7 +723,7 @@ project registry — **disconnected from all model views**.
 
 - **Editor scene = a standalone `Model_Space` instance** (scratchpad), hosted in a closable
   `central_tabs` tab via a `BlockEditorWidget` + `Model_View`, managed by a `BlockEditorManager`
-  (mirrors `ElevationManager`). It runs **headless of the level/plan-view managers** (block geometry
+  (mirrors `SectionManager`). It runs **headless of the level/plan-view managers** (block geometry
   is definition-local/2D) and inherits the full 2D toolchain (drawing controllers, snap, HUD, grips,
   selection-manipulator, `push_undo_state`) for free. Undo is per-instance-isolated by construction.
   **Seeding** (edit / clone / make-from-selection via `seed_from_dicts`) resets the editor's undo

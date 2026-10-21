@@ -3,7 +3,7 @@
 **Key files:**
 
 - `firepro3d/level_manager.py` -- Level definitions, elevation values, visibility filtering
-- `firepro3d/elevation_manager.py` -- Elevation view tab management (N/S/E/W)
+- `firepro3d/section_manager.py` -- Section view tab management (cardinal elevations + placed sections)
 - `firepro3d/scale_manager.py` -- Unit conversion and calibration
 - `firepro3d/constants.py` -- Default level name, ceiling offset
 
@@ -96,16 +96,9 @@ Smart defaults for new plan views:
 - **view_depth** = level elevation + level's `view_bottom` offset
 - **view_height** = next level's elevation minus slab thickness (152.4 mm / 6"), or level elevation + `view_top` if no level above
 
-## Elevation views
+## Section and elevation views
 
-`ElevationManager` manages side-view tabs for four compass directions (North, South, East, West). Each direction gets at most one tab. The manager:
-
-1. Creates an `ElevationScene` that reads entity data from `Model_Space`
-2. Wraps it in an `ElevationView` widget
-3. Adds the tab to the central `QTabWidget`
-4. Reuses existing tabs if the direction is already open
-
-Elevation scenes project 3D entity positions onto a 2D side view, showing level datum lines and entity profiles.
+`SectionManager` owns the side-view tabs: the four permanent cardinal elevations (North, South, East, West) and any placed sections. Each view materializes its own scene from `Model_Space` and shows level datum lines and entity profiles. Manager API, view identity, classification and rendering are owned by [`docs/specs/section-view-subsystem.md`](../specs/section-view-subsystem.md) (§7); this page only records that the datums come from `LevelManager`.
 
 ## ScaleManager
 

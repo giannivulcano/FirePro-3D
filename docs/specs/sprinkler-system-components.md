@@ -485,7 +485,7 @@ Fittings are listed in the model browser under a "Fittings (N)" group with indiv
 | `hydraulic_solver.py` | Iterates sprinklers, traverses pipes/nodes from supply |
 | `level_manager.py` | Updates z_pos for all nodes/pipes on level elevation change |
 | `display_manager.py` | Applies display overrides to all system items |
-| `elevation_scene.py` | Projects pipes/nodes into elevation view |
+| `section_scene.py` | Projects pipes/nodes into section / elevation views |
 | `hydraulic_report.py` | Generates tabular report data |
 
 ### 9.4 Sync Mechanism

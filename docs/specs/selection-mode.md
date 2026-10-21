@@ -253,7 +253,7 @@ The blue/solid ↔ green/dashed flip is live during the drag as direction change
 - **No live preview** (removed 2026-09-24, user decision): nothing is highlighted while dragging — the per-move query + per-item glow cost seconds per frame on large drawings. Colours: window = `band_window` token (blue, solid), crossing = `band_crossing` token (green, dashed) — `halo.paint_rubber_band`.
 - **Plain drag:** clears current selection before applying rubber-band results.
 - **Ctrl+drag:** additive — rubber-band results are added to the existing selection.
-- Items with the `_exclude_from_bulk_select` flag (DetailMarker, ViewMarkerArrow) are excluded from both modes.
+- Items with the `_exclude_from_bulk_select` flag (DetailMarker, SectionMarker) are excluded from both modes.
 - Underlays excluded from both modes.
 - Room: rubber-band tests against the label rect (`Room.label_scene_rect()`), not the polygon.
 - HALO suppressed during drag (§4.3).
@@ -381,16 +381,16 @@ Known pre-existing gap (filed, not resolved by Leg A):
 
 ## 14. Elevation Scene (Leg B, 2026-09-14)
 
-The elevation scene (`ElevationScene`/`ElevationView`) reuses this contract via the extracted
+The section / elevation scene (`SectionScene`/`SectionView`) reuses this contract via the extracted
 scene-agnostic **`HaloSelectionMixin`** (`firepro3d/halo_selection.py`) — the generic HALO ranking /
 aperture pick / scene-drawn rubber-band engine + 5 overridable hooks (`_halo_resolve`,
 `_halo_is_underlay`, `_halo_candidate_ok`, `_halo_in_view_range`, `_halo_mode_ok`). `Model_Space`
-overrides the hooks to keep §1–§12 plan behavior; `ElevationScene` mixes in with an elevation
+overrides the hooks to keep §1–§12 plan behavior; `SectionScene` mixes in with an elevation
 `_halo_resolve` (walks the full parent chain: a bubble **and its label text** → parent gridline/datum) and generic defaults for the rest (no
 underlays, no rooms, no tool modes in elevation). `_halo_cycle` (Spacebar) lives on the mixin;
 `_emit_halo_readout` stays scene-specific (Model_Space → `instructionChanged`, Elevation →
 `cursorMoved`). Rubber-band paint is shared via `halo.paint_rubber_band`; like plan, there is no live band preview and the commit is one batched `select_items` (inherited from the mixin). The manipulator is the
-**sole grip owner** in elevation — the legacy `ElevationScene._find_grip_hit` + `ElevationView.paintEvent`
+**sole grip owner** in elevation — the legacy `SectionScene._find_grip_hit` + `SectionView.paintEvent`
 grip loop are retired (the borrowed `_grip_item`/`_grip_dragging` state is kept for `GripHandle`).
 
 **Read-only-geometry contract (`view-relationships.md §3.1`).** Elevation is a read-only projection;

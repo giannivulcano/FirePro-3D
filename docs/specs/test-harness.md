@@ -44,7 +44,7 @@ SEH bug #371).
   own `QSettings(org, app)`, which the autouse store already isolates per test.
   Explicit INI-file constructions are still honored, not rerouted.)*
 - **`model_space` / `make_model_space` / `model_scene` / `shown_model_view` /
-  `elevation_scene_for`** — scene/view factories. `make_model_space` and
+  `section_scene_for`** — scene/view factories. `make_model_space` and
   `shown_model_view` call `scene.cleanup()` on teardown (worker drain, Invariant 2).
   `shown_model_view` `show()`s + exposes + focuses the view (Invariant 4).
 - **`tiny_png_b64`** — shared title-block image fixture.

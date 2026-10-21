@@ -25,13 +25,13 @@ Fire protection engineers design in model space but deliver paper documents. Wit
 
 1. **Sheet Model** (data) — `Sheet` objects holding metadata (name, number, paper size), an ordered list of `SheetView` references, paper-space annotations, title block field values, and revision history. Serialized to project JSON. No Qt dependency.
 
-2. **Sheet Scene** (rendering) — `PaperScene` (`QGraphicsScene`) that composes the visual representation: paper background, title block artwork, sheet view render regions, and annotation items. Each sheet view renders by calling `scene.render()` on its source view's `QGraphicsScene` (`Model_Space` for plan/detail, `ElevationScene` for elevations).
+2. **Sheet Scene** (rendering) — `PaperScene` (`QGraphicsScene`) that composes the visual representation: paper background, title block artwork, sheet view render regions, and annotation items. Each sheet view renders by calling `scene.render()` on its source view's `QGraphicsScene` (`Model_Space` for plan/detail, `SectionScene` for elevations and sections).
 
 3. **Sheet Widget** (UI) — `PaperSpaceWidget` wrapping a `QGraphicsView` with toolbar controls (paper size, add view, export, print). One widget per open sheet tab.
 
 ### 3.2 Key Constraints
 
-- **Sheet views are consumers, not configurators.** They reference views from existing managers (`PlanViewManager`, `DetailViewManager`, `ViewMarkerManager`) and add only presentation properties: scale, position on sheet, size, crop override, layer visibility overrides.
+- **Sheet views are consumers, not configurators.** They reference views from existing managers (`PlanViewManager`, `DetailViewManager`, `SectionManager`) and add only presentation properties: scale, position on sheet, size, crop override, layer visibility overrides.
 - **Scale lives on the sheet view.** Source views work in real-world mm (1px = 1mm). The sheet view scales down for paper presentation.
 - **Three rendering categories** flow through sheet views differently:
   - *Labels* (room names, pipe sizes, gridline bubbles): render through sheet views, scaled by `paper_height_mm` property
@@ -53,7 +53,7 @@ Scale on the sheet view, not the source view. Source views are always 1:1 (1px =
 
 ### 4.3 No Unified View Catalog
 
-Sheet view picker queries `PlanViewManager`, `DetailViewManager`, and `ViewMarkerManager` directly at runtime. Avoids premature abstraction. A catalog can wrap these later without breaking paper space.
+Sheet view picker queries `PlanViewManager`, `DetailViewManager`, and `SectionManager` directly at runtime. Avoids premature abstraction. A catalog can wrap these later without breaking paper space.
 
 ### 4.4 Rendering via scene.render()
 
@@ -199,7 +199,7 @@ Existing project files without a `"sheets"` key load normally with an empty shee
 ### 6.1 Placement Flow
 
 1. User drags view from project browser or clicks "Add View" button
-2. Picker shows available views grouped by type (Plans / Elevations / Details), queried from `PlanViewManager`, `DetailViewManager`, `ViewMarkerManager`
+2. Picker shows available views grouped by type (Plans / Elevations / Sections / Details), queried from `PlanViewManager`, `DetailViewManager`, `SectionManager`
 3. Floating preview attaches to cursor on the sheet
 4. Click places the sheet view; default scale is 1:100
 5. User adjusts scale, position, size, crop via property panel
@@ -243,9 +243,10 @@ Existing project files without a `"sheets"` key load normally with an empty shee
    not the on-screen active level.
 5. `apply_paper_overrides(source_scene, crop, paper_scale=fit, …, viewport_data=data)`
    runs during the render and applies, per source item:
-   - **`PAPER_EXCLUDED` hard rule** — any item whose class sets `PAPER_EXCLUDED`
-     (`ViewMarkerArrow`, `SharedCropBox`) is force-hidden unconditionally, ignoring
-     any Display-Manager category. Elevation-marker furniture never plots.
+   - **`PAPER_EXCLUDED` hard rule** — any item that sets `PAPER_EXCLUDED`
+     (a cardinal `SectionMarker` only; placed sections plot) is force-hidden
+     unconditionally, ignoring any Display-Manager category. Cardinal-marker
+     furniture never plots (`section-view-subsystem.md` §6).
    - **Detail self-hide** — when this viewport is a detail, the `DetailMarker` whose
      name equals its `source_view_name` is hidden (a detail never frames itself).
    - **Per-sheet detail hide** — any `DetailMarker` whose name is in
@@ -562,9 +563,9 @@ User modifies model while PDF export is in progress → export captures state at
 | `firepro3d/scene_io.py` | Project serialization (`save_to_file`/`load_from_file`); persists `scene._sheets` under the JSON `"sheets"` key (list — already multi-sheet-ready) |
 | `firepro3d/level_manager.py` | `PlanView`, `PlanViewManager` — queried by `ViewResolver` |
 | `firepro3d/detail_view.py` | `DetailViewManager`, `DetailMarker` — queried by `ViewResolver`, provides crop rects |
-| `firepro3d/elevation_scene.py` | `ElevationScene` (`QGraphicsScene`) — render target for elevation sheet views |
-| `firepro3d/elevation_view.py` | `ElevationView` (`QGraphicsView`) — elevation UI widget |
-| `firepro3d/view_marker.py` | `ViewMarkerManager` — elevation view names |
+| `firepro3d/section_scene.py` | `SectionScene` (`QGraphicsScene`) — render target for elevation / section sheet views |
+| `firepro3d/elevation_view.py` | `SectionView` (`QGraphicsView`) — section / elevation UI widget |
+| `firepro3d/section_manager.py` | `SectionManager` — cardinal and placed section names, tab-less scenes for sheets |
 | `firepro3d/model_space.py` | `Model_Space` (`QGraphicsScene`) — render target for plan/detail sheet views; owns `_sheets` |
 | `firepro3d/annotations.py` | Legacy `Annotation` base plus the retired-`HatchItem` migration helper only — `NoteAnnotation`, `DimensionAnnotation` and `HatchItem` are all **retired**. Sheet text is the unified `TextItem` (`text_item.py`, governed by `text-annotation-system.md`; containment C5) |
 | `firepro3d/default titleblocks/` | DXF + PDF templates for ANSI B/D |

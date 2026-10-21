@@ -6,9 +6,7 @@ applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
   - firepro3d/section_marker.py     # git mv of view_marker.py (build)
-  - firepro3d/elevation_scene.py    # until the move lands
-  - firepro3d/elevation_manager.py  # until the move lands
-  - firepro3d/view_marker.py        # until the move lands
+  - firepro3d/elevation_view.py     # SectionView widget (file keeps the elevation_ name)
 source-tasks: [todo_open.md 952 section view subsystem, 872 angled gridlines, 600 sheet plot edge/void colours, 767 flat 2D geometry (closed stale), 560 _live_scenes accessor]
 related: view-relationships.md (s4 taxonomy, s6 markers), paper-space.md (s6.2 paper render), display-manager spec (rows/columns)
 ---
@@ -143,6 +141,16 @@ elevation and break acceptance (d). **Cut** adds the section columns only.
 | Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`, bubble and label-keyed z-overrides as today; parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
 | Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`) | -- |
 
+Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at plan approval):
+
+- **Pipe cut colour.** The cut circle uses the Pipe Display Manager *Section colour* when set; the
+  Pipe row ships with no Section colour (`None`), so the circle falls back to the pipe's own line
+  colour (the `PIPE_COLORS` lookup).
+- **Cut wall draws the cross-section only.** The receding face of an obliquely crossed wall is not
+  drawn in v1 (follow-up).
+- **Concave slab chord.** The chord is `[min h, max h]` over every crossing of the cut segment with
+  the slab boundary, so a concave slab's gap is filled in v1 (follow-up).
+
 ### 5.1 Sheet plot colours (600)
 
 Three baked colours -- `_edge_color` (hex picked by canvas luminance), the opening-void brush
@@ -158,7 +166,9 @@ and masks. On screen they resolve to the theme; in a sheet viewport to black / w
 `look_sign`, `depth`, `cardinal` (`"north" | "south" | "east" | "west" | None`), `auto_extent`
 (cardinals only), `gridline_z_overrides` (moved here from the scene so they persist).
 `cut_a`, `cut_b`, `depth` are **plan-scene units** (mm at ppm 1; the `DetailMarker.crop_rect`
-convention) -- G1 review ruling 2026-10-20; `CROP_MARGIN`, `MIN_CUT_LEN`, `FALLBACK_HALF` likewise.
+convention) -- G1 review ruling 2026-10-20, recorded as plan reconciliation 2026-10-20 (ratified at
+plan approval): s4.1's "world mm" is the derived basis, converted at `SectionScene` with
+`_scene_to_world` (Y sign flip); `CROP_MARGIN`, `MIN_CUT_LEN`, `FALLBACK_HALF` likewise.
 
 - Shown on every plan level (a section cuts all levels).
 - `PAPER_EXCLUDED = True` **only when `cardinal` is set** (view-relationships s6.4: cardinal markers
@@ -224,7 +234,8 @@ which would leave a sheet blank after reload -- acceptance a). `resolve_level_co
 - `main.py`: the three `_create_elevation_markers()` calls become `seed_cardinals()` after load;
   `_views.clear()` / `_views.pop` become `close_all()` / `close_section()`; `_live_scenes` reads
   `open_scenes`; the ribbon gains a "Section" `add_small_button` in the Build group beside Detail
-  with a `_mode_buttons["section"]` entry.
+  with a `_mode_buttons["section"]` entry. No section icon asset exists: the button reuses
+  `detail_icon.svg` (plan reconciliation 2026-10-20; dedicated asset is a follow-up).
 - `docs/gen_ref_pages.py`, `SPEC-INDEX.md` and view-relationships s4 / s6 are updated at Account.
 
 ## 8. Persistence and undo
@@ -325,3 +336,8 @@ vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module n
 | S3 | SectionMarker, 4 grips incl. FlipGripHandle, undo via network snapshot, context menu | Phase 3 |
 | S4 | cardinals keep `"elevation"` identity; `get_or_build_scene` for sheets; no `_STATE_VERSION` bump | Phase 3 |
 | S5 | module moves, guard tests, FP6 groups | Phase 3 |
+| R1 | marker stores plan-scene coordinates; `SectionScene` converts to world via `_scene_to_world` (s6) | plan reconciliation 2026-10-20, ratified at plan approval |
+| R2 | pipe cut circle: Pipe *Section colour* when set, else the pipe's own line colour (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
+| R3 | cut wall draws the cross-section rect only; no receding face in v1 (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
+| R4 | slab chord = `[min h, max h]` over all boundary crossings; concave gap filled in v1 (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
+| R5 | ribbon Section button reuses `detail_icon.svg` (s7.3) | plan reconciliation 2026-10-20, ratified at plan approval |

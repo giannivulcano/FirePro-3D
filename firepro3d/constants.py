@@ -17,7 +17,6 @@ DEFAULT_ANNOTATION_GROUP = "Default"
 # See docs/specs/view-relationships.md §7.3 for the spec source of truth.
 #
 # Static z-values (items outside or before elevation-based z-ordering):
-Z_CROP_BOX       = -200   # SharedCropBox (below all geometry)
 Z_BELOW_GEOMETRY = -100   # origin cross, items below all geometry
 Z_UNDERLAY       = -79    # underlays/imports (initial; overridden at runtime)
 Z_ROOF           = -75    # roof items (initial; overridden at runtime)
