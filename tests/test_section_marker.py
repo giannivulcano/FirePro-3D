@@ -93,6 +93,10 @@ def test_grip_points_and_apply_grip_endpoints_pivot_and_box_follows(qapp):
     assert len(pts) == 4
     assert pts[0] == QPointF(0.0, 0.0) and pts[1] == QPointF(6000.0, 0.0)
     assert pts[2] == QPointF(3000.0, -3000.0)          # far-edge midpoint (look side = scene-up)
+    _ms2, shallow = _plan_with_marker()
+    shallow.set_geometry(QPointF(0.0, 0.0), QPointF(6000.0, 0.0), 400.0)
+    sp = shallow.grip_points()                         # depth < 2R: flip grip must not sit on the depth grip
+    assert abs(sp[3].y()) < abs(sp[2].y())
     m.apply_grip(1, QPointF(6000.0, 3000.0))           # B moves; A stays; depth unchanged
     assert m.cut_a == QPointF(0.0, 0.0) and m.cut_b == QPointF(6000.0, 3000.0)
     assert m.depth == 3000.0
@@ -203,3 +207,17 @@ def test_get_properties_and_set_property(qapp):
     assert m.look_sign == -1
     m.set_property("Name", "Stair")
     assert ("rename", "Section 1", "Stair") in m._manager.calls
+
+
+def test_depth_property_parses_units_and_ignores_garbage(qapp):
+    from firepro3d.scale_manager import ScaleManager
+    ms, m = _plan_with_marker()
+    m.set_property("Depth", "4.5 m")
+    assert m.depth == pytest.approx(4500.0)
+    ft = ScaleManager.parse_dimension("14'-9\"")
+    assert ft is not None
+    m.set_property("Depth", "14'-9\"")
+    assert m.depth == pytest.approx(ft)
+    assert m.depth == pytest.approx(4495.8, abs=0.1)
+    m.set_property("Depth", "garbage")
+    assert m.depth == pytest.approx(ft)

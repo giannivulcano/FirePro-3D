@@ -83,3 +83,19 @@ def test_escape_mid_drag_restores_b(qapp, shown_model_view):
     man.cancel_drag()                                    # what Esc does
     assert m.cut_b == QPointF(6000.0, 0.0) and m.cut_a == QPointF(0.0, 0.0)
     assert len(scene._undo_stack) == before              # nothing committed
+
+
+def test_flip_press_wander_release_is_ignored(qapp, shown_model_view):
+    _, scene = shown_model_view
+    m = _placed(scene)
+    man = scene._live_manip()
+    before = len(scene._undo_stack)
+    h = m.manip_handles()[3]
+    p = QPointF(m.grip_points()[3])
+    far = QPointF(p.x() + 800.0, p.y() - 800.0)
+    man._begin_handle(h, p, p)
+    man._update(far, _NOMOD, far)
+    man._finish(far, _NOMOD)
+    assert man._moved is False                           # session closed
+    assert m.look_sign == 1
+    assert len(scene._undo_stack) == before

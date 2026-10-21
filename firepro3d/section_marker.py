@@ -35,7 +35,6 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Triangle size = 3× the gridline bubble diameter
-MARKER_SIZE = BUBBLE_RADIUS_MM * 6.0   # ~1219mm — matches 3× bubble size
 CROP_MARGIN = 2000.0                   # plan-scene units (mm at ppm 1) — default crop box padding
 
 MIN_CUT_LEN = 100.0          # plan-scene units (mm at ppm 1) -- shorter cuts are refused at placement (spec s9)
@@ -249,9 +248,9 @@ class SectionMarker(QGraphicsItem):
 
     Geometry (``cut_a``, ``cut_b``, ``depth``) is in plan-scene units -- mm at
     ppm 1 (``DetailMarker.crop_rect`` convention);
-    ``SectionScene`` converts to world through ``_scene_to_world``. Paint,
-    grips, menu and properties are added in a later task; this core carries
-    the fields, the dict round-trip and the cardinal auto-extent fit.
+    ``SectionScene`` converts to world through ``_scene_to_world``. Carries the
+    fields, the dict round-trip, the cardinal auto-extent fit, the paint, the
+    grips, the context menu and the property panel.
     """
 
     HALO_AREA = True
@@ -467,7 +466,8 @@ class SectionMarker(QGraphicsItem):
         nx, ny = self.normal_scene()
         mid = QPointF((self._a.x() + self._b.x()) / 2.0, (self._a.y() + self._b.y()) / 2.0)
         far_mid = QPointF(mid.x() + nx * self._depth, mid.y() + ny * self._depth)
-        flip = QPointF(mid.x() + nx * self._R * 1.5, mid.y() + ny * self._R * 1.5)
+        off = min(self._R * 1.5, self._depth * 0.5)       # stay clear of the depth grip
+        flip = QPointF(mid.x() + nx * off, mid.y() + ny * off)
         return [QPointF(self._a), QPointF(self._b), far_mid, flip]
 
     def apply_grip(self, index: int, new_pos: QPointF):
@@ -554,7 +554,7 @@ class SectionMarker(QGraphicsItem):
     def _fmt(self, mm: float) -> str:
         sc = self.scene()
         sm = getattr(sc, "scale_manager", None) if sc else None
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        return sm.scene_to_display(mm) if sm else f"{mm:.1f} mm"
 
     def get_properties(self) -> dict:
         return {
@@ -571,10 +571,15 @@ class SectionMarker(QGraphicsItem):
             if new and new != self._name and self._manager is not None:
                 self._manager.rename_section(self._name, new)
         elif key == "Depth":
-            parsed = float(str(value).split()[0])      # mm; the units spec owns a display-unit parser if one exists
-            if parsed >= MIN_CUT_LEN:
-                self.set_geometry(self._a, self._b, float(parsed))
-                self._push_undo()
+            from .scale_manager import ScaleManager
+            mm = ScaleManager.parse_dimension(str(value))
+            if mm is not None:
+                sc = self.scene()
+                sm = getattr(sc, "scale_manager", None) if sc else None
+                depth = sm.mm_to_scene(mm) if sm else mm
+                if depth >= MIN_CUT_LEN:
+                    self.set_geometry(self._a, self._b, float(depth))
+                    self._push_undo()
         elif key == "Flip":
             if bool(value) != (self._look < 0):
                 self._flip_with_undo()

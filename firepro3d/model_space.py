@@ -5631,7 +5631,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
         "wall", "floor", "roof", "roof_rect", "opening", "door", "window",
-        "text", "section",
+        "text",
     })
 
     _ALIGN_PLACEMENT_MODES = frozenset({
@@ -5639,7 +5639,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
         "text", "place_block", "set_scale", "water_supply", "design_area",
         "wall", "floor", "roof", "roof_rect", "room_manual",
-        "opening", "door", "window", "detail",
+        "opening", "door", "window", "detail", "section",
         "gridline_offset", "gridline_array",
         "move", "paste", "copy_base", "duplicate", "rotate", "array", "scale",
     })
@@ -7486,13 +7486,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._section_anchor is not None and self._section_preview is not None:
             a = self._section_anchor
             self._section_preview.setLine(QLineF(a, snapped))
-            # Look-side hint (+1 look side = (D.y, -D.x) in scene coords): scene-up of a
-            # left-to-right cut reads as the *left* of A->B on screen.
+            # Look-side hint: look_sign +1 puts the look normal (D.y, -D.x) always
+            # screen-left of A->B, whatever the cut direction.
             ln = QLineF(a, snapped)
             if ln.length() > 1e-6:
-                hint_dy = -ln.dx() / ln.length()                       # scene-y component of the look normal
                 self._draw_dim_hint = (f"L: {self.scale_manager.scene_to_display(ln.length())}  "
-                                       f"look side: {'left' if hint_dy < 0 else 'right'} of A->B")
+                                       "look side: left of A->B")
 
     # ── Roof placement ────────────────────────────────────────────────
 

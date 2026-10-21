@@ -41,6 +41,16 @@ def _click(view, ms, x, y):
     QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, vp)
 
 
+def _move(view, x, y):
+    """A real MouseMove on the viewport (QTest.mouseMove posts none without a button)."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtWidgets import QApplication
+    pt = QPointF(view.mapFromScene(QPointF(x, y)))
+    QApplication.sendEvent(view.viewport(), QMouseEvent(
+        QEvent.Type.MouseMove, pt, view.viewport().mapToGlobal(pt), Qt.MouseButton.NoButton,
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+
+
 def test_two_clicks_place_section_1_then_2(plan):
     ms, view = plan
     ms._snap_enabled = False
@@ -82,3 +92,13 @@ def test_escape_cancels_and_removes_preview(plan):
     assert ms.mode in (None, "select")            # Esc -> set_mode(None) (keyPressEvent tool-mode exit)
     assert ms._section_anchor is None and ms._section_preview is None
     assert ms._section_manager.placed == []
+
+
+def test_look_side_hint_reads_left_for_any_drag_direction(plan):
+    ms, view = plan
+    ms._snap_enabled = False
+    ms.set_mode("section")
+    _click(view, ms, 0.0, 0.0)
+    for x, y in ((-1000.0, 0.0), (0.0, 1000.0)):       # right-to-left, then straight below A
+        _move(view, x, y)
+        assert "left" in (ms._draw_dim_hint or "")

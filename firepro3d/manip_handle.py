@@ -732,6 +732,9 @@ class FlipGripHandle(GripHandle):
         pass                                   # click-only
 
     def on_release(self, m, scene_pos, mods) -> None:
+        if getattr(m, "_moved", False):           # a drag is ignored
+            m._end_drag()
+            return
         self.item.flip()
         m._end_drag()
         hook = getattr(m, "_commit_hook", None)
