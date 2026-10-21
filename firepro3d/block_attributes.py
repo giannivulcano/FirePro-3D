@@ -115,14 +115,33 @@ def references_of(prims: list, key: str) -> list[int]:
             if p.get("type") == _TEXT_TYPE and tok in str(p.get("text", ""))]
 
 
+def rename_keys_in_string(text: str, mapping: dict) -> str:
+    """Rewrite ``@[old]`` to ``@[mapping[old]]`` in one pass over the token
+    grammar, so a chain ``{A: B, B: C}`` or a swap ``{A: B, B: A}`` never
+    re-renames an already-renamed token (A7)."""
+    return TOKEN_RE.sub(
+        lambda m: f"@[{mapping.get(m.group(1), m.group(1))}]", text)
+
+
+def rename_keys_in_texts(prims: list, mapping: dict) -> int:
+    """Apply *mapping* (old key -> new key) to every text prim in place, in
+    one pass per prim (A7). Returns the number of prims changed."""
+    n = 0
+    for p in prims:
+        if p.get("type") != _TEXT_TYPE:
+            continue
+        old = str(p.get("text", ""))
+        new = rename_keys_in_string(old, mapping)
+        if new != old:
+            p["text"] = new
+            n += 1
+    return n
+
+
 def rename_key_in_texts(prims: list, old: str, new: str) -> int:
     """Rewrite every ``@[old]`` to ``@[new]`` in place (A7). Returns the
     number of prims changed."""
-    n = 0
-    for i in references_of(prims, old):
-        prims[i]["text"] = str(prims[i]["text"]).replace(f"@[{old}]", f"@[{new}]")
-        n += 1
-    return n
+    return rename_keys_in_texts(prims, {old: new})
 
 
 def unknown_tokens(prims: list, attrs: list) -> list[str]:

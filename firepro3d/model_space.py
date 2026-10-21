@@ -1766,8 +1766,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.block_meta = new
         if push_undo:
             self.push_undo_state()
-        if hasattr(self, "refresh_sample_preview"):
-            self.refresh_sample_preview()
+        self.refresh_sample_preview()
 
     def set_show_sample_values(self, on: bool) -> None:
         """Block Editor: sample values (True) or raw @[key] tokens (A6)."""
@@ -2975,8 +2974,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         *defn* (SB1a S4). The caller's ``set_primitives`` (edit) clears the
         caches; the registry cascade to nesting parents is the
         ``_block_registry.invalidate`` that follows it."""
-        if meta is None:
-            return
+        if meta is None or defn.kind == "schematic":
+            return                      # a schematic never carries block meta
         defn.attributes = list(meta.get("attributes", []))   # setter normalises
         defn.host_category = str(meta.get("host_category", ""))
         defn.scale_mode = str(meta.get("scale_mode", "real_size"))

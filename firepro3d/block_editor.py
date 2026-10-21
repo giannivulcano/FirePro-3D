@@ -586,15 +586,14 @@ class BlockEditorWidget(QWidget):
     def apply_attributes_edit(self, records: list, renames: dict) -> None:
         """Commit one Attributes-editor edit: rename cascade through every
         text item (A7), then the new meta -- one editor undo step."""
+        from .block_attributes import rename_keys_in_string
         from .text_item import TextItem
         sc = self.editor_scene
         sc.commit_text_edit()
         for it in list(sc.items()):
             if not isinstance(it, TextItem):
                 continue
-            txt = it._data.text
-            for old, new in renames.items():
-                txt = txt.replace(f"@[{old}]", f"@[{new}]")
+            txt = rename_keys_in_string(it._data.text, renames)   # one pass
             if txt != it._data.text:
                 it._set_property_model("Content", txt)   # no per-item push
         sc.set_block_meta({**sc.block_meta, "attributes": records}, push_undo=False)

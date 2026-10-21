@@ -260,3 +260,49 @@ def test_manager_warning_row(qapp, tmp_path):
     dlg._sync_ui()                                # same row stays selected
     assert dlg.lbl_fields.text() == ""
     dlg.close()
+
+
+def _texts(sc):
+    from firepro3d.text_item import TextItem
+    return sorted(t._data.text for t in sc.items() if isinstance(t, TextItem))
+
+
+def test_apply_attributes_edit_swap_and_chain(qapp):
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("@[A]/@[B]"), _text("@[B]/@[C]")])
+    sc = w.editor_scene
+    sc.set_block_meta({"attributes": [_attr("A"), _attr("B"), _attr("C")]})
+    w.apply_attributes_edit([_attr("B"), _attr("A"), _attr("D")], {"A": "B", "B": "A", "C": "D"})
+    assert _texts(sc) == ["@[A]/@[D]", "@[B]/@[A]"]
+
+
+def test_attributes_dialog_key_edge_cases(qapp):
+    from firepro3d.block_attributes_editor import AttributesEditorDialog
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("@[X] @[Mark]")])
+    sc = w.editor_scene
+    sc.set_block_meta({"attributes": [_attr("X"), _attr("Mark")]})
+    # delete X then re-add X as a new row: not a removal, no refusal
+    d = AttributesEditorDialog(w)
+    d.remove_row(0)
+    d.add_row()
+    d.set_cell(1, "key", "  X  ")
+    assert d.try_accept() is True
+    assert [a["key"] for a in sc.block_meta["attributes"]] == ["Mark", "X"]   # stripped
+    assert _texts(sc) == ["@[X] @[Mark]"]
+    # a new row reusing a renamed row's old key is refused
+    d2 = AttributesEditorDialog(w)
+    d2.set_cell(0, "key", "Tag")                 # Mark -> Tag
+    d2.add_row()
+    d2.set_cell(2, "key", "Mark")
+    assert d2.try_accept() is False and "renamed to Tag" in d2.message()
+
+
+def test_schematic_commit_carries_no_meta(qapp):
+    project = Model_Space()
+    w = BlockEditorManager(QTabWidget(), project).open_new(kind="schematic")
+    w.seed_from_dicts([_line()])
+    w.editor_scene.set_block_meta({"attributes": [_attr("K")], "host_category": "H",
+                                   "scale_mode": "annotative"})
+    defn = w.commit_block("S", "", "")
+    assert defn.attributes == [] and defn.host_category == "" and defn.scale_mode == "real_size"

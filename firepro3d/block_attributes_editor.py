@@ -129,15 +129,22 @@ class AttributesEditorDialog(HouseDialog):
             except ValueError:
                 self._msg.setText(f"Precision of {key} must be a whole number.")
                 return False
+            rec["key"] = key
             orig = self._orig(r)
             if orig is not None:
                 kept.add(orig)
                 if orig != key:
                     renames[orig] = key
             records.append(rec)
+        for r, rec in enumerate(records):
+            if self._orig(r) is None and rec["key"] in renames:
+                self._msg.setText(f"Key {rec['key']} is being renamed to "
+                                  f"{renames[rec['key']]} -- choose another key.")
+                return False
         prims = self._editor_text_prims()
+        new_keys = {rec["key"] for rec in records}
         for old in (a["key"] for a in self._scene.block_meta["attributes"]):
-            if old not in kept:
+            if old not in kept and old not in new_keys:
                 n = len(references_of(prims, old))
                 if n:
                     self._msg.setText(f"Cannot remove {old}: used by {n} text field"

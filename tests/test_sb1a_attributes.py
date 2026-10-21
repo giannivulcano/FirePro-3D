@@ -73,3 +73,14 @@ def test_rename_and_references():
     assert n == 1
     assert prims[0]["text"] == "@[Tag]-@[Tag]"
     assert references_of(prims, "Mark") == []
+
+
+def test_rename_keys_single_pass_swap_and_chain():
+    from firepro3d.block_attributes import rename_keys_in_texts
+    prims = [{"type": "text", "text": "@[A]-@[B]-@[C]"}, {"type": "line", "text": "@[A]"}]
+    assert rename_keys_in_texts(prims, {"A": "B", "B": "A"}) == 1
+    assert prims[0]["text"] == "@[B]-@[A]-@[C]"          # swap, not collapsed
+    assert prims[1]["text"] == "@[A]"                    # non-text untouched
+    prims = [{"type": "text", "text": "@[A]@[B]"}]
+    rename_keys_in_texts(prims, {"A": "B", "B": "C"})
+    assert prims[0]["text"] == "@[B]@[C]"                # chain, not A->C
