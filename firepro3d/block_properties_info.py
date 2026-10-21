@@ -7,6 +7,9 @@ selected entity only.
 """
 from __future__ import annotations
 
+_SCALE_LABELS = {"real_size": "Real size", "annotative": "Annotative"}
+_SCALE_MODES = {v: k for k, v in _SCALE_LABELS.items()}
+
 
 class BlockPropertiesInfo:
     """``get_properties`` view of one Block Editor scene."""
@@ -48,10 +51,33 @@ class BlockPropertiesInfo:
         if not schematic:
             from .capability_panel import capability_rows
             props.update(capability_rows(self._scene))
+            meta = self._scene.block_meta
+            props["Attributes"] = {"type": "header", "value": "Attributes"}
+            props["Count"] = {"type": "string", "value": str(len(meta["attributes"])),
+                              "readonly": True}
+            props["Edit attributes"] = {
+                "type": "button", "value": "Edit attributes\u2026",
+                "callback": self._open_attributes_editor,
+                "enabled": self._editor is not None}
+            props["Host category"] = {"type": "string", "value": meta["host_category"]}
+            props["Scale mode"] = {"type": "enum", "options": ["Real size", "Annotative"],
+                                   "value": _SCALE_LABELS.get(meta["scale_mode"], "Real size")}
         return props
+
+    def _open_attributes_editor(self) -> None:
+        if self._editor is not None:
+            self._editor.open_attributes_editor()
 
     def set_property(self, key, value) -> None:
         """Block facts are read-only; the capability rows edit the capability."""
+        if key == "Host category":
+            self._scene.set_block_meta({**self._scene.block_meta,
+                                        "host_category": str(value)})
+            return
+        if key == "Scale mode":
+            self._scene.set_block_meta({**self._scene.block_meta,
+                                        "scale_mode": _SCALE_MODES.get(str(value), "real_size")})
+            return
         if self._editor is not None:
             from .capability_panel import set_capability_property
             set_capability_property(self._scene, self._editor, key, value)

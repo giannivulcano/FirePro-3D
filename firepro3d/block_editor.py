@@ -577,6 +577,29 @@ class BlockEditorWidget(QWidget):
             self.fit_view_to_block()
         self._mark_clean()
 
+    def open_attributes_editor(self) -> None:
+        """Block view 'Edit attributes...' (SB1a S4)."""
+        from .block_attributes_editor import AttributesEditorDialog
+        AttributesEditorDialog(self, self).exec()
+
+    def apply_attributes_edit(self, records: list, renames: dict) -> None:
+        """Commit one Attributes-editor edit: rename cascade through every
+        text item (A7), then the new meta -- one editor undo step."""
+        from .text_item import TextItem
+        sc = self.editor_scene
+        sc.commit_text_edit()
+        for it in list(sc.items()):
+            if not isinstance(it, TextItem):
+                continue
+            txt = it._data.text
+            for old, new in renames.items():
+                txt = txt.replace(f"@[{old}]", f"@[{new}]")
+            if txt != it._data.text:
+                it._set_property_model("Content", txt)   # no per-item push
+        sc.set_block_meta({**sc.block_meta, "attributes": records}, push_undo=False)
+        sc.push_undo_state()                               # the one editor step
+        self._dirty = True
+
     def seed_from_selection(self, prim_dicts, *, source_items):
         """Create Block from a plan selection: bbox centre -> (0,0) (D24).
 
