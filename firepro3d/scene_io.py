@@ -142,6 +142,8 @@ class SceneIOMixin:
             "blocks":              blocks_data,
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
+            "sections":            (self._section_manager.to_list()
+                                    if getattr(self, "_section_manager", None) else []),
             "sheets":              [s.to_dict() for s in self._sheets] if hasattr(self, '_sheets') else [],
             "titleblock_template": getattr(self, "_titleblock_template", None),
         }
@@ -470,6 +472,17 @@ class SceneIOMixin:
                     + len(payload.get("constraints", [])))
         if _dropped:
             log.info("Clean-drop: discarded %d unsupported loose item(s) on load (containment C1/C8)", _dropped)
+
+        # --- Sections (spec s8, D4): key present -> replace markers; always seed
+        # cardinals (after the items load, so a re-seeded box fits the building).
+        sec_mgr = getattr(self, "_section_manager", None)
+        if sec_mgr is not None:
+            sec_data = payload.get("sections")
+            if sec_data is not None:
+                sec_mgr.from_list(sec_data)
+            else:
+                sec_mgr.clear()
+            sec_mgr.seed_cardinals()
 
         # Apply level visibility
         if self._level_manager:
