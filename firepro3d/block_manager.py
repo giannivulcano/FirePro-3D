@@ -585,12 +585,14 @@ class BlockManagerDialog(HouseDialog):
         self.lbl_series = QLabel()
         self.lbl_status = QLabel()
         self.lbl_count = QLabel()
+        self.lbl_fields = QLabel()    # AC9: @[key] tokens no attribute declares
         form.addRow("Name", self.lbl_name)
         form.addRow("Kind", self.lbl_kind)
         form.addRow("Library", self.lbl_library)
         form.addRow("Series", self.lbl_series)
         form.addRow("Source", self.lbl_status)
         form.addRow("Instances", self.lbl_count)
+        form.addRow("Fields", self.lbl_fields)
         return panel
 
     # ---------------------------------------------------------------- wiring
@@ -681,6 +683,7 @@ class BlockManagerDialog(HouseDialog):
             self.lbl_series.clear()
             self.lbl_status.clear()
             self.lbl_count.clear()
+            self.lbl_fields.clear()
             for b in (self.btn_save, self.btn_reload, self.btn_delete,
                       self.btn_editor, self.btn_new_from):
                 b.setEnabled(False)
@@ -695,6 +698,11 @@ class BlockManagerDialog(HouseDialog):
         count = self.scene.instance_count(defn.id)
         self.lbl_status.setText(status)
         self.lbl_count.setText(str(count))
+        from .block_attributes import unknown_tokens
+        unknown = unknown_tokens([b.prim for b in defn.bound_prims()],
+                                 defn.effective_attributes())
+        self.lbl_fields.setText(
+            ", ".join(f"@[{k}] has no attribute" for k in unknown))
         self.btn_delete.setEnabled(True)
         self.btn_editor.setEnabled(True)
         self.btn_new_from.setEnabled(True)

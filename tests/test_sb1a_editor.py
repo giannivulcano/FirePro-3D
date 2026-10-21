@@ -240,3 +240,23 @@ def test_panel_content_edit_refreshes_preview(qapp):
     assert t._data.text == "Room @[Mark]" and t.toPlainText() == "Room A1"
     t.set_property("Content", "N @[Mark]")
     assert t.toPlainText() == "N A1"
+
+
+def test_manager_warning_row(qapp, tmp_path):
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_manager import BlockManagerDialog
+    from tests.test_block_manager_model import _select_block
+    class _MW: settings = None
+    project = Model_Space()
+    d = BlockDefinition.new(name="T", library="L", series="S", origin=(0.0, 0.0),
+                            primitives=[_line(), _text("@[Mark] @[Nope]")])
+    d.attributes = [_attr("Mark")]
+    project.register_block_definition(d)
+    dlg = BlockManagerDialog(project, _MW(), apply_stylesheet=False, root=str(tmp_path))
+    _select_block(dlg, d.id)
+    assert dlg.lbl_fields.text() == "@[Nope] has no attribute"
+    d.attributes = [_attr("Mark"), _attr("Nope")]
+    d.set_primitives(list(d.primitives))          # version bump -> caches cleared
+    dlg._sync_ui()                                # same row stays selected
+    assert dlg.lbl_fields.text() == ""
+    dlg.close()
