@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
                               QGraphicsPathItem, QGraphicsRectItem,
                               QApplication, QProgressDialog, QMenu,
                               QDialog)
-from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QImage, QPolygonF,
                           QTransform)
@@ -604,6 +604,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._detail_rect_preview: "QGraphicsRectItem | None" = None
         self._detail_markers: list = []
         self._detail_manager = None  # set by main.py
+        # Section placement (spec s9)
+        self._section_anchor: "QPointF | None" = None
+        self._section_preview: "QGraphicsLineItem | None" = None
+        self._section_manager = None  # set by main.py
         self._sheets: list = []
         # Undo/redo
         self._undo_stack: list[dict] = []
@@ -1508,6 +1512,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if self._detail_rect_preview.scene() is self:
                     self.removeItem(self._detail_rect_preview)
                 self._detail_rect_preview = None
+        if mode != "section":
+            self._section_anchor = None
+            if self._section_preview is not None:
+                if self._section_preview.scene() is self:
+                    self.removeItem(self._section_preview)
+                self._section_preview = None
 
         # Capture current selection when entering move/rotate/scale mode from ribbon
         if (mode in ("move", "duplicate", "rotate", "scale", "array")
@@ -1567,6 +1577,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "window":          "Click on a wall to place window",
             "place_block":     "Click to place block  ·  Space / Shift+Space = rotate 90°  ·  ←→ / ↑↓ = flip  (Esc to finish)",
             "detail":          "Pick first corner for detail view boundary",
+            "section":         "Pick the section's start point",
             "polygon":         None,   # emitted with live readout below
         }
         instr = _initial_steps.get(mode, "")
@@ -5032,6 +5043,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "door":                     "_move_door_window",
         "window":                   "_move_door_window",
         "detail":                   "_move_detail",
+        "section":                  "_move_section",
         "align":                    "_move_align",
         "gridline_array":           "_move_gridline_replicate",
         "gridline_offset":          "_move_gridline_replicate",
@@ -5609,7 +5621,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
         "wall", "floor", "roof", "roof_rect", "opening", "door", "window",
-        "text",
+        "text", "section",
     })
 
     _ALIGN_PLACEMENT_MODES = frozenset({
@@ -5674,6 +5686,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "door":                     "_press_door",
         "window":                   "_press_window",
         "detail":                   "_press_detail",
+        "section":                  "_press_section",
         "gridline_array":           "_press_gridline_replicate",
         "gridline_offset":          "_press_gridline_replicate",
         "place_block":              "_press_place_block",
@@ -7423,6 +7436,53 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 f"W: {sm.scene_to_display(rect.width())}  "
                 f"H: {sm.scene_to_display(rect.height())}"
             )
+
+    # -- Section placement (spec s9) -------------------------------------------------
+
+    def _press_section(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._section_anchor is None:
+            self._section_anchor = QPointF(snapped)
+            self.instructionChanged.emit("Pick the section's end point  (Esc to cancel)")
+            preview = QGraphicsLineItem(QLineF(snapped, snapped))
+            pen = QPen(QColor("#4488cc"), 2, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            preview.setPen(pen)
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._section_preview = preview
+            return
+        a, b = self._section_anchor, QPointF(snapped)
+        from .section_marker import MIN_CUT_LEN
+        if QLineF(a, b).length() < MIN_CUT_LEN:
+            self._show_status(f"Section too short: the cut line must be at least {MIN_CUT_LEN:.0f} mm")
+            return
+        if self._section_preview is not None:
+            self.removeItem(self._section_preview)
+            self._section_preview = None
+        self._section_anchor = None
+        mgr = self._section_manager
+        if mgr is not None:
+            marker = mgr.place_section(a, b)
+            mgr.open_section(marker.view_name)
+        self.push_undo_state()
+        self.set_mode("select")
+
+    def _move_section(self, event, snapped):
+        if self._section_anchor is None:
+            self.update_preview_node(snapped)
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._section_anchor is not None and self._section_preview is not None:
+            a = self._section_anchor
+            self._section_preview.setLine(QLineF(a, snapped))
+            # Look-side hint (+1 look side = (D.y, -D.x) in scene coords): scene-up of a
+            # left-to-right cut reads as the *left* of A->B on screen.
+            ln = QLineF(a, snapped)
+            if ln.length() > 1e-6:
+                hint_dy = -ln.dx() / ln.length()                       # scene-y component of the look normal
+                self._draw_dim_hint = (f"L: {self.scale_manager.scene_to_display(ln.length())}  "
+                                       f"look side: {'left' if hint_dy < 0 else 'right'} of A->B")
 
     # ── Roof placement ────────────────────────────────────────────────
 
