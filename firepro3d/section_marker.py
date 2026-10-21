@@ -450,8 +450,10 @@ class SectionMarker(QGraphicsItem):
             painter.setPen(QPen(col.lighter(150)))
             painter.drawText(QRectF(c.x() - self._R, c.y() - self._R, 2 * self._R, 2 * self._R),
                              Qt.AlignmentFlag.AlignCenter, label)
-        if self.isSelected():
-            # Crop box: the retired SharedCropBox's dashed look, only while selected (s6).
+        from . import paper_display as _pd
+        if self.isSelected() and not _pd.paper_pass_active():
+            # Crop box: the retired SharedCropBox's dashed look, only while selected (s6)
+            # and never on a sheet / PDF -- the paper pass does not clear selection (VC9 M4).
             box_pen = QPen(col, 1, Qt.PenStyle.DashLine); box_pen.setCosmetic(True)
             painter.setPen(box_pen)
             faint = QColor(col); faint.setAlpha(15)

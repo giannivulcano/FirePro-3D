@@ -247,6 +247,31 @@ def test_views_wired_once_on_every_open_path(qapp):
         dispose_main_window(win)
 
 
+def test_rename_keeps_hosted_section_row_italic(qapp):
+    """VC9 M3: rename cascades into sheet_views, so the project-browser italics
+    (placed-views set) must be re-derived before the Sections rows rebuild."""
+    from firepro3d.paper_space import SheetViewData
+    from tests._mainwindow_helpers import dispose_main_window
+    win = _main_window()
+    try:
+        sm = win.section_manager
+        sm.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+        sheet = win.sheet_mgr.sheets[0]
+        sheet.sheet_views.append(SheetViewData("section", "Section 1", "Section 1", 0.01,
+                                               10.0, 10.0, 50.0, 50.0))
+        win._recompute_placed_views()
+        root = win.project_browser._sections_root
+        rows = {root.child(i).text(0): root.child(i) for i in range(root.childCount())}
+        assert rows["Section 1"].font(0).italic() is True
+        sm.rename_section("Section 1", "Stair")
+        assert sheet.sheet_views[-1].source_view_name == "Stair"
+        rows = {root.child(i).text(0): root.child(i) for i in range(root.childCount())}
+        assert "Section 1" not in rows
+        assert rows["Stair"].font(0).italic() is True
+    finally:
+        dispose_main_window(win)
+
+
 def test_rename_refuses_cardinal_names(mgr):
     m, ms, tabs = mgr
     m.seed_cardinals()

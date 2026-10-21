@@ -1451,6 +1451,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene.push_undo_state()                   # post-action snapshot (undo convention)
 
     def _refresh_section_browser(self):
+        # A rename cascades into sheet_views (section_manager.rename_section), so
+        # the italics set is re-derived before the rows are rebuilt (VC9 M3).
+        self._recompute_placed_views()
         self.project_browser.refresh_sections(self.section_manager.section_names)
 
     def _on_open_view_requested(self, view_type: str, name: str):

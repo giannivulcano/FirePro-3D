@@ -221,3 +221,36 @@ def test_depth_property_parses_units_and_ignores_garbage(qapp):
     assert m.depth == pytest.approx(4495.8, abs=0.1)
     m.set_property("Depth", "garbage")
     assert m.depth == pytest.approx(ft)
+
+
+def _render_box_region(ms) -> str:
+    """Rasterize the marker's whole crop-box region (10 units/px); return a digest of the pixels."""
+    import hashlib
+    from PyQt6.QtGui import QImage, QPainter
+    img = QImage(700, 700, QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    p = QPainter(img)
+    ms.render(p, QRectF(0, 0, 700, 700), QRectF(-500.0, -3500.0, 7000.0, 7000.0))
+    p.end()
+    return hashlib.sha256(bytes(img.constBits().asarray(img.sizeInBytes()))).hexdigest()
+
+
+def test_selected_crop_box_draws_on_canvas_but_never_in_a_paper_pass(qapp):
+    """VC9 M4: the paper pass does not clear selection, so a marker selected on the
+    plan must not plot its dashed crop box into a sheet viewport / PDF."""
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    ms, m = _plan_with_marker()
+    ms.setSceneRect(QRectF(-20000, -20000, 40000, 40000))
+    m.setSelected(False)
+    canvas_plain = _render_box_region(ms)
+    m.setSelected(True)
+    canvas_selected = _render_box_region(ms)
+    assert canvas_selected != canvas_plain                 # selection chrome draws on canvas
+    saved = apply_paper_overrides(ms, QRectF(-20000, -20000, 40000, 40000))
+    try:
+        paper_selected = _render_box_region(ms)
+        m.setSelected(False)
+        paper_plain = _render_box_region(ms)
+    finally:
+        restore_model_display(saved)
+    assert paper_selected == paper_plain                   # no crop box / highlight on paper
