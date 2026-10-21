@@ -245,6 +245,8 @@ def _load_prim(p):
     if p.get("type") in STYLED_TYPES:
         return migrate_primitive(p)
     out = copy.deepcopy(p)
+    if out.get("type") == _NESTED_TYPE:
+        out.pop("attributes", None)     # A1: values live on the outermost instance only
     if out.get("type") == _NESTED_TYPE and "overrides" in out:
         from .stroke_style import is_as_authored, normalize_overrides
         ov = normalize_overrides(out["overrides"])      # canonical names (H-g)
