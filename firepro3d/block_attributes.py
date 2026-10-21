@@ -1,7 +1,8 @@
 """Block attribute schema and @[key] field resolution (SB1a, design S1/S3).
 
-Pure (no Qt). The token grammar and substitution are the title-block
-template's (``titleblock_template.resolve_text`` / ``TOKEN_RE``); this
+No Qt use of its own; it imports ``titleblock_template`` for the token
+grammar, which pulls in PyQt6 (tests still run headless). The token
+grammar and substitution are the title-block template's (``titleblock_template.resolve_text`` / ``TOKEN_RE``); this
 module adds the attribute record, kind formatting (A8) and the three-source
 resolution (instance value / override / host provider).
 """

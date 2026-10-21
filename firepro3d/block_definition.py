@@ -292,7 +292,8 @@ class BlockDefinition:
         self.scale_mode = scale_mode
         # Set directly (not via the setter): the caches do not exist yet.
         self._origin = (float(origin[0]), float(origin[1]))
-        self.attributes = [normalise_attr(a) for a in attributes]
+        self._attributes: list[dict] = []
+        self.attributes = attributes      # setter normalises + clears the cache
         # Host category (SB1a S1): which host kind supplies source=host values.
         # Additive key -- absent => "" (no schema bump).
         self.host_category: str = str(host_category)
@@ -504,6 +505,20 @@ class BlockDefinition:
             self._render_ops = self._compile()
         return self._render_ops
 
+    @property
+    def attributes(self) -> list[dict]:
+        """This definition's own attribute records (normalised).
+
+        Assigning normalises every record and drops the
+        ``effective_attributes`` cache (SB1a S1).
+        """
+        return self._attributes
+
+    @attributes.setter
+    def attributes(self, value) -> None:
+        self._attributes = [normalise_attr(a) for a in value]
+        self._eff_attrs = None
+
     def effective_attributes(self) -> list[dict]:
         """This definition's attribute records plus, for every nested child
         (recursively), the child's records whose key this definition does not
@@ -512,11 +527,13 @@ class BlockDefinition:
         if self._eff_attrs is None:
             out = [dict(a) for a in self.attributes]
             seen = {a["key"] for a in out}
+            truncated = False
             for prim in self.primitives:
                 if prim.get("type") != _NESTED_TYPE:
                     continue
                 child = self._resolve_nested(prim)
                 if child is None or child.id in _COMPILING or child.id == self.id:
+                    truncated = truncated or child is not None
                     continue
                 _COMPILING.add(self.id)
                 try:
@@ -527,6 +544,8 @@ class BlockDefinition:
                     if a["key"] not in seen:
                         seen.add(a["key"])
                         out.append(dict(a))
+            if truncated:
+                return out          # cyclic guard fired: do not cache
             self._eff_attrs = out
         return self._eff_attrs
 

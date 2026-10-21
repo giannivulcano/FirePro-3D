@@ -91,3 +91,12 @@ def test_nested_bound_prims_carry_child_pose(qapp):
     bp = host.bound_prims()
     assert len(bp) == 1 and bp[0].prim["text"] == "@[Mark]"
     assert bp[0].transform.map(0.0, 0.0) == (10.0, 0.0)
+
+
+def test_effective_attributes_tracks_reassignment():
+    d = BlockDefinition.new(name="t", library="", series="",
+                            primitives=[], origin=(0.0, 0.0))
+    d.attributes = [_attr("Old")]
+    assert [r["key"] for r in d.effective_attributes()] == ["Old"]
+    d.attributes = [_attr("New")]
+    assert [r["key"] for r in d.effective_attributes()] == ["New"]
