@@ -2,6 +2,27 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Section views — section-view subsystem build (952 + 872 + 600 + 560; 767 stale) — 2026-10-21
+
+- [x] [type:feature] Implement section view subsystem [P3] [done:2026-10-21] [subject:Architecture]
+  - Build: branch `feature/section-views` (base aeab43ff, 31 commits, a0bdc8dd last). `elevation_*` / `view_marker` moved to `section_scene.py` / `section_manager.py` / `section_marker.py`; `SectionBasis` origin-free oblique projection with crop-box classification (cut / behind / hidden); cardinal elevations are cardinal `SectionMarker`s on their own crop boxes (auto-extent until touched; the old circle+wedge glyph kept); placed sections: Section ribbon tool (two clicks, ALIGN + Ctrl), CAD head (2x bubble + tangent triangle, label along the cut), rect-style 8-grip crop box + flip, context menu Open/Rename/Flip/Delete, undo via the network snapshot, `sections` key in the project file (no SAVE_VERSION bump), project-browser Sections group, sheet hosting as `section:<name>`, DM row relabelled 'Section Marker'. Spec `docs/specs/section-view-subsystem.md` Revision 2 (status current). Guards: `tests/test_section_*.py`, `test_gridline_section.py`, `test_manip_griphandle_viewmarker_parity.py` + re-bound `test_elev_*`; RED-proved per group. Smoke 2026-10-21 re-entered Phase 2 for the marker visuals (served tuner, D6r) and fixed placement ALIGN; VC6 full suite not run (user's instruction, both sessions).
+  - Details: SectionScene, SectionView, SectionMarker, SectionManager, section placement tool, cardinal shortcuts, elevation system retirement. See `docs/specs/section-view-subsystem.md`. DEFERRED 2026-06-23 grill — cardinal elevations already host on sheets (ViewResolver); arbitrary-angle sections not needed for the AHJ MVP. Spec stays a proposal. ref: section-view-spec.
+
+- [x] [type:feature] Project angled gridlines into elevation views [P3] [done:2026-10-21] [subject:Architecture]
+  - Build: with the section-view build (feature/section-views, G2 Task 6): gridlines crossing the cut line project at their crossing h (`SectionScene._project_gridlines`); parallel / out-of-range gridlines absent. Guards `tests/test_gridline_section.py` (4).
+  - Details: currently only exactly-cardinal gridlines project into elevations; angled projection deferred (section-view territory). `elevation_scene.py`.
+
+- [x] [type:bug] Elevation views on sheets: edge lines plot light grey and opening voids / floor-slab masks plot the canvas background on paper [P2] [done:2026-10-21] [subject:CAD]
+  - Build: with the section-view build (feature/section-views, G2 Task 7): edge / void / mask colours resolve per paint through `colour_tokens` (TOKEN_AUTO ink, TOKEN_BG canvas-bg/white) under the paper pass. Guard `tests/test_section_sheet_plot.py::test_dark_theme_export_edges_black_voids_white` (real `export_pdf` pixel probe).
+  - Details: HF1 round-E review (2026-10-18), pre-existing since d89e0b07 (not HF1). `elevation_scene.py` `_edge_color` (`#d0d0d0` on dark, set by `_apply_theme_colours`) feeds opening frame/sill/mid lines; the opening `void_color` and the floor-slab mask take the scene `backgroundBrush`. HF1 made DM/wall colours resolve per paint (`_ColourSrcMixin`, `colour_tokens.resolve_pen_brush`) but not these. Fix: edge lines as a token-ink source resolved per paint; voids/masks paper-white on paper. Guard: elevation in a sheet viewport, export_pdf, dark theme -> edges black, voids white. `elevation_scene.py`.
+
+- [x] [type:maint] `MainWindow._live_scenes` reads private `elevation_manager._views` / `schematic_scenes._scenes` -- add public accessors [subject:Architecture] [P3] [done:2026-10-21]
+  - Build: with the section-view build (feature/section-views, G4): `SectionManager.scenes` / `SchematicSceneManager.scenes` public read-only accessors; `MainWindow._live_scenes` reads them. Guards `test_open_scenes_public_and_live_scenes_uses_it`, `test_schematic_manager_scenes_property_is_public_read_only`.
+  - Details: HF1 T6 review Minor2 (2026-10-17). `main.py` `_live_scenes`; add e.g. `ElevationManager.scenes()` / `SchematicSceneManager.scenes()`.
+
+- [x] [type:feature] Project flat 2D geometry into elevation scenes [P3] [done:2026-10-21] [subject:Architecture]
+  - Closed stale 2026-10-21 (Phase 2 Delta 7b of the section-view run, P1 probe): 2D primitives carry no world-Z projection contract and the HF/U5 elevation-anchoring lines own that scope; nothing to project. Re-file if 'Vertical / elevation plane anchoring for 2D geometry' lands.
+  - Details: flat 2D geometry now has world-Z but isn't projected into elevation scenes. `elevation_scene.py`.
 ## Hatch & Fill — UP2 fill picker routing — 2026-10-20
 
 - [x] [type:feature] UP2 — Route every fill picker site to the UP1 picker (R7) [P2] [subject:UX] [done:2026-10-20]
