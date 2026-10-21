@@ -567,6 +567,10 @@ class BlockEditorWidget(QWidget):
         k = kind_of(defn)
         cap = (k, getattr(defn, k)) if k else None
         self.editor_scene.set_block_capability(cap, push_undo=False)
+        # So do the authored attributes / host category / scale mode (SB1a S4).
+        self.editor_scene.set_block_meta(
+            {"attributes": defn.attributes, "host_category": defn.host_category,
+             "scale_mode": defn.scale_mode}, push_undo=False)
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
         if migrated:
@@ -729,7 +733,7 @@ class BlockEditorWidget(QWidget):
             place_at=(base.x(), base.y()) if base is not None else None,
             constraints=self.editor_scene.constraint_ctl.to_records(),
             capability=self.editor_scene.block_capability,
-            kind=self.kind)
+            kind=self.kind, meta=self.editor_scene.block_meta)
         if defn is None:
             return None
         self._edit_block_id = defn.id

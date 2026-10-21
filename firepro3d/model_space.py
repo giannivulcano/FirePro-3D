@@ -275,6 +275,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # | None -- one slot (H4-a).
         # In the undo snapshot; the frame item mirrors it.
         self.block_capability: tuple | None = None
+        # Block Editor authored definition fields (SB1a S4): attributes /
+        # host_category / scale_mode. Always a dict (empty defaults off-editor).
+        self.block_meta: dict = {"attributes": [], "host_category": "",
+                                 "scale_mode": "real_size"}
+        self.show_sample_values = True   # view flag (A6), not in the undo snapshot
         self._cap_frame = None           # CapabilityFrameItem while set
         self._tile_editor = None         # owning BlockEditorWidget (set by it)
         # Callable -> open Block Editors' scenes, registered on the project
@@ -1748,6 +1753,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.set_block_capability(("tile", tile) if tile else None,
                                   push_undo=push_undo)
 
+    def set_block_meta(self, meta: dict, *, push_undo: bool = True) -> None:
+        """Replace the edited block's attributes / host_category / scale_mode
+        (SB1a S4). ``attributes`` records are normalised. One undo step
+        unless ``push_undo`` is False (undo restore / a composite edit)."""
+        from .block_attributes import normalise_attr
+        new = {"attributes": [normalise_attr(a) for a in meta.get("attributes", [])],
+               "host_category": str(meta.get("host_category", "")),
+               "scale_mode": str(meta.get("scale_mode", "real_size"))}
+        if new == self.block_meta:
+            return
+        self.block_meta = new
+        if push_undo:
+            self.push_undo_state()
+        if hasattr(self, "refresh_sample_preview"):
+            self.refresh_sample_preview()
+
     def set_block_capability(self, cap, *, push_undo: bool = True) -> None:
         """Set / clear the edited block's capability and sync the frame (H4-a).
 
@@ -2785,7 +2806,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def commit_block_definition(self, *, block_id, name, library, series,
                                 primitives, origin, place_instance=True,
                                 source_items=None, place_at=None,
-                                constraints=None, capability=None, kind=None):
+                                constraints=None, capability=None, kind=None,
+                                meta=None):
         """Create or edit a block definition from primitive dicts (one undo).
 
         ``block_id is None`` -> new definition (``BlockDefinition.new`` +
@@ -2824,6 +2846,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             kind: ``"block"`` or ``"schematic"`` (schematics.md SD1); ``None``
                 = "block" for a new definition / keep the existing kind on
                 edit. A schematic carries no capability and is never placed.
+            meta: The editor's ``block_meta`` (``attributes`` /
+                ``host_category`` / ``scale_mode``, SB1a S4); None leaves the
+                definition's fields untouched.
 
         Returns:
             The ``BlockDefinition``, or None on empty primitives or missing id.
@@ -2879,6 +2904,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                        constraints=list(constraints or []),
                                        tile=tile, repeat=repeat, end=end,
                                        kind=def_kind)
+            self._apply_block_meta(defn, meta)
             self.register_block_definition(defn)
         else:
             defn = old
@@ -2903,6 +2929,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.set_tile(tile, notify=False)
             defn.set_repeat(repeat, notify=False)
             defn.set_end(end, notify=False)
+            self._apply_block_meta(defn, meta)
             defn.set_primitives(list(primitives))
             # Recompile + repaint every user of this definition (plan + editors);
             # set_primitives already repainted defn's own backref instances.
@@ -2919,6 +2946,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if pattern_saved_msg is not None:
             self._show_status(pattern_saved_msg, 5000)
         return defn
+
+    @staticmethod
+    def _apply_block_meta(defn, meta) -> None:
+        """Write the editor's attributes / host_category / scale_mode onto
+        *defn* (SB1a S4). The caller's ``set_primitives`` (edit) clears the
+        caches; the registry cascade to nesting parents is the
+        ``_block_registry.invalidate`` that follows it."""
+        if meta is None:
+            return
+        defn.attributes = list(meta.get("attributes", []))   # setter normalises
+        defn.host_category = str(meta.get("host_category", ""))
+        defn.scale_mode = str(meta.get("scale_mode", "real_size"))
 
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
@@ -3072,6 +3111,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _capture_network(self) -> dict:
         """Serialize nodes/pipes/annotations to a dict (no underlays/scale)."""
+        import copy
         node_list = list(self.sprinkler_system.nodes)
         node_id = {n: i for i, n in enumerate(node_list)}
         nodes_data = [serialize_node(node, node_id) for node in node_list]
@@ -3127,6 +3167,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "block_capability": ([self.block_capability[0],
                                   dict(self.block_capability[1])]
                                  if self.block_capability else None),
+            "block_meta": copy.deepcopy(self.block_meta),
             **extra,
         }
 
@@ -3438,6 +3479,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if cap or self.block_capability is not None:
                 self.set_block_capability(tuple(cap) if cap else None,
                                           push_undo=False)
+
+            # ── Block Editor meta (attributes / host / scale mode; SB1a S4) ──
+            meta = state.get("block_meta")
+            if meta is not None:
+                self.set_block_meta(meta, push_undo=False)
 
             # Re-apply display settings (category defaults + per-item overrides)
             from .display_manager import apply_saved_display_settings
