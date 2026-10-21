@@ -110,3 +110,63 @@ def test_nested_bound_prim_uses_outer_values(qapp):
     assert _glyph_key(_texts(outer)[0]) == _glyph_key(_texts(inner)[0])   # "host" both
     outer.set_attributes({"Mark": "X"})
     assert _glyph_key(_texts(outer)[0]) != _glyph_key(_texts(inner)[0])
+
+
+def _turned(path, cx, cy):
+    from PyQt6.QtGui import QTransform
+    t = QTransform()
+    t.translate(cx, cy); t.rotate(180.0); t.translate(-cx, -cy)
+    return t.map(path)
+
+
+def _same_path(a, b, tol=0.05):
+    if a.elementCount() != b.elementCount():
+        return False
+    return all(abs(a.elementAt(i).x - b.elementAt(i).x) < tol
+               and abs(a.elementAt(i).y - b.elementAt(i).y) < tol
+               for i in range(a.elementCount()))
+
+
+def test_keep_upright_flip_threshold(qapp):
+    ms = Model_Space()
+    d = _tag_def(ms, [], [_text("Fg", keep_upright=True)])
+    inst = ms.place_block_instance(d.id, (0.0, 0.0))
+    op = _texts(inst)[0]
+    assert op.readable is True
+    base = inst._text_path(op)
+    inst.set_block_rotation(89.0)
+    assert _same_path(inst._text_path(op), op.path)              # not turned
+    inst.set_block_rotation(91.0)
+    fr = op.text_frame
+    assert _same_path(inst._text_path(op), _turned(op.path, fr[0], fr[1]))
+    inst.set_block_rotation(270.0)
+    assert _same_path(inst._text_path(op), _turned(op.path, fr[0], fr[1]))   # (90, 270] turns
+    inst.set_block_rotation(271.0)
+    assert _same_path(inst._text_path(op), op.path)
+    # a plain (non keep_upright) text op is never turned
+    d2 = _tag_def(ms, [], [_text("Fg")])
+    plain = ms.place_block_instance(d2.id, (0.0, 0.0))
+    plain.set_block_rotation(180.0)
+    pop = plain.render_ops()[1]
+    assert pop.readable is False and _same_path(plain._text_path(pop), pop.path)
+
+
+def test_keep_upright_mirrored_reads_unmirrored(qapp):
+    from PyQt6.QtGui import QTransform
+    ms = Model_Space()
+    d = _tag_def(ms, [_attr("Mark", default="Fg")], [_text("@[Mark]", keep_upright=True)])
+    a = ms.place_block_instance(d.id, (0.0, 0.0))
+    b = ms.place_block_instance(d.id, (0.0, 0.0))
+    b.set_block_mirrored(True)
+    pa, pb = _texts(a)[0], _texts(b)[0]
+    # the mirrored op's glyphs equal the un-mirrored glyphs reflected about
+    # the box vertical, then placed on the mirrored box: i.e. glyph shape is
+    # NOT a mirror image -- its bbox width matches and element order matches.
+    ra, rb = pa.path.boundingRect(), pb.path.boundingRect()
+    assert abs(ra.width() - rb.width()) < 0.05 and abs(ra.height() - rb.height()) < 0.05
+    # reflecting b's path back across its own box centre vertical must NOT
+    # equal a's path (it would if the glyphs had been mirrored)
+    cx = pb.text_frame[0]
+    refl = QTransform(); refl.translate(cx, 0); refl.scale(-1, 1); refl.translate(-cx, 0)
+    assert not _same_path(refl.map(pb.path), QTransform.fromTranslate(
+        pb.text_frame[0] - pa.text_frame[0], 0).map(pa.path))
