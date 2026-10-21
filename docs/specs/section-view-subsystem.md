@@ -40,7 +40,7 @@ sheets (600).
 
 | Move (`git mv`) | Classes |
 |---|---|
-| `elevation_scene.py` -> `section_scene.py` | `ElevationScene` -> `SectionScene`, `ElevationView` -> `SectionView` (in-scene item classes `ElevGridlineItem`, `_ElevProxyRect`, datum items keep their names) |
+| `elevation_scene.py` -> `section_scene.py` | `ElevationScene` -> `SectionScene`, `ElevationView` -> `SectionView` (class in `elevation_view.py`, file name kept; in-scene item classes `ElevGridlineItem`, `_ElevProxyRect`, datum items keep their names) |
 | `elevation_manager.py` -> `section_manager.py` | `ElevationManager` -> `SectionManager` |
 | `view_marker.py` -> `section_marker.py` | `ViewMarkerArrow` + `SharedCropBox` + `ViewMarkerManager` -> `SectionMarker` |
 

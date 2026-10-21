@@ -478,7 +478,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [x] Origin Y / End Y displayed and parsed up-positive; negative-zero normalized to 0
 - [x] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (category-owned label height; per-item `paper_height_mm` retired) — built 2026-08-08
 - [x] Angled gridlines supported as first-class (stored angle)
-- [ ] Elevation views show only exactly-cardinal gridlines (perpendicular to viewing plane)
+- [x] Section views draw a gridline where it crosses the cut line; parallel gridlines hidden (angled projection, 872 — owned by `section-view-subsystem.md` §4.1)
 - [x] Auto-numbering counters sync to max existing label on load/undo/before each on-canvas placement
 - [x] Auto-labeling: vertical (dy>=dx) → numbers, horizontal → letters (matches default seed)
 - [x] Duplicate labels produce visual warning (orange bubble border, width unchanged), not enforcement
@@ -559,7 +559,7 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 - **45° gridline classification:** `dy >= dx` classifies as vertical → number label. Consistent, documented.
 - **Counter sync with mixed custom labels:** Labels like "X-1" that don't parse as numbers or letters are ignored by sync. Counter resumes from the highest parseable label.
 - **Zero-length placement:** the placement press rejects a sub-0.5-mm span ("Gridline too short — skipped"); mutators floor `_length` at 1.0 mm.
-- **Floating-point epsilon for cardinal test:** `1e-6` absolute tolerance on dx or dy for elevation filtering. A gridline at 89.9999° would fail the cardinal test and not appear in elevations.
+- **Cardinal test retired (2026-10-21):** section views no longer filter gridlines by cardinality; a gridline parallel to the cut line (no crossing) is hidden, any other draws at its crossing (`section-view-subsystem.md` §4.1).
 - **Spacing pairing tolerance:** angle clustering uses a small fixed `EPS_ANGLE`. Non-parallel gridlines share no cluster → no spacing dimension between them.
 
 ## 16. Out of Scope
