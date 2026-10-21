@@ -30,7 +30,7 @@ from PyQt6.QtGui import (
 
 from PyQt6.QtCore import QSettings
 
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG
 from . import theme as th
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .displayable_item import draw_section_hatch
@@ -987,7 +987,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         """Canvas background + edge/line colour from the current theme."""
         bg = QColor(th.detect().canvas_bg)
         self.setBackgroundBrush(QBrush(bg))
-        # Edge/line color based on background brightness
+        # Legacy canvas readout only (the HF1 guard reads it): edges now paint
+        # TOKEN_AUTO, resolved per paint, so this never reaches a sheet plot.
         br = bg.redF() * 0.299 + bg.greenF() * 0.587 + bg.blueF() * 0.114
         self._edge_color = QColor("#d0d0d0") if br < 0.5 else QColor("#000000")
 
@@ -1177,9 +1178,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         """
         import math as _math
 
-        bg_brush = self.backgroundBrush()
-        void_color = bg_brush.color() if bg_brush.color().isValid() else QColor("white")
-
+        # Edges / voids are colour *sources* (TOKEN_AUTO / TOKEN_BG) resolved per
+        # paint, so a sheet viewport plots them black / white on paper (600).
         frame_pen = QPen(self._edge_color, 1)
         frame_pen.setCosmetic(True)
 
@@ -1241,15 +1241,16 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 void_rect = _ElevProxyRect(h_min, v_top, width, v_bottom - v_top)
                 void_pen = QPen(Qt.PenStyle.NoPen)
                 void_rect.setPen(void_pen)
-                void_rect.setBrush(QBrush(void_color))
+                void_rect.set_colour_src(brush=TOKEN_BG)
                 void_rect.setData(_ROLE_SOURCE, op)
                 void_rect.setFlag(
                     QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
 
                 # ── Frame rect (outline of the opening) ───────────────────
-                frame_rect = QGraphicsRectItem(h_min, v_top, width, v_bottom - v_top)
+                frame_rect = _SrcRect(h_min, v_top, width, v_bottom - v_top)
                 frame_rect.setPen(frame_pen)
                 frame_rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                frame_rect.set_colour_src(pen=TOKEN_AUTO)
 
                 items_to_add = [void_rect, frame_rect]
 
@@ -1257,16 +1258,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
                 if op_type == "window":
                     # Horizontal sill line at bottom of opening
-                    sill_line = QGraphicsLineItem(h_min, v_bottom, h_max, v_bottom)
+                    sill_line = _SrcLine(h_min, v_bottom, h_max, v_bottom)
                     sill_line.setPen(frame_pen)
+                    sill_line.set_colour_src(pen=TOKEN_AUTO)
                     items_to_add.append(sill_line)
 
                 elif op_type == "door":
                     # Centre vertical line for double-leaf doors
                     if getattr(op, "_leaves", 1) == 2:
                         h_mid = (h_min + h_max) / 2.0
-                        mid_line = QGraphicsLineItem(h_mid, v_top, h_mid, v_bottom)
+                        mid_line = _SrcLine(h_mid, v_top, h_mid, v_bottom)
                         mid_line.setPen(frame_pen)
+                        mid_line.set_colour_src(pen=TOKEN_AUTO)
                         items_to_add.append(mid_line)
 
                 # blank: void + frame only — no extra lines
@@ -1385,10 +1388,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         # Each entry: (depth, mask_rect, visible_rect)
         slab_rects: list[tuple[float, QGraphicsRectItem, QGraphicsRectItem]] = []
 
-        # Background color for opaque mask
-        _t = th.detect()
-        bg = QColor(_t.canvas_bg)
-
         for slab in getattr(self._ms, "_floor_slabs", []):
             # Resolve the slab's true world-Z from the two-boundary model.
             # Use this scene's own LevelManager explicitly: the slab lives in
@@ -1437,9 +1436,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             height = v_bottom - v_top
 
             # Opaque mask rect — hides items behind the slab
-            mask = QGraphicsRectItem(h_min, v_top, width, height)
+            mask = _SrcRect(h_min, v_top, width, height)
             mask.setPen(QPen(Qt.PenStyle.NoPen))
-            mask.setBrush(QBrush(bg))
+            mask.set_colour_src(brush=TOKEN_BG)       # canvas bg on canvas, white on paper
             mask.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
 
             # Visible slab rect with styled fill

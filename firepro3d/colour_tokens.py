@@ -13,7 +13,7 @@ from PyQt6.QtGui import QBrush, QColor, QPen
 
 from . import paper_display as _pd   # module imports (hot path)
 from . import theme as _th
-from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_PREFIX
+from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG, TOKEN_PREFIX
 
 _log = logging.getLogger(__name__)
 _warned: set[str] = set()
@@ -83,17 +83,21 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     if not is_token(value):
         c = QColor(value) if value else QColor()
     else:
-        if value not in _LABELS and value not in _warned:
-            _warned.add(value)
-            _log.warning("unknown colour token %r drawn as Automatic", value)
-        mode = _paper_mode(item)
-        if mode is None:
-            t = _th.detect()
-            c = QColor(t.accent if value == TOKEN_ACCENT else t.ink)
-        elif value == TOKEN_ACCENT and mode is _pd.PaperColorMode.FULL_COLOR:
-            c = QColor(_th.LIGHT.accent)
+        if value == TOKEN_BG:
+            mode = _paper_mode(item)
+            c = QColor(_th.detect().canvas_bg) if mode is None else QColor("#ffffff")
         else:
-            c = QColor(_PAPER_INK)
+            if value not in _LABELS and value not in _warned:
+                _warned.add(value)
+                _log.warning("unknown colour token %r drawn as Automatic", value)
+            mode = _paper_mode(item)
+            if mode is None:
+                t = _th.detect()
+                c = QColor(t.accent if value == TOKEN_ACCENT else t.ink)
+            elif value == TOKEN_ACCENT and mode is _pd.PaperColorMode.FULL_COLOR:
+                c = QColor(_th.LIGHT.accent)
+            else:
+                c = QColor(_PAPER_INK)
     if alpha is not None:
         c.setAlpha(alpha)
     return c

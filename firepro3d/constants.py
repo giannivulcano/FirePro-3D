@@ -336,6 +336,7 @@ HALO_GLOW_PX = 8.0            # soft outer-glow blur radius (px); 0 disables
 TOKEN_PREFIX = "token:"
 TOKEN_AUTO = "token:auto"        # theme ink on canvas, black on paper / B&W
 TOKEN_ACCENT = "token:accent"    # theme accent on canvas, light accent on paper
+TOKEN_BG = "token:bg"            # theme canvas bg on canvas, white on paper (internal; 600)
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 
 # Filled Region chain closure (hatch-and-fill.md D-A6): two curve ends weld
