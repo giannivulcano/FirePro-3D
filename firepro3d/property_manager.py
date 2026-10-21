@@ -434,6 +434,7 @@ class PropertyManager(QWidget):
                 btn.setSizePolicy(QSizePolicy.Policy.Ignored,
                                   btn.sizePolicy().verticalPolicy())
                 btn.setToolTip(str(meta.get("value", "")))
+                btn.setEnabled(bool(meta.get("enabled", True)))
                 callback = meta.get("callback")
                 if callback:
                     btn.clicked.connect(

@@ -3527,6 +3527,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         self.push_undo_state()
 
+    def open_edit_attributes(self, inst) -> bool:
+        """Open the Edit Attributes dialog for *inst* (SB1a A3). Returns
+        False (no dialog) when its definition declares no attributes."""
+        d = inst.definition()
+        if d is None or not d.effective_attributes():
+            return False
+        from .block_attributes_dialog import EditAttributesDialog
+        parent = self.views()[0].window() if self.views() else None
+        EditAttributesDialog(inst, self, parent).exec()
+        return True
+
     @contextlib.contextmanager
     def deferred_undo_push(self):
         """Coalesce item-setter undo requests into one step (re-entrant).
@@ -7775,6 +7786,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             hit = self._find_entity_at(event.scenePos())
             if isinstance(hit, BlockInstance):
                 self.blockEditRequested.emit(hit.block_id)
+                event.accept()
+                return
+        # ── Model Space: double-click a placed instance with attributes ->
+        #    Edit Attributes dialog (SB1a A3). The Block Editor keeps D10.
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.scene_role != "block_editor"
+                and self.mode in (None, "select")):
+            hit = self._find_entity_at(event.scenePos())
+            if isinstance(hit, BlockInstance) and self.open_edit_attributes(hit):
                 event.accept()
                 return
         # ── Pipe: double-click finishes the polyline chain ─────────────

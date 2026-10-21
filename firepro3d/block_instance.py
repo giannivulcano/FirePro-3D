@@ -1365,7 +1365,17 @@ class BlockInstance(QGraphicsObject):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
+        d = self.definition()
+        has_attrs = bool(d is not None and d.effective_attributes())
+        props["Edit attributes"] = {
+            "type": "button", "value": "Edit attributes\u2026",
+            "callback": self._open_edit_attributes, "enabled": has_attrs}
         return props
+
+    def _open_edit_attributes(self) -> None:
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "open_edit_attributes"):
+            sc.open_edit_attributes(self)
 
     def _panel_state(self) -> tuple:
         """The values the Level / Level Offset / Rotation / Mirrored / Scale
