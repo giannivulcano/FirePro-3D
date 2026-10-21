@@ -1,6 +1,6 @@
 """U5 Leg B Task 5 — HALO hover + scene-drawn band + HALO-committed press.
 
-Drives the real ElevationView interaction envelope with posted QMouseEvents on
+Drives the real SectionView interaction envelope with posted QMouseEvents on
 a SHOWN view (mirrors tests/test_rubber_band_select.py's posted-drag helper).
 Asserts observable ground truth (scene.halo_item(), scene.selectedItems()).
 Never QTest.mouseMove.
@@ -10,7 +10,7 @@ from PyQt6.QtGui import QColor, QMouseEvent, QTransform
 from PyQt6.QtWidgets import QApplication, QGraphicsItem
 
 from firepro3d.section_scene import ElevGridlineItem, _ElevProxyRect
-from firepro3d.elevation_view import ElevationView
+from firepro3d.elevation_view import SectionView
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ def _proxy(x, y, w, h):
 
 def _shown_view(section_scene_for):
     _ms, elev = section_scene_for("north")
-    view = ElevationView(elev)
+    view = SectionView(elev)
     view.resize(600, 600)
     view.show()
     QApplication.processEvents()

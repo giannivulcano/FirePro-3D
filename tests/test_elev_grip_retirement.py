@@ -4,7 +4,7 @@ Locks the invariants Leg B must preserve:
 
 * The legacy ``ElevationScene._find_grip_hit`` grip-hit method is RETIRED (the
   shared ``SelectionManipulator`` is the sole grip owner).
-* ``ElevationView`` carries no ``paintEvent`` grip-loop override (resolves to
+* ``SectionView`` carries no ``paintEvent`` grip-loop override (resolves to
   ``QGraphicsView``'s).
 * A gridline endpoint grip driven through the MANIPULATOR lifecycle commits the
   SAME ``_gridline_z_overrides`` entry as the legacy ``apply_grip`` + commit path
@@ -61,9 +61,9 @@ def test_find_grip_hit_retired(qapp):
 
 
 def test_elevation_view_has_no_paintevent_grip_loop(qapp):
-    from firepro3d.elevation_view import ElevationView
+    from firepro3d.elevation_view import SectionView
     # paintEvent override removed -> resolves to QGraphicsView's.
-    assert "paintEvent" not in ElevationView.__dict__
+    assert "paintEvent" not in SectionView.__dict__
 
 
 # ── Grip byte-parity (manipulator-driven) ────────────────────────────────────

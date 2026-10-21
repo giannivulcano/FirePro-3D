@@ -410,16 +410,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.project_browser.deleteDetailView.connect(self._delete_detail_view)
         self.level_widget.levelsChanged.connect(self.project_browser.refresh_levels)
 
-        # Elevation Manager — QGraphicsScene-based elevation views
-        # (connect after elevation_manager is created below)
+        # Section Manager — cardinal elevations + placed sections (markers and
+        # QGraphicsScene-based views)
         from firepro3d.section_manager import SectionManager
-        self.elevation_manager = SectionManager(
+        self.section_manager = SectionManager(
             self.scene, self.level_mgr, self.scene.scale_manager,
             self.central_tabs,
         )
         # Expose on the scene so the Display Manager can trigger rebuilds
-        self.scene._elevation_manager = self.elevation_manager
-        self.level_widget.levelsChanged.connect(self.elevation_manager.rebuild_all)
+        self.scene._section_manager = self.section_manager
+        self.level_widget.levelsChanged.connect(self.section_manager.rebuild_all)
+        self.section_manager.sectionsChanged.connect(self._refresh_section_browser)
+        self.project_browser.activateSectionView.connect(self._activate_section_view)
+        self.project_browser.deleteSectionView.connect(self._delete_section_view)
 
         # Detail View Manager
         from firepro3d.detail_view import DetailViewManager
@@ -463,7 +466,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.schematic_scenes = SchematicSceneManager(self.scene)
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
-            self.detail_manager, self.elevation_manager,
+            self.detail_manager, self.section_manager,
             level_manager=self.level_mgr,
             schematic_scenes=self.schematic_scenes,
         )
@@ -741,7 +744,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.level_widget.populate()
         pass  # level indicator removed
         self._place_default_gridlines()
-        self._create_elevation_markers()
+        self.section_manager.seed_cardinals()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
@@ -1090,7 +1093,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         elif view_type == "detail":
             self.detail_manager.open_detail(view_name)
         elif view_type == "elevation":
-            self.elevation_manager.open_elevation(view_name.lower())
+            self.section_manager.open_section(view_name.lower())
+        elif view_type == "section":
+            self._activate_section_view(view_name)
         elif view_type == "schematic":
             # D-S10: non-navigable into the model — open its editor tab.
             self._open_schematic(view_name)
@@ -1208,10 +1213,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             widget.deleteLater()
             return
         self.central_tabs.removeTab(index)
-        # Clean up elevation manager tracking
-        if tab_text.startswith("Elevation: "):
-            direction = tab_text[len("Elevation: "):].lower()
-            self.elevation_manager._views.pop(direction, None)
+        # Clean up section manager tracking (the scene stays for sheets)
+        if tab_text.startswith(("Elevation: ", "Section: ")):
+            self.section_manager.forget_view(widget)
         # The paper tab is a persistent singleton (self.paper_space_widget,
         # re-added on demand by _activate_paper_sheet) — like the keep-alive
         # "3D Model" tab. removeTab hides it (it stays parented to the tab
@@ -1270,7 +1274,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         try:
             for i in range(self.central_tabs.count() - 1, -1, -1):
                 title = self.central_tabs.tabText(i)
-                if title.startswith(("Plan: ", "Elevation: ", "Detail: ")):
+                if title.startswith(("Plan: ", "Elevation: ", "Section: ", "Detail: ")):
                     w = self.central_tabs.widget(i)
                     self.central_tabs.removeTab(i)
                     if w is not None and w is not self.paper_space_widget:
@@ -1283,8 +1287,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 self.block_editor_manager.close(ed)
         finally:
             self.central_tabs.blockSignals(False)
-        # Elevation view tracking referenced the now-removed tabs.
-        self.elevation_manager._views.clear()
+        # Section view tracking referenced the now-removed tabs.
+        self.section_manager.close_all()
 
     def _apply_plan_level(self, level_name: str):
         """Set the active level and refresh visibility for a plan view."""
@@ -1424,29 +1428,38 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _activate_elevation(self, direction: str):
         """Open or switch to an elevation view tab from the project browser."""
-        already_open = direction.lower() in self.elevation_manager.open_directions
-        view = self.elevation_manager.open_elevation(direction)
-        if not already_open:
+        already_open = direction.lower() in self.section_manager.open_names
+        view = self.section_manager.open_section(direction)
+        if view is not None and not already_open:
             # Wire signals only once on first open
             scene = view.scene()
             if scene is not None:
                 scene.entitySelected.connect(self.prop_manager.show_properties)
             view.cursorMoved.connect(self.footer.set_coord)
 
-    def _create_elevation_markers(self):
-        """Create N/S/E/W elevation markers in the 2D plan view."""
-        from firepro3d.section_marker import ViewMarkerManager
-        from firepro3d.display_manager import apply_category_defaults
-        self._view_marker_mgr = ViewMarkerManager(self.scene)
-        self._view_marker_mgr.create_elevation_markers()
-        # Apply user's saved display defaults to the new markers
-        for marker in self._view_marker_mgr._markers.values():
-            apply_category_defaults(marker)
+    def _activate_section_view(self, name: str):
+        """Open or switch to a placed section's tab (project browser / marker)."""
+        already_open = name in self.section_manager.open_names
+        view = self.section_manager.open_section(name)
+        if view is not None and not already_open:
+            scene = view.scene()
+            if scene is not None:
+                scene.entitySelected.connect(self.prop_manager.show_properties)
+            view.cursorMoved.connect(self.footer.set_coord)
+
+    def _delete_section_view(self, name: str):
+        self.scene.push_undo_state()
+        self.section_manager.delete_section(name)
+
+    def _refresh_section_browser(self):
+        self.project_browser.refresh_sections(self.section_manager.section_names)
 
     def _on_open_view_requested(self, view_type: str, name: str):
         """Handle double-click on a view marker — open the corresponding view."""
         if view_type == "elevation":
             self._activate_elevation(name)
+        elif view_type == "section":
+            self._activate_section_view(name)
         elif view_type == "detail":
             self._activate_detail_view(name)
 
@@ -1705,6 +1718,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             checkable=True)
         _detail_btn.setToolTip("Draw a detail view crop boundary")
         self._mode_buttons["detail"] = _detail_btn
+        _section_btn = g_3d.add_small_button(
+            "Section", _I("detail_icon.svg"),
+            lambda: self.scene.set_mode("section"),
+            checkable=True)
+        _section_btn.setToolTip("Place a section: click the start and end of the cut line")
+        self._mode_buttons["section"] = _section_btn
 
         # --- Datums ---
         # NB: bind to a distinct local (not `_btn`) — rebinding `_btn` here would
@@ -2385,9 +2404,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         mgr = getattr(self, "block_editor_manager", None)
         if mgr is not None:
             scenes.extend(w.editor_scene for w in mgr.open_editors())
-        em = getattr(self, "elevation_manager", None)
-        if em is not None:
-            scenes.extend(sc for sc, _v in em._views.values())
+        sm = getattr(self, "section_manager", None)
+        if sm is not None:
+            scenes.extend(sm.open_scenes)
         ss = getattr(self, "schematic_scenes", None)     # SchematicSceneManager
         if ss is not None:
             scenes.extend(ss._scenes.values())          # {block_id: scene}
@@ -2401,7 +2420,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.display_manager import refresh_token_latched
         # Elevation views project DM colours at rebuild (no sprinkler_system,
         # so refresh_token_latched skips them): re-project before the walk.
-        em = getattr(self, "elevation_manager", None)
+        em = getattr(self, "section_manager", None)
         if em is not None:
             try:
                 em.rebuild_all()
@@ -2604,6 +2623,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "place_import": "Place Import", "place_block": "Place Block",
         "draw_gridline": "Gridline", "gridline_array": "Array Gridlines",
         "gridline_offset": "Offset Gridline", "detail": "Detail View",
+        "section": "Section",
         # Architecture
         "wall": "Wall", "floor": "Floor", "roof": "Roof", "roof_rect": "Roof",
         "room": "Room", "room_manual": "Room", "opening": "Opening",
@@ -3639,6 +3659,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.room import Room
         from firepro3d.wall_opening import WallOpening
         from firepro3d.detail_view import DetailMarker
+        from firepro3d.section_marker import SectionMarker
         from firepro3d.node import Node
         from firepro3d.water_supply import WaterSupply
         from firepro3d.design_area import DesignArea
@@ -3671,6 +3692,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return getattr(item, "openings_type", "opening").capitalize() or "Opening"
         if isinstance(item, DetailMarker):
             return "Detail"
+        if isinstance(item, SectionMarker):
+            return "Section"
         if isinstance(item, Sprinkler):
             return "Sprinkler"
         # Node before Pipe is moot (no shared base); both fold into "pipe" but
@@ -3863,7 +3886,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda: self.level_mgr.apply_to_scene(self.scene))
         dlg.levelsChanged.connect(self.update_property_manager)
         dlg.levelsChanged.connect(self.project_browser.refresh_levels)
-        dlg.levelsChanged.connect(self.elevation_manager.rebuild_all)
+        dlg.levelsChanged.connect(self.section_manager.rebuild_all)
         dlg.levelsChanged.connect(self._refresh_empty_canvas_level)
         dlg.duplicateLevel.connect(self.scene.duplicate_level_entities)
         dlg.exec()
@@ -4037,8 +4060,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Hatch patterns folder as part of the undo baseline (no undo step).
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
-        # Rebuild elevation markers (cleared during scene load)
-        self._create_elevation_markers()
+        # Section markers: scene_io (load_from_file) already restored/seeded them.
+        self._refresh_section_browser()
         # Refresh detail views in project browser
         self._refresh_detail_browser()
         # Drop the previous project's view tabs before opening this project's
@@ -4060,7 +4083,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.schematic_scenes.dispose_all()     # previous project's renders
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
-            self.detail_manager, self.elevation_manager,
+            self.detail_manager, self.section_manager,
             level_manager=self.level_mgr,
             schematic_scenes=self.schematic_scenes,
         )
@@ -4271,7 +4294,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # Place a default 3 × 3 grid (3 vertical + 3 horizontal)
         self._place_default_gridlines()
-        self._create_elevation_markers()
+        self.section_manager.seed_cardinals()
+        self._refresh_section_browser()
 
         # Apply saved display defaults to the new project
         from firepro3d.display_manager import apply_default_display_settings
@@ -4390,8 +4414,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if active:
             self._apply_plan_level(active)
         # Elevation views
-        if hasattr(self, "elevation_manager"):
-            self.elevation_manager.rebuild_all()
+        if hasattr(self, "section_manager"):
+            self.section_manager.rebuild_all()
         # The 3D view is NOT refreshed here: it listens to sceneModified itself
         # (View3D.request_rebuild), which is this debounce's only trigger —
         # a second request would rebuild a visible view twice per edit (I6).

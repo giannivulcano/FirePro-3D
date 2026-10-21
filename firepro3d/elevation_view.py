@@ -252,6 +252,3 @@ class SectionView(QGraphicsView):
             h_str = f"{h:.0f} mm"
             z_str = f"{z:.0f} mm"
         self.cursorMoved.emit(f"H: {h_str}  Z: {z_str}")
-
-
-ElevationView = SectionView   # retired alias -- removed in Task 11

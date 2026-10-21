@@ -79,7 +79,7 @@ class _ProjectTree(QTreeWidget):
         for item in items:
             role_type = item.data(0, _ROLE_TYPE)
             # A schematic leaf's _ROLE_NAME is the definition id = view_name.
-            if role_type in ("plan", "elevation", "detail", "schematic"):
+            if role_type in ("plan", "elevation", "detail", "section", "schematic"):
                 view_name = item.data(0, _ROLE_NAME)
                 # For plan views, the ViewResolver expects "Plan: Level 1" format
                 if role_type == "plan":
@@ -155,6 +155,8 @@ class ProjectBrowser(QWidget):
     activatePlanView = pyqtSignal(str)     # level name (Level 1, Level 2, etc.)
     activateDetailView = pyqtSignal(str)   # detail view name
     deleteDetailView = pyqtSignal(str)     # detail view name to delete
+    activateSectionView = pyqtSignal(str)  # placed section name
+    deleteSectionView = pyqtSignal(str)    # placed section name to delete
     createPaperSheet = pyqtSignal()        # instant create — MainWindow owns it
     deletePaperSheet = pyqtSignal(str)     # sheet number; MainWindow confirms
     sheetSelected = pyqtSignal(str)        # single-click → sheet props panel
@@ -204,6 +206,7 @@ class ProjectBrowser(QWidget):
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self._placed_views: set[tuple[str, str]] = set()
+        self._sections_root = None
         self._build_tree()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -251,7 +254,8 @@ class ProjectBrowser(QWidget):
         self._placed_views = placed
         for role, root in (("plan", self._plans_root),
                            ("elevation", self._elev_root),
-                           ("detail", self._details_root)):
+                           ("detail", self._details_root),
+                           ("section", self._sections_root)):
             if root is None:
                 continue
             for i in range(root.childCount()):
@@ -310,6 +314,23 @@ class ProjectBrowser(QWidget):
                 italic_font.setItalic(True)
                 item.setFont(0, italic_font)
         self._details_root.setExpanded(True)
+
+    def refresh_sections(self, names: list[str]):
+        """Rebuild the Sections sub-tree (placed sections; cardinals stay under Elevations)."""
+        if self._sections_root is None:
+            return
+        self._sections_root.takeChildren()
+        for name in names:
+            item = QTreeWidgetItem(self._sections_root, [name])
+            item.setData(0, _ROLE_TYPE, "section")
+            item.setData(0, _ROLE_NAME, name)
+            item.setToolTip(0, f"Section view -- {name}")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            if ("section", name) in self._placed_views:
+                italic_font = QFont()
+                italic_font.setItalic(True)
+                item.setFont(0, italic_font)
+        self._sections_root.setExpanded(True)
 
     def refresh_schematics(self, rows: "list[tuple[str, str, str]]"):
         """Rebuild the Schematics sub-tree (pure push from MainWindow).
@@ -409,6 +430,13 @@ class ProjectBrowser(QWidget):
         details_root.setFont(0, f_bold)
         self._details_root = details_root
 
+        # ── Sections (placed sections; populated dynamically) ─────────────
+        sections_root = QTreeWidgetItem(ms_root, ["Sections"])
+        sections_root.setData(0, _ROLE_TYPE, "ms_stub")
+        sections_root.setData(0, _ROLE_NAME, "Sections")
+        sections_root.setFont(0, f_bold)
+        self._sections_root = sections_root
+
         # ── Schematics (schematics.md D-S4/D-S16; MainWindow pushes rows) ───
         schem_root = QTreeWidgetItem(ms_root, ["Schematics"])
         schem_root.setData(0, _ROLE_TYPE, "schematic_root")
@@ -445,6 +473,9 @@ class ProjectBrowser(QWidget):
         elif role == "detail":
             name = item.data(0, _ROLE_NAME)
             self.activateDetailView.emit(name)
+        elif role == "section":
+            name = item.data(0, _ROLE_NAME)
+            self.activateSectionView.emit(name)
         elif role == "view3d":
             self.activate3DView.emit()
         elif role == "schematic":
@@ -502,6 +533,12 @@ class ProjectBrowser(QWidget):
             act_open.triggered.connect(lambda: self.activateDetailView.emit(name))
             act_del = menu.addAction("Delete")
             act_del.triggered.connect(lambda: self.deleteDetailView.emit(name))
+        elif role == "section":
+            name = item.data(0, _ROLE_NAME)
+            act_open = menu.addAction("Open")
+            act_open.triggered.connect(lambda: self.activateSectionView.emit(name))
+            act_del = menu.addAction("Delete")
+            act_del.triggered.connect(lambda: self.deleteSectionView.emit(name))
         elif role == "view3d":
             act_open = menu.addAction("Open")
             act_open.triggered.connect(self.activate3DView.emit)

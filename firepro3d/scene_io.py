@@ -571,6 +571,12 @@ class SceneIOMixin:
         # ET1 spec C: clear() below deletes the registered items; a Python
         # ref outliving the reset must not leave a dead wrapper in the set.
         self._screen_end_items.clear()
+        # Section markers are scene items clear() is about to delete: the
+        # manager drops them (and its views) first so it never holds dead
+        # wrappers; the load / new path re-seeds the cardinals afterwards.
+        _sec_mgr = getattr(self, "_section_manager", None)
+        if _sec_mgr is not None:
+            _sec_mgr.clear()
         self.clear()
         # self.clear() deleted the shared close-cue ring too (DD8); drop the
         # dead wrapper so show_close_ring lazily recreates it.

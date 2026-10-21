@@ -6,43 +6,17 @@ from PyQt6.QtCore import QPointF
 from firepro3d.section_marker import SectionMarker
 
 
-class _UndoMgr:
-    """Stub implementing the snapshot contract the real manager will carry."""
-    def __init__(self, ms):
-        self.ms = ms
-        self.markers = {}
-        self.closed = []
-    def place_section(self, a, b):
-        m = SectionMarker(f"Section {len(self.markers) + 1}", a, b)
-        self.markers[m.name] = m; m._manager = self; self.ms.addItem(m)
-        return m
-    def open_section(self, name): pass
-    def on_marker_geometry_changed(self, marker): pass
-    def delete_section(self, name):
-        m = self.markers.pop(name); self.ms.removeItem(m); self.closed.append(name)
-    def to_list(self):
-        return [m.to_dict() for m in self.markers.values()]
-    def restore_from_list(self, data):
-        want = {d["name"]: d for d in data}
-        for name in list(self.markers):
-            if name not in want:
-                self.delete_section(name)
-        for name, d in want.items():
-            if name in self.markers:
-                m = self.markers[name]
-                m.set_geometry(QPointF(*d["cut_a"]), QPointF(*d["cut_b"]), d["depth"], user=False)
-                if m.look_sign != d["look_sign"]:
-                    m.flip()
-            else:
-                m = SectionMarker.from_dict(d); m._manager = self
-                self.markers[name] = m; self.ms.addItem(m)
-
-
 @pytest.fixture
 def ms(qapp):
     from firepro3d.model_space import Model_Space
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.scale_manager import ScaleManager
+    from firepro3d.section_manager import SectionManager
     s = Model_Space()
-    s._section_manager = _UndoMgr(s)
+    lm = LevelManager(); s._level_manager = lm
+    sm = ScaleManager(); s.scale_manager = sm
+    s._section_manager = SectionManager(s, lm, sm, QTabWidget())     # the real manager (G4)
     s.push_undo_state()                      # baseline
     return s
 

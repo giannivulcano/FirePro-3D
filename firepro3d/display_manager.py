@@ -270,7 +270,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Elevation Marker", "label": "Section Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "2D Geometry",      "color": TOKEN_AUTO, "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
     {"key": "Reference Geometry", "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
@@ -304,6 +304,12 @@ _MODEL_PX_TIP = (
 
 
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
+
+
+def category_label(key: str) -> str:
+    """Display name of a category row; the settings key when no label is set (D8)."""
+    cat = _CATEGORY_MAP.get(key)
+    return cat.get("label", key) if cat else key
 
 
 # ---------------------------------------------------------------------------
@@ -647,8 +653,8 @@ def _apply_node(node, color, scale, opacity, visible):
 
 
 def _is_elevation_marker(item) -> bool:
-    """Check if item is a ViewMarkerArrow without importing at module level."""
-    return type(item).__name__ == "ViewMarkerArrow"
+    """Check if item is a SectionMarker without importing at module level."""
+    return type(item).__name__ == "SectionMarker"
 
 
 def _is_detail_marker(item) -> bool:
@@ -663,19 +669,16 @@ def _is_floor_slab(item) -> bool:
 
 def _apply_elevation_marker(marker, color, scale, opacity, visible, fill_color,
                             font_size=None):
-    """Apply display settings to a ViewMarkerArrow."""
+    """Apply display settings to a SectionMarker.
+
+    The marker is a bare QGraphicsItem whose geometry is in scene units, so
+    colour / fill land on its paint fields and the scale is only recorded
+    (``setScale`` would move the cut line about the item origin).
+    """
     if color:
         marker._marker_color = resolve_colour(color)
-        pen = marker.pen()
-        pen.setColor(resolve_colour(color))
-        marker.setPen(pen)
     if fill_color is not None:
         marker._fill_color = _fill_qcolor(fill_color)
-        marker.setBrush(QBrush(_fill_qcolor(fill_color)))
-    if scale and scale != 1.0:
-        marker.setScale(scale)
-    elif scale == 1.0:
-        marker.setScale(1.0)
     marker._display_scale = scale if scale else 1.0
     if font_size is not None:
         marker._display_font_size = font_size
@@ -1240,7 +1243,7 @@ class DisplayManager(QDialog):
                 for prop, val in snap.items():
                     self._settings.setValue(f"display/{key}/{prop}", val)
             self._settings.sync()
-            elev_mgr = getattr(self._scene, "_elevation_manager", None)
+            elev_mgr = getattr(self._scene, "_section_manager", None)
             if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
                 elev_mgr.rebuild_all()
 
@@ -1573,7 +1576,7 @@ class DisplayManager(QDialog):
                 count = len(lm.levels) if lm else 0
             else:
                 count = len(items)
-            cat_item.setText(_COL_NAME, f"{key}  ({count})")
+            cat_item.setText(_COL_NAME, f"{category_label(key)}  ({count})")
             cat_item.setFont(_COL_NAME, bold)
             cat_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
@@ -1866,7 +1869,7 @@ class DisplayManager(QDialog):
         cur_hex = widgets[btn_key].property("_color")
         if cur_hex is None:
             cur_hex = default
-        v = colour_picker.pick_colour(cur_hex, self, f"{category_key} · {prop}")
+        v = colour_picker.pick_colour(cur_hex, self, f"{category_label(category_key)} · {prop}")
         if v is not None:
             self._update_swatch(widgets[btn_key], prop, v)
             self._on_category_changed(category_key, prop, v)
@@ -2317,7 +2320,7 @@ class DisplayManager(QDialog):
         # Rebuild open elevation views so changes are visible immediately
         if elev_dirty:
             self._settings.sync()
-            elev_mgr = getattr(self._scene, "_elevation_manager", None)
+            elev_mgr = getattr(self._scene, "_section_manager", None)
             if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
                 elev_mgr.rebuild_all()
 
@@ -2440,7 +2443,7 @@ class DisplayManager(QDialog):
             for key in grp_keys:
                 cat = cats.get(key, {})
                 tree_item = QTreeWidgetItem(grp_item)
-                tree_item.setText(self._PS_COL_NAME, key)
+                tree_item.setText(self._PS_COL_NAME, category_label(key))
                 tree_item.setFont(self._PS_COL_NAME, bold)
                 tree_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
@@ -3115,7 +3118,7 @@ class DisplayManager(QDialog):
 
         # Rebuild open elevation views so Level Datum / Grid Line / Elevation
         # Marker changes take effect immediately.
-        elev_mgr = getattr(self._scene, "_elevation_manager", None)
+        elev_mgr = getattr(self._scene, "_section_manager", None)
         if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
             elev_mgr.rebuild_all()
 

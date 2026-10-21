@@ -813,7 +813,7 @@ def _category_for_item(item) -> str | None:
         return "Roof"
     if cls_name == "FloorSlab":
         return "Floor"
-    if cls_name == "ViewMarkerArrow":
+    if cls_name == "SectionMarker":
         return "Elevation Marker"
     if cls_name == "DetailMarker":
         return "Detail Marker"
@@ -1084,19 +1084,22 @@ def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
         from .colour_tokens import resolve_colour
         c = resolve_colour(model_token, item=marker)
         setattr(marker, color_attr, c)
-        pen = marker.pen()
-        pen.setColor(c)
-        marker.setPen(pen)
+        if hasattr(marker, "pen"):             # SectionMarker paints from fields, no pen
+            pen = marker.pen()
+            pen.setColor(c)
+            marker.setPen(pen)
     if color_mode != PaperColorMode.FULL_COLOR:
         _pc = _paper_qcolor(cat["color"], marker)
         setattr(marker, color_attr, _pc)
-        pen = marker.pen()
-        pen.setColor(_pc)
-        marker.setPen(pen)
+        if hasattr(marker, "pen"):
+            pen = marker.pen()
+            pen.setColor(_pc)
+            marker.setPen(pen)
         if cat["fill"] is not None and hasattr(marker, "_fill_color"):
             _pf = _paper_qcolor(cat["fill"], marker)
             marker._fill_color = _pf
-            marker.setBrush(QBrush(_pf))
+            if hasattr(marker, "setBrush"):
+                marker.setBrush(QBrush(_pf))
     marker.setOpacity(cat["opacity"] / 100.0)
     marker.update()
 
@@ -1128,8 +1131,8 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
         "color_attr": color_attr,
         "marker_color": c.name() if isinstance(c, QColor) else c,
         "fill_color": fill.name() if isinstance(fill, QColor) else fill,
-        "pen": marker.pen(),
-        "brush": marker.brush(),
+        "pen": marker.pen() if hasattr(marker, "pen") else None,
+        "brush": marker.brush() if hasattr(marker, "brush") else None,
     }
 
 
