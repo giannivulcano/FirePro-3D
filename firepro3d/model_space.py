@@ -3092,6 +3092,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             serialize_design_area(da, node_id, self.active_design_area)
             for da in self.design_areas
         ]
+        sec_mgr = getattr(self, "_section_manager", None)
+        extra = {}
+        if sec_mgr is not None and hasattr(sec_mgr, "to_list"):
+            extra["sections"] = sec_mgr.to_list()         # spec s8: markers join the snapshot
         return {
             "nodes":              nodes_data,
             "pipes":              pipes_data,
@@ -3123,6 +3127,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "block_capability": ([self.block_capability[0],
                                   dict(self.block_capability[1])]
                                  if self.block_capability else None),
+            **extra,
         }
 
     def _restore_network(self, state: dict):
@@ -3420,6 +3425,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             # ── Constraints (after every item is recreated) ───────────────
             self.constraint_ctl.restore(state.get("constraints", []))
+
+            # ── Section markers (spec s8): diff by name; open tabs untouched ──
+            sec_mgr = getattr(self, "_section_manager", None)
+            if sec_mgr is not None and "sections" in state and hasattr(sec_mgr, "restore_from_list"):
+                sec_mgr.restore_from_list(state["sections"])
 
             # ── Capability (Block Editor tile / repeat; D-A32, LT4) ───────
             cap = state.get("block_capability")
