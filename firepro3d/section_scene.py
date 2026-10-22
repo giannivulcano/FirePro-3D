@@ -307,10 +307,53 @@ class _ElevBubble(_SrcEllipse):
         br = self._label.boundingRect()
         self._label.setPos(-br.width() / 2, -br.height() / 2)
 
+    def enter_paper_pass(self, r: float, em: float, pen_w: float,
+                         color_src=None, fill_src=None) -> dict:
+        """Scene-unit paper geometry for one sheet-viewport render (AC3),
+        mirroring ``GridBubble.enter_paper_mode``: radius *r*, label em *em*,
+        a non-cosmetic *pen_w* border; *color_src* / *fill_src* replace the
+        stored colour strings (``None`` keeps them). Undone by
+        ``exit_paper_pass``."""
+        from .constants import TEXT_METRIC_REF_PX
+        lb = self._label
+        saved = {"rect": QRectF(self.rect()), "scale": self.scale(),
+                 "pen_src": self._pen_src, "brush_src": self._brush_src,
+                 "paper_w": self._paper_pen_width,
+                 "font": QFont(lb.font()), "label_scale": lb.scale(),
+                 "label_pos": QPointF(lb.pos()),
+                 "label_src": lb._src, "label_tint": lb._tint}
+        self.setRect(-r, -r, 2 * r, 2 * r)
+        self.setScale(1.0)
+        self._paper_pen_width = pen_w
+        if color_src is not None:
+            self._pen_src = color_src
+            lb._src, lb._tint = color_src, None       # plan: label = pen colour
+        if fill_src is not None:
+            self._brush_src = fill_src
+        f = QFont(lb.font())
+        f.setPixelSize(TEXT_METRIC_REF_PX)            # paper-space s9.4 technique
+        lb.setFont(f)
+        lb.setScale(em / TEXT_METRIC_REF_PX)
+        br, s = lb.boundingRect(), lb.scale()
+        lb.setPos(-br.width() * s / 2, -br.height() * s / 2)
+        return saved
+
+    def exit_paper_pass(self, saved: dict) -> None:
+        lb = self._label
+        self.setRect(saved["rect"])
+        self.setScale(saved["scale"])
+        self._pen_src, self._brush_src = saved["pen_src"], saved["brush_src"]
+        self._paper_pen_width = saved["paper_w"]
+        lb.setFont(saved["font"])
+        lb.setScale(saved["label_scale"])
+        lb.setPos(saved["label_pos"])
+        lb._src, lb._tint = saved["label_src"], saved["label_tint"]
+
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
         parent = self.parentItem()
-        if parent is not None and parent.isSelected():
+        if (parent is not None and parent.isSelected()
+                and not getattr(parent, "_paper_line_w_mm", 0.0)):
             r = self._radius
             base_color = self.resolved_pen_brush()[0].color()
             highlight = QPen(base_color.lighter(150), max(1, r * 0.08))
@@ -353,6 +396,9 @@ class ElevGridlineItem(QGraphicsLineItem):
 
         self._grid_color = color
         self._pen_w = pen_w
+        self._paper_line_w_mm = 0.0   # paper pass (AC3): ON-PAPER mm, dash normaliser
+        self._paper_line_w = 0.0      # paper pass: line width, scene units
+        self._paper_bubble_r = 0.0    # paper pass: bubble radius, scene units
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -376,7 +422,7 @@ class ElevGridlineItem(QGraphicsLineItem):
 
     def boundingRect(self):
         br = super().boundingRect()
-        m = self._bubble_r
+        m = max(self._bubble_r, self._paper_bubble_r)
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
@@ -405,8 +451,11 @@ class ElevGridlineItem(QGraphicsLineItem):
         length = abs(dy)
         if length > 1e-9:
             uy = dy / length
-            r1 = self._bubble_r * self.bubble1.scale()
-            r2 = self._bubble_r * self.bubble2.scale()
+            if self._paper_line_w_mm:
+                r1 = r2 = self._paper_bubble_r
+            else:
+                r1 = self._bubble_r * self.bubble1.scale()
+                r2 = self._bubble_r * self.bubble2.scale()
             draw_p1 = QPointF(p1.x(), p1.y() + uy * r1) if self.bubble1.isVisible() else p1
             draw_p2 = QPointF(p2.x(), p2.y() - uy * r2) if self.bubble2.isVisible() else p2
         else:
@@ -414,11 +463,16 @@ class ElevGridlineItem(QGraphicsLineItem):
 
         grid_color = (self._grid_color if self._grid_src is None
                       else resolve_colour(self._grid_src, item=self))
-        pen = QPen(grid_color, self._pen_w, Qt.PenStyle.DashDotLine)
+        if self._paper_line_w_mm:
+            from .gridline import _dash_pattern_mm
+            pen = QPen(grid_color, self._paper_line_w)
+            pen.setDashPattern(_dash_pattern_mm(self._paper_line_w_mm))
+        else:
+            pen = QPen(grid_color, self._pen_w, Qt.PenStyle.DashDotLine)
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
 
-        if self.isSelected():
+        if self.isSelected() and not self._paper_line_w_mm:
             sel_pen = QPen(grid_color.lighter(150),
                            self._pen_w * 2, Qt.PenStyle.DashDotLine)
             painter.setPen(sel_pen)
@@ -429,6 +483,37 @@ class ElevGridlineItem(QGraphicsLineItem):
             self.bubble1.update()
             self.bubble2.update()
         return super().itemChange(change, value)
+
+    def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
+                         color_src=None, fill_src=None, cap_mm=None) -> dict:
+        """Plot like the plan gridline for one sheet-viewport render (AC3,
+        parity with ``paper_display._apply_gridline``): the "Grid Line" row's
+        weight, the paper-mm dash-dot (``_dash_pattern_mm``) and true-scale
+        bubbles (``bubble_paper_geometry``); *color_src* / *fill_src* replace
+        the stored colour strings (B&W / Custom), ``None`` keeps them."""
+        from .gridline import bubble_paper_geometry
+        S = max(paper_scale, 1e-9)
+        r_mm, em_mm = bubble_paper_geometry(3.0 if cap_mm is None else cap_mm)
+        saved = {"grid_src": self._grid_src}
+        self.prepareGeometryChange()
+        self._paper_line_w_mm = line_w_mm
+        self._paper_line_w = line_w_mm / S
+        self._paper_bubble_r = r_mm / S
+        if color_src is not None:
+            self._grid_src = color_src
+        saved["bubbles"] = [b.enter_paper_pass(r_mm / S, em_mm / S, line_w_mm / S,
+                                               color_src, fill_src)
+                            for b in (self.bubble1, self.bubble2)]
+        self.update()
+        return saved
+
+    def exit_paper_pass(self, saved: dict) -> None:
+        self.prepareGeometryChange()
+        self._grid_src = saved["grid_src"]
+        self._paper_line_w_mm = self._paper_line_w = self._paper_bubble_r = 0.0
+        for b, s in zip((self.bubble1, self.bubble2), saved["bubbles"]):
+            b.exit_paper_pass(s)
+        self.update()
 
     # ── Grip handles ─────────────────────────────────────────────────────
 

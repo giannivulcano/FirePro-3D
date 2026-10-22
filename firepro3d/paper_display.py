@@ -822,6 +822,8 @@ def _category_for_item(item) -> str | None:
         return "Detail Marker"
     if cls_name == "LevelDatumItem":
         return "Level Datum"
+    if cls_name == "ElevGridlineItem":      # elevation / section gridline (AC3)
+        return "Grid Line"
     # Reference geometry (any flagged 2D shape, design RG12): its own
     # category, which no paper row overrides (keeps its canvas pen).
     if getattr(item, "reference", False):
@@ -1248,6 +1250,24 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                          / max(paper_scale, 1e-9))
                 item.update()
                 continue
+            if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
+                # Elevation gridline / level datum (AC3 / AC4): the plan
+                # gridline's whole paper row -- visibility, opacity, colour,
+                # weight, paper-mm dash, true-scale bubble.
+                entry = {"item": item, "cat_key": cat_key, "elev_paper": None,
+                         "opacity": item.opacity(), "visible": item.isVisible()}
+                saved.append(entry)
+                if not cat.get("visible", True):
+                    item.setVisible(False)
+                    continue
+                bw = color_mode != PaperColorMode.FULL_COLOR
+                entry["elev_paper"] = item.enter_paper_pass(
+                    resolve_line_weight_mm(cat["line_weight"]), paper_scale,
+                    color_src=cat["color"] if bw else None,
+                    fill_src=cat["fill"] if bw else None,
+                    cap_mm=cat.get("bubble_label_height_mm"))
+                item.setOpacity(cat["opacity"] / 100.0)
+                continue
 
             # --- Save current state ---
             entry: dict = {
@@ -1475,6 +1495,12 @@ def restore_model_display(saved: list[dict]):
         if entry.get("proxy"):
             item.__dict__.pop("_paper_pen_width", None)
             item.update()
+            continue
+        if "elev_paper" in entry:
+            item.setVisible(entry["visible"])
+            item.setOpacity(entry["opacity"])
+            if entry["elev_paper"] is not None:
+                item.exit_paper_pass(entry["elev_paper"])
             continue
 
         # Restore visibility and opacity (common to all)
