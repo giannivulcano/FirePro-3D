@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-09   # SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: f2a059d6   # SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
+last-verified: 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -88,6 +88,7 @@ text live in **Paper Space**. Model = the model; paper = the deliverable.
 - A **Model-placed Block instance is level-scoped**: it carries a level + a Z /
   elevation offset and is filtered by the active level / view-range exactly like
   any placed model entity (see `view-relationships.md §7.1`).
+- **Gridline-hosted instance (amendment, 2026-10-22):** a placed instance may instead be **gridline-scoped** — hosted on a reference gridline (its `host` record), not on a level; its elevation is an absolute z and it is shown only in section / elevation views parallel to that gridline (hidden in plan). Mechanics: `block-system.md` "Gridline-hosted instances".
 - ~~A **Paper-placed Block instance is sheet-scoped** (no level).~~ *Retired
   by `schematics.md` D-S2 (2026-10-07): a sheet holds viewports, the title
   block and sheet text only; the sheet-scoped unit is the viewport.*

@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-20  # HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: 66880197  # HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -68,6 +68,12 @@ primitives, containment C5), `gridlines`, `walls`,
 Each `block_definitions` entry carries an additive `"kind"` key (written for schematics
 only, omitted for plain blocks) on both serialization paths (project file and undo
 snapshot) — see `schematics.md` Input / Output.
+
+Two additive keys for gridline-hosted blocks (no `SAVE_VERSION` bump; record owned by `block-system.md`
+"Gridline-hosted instances"): each `gridlines` entry carries `"uid"` (a file without one gets a fresh uid on
+load), and a `blocks` entry carries `"host"` only when hosted. Both serialization paths round-trip them.
+On project load a `blocks` record whose host gridline does not resolve (or is malformed) is **dropped**, and
+the load status appends " -- dropped N hosted block(s) whose gridline is missing".
 
 **Atomic write:** the existing file is copied to `<name>.bak` first; on write
 failure the backup is restored; on success the backup is removed.

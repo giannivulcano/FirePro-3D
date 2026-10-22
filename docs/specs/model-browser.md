@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-09-18   # + Blocks category (placed BlockInstances) added — C3 made blocks first-class level-scoped model entities
-verified-commit: 5cd5941
+last-verified: 2026-10-22   # gridline-hosted blocks Account: s3.3 "(on B)" label, s3.4 / s3.5 hosted rows focus a section, s4.3 hosted Delete; prior 2026-09-18 + Blocks category (placed BlockInstances) added — C3 made blocks first-class level-scoped model entities
+verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior 5cd5941
 applies-to:
   - firepro3d/model_browser.py
 source-tasks: "TODO.md: model browser right-click / Delete-key entity deletion (orphan-gate spec forged on first touch, 2026-08-27)"
@@ -33,14 +33,15 @@ A CAD scene at architectural density is hard to navigate by clicking geometry al
 - The `_syncing` guard brackets every programmatic selection/rebuild so `itemSelectionChanged` / `itemChanged` handlers don't recurse into the scene and back.
 
 ### 3.3 Categories listed
-Walls, Floors, Roofs, Rooms, **Blocks** (placed `BlockInstance`s — labelled by definition name, tooltip = level; C3), Doors, Windows, Pipes, Nodes, Gridlines, Design Areas, Water Supply, and Underlays (file nodes + DXF layer children / PDF page child). Category roots show live counts and are bold; the optional categories (Blocks, Gridlines, Design Areas, Underlays) appear only when non-empty.
+Walls, Floors, Roofs, Rooms, **Blocks** (placed `BlockInstance`s — labelled by definition name, tooltip = level; C3; a gridline-hosted block is labelled `<name> (on <gridline label>)` with tooltip "Hosted on <label>" — record owned by `block-system.md`), Doors, Windows, Pipes, Nodes, Gridlines, Design Areas, Water Supply, and Underlays (file nodes + DXF layer children / PDF page child). Category roots show live counts and are bold; the optional categories (Blocks, Gridlines, Design Areas, Underlays) appear only when non-empty.
 
 ### 3.4 Selection sync (two-way)
 - **Tree → scene:** `_on_selection_changed` clears the scene selection and `setSelected(True)` on each resolved entity, then emits `entitySelected` (single entity or list) so the property panel updates. Underlay **file** nodes route to `_on_underlay_selected` (pan + select-if-unlocked) instead.
+- **Hosted blocks:** a gridline-hosted block is plan-hidden and cannot be selected in plan, so a selection that includes hosted rows selects only the plain rows; a hosted-only selection clears the plan selection and calls `SectionManager.focus_hosted(hosted[0])` (which view opens and how the copy is selected: `section-view-subsystem.md` s16.6). It emits no `entitySelected` itself.
 - **Scene → tree:** `sync_from_scene()` walks the tree and selects rows whose `_ROLE_ENTITY` matches the scene's current `selectedItems()`. Wrapped in `_syncing`; swallows `RuntimeError` (scene C++ object torn down during shutdown).
 
 ### 3.5 Double-click
-`_on_item_double_clicked` selects the entity and `fitInView`s the first view on its bounding rect (+50 mm margin).
+`_on_item_double_clicked` selects the entity and `fitInView`s the first view on its bounding rect (+50 mm margin). A hosted-block row instead calls `SectionManager.focus_hosted` (no plan select / zoom).
 
 ## 4. Design Decisions
 
@@ -60,6 +61,7 @@ File nodes carry a tri-state checkbox (Checked / PartiallyChecked when some DXF 
 - **Trigger surfaces:** a **Delete** action appended to the entity context menu, and the **Delete key** while the tree has focus.
 - **Scope:** only **entity** rows (rows whose `_ROLE_ENTITY` resolves to a live entity). Underlay file/layer rows are **excluded** — underlay removal is a separate, non-undoable path owned by the underlay context menu; deleting an underlay from here is out of scope.
 - **Mechanism (single home):** the browser does **not** re-implement deletion. It selects the resolved entities in the scene (clear + `setSelected(True)`), then delegates to the scene's canonical `delete_selected_items()` (`model_space.py`) — the exact path the model-view Delete key uses. That method owns the entity-graph bookkeeping (pipes/nodes/sprinklers, water supply, design areas) **and** the single undo push (`push_undo_state()`).
+- **Hosted rows:** a plan-hidden hosted block cannot be `setSelected`, so when any resolved row is hosted the browser selects the plain rows and calls `delete_items(hosted + selectedItems())` by explicit list instead (still one undo push).
 - **Undo:** inherited from `delete_selected_items()` — one undo step restores the whole deletion. The browser adds no undo command of its own (no double-push).
 - **Refresh:** `delete_selected_items()` emits `sceneModified` → debounced `refresh()`; the browser does not need an explicit refresh call, but may call one for immediacy.
 - **Confirmation:** none — deletion is undoable, matching the model-view Delete-key behavior (no modal on the canvas either).

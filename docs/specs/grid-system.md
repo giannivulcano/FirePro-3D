@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-10-22  # paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -135,11 +135,12 @@ A `_LockIndicator` padlock child renders beside the origin bubble when the gridl
     "bubble2_vis": true,
     "label": "1",
     "locked": false,
+    "uid": "<32-hex>",
     "display_overrides": {}
 }
 ```
 
-`from_dict` reads this parametric format and **migrates legacy formats** — see §9.2. Both serialization paths (`scene_io.py` file I/O and `model_space._capture_network` / `_restore_network` undo) delegate to these class methods; there is one serializer, not two hand-written copies.
+`uid` is the stable gridline identity (s18); a file without one gets a fresh uid on load. `from_dict` reads this parametric format and **migrates legacy formats** — see §9.2. Both serialization paths (`scene_io.py` file I/O and `model_space._capture_network` / `_restore_network` undo) delegate to these class methods; there is one serializer, not two hand-written copies.
 
 ## 5. Movement & Interaction
 
@@ -157,6 +158,7 @@ Triggered by dragging an endpoint grip (manipulator-owned `GripHandle` since U3,
 
 - Index 0 (origin end) and index 1 (far end): the cursor is projected onto the line direction; the perpendicular component is discarded. The grabbed endpoint moves along the axis, the other stays put, and `_length` (and `_origin`, for the origin grip) update accordingly.
 - Length floors at 1.0 mm.
+- Index 0 moves `_origin`, so it compensates gridline-hosted blocks before rebuilding (s18).
 - Re-angling is **not** a grip gesture — angle lives in the Properties panel / placement.
 - Lock-aware: no-op if `_locked`.
 - Undo: single state push on mouse release. Multi-select applies the same grip delta to all selected gridlines.
@@ -599,7 +601,7 @@ Before building copies, `sync_grid_counters` runs on the existing gridlines so a
 
 ### 17.6 Serialization
 
-Copies are ordinary `GridlineItem` instances. They serialize/round-trip via `GridlineItem.to_dict`/`from_dict` on both paths (`scene_io` + `_capture_network`). No `.fpd` schema change.
+Copies are ordinary `GridlineItem` instances. They serialize/round-trip via `GridlineItem.to_dict`/`from_dict` on both paths (`scene_io` + `_capture_network`). No `.fpd` schema change beyond the `uid` key (s18); a copy / array / offset gridline is constructed (or pasted with a regenerated uid), so it gets a new uid and hosts no blocks.
 
 ### 17.7 Placement Template
 
@@ -608,3 +610,28 @@ Entering `draw_gridline` mode emits `requestPropertyUpdate(_get_gridline_templat
 ### 17.8 Alignment Snapping (Inference)
 
 During gridline placement (`draw_gridline`, both points) and endpoint grip-drag, the active point participates in the inference engine's H/V alignment guides. Reference features are supplied by `GridlineItem.alignment_reference_points()` (4 features: both endpoints + both bubble centres). Guide rendering, snap priority, and toggle details are governed by `docs/specs/align-placement.md` (Rule A — see there for the full contract; this section only notes gridline participation).
+
+## 18. Gridline-hosted blocks (2026-10-22)
+
+A gridline can host `BlockInstance`s that section / elevation views parallel to it show. The host record,
+derived pose and property rows are owned by `block-system.md` ("Gridline-hosted instances"); projection and
+placement by `section-view-subsystem.md` s16. This section owns only the gridline side.
+
+- **Identity:** `GridlineItem._uid = uuid.uuid4().hex`, saved as `"uid"` (s4.4). Labels are not unique (s6.4
+  only recolours bubbles), so hosting is by uid; **rename changes nothing**. `Model_Space.gridline_by_uid(uid)`
+  resolves it and `hosted_blocks_on(gl)` lists the blocks hosted on a gridline. Copy / paste regenerates the
+  uid (the pasted gridline hosts nothing); undo restore preserves it (so hosting resolves after Undo of a delete).
+- **Follow-host hook (single point):** `_rebuild_geometry()` ends by calling `scene._sync_hosted_blocks(self)`
+  when the scene has it (looked up with `getattr(scene, "_sync_hosted_blocks", None)`; a no-op before the item
+  has a scene, e.g. in `__init__` / `from_dict`). The scene method re-derives the plan position of every block
+  hosted on that uid, so translate, `manip_rotate`, Origin X / Y / Angle edits, `move_perpendicular` /
+  `set_perpendicular_position` and grips all carry the blocks. Locked gridlines refuse every mutator, so their
+  blocks do not move either.
+- **Grip 0 compensation:** `apply_grip(0, ...)` slides `_origin` along the axis, so before rebuilding it calls
+  `getattr(scene, "_shift_hosted_along", None)(self, old_origin, new_origin)`, which subtracts the origin's
+  axial shift from each hosted block's `along_mm` (the blocks stay put). Grip 1 (length) and the bubble grips
+  do not touch `_origin`, so hosted blocks are unaffected by end / bubble drags.
+- **Delete / Cut cascade:** `Model_Space._bulk_delete` (the shared body of Delete and Cut) also deletes the
+  blocks hosted on any gridline being deleted (excluding ones already selected), in the same undo step, and
+  returns `(gridline labels, hosted count)`. Delete reports "Deleted gridline B and N hosted block(s)"; Cut
+  appends "and N hosted block(s)". One Undo restores the gridline (same uid) and its blocks.

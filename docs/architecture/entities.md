@@ -229,7 +229,7 @@ system was removed) and participate in the snap engine. Mechanics are owned by
 ### Blocks, gridlines, detail markers, constraints
 
 - **Blocks** -- `BlockDefinition` (shared geometry) + `BlockInstance` (placed,
-  level-scoped) → [`block-system.md`](../specs/block-system.md)
+  level-scoped, or gridline-hosted and shown in parallel sections) → [`block-system.md`](../specs/block-system.md)
 - **Gridlines** -- `GridlineItem` with `GridBubble` ends →
   [`grid-system.md`](../specs/grid-system.md)
 - **Detail markers** -- `DetailMarker` / `DetailViewManager` →

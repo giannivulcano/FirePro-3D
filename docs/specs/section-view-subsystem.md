@@ -1,12 +1,14 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-10-22  # paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
   - firepro3d/section_marker.py     # git mv of view_marker.py (build)
   - firepro3d/elevation_view.py     # SectionView widget (file keeps the elevation_ name)
+  - firepro3d/hosted_blocks.py      # gridline-hosted blocks: pure frame math (s16)
+  - firepro3d/block_drop.py         # block drag payload decode + refusal, shared plan / section (s16)
 source-tasks: [todo_open.md 952 section view subsystem, 872 angled gridlines, 600 sheet plot edge/void colours, 767 flat 2D geometry (closed stale), 560 _live_scenes accessor]
 related: view-relationships.md (s4 taxonomy, s6 markers), paper-space.md (s6.2 paper render), display-manager spec (rows/columns)
 ---
@@ -53,7 +55,8 @@ and the existing elevation tests re-bind by name.
 Unchanged from today: each section scene materializes its own `QGraphicsScene` from the data model
 (view-relationships s5.3 pattern 2), rebuilt on a 100 ms debounce from `Model_Space.sceneModified`
 and directly when its marker's geometry changes. Selection reads back to the source item through
-`_ROLE_SOURCE`; no geometry editing in the section view.
+`_ROLE_SOURCE`; no geometry editing in the section view, except the in-plane drag and Delete of a
+gridline-hosted block copy (s16.4).
 
 ### 3.3 Constraints
 
@@ -239,6 +242,7 @@ close_section(name); close_all(); clear()
 get_view(name); get_scene(name); get_or_build_scene(name)   # tab-less scene for sheets
 open_names; open_scenes               # public (560) -- replaces main._live_scenes reading em._views
 delete_section(name); rename_section(old, new); rebuild_all()
+focus_hosted(inst) -> bool            # Model browser row of a hosted block (s16.6)
 to_list() -> list[dict]; from_list(data)
 sectionsChanged = pyqtSignal()        # place / rename / delete -> project browser refresh
 ```
@@ -352,8 +356,8 @@ undo elsewhere, the pipe OD source, marker level-visibility path.
 ## 14. Out of Scope (v1) -- filed as follow-ups at Account
 
 Roof cut-render (mesh / plane); cut vs projection line-weight DM columns (D2b); detail-marker undo;
-jogged / stepped sections; break lines; in-view dimensions; geometry editing in the section view;
-vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module names.
+jogged / stepped sections; break lines; in-view dimensions; geometry editing in the section view
+(beyond the hosted-block drag / Delete of s16.4); vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module names.
 
 ## 15. Design-decision ledger
 
@@ -380,3 +384,99 @@ vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module n
 | R3 | cut wall draws the cross-section rect only; no receding face in v1 (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
 | R4 | slab chord = `[min h, max h]` over all boundary crossings; concave gap filled in v1 (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
 | R5 | ribbon Section button reuses `detail_icon.svg` (s7.3) | plan reconciliation 2026-10-20, ratified at plan approval |
+
+## 16. Gridline-hosted blocks (2026-10-22)
+
+A block placed in a section is **model data hosted on a reference gridline parallel to the cut**, not
+view-owned: every parallel view shows it and it follows its gridline. This section is the one home
+for how sections project, place, edit and focus hosted blocks. The record, its derived plan pose and
+the property rows are owned by `block-system.md` ("Gridline-hosted instances"); the gridline uid,
+follow-host hook and delete cascade by `grid-system.md` (s18); the save keys by `scene-io.md`. Design
+(ratified source): `docs/superpowers/specs/2026-10-22-gridline-hosted-blocks-design.md`. This does
+not add a third hosting pattern: sections still materialize model data (view-relationships s5.3
+pattern 2); plan blocks without a `host` are still not projected into sections.
+
+### 16.1 Projection (`SectionScene._project_hosted_blocks`)
+
+Runs in `rebuild()` right after the walls step. For every model `BlockInstance` with a valid `host`
+whose gridline resolves and is **parallel to the cut** (`hosted_blocks.is_parallel`, so cardinals and
+placed sections alike; anti-parallel counts):
+
+- **Pose** (`hosted_blocks.section_pose`): h = the lateral projection of the derived world point,
+  v = `-elevation_mm`, depth = distance behind the cut. Outside `0 <= depth <= basis.depth` the block
+  is not drawn (depth crop; also in front of the cut).
+- **Facing:** a view from the host's other side (`facing_of(basis, gl) != host["facing"]`) draws the
+  copy mirrored left-to-right: `mirrored` flipped and rotation negated (text reads backwards, accepted).
+- **Copy:** a `_HostedBlockCopy` (a `BlockInstance` subclass) built from the model record with `host`
+  popped, `_ROLE_SOURCE` = the model block, scaled by `block_scale / ppm` (section scene is mm). It is
+  selectable (halo / manipulator like other section copies). `SectionScene._hosted_copies` maps
+  `id(model block)` to its copy.
+- **Lateral clip:** a copy whose bounds cross `[h_min, h_max]` is parented to a clipping rect
+  (`ItemClipsChildrenToShape`); entirely outside is skipped. No vertical clip (filed with the crop-handle
+  follow-up).
+- **Painter order:** registered through `_register_depth_item` at the host point's `sort_key`.
+
+### 16.2 Display and plot
+
+On screen the copy always shows (no on-screen Blocks visibility toggle exists). On a sheet it
+categorises as the paper **Blocks** row (`paper_display` `isinstance BlockInstance`), so the paper
+Blocks row's visibility and weight govern it. In plan and 3D the model block is hidden (block-system).
+
+### 16.3 Placement
+
+Two entry paths, both resolving the host with `hosted_blocks.choose_host`: the parallel gridline
+nearest the cut with `0 <= depth <= basis.depth`, and the point inside `[h_min, h_max]`
+(`SectionScene._hosted_target`). The record is `host_at`: offset 0, along from the cursor h, elevation
+from the cursor v (section `-y`), facing from this section's look side. No qualifying gridline ->
+refused: no-drop cursor on a drag, nothing on a click, footer status `HOSTED_REFUSAL`.
+
+- **Drop:** `SectionView` accepts `MIME_BLOCK` (`dragEnterEvent` / `dragMoveEvent` / `dropEvent`);
+  payload decode and refusal come from `block_drop` (`place_refusal` still gates), the same code the
+  plan view uses. Drop commits through `SectionScene.place_hosted_block`.
+- **Activate + click:** `MainWindow` placement activation with a `SectionView` tab current calls
+  `SectionScene.begin_place_block(block_id)` instead of arming the plan scene. A translucent ghost
+  follows the cursor (faded when no host is in reach); Space / Shift+Space rotate 90 deg; the arrow keys
+  flip across the screen axes (Left / Right left-right, Up / Down top-bottom; each press toggles; same
+  pose algebra as `Model_Space.flip_place_block`); click places via `click_place_block` and stays armed;
+  Esc ends it. A rebuild re-arms the ghost with its rotation, mirror and last point. Leaving the tab
+  cancels the armed placement (`MainWindow._on_tab_changed`).
+- **Esc routing:** `MainWindow._on_escape` ends a SectionView's armed placement
+  (`cancel_place_block`) before the `_active_scene()` path, because `_active_scene()` answers the plan
+  scene for section tabs. `SectionView.keyPressEvent` handles Esc / Space / arrows when it has focus.
+- **Footer and panel:** `SectionScene.modeChanged = pyqtSignal(str)` emits `"place_block"` on arm and
+  `"select"` on cancel. `MainWindow._on_section_scene_built` connects it to `_update_mode_label` (the
+  PLACE BLOCK badge; text from `_MODE_INSTRUCTIONS["place_block"]`) and `_on_mode_changed_template`
+  (the plan's property-panel clear).
+- **Snap:** `snap_section_point` snaps X to gridline verticals and Y to level datums, each axis
+  independently within the shared OSNAP aperture (so a point near both lands on the crossing). It does
+  not use `SnapEngine.find`.
+- **Commit:** `Model_Space.place_block_instance(..., host=...)` + `push_undo_state()`, then rebuild and
+  select the new copy.
+
+### 16.4 Selecting, dragging, deleting
+
+- A copy picks through `_ROLE_SOURCE`; `entitySelected` carries the model block to the Properties panel
+  (rows: block-system).
+- **In-plane drag:** `_HostedBlockCopy.translate` -> `SectionScene._move_hosted_source` maps (dh, dv)
+  to `along_mm` (by `h_sign`) and `elevation_mm`; host and offset are untouched, so a locked host
+  gridline still lets the block move. One undo step per gesture (the manipulator release hook flushes it;
+  a `QTimer` is the fallback for a bare translate).
+- **Delete:** `MainWindow`'s Delete handler routes a `SectionView` tab to
+  `SectionScene._delete_elev_selected` (it must not fall through to `_active_scene()`, the plan scene).
+  Hosted copies go to `Model_Space.delete_items` by explicit list (a plan-hidden block cannot be
+  `setSelected`), in one undo step; the plan selection is saved and restored around it.
+
+### 16.5 Edge cases
+
+Unresolved or malformed host (`valid_host`): not drawn, not placeable. A section rotated so the host is
+no longer parallel simply stops drawing the block. Equidistant parallel gridlines: first in model order
+wins. Locked host: the gridline cannot move, so neither do its blocks.
+
+### 16.6 Browser focus (`SectionManager.focus_hosted`)
+
+The Model browser row of a hosted block (`model-browser.md`) calls `focus_hosted(inst)`. Candidate views
+in order: open tabs, then cardinals, then placed sections by name. A marker whose cut is not parallel to
+the host gridline is skipped without building; the rest are rebuilt and tested via
+`_hosted_copies`; a tab-less scene that does not show the block is dropped again. The first hit opens
+its tab and selects the copy. None -> footer status "No section shows this block (its gridline *label*
+isn't parallel to any view)." and the method returns False.
