@@ -146,8 +146,10 @@ def test_delete_shortcut_in_a_section_tab_deletes_the_section_selection(qapp):
     try:
         depth0 = ms._undo_pos
         host_uid = inst.host["gridline"]       # the window has default gridlines too
+        view = win.central_tabs.currentWidget()
         QTest.keyClick(win.windowHandle(), Qt.Key.Key_Delete)
         QApplication.processEvents()
+        assert win.central_tabs.currentWidget() is view   # plan re-select keeps the tab
         assert inst not in ms._block_instances
         assert plan_gl in ms._gridlines and plan_gl.scene() is ms
         assert plan_gl.isSelected()
@@ -166,7 +168,10 @@ def test_delete_ribbon_path_in_a_section_tab_deletes_the_section_selection(qapp)
     win, ms, sec, gl, plan_gl, inst = _window_with_hosted_block()
     try:
         depth0 = ms._undo_pos
+        view = win.central_tabs.currentWidget()
         win._delete_if_not_editing()
+        QApplication.processEvents()
+        assert win.central_tabs.currentWidget() is view
         assert inst not in ms._block_instances
         assert plan_gl in ms._gridlines and plan_gl.isSelected()
         assert ms._undo_pos == depth0 + 1
