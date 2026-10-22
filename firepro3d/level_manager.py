@@ -531,6 +531,9 @@ class LevelManager:
 
         # ── Placed block instances (level-scoped — containment C3) ────────
         for item in getattr(scene, "_block_instances", []):
+            if getattr(item, "host", None):
+                item.setVisible(False)   # gridline-hosted: section-only (hosted-blocks D11)
+                continue
             _set_level_vis(item)
 
         # ── Gridlines (always visible on all levels) ─────────────────────

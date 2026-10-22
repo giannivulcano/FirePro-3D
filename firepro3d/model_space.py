@@ -2565,6 +2565,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst.set_overrides(overrides)
         if host:
             inst.host = dict(host)
+            inst.setVisible(False)   # hosted: section-only from birth (D11); LevelManager keeps it so
         self.addItem(inst)
         self._block_instances.append(inst)
         # Backref only when the definition lives in THIS scene's own store: a
