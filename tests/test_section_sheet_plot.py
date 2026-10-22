@@ -135,3 +135,28 @@ def test_placed_marker_plots_and_cardinal_does_not(qapp, tmp_path):
     finally:
         restore_model_display(saved)
     assert all(mgr.markers[c].isVisible() for c in CARDINALS)
+
+
+@pytest.mark.parametrize("theme_name", ["dark", "light"])
+def test_section_viewport_background_plots_paper_white(
+        qapp, tmp_path, force_theme, section_scene_for, theme_name):
+    """AC5: a blank point inside a section sheet viewport rasterises paper
+    white in both colour modes, never the canvas colour (plan parity)."""
+    import fitz
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.test_lt1_block_paper import _export, _VP_X, _VP_Y
+    force_theme(theme_name)
+    for mode in (PaperColorMode.BW, PaperColorMode.FULL_COLOR):
+        save_paper_color_mode(mode)
+        ms, sec, op, slab = _section_with_opening_and_slab(section_scene_for)
+        # 1:100, crop +-4 m about (0, 0): paper (VP+3, VP+3) mm = scene
+        # (-3700, -3700), above the wall top and clear of the datum text.
+        pdf = _export(tmp_path, sec, 0.01, f"bg_{theme_name}_{mode.name}.pdf")
+        doc = fitz.open(str(pdf))
+        try:
+            pt = 72.0 / 25.4
+            x, y = (_VP_X + 3.0) * pt, (_VP_Y + 3.0) * pt
+            pix = doc[0].get_pixmap(dpi=144, clip=fitz.Rect(x, y, x + 2, y + 2))
+            assert tuple(pix.pixel(0, 0)[:3]) == (255, 255, 255), (mode, pix.pixel(0, 0))
+        finally:
+            doc.close()

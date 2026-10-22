@@ -997,9 +997,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             self._rebuild_timer.start()
 
     def _apply_theme_colours(self):
-        """Canvas background + edge/line colour from the current theme."""
+        """Edge/line colour from the current theme. No background brush (AC5,
+        plan parity with ``Model_Space``): the app QSS paints the canvas
+        behind the view, and a brush here would plot on paper."""
         bg = QColor(th.detect().canvas_bg)
-        self.setBackgroundBrush(QBrush(bg))
         # Legacy canvas readout only (the HF1 guard reads it): edges now paint
         # TOKEN_AUTO, resolved per paint, so this never reaches a sheet plot.
         br = bg.redF() * 0.299 + bg.greenF() * 0.587 + bg.blueF() * 0.114

@@ -17,8 +17,8 @@ def force_theme(monkeypatch):
     return _set
 
 
-def _view_pixels(scene, rect):
-    """Every opaque non-background colour on a shown view of *scene*."""
+def _grab(scene, rect):
+    """A shown view of *scene* fitted to *rect*, grabbed (app QSS applies)."""
     v = QGraphicsView(scene)
     v.resize(500, 300)
     v.show()
@@ -26,11 +26,16 @@ def _view_pixels(scene, rect):
     v.fitInView(rect)
     v.viewport().repaint()
     img = v.viewport().grab().toImage()
-    bg = img.pixelColor(2, 2).name()
-    out = {img.pixelColor(x, y).name()
-           for x in range(img.width()) for y in range(img.height())} - {bg}
     v.close()
-    return out
+    return img
+
+
+def _view_pixels(scene, rect):
+    """Every opaque non-background colour on a shown view of *scene*."""
+    img = _grab(scene, rect)
+    bg = img.pixelColor(2, 2).name()
+    return {img.pixelColor(x, y).name()
+            for x in range(img.width()) for y in range(img.height())} - {bg}
 
 
 def _floor_slab(ms):
@@ -91,7 +96,9 @@ def test_i1_elevation_flips_on_live_theme_switch(qapp, force_theme):
         win._apply_theme()
         px = _view_pixels(elev, rect)
         assert "#1c2024" in px and "#e6e9ec" not in px
-        assert elev.backgroundBrush().color().name() == QColor(theme.LIGHT.canvas_bg).name()
+        # AC5: the scene paints no background; the light canvas comes from
+        # the app QSS on the view (plan parity), so it never plots on paper.
+        assert _grab(elev, rect).pixelColor(2, 2).name() == QColor(theme.LIGHT.canvas_bg).name()
         assert elev._edge_color.name() == "#000000"      # was #d0d0d0 on dark
     finally:
         dispose_main_window(win)
