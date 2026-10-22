@@ -92,6 +92,54 @@ def test_proxies_plot_through_paper_row_colours(qapp, tmp_path, section_scene_fo
             type(it).__name__, sorted(set(tones)))
 
 
+def test_hex_paper_row_fill_and_section_reach_the_proxies(qapp, tmp_path, section_scene_for):
+    """A Custom paper row with real colours: cut body = Section colour, beyond
+    body = Fill, strokes = Colour -- each from its own column."""
+    save_paper_color_mode(PaperColorMode.CUSTOM)
+    _rows()
+    cats = pd.load_paper_categories()
+    cats["Wall"].update(color="#0000ff", fill="#ff0000", section_color="#00ff00")
+    pd.save_paper_categories(cats)
+    sec, cuts, beyond, centre = _scene(section_scene_for)
+    pdf = export_scene(tmp_path, sec, SCALE, centre, "col_hex.pdf")
+    for it, body in [(c, (0.0, 1.0, 0.0)) for c in cuts] + [(b, (1.0, 0.0, 0.0)) for b in beyond]:
+        ds = _inside(pdf, it, centre)
+        r = it.mapRectToScene(it.rect())
+        area = r.width() * r.height() * SCALE * SCALE
+        bodies = [d["fill"] for d in ds if "f" in d["type"] and d["fill"] is not None
+                  and (d["fill_opacity"] or 1.0) > 0.99
+                  and (d["rect"][2] - d["rect"][0]) * (d["rect"][3] - d["rect"][1])
+                  >= 0.9 * area]
+        assert any(_near(c, body) for c in bodies), (type(it).__name__, bodies)
+        strokes = [d["color"] for d in ds if "s" in d["type"]]
+        assert strokes and all(_near(c, (0.0, 0.0, 1.0)) for c in strokes), (
+            type(it).__name__, sorted(set(strokes)))
+
+
+def test_cut_pipe_body_takes_the_pipe_row_colour(qapp, section_scene_for):
+    """The Pipe row has no Fill / Section column: a cut pipe's body takes its
+    Colour during the pass, and restore returns the model sources."""
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from firepro3d.section_scene import _ElevCutEllipse, _ROLE_SOURCE
+    save_paper_color_mode(PaperColorMode.CUSTOM)
+    cats = pd.load_paper_categories()
+    cats["Pipe"]["color"] = "#0000ff"
+    pd.save_paper_categories(cats)
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    n1 = ms.add_node(3000.0, -1000.0); n2 = ms.add_node(3000.0, 1000.0)
+    pipe = ms.add_pipe(n1, n2)
+    n1.z_pos = 2000.0; n2.z_pos = 3000.0
+    sec.rebuild()
+    (c,) = [i for i in sec.items()
+            if isinstance(i, _ElevCutEllipse) and i.data(_ROLE_SOURCE) is pipe]
+    before = (c._pen_src, c._brush_src)
+    saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
+    pen, brush = c.resolved_pen_brush()
+    assert pen.color().name() == "#0000ff" and brush.color().name() == "#0000ff"
+    restore_model_display(saved)
+    assert (c._pen_src, c._brush_src) == before
+
+
 def test_full_colour_keeps_model_proxy_colours(qapp, tmp_path, section_scene_for):
     """Plan parity: Full Colour leaves model colours (white outline, grey beyond fill)."""
     save_paper_color_mode(PaperColorMode.FULL_COLOR)
@@ -112,6 +160,7 @@ def test_hidden_wall_row_hides_proxies_and_restores(qapp, tmp_path, section_scen
     pdf = export_scene(tmp_path, sec, SCALE, centre, "col_hidden.pdf")
     for it in cuts + beyond:
         assert not _inside(pdf, it, centre), type(it).__name__
+    assert all(i.isVisible() for i in cuts + beyond)    # the hidden row restored
     # Restore: the pass leaves every proxy exactly as projected.
     _rows(paper_opacity=40)
     before = [(i.isVisible(), i.opacity(), i._pen_src, i._brush_src,

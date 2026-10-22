@@ -1267,7 +1267,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         fill = cat.get("fill")
                         item._brush_src = (fill if fill is not None
                                            else cat.get("section_color") or cat["color"])
-                    item._src_alpha = None       # paper fills plot opaque
+                item._src_alpha = None   # paper fills plot opaque (_paper_fill_opaque)
                 item._paper_pen_width = (resolve_line_weight_mm(cat["line_weight"])
                                          / max(paper_scale, 1e-9))
                 item.setOpacity(cat["opacity"] / 100.0)

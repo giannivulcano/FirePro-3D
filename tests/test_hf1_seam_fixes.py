@@ -505,7 +505,20 @@ def test_e1_elevation_on_sheet_plots_paper_colours(
     pdf = _elevation_sheet_pdf(tmp_path, elev)
     strokes, fills = _plot_colours(pdf)
     assert not (strokes | fills) & _CANVAS_RGB, (strokes, fills)
-    assert wall_rgb in fills, (strokes, fills)           # the wall's solid body
+    # The wall's solid body: an opaque fill of wall_rgb spanning its proxy.
+    from firepro3d.section_scene import _ElevProxyRect
+    from PyQt6.QtCore import QPointF as _P
+    from tests._section_paper_helpers import drawings, to_paper
+    (wp,) = [i for i in elev.items()
+             if type(i) is _ElevProxyRect and i._paper_cat == "Wall"]
+    r = wp.mapRectToScene(wp.rect())
+    x0, y0 = to_paper(r.topLeft(), _P(0.0, 0.0), 0.01)
+    x1, y1 = to_paper(r.bottomRight(), _P(0.0, 0.0), 0.01)
+    bodies = {tuple(round(c, 2) for c in d["fill"]) for d in drawings(pdf)
+              if d["fill"] is not None and (d["fill_opacity"] or 1.0) > 0.99
+              and abs(d["rect"][0] - x0) < 0.5 and abs(d["rect"][1] - y0) < 0.5
+              and abs(d["rect"][2] - x1) < 0.5 and abs(d["rect"][3] - y1) < 0.5}
+    assert wall_rgb in bodies, (bodies, (x0, y0, x1, y1))
     assert grid_rgb in strokes, (strokes, fills)         # gridline + bubble ring
     if mode == "BW":
         assert _PAPER_GREEN not in strokes | fills
