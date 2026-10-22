@@ -140,6 +140,9 @@
 
 > 2D symbol definitions + instances; sibling to Features. Governing spec `docs/specs/block-system.md`; landed slices S1–S4.6 in todo_closed.md.
 
+- [ ] [type:feature] Block placement template in the Properties panel (plan + section) [P3] [subject:Blocks]
+  - Details: user smoke 2026-10-22 (gridline-hosted blocks): expected the Properties panel to pre-populate with the block's template while Place Block is armed, as sprinkler / pipe / opening placement do (`current_*_template`, main.py ~221-223). Today plan `place_block` clears the panel (`MainWindow._on_mode_changed_template` -> `show_properties(None)`, main.py ~2598) and the section path matches that (ratified parity, FP1 2026-10-22). Grill first: which rows the template shows (scale, rotation, mirror, level / hosted Reference-Offset-Elevation in a section) and how edits apply to the next placed instance. `firepro3d/property_manager.py`, `main.py`, `firepro3d/section_scene.py`. ref: block-system spec (via SPEC-INDEX).
+
 - [ ] [type:bug] Cut never emits `blockInstancesChanged` -- Blocks/Model browser can stay stale after Cutting a block or a host gridline [P3] [subject:Blocks]
   - Details: found by the gridline-hosted blocks T5 review (2026-10-22). The Cut commit (`modify_tools_controller.py` `press_copy_base`, which calls `Model_Space._bulk_delete`) blocks signals and re-emits only `selectionChanged`; `delete_items` re-emits `blockInstancesChanged`, Cut does not. Pre-existing for plain BlockInstances; since T5 a Cut host gridline also removes its hosted blocks. Repro first: Cut a block, check whether the Model browser "Blocks" group drops the row. Fix: emit `blockInstancesChanged` when `_bulk_delete` removed any block (use its returned count).
 
