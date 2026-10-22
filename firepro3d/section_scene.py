@@ -817,6 +817,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
     entitySelected = pyqtSignal(object)   # picked legacy entity
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
+    modeChanged = pyqtSignal(str)         # "place_block" / "select" (footer badge)
 
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display on the viewport's source scene). Declared so
@@ -1161,7 +1162,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def begin_place_block(self, block_id: str) -> None:
         """Arm section placement of *block_id*: a translucent ghost follows the
         cursor and a click places it on the host gridline (hosted-blocks G16)."""
-        self.cancel_place_block()
+        self._drop_place_state()                 # silent: no select flicker
         self._place_block_id, self._place_rot = block_id, 0.0
         g = _HostedBlockCopy(block_id=block_id, resolver=self._ms.get_block_definition)
         g._is_ghost = True
@@ -1172,9 +1173,17 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         g.setZValue(1000.0)
         self.addItem(g)
         self._place_ghost = g
+        self.modeChanged.emit("place_block")
 
     def cancel_place_block(self) -> None:
         """Disarm section placement and drop the ghost (no-op when idle)."""
+        was_armed = self._place_block_id is not None
+        self._drop_place_state()
+        if was_armed:
+            self.modeChanged.emit("select")
+
+    def _drop_place_state(self) -> None:
+        """Clear the armed id and remove the ghost, emitting nothing."""
         g, self._place_ghost = self._place_ghost, None
         self._place_block_id = None
         self._place_ghost_pt = None

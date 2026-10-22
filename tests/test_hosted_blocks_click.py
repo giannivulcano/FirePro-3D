@@ -153,3 +153,62 @@ def test_blocks_browser_activation_routes_to_the_section_tab(qapp):
         assert cur.scene()._place_block_id is None
     finally:
         dispose_main_window(win)
+
+
+def _armed_section_window():
+    """Real MainWindow, shown, on a section tab with a block armed."""
+    from tests.test_section_manager import _main_window
+    win = _main_window()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    d = defn(win.scene)
+    win._activate_elevation("north")
+    QApplication.processEvents()
+    sec = win.central_tabs.currentWidget().scene()
+    return win, d, sec
+
+
+def test_esc_on_a_section_tab_cancels_armed_placement(qapp):
+    """S3: the window-level Esc shortcut ends section placement (smoke S3)."""
+    from tests._mainwindow_helpers import dispose_main_window
+    win, d, sec = _armed_section_window()
+    try:
+        win._on_block_activated(d.id)
+        assert sec._place_block_id == d.id
+        plan_mode = win.scene.mode
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_Escape)
+        QApplication.processEvents()
+        assert sec._place_block_id is None
+        assert not any(getattr(i, "_is_ghost", False) for i in sec.items())
+        assert win.scene.mode == plan_mode
+    finally:
+        dispose_main_window(win)
+
+
+def test_section_placement_shows_the_place_block_badge(qapp):
+    """S2: arming shows PLACE BLOCK in the footer; Esc returns to SELECT."""
+    from tests._mainwindow_helpers import dispose_main_window
+    win, d, sec = _armed_section_window()
+    try:
+        win._on_block_activated(d.id)
+        assert win.footer.mode_badge.text() == "PLACE BLOCK"
+        assert "rotate" in win.footer.instruction.text()
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_Escape)
+        QApplication.processEvents()
+        assert win.footer.mode_badge.text() == "SELECT"
+    finally:
+        dispose_main_window(win)
+
+
+def test_section_placement_clears_the_properties_panel(qapp):
+    """S1: arming section placement clears the panel like the plan arm does."""
+    from tests._mainwindow_helpers import dispose_main_window
+    win, d, sec = _armed_section_window()
+    try:
+        gl = gridline(win.scene, (0, 0), (0, 1000), "G1")
+        win.prop_manager.show_properties(gl)
+        assert win.prop_manager._targets == [gl]
+        win._on_block_activated(d.id)
+        assert win.prop_manager._targets == []
+    finally:
+        dispose_main_window(win)
