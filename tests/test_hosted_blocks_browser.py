@@ -94,3 +94,110 @@ def test_click_no_view_status(mgr):
     assert msgs[-1] == "No section shows this block (its gridline B isn't parallel to any view)."
     assert tabs.count() == 0
     assert m.focus_hosted(inst) is False
+
+
+# -- G18 candidate order / tab-less pop / multi-select (T12 fix round) ----------------
+
+def _gl_inst(ms):
+    gl = gridline(ms, (0, -3000), (6000, -3000), "B")
+    return gl, _hosted(ms, gl)
+
+
+def _copy_selected(m, key, inst):
+    return m._views[key][0]._hosted_copies[id(inst)].isSelected()
+
+
+def test_open_tab_beats_placed_section(mgr):
+    m, ms, tabs = mgr
+    gl, inst = _gl_inst(ms)
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 1
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 2
+    m.open_section("Section 2")                              # only Section 2 has a tab
+    assert m.focus_hosted(inst) is True
+    assert m.open_names == ["Section 2"] and tabs.count() == 1
+    assert _copy_selected(m, "Section 2", inst)
+
+
+def test_open_nonparallel_tab_falls_through(mgr):
+    m, ms, tabs = mgr
+    gl, inst = _gl_inst(ms)
+    m.place_section(QPointF(0, 0), QPointF(0, 10000))        # Section 1: vertical cut, open
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 2: parallel, no tab
+    m.open_section("Section 1")
+    assert m.focus_hosted(inst) is True
+    assert m.open_names == ["Section 1", "Section 2"]
+    assert tabs.currentWidget() is m._views["Section 2"][1]
+    assert _copy_selected(m, "Section 2", inst)
+    assert id(inst) not in m._views["Section 1"][0]._hosted_copies
+
+
+def test_cardinal_fallback_without_tab_or_placed(mgr):
+    m, ms, tabs = mgr
+    gl, inst = _gl_inst(ms)
+    m.seed_cardinals()
+    assert m.focus_hosted(inst) is True
+    assert tabs.count() == 1 and len(m.open_names) == 1
+    key = m.open_names[0]
+    assert key in ("north", "south", "east", "west")
+    assert _copy_selected(m, key, inst)
+
+
+def test_cardinal_beats_placed_section(mgr):
+    m, ms, tabs = mgr
+    gl, inst = _gl_inst(ms)
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # placed, tab-less
+    m.seed_cardinals()
+    assert m.focus_hosted(inst) is True
+    assert m.open_names[0] in ("north", "south", "east", "west")
+    assert "Section 1" not in m.open_names
+
+
+def test_first_parallel_placed_by_name_wins(mgr):
+    m, ms, tabs = mgr
+    gl, inst = _gl_inst(ms)
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 1
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 2
+    assert m.focus_hosted(inst) is True
+    assert m.open_names == ["Section 1"] and tabs.count() == 1
+
+
+def test_rejected_tabless_candidate_is_dropped_hit_opens_one_tab(mgr):
+    m, ms, tabs = mgr
+    gl, inst = _gl_inst(ms)
+    m.place_section(QPointF(10000, 0), QPointF(0, 0))        # Section 1: looks away from B
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 2: shows B
+    assert m.focus_hosted(inst) is True
+    shown = m.open_names
+    assert len(shown) == 1 and tabs.count() == 1
+    rejected = ({"Section 1", "Section 2"} - set(shown)).pop()
+    assert shown == ["Section 2"] and rejected == "Section 1"   # name order tried Section 1 first
+    assert rejected not in m._views                          # test-built scene dropped again
+
+
+def test_multiselect_plain_plus_hosted_selects_only_plain(mgr):
+    m, ms, tabs = mgr
+    gl, hosted = _gl_inst(ms)
+    plain = ms.place_block_instance(defn(ms, "P").id, (500, 500))
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))
+    br = _browser(ms)
+    rows = _block_rows(br)
+    assert len(rows) == 2
+    emitted = []
+    br.entitySelected.connect(emitted.append)
+    for r in rows:
+        r.setSelected(True)
+    assert plain.isSelected()
+    assert not hosted.isSelected()
+    assert emitted and emitted[-1] is plain           # the hosted block never reaches the plain path
+
+
+def test_hosted_click_clears_stale_plan_selection(mgr):
+    m, ms, tabs = mgr
+    gl, hosted = _gl_inst(ms)
+    plain = ms.place_block_instance(defn(ms, "P").id, (500, 500))
+    m.place_section(QPointF(0, 0), QPointF(10000, 0))
+    plain.setSelected(True)
+    br = _browser(ms)
+    row = next(r for r in _block_rows(br) if r.data(0, _ROLE_ENTITY) == id(hosted))
+    row.setSelected(True)
+    assert ms.selectedItems() == []

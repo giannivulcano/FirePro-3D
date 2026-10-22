@@ -477,13 +477,16 @@ class ModelBrowser(QWidget):
                     entities.append(entity)
         if not entities:
             return
-        if len(entities) == 1 and getattr(entities[0], "host", None):
-            # A hosted block is plan-hidden (D11): focus a view that shows it.
+        # A hosted block is plan-hidden (D11): never take the plain select path.
+        hosted = [e for e in entities if getattr(e, "host", None)]
+        entities = [e for e in entities if not getattr(e, "host", None)]
+        if not entities:
             sm = getattr(self._scene, "_section_manager", None)
             if sm is not None:
                 self._syncing = True
                 try:
-                    sm.focus_hosted(entities[0])
+                    self._scene.clearSelection()      # no stale plan selection beside the hosted row
+                    sm.focus_hosted(hosted[0])
                 finally:
                     self._syncing = False
             return
