@@ -157,7 +157,9 @@ hosted model block:
   `_resolve_block_drag` and `_block_drop_target_ok` move from `Model_View` into a shared
   mixin. `_BLOCK_DROP_ROLES` gains `"section"`, and `place_refusal` still gates.
 - **Activate + click:** activating placement with a section tab active enters a section
-  placement mode: ghost, Space rotates, click places, Esc cancels (G16). The ghost
+  placement mode: ghost, Space rotates, ←/→ and ↑/↓ flip across the screen axes as in
+  plan (added at smoke, user ruling 2026-10-22: parity), click places, Esc cancels (G16).
+  The footer shows PLACE BLOCK and the plan's panel clear applies. The ghost
   lifecycle (`_place_block_make_ghost` / `_refresh_ghost` / `_drop_ghost`) moves out of
   `Model_Space` into a helper both scenes use. The plan traces every library entry point
   to its hand-off.
