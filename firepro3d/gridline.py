@@ -15,6 +15,7 @@ Auto-numbering: vertical grids → A, B, C…  horizontal → 1, 2, 3…
 from __future__ import annotations
 
 import math
+import uuid
 from functools import lru_cache
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
@@ -411,6 +412,9 @@ class GridlineItem(QGraphicsLineItem):
         if label is None:
             label = auto_label(p1, p2)
         self._label_text = label
+        # Stable identity for hosted blocks (gridline-hosted blocks D3): labels
+        # are not unique (check_duplicate_labels only recolours bubbles).
+        self._uid: str = uuid.uuid4().hex
 
         # ── Parametric state (source of truth) ──────────────────────────
         self._origin = QPointF(p1)
@@ -928,6 +932,7 @@ class GridlineItem(QGraphicsLineItem):
             "bubble2_vis": self.bubble2.isVisible(),
             "label": self._label_text,
             "locked": self._locked,
+            "uid": self._uid,
         }
         if self._display_overrides:
             d["display_overrides"] = self._display_overrides
@@ -964,6 +969,8 @@ class GridlineItem(QGraphicsLineItem):
         item.bubble1.setVisible(b1)
         item.bubble2.setVisible(b2)
         item._locked = d.get("locked", False)
+        if d.get("uid"):
+            item._uid = str(d["uid"])
         item._display_overrides = d.get("display_overrides", {})
         # Silently ignore "level"/"axis" keys from old files.
         item._rebuild_geometry()

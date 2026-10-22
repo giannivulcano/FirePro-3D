@@ -8883,6 +8883,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif "origin" in obj and "angle" in obj and not obj_type:
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
                 gl = GridlineItem.from_dict(obj)
+                gl._uid = uuid.uuid4().hex  # a pasted copy is a new gridline (D3)
                 gl._origin = QPointF(
                     gl._origin.x() + offset.x(),
                     gl._origin.y() + offset.y(),
