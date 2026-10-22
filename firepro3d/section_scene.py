@@ -843,6 +843,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._zones: dict[int, str] = {}
         self._cut_items: list = []
         self._hosted_copies: dict = {}      # id(model block) -> section copy
+        self._hosted_push_pending = False   # one undo step per drag (D10)
         self._place_block_id = None         # armed placement (hosted-blocks G16)
         self._place_ghost = None
         self._place_ghost_pt = None         # last ghost point (survives a rebuild)
@@ -919,6 +920,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         for it in self.selectedItems():
             if isinstance(it, ElevGridlineItem):
                 it._commit_grip_override()
+        # The manipulator's release hook closes a hosted drag: one undo step
+        # now (the timer in _move_hosted_source is the fallback for a bare
+        # translate with no gesture).
+        self._flush_hosted_push()
 
     # ── HALO hooks ─────────────────────────────────────────────────────────
 
@@ -1061,13 +1066,48 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._ms._show_all_hidden()
         self.rebuild()
 
+    def _move_hosted_source(self, copy, dx: float, dy: float) -> None:
+        """A drag on a hosted copy moves its model block in its plane only:
+        ``along_mm`` (by the section's h direction) + ``elevation_mm`` (D10).
+        Host and offset are untouched, so a locked host gridline still lets
+        the block move."""
+        from . import hosted_blocks as hb
+        src = copy.data(_ROLE_SOURCE)
+        host = getattr(src, "host", None)
+        gl = self._ms.gridline_by_uid(host.get("gridline")) if host else None
+        if gl is None:
+            return
+        host["along_mm"] = float(host["along_mm"]) + dx * hb.h_sign(self._basis, gl)
+        host["elevation_mm"] = float(host["elevation_mm"]) - dy
+        self._ms._sync_hosted_blocks(gl)
+        if not self._hosted_push_pending:
+            self._hosted_push_pending = True
+            QTimer.singleShot(0, self._flush_hosted_push)
+
+    def _flush_hosted_push(self) -> None:
+        """Push the one undo step for a hosted drag (no-op when none pending)."""
+        if not self._hosted_push_pending:
+            return
+        self._hosted_push_pending = False
+        self._ms.push_undo_state()
+
     def _delete_elev_selected(self):
         """Delete source entities for selected elevation items."""
-        for item in list(self.selectedItems()):
+        hosted = [it.data(_ROLE_SOURCE) for it in self.selectedItems()
+                  if isinstance(it, _HostedBlockCopy)]
+        others = [it for it in self.selectedItems()
+                  if not isinstance(it, _HostedBlockCopy)]
+        for item in others:
             source = item.data(_ROLE_SOURCE) if item else None
             if source is not None and hasattr(source, "setSelected"):
                 source.setSelected(True)
-        self._ms.delete_selected_items()
+        if hosted:
+            # Plan-hidden model blocks: setSelected would not stick, so they
+            # join the model selection in ONE explicit-list delete (one undo).
+            self._ms.delete_items([h for h in hosted if h is not None]
+                                  + list(self._ms.selectedItems()))
+        else:
+            self._ms.delete_selected_items()
         self.rebuild()
 
     # ── Properties ───────────────────────────────────────────────────────

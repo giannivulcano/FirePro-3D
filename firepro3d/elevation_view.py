@@ -312,6 +312,15 @@ class SectionView(QGraphicsView):
                 self.viewport().update()
                 event.accept()
                 return
+        # Delete removes the selection's source entities (hosted-blocks D10);
+        # no other key path reaches _delete_elev_selected (the context menu
+        # calls it directly).
+        if (event.key() == Qt.Key.Key_Delete and sc is not None
+                and hasattr(sc, "_delete_elev_selected")):
+            if sc.selectedItems():
+                sc._delete_elev_selected()
+            event.accept()
+            return
         # Spacebar cycles overlapping HALO candidates (mirrors the plan view's
         # select-mode Space handling → _halo_cycle).
         if (event.key() == Qt.Key.Key_Space and not event.isAutoRepeat()
