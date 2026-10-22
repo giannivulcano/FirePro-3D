@@ -1394,7 +1394,60 @@ class BlockInstance(QGraphicsObject):
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}
+        if self.host:
+            props = self._hosted_rows(props, sc)
         return props
+
+    def _hosted_rows(self, props: dict, sc) -> dict:
+        """G13: a hosted block swaps Level / Level Offset for Reference /
+        Offset / Elevation (the host record owns them)."""
+        from .hosted_blocks import gridlines_parallel
+        gl = (sc.gridline_by_uid(self.host["gridline"])
+              if hasattr(sc, "gridline_by_uid") else None)
+        gls = list(getattr(sc, "_gridlines", []))
+        opts = [g._label_text for g in gls
+                if gl is not None and gridlines_parallel(gl, g)]
+        off = float(self.host["offset_mm"])
+        elev = float(self.host["elevation_mm"])
+        hosted = {
+            "Type": props["Type"],
+            "Reference": {"type": "enum",
+                          "value": gl._label_text if gl is not None else "",
+                          "options": opts},
+            "Offset": {"type": "dimension", "value": self._fmt(off),
+                       "value_mm": off},
+            "Elevation": {"type": "dimension", "value": self._fmt(elev),
+                          "value_mm": elev},
+        }
+        hosted.update({k: v for k, v in props.items()
+                       if k not in ("Type", "Level", "Level Offset")})
+        return hosted
+
+    def _set_host_property(self, key: str, value) -> None:
+        """Hosted rows (G13): one undo step per changed commit (G9)."""
+        from .hosted_blocks import gridlines_parallel, ppm_of, rehost
+        sc = self.scene()
+        if sc is None or not hasattr(sc, "gridline_by_uid"):
+            return
+        gl = sc.gridline_by_uid(self.host["gridline"])
+        before = dict(self.host)
+        if key in ("Offset", "Elevation"):
+            v = self._parse_dim(value)
+            if v is not None:
+                self.host["offset_mm" if key == "Offset" else "elevation_mm"] = v
+        else:
+            # Duplicate labels: the first parallel non-host gridline wins (D3).
+            new = next((g for g in sc._gridlines
+                        if g._label_text == str(value) and g is not gl
+                        and gl is not None and gridlines_parallel(gl, g)), None)
+            if new is not None:
+                self.host = rehost(gl, new, self.host, ppm_of(sc))
+                gl = new
+        if self.host != before and gl is not None:
+            sc._sync_hosted_blocks(gl)
+            req = getattr(sc, "request_undo_push", None)
+            if callable(req):
+                req()
 
     def _open_edit_attributes(self) -> None:
         sc = self.scene()
@@ -1417,6 +1470,9 @@ class BlockInstance(QGraphicsObject):
         commit (same value) stays silent. The Weight / Linetype path requests
         its own step (``_set_override_from_panel``).
         """
+        if self.host and key in ("Reference", "Offset", "Elevation"):
+            self._set_host_property(key, value)
+            return
         before = self._panel_state()
         if key == "Level":
             self.level = str(value)

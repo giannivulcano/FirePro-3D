@@ -122,3 +122,21 @@ def valid_host(host) -> bool:
     except (TypeError, ValueError):
         return False
     return True
+
+
+def gridlines_parallel(a, b) -> bool:
+    """True when gridlines *a* and *b* are parallel or anti-parallel."""
+    return abs(math.sin(math.radians(a._angle_deg - b._angle_deg))) < PARALLEL_EPS
+
+
+def rehost(gl_old, gl_new, host: dict, ppm: float) -> dict:
+    """Re-host option A (D10): keep the offset value (now on gl_new's n), keep
+    the position along the gridline direction (so h is unchanged), keep the
+    elevation; facing re-signed so the viewing side is preserved."""
+    wx, wy = world_point(gl_old, dict(host, offset_mm=0.0), ppm)
+    ox, oy, ux, uy, nx, ny = gridline_frame(gl_new, ppm)
+    *_, n0x, n0y = gridline_frame(gl_old, ppm)
+    flip = 1 if n0x * nx + n0y * ny >= 0.0 else -1
+    return dict(host, gridline=gl_new._uid,
+                along_mm=(wx - ox) * ux + (wy - oy) * uy,
+                facing=int(host.get("facing", 1)) * flip)
