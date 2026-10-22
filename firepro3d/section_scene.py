@@ -586,6 +586,9 @@ class ElevDatumItem(QGraphicsLineItem):
         self._datum_color = datum_color
         self._fill_color = fill_color
         self._pen_w = pen_w
+        self._paper_line_w_mm = 0.0   # paper pass (AC4): ON-PAPER mm, dash normaliser
+        self._paper_line_w = 0.0      # paper pass: datum line width, scene units
+        self._fill_quad = None        # the fill-coloured quadrant pair (paper pass)
         self._scale = scale
         self._level_name = level_name.upper() if level_name else "LEVEL"
         self._elev_str = elev_str
@@ -645,6 +648,7 @@ class ElevDatumItem(QGraphicsLineItem):
         fq_item.setBrush(QBrush(fill_color))
         fq_item.setZValue(52)
         fq_item.set_colour_src(brush=fs)
+        self._fill_quad = fq_item
 
     def _build_labels(self):
         """Create or recreate label items using the stored fonts."""
@@ -691,6 +695,48 @@ class ElevDatumItem(QGraphicsLineItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
         return super().itemChange(change, value)
+
+    def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
+                         color_src=None, fill_src=None, cap_mm=None) -> dict:
+        """Plot through the "Level Datum" paper row for one sheet-viewport
+        render (AC4): its weight on the line, circle and cross, the gridline's
+        paper-mm dash-dot on the line (``drawForeground``); *color_src* /
+        *fill_src* replace the stored colour strings (B&W / Custom), ``None``
+        keeps them. *cap_mm* is unused (no datum label row)."""
+        S = max(paper_scale, 1e-9)
+        saved = {"color_src": self._color_src, "fill_src": self._fill_src,
+                 "children": []}
+        self._paper_line_w_mm = line_w_mm
+        self._paper_line_w = line_w_mm / S
+        for ch in self.childItems():
+            if not isinstance(ch, _ColourSrcMixin):
+                continue
+            saved["children"].append((ch, ch._pen_src, ch._brush_src,
+                                      ch._src_tint, ch._paper_pen_width))
+            ch._paper_pen_width = line_w_mm / S
+            if ch is self._fill_quad:
+                if fill_src is not None:
+                    ch._brush_src = fill_src
+            elif color_src is not None:
+                if ch._pen_src is not None:
+                    ch._pen_src = color_src
+                if ch._brush_src is not None:
+                    ch._brush_src = color_src
+                ch._src_tint = None
+        if color_src is not None:
+            self._color_src = color_src
+        if fill_src is not None:
+            self._fill_src = fill_src
+        self.update()
+        return saved
+
+    def exit_paper_pass(self, saved: dict) -> None:
+        for ch, pen_src, brush_src, tint, paper_w in saved["children"]:
+            ch._pen_src, ch._brush_src = pen_src, brush_src
+            ch._src_tint, ch._paper_pen_width = tint, paper_w
+        self._color_src, self._fill_src = saved["color_src"], saved["fill_src"]
+        self._paper_line_w_mm = self._paper_line_w = 0.0
+        self.update()
 
     # ── Grip handles ─────────────────────────────────────────────────────
 
@@ -1160,11 +1206,16 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
             datum_color = (item._datum_color if item._color_src is None
                            else resolve_colour(item._color_src, item=item))
-            pen = QPen(datum_color, item._pen_w, Qt.PenStyle.DashDotLine)
+            if item._paper_line_w_mm:
+                from .gridline import _dash_pattern_mm
+                pen = QPen(datum_color, item._paper_line_w)
+                pen.setDashPattern(_dash_pattern_mm(item._paper_line_w_mm))
+            else:
+                pen = QPen(datum_color, item._pen_w, Qt.PenStyle.DashDotLine)
             painter.setPen(pen)
             painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
 
-            if item.isSelected():
+            if item.isSelected() and not item._paper_line_w_mm:
                 sel_pen = QPen(datum_color.lighter(150),
                                item._pen_w * 2, Qt.PenStyle.DashDotLine)
                 painter.setPen(sel_pen)

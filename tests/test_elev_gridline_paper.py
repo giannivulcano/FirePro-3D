@@ -101,3 +101,20 @@ def test_paper_pass_restores_elevation_gridline(qapp, tmp_path, section_scene_fo
              eg.bubble1._label.font().pixelSize(), eg.bubble1._label.scale())
     assert after == before
     assert eg._paper_line_w_mm == 0.0 and eg.bubble1._paper_pen_width is None
+
+
+def test_elevation_datum_plots_through_level_datum_row(qapp, tmp_path, section_scene_for):
+    save_paper_color_mode(PaperColorMode.BW)
+    sec, eg, ce = _elev_scene(section_scene_for)
+    pdf = export_scene(tmp_path, sec, 0.01, ce, "datum.pdf")
+    expect = pd.resolve_line_weight_mm(
+        pd.load_paper_categories()["Level Datum"]["line_weight"])
+    y = to_paper(QPointF(0.0, 0.0), ce, 0.01)[1]                 # Level 1: v = 0
+    lines = [d for d in drawings(pdf) if "s" in d["type"]
+             and abs(d["rect"][1] - y) < 0.3 and abs(d["rect"][3] - y) < 0.3
+             and d["rect"][2] - d["rect"][0] > 10.0]
+    assert lines, "no datum stroke"
+    d = max(lines, key=lambda d: d["rect"][2] - d["rect"][0])
+    assert d["width"] == pytest.approx(expect, abs=0.01)
+    assert tuple(d["color"]) == (0.0, 0.0, 0.0)
+    assert _same_dashes(d, _vertical_line(pdf)), (_dash_mm(d),)  # same paper-mm dash-dot

@@ -820,7 +820,7 @@ def _category_for_item(item) -> str | None:
         return "Elevation Marker"
     if cls_name == "DetailMarker":
         return "Detail Marker"
-    if cls_name == "LevelDatumItem":
+    if cls_name == "ElevDatumItem":         # elevation / section level datum (AC4)
         return "Level Datum"
     if cls_name == "ElevGridlineItem":      # elevation / section gridline (AC3)
         return "Grid Line"
