@@ -8199,6 +8199,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Fitting is not a QGraphicsItem — re-evaluate via update()
             if isinstance(item, Fitting):
                 item.update()
+            elif getattr(item, "host", None):
+                pass   # gridline-hosted: never shown in plan (hosted-blocks D11)
             else:
                 item.setVisible(True)
 

@@ -67,8 +67,11 @@ def test_click_pick_skips_hosted(qapp, shown_model_view):
 def test_snap_skips_hosted(qapp, shown_model_view):
     from firepro3d.snap_engine import SnapEngine
     view, ms, inst, plain = _scene_with_pair(shown_model_view)
-    ms.delete_items([plain])          # only the hosted block is left under the cursor
     eng = SnapEngine()
+    at = QPointF(*inst.block_pos())
+    ctl = eng.find(at, ms, view.viewportTransform())
+    assert ctl is not None and ctl.source_item is plain     # positive control
+    ms.delete_items([plain])          # only the hosted block is left under the cursor
     res = eng.find(QPointF(*inst.block_pos()), ms, view.viewportTransform())
     assert res is None or res.source_item is not inst
 
@@ -81,3 +84,18 @@ def test_fresh_hosted_hidden_before_any_level_pass(qapp, shown_model_view):
     assert inst.isVisible() is False
     view._select_all_items()
     assert inst.isSelected() is False
+
+
+def test_browser_show_cannot_reshow_hosted(qapp, shown_model_view):
+    view, ms, inst, plain = _scene_with_pair(shown_model_view)
+    ms._hide_items([inst, plain])
+    assert plain.isVisible() is False
+    ms._show_items([inst, plain])
+    assert plain.isVisible() is True            # positive control
+    assert inst.isVisible() is False
+    ms.clearSelection()
+    view._select_all_items()
+    assert inst.isSelected() is False
+    ms._hide_items([inst])
+    ms._show_all_hidden()
+    assert inst.isVisible() is False
