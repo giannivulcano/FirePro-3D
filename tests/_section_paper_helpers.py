@@ -44,7 +44,8 @@ def to_paper(pt: QPointF, centre: QPointF, scale: float) -> tuple[float, float]:
 
 def drawings(pdf):
     """Every PDF drawing as a dict with mm geometry:
-    ``{"rect": (x0, y0, x1, y1), "type", "width", "color", "fill", "dashes"}``."""
+    ``{"rect": (x0, y0, x1, y1), "type", "width", "color", "fill",
+    "fill_opacity", "dashes"}``."""
     doc = fitz.open(str(pdf))
     try:
         res = []
@@ -56,6 +57,7 @@ def drawings(pdf):
                 "width": (d.get("width") or 0.0) * PT,
                 "color": d.get("color"),
                 "fill": d.get("fill"),
+                "fill_opacity": d.get("fill_opacity"),
                 "dashes": d.get("dashes"),
             })
         return res

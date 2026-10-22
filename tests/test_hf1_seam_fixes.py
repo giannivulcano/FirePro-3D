@@ -487,9 +487,11 @@ def _auto_wall_and_accent_gridline_elevation(section_scene_for):
     return elev
 
 
+# B&W: the wall body is the paper "Wall" row's Fill (factory #ffffff), as a
+# plan wall plots (AC2 smoke re-entry 2026-10-22: proxies take the whole row).
 @pytest.mark.parametrize("mode,wall_rgb,grid_rgb", [
     ("FULL_COLOR", (0.0, 0.0, 0.0), _PAPER_GREEN),
-    ("BW", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+    ("BW", (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)),
 ], ids=["full-colour", "bw"])
 def test_e1_elevation_on_sheet_plots_paper_colours(
         qapp, tmp_path, force_theme, section_scene_for, mode, wall_rgb, grid_rgb):
