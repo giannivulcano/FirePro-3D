@@ -1031,13 +1031,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # geometry (D-A32 / LT4): the capability toggle owns its lifetime.
         from .capability_frame import CAPABILITY_FRAME_TAG
         selected = [i for i in items if i.data(0) != CAPABILITY_FRAME_TAG]
-        # Hosted-blocks D7: deleting a gridline deletes its hosted blocks in
-        # the same undo step (the wall -> openings cascade, one level up).
-        from .gridline import GridlineItem
-        gls = [i for i in selected if isinstance(i, GridlineItem)]
-        cascade = [b for g in gls for b in self.hosted_blocks_on(g)
-                   if b not in selected]
-        selected.extend(cascade)
         if not selected:
             return
         selected_set = set(selected)
@@ -1045,28 +1038,45 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Suppress scene updates during bulk deletion
         self.blockSignals(True)
         try:
-            self._bulk_delete(selected, selected_set)
+            gl_names, n_hosted = self._bulk_delete(selected, selected_set)
         finally:
             self.blockSignals(False)
         # The blocked removals swallowed selectionChanged — re-emit once so the
         # manipulator frame, property panel and browser drop the deleted items.
         self.selectionChanged.emit()
-        if any(isinstance(i, BlockInstance) for i in selected):
+        if n_hosted or any(isinstance(i, BlockInstance) for i in selected):
             # blockSignals swallowed remove_block_instance's emit.
             self.blockInstancesChanged.emit()
 
         # Single scene refresh after all removals
         self.update()
-        if cascade:
-            names = ", ".join(g._label_text for g in gls)
-            self._show_status(f"Deleted gridline {names} and "
-                              f"{len(cascade)} hosted block(s)")
+        if n_hosted:
+            self._show_status(f"Deleted gridline {', '.join(gl_names)} and "
+                              f"{n_hosted} hosted block(s)")
         else:
             self._show_status(f"Deleted {len(selected)} item(s)")
         self.push_undo_state()
 
     def _bulk_delete(self, selected, selected_set):
-        """Internal bulk-delete: removes items without per-item scene updates."""
+        """Internal bulk-delete: removes items without per-item scene updates.
+
+        Deleting a gridline also deletes its hosted blocks (hosted-blocks D7,
+        the wall -> openings cascade one level up), so every caller (Delete,
+        Cut) gets it in the same undo step.
+
+        Returns:
+            ``(names, count)``: labels of the gridlines that hosted blocks and
+            the number of hosted blocks removed by the cascade.
+        """
+        from .gridline import GridlineItem
+        gls = [g for g in selected
+               if isinstance(g, GridlineItem) and g in self._gridlines]
+        hosted = [(g, [b for b in self.hosted_blocks_on(g)
+                       if b not in selected_set]) for g in gls]
+        cascade = [b for _, bs in hosted for b in bs]
+        names = [g.grid_label for g, bs in hosted if bs]
+        selected = list(selected) + cascade
+        selected_set = set(selected_set) | set(cascade)
         # Collect all pipes and nodes for batch removal from sprinkler_system
         pipes_to_remove = set()
         nodes_to_remove = set()
@@ -1195,6 +1205,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for node in ss.nodes:
             if hasattr(node, "fitting") and node.fitting:
                 node.fitting.update()
+        return names, len(cascade)
 
     # -------------------------------------------------------------------------
     # MODE MANAGEMENT

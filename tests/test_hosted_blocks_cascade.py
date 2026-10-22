@@ -86,6 +86,41 @@ def test_undo_redo_placement(qapp, make_model_space):
     assert g2 is not None and _plan_xs(ms, g2) == [2500.0]
 
 
+def test_cut_gridline_cascades_hosted_blocks_one_undo(qapp):
+    from PyQt6.QtCore import QPointF
+    from tests._snap_polish_helpers import click, close_view, make_view
+    view, ms = make_view(role="plan", scale=1.0)
+    try:
+        gl, insts = _setup(ms, n=2, baseline=True)
+        other = gridline(ms, (0, -5000), (6000, -5000), "C")   # hosts nothing
+        ms.push_undo_state()
+        msgs = []
+        ms._show_status = lambda m, *a, **k: msgs.append(m)
+        gl.setSelected(True)
+        p0 = ms._undo_pos
+        assert ms._modify_ctl.start("cut")
+        click(view, QPointF(-300, -300))
+        assert gl not in ms._gridlines
+        assert ms._block_instances == []            # real Cut path cascaded
+        assert ms._undo_pos == p0 + 1
+        ms.undo()
+        g2 = ms.gridline_by_uid(gl._uid)
+        assert g2 is not None and _plan_xs(ms, g2) == [0.0, 1000.0]
+        assert {round(b.block_pos()[1], 3) for b in ms.hosted_blocks_on(g2)} == {-3000.0}
+    finally:
+        close_view(view, ms)
+
+
+def test_status_lists_only_gridlines_that_hosted_blocks(qapp, make_model_space):
+    ms = make_model_space()
+    gl, insts = _setup(ms)
+    other = gridline(ms, (0, -5000), (6000, -5000), "C")
+    msgs = []
+    ms._show_status = lambda m, *a, **k: msgs.append(m)
+    ms.delete_items([gl, other])
+    assert msgs[-1] == "Deleted gridline B and 2 hosted block(s)"
+
+
 def _save(ms, tmp_path):
     path = tmp_path / "p.fpd"
     ms.save_to_file(str(path))
