@@ -67,6 +67,8 @@ def test_manipulator_drag_real_path(qapp, section_scene_for):
     cp2 = sec._hosted_copies[id(inst)]
     assert cp2.block_pos()[0] == pytest.approx(2800.0)
     assert cp2.block_pos()[1] == pytest.approx(-1400.0)
+    # Pinned: rebuild() drops the selection; re-select after rebuild is not implemented.
+    assert not cp2.isSelected() and not sec.selectedItems()
 
 
 def test_multi_select_drag_is_one_undo_step(qapp, section_scene_for):
@@ -105,16 +107,80 @@ def test_locked_host_gridline_still_lets_block_drag(qapp, section_scene_for):
     assert inst.host["gridline"] == gl._uid and gl._locked is True
 
 
-def test_delete_key_removes_model_block(qapp, section_scene_for):
-    from firepro3d.elevation_view import SectionView
-    ms, sec, gl, inst = _setup(section_scene_for)
-    depth0 = ms._undo_pos
-    v = SectionView(sec); v.resize(900, 700); v.show(); QTest.qWaitForWindowExposed(v)
+def _window_with_hosted_block():
+    """Real MainWindow, a placed section's tab current, a hosted block selected
+    in it and a plain plan gridline selected in the PLAN scene."""
+    from tests.test_section_manager import _main_window
+    ms = None
+    win = _main_window()
+    ms = win.scene
+    marker = win.section_manager.place_section(QPointF(0.0, 0.0), QPointF(10000.0, 0.0))
+    view = win.section_manager.open_section(marker.name)
+    QApplication.processEvents()
+    sec = view.scene()
+    gl = gridline(ms, (0, -3000), (6000, -3000), "B")
+    plan_gl = gridline(ms, (0, -9000), (6000, -9000), "P")
+    sec.rebuild()
+    inst = sec.place_hosted_block(defn(ms).id, QPointF(2500.0, -1200.0))
+    assert inst is not None
+    QApplication.processEvents()
+    ms.clearSelection()
+    plan_gl.setSelected(True)
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    win.central_tabs.setCurrentWidget(view)       # plan selection can switch tabs
+    QApplication.processEvents()
+    assert win.central_tabs.currentWidget() is view
     sec.clearSelection()
     sec._hosted_copies[id(inst)].setSelected(True)
-    QTest.keyClick(v.viewport(), Qt.Key.Key_Delete)
+    view.setFocus()
+    assert plan_gl.isSelected() and sec.selectedItems()
+    return win, ms, sec, gl, plan_gl, inst
+
+
+def test_delete_shortcut_in_a_section_tab_deletes_the_section_selection(qapp):
+    """Real window-level Delete (QShortcut -> _delete_if_not_editing) in a
+    section tab removes the hosted model block, never the plan selection."""
+    from tests._mainwindow_helpers import dispose_main_window
+    win, ms, sec, gl, plan_gl, inst = _window_with_hosted_block()
+    try:
+        depth0 = ms._undo_pos
+        host_uid = inst.host["gridline"]       # the window has default gridlines too
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_Delete)
+        QApplication.processEvents()
+        assert inst not in ms._block_instances
+        assert plan_gl in ms._gridlines and plan_gl.scene() is ms
+        assert plan_gl.isSelected()
+        assert ms._undo_pos == depth0 + 1
+        ms.undo()
+        QApplication.processEvents()
+        (back,) = ms._block_instances
+        assert back.host["gridline"] == host_uid
+        assert back.host["along_mm"] == pytest.approx(2500.0)
+    finally:
+        dispose_main_window(win)
+
+
+def test_delete_ribbon_path_in_a_section_tab_deletes_the_section_selection(qapp):
+    from tests._mainwindow_helpers import dispose_main_window
+    win, ms, sec, gl, plan_gl, inst = _window_with_hosted_block()
+    try:
+        depth0 = ms._undo_pos
+        win._delete_if_not_editing()
+        assert inst not in ms._block_instances
+        assert plan_gl in ms._gridlines and plan_gl.isSelected()
+        assert ms._undo_pos == depth0 + 1
+    finally:
+        dispose_main_window(win)
+
+
+def test_delete_elev_selected_removes_model_block_one_undo(qapp, section_scene_for):
+    ms, sec, gl, inst = _setup(section_scene_for)
+    depth0 = ms._undo_pos
+    sec.clearSelection()
+    sec._hosted_copies[id(inst)].setSelected(True)
+    sec._delete_elev_selected()
     assert inst not in ms._block_instances
     assert ms._undo_pos == depth0 + 1
     ms.undo()
     assert len(ms.hosted_blocks_on(ms.gridline_by_uid(gl._uid))) == 1
-    v.close()

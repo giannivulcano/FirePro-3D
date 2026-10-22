@@ -1097,6 +1097,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                   if isinstance(it, _HostedBlockCopy)]
         others = [it for it in self.selectedItems()
                   if not isinstance(it, _HostedBlockCopy)]
+        # Only the section's selection is deleted: a stale plan selection must
+        # not ride along into delete_items / delete_selected_items.
+        plan_sel = list(self._ms.selectedItems())
+        self._ms.clearSelection()
         for item in others:
             source = item.data(_ROLE_SOURCE) if item else None
             if source is not None and hasattr(source, "setSelected"):
@@ -1108,6 +1112,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                                   + list(self._ms.selectedItems()))
         else:
             self._ms.delete_selected_items()
+        for it in plan_sel:                       # the plan selection survives
+            if it.scene() is self._ms:
+                it.setSelected(True)
         self.rebuild()
 
     # ── Properties ───────────────────────────────────────────────────────

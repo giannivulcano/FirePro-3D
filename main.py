@@ -4471,6 +4471,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if not self.scene.view_available:
             self.footer.set_instruction(NO_VIEW_HINT)
             return
+        # A Section / Elevation tab deletes ITS selection (hosted-blocks D10);
+        # _active_scene() answers the plan scene for these tabs, so never
+        # fall through to it.
+        from firepro3d.elevation_view import SectionView
+        cur = self.central_tabs.currentWidget()
+        if isinstance(cur, SectionView) and hasattr(cur.scene(), "_delete_elev_selected"):
+            esc = cur.scene()
+            efocus = esc.focusItem()
+            if isinstance(efocus, QGraphicsTextItem) and efocus.hasFocus():
+                return  # let the text editor handle Delete
+            if esc.selectedItems():
+                esc._delete_elev_selected()
+            return
         sc = self._active_scene()
         focus = sc.focusItem()
         if isinstance(focus, QGraphicsTextItem) and focus.hasFocus():
