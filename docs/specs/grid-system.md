@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-10-22  # paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -318,7 +318,7 @@ Stored in the elevation view's `to_dict()`:
 
 ### 8.5 Level Datums
 
-`ElevDatumItem` behavior is unchanged. Horizontal reference lines span all visible gridlines. Extent recalculated from projected gridline H-positions.
+`ElevDatumItem` behavior on screen is unchanged; on a sheet it plots through the "Level Datum" paper row (§10.2). Horizontal reference lines span all visible gridlines. Extent recalculated from projected gridline H-positions.
 
 ## 9. Legacy Cleanup & Migration
 
@@ -379,6 +379,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - **Sheet view rendering:** bubbles render at a true paper size derived from the Grid Line paper category's `bubble_label_height_mm` (label cap height, factory 3.0 mm); the category line weight drives both the gridline line and the bubble border on paper.
 - **Retired:** the per-item `GridlineItem.paper_height_mm` field. `to_dict` stops writing it; `from_dict` ignores the legacy key. Sizing is uniform per category (grill decision 2026-08-07).
 - Selection ring, manipulator grips, lock indicator, and the duplicate-label warning color never plot.
+- **Elevation / section gridlines (2026-10-22):** `ElevGridlineItem` plots through the same "Grid Line" paper row as the plan gridline, with parity in weight, paper-mm dash-dot, colour (B&W / Custom) and true-scale bubble size; `ElevDatumItem` plots through the "Level Datum" row (visibility, opacity, weight, dash, colour/fill). Mechanism owned by `paper-space.md` §9.9.1 (Rule A).
 
 ## 11. Design Decisions
 

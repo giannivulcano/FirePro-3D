@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-10-21  # Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-10-22  # paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -150,6 +150,21 @@ Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at p
   drawn in v1 (follow-up).
 - **Concave slab chord.** The chord is `[min h, max h]` over every crossing of the cut segment with
   the slab boundary, so a concave slab's gap is filled in v1 (follow-up).
+
+### 5.0 Paper output (AC1-AC5, 2026-10-22)
+
+- **No scene background.** `SectionScene` paints no background brush (NoBrush, as `Model_Space`
+  does); the app QSS paints the canvas behind the view, so a section viewport plots paper white.
+- **Proxies plot through their paper row.** Projected items carry `_paper_cat` (Wall / Floor /
+  Roof / Pipe / Sprinkler, opening items the opening's `display_category`) and take that category's
+  whole paper row; elevation gridlines and level datums use the "Grid Line" / "Level Datum" rows.
+  Mechanism owned by `paper-space.md` §9.9.1 (Rule A); not restated here.
+- **Known gap: cut cross-sections do not occlude what lies behind them.** With the paper Wall Fill
+  at "" (No Fill) a beyond-the-cut wall no longer paints an opaque body, so a farther wall shows
+  through a nearer one. Tracked in `todo_open.md`, "Cut cross-sections occlude what lies behind them".
+- **Known gap: hiding a paper row leaves some items on the sheet.** The opening void rect and the
+  floor mask are untagged, so hiding their paper row does not hide them. Tracked in `todo_open.md`,
+  "A hidden paper row leaves section opening voids and floor masks on the sheet".
 
 ### 5.1 Sheet plot colours (600)
 
