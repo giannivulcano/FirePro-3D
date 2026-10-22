@@ -157,6 +157,18 @@ class SectionView(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
+        sc = self.scene()
+        if (event.button() == Qt.MouseButton.LeftButton and sc is not None
+                and getattr(sc, "_place_block_id", None) is not None):
+            try:
+                pt = sc.snap_section_point(
+                    self.mapToScene(event.position().toPoint()), self)
+                sc.click_place_block(pt)
+            except Exception:
+                _log.exception("Section block placement click failed")
+            self.viewport().update()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # Latch the band start (viewport px). Let the scene press run first
             # (HALO-committed select / manipulator handle press); it accepts the
@@ -187,6 +199,14 @@ class SectionView(QGraphicsView):
         scene_pos = self.mapToScene(event.pos())
         self._emit_coords(scene_pos)
         sc = self.scene()
+        if sc is not None and getattr(sc, "_place_block_id", None) is not None:
+            try:
+                sc.move_place_ghost(sc.snap_section_point(scene_pos, self))
+            except Exception:
+                _log.exception("Section block placement move failed")
+            self.viewport().update()
+            event.accept()
+            return
         if self._rb_active:
             # Live scene-drawn band: extend it and repaint. No live
             # preselection preview (user decision 2026-09-24 — recomputing
@@ -279,6 +299,19 @@ class SectionView(QGraphicsView):
             event.accept()
             return
         sc = self.scene()
+        # Armed block placement owns Space (rotate; Shift = reverse) and Esc.
+        if sc is not None and getattr(sc, "_place_block_id", None) is not None:
+            if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+                rev = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                sc.rotate_place_block(90.0 if rev else -90.0)   # as Model_Space
+                self.viewport().update()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_Escape:
+                sc.cancel_place_block()
+                self.viewport().update()
+                event.accept()
+                return
         # Spacebar cycles overlapping HALO candidates (mirrors the plan view's
         # select-mode Space handling → _halo_cycle).
         if (event.key() == Qt.Key.Key_Space and not event.isAutoRepeat()

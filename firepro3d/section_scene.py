@@ -843,6 +843,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._zones: dict[int, str] = {}
         self._cut_items: list = []
         self._hosted_copies: dict = {}      # id(model block) -> section copy
+        self._place_block_id = None         # armed placement (hosted-blocks G16)
+        self._place_ghost = None
+        self._place_rot = 0.0
         self._show_datums = True
 
         # Per-view Z-extent overrides keyed by gridline label live on the
@@ -1107,9 +1110,74 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         """True when a block placed at *scene_pt* would find a host gridline."""
         return self._hosted_target(scene_pt) is not None
 
+    def begin_place_block(self, block_id: str) -> None:
+        """Arm section placement of *block_id*: a translucent ghost follows the
+        cursor and a click places it on the host gridline (hosted-blocks G16)."""
+        self.cancel_place_block()
+        self._place_block_id, self._place_rot = block_id, 0.0
+        g = _HostedBlockCopy(block_id=block_id, resolver=self._ms.get_block_definition)
+        g._is_ghost = True
+        g.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        g.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        g.set_block_scale(1.0 / self._ppm())          # section scene is mm
+        g.setOpacity(0.5)
+        g.setZValue(1000.0)
+        self.addItem(g)
+        self._place_ghost = g
+
+    def cancel_place_block(self) -> None:
+        """Disarm section placement and drop the ghost (no-op when idle)."""
+        g, self._place_ghost = self._place_ghost, None
+        self._place_block_id = None
+        if g is not None and g.scene() is self:
+            self.removeItem(g)
+
+    def rotate_place_block(self, delta_deg: float) -> None:
+        """Turn the armed placement by *delta_deg* (Y-up CCW+, same convention
+        and normalisation as ``Model_Space.rotate_place_block``)."""
+        r = (self._place_rot + delta_deg) % 360.0
+        self._place_rot = r - 360.0 if r > 180.0 else r
+        if self._place_ghost is not None:
+            self._place_ghost.set_block_rotation(self._place_rot)
+
+    def move_place_ghost(self, scene_pt) -> None:
+        """Put the ghost at *scene_pt*; faded when no host gridline is in reach."""
+        g = self._place_ghost
+        if g is not None:
+            g.set_block_pos(scene_pt.x(), scene_pt.y())
+            g.setOpacity(0.5 if self.can_host_at(scene_pt) else 0.2)
+
+    def click_place_block(self, scene_pt):
+        """Place the armed block at *scene_pt*; placement stays armed (repeat)."""
+        bid = self._place_block_id
+        if bid is None:
+            return None
+        return self.place_hosted_block(bid, scene_pt, rotation=self._place_rot)
+
+    def _snap_tol_scene(self, view) -> float:
+        """The shared OSNAP aperture in section-scene mm at *view*'s zoom."""
+        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene
+        return px_to_scene(float(SNAP_TOLERANCE_PX), view.transform().m11())
+
     def snap_section_point(self, pt, view=None):
-        """Placement point after snapping (identity until the click/snap layer)."""
-        return pt
+        """Snap *pt* to level datums (Y), gridline verticals (X) and their
+        crossings within the shared OSNAP aperture (G15).
+
+        SnapEngine.find was probed and cannot serve here: a datum line offers
+        only endpoint/midpoint and a gridline only a perpendicular "nearest",
+        never the datum x gridline crossing. Each axis snaps independently, so
+        a point near both lands on the crossing."""
+        if view is None:
+            return pt
+        tol = self._snap_tol_scene(view)
+        hs = [it.mapToScene(it.line().p1()).x() for it in self.items()
+              if isinstance(it, ElevGridlineItem)]
+        vs = [it.mapToScene(it.line().p1()).y() for it in self.items()
+              if isinstance(it, ElevDatumItem)]
+        x = min(hs, key=lambda h: abs(h - pt.x()), default=None)
+        y = min(vs, key=lambda v: abs(v - pt.y()), default=None)
+        return QPointF(x if x is not None and abs(x - pt.x()) <= tol else pt.x(),
+                       y if y is not None and abs(y - pt.y()) <= tol else pt.y())
 
     def place_hosted_block(self, block_id: str, scene_pt, rotation: float = 0.0,
                            mirrored: bool = False):
@@ -1216,6 +1284,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._refresh_basis()
         self._zones = {}
         self._cut_items = []
+        self._place_ghost = None            # clear() deletes it; re-armed below
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
@@ -1230,6 +1299,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._render_cut_items()
         self._project_geometry_2d()
         self._assign_depth_z_values()
+        if self._place_block_id is not None:        # placement survives a rebuild
+            bid, rot = self._place_block_id, self._place_rot
+            self.begin_place_block(bid)
+            self._place_rot = rot
+            if self._place_ghost is not None:
+                self._place_ghost.set_block_rotation(rot)
 
     def _project_hosted_blocks(self):
         """Copies of gridline-hosted model blocks whose host is parallel to

@@ -86,8 +86,13 @@ def test_lateral_clip(qapp, section_scene_for):
         clip = cp.parentItem()
         assert clip.rect().left() == pytest.approx(b.h_min)
         assert clip.rect().right() == pytest.approx(b.h_max)
-        vis = cp.mapRectToScene(cp.clipPath().boundingRect())
-        assert vis.left() >= b.h_min - 1e-6 and vis.right() <= b.h_max + 1e-6
+        # The copy's own clipPath() is legitimately empty (the clip lives on the
+        # parent); assert the parent's real clipping shape instead.
+        assert clip.flags() & clip.GraphicsItemFlag.ItemClipsChildrenToShape
+        assert not clip.shape().isEmpty()
+        vis = clip.mapToScene(clip.shape()).boundingRect()
+        assert vis.left() == pytest.approx(b.h_min, abs=1.0)
+        assert vis.right() == pytest.approx(b.h_max, abs=1.0)
     _host(ms, gl, along_mm=11000.0)                           # wholly outside
     sec.rebuild()
     assert len(_copies(sec)) == 2

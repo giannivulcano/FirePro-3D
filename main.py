@@ -2762,6 +2762,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         if self._block_activation_refusal(block_id) is not None:
             return
+        # A Section tab places gridline-hosted blocks in the section itself
+        # (hosted-blocks G16) instead of arming the plan scene.
+        from firepro3d.elevation_view import SectionView
+        cur = self.central_tabs.currentWidget()
+        if isinstance(cur, SectionView) and hasattr(cur.scene(), "begin_place_block"):
+            cur.scene().begin_place_block(block_id)
+            QTimer.singleShot(0, cur.setFocus)
+            return
         scene = self._active_scene()
         scene.set_mode("place_block", template=block_id)
         # Keyboard focus follows the placement onto the canvas, so Space /
