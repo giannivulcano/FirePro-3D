@@ -233,7 +233,9 @@ class ModelBrowser(QWidget):
                         label = f"{label} (on {hgl._label_text})"
                     item = QTreeWidgetItem(blocks_root, [label])
                     item.setData(0, _ROLE_ENTITY, id(inst))
-                    item.setToolTip(0, f"Level: {inst.level}")
+                    item.setToolTip(
+                        0, f"Hosted on {hgl._label_text}" if hgl is not None
+                        else f"Level: {inst.level}")
                     self._style_hidden(item, inst)
 
             # -- Doors --
@@ -615,14 +617,21 @@ class ModelBrowser(QWidget):
                     entities.append(entity)
         if not entities:
             return
+        # A hosted block is plan-hidden (D11): Qt refuses setSelected(True) on
+        # it, so it goes to delete_items() by explicit list (one undo step).
+        hosted = [e for e in entities if getattr(e, "host", None)]
+        plain = [e for e in entities if not getattr(e, "host", None)]
         self._syncing = True
         try:
             self._scene.clearSelection()
-            for entity in entities:
+            for entity in plain:
                 entity.setSelected(True)
         finally:
             self._syncing = False
-        self._scene.delete_selected_items()
+        if hosted:
+            self._scene.delete_items(hosted + list(self._scene.selectedItems()))
+        else:
+            self._scene.delete_selected_items()
         self.refresh()
 
     # ── Checkbox handler ───────────────────────────────────────────────

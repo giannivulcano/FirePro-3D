@@ -102,6 +102,7 @@ def test_cut_gridline_cascades_hosted_blocks_one_undo(qapp):
         click(view, QPointF(-300, -300))
         assert gl not in ms._gridlines
         assert ms._block_instances == []            # real Cut path cascaded
+        assert msgs[-1].endswith(" and 2 hosted block(s)")
         assert ms._undo_pos == p0 + 1
         ms.undo()
         g2 = ms.gridline_by_uid(gl._uid)

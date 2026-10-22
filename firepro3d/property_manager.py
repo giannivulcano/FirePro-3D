@@ -610,7 +610,7 @@ class PropertyManager(QWidget):
         # off the host record, not the row name.)
         _owns_elevation_rows = any(
             k in props for k in ("Top Reference", "Bottom Reference")
-        ) or bool(getattr(primary, "host", None))
+        ) or any(getattr(t, "host", None) for t in self._targets)
         if (not has_level_ref
                 and "Level" not in props
                 and not _owns_elevation_rows

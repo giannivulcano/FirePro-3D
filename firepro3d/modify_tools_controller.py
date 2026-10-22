@@ -275,12 +275,13 @@ class ModifyToolsController:
             sel = list(items)
             s.blockSignals(True)
             try:
-                s._bulk_delete(sel, set(sel))
+                _names, n_hosted = s._bulk_delete(sel, set(sel))
             finally:
                 s.blockSignals(False)
             s.selectionChanged.emit()
             s.push_undo_state()
-            s._show_status(f"Cut {n} item(s)")
+            s._show_status(f"Cut {n} item(s)" + (
+                f" and {n_hosted} hosted block(s)" if n_hosted else ""))
         else:
             s._show_status(f"Copied {n} item(s)")
         s._copy_is_cut = False

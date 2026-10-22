@@ -48,6 +48,7 @@ def test_label_suffix(mgr):
     br = _browser(ms)
     rows = _block_rows(br)
     assert [r.text(0) for r in rows] == ["A (on B)"]
+    assert rows[0].toolTip(0) == "Hosted on B"
 
 
 def test_plain_block_keeps_plain_label(mgr):
@@ -202,3 +203,41 @@ def test_hosted_click_clears_stale_plan_selection(mgr):
     row = next(r for r in _block_rows(br) if r.data(0, _ROLE_ENTITY) == id(hosted))
     row.setSelected(True)
     assert ms.selectedItems() == []
+
+
+def _press_delete(br):
+    from PyQt6.QtCore import QEvent, Qt
+    from PyQt6.QtGui import QKeyEvent
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+    assert br.eventFilter(br._tree, ev)          # the real Delete-key entry
+
+
+def test_browser_delete_removes_hosted_block_one_undo(mgr):
+    m, ms, tabs = mgr
+    gl, hosted = _gl_inst(ms)
+    ms.push_undo_state()
+    br = _browser(ms)
+    row = next(r for r in _block_rows(br) if r.data(0, _ROLE_ENTITY) == id(hosted))
+    row.setSelected(True)
+    p0 = ms._undo_pos
+    _press_delete(br)
+    assert ms._block_instances == []
+    assert ms._undo_pos == p0 + 1
+    ms.undo()
+    assert len(ms._block_instances) == 1
+
+
+def test_browser_delete_plain_plus_hosted_one_undo(mgr):
+    m, ms, tabs = mgr
+    gl, hosted = _gl_inst(ms)
+    plain = ms.place_block_instance(defn(ms, "P").id, (500, 500))
+    ms.push_undo_state()
+    br = _browser(ms)
+    for r in _block_rows(br):
+        r.setSelected(True)
+    p0 = ms._undo_pos
+    _press_delete(br)
+    assert ms._block_instances == []
+    assert ms._undo_pos == p0 + 1
+    ms.undo()
+    assert len(ms._block_instances) == 2
