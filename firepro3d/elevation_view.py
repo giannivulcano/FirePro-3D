@@ -307,6 +307,18 @@ class SectionView(QGraphicsView):
                 self.viewport().update()
                 event.accept()
                 return
+            # Arrows flip on screen (as Model_Space): <-/-> left-right, up/down
+            # top-bottom; auto-repeat ignored, any real modifier is another chord.
+            if (event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                                Qt.Key.Key_Up, Qt.Key.Key_Down)
+                    and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
+                    == Qt.KeyboardModifier.NoModifier):
+                if not event.isAutoRepeat():
+                    sc.flip_place_block(
+                        "h" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "v")
+                    self.viewport().update()
+                event.accept()
+                return
             if event.key() == Qt.Key.Key_Escape:
                 sc.cancel_place_block()
                 self.viewport().update()

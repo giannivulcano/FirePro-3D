@@ -2605,7 +2605,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     _MODE_INSTRUCTIONS = {
         "select":         "Select items to edit",
         "pipe":           "Click to place first node, then second node",
-        "place_block":    "Click to place block  ·  Space / Shift+Space = rotate 90°  (Esc to finish)",
+        "place_block":    "Click to place block  ·  Space / Shift+Space = rotate 90°  ·  ←→ / ↑↓ = flip  (Esc to finish)",
         "sprinkler":     "Click a node or pipe to place sprinkler",
         "draw_line":      "Click first point, then second point (Tab for exact input)",
         "draw_rectangle": "Click base point, then first side, then depth (Tab for exact input)",

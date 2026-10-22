@@ -34,6 +34,7 @@ from .constants import DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG
 from . import theme as th
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
+from .block_pose import reflect_pose
 from .displayable_item import draw_section_hatch
 from .halo_selection import HaloSelectionMixin
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
@@ -849,6 +850,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._place_ghost = None
         self._place_ghost_pt = None         # last ghost point (survives a rebuild)
         self._place_rot = 0.0
+        self._place_mirrored = False
         self._show_datums = True
 
         # Per-view Z-extent overrides keyed by gridline label live on the
@@ -1164,7 +1166,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         cursor and a click places it on the host gridline (hosted-blocks G16)."""
         self._drop_place_state()                 # silent: no select flicker
         self._place_block_id, self._place_rot = block_id, 0.0
-        g = _HostedBlockCopy(block_id=block_id, resolver=self._ms.get_block_definition)
+        self._place_mirrored = False
+        g =_HostedBlockCopy(block_id=block_id, resolver=self._ms.get_block_definition)
         g._is_ghost = True
         g.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         g.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -1198,6 +1201,22 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         if self._place_ghost is not None:
             self._place_ghost.set_block_rotation(self._place_rot)
 
+    def flip_place_block(self, axis: str) -> None:
+        """Flip the armed placement across a SCREEN line through its origin
+        (same pose algebra as ``Model_Space.flip_place_block``); each call
+        toggles, live on the ghost.
+
+        Args:
+            axis: ``"h"`` for left/right (mirror across the screen-vertical
+                line) or ``"v"`` for up/down (screen-horizontal line).
+        """
+        theta = 90.0 if axis == "h" else 0.0        # Y-up heading of the mirror line
+        self._place_rot, self._place_mirrored = reflect_pose(
+            self._place_rot, self._place_mirrored, theta)
+        if self._place_ghost is not None:
+            self._place_ghost.set_block_rotation(self._place_rot)
+            self._place_ghost.set_block_mirrored(self._place_mirrored)
+
     def move_place_ghost(self, scene_pt) -> None:
         """Put the ghost at *scene_pt*; faded when no host gridline is in reach."""
         g = self._place_ghost
@@ -1212,7 +1231,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         if bid is None:
             return None
         self._place_ghost_pt = (scene_pt.x(), scene_pt.y())   # the re-armed ghost stays here
-        return self.place_hosted_block(bid, scene_pt, rotation=self._place_rot)
+        return self.place_hosted_block(bid, scene_pt, rotation=self._place_rot,
+                                       mirrored=self._place_mirrored)
 
     def _snap_tol_scene(self, view) -> float:
         """The shared OSNAP aperture in section-scene mm at *view*'s zoom."""
@@ -1361,10 +1381,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._assign_depth_z_values()
         if self._place_block_id is not None:        # placement survives a rebuild
             bid, rot, gpt = self._place_block_id, self._place_rot, self._place_ghost_pt
+            mir = self._place_mirrored
             self.begin_place_block(bid)
-            self._place_rot = rot
+            self._place_rot, self._place_mirrored = rot, mir
             if self._place_ghost is not None:
                 self._place_ghost.set_block_rotation(rot)
+                self._place_ghost.set_block_mirrored(mir)
                 if gpt is not None:
                     self._place_ghost_pt = gpt
                     self._place_ghost.set_block_pos(*gpt)

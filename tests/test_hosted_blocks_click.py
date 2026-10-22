@@ -212,3 +212,83 @@ def test_section_placement_clears_the_properties_panel(qapp):
         assert win.prop_manager._targets == []
     finally:
         dispose_main_window(win)
+
+
+def _flip_window():
+    """Armed section window plus a gridline the north elevation can host on."""
+    win, d, sec = _armed_section_window()
+    gl = None
+    for y in (-500.0, 500.0, -3000.0, 3000.0, 0.0):
+        g = gridline(win.scene, (-2000, y), (2000, y), "H%d" % int(y))
+        sec.rebuild()
+        if sec.can_host_at(QPointF(0.0, -1500.0)):
+            gl = g
+            break
+        win.scene._gridlines.remove(g)
+        win.scene.removeItem(g)
+    assert gl is not None, "no host gridline for the north elevation"
+    win._on_block_activated(d.id)
+    view = win.central_tabs.currentWidget()
+    view.setFocus()
+    QApplication.processEvents()
+    return win, d, sec, gl, view
+
+
+def _place_flipped(keys):
+    from tests._mainwindow_helpers import dispose_main_window
+    win, d, sec, gl, view = _flip_window()
+    try:
+        for k in keys:
+            QTest.keyClick(win.windowHandle(), k)
+            QApplication.processEvents()
+        ghost = sec._place_ghost
+        ghost_pose = (ghost.block_rotation(), ghost.block_mirrored())
+        inst = sec.click_place_block(QPointF(0.0, -1500.0))
+        assert inst is not None
+        (cp,) = sec._hosted_copies.values()
+        return ((inst.block_rotation(), inst.block_mirrored()), ghost_pose,
+                (cp.block_rotation(), cp.block_mirrored()))
+    finally:
+        dispose_main_window(win)
+
+
+def test_left_arrow_mirrors_ghost_and_placed_block(qapp):
+    """G16 parity: <- mirrors left-right live; the placed block keeps the pose and
+    its section copy renders mirrored in that same view."""
+    from firepro3d.block_pose import reflect_pose
+    want = reflect_pose(0.0, False, 90.0)
+    placed, ghost, copy = _place_flipped([Qt.Key.Key_Left])
+    assert want[1] is True
+    assert ghost == pytest.approx(want) and placed == pytest.approx(want)
+    assert copy[1] is True and copy[0] == pytest.approx(want[0])
+
+
+def test_up_arrow_flips_top_bottom(qapp):
+    from firepro3d.block_pose import reflect_pose
+    want = reflect_pose(0.0, False, 0.0)
+    placed, ghost, copy = _place_flipped([Qt.Key.Key_Up])
+    assert ghost == pytest.approx(want) and placed == pytest.approx(want)
+    assert copy[1] is True and copy[0] == pytest.approx(want[0])
+
+
+def test_two_left_arrows_cancel(qapp):
+    placed, ghost, copy = _place_flipped([Qt.Key.Key_Left, Qt.Key.Key_Right])
+    assert placed == pytest.approx((0.0, False)) and ghost == pytest.approx((0.0, False))
+    assert copy[1] is False
+
+
+def test_flip_after_space_uses_screen_axis(qapp):
+    from firepro3d.block_pose import reflect_pose
+    want = reflect_pose(-90.0, False, 90.0)
+    placed, _g, _c = _place_flipped([Qt.Key.Key_Space, Qt.Key.Key_Left])
+    assert placed == pytest.approx(want)
+
+
+def test_section_place_block_hint_mentions_flip(qapp):
+    win, d, sec = _armed_section_window()
+    from tests._mainwindow_helpers import dispose_main_window
+    try:
+        win._on_block_activated(d.id)
+        assert "flip" in win.footer.instruction.text()
+    finally:
+        dispose_main_window(win)
