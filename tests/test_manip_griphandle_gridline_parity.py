@@ -131,7 +131,9 @@ def test_endpoint_apply_matches_legacy_and_propagates():
     sc = _StubScene(); m = _StubM(sc)
     h.on_press(m)
     h.on_drag(m, QPointF(40, 6200), Qt.KeyboardModifier.NoModifier)
-    assert migrated.to_dict() == legacy.to_dict()
+    # uid is random per gridline (hosted-blocks D3); compare every other key.
+    assert ({k: v for k, v in migrated.to_dict().items() if k != "uid"}
+            == {k: v for k, v in legacy.to_dict().items() if k != "uid"})
     # parallel-delta fired with (index, applied-old delta)
     assert sc.prop_calls[0][0] == 1
     assert sc.prop_calls[0][1] == QPointF(0, 1200)   # far went 5000 -> 6200 on-axis
