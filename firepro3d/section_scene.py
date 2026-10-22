@@ -1214,7 +1214,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             cp.set_block_mirrored(mirrored)
             cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
             cp.setData(_ROLE_SOURCE, src)
-            cp.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
             br = cp.mapRectToScene(cp.boundingRect())
             top = cp
             if br.left() < b.h_min or br.right() > b.h_max:
@@ -1224,7 +1223,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                                                 b.h_max - b.h_min, br.height() + 2.0))
                 clip.setPen(QPen(Qt.PenStyle.NoPen))
                 clip.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
-                clip.setData(0, "hosted_clip")
                 self.addItem(clip)
                 cp.setParentItem(clip)
                 top = clip

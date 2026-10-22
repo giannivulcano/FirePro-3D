@@ -71,16 +71,26 @@ def test_depth_order_between_walls(qapp, section_scene_for):
 
 
 def test_lateral_clip(qapp, section_scene_for):
+    """Blocks straddling h_max and h_min are clipped at BOTH edges: Qt reports
+    each copy clipped, and its clip path is the [h_min, h_max] box."""
     ms, sec = _placed_scene(section_scene_for, (0, 0), (10000, 0), 8000.0)
     gl = gridline(ms, (0, -3000), (12000, -3000), "B")
     _host(ms, gl, along_mm=9950.0)                            # 100 mm line crosses h_max=10000
+    _host(ms, gl, along_mm=-50.0)                             # crosses h_min=0
     sec.rebuild()
-    (cp,) = _copies(sec)
-    clip = cp.parentItem()
-    assert clip is not None and clip.rect().right() == pytest.approx(10000.0)
+    cps = _copies(sec)
+    assert len(cps) == 2
+    b = sec.basis
+    for cp in cps:
+        assert cp.isClipped()                                 # Qt: an ancestor clips it
+        clip = cp.parentItem()
+        assert clip.rect().left() == pytest.approx(b.h_min)
+        assert clip.rect().right() == pytest.approx(b.h_max)
+        vis = cp.mapRectToScene(cp.clipPath().boundingRect())
+        assert vis.left() >= b.h_min - 1e-6 and vis.right() <= b.h_max + 1e-6
     _host(ms, gl, along_mm=11000.0)                           # wholly outside
     sec.rebuild()
-    assert len(_copies(sec)) == 1
+    assert len(_copies(sec)) == 2
 
 
 def test_hide_then_show_all_hosted_copy(qapp, section_scene_for):
