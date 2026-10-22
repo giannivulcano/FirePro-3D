@@ -336,29 +336,13 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         fill_poly = QPolygonF([p1l, p2l, *self._end_wedge_pts2,
                                p2r, p1r, *self._end_wedge_pts1])
 
-        if not solid_pt1 and not solid_pt2:
-            # No solid joins — draw full polygon as before
-            painter.setPen(pen)
+        # Fill, then the section hatch, then the outline on top: the hatch
+        # body fills the whole polygon, so an outline stroked before it loses
+        # its inner half on paper (AC1, wall-room-floor-system s6.2).
+        if fill_brush != Qt.BrushStyle.NoBrush:
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(fill_brush)
             painter.drawPolygon(fill_poly)
-        else:
-            # Fill the quad without outline, then draw only non-solid edges
-            if fill_brush != Qt.BrushStyle.NoBrush:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(fill_brush)
-                painter.drawPolygon(fill_poly)
-
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            # Left side edge (always drawn)
-            painter.drawLine(p1l, p2l)
-            # Right side edge (always drawn)
-            painter.drawLine(p1r, p2r)
-            # End edges: only draw if NOT solid at that endpoint
-            if not solid_pt1:
-                painter.drawLine(p1l, p1r)
-            if not solid_pt2:
-                painter.drawLine(p2l, p2r)
 
         # Section hatching — shown when fill mode is Section/Hatch, OR when
         # the view-range cut plane intersects this wall.
@@ -383,6 +367,19 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                section_fill=sec_fill,
                                hatch_scale=h_scale,
                                to_scene=self.sceneTransform())
+
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if not solid_pt1 and not solid_pt2:
+            painter.drawPolygon(fill_poly)
+        else:
+            # Left / right side edges always; an end edge only if NOT solid
+            painter.drawLine(p1l, p2l)
+            painter.drawLine(p1r, p2r)
+            if not solid_pt1:
+                painter.drawLine(p1l, p1r)
+            if not solid_pt2:
+                painter.drawLine(p2l, p2r)
 
         # Selection highlight
         if self.isSelected():

@@ -214,23 +214,17 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             painter.setBrush(QBrush(bg))
             painter.drawPolygon(QPolygonF(self._points))
 
-        painter.setPen(pen)
-
+        # Fill, then the section hatch, then the outline on top (AC1): the
+        # hatch body fills the polygon and would cover the stroke's inner half.
         dfc = self._display_fill_color
-        if dfc == "":                       # No Fill: draws nothing
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-        else:
+        if dfc != "" and len(self._points) >= 3:           # "" = No Fill
             fill_color = (QColor(self._color) if dfc is None
                           else resolve_colour(dfc, item=self))
             if not getattr(self, "_paper_fill_opaque", False):
                 fill_color.setAlpha(_FILL_ALPHA)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(fill_color))
-
-        if len(self._points) >= 3:
-            poly = QPolygonF(self._points)
-            painter.drawPolygon(poly)
-        elif len(self._points) == 2:
-            painter.drawLine(self._points[0], self._points[1])
+            painter.drawPolygon(QPolygonF(self._points))
 
         # Section-cut hatch overlay
         if getattr(self, "_is_section_cut", False) and len(self._points) >= 3:
@@ -250,6 +244,13 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                                section_fill=sec_fill,
                                hatch_scale=h_scale,
                                to_scene=self.sceneTransform())
+
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if len(self._points) >= 3:
+            painter.drawPolygon(QPolygonF(self._points))
+        elif len(self._points) == 2:
+            painter.drawLine(self._points[0], self._points[1])
 
         if self.isSelected():
             sel_pen = QPen(_SELECTION_COLOR, 2)
