@@ -1167,7 +1167,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._drop_place_state()                 # silent: no select flicker
         self._place_block_id, self._place_rot = block_id, 0.0
         self._place_mirrored = False
-        g =_HostedBlockCopy(block_id=block_id, resolver=self._ms.get_block_definition)
+        g = _HostedBlockCopy(block_id=block_id, resolver=self._ms.get_block_definition)
         g._is_ghost = True
         g.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         g.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
