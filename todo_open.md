@@ -140,6 +140,9 @@
 
 > 2D symbol definitions + instances; sibling to Features. Governing spec `docs/specs/block-system.md`; landed slices S1–S4.6 in todo_closed.md.
 
+- [ ] [type:bug] Cut never emits `blockInstancesChanged` -- Blocks/Model browser can stay stale after Cutting a block or a host gridline [P3] [subject:Blocks]
+  - Details: found by the gridline-hosted blocks T5 review (2026-10-22). The Cut commit (`modify_tools_controller.py` `press_copy_base`, which calls `Model_Space._bulk_delete`) blocks signals and re-emits only `selectionChanged`; `delete_items` re-emits `blockInstancesChanged`, Cut does not. Pre-existing for plain BlockInstances; since T5 a Cut host gridline also removes its hosted blocks. Repro first: Cut a block, check whether the Model browser "Blocks" group drops the row. Fix: emit `blockInstancesChanged` when `_bulk_delete` removed any block (use its returned count).
+
 ### Schematics build (what = `docs/specs/schematics.md` D-S1–D-S18; how = `docs/superpowers/specs/2026-10-07-schematics-concept-design.md` SD1–SD11)
 
 > Filed 2026-10-07 by the schematics concept run (grill Q1–Q18 + brainstorm groups A–C, all ratified). SV1 → SV2 → SV3; SV4 after SV2 (∥ SV3). A schematic = `BlockDefinition` with `kind == "schematic"`, never instanced, authored in the Block Editor, placed on sheets only as a viewport; sheets hold viewports + title block + sheet text and nothing else (D-S2 — supersedes the P1 "Paper-space block placement" task, moved to todo_closed). Guards G1–G6 + keep-green list in the concept doc. Revisit triggers (D-S1): data-driven schematics after SB5/SB6; sheet furniture (north arrow / scale bar) at SB4f; legends = the placed-table feature, not a schematic.
