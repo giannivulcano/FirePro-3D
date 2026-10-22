@@ -1206,14 +1206,19 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
             datum_color = (item._datum_color if item._color_src is None
                            else resolve_colour(item._color_src, item=item))
+            painter.save()
             if item._paper_line_w_mm:
                 from .gridline import _dash_pattern_mm
                 pen = QPen(datum_color, item._paper_line_w)
                 pen.setDashPattern(_dash_pattern_mm(item._paper_line_w_mm))
+                # The scene painter carries no item opacity: apply the
+                # "Level Datum" row Opacity the children get (AC4).
+                painter.setOpacity(painter.opacity() * item.opacity())
             else:
                 pen = QPen(datum_color, item._pen_w, Qt.PenStyle.DashDotLine)
             painter.setPen(pen)
             painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
+            painter.restore()
 
             if item.isSelected() and not item._paper_line_w_mm:
                 sel_pen = QPen(datum_color.lighter(150),

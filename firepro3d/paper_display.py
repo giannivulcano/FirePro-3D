@@ -1256,16 +1256,19 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # weight, paper-mm dash, true-scale bubble.
                 entry = {"item": item, "cat_key": cat_key, "elev_paper": None,
                          "opacity": item.opacity(), "visible": item.isVisible()}
-                saved.append(entry)
                 if not cat.get("visible", True):
+                    saved.append(entry)
                     item.setVisible(False)
                     continue
                 bw = color_mode != PaperColorMode.FULL_COLOR
+                # Saved only once the pass is entered: restore never sees a
+                # half-entered item.
                 entry["elev_paper"] = item.enter_paper_pass(
                     resolve_line_weight_mm(cat["line_weight"]), paper_scale,
                     color_src=cat["color"] if bw else None,
                     fill_src=cat["fill"] if bw else None,
                     cap_mm=cat.get("bubble_label_height_mm"))
+                saved.append(entry)
                 item.setOpacity(cat["opacity"] / 100.0)
                 continue
 
@@ -1493,8 +1496,11 @@ def restore_model_display(saved: list[dict]):
             item.setVisible(entry.get("visible", True))
             continue
         if entry.get("proxy"):
-            item.__dict__.pop("_paper_pen_width", None)
-            item.update()
+            try:
+                item.__dict__.pop("_paper_pen_width", None)
+                item.update()
+            except RuntimeError:          # proxy deleted mid-pass (rebuild)
+                pass
             continue
         if "elev_paper" in entry:
             item.setVisible(entry["visible"])
