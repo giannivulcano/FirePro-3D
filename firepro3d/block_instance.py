@@ -1430,6 +1430,8 @@ class BlockInstance(QGraphicsObject):
         if sc is None or not hasattr(sc, "gridline_by_uid"):
             return
         gl = sc.gridline_by_uid(self.host["gridline"])
+        if gl is None:
+            return                      # unresolved host: refuse, no untracked edit
         before = dict(self.host)
         if key in ("Offset", "Elevation"):
             v = self._parse_dim(value)

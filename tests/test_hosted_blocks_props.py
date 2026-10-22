@@ -100,3 +100,97 @@ def test_noop_commit_is_no_step(qapp, make_model_space):
     depth0 = ms._undo_pos
     _commit(inst, "Offset", 200.0)
     assert ms._undo_pos == depth0
+
+
+def _label_texts(pm):
+    form = pm._form
+    out = []
+    for r in range(form.rowCount()):
+        it = form.itemAt(r, form.ItemRole.LabelRole)
+        w = it.widget() if it is not None else None
+        if w is not None and hasattr(w, "text"):
+            out.append(w.text())
+    return out
+
+
+def test_hosted_block_gets_no_legacy_level_combo(qapp, make_model_space):
+    """G13: Level is hidden for a hosted block, including the legacy combo the
+    manager adds for items with a bare `.level` and a level manager."""
+    ms = make_model_space(); b, c, inst = _setup(ms)
+    from firepro3d.level_manager import LevelManager
+    pm = PropertyManager()
+    pm.set_level_manager(LevelManager())
+    pm.show_properties(inst)
+    QApplication.processEvents()
+    labels = _label_texts(pm)
+    assert "Reference" in labels                    # the walk sees real rows
+    assert "Level" not in labels
+    # positive control: the same walk finds Level on an unhosted block
+    plain = ms.place_block_instance(defn(ms).id, (0, 0))
+    pm.show_properties(plain)
+    QApplication.processEvents()
+    assert "Level" in _label_texts(pm)
+
+
+@pytest.mark.parametrize("key,value", [("Offset", 300.0), ("Elevation", 1000.0)])
+def test_unresolved_host_refuses_edit(qapp, make_model_space, key, value):
+    ms = make_model_space(); b, c, inst = _setup(ms)
+    ms.push_undo_state()
+    depth0 = ms._undo_pos
+    before = dict(inst.host)
+    ms._gridlines.remove(b)                          # host no longer resolves
+    assert ms.gridline_by_uid(b._uid) is None
+    inst.set_property(key, value)
+    assert inst.host == before
+    assert ms._undo_pos == depth0
+
+
+@pytest.mark.parametrize("c_reversed", [False, True])
+@pytest.mark.parametrize("back_view", [False, True])
+def test_rehost_30deg_keeps_h_and_viewing_side(qapp, make_model_space,
+                                               c_reversed, back_view):
+    import math
+    from firepro3d.section_marker import SectionBasis
+    L = 6000.0
+    c30, s30 = math.cos(math.radians(30)), 0.5
+    ms = make_model_space()
+    # B: world origin (0,0), u=(c30,s30), n=(-s30,c30). Plan scene is Y-down,
+    # so scene = (wx, -wy), ppm 1.
+    b = gridline(ms, (0, 0), (L * c30, -L * s30), "B")
+    # C: same direction, 4000 mm along n_B: world origin (-2000, 4000*c30).
+    co = (-2000.0, 4000.0 * c30)
+    ce = (co[0] + L * c30, co[1] + L * s30)
+    p, q = ((co[0], -co[1]), (ce[0], -ce[1]))
+    c = gridline(ms, q if c_reversed else p, p if c_reversed else q, "C")
+    inst = ms.place_block_instance(defn(ms).id, (0, 0), host={
+        "gridline": b._uid, "offset_mm": 200.0, "along_mm": 1500.0,
+        "elevation_mm": 2400.0, "facing": 1})
+    if back_view:
+        # cut from far end back: D=-u, N=-n; A = (L u) + 5000 n so both
+        # gridlines (0 and 4000 along n) lie in front of it at depth 5000/1000.
+        a = (L * c30 - 5000.0 * s30, L * s30 + 5000.0 * c30)
+        basis = SectionBasis.from_cut(a, (a[0] - L * c30, a[1] - L * s30), 1, 8000.0)
+    else:
+        basis = SectionBasis.from_cut((0.0, 0.0), (L * c30, L * s30), 1, 8000.0)
+    before = hb.section_pose(basis, b, inst.host, 30.0, False, 1.0)
+    # Independent expectations. World point = 1500*u + 200*n, so its u-component
+    # is 1500 (n.u = 0). Section h is P.D (absolute): front D=u -> 1500;
+    # back D=-u -> -1500. Front looks along n (facing +1 = host facing:
+    # not mirrored, rot 30); back looks along -n (facing -1 != host: mirrored,
+    # rot -30). Block depth is 5000-200 (back) or 200 (front): inside 8000.
+    exp_h = -1500.0 if back_view else 1500.0
+    assert before[0] == pytest.approx(exp_h)
+    assert before[3] is back_view
+    assert before[4] == pytest.approx(-30.0 if back_view else 30.0)
+
+    inst.set_property("Reference", "C")
+    assert inst.host["gridline"] == c._uid
+    assert inst.host["offset_mm"] == 200.0           # non-zero offset kept
+    # Reversed C has n_C = -n_B, so facing re-signs to -1; same-direction C: +1.
+    assert inst.host["facing"] == (-1 if c_reversed else 1)
+    after = hb.section_pose(basis, c, inst.host, 30.0, False, 1.0)
+    assert after is not None                          # C (d=4000) is in depth
+    assert after[0] == pytest.approx(exp_h)           # h unchanged
+    assert after[1] == before[1]                      # elevation unchanged
+    assert after[3] == before[3]                      # mirroring (viewing side)
+    assert after[4] == pytest.approx(before[4])

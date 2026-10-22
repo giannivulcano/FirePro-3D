@@ -605,9 +605,12 @@ class PropertyManager(QWidget):
         # carry a vestigial `.level` attr, so they must opt OUT — a legacy Level
         # combo there would resurrect the retired `.level` coupling and lie
         # (their elevation does not depend on `.level` in those modes).
+        # Gridline-hosted blocks (G13) hide Level too: their elevation is the
+        # host's Elevation row. ("Reference" is also a 2D-shape toggle, so key
+        # off the host record, not the row name.)
         _owns_elevation_rows = any(
             k in props for k in ("Top Reference", "Bottom Reference")
-        )
+        ) or bool(getattr(primary, "host", None))
         if (not has_level_ref
                 and "Level" not in props
                 and not _owns_elevation_rows
