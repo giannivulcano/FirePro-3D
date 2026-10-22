@@ -9,11 +9,15 @@ Matches the interaction patterns from Model_View.py.
 
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtWidgets import QGraphicsView
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QPainter, QKeySequence, QShortcut
 
 from . import theme as th
+
+_log = logging.getLogger(__name__)
 
 
 class SectionView(QGraphicsView):
@@ -44,6 +48,10 @@ class SectionView(QGraphicsView):
         # Zoom anchored under mouse
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+
+        # Blocks-browser drag over this view (hosted-blocks D9); None = no drag.
+        self._block_drop = None
+        self.setAcceptDrops(True)
 
         # Pan state
         self._panning = False
@@ -77,6 +85,69 @@ class SectionView(QGraphicsView):
             scene.blockSignals(False)
             scene.selectionChanged.emit()
             self.viewport().update()
+
+    # ── Block drag & drop (gridline-hosted placement, hosted-blocks D9) ──
+
+    def dragEnterEvent(self, event):
+        from . import block_drop
+        sc = self.scene()
+        try:
+            payload = block_drop.block_payload(event)
+            if payload is None or sc is None or not hasattr(sc, "place_hosted_block"):
+                super().dragEnterEvent(event)
+                return
+            defn, _pool, refusal = block_drop.resolve_block_drag(sc._ms, payload)
+            if refusal:
+                sc._ms._show_status(refusal)
+                event.ignore()
+                return
+            self._block_drop = {"payload": payload, "name": defn.name}
+            event.acceptProposedAction()
+        except Exception:
+            self._abort_block_drop(event, "enter")
+
+    def dragMoveEvent(self, event):
+        if self._block_drop is None:
+            super().dragMoveEvent(event)
+            return
+        try:
+            sc = self.scene()
+            pt = sc.snap_section_point(self.mapToScene(event.position().toPoint()), self)
+            if sc.can_host_at(pt):
+                event.acceptProposedAction()
+            else:
+                event.ignore()                     # no-drop cursor (G9)
+        except Exception:
+            self._abort_block_drop(event, "move")
+
+    def dragLeaveEvent(self, event):
+        self._block_drop = None
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        st, self._block_drop = self._block_drop, None
+        if st is None:
+            super().dropEvent(event)
+            return
+        try:
+            from .blocks_browser import ensure_block_loaded
+            sc = self.scene()
+            pt = sc.snap_section_point(self.mapToScene(event.position().toPoint()), self)
+            block_id = ensure_block_loaded(sc._ms, st["payload"]["id"],
+                                           st["payload"].get("path"), st["name"],
+                                           None, self)
+            if block_id is None or sc.place_hosted_block(block_id, pt) is None:
+                event.ignore()
+                return
+            event.acceptProposedAction()
+        except Exception:
+            self._abort_block_drop(event, "drop")
+
+    def _abort_block_drop(self, event, stage: str) -> None:
+        """Log, drop the drag state, ignore (a Qt drag handler must not raise)."""
+        _log.exception("Section block drag %s failed", stage)
+        self._block_drop = None
+        event.ignore()
 
     # ── Pan (middle mouse) ───────────────────────────────────────────────
 

@@ -49,6 +49,10 @@ _ROLE_SOURCE = Qt.ItemDataRole.UserRole
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
+# Footer status when a section placement finds no host gridline (hosted-blocks G9).
+HOSTED_REFUSAL = ("Can't place here — a block in a section needs a "
+                  "gridline parallel to the cut inside the view's depth.")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Colour-source items — stored colour strings resolved per paint (HF1)
@@ -1088,6 +1092,49 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def show_datums(self, val: bool):
         self._show_datums = val
         self.rebuild()
+
+    # ── Gridline-hosted block placement (hosted-blocks D9) ───────────────
+
+    def _hosted_target(self, scene_pt):
+        """The host gridline for a placement at *scene_pt*, or None (G8/G9)."""
+        from . import hosted_blocks as hb
+        b = self._basis
+        if b is None or not (b.h_min <= scene_pt.x() <= b.h_max):
+            return None
+        return hb.choose_host(b, getattr(self._ms, "_gridlines", []), self._ppm())
+
+    def can_host_at(self, scene_pt) -> bool:
+        """True when a block placed at *scene_pt* would find a host gridline."""
+        return self._hosted_target(scene_pt) is not None
+
+    def snap_section_point(self, pt, view=None):
+        """Placement point after snapping (identity until the click/snap layer)."""
+        return pt
+
+    def place_hosted_block(self, block_id: str, scene_pt, rotation: float = 0.0,
+                           mirrored: bool = False):
+        """Place a gridline-hosted model block at section *scene_pt* (D9).
+
+        Returns:
+            The model instance, or None after the G9 refusal status.
+        """
+        from . import hosted_blocks as hb
+        gl = self._hosted_target(scene_pt)
+        if gl is None:
+            self._ms._show_status(HOSTED_REFUSAL)
+            return None
+        host = hb.host_at(self._basis, gl, scene_pt.x(), -scene_pt.y(), self._ppm())
+        inst = self._ms.place_block_instance(block_id, (0.0, 0.0), rotation=rotation,
+                                             mirrored=mirrored, host=host)
+        if inst is not None:
+            inst.setVisible(False)                 # D11: hosted blocks never show in plan
+            self._ms.push_undo_state()
+            self.rebuild()
+            cp = self._hosted_copies.get(id(inst))
+            if cp is not None:
+                self.clearSelection()
+                cp.setSelected(True)
+        return inst
 
     # ── Coordinate projection ────────────────────────────────────────────
 
