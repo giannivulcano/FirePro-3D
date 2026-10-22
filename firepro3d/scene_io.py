@@ -426,6 +426,8 @@ class SceneIOMixin:
             inst = self.place_block_instance(
                 bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
                 **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
+            if inst is None:         # hosted on a gridline that is gone (Task 5 counts)
+                continue
             inst.attributes = dict(bdict.get("attributes", {}))
         self.blockDefinitionsChanged.emit()
         # Nested definitions the file lacks draw as red placeholders (D12).

@@ -122,6 +122,10 @@ class BlockInstance(QGraphicsObject):
         # exactly like any placed model entity (mirrors wall.z_range_mm).
         self.level = level
         self._level_offset_mm = float(level_offset_mm)
+        # Gridline hosting (hosted-blocks D2): None for a level-scoped
+        # instance; else the host record, single source of truth -- the plan
+        # pose is derived from it (C3 amendment: gridline-scoped).
+        self.host: Optional[dict] = None
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
         # Placement Weight / Linetype override (linetypes.md WM2): As
@@ -1295,6 +1299,9 @@ class BlockInstance(QGraphicsObject):
         level elevation plus the instance offset. ``None`` when no LevelManager
         is reachable (mirrors ``wall.z_range_mm``).
         """
+        if self.host:
+            e = float(self.host["elevation_mm"])
+            return (e, e)
         sc = self.scene()
         lm = getattr(sc, "_level_manager", None) if sc else None
         if lm is None:
@@ -1523,6 +1530,8 @@ class BlockInstance(QGraphicsObject):
             d["scale"] = self._pose_scale
         if not is_as_authored(self.overrides):
             d["overrides"] = dict(self.overrides)
+        if self.host:
+            d["host"] = dict(self.host)
         return d
 
     @classmethod
@@ -1540,6 +1549,8 @@ class BlockInstance(QGraphicsObject):
         inst.set_overrides(data.get("overrides"))
         if data.get("uid"):
             inst._uid = str(data["uid"])
+        if data.get("host"):
+            inst.host = dict(data["host"])
         return inst
 
     @classmethod
@@ -1562,4 +1573,5 @@ class BlockInstance(QGraphicsObject):
                 "scale": _record_scale(rec),
                 "level": rec.get("level", default_level),
                 "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
-                "overrides": rec.get("overrides")}
+                "overrides": rec.get("overrides"),
+                "host": rec.get("host")}

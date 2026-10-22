@@ -2498,7 +2498,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None, mirrored: bool = False,
-                             scale: float = 1.0, level_offset_mm: float = 0.0):
+                             scale: float = 1.0, level_offset_mm: float = 0.0,
+                             host: dict | None = None):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2513,8 +2514,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             mirrored: Pose part, design DD7 (local x -> -x, innermost).
             scale: Pose part, design DD7 (uniform, > 0).
             level_offset_mm: Pose part, design DD7 (Z offset from the level).
+            host: Gridline host record (hosted-blocks D2); pos is then derived
+                from it. An unresolved gridline places nothing and returns
+                None.
         """
         from .block_instance import BlockInstance
+        if host:
+            from .hosted_blocks import ppm_of, scene_pos
+            gl = self.gridline_by_uid(host.get("gridline"))
+            if gl is None:
+                return None
+            pos = scene_pos(gl, host, ppm_of(self))
         inst = BlockInstance(block_id=block_id, resolver=self.get_block_definition,
                              level=level or self.active_level,
                              level_offset_mm=level_offset_mm)
@@ -2528,6 +2538,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst.set_block_scale(scale)
         if overrides:
             inst.set_overrides(overrides)
+        if host:
+            inst.host = dict(host)
         self.addItem(inst)
         self._block_instances.append(inst)
         # Backref only when the definition lives in THIS scene's own store: a
@@ -2539,6 +2551,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             d._instances.append(inst)   # backref for edit-propagation
         self.blockInstancesChanged.emit()
         return inst
+
+    def gridline_by_uid(self, uid):
+        """The gridline whose ``_uid`` is *uid*, or None (hosted-blocks D3)."""
+        return next((g for g in self._gridlines if g._uid == uid), None)
 
     def remove_block_instance(self, inst) -> None:
         """Remove a BlockInstance from the scene and registry backref."""
@@ -3474,6 +3490,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 inst = self.place_block_instance(
                     bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
                     **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
+                if inst is None:     # hosted on a gridline that is gone (Task 5 counts)
+                    continue
                 inst.attributes = dict(bdict.get("attributes", {}))
             self.blockDefinitionsChanged.emit()
 
@@ -8657,6 +8675,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst = self.place_block_instance(
                 d["block_id"], (p[0], p[1]),
                 **BlockInstance.place_kwargs(d, default_level=self.active_level))
+            if inst is None:
+                return None
             inst.attributes = dict(d.get("attributes", {}))
             return inst
         entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
@@ -8873,6 +8893,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         obj["block_id"],
                         (_p[0] + offset.x(), _p[1] + offset.y()),
                         **BlockInstance.place_kwargs(obj, default_level=self.active_level))
+                    if inst is None:
+                        continue
                     inst.attributes = dict(obj.get("attributes", {}))
                     inst.setSelected(True)
                     if obj.get("uid"):
