@@ -226,6 +226,11 @@ class ModelBrowser(QWidget):
                     defn = inst.definition()
                     label = (defn.name if defn and getattr(defn, "name", "")
                              else getattr(inst, "block_id", f"Block {i}"))
+                    host = getattr(inst, "host", None)
+                    hgl = (self._scene.gridline_by_uid(host.get("gridline"))
+                           if host else None)
+                    if hgl is not None:
+                        label = f"{label} (on {hgl._label_text})"
                     item = QTreeWidgetItem(blocks_root, [label])
                     item.setData(0, _ROLE_ENTITY, id(inst))
                     item.setToolTip(0, f"Level: {inst.level}")
@@ -472,6 +477,16 @@ class ModelBrowser(QWidget):
                     entities.append(entity)
         if not entities:
             return
+        if len(entities) == 1 and getattr(entities[0], "host", None):
+            # A hosted block is plan-hidden (D11): focus a view that shows it.
+            sm = getattr(self._scene, "_section_manager", None)
+            if sm is not None:
+                self._syncing = True
+                try:
+                    sm.focus_hosted(entities[0])
+                finally:
+                    self._syncing = False
+            return
         self._syncing = True
         try:
             self._scene.clearSelection()
@@ -489,6 +504,11 @@ class ModelBrowser(QWidget):
         entity_id = item.data(0, _ROLE_ENTITY)
         if entity_id is not None:
             entity = self._find_entity_by_id(entity_id)
+            if entity is not None and getattr(entity, "host", None):
+                sm = getattr(self._scene, "_section_manager", None)
+                if sm is not None:
+                    sm.focus_hosted(entity)
+                return
             if entity is not None:
                 self._scene.clearSelection()
                 entity.setSelected(True)

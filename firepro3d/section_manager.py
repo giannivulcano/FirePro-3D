@@ -278,6 +278,72 @@ class SectionManager(QObject):
         for scene, _v in self._views.values():
             scene.rebuild()
 
+    def focus_hosted(self, inst) -> bool:
+        """Focus a view that shows gridline-hosted block *inst* and select its
+        copy there (hosted-blocks G18). The model block is plan-hidden (D11),
+        so it is never selected in plan.
+
+        Candidates, in order: open tabs, cardinals, placed sections by name.
+        A marker whose cut is not parallel to the host gridline is skipped
+        without building anything; the rest are tested on their scene (a
+        tab-less one is dropped again unless it is the hit, which opens a tab).
+
+        Returns:
+            True when a view was focused; False (with a status message) when
+            no section shows the block.
+        """
+        from . import hosted_blocks as hb
+        from .section_marker import SectionBasis
+        host = getattr(inst, "host", None) or {}
+        gl = self._ms.gridline_by_uid(host.get("gridline"))
+        label = getattr(gl, "_label_text", "?") if gl is not None else "?"
+        ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0
+
+        def _parallel(m: SectionMarker) -> bool:
+            if gl is None:
+                return False
+            try:
+                b = SectionBasis.from_cut(
+                    (m.cut_a.x() / ppm, -m.cut_a.y() / ppm),
+                    (m.cut_b.x() / ppm, -m.cut_b.y() / ppm),
+                    m.look_sign, m.depth / ppm)
+            except ValueError:
+                return False
+            return hb.is_parallel(b, gl)
+
+        order: list[str] = list(self.open_names)
+        order += [c for c in CARDINALS if c in self.markers and c not in order]
+        order += sorted(k for k, m in self.markers.items()
+                        if not m.cardinal and k not in order)
+        for key in order:
+            m = self.markers.get(key)
+            if m is None or not _parallel(m):
+                continue
+            was_built = key in self._views
+            scene = self.get_or_build_scene(key)
+            if scene is None:
+                continue
+            scene._rebuild_timer.stop()          # a pending rebuild would drop the copy we select
+            scene.rebuild()
+            if id(inst) not in scene._hosted_copies:
+                if not was_built:
+                    self._views.pop(key, None)
+                continue
+            view = self.open_section(key)
+            if view is None:
+                continue
+            scene._rebuild_timer.stop()
+            scene.rebuild()
+            cp = scene._hosted_copies.get(id(inst))
+            if cp is None:
+                continue
+            scene.clearSelection()
+            cp.setSelected(True)
+            return True
+        self._ms._show_status(f"No section shows this block (its gridline {label} "
+                              "isn't parallel to any view).")
+        return False
+
     def on_marker_geometry_changed(self, marker: SectionMarker) -> None:
         e = self._views.get(marker.view_name)
         if e is not None:
