@@ -55,6 +55,8 @@ def materialize_primitives(scene, prim_dicts) -> None:
         if d.get("type") == "block_instance":
             from .block_instance import BlockInstance
             pos = d.get("pos", [0.0, 0.0])
+            # A nested record never carries a host; a None return (unresolved host) is
+            # simply not placed -- same as this loop skipping an unknown type.
             scene.place_block_instance(d["block_id"], (pos[0], pos[1]),
                                        uid=d.get("uid"), **BlockInstance.place_kwargs(d))
             continue

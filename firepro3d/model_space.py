@@ -1031,6 +1031,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # geometry (D-A32 / LT4): the capability toggle owns its lifetime.
         from .capability_frame import CAPABILITY_FRAME_TAG
         selected = [i for i in items if i.data(0) != CAPABILITY_FRAME_TAG]
+        # Hosted-blocks D7: deleting a gridline deletes its hosted blocks in
+        # the same undo step (the wall -> openings cascade, one level up).
+        from .gridline import GridlineItem
+        gls = [i for i in selected if isinstance(i, GridlineItem)]
+        cascade = [b for g in gls for b in self.hosted_blocks_on(g)
+                   if b not in selected]
+        selected.extend(cascade)
         if not selected:
             return
         selected_set = set(selected)
@@ -1050,7 +1057,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         # Single scene refresh after all removals
         self.update()
-        self._show_status(f"Deleted {len(selected)} item(s)")
+        if cascade:
+            names = ", ".join(g._label_text for g in gls)
+            self._show_status(f"Deleted gridline {names} and "
+                              f"{len(cascade)} hosted block(s)")
+        else:
+            self._show_status(f"Deleted {len(selected)} item(s)")
         self.push_undo_state()
 
     def _bulk_delete(self, selected, selected_set):
@@ -2520,7 +2532,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         from .block_instance import BlockInstance
         if host:
-            from .hosted_blocks import ppm_of, scene_pos
+            from .hosted_blocks import ppm_of, scene_pos, valid_host
+            if not valid_host(host):     # malformed == unresolved (D3)
+                return None
             gl = self.gridline_by_uid(host.get("gridline"))
             if gl is None:
                 return None

@@ -106,3 +106,19 @@ def section_pose(basis, gl, host: dict, rotation: float, mirrored: bool,
     back = facing_of(basis, gl) != int(host.get("facing", 1))
     return (basis.h(wx, wy), -float(host["elevation_mm"]), d,
             bool(mirrored) != back, -rotation if back else rotation)
+
+
+HOST_KEYS = ("gridline", "along_mm", "offset_mm", "elevation_mm", "facing")
+
+
+def valid_host(host) -> bool:
+    """True when *host* is a well-formed host record (D3: a malformed record is
+    treated as an unresolved one, so a corrupt file cannot raise in a rebuild)."""
+    if not isinstance(host, dict) or any(k not in host for k in HOST_KEYS):
+        return False
+    try:
+        for k in HOST_KEYS[1:]:
+            float(host[k])
+    except (TypeError, ValueError):
+        return False
+    return True

@@ -421,12 +421,14 @@ class SceneIOMixin:
         for bid, ddict in payload.get("block_definitions", {}).items():
             self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
         from .block_instance import BlockInstance
+        orphan_hosts = 0
         for bdict in payload.get("blocks", []):
             _pos = bdict.get("pos", [0.0, 0.0])
             inst = self.place_block_instance(
                 bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
                 **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
-            if inst is None:         # hosted on a gridline that is gone (Task 5 counts)
+            if inst is None:         # hosted on a gridline that is gone (D3)
+                orphan_hosts += 1
                 continue
             inst.attributes = dict(bdict.get("attributes", {}))
         self.blockDefinitionsChanged.emit()
@@ -494,7 +496,10 @@ class SceneIOMixin:
         self._undo_stack = []
         self._undo_pos = -1
         self.push_undo_state()
-        self._show_status(f"Loaded from {filename}")
+        msg = f"Loaded from {filename}"
+        if orphan_hosts:
+            msg += f" -- dropped {orphan_hosts} hosted block(s) whose gridline is missing"
+        self._show_status(msg)
 
     # ------------------------------------------------------------------
     # CLEAR
