@@ -786,6 +786,9 @@ def _category_for_item(item) -> str | None:
     from .wall_opening import WallOpening
     from .room import Room
 
+    pc = getattr(item, "_paper_cat", None)
+    if pc is not None:              # section / elevation proxy (AC2)
+        return pc
     if isinstance(item, Pipe):
         return "Pipe"
     if isinstance(item, Sprinkler):
@@ -1236,6 +1239,15 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             cat = cats.get(cat_key)
             if cat is None:
                 continue
+            if getattr(item, "_paper_cat", None) is not None:
+                # Section / elevation proxy (AC2): the source category's
+                # weight only -- its colours already resolve on paper per
+                # paint (HF1); visibility and opacity stay as projected.
+                saved.append({"item": item, "cat_key": cat_key, "proxy": True})
+                item._paper_pen_width = (resolve_line_weight_mm(cat["line_weight"])
+                                         / max(paper_scale, 1e-9))
+                item.update()
+                continue
 
             # --- Save current state ---
             entry: dict = {
@@ -1459,6 +1471,10 @@ def restore_model_display(saved: list[dict]):
         if cat_key is None:
             # Origin-cross entry — visibility only (§9.9.1).
             item.setVisible(entry.get("visible", True))
+            continue
+        if entry.get("proxy"):
+            item.__dict__.pop("_paper_pen_width", None)
+            item.update()
             continue
 
         # Restore visibility and opacity (common to all)

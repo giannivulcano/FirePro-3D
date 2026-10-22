@@ -69,6 +69,8 @@ class _ColourSrcMixin:
     _brush_src = None
     _src_alpha = None
     _src_tint = None            # callable(QColor) -> QColor, e.g. lighter(150)
+    _paper_cat = None           # paper category of a projected proxy (AC2), e.g. "Wall"
+    _paper_pen_width = None     # paper pass: pen width in scene units, non-cosmetic
 
     def set_colour_src(self, pen=None, brush=None, alpha=None, tint=None) -> None:
         """Record the stored pen / brush colour strings (``None`` = leave that
@@ -93,13 +95,19 @@ class _ColourSrcMixin:
                 pen.setColor(self._src_tint(pen.color()))
             if self._brush_src is not None:
                 brush = QBrush(self._src_tint(brush.color()))
+        w = self._paper_pen_width
+        if w is not None and pen.style() != Qt.PenStyle.NoPen:
+            pen = QPen(pen)
+            pen.setWidthF(w)
+            pen.setCosmetic(False)
         return pen, brush
 
     def _draw_shape(self, painter) -> None:
         raise NotImplementedError
 
     def paint(self, painter, option, widget=None):
-        if self._pen_src is None and self._brush_src is None:
+        if (self._pen_src is None and self._brush_src is None
+                and self._paper_pen_width is None):
             super().paint(painter, option, widget)
             return
         pen, brush = self.resolved_pen_brush()
@@ -1166,6 +1174,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 # transparent whatever the alpha.
                 fill_src, fill_alpha = wall._colour, 255
             rect.set_colour_src(pen=dm_color, brush=fill_src, alpha=fill_alpha)
+            rect._paper_cat = "Wall"
             rect.setOpacity(dm_opacity)
 
             rect.setData(_ROLE_SOURCE, wall)
@@ -1288,6 +1297,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
                 # blank: void + frame only — no extra lines
 
+                for it in items_to_add[1:]:          # the void is NoPen
+                    it._paper_cat = op.display_category
                 for item in items_to_add:
                     self.addItem(item)
                 self._register_depth_item(depth, *items_to_add)
@@ -1336,6 +1347,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             pen = QPen(color, 2)
             pen.setCosmetic(True)
             line.setPen(pen)
+            line._paper_cat = "Pipe"
             line.setData(_ROLE_SOURCE, pipe)
             line.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable, True)
 
@@ -1379,6 +1391,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             pen.setCosmetic(True)
             ellipse.setPen(pen)
             ellipse.setBrush(QBrush())
+            ellipse._paper_cat = "Sprinkler"
             ellipse.setData(_ROLE_SOURCE, node)
             ellipse.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsSelectable, True)
 
@@ -1461,6 +1474,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             pen.setCosmetic(True)
             rect.setPen(pen)
             rect.set_colour_src(pen=dm_color, brush=dm_fill)
+            rect._paper_cat = "Floor"
             rect.setOpacity(dm_opacity)
             rect.setData(_ROLE_SOURCE, slab)
             rect.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -1529,6 +1543,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             pen.setCosmetic(True)
             rect.setPen(pen)
             rect.set_colour_src(pen=dm_color, brush=dm_fill)
+            rect._paper_cat = "Roof"
             rect.setOpacity(dm_opacity)
             rect.setData(_ROLE_SOURCE, roof)
             rect.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -1557,6 +1572,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     rect = _ElevCutRect(h_lo, -z1, h_hi - h_lo, z1 - z0)
                     rect.setPen(pen_black)
                     rect.set_colour_src(pen=props["color"])
+                    rect._paper_cat = "Wall" if kind == "wall" else "Floor"
                     rect.set_section(props["section"], props["section_pattern"], self,
                                      hatch_scale=props["section_scale"])
                     rect.setOpacity(props["opacity"] / 100.0)
@@ -1574,6 +1590,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 pen.setCosmetic(True)
                 circ.setPen(pen)
                 circ.set_colour_src(pen=own, brush=pipe_sec or own)
+                circ._paper_cat = "Pipe"
                 circ.setData(_ROLE_SOURCE, src)
                 circ.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                 self.addItem(circ)
