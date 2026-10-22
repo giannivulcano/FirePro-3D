@@ -2556,6 +2556,28 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """The gridline whose ``_uid`` is *uid*, or None (hosted-blocks D3)."""
         return next((g for g in self._gridlines if g._uid == uid), None)
 
+    def hosted_blocks_on(self, gl) -> list:
+        """Block instances hosted on gridline *gl* (hosted-blocks D2)."""
+        uid = gl._uid
+        return [b for b in self._block_instances
+                if b.host and b.host.get("gridline") == uid]
+
+    def _sync_hosted_blocks(self, gl) -> None:
+        """Re-derive hosted block positions from *gl* (D5; called by
+        ``GridlineItem._rebuild_geometry``)."""
+        from .hosted_blocks import ppm_of, scene_pos
+        ppm = ppm_of(self)
+        for b in self.hosted_blocks_on(gl):
+            b.set_block_pos(*scene_pos(gl, b.host, ppm))
+
+    def _shift_hosted_along(self, gl, old_origin, new_origin) -> None:
+        """Grip 0 slid *gl*'s origin along its axis: compensate ``along_mm``
+        so hosted blocks stay put (D6)."""
+        from .hosted_blocks import origin_shift_along, ppm_of
+        da = origin_shift_along(gl, old_origin, new_origin, ppm_of(self))
+        for b in self.hosted_blocks_on(gl):
+            b.host["along_mm"] = float(b.host["along_mm"]) - da
+
     def remove_block_instance(self, inst) -> None:
         """Remove a BlockInstance from the scene and registry backref."""
         if inst.scene() is self:

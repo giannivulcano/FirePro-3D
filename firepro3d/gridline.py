@@ -566,6 +566,12 @@ class GridlineItem(QGraphicsLineItem):
         if hasattr(self, "_lock_indicator"):
             self._lock_indicator.setPos(self.bubble1.pos())
         self.update()
+        # Hosted blocks follow every geometry change (hosted-blocks D5);
+        # no-op before the item has a scene (init / from_dict).
+        sc = self.scene()
+        sync = getattr(sc, "_sync_hosted_blocks", None) if sc is not None else None
+        if sync is not None:
+            sync(self)
 
     # ── Parametric mutators ───────────────────────────────────────────────
 
@@ -893,6 +899,10 @@ class GridlineItem(QGraphicsLineItem):
             new_origin = QPointF(far.x() + proj * dx, far.y() + proj * dy)
             new_len = max(1.0, math.hypot(far.x() - new_origin.x(),
                                           far.y() - new_origin.y()))
+            sc = self.scene()
+            shift = getattr(sc, "_shift_hosted_along", None) if sc is not None else None
+            if shift is not None:
+                shift(self, self._origin, new_origin)   # D6: blocks stay put
             self._origin = new_origin
             self._length = new_len
         self._rebuild_geometry()
