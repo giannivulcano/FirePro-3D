@@ -33,6 +33,7 @@ from PyQt6.QtCore import QSettings
 from .constants import DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG
 from . import theme as th
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
+from .block_instance import BlockInstance
 from .displayable_item import draw_section_hatch
 from .halo_selection import HaloSelectionMixin
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
@@ -261,6 +262,21 @@ class _ElevCutRect(_ElevProxyRect):
 
 class _ElevCutEllipse(_ElevProxyEllipse):
     """A cut pipe: filled circle of the drawn OD in the Section colour (s5)."""
+
+
+class _HostedBlockCopy(BlockInstance):
+    """Section copy of a gridline-hosted model block (hosted-blocks D8).
+
+    ``_ROLE_SOURCE`` names the model block; a drag lands on the model via
+    :meth:`translate` (D10) and the section rebuilds from it.
+    """
+
+    def translate(self, dx: float, dy: float) -> None:
+        sc = self.scene()
+        move = getattr(sc, "_move_hosted_source", None) if sc is not None else None
+        if move is not None:
+            move(self, dx, dy)
+        super().translate(dx, dy)          # live feedback until the rebuild
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -822,6 +838,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._refresh_basis()    # projections work before the first rebuild
         self._zones: dict[int, str] = {}
         self._cut_items: list = []
+        self._hosted_copies: dict = {}      # id(model block) -> section copy
         self._show_datums = True
 
         # Per-view Z-extent overrides keyed by gridline label live on the
@@ -1156,6 +1173,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
         self._project_walls()
+        self._project_hosted_blocks()
         self._project_openings()
         self._project_pipes()
         self._project_sprinklers()
@@ -1165,6 +1183,56 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._render_cut_items()
         self._project_geometry_2d()
         self._assign_depth_z_values()
+
+    def _project_hosted_blocks(self):
+        """Copies of gridline-hosted model blocks whose host is parallel to
+        this cut (hosted-blocks D8): depth-cropped, depth-ordered, laterally
+        clipped, mirrored when seen from the host's other side.
+
+        Visibility never follows the model block (always hidden in plan, D11).
+        """
+        from . import hosted_blocks as hb
+        self._hosted_copies = {}
+        ms, b, ppm = self._ms, self._basis, self._ppm()
+        for src in list(getattr(ms, "_block_instances", [])):
+            host = getattr(src, "host", None)
+            if not host or not hb.valid_host(host):
+                continue
+            gl = ms.gridline_by_uid(host.get("gridline"))
+            if gl is None or not hb.is_parallel(b, gl):
+                continue
+            pose = hb.section_pose(b, gl, host, src.block_rotation(),
+                                   src.block_mirrored(), ppm)
+            if pose is None:
+                continue
+            h, v, _d, mirrored, rot = pose
+            rec = src.to_dict()
+            rec.pop("host", None)                # the copy is not itself hosted
+            cp = _HostedBlockCopy.from_dict(rec, ms.get_block_definition)
+            cp.set_block_pos(h, v)
+            cp.set_block_rotation(rot)
+            cp.set_block_mirrored(mirrored)
+            cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
+            cp.setData(_ROLE_SOURCE, src)
+            cp.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            br = cp.mapRectToScene(cp.boundingRect())
+            top = cp
+            if br.left() < b.h_min or br.right() > b.h_max:
+                if self._clip_h(br.left(), br.right()) is None:
+                    continue
+                clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
+                                                b.h_max - b.h_min, br.height() + 2.0))
+                clip.setPen(QPen(Qt.PenStyle.NoPen))
+                clip.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
+                clip.setData(0, "hosted_clip")
+                self.addItem(clip)
+                cp.setParentItem(clip)
+                top = clip
+            else:
+                self.addItem(cp)
+            wx, wy = hb.world_point(gl, host, ppm)
+            self._register_depth_item(b.sort_key(wx, wy), top)
+            self._hosted_copies[id(src)] = cp
 
     def _register_depth_item(self, depth: float, *items):
         """Register scene items at a given depth for unified Z assignment."""

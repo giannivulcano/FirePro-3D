@@ -84,3 +84,27 @@ def test_section_pose_front_back(qapp, make_model_space):
     assert (h, d, rot) == pytest.approx((-1000.0, 3000.0, -30.0))
     assert mir is True
     assert hb.section_pose(BASIS, gl, dict(host, offset_mm=-3500.0), 0.0, False, 1.0) is None
+
+
+def test_section_pose_reversed_gridline_own_facing(qapp, make_model_space):
+    """Anti-parallel gridline (Edge Case): facing is read against ITS n.
+
+    Reversed gridline: origin = bubble1 = world (6000, 3000), u = (-1, 0),
+    n = (0, -1). along 1000 -> x = 6000 - 1000 = 5000; offset 200 -> y =
+    3000 + 200 * (-1) = 2800. Placed by a section looking along +y (N.n =
+    -1), so facing = -1 and the BASIS view (N = (0, 1)) is NOT a back view.
+    """
+    ms = make_model_space()
+    rev = _gl_world_y(ms, 3000, reverse=True)
+    host = {"gridline": rev._uid, "offset_mm": 200.0, "along_mm": 1000.0,
+            "elevation_mm": 500.0, "facing": -1}
+    h, v, d, mir, rot = hb.section_pose(BASIS, rev, host, 30.0, False, 1.0)
+    # BASIS: D = (1, 0), A = (0, 0), N = (0, 1): h = x = 5000, d = y = 2800.
+    assert (h, v, d, rot) == pytest.approx((5000.0, -500.0, 2800.0, 30.0))
+    assert mir is False
+    back = SectionBasis.from_cut((10000.0, 6000.0), (0.0, 6000.0), 1, 8000.0)
+    # back: D = (-1, 0), A = (10000, 6000), N = (0, -1): h = -x = -5000,
+    # d = (y - 6000) * -1 = 3200; N.n = +1 != facing -1 -> back view.
+    h, v, d, mir, rot = hb.section_pose(back, rev, host, 30.0, False, 1.0)
+    assert (h, d, rot) == pytest.approx((-5000.0, 3200.0, -30.0))
+    assert mir is True

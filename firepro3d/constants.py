@@ -455,6 +455,8 @@ END_JOIN_TOL_MM = 1e-6             # abutting trimmed pieces within this stay on
 # Crisp H/V strokes (linetypes.md MW-7 / H-MW-f, crisp_stroke.py)
 CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise only (delta 3)
 CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = closed
+# Gridline-hosted blocks (hosted_blocks.py): |N.u| below this = section parallel to the gridline
+PARALLEL_EPS = 1e-6
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis
 PATTERN_PREVIEW_H_PX = 64          # LT4 panel preview swatch height (mockup gate)
 # ET1 Q8: a plain tooltip whose longest line is wider than this wraps (rich

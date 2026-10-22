@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-PARALLEL_EPS = 1e-6
+from .constants import PARALLEL_EPS
 
 
 def ppm_of(scene) -> float:
