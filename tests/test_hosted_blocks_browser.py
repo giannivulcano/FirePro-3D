@@ -157,8 +157,9 @@ def test_first_parallel_placed_by_name_wins(mgr):
     gl, inst = _gl_inst(ms)
     m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 1
     m.place_section(QPointF(0, 0), QPointF(10000, 0))        # Section 2
+    m.rename_section("Section 2", "Alpha")                   # insertion order != name order
     assert m.focus_hosted(inst) is True
-    assert m.open_names == ["Section 1"] and tabs.count() == 1
+    assert m.open_names == ["Alpha"] and tabs.count() == 1
 
 
 def test_rejected_tabless_candidate_is_dropped_hit_opens_one_tab(mgr):

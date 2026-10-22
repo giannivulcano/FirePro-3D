@@ -478,6 +478,7 @@ class ModelBrowser(QWidget):
         if not entities:
             return
         # A hosted block is plan-hidden (D11): never take the plain select path.
+        # Mixed selections select only the plain rows; a hosted-only one focuses hosted[0] (G18).
         hosted = [e for e in entities if getattr(e, "host", None)]
         entities = [e for e in entities if not getattr(e, "host", None)]
         if not entities:
