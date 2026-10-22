@@ -1,8 +1,10 @@
 ---
-status: proposal
+status: as-built (2026-10-22, v0.60.0; governing facts now live in section-view-subsystem.md s16, block-system.md, grid-system.md s18 — as-built divergences: delete status reads "hosted block(s)"; section snap is the bespoke `snap_section_point`, SnapEngine probed unusable)
 last-verified: 2026-10-22
-verified-commit: 6c122632
+verified-commit: d44b0e11
 applies-to:
+  - firepro3d/hosted_blocks.py
+  - firepro3d/block_drop.py
   - firepro3d/block_instance.py
   - firepro3d/gridline.py
   - firepro3d/section_scene.py

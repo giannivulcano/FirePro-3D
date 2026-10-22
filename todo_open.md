@@ -961,6 +961,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## View Relationships Follow-Ups (from `docs/specs/view-relationships.md` §11)
 
+- [ ] [type:maint] selection-mode.md §14 still says "No undo in elevation (filed follow-up)" [P4] [subject:Docs]
+  - Details: gridline-hosted blocks Account (2026-10-22, contradiction 3): false since section marker edits became undoable (section-view-subsystem.md §8) and hosted-block drag / Delete in a section push one undo step (§16.4). No such follow-up exists in todo_open.md / todo_closed.md. Fix: rewrite the sentence to point at section-view-subsystem.md §8 / §16.4 (Rule A) and re-stamp. `docs/specs/selection-mode.md`.
 - [ ] [type:feature] Cut cross-sections occlude what lies behind them [P3] [subject:Architecture]
   - Details: G2 review 2026-10-21 (quality m5/m6): a cut wall / slab rect registers at d = 0 and draws on top, but unlike a behind slab it gets no opaque mask, so with the DM Section colour unset or "" (No Fill) items behind the cut show through the cross-section; and a pipe whose Section colour is "" falls back to the pipe colour rather than No Fill. Decide (FP1): a `TOKEN_BG` mask under every cut rect, and whether "" means No Fill for the cut pipe circle. `firepro3d/section_scene.py` `_render_cut_items`. ref: section-view-subsystem s5.
   - +1 occurrence 2026-10-22 (paper-parity smoke review M3): on paper, beyond-the-cut wall proxies now take the paper Wall row Fill; with Fill = "" (No Fill) a farther wall shows through a nearer one (plan parity with that setting; factory `#ffffff` is opaque). Same occlusion decision. `paper_display.py` proxy branch.
