@@ -845,6 +845,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._hosted_copies: dict = {}      # id(model block) -> section copy
         self._place_block_id = None         # armed placement (hosted-blocks G16)
         self._place_ghost = None
+        self._place_ghost_pt = None         # last ghost point (survives a rebuild)
         self._place_rot = 0.0
         self._show_datums = True
 
@@ -1129,6 +1130,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         """Disarm section placement and drop the ghost (no-op when idle)."""
         g, self._place_ghost = self._place_ghost, None
         self._place_block_id = None
+        self._place_ghost_pt = None
         if g is not None and g.scene() is self:
             self.removeItem(g)
 
@@ -1143,6 +1145,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def move_place_ghost(self, scene_pt) -> None:
         """Put the ghost at *scene_pt*; faded when no host gridline is in reach."""
         g = self._place_ghost
+        self._place_ghost_pt = (scene_pt.x(), scene_pt.y())
         if g is not None:
             g.set_block_pos(scene_pt.x(), scene_pt.y())
             g.setOpacity(0.5 if self.can_host_at(scene_pt) else 0.2)
@@ -1152,6 +1155,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         bid = self._place_block_id
         if bid is None:
             return None
+        self._place_ghost_pt = (scene_pt.x(), scene_pt.y())   # the re-armed ghost stays here
         return self.place_hosted_block(bid, scene_pt, rotation=self._place_rot)
 
     def _snap_tol_scene(self, view) -> float:
@@ -1300,11 +1304,14 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._project_geometry_2d()
         self._assign_depth_z_values()
         if self._place_block_id is not None:        # placement survives a rebuild
-            bid, rot = self._place_block_id, self._place_rot
+            bid, rot, gpt = self._place_block_id, self._place_rot, self._place_ghost_pt
             self.begin_place_block(bid)
             self._place_rot = rot
             if self._place_ghost is not None:
                 self._place_ghost.set_block_rotation(rot)
+                if gpt is not None:
+                    self._place_ghost_pt = gpt
+                    self._place_ghost.set_block_pos(*gpt)
 
     def _project_hosted_blocks(self):
         """Copies of gridline-hosted model blocks whose host is parallel to

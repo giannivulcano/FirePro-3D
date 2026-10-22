@@ -13,11 +13,12 @@ from tests.test_section_classification import _placed_scene
 
 
 def _scene(section_scene_for, with_gl=True):
+    # FAR is created BEFORE B: nearest (B) and first-in-model-order (FAR) disagree.
     ms, sec = _placed_scene(section_scene_for, (0, 0), (10000, 0), 8000.0)
-    gl = gridline(ms, (0, -3000), (6000, -3000), "B") if with_gl else None
-    gridline(ms, (0, -5000), (6000, -5000), "FAR")
+    far = gridline(ms, (0, -5000), (6000, -5000), "FAR")
     if not with_gl:
-        ms._gridlines[-1].translate(0, -10000)               # FAR out of depth
+        far.translate(0, -10000)                             # FAR out of depth
+    gl = gridline(ms, (0, -3000), (6000, -3000), "B") if with_gl else None
     sec.rebuild()
     return ms, sec, gl
 
@@ -102,3 +103,16 @@ def test_drop_refused_without_host_is_no_drop(qapp, section_scene_for):
     QApplication.sendEvent(vp, QDropEvent(pt, act, mime, *mods))
     assert len(ms._block_instances) == n
     view.close()
+
+
+def test_place_from_the_far_side_hosts_facing_minus_one(qapp, section_scene_for):
+    """A section looking the other way (A/B reversed) stamps facing -1."""
+    ms, sec = _placed_scene(section_scene_for, (10000, -8000), (0, -8000), 8000.0)
+    gl = gridline(ms, (0, -3000), (6000, -3000), "B")
+    sec.rebuild()
+    b = sec.basis
+    d = defn(ms)
+    h = 0.5 * (b.h_min + b.h_max)
+    inst = sec.place_hosted_block(d.id, QPointF(h, -1200.0))
+    assert inst is not None and inst.host["gridline"] == gl._uid
+    assert inst.host["facing"] == -1

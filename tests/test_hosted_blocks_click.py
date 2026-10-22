@@ -43,7 +43,40 @@ def test_click_places_and_space_rotates(qapp, section_scene_for):
     assert inst.host["along_mm"] == pytest.approx(4000.0, abs=100.0)
     assert sec._place_block_id == d.id          # stays armed after a click (repeat)
     assert sec._place_ghost is not None         # ghost re-created by the rebuild
+    ghosts = [i for i in sec.items() if getattr(i, "_is_ghost", False)]
+    assert len(ghosts) == 1                     # exactly one ghost, never doubled
+    assert not any(c is ghosts[0] for c in sec._hosted_copies.values())
+    # the re-armed ghost sits at the click's snapped point, not the origin
+    assert ghosts[0].block_pos() == pytest.approx(
+        (inst.host["along_mm"], -inst.host["elevation_mm"]), abs=1.0)
     v.close()
+
+
+def test_shift_space_rotates_plus_90(qapp, section_scene_for):
+    ms, sec, gl, v = _view(section_scene_for)
+    sec.begin_place_block(defn(ms).id)
+    QTest.keyClick(v.viewport(), Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+    assert sec._place_rot == pytest.approx(90.0)
+    v.close()
+
+
+def test_leaving_the_section_tab_cancels_placement(qapp):
+    from tests.test_section_manager import _main_window
+    from tests._mainwindow_helpers import dispose_main_window
+    win = _main_window()
+    try:
+        d = defn(win.scene)
+        win._activate_elevation("north")
+        QApplication.processEvents()
+        sec = win.central_tabs.currentWidget().scene()
+        win._on_block_activated(d.id)
+        assert sec._place_block_id == d.id
+        win.central_tabs.setCurrentIndex(0)
+        QApplication.processEvents()
+        assert sec._place_block_id is None
+        assert not any(getattr(i, "_is_ghost", False) for i in sec.items())
+    finally:
+        dispose_main_window(win)
 
 
 def test_esc_cancels(qapp, section_scene_for):

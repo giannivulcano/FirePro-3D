@@ -1146,6 +1146,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _on_tab_changed(self, index: int):
         """Auto-switch active level when switching to a Plan or Detail tab."""
         self._commit_text_edits()
+        # A section's armed block placement ends when its tab is left.
+        prev = getattr(self, "_last_tab_widget", None)
+        self._last_tab_widget = self.central_tabs.widget(index)
+        if prev is not None and prev is not self._last_tab_widget:
+            try:
+                cancel = getattr(prev.scene(), "cancel_place_block", None)
+                if cancel is not None:
+                    cancel()
+            except (RuntimeError, AttributeError, TypeError):
+                pass                       # tab widget already deleted / not a view
         # A selection-readout edit (selection-mode §15) latches its HUD to the
         # tab's viewport; leaving the tab ends it without applying (= Escape).
         for sc in self._text_edit_scenes():
