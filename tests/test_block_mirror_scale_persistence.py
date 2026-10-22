@@ -177,7 +177,8 @@ def test_every_place_block_instance_site_carries_the_pose():
     fields one by one drops the next new field silently."""
     identity_sites = {("model_space.py", "rotation=0.0)"),       # commit_block_definition
                       ("model_view.py", "rotation=0.0)"),        # drag-drop: 0 deg rule
-                      ("model_space.py", "self._place_block_rot")}  # placement (Task 10)
+                      ("model_space.py", "self._place_block_rot"),  # placement (Task 10)
+                      ("section_scene.py", "host=host)")}  # hosted placement (D9)
     root = Path(__file__).resolve().parents[1] / "firepro3d"
     bad = []
     for f in sorted(root.glob("*.py")):
