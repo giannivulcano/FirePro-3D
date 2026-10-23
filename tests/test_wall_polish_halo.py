@@ -159,3 +159,41 @@ def test_saved_and_loaded_joined_walls_through_real_io(qapp, tmp_path):
         fresh = [(round(p.x(), 6), round(p.y(), 6))
                  for p in w._compute_mitered_quad()[0]]
         assert cached == fresh
+
+
+def test_calibration_refreshes_wall_geometry_without_paint(qapp, monkeypatch):
+    """F9/M2: a real scale calibration re-derives every wall's path/shape at
+    once (no paint needed to self-heal)."""
+    from PyQt6.QtWidgets import QGraphicsView  # noqa: F401
+    from tests.test_wall_polish_junctions import _ms, _wall
+    import firepro3d.model_space as ms_mod
+
+    s = _ms()
+    w = _wall(s, (0, 0), (3000, 0))
+    w.outline_geometry()
+    before = w.path().boundingRect().height()
+    assert abs(before - 200.0) < 1e-6
+
+    class _Dlg:
+        def __init__(self, *a, **k):
+            pass
+
+        def exec(self):
+            return True
+
+        def get_distance(self):
+            return 1000.0
+
+        def get_unit_code(self):
+            return "mm"
+
+    monkeypatch.setattr(ms_mod, "CalibrateDialog", _Dlg)
+    s._cal_point1 = None
+    # 1000 mm real over 2000 scene units -> 2 px/mm
+    s._press_set_scale(None, None, QPointF(0, 0), None, None, None)
+    s._press_set_scale(None, None, QPointF(2000, 0), None, None, None)
+    assert abs(s.scale_manager.pixels_per_mm - 2.0) < 1e-9
+
+    after = w.path().boundingRect().height()      # no paint, no outline call
+    assert abs(after - before * 2.0) < 1e-6
+    assert w.shape().boundingRect().height() >= after - 1e-6

@@ -3915,6 +3915,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             dim.rescale(sm)
         if self.water_supply_node is not None:
             self.water_supply_node.rescale(sm)
+        # Wall half-thickness is mm -> scene via the ScaleManager: rebuild
+        # every outline (path/shape/HALO) now rather than on the next paint
+        # (wall polish F9; a neighbour pass per wall is redundant but cheap).
+        for wall in list(self._walls):
+            wall.invalidate_geometry()
 
     def _refresh_all_labels(self):
         """Refresh display text on all pipes and dimension annotations."""

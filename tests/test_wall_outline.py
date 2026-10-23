@@ -74,9 +74,24 @@ class TestJunctionPie:
         assert _close(corners["w"][0], QPointF(0, -50))
         assert _close(corners["e"][1], QPointF(0, -50))
 
-    def test_beyond_max_miter_returns_none(self, qapp):
+    def test_acute_pair_falls_back_far_arm_stays_mitred(self, qapp):
+        """Edge Cases row 1: the offending pair (a, b) falls back on its own;
+        the far arm c stays mitred, as the old per-wall pie mitred it."""
         arms = [_arm("a", (900, 0), 50), _arm("b", (900, 20), 50),
                 _arm("c", (-900, 300), 50)]
+        res = junction_pie(arms, QPointF(0, 0), 200.0)
+        assert res is not None
+        corners, _hub = res
+        assert set(corners) == {"c"}
+        by = {a.key: a for a in arms}
+        exp_ca = intersect_lines(*by["c"].ccw_face, *by["a"].cw_face)
+        exp_bc = intersect_lines(*by["b"].ccw_face, *by["c"].cw_face)
+        assert _close(corners["c"][0], exp_ca)
+        assert _close(corners["c"][1], exp_bc)
+
+    def test_all_pairs_beyond_max_miter_returns_none(self, qapp):
+        arms = [_arm("a", (900, 0), 50), _arm("b", (900, 20), 50),
+                _arm("c", (900, 40), 50)]
         assert junction_pie(arms, QPointF(0, 0), 200.0) is None
 
     def test_fewer_than_three_arms_returns_none(self, qapp):

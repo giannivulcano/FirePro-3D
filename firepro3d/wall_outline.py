@@ -105,8 +105,11 @@ def junction_pie(arms: list[JunctionArm], junction: QPointF,
 
     Returns:
         ``({key: (ccw_corner, cw_corner)}, hub)``, or None for fewer than
-        three arms or a corner beyond *max_miter* (caller falls back to
-        Butt, as today's 3-wall pie does).
+        three arms or when no corner survives.  A pair whose corner is
+        *max_miter* or farther away falls back on its own (Edge Cases): both
+        arms of that pair are left out of the dict (the caller keeps them
+        Butt, as the old per-wall pie did) while the other arms stay
+        mitred; the hub is the centroid of the surviving corners.
     """
     if len(arms) < 3:
         return None
@@ -114,6 +117,7 @@ def junction_pie(arms: list[JunctionArm], junction: QPointF,
     n = len(order)
     ccw_c: list[QPointF | None] = [None] * n
     cw_c: list[QPointF | None] = [None] * n
+    bad: set[int] = set()
     for i, a in enumerate(order):
         j = (i + 1) % n
         b = order[j]
@@ -124,13 +128,18 @@ def junction_pie(arms: list[JunctionArm], junction: QPointF,
             continue
         if math.hypot(c.x() - junction.x(),
                       c.y() - junction.y()) >= max_miter:
-            return None
+            bad.update((i, j))
+            continue
         ccw_c[i] = c
         cw_c[j] = QPointF(c)
-    pts = ccw_c + cw_c
+    keep = [i for i in range(n) if i not in bad]
+    # a corner is usable only when both arms sharing it survive
+    pts = [p for i in keep for p in (ccw_c[i], cw_c[i]) if p is not None]
+    if not keep or not pts:
+        return None
     hub = QPointF(sum(p.x() for p in pts) / len(pts),
                   sum(p.y() for p in pts) / len(pts))
-    return {order[i].key: (ccw_c[i], cw_c[i]) for i in range(n)}, hub
+    return {order[i].key: (ccw_c[i], cw_c[i]) for i in keep}, hub
 
 
 def _poly_path(poly: QPolygonF) -> QPainterPath:

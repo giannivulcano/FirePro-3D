@@ -358,7 +358,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             for ep in (other._pt1, other._pt2):
                 if self.endpoint_near(ep, MITER_TOL) is not None:
                     continue
-                if self.nearest_centerline_point(ep, band) is not None:
+                if self.nearest_centerline_point(ep, band,
+                                                 true_centerline=True) is not None:
                     guests.append(other)
                     break
         return guests
@@ -1311,6 +1312,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if res is None:
             return None
         corners, hub = res
+        if self not in corners:      # this end's pair fell back (Edge Cases)
+            return None
         ccw, cw = corners[self]
         if my_idx == 0:
             return ccw, cw, hub          # (p1l, p1r)
@@ -1325,7 +1328,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             if other is self:
                 continue
             band = other.half_thickness_scene() + MITER_TOL
-            proj = other.nearest_centerline_point(my_pt, band)
+            proj = other.nearest_centerline_point(my_pt, band,
+                                                  true_centerline=True)
             if proj is None:
                 continue
             d = math.hypot(my_pt.x() - proj.x(), my_pt.y() - proj.y())
@@ -1517,17 +1521,27 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             self._pt2 = QPointF(target)
         self.invalidate_geometry()
 
-    def nearest_centerline_point(self, pos: QPointF,
-                                 tolerance: float) -> QPointF | None:
+    def nearest_centerline_point(self, pos: QPointF, tolerance: float,
+                                 true_centerline: bool = False
+                                 ) -> QPointF | None:
         """Return the projection of *pos* onto this wall's centerline if
         *pos* is near the mid-section (tee-join target).
 
         Returns ``None`` if *pos* projects near an endpoint (5% margin,
         matching ``nearest_face_point``) or lies farther than
         *tolerance* from the centerline.
+
+        By default the line is the wall's click line (``_pt1``/``_pt2``,
+        the placement snap target).  With *true_centerline* it is the
+        geometric centerline (``centerline_pt1/2``), which the tee band of
+        a Left/Right-aligned host is measured from (wall polish F9).
         """
-        ax, ay = self._pt1.x(), self._pt1.y()
-        bx, by = self._pt2.x(), self._pt2.y()
+        if true_centerline:
+            c1, c2 = self.centerline_pt1, self.centerline_pt2
+        else:
+            c1, c2 = self._pt1, self._pt2
+        ax, ay = c1.x(), c1.y()
+        bx, by = c2.x(), c2.y()
         dx, dy = bx - ax, by - ay
         len_sq = dx * dx + dy * dy
         if len_sq < 1e-12:

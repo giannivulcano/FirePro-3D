@@ -392,3 +392,59 @@ def test_direct_attribute_write_refreshes_partner_outline(qapp, attr, value):
     fresh = _snapshot(a)
     assert cached_snap == fresh, "partner outline stale after direct write"
     assert fresh != before, "scenario: the write must change the partner"
+
+
+@pytest.mark.parametrize("face", ["near", "far"])
+@pytest.mark.parametrize("side", [1, -1])
+@pytest.mark.parametrize("align", [ALIGN_LEFT, ALIGN_RIGHT])
+def test_offset_host_tee_joins_for_guest_on_either_face(qapp, align, side,
+                                                        face):
+    """F9/I1: the tee band is measured from the host's TRUE centerline, so a
+    partition from the body side ending on the host's near or far face (the
+    face-snap targets) still tees in -- one body, no outline pixel on the
+    host face across the guest."""
+    s = _ms()
+    host = _wall(s, (0, 0), (6000, 0))
+    host._colour = "#ff0000"
+    host._alignment = align
+    host.invalidate_geometry()
+    (fl1, _fl2), (fr1, _fr2) = host.outline_geometry().faces
+    near, far = sorted((fl1.y(), fr1.y()), key=lambda y: abs(y - side * 1e6))
+    face_y = near if face == "near" else far
+    guest = _wall(s, (3000, side * 2500), (3000, face_y))
+    guest._colour = "#ff0000"
+    guest.invalidate_geometry()
+
+    assert host in guest.outline_geometry().neighbours      # tee host found
+    assert len(guest.outline_geometry().caps) < 2           # end not capped
+
+    rect = QRectF(-1000, -3500, 8000, 7000)
+    img = _render(s, rect)
+    bad = []
+    for dx in (-60.0, 0.0, 60.0):          # across the guest's width
+        pt = QPointF(3000 + dx, near)       # host face on the guest's side
+        x, y = _px(img, rect, pt)
+        if any(_is_line_red(img.pixelColor(x + i, y + j))
+               for i in (-1, 0, 1) for j in (-1, 0, 1)):
+            bad.append(dx)
+    assert not bad, f"{align}/{side}/{face}: seam outline at dx={bad}"
+
+
+def test_acute_three_way_falls_back_per_pair(qapp):
+    """F9/I2 (Edge Cases row 1): two arms 5 deg apart fall back to Butt on
+    their own; the far arm still mitres into the junction (the old per-wall
+    pie did), instead of all three ends going Butt."""
+    s = _ms()
+    a5 = math.radians(5.0)
+    a = _wall(s, (0, 0), (3000, 0))
+    b = _wall(s, (0, 0), (3000 * math.cos(a5), 3000 * math.sin(a5)))
+    c = _wall(s, (0, 0), (-1500, 2500))
+    for w in (a, b, c):
+        w.invalidate_geometry()
+    assert a.outline().solid[0] is False
+    assert b.outline().solid[0] is False
+    assert c.outline().solid[0] is True
+    # the far arm's end is mitred, not the square butt end
+    p1l, p1r = c.outline_geometry().quad[0], c.outline_geometry().quad[1]
+    sq1l, sq1r = c.quad_points()[0], c.quad_points()[1]
+    assert (p1l != sq1l) or (p1r != sq1r)
