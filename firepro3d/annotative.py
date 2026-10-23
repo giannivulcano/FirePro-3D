@@ -57,9 +57,14 @@ def _is_section_canvas(sc) -> bool:
 
 
 def _drawing_scale(sc) -> float:
-    """The project drawing scale read off *sc*'s ScaleManager (``scale_manager``
-    on a model scene, ``_sm`` on a section scene); 1 when absent."""
-    sm = getattr(sc, "scale_manager", None) or getattr(sc, "_sm", None)
+    """The project drawing scale read off *sc*'s ScaleManager; 1 when absent.
+
+    A section scene reads its model space's live ``scale_manager``, not its own
+    ``_sm``: a project load replaces the model's ScaleManager while the
+    SectionManager keeps the one it was built with."""
+    ms = getattr(sc, "_ms", None) if _is_section_canvas(sc) else None
+    sm = getattr(ms if ms is not None else sc, "scale_manager", None) \
+        or getattr(sc, "_sm", None)
     ds = getattr(sm, "drawing_scale", None)
     return float(ds) if ds else 1.0
 

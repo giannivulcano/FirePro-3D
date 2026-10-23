@@ -56,9 +56,10 @@ def test_scale_change_reprepares_hosted_copies_in_open_sections(mw, qapp):
             "elevation_mm": 500.0, "facing": 1}
     inst = ms.place_block_instance(d.id, (0, 0), host=host)
     sec = mw.section_manager.get_or_build_scene("north")
-    # The scale manager the section canvas really reads (the manager's own _sm,
-    # which is NOT mw.scene.scale_manager once a project load/clear reassigned it).
-    ssm = sec._sm
+    # Project Settings edits the model's ScaleManager. The section's own _sm is
+    # the SectionManager's construction-time one (stale after a load / clear),
+    # so the copy must follow the model's, not _sm.
+    ssm = ms.scale_manager
     old = ssm.drawing_scale
     try:
         sec.rebuild()
