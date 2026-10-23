@@ -344,7 +344,8 @@ def test_fixed_first_bounds_read_registers_for_reprepare(qapp):
 
 # -- VC9 I1: annotative blocks on a section / elevation canvas ---------------
 
-def _hosted_pair(section_scene_for, mode, screen="scale", ppm=1.0):
+def _hosted_pair(section_scene_for, mode, screen="scale", ppm=1.0, along=1000.0,
+                 cut_len=10000.0):
     """(plan instance, hosted section copy, ppm): a gridline-hosted block of
     *mode* in a real Model_Space, projected into a parallel SectionScene."""
     from firepro3d.gridline import GridlineItem
@@ -360,14 +361,17 @@ def _hosted_pair(section_scene_for, mode, screen="scale", ppm=1.0):
     gl = GridlineItem(QPointF(0.0, -3000.0), QPointF(6000.0, -3000.0), label="B")
     ms._gridlines.append(gl)
     ms.addItem(gl)
-    host = {"gridline": gl._uid, "offset_mm": 0.0, "along_mm": 1000.0,
+    host = {"gridline": gl._uid, "offset_mm": 0.0, "along_mm": along,
             "elevation_mm": 500.0, "facing": 1}
     src = ms.place_block_instance(d.id, (0, 0), host=host)
-    marker = SectionMarker("Section 1", QPointF(0.0, 0.0), QPointF(10000.0 * ppm, 0.0),
+    marker = SectionMarker("Section 1", QPointF(0.0, 0.0), QPointF(cut_len * ppm, 0.0),
                            1, 80000.0)
     sec = SectionScene(marker, ms, ms._level_manager, ms.scale_manager)
     sec.rebuild()
-    (cp,) = [it for it in sec.items() if isinstance(it, _HostedBlockCopy)]
+    cps = [it for it in sec.items() if isinstance(it, _HostedBlockCopy)]
+    if not cps:
+        return src, None, sec._ppm()
+    (cp,) = cps
     cp._keep_scenes = (ms, sec)         # the scenes own the C++ items: keep them alive
     return src, cp, sec._ppm()
 
@@ -398,3 +402,28 @@ def test_g_section_copy_real_size_unchanged(qapp, section_scene_for):
     assert an.annotative_factor(cp) == 1.0
     assert _w(cp) == pytest.approx(_w(src), rel=0.02)
     assert _w(cp) < 2 * HALF * 10.0          # authored size, never x drawing scale
+
+
+# -- VC9 fix-round I-1: crop-edge clip decided at the scaled size -----------
+
+def test_g_section_copy_clip_uses_scaled_extent(qapp, section_scene_for):
+    """Centre inside the crop, scaled extent (300 mm half) over h_min: the copy
+    is clipped (its parent is the clip rect), not added bare at authored size."""
+    from PyQt6.QtWidgets import QGraphicsRectItem
+    _src, cp, _ = _hosted_pair(section_scene_for, "annotative", along=100.0)
+    assert cp is not None
+    b = cp.scene()._basis
+    assert b.h_min < cp.mapRectToScene(cp.boundingRect()).center().x() < b.h_max
+    assert isinstance(cp.parentItem(), QGraphicsRectItem)
+    assert cp.parentItem().rect().left() == pytest.approx(b.h_min)
+
+
+def test_g_section_copy_kept_when_scaled_extent_reaches_crop(qapp, section_scene_for):
+    """Centre 100 mm past h_max: the authored 3 mm half misses the crop but the
+    scaled 300 mm half reaches into it -- the copy is kept, clipped."""
+    _src, cp, _ = _hosted_pair(section_scene_for, "annotative", along=1000.0,
+                                 cut_len=900.0)
+    assert cp is not None
+    b = cp.scene()._basis
+    assert cp.mapRectToScene(cp.boundingRect()).center().x() > b.h_max
+    assert cp.parentItem() is not None

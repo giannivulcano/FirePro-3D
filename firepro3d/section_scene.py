@@ -1423,10 +1423,14 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             cp.set_block_mirrored(mirrored)
             cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
             cp.setData(_ROLE_SOURCE, src)
+            # Measure in the scene: an annotative copy sizes from its scene's
+            # drawing scale, so its unparented bounds are the authored size.
+            self.addItem(cp)
             br = cp.mapRectToScene(cp.boundingRect())
             top = cp
             if br.left() < b.h_min or br.right() > b.h_max:
                 if self._clip_h(br.left(), br.right()) is None:
+                    self.removeItem(cp)
                     continue
                 clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
                                                 b.h_max - b.h_min, br.height() + 2.0))
@@ -1435,8 +1439,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 self.addItem(clip)
                 cp.setParentItem(clip)
                 top = clip
-            else:
-                self.addItem(cp)
             wx, wy = hb.world_point(gl, host, ppm)
             self._register_depth_item(b.sort_key(wx, wy), top)
             self._hosted_copies[id(src)] = cp
