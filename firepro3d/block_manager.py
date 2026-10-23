@@ -230,7 +230,11 @@ class BlockFilterProxy(QSortFilterProxyModel):
 # SourceStatusDelegate — status badge
 # ---------------------------------------------------------------------------
 
-_STATUS_TOKEN = {"project-only": "muted", "library": "ok", "modified": "warn"}
+_STATUS_TOKEN = {"project-only": "muted", "library": "ok",
+                 "update available": "accent", "modified": "warn"}
+
+_SYSTEM_SAVE_TIP = ("Shipped block — saves your edited copy to your library "
+                    "under a new name and switches the project to it")
 
 
 class SourceStatusDelegate(QStyledItemDelegate):
@@ -652,12 +656,16 @@ class BlockManagerDialog(HouseDialog):
         """After a model reset, re-select the previously-selected row (by id)."""
         block_id = getattr(self, "_selected_id_before_reset", None)
         if block_id is not None:
-            src_row = self.model.row_for_id(block_id)
-            if src_row >= 0:
-                proxy_idx = self.proxy.mapFromSource(self.model.index(src_row, 0))
-                if proxy_idx.isValid():
-                    self.view.setCurrentIndex(proxy_idx)
+            self._select_id(block_id)
         self._sync_ui()
+
+    def _select_id(self, block_id: str) -> None:
+        """Select the row of *block_id* (no-op when it is not listed)."""
+        src_row = self.model.row_for_id(block_id)
+        if src_row >= 0:
+            proxy_idx = self.proxy.mapFromSource(self.model.index(src_row, 0))
+            if proxy_idx.isValid():
+                self.view.setCurrentIndex(proxy_idx)
 
     # ------------------------------------------------------------- selection
     def _current_def(self):
@@ -711,10 +719,14 @@ class BlockManagerDialog(HouseDialog):
         is_schematic = defn.kind == "schematic"
         self.btn_save.setEnabled(
             not is_schematic and status in ("project-only", "modified"))
-        self.btn_reload.setEnabled(not is_schematic and status == "modified")
+        self.btn_reload.setEnabled(
+            not is_schematic and status in ("modified", "update available"))
         tip = _SCHEMATIC_VERB_TIP if is_schematic else ""
         self.btn_save.setToolTip(tip)
         self.btn_reload.setToolTip(tip)
+        if status == "modified" and block_library.is_system_block(
+                defn.id, self._lib_root):
+            self.btn_save.setToolTip(_SYSTEM_SAVE_TIP)
 
     # ------------------------------------------------------- filter popup
     def _open_filter_popup(self, col: int) -> None:
@@ -760,6 +772,9 @@ class BlockManagerDialog(HouseDialog):
         defn = self._current_def()
         if defn is None:
             return
+        if block_library.is_system_block(defn.id, self._lib_root):
+            self._duplicate_and_retarget(defn)
+            return
         try:
             block_library.save_to_library(
                 defn, root=self._lib_root, overwrite=overwrite,
@@ -790,6 +805,27 @@ class BlockManagerDialog(HouseDialog):
         except OSError as exc:
             themed_info(self, "Save to Library", f"Could not save:\n{exc}")
             self._sync_ui()
+
+    def _duplicate_and_retarget(self, defn) -> None:
+        """Save on an edited System copy (SB1b D11): Duplicate to library...,
+        then switch the project to the copy (``retarget_block_refs``, one
+        undo step; the copy is registered as baseline so undo keeps it)."""
+        from . import block_editor
+        written = block_editor.run_duplicate_dialog(
+            self.scene, defn, self, root=self._lib_root,
+            bundled=self.scene.block_registry.bundle_for(defn.id))
+        if not written:
+            return
+        copy = block_library.load_block_file(written)
+        if copy is None:
+            return
+        new_ids = self.scene.load_blocks_outside_history(
+            [written], root=self._lib_root)
+        if copy.id not in new_ids:
+            return
+        self.scene.retarget_block_refs(defn.id, copy.id)
+        self.model.refresh()
+        self._select_id(copy.id)
 
     def _reload(self) -> None:
         defn = self._current_def()
