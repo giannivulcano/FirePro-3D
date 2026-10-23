@@ -526,6 +526,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.blocks_browser = BlocksBrowser(self.scene)
         self.blocks_browser.blockActivated.connect(self._on_block_activated)
         self.blocks_browser.editRequested.connect(self._edit_block_from_browser)
+        self.blocks_browser.duplicateRequested.connect(self._duplicate_block_from_browser)
         # Refuse (e.g. a cycle) BEFORE an italic leaf is loaded — like a drag.
         self.blocks_browser.activation_guard = self._block_activation_refusal
 
@@ -5597,6 +5598,38 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Blocks browser right-click Edit Block: open the definition's editor tab."""
         self._commit_text_edits()
         self.block_editor_manager.edit_definition(block_id)
+
+    def _duplicate_block_from_browser(self, block_id: str, path: str):
+        """Blocks browser Duplicate to library... / Edit Block on a System
+        block (SB1b D9/D10): write a copy under a new id, load it (one undo
+        step), open it in a Block Editor tab.
+
+        Args:
+            block_id: The System block's id.
+            path: Its shipped ``.fpdb`` ("" = it is already a project copy).
+        """
+        self._commit_text_edits()
+        from firepro3d import block_editor, block_library
+        scene = self.scene
+        if path:
+            loaded = block_library.load_block_file_with_bundle(path)
+            if loaded is None:
+                from firepro3d.themed_message import themed_info
+                themed_info(self, "Duplicate to library",
+                            block_library.load_failure_message(block_id, {}))
+                return
+            src, bundled = loaded
+        else:
+            src = scene.get_block_definition(block_id)
+            bundled = scene.block_registry.bundle_for(block_id)
+        if src is None:
+            return
+        written = block_editor.run_duplicate_dialog(scene, src, self, bundled=bundled)
+        if not written:
+            return
+        new_id = scene.load_blocks_from_files([written]).get("ids", {}).get(written)
+        if new_id:
+            self.block_editor_manager.edit_definition(new_id)
 
     # ── Schematics (schematics.md D-S9 / D-S16 / D-S17) ─────────────────────
     def _refresh_schematic_browser(self):

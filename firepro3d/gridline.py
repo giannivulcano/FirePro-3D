@@ -257,6 +257,19 @@ class GridBubble(QGraphicsEllipseItem):
 _LOCK_SIZE = 10.0  # pixels (screen-fixed)
 
 
+def padlock_path(cx: float, cy: float, s: float) -> QPainterPath:
+    """Padlock outline (body + shackle) centred on ``(cx, cy)``, size *s*.
+
+    Shared by the gridline lock indicator and the Blocks browser's System
+    row icon (SB1b D13).
+    """
+    path = QPainterPath()
+    path.addRect(cx - s / 2, cy - s * 0.35, s, s * 0.7)
+    path.moveTo(cx - s * 0.3, cy - s * 0.35)
+    path.arcTo(cx - s * 0.3, cy - s * 0.85, s * 0.6, s * 0.6, 180, -180)
+    return path
+
+
 class _LockIndicator(QGraphicsPathItem):
     """Small padlock icon adjacent to the primary gridline bubble.
 
@@ -297,13 +310,7 @@ class _LockIndicator(QGraphicsPathItem):
         ox = nx * self._OFFSET_PX
         oy = ny * self._OFFSET_PX
 
-        path = QPainterPath()
-        # Body (rectangle) — offset by (ox, oy)
-        path.addRect(ox - s / 2, oy - s * 0.35, s, s * 0.7)
-        # Shackle (arc)
-        path.moveTo(ox - s * 0.3, oy - s * 0.35)
-        path.arcTo(ox - s * 0.3, oy - s * 0.85, s * 0.6, s * 0.6, 180, -180)
-        self.setPath(path)
+        self.setPath(padlock_path(ox, oy, s))
         locked = self._gridline._locked
         color = QColor("#44cc44") if locked else QColor("#ffaa00")
         self.setPen(QPen(color, 1.5))

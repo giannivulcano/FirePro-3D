@@ -130,6 +130,13 @@ def is_reserved_library(name: str) -> bool:
     return (name or "").strip().casefold() == SYSTEM_LIBRARY.casefold()
 
 
+def is_system_block(block_id: str, root: str | None = None) -> bool:
+    """True when the System tier owns *block_id* (SB1b D2) -- a shipped
+    block: never written, customised only by Duplicate to library."""
+    found = _find_by_id(block_id, root) if block_id else None
+    return found is not None and found[3]["tier"] == "system"
+
+
 def _assert_writable(*, path: str | None = None, library: str = "") -> None:
     if is_reserved_library(library):
         raise SystemLibraryReadOnly(

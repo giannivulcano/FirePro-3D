@@ -22,6 +22,10 @@ from .mime_types import MIME_BLOCK
 
 _ROLE_ID = Qt.ItemDataRole.UserRole          # block id (project or library)
 _ROLE_PATH = Qt.ItemDataRole.UserRole + 1    # .fpdb path for library-only leaves
+_ROLE_SEPARATOR = Qt.ItemDataRole.UserRole + 2   # True on the System/user rule row
+
+#: Tooltip on the System Library row and everything under it (SB1b D13).
+SYSTEM_ROW_TIP = "Shipped with FirePro3D — read-only. Duplicate to customise."
 
 
 _BADGE_PX = 14                               # capability badge size (logical px)
@@ -61,6 +65,39 @@ def _pattern_badge(dpr: float = 1.0):
     pix.fill(QColor(0, 0, 0, 0))
     p = QPainter(pix)
     paint_swatch(p, QRectF(0, 0, side, side), "diagonal", QColor(muted))
+    p.end()
+    pix.setDevicePixelRatio(dpr)
+    icon = QIcon(pix)
+    _BADGE_CACHE[key] = icon
+    return icon
+
+
+def _padlock_icon(dpr: float = 1.0):
+    """The System Library row's padlock (SB1b D13), muted, cached like the
+    capability badges.
+
+    Args:
+        dpr: The browser widget's ``devicePixelRatioF()`` (crisp on HiDPI).
+
+    Returns:
+        The padlock ``QIcon``.
+    """
+    from PyQt6.QtGui import QIcon, QPainter, QPen, QPixmap
+    from .gridline import padlock_path
+    from . import theme as th
+    muted = th.detect().muted
+    key = ("padlock", muted, float(dpr))
+    icon = _BADGE_CACHE.get(key)
+    if icon is not None:
+        return icon
+    side = max(1, round(_BADGE_PX * dpr))
+    pix = QPixmap(side, side)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(QPen(QColor(muted), 1.2 * dpr))
+    s = side * 0.62
+    p.drawPath(padlock_path(side / 2, side * 0.6, s))
     p.end()
     pix.setDevicePixelRatio(dpr)
     icon = QIcon(pix)
@@ -276,6 +313,7 @@ class BlocksBrowser(QWidget):
 
     blockActivated = pyqtSignal(str)
     editRequested = pyqtSignal(str)       # block id (project definition)
+    duplicateRequested = pyqtSignal(str, str)   # block id, .fpdb path ("" = project copy)
 
     def __init__(self, scene, parent: QWidget | None = None, *,
                  root: str | None = None) -> None:
@@ -356,6 +394,8 @@ class BlocksBrowser(QWidget):
         out = set()
         for i in range(self._tree.topLevelItemCount()):
             lib = self._tree.topLevelItem(i)
+            if lib.data(0, _ROLE_SEPARATOR):
+                continue
             if not lib.isExpanded():
                 out.add((lib.text(0),))
             for j in range(lib.childCount()):
@@ -383,12 +423,25 @@ class BlocksBrowser(QWidget):
         lib_caps = {block_library.entry_path(e, self._lib_root): kind_of(e)
                     for e in entries}               # per file: a copy is its own
         dpr = self.devicePixelRatioF()
-        for library in sorted(grouped):
+        sys_lib = block_library.SYSTEM_LIBRARY
+        order = sorted(lib for lib in grouped if lib != sys_lib)
+        if sys_lib in grouped:                 # pinned first (SB1b D13)
+            order = [sys_lib, None] + order    # None = separator row
+        for library in order:
+            if library is None:
+                self._add_separator()
+                continue
             lib_item = QTreeWidgetItem(self._tree, [library])
             lib_item.setFont(0, f_bold)
+            is_sys = library == sys_lib
+            if is_sys:
+                lib_item.setIcon(0, _padlock_icon(dpr))
+                lib_item.setToolTip(0, SYSTEM_ROW_TIP)
             for series in sorted(grouped[library]):
                 s_item = QTreeWidgetItem(lib_item, [series])
                 s_item.setFont(0, f_bold)
+                if is_sys:
+                    s_item.setToolTip(0, SYSTEM_ROW_TIP)
                 for name, block_id, path in sorted(grouped[library][series],
                                                    key=lambda x: x[0].lower()):
                     leaf = QTreeWidgetItem(s_item, [name])
@@ -409,9 +462,21 @@ class BlocksBrowser(QWidget):
                     if badge is not None:
                         icon, tip = badge
                         leaf.setIcon(0, icon)
-                    leaf.setToolTip(0, tip)
+                    leaf.setToolTip(0, SYSTEM_ROW_TIP if is_sys else tip)
                 s_item.setExpanded((library, series) not in collapsed)
             lib_item.setExpanded((library,) not in collapsed)
+
+    def _add_separator(self) -> None:
+        """A non-selectable rule between the System row and user libraries."""
+        from PyQt6.QtCore import QSize
+        sep = QTreeWidgetItem(self._tree, [""])
+        sep.setFlags(Qt.ItemFlag.NoItemFlags)
+        sep.setData(0, _ROLE_SEPARATOR, True)
+        sep.setSizeHint(0, QSize(0, 9))
+        rule = QFrame()
+        rule.setFrameShape(QFrame.Shape.HLine)
+        rule.setFrameShadow(QFrame.Shadow.Plain)
+        self._tree.setItemWidget(sep, 0, rule)
 
     # ── activation ────────────────────────────────────────────────────────
 
@@ -456,7 +521,30 @@ class BlocksBrowser(QWidget):
         act.setToolTip(tip)
         act.setStatusTip(tip)
         act.triggered.connect(lambda _=False, it=item: self._edit_item(it))
+        if self._is_system_leaf(item):
+            act.setToolTip("Shipped blocks are read-only — opens Duplicate to library...")
+            dup = menu.addAction("Duplicate to library...")
+            dtip = "Save a copy to your library and open it in a Block Editor tab"
+            dup.setToolTip(dtip)
+            dup.setStatusTip(dtip)
+            dup.triggered.connect(lambda _=False, it=item: self._duplicate_item(it))
         return menu
+
+    def _is_system_leaf(self, item: QTreeWidgetItem) -> bool:
+        """True for a block leaf the System tier owns (library-only or embedded)."""
+        block_id = item.data(0, _ROLE_ID)
+        if not isinstance(block_id, str) or not block_id:
+            return False
+        top = item
+        while top.parent() is not None:
+            top = top.parent()
+        return (top.text(0) == block_library.SYSTEM_LIBRARY
+                and block_library.is_system_block(block_id, self._lib_root))
+
+    def _duplicate_item(self, item: QTreeWidgetItem) -> None:
+        """Ask the owner to Duplicate this leaf to the user library (D9)."""
+        self.duplicateRequested.emit(item.data(0, _ROLE_ID),
+                                     item.data(0, _ROLE_PATH) or "")
 
     def _on_context_menu(self, pos) -> None:
         menu = self._build_context_menu(self._tree.itemAt(pos))
@@ -465,7 +553,11 @@ class BlocksBrowser(QWidget):
 
     def _edit_item(self, item: QTreeWidgetItem) -> None:
         """Make the leaf a project definition (loading a library-only one),
-        then emit ``editRequested``. No placement guard: editing never places."""
+        then emit ``editRequested``. No placement guard: editing never places.
+        A System block is read-only: Edit Block asks to Duplicate instead (Q8)."""
+        if self._is_system_leaf(item):
+            self._duplicate_item(item)
+            return
         block_id = item.data(0, _ROLE_ID)
         path = item.data(0, _ROLE_PATH)
         block_id = ensure_block_loaded(self._scene, block_id, path, item.text(0),

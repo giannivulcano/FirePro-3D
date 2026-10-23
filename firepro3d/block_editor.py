@@ -25,6 +25,8 @@ from .schematic_scene import _CLS_TO_LIST  # noqa: F401 (moved; re-exported)
 
 
 _SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice
+_SYSTEM_ORIGIN_TIP = ("Shipped block -- use Duplicate to library... (Blocks "
+                      "browser or Block Manager) to keep a copy")
 _SAVE_TEMPLATE_KEY = "BlockEditor/save_schematic_template"   # last "Also save as Template" choice (SV3)
 
 #: Editor tab title prefixes, by definition kind (schematics.md D-S14).
@@ -126,6 +128,53 @@ def save_schematic_template(project_scene, defn, parent, *, root: str | None = N
             return None
 
 
+def run_duplicate_dialog(project_scene, src, parent, *, root: str | None = None,
+                         bundled=()) -> str | None:
+    """Duplicate to library... (SB1b D9): ask Name / Library / Series, then
+    write a copy of *src* under a NEW id into the user library.
+
+    The shipped file is never touched; the copy is an ordinary user block.
+    Loading the copy into the project is the caller's (browser: one undo
+    step + open in the editor; Block Manager: baseline + retarget, D11).
+
+    Args:
+        project_scene: The project ``Model_Space`` (Library tree source).
+        src: The ``BlockDefinition`` to copy (a System file or a project copy).
+        parent: Qt parent for the dialog and prompts.
+        root: User library root; None = the configured library.
+        bundled: Nested definitions written into the copy's bundle -- the
+            ``{id: to_dict}`` map of ``BlockRegistry.bundle_for`` or a list of
+            ``BlockDefinition`` (``load_block_file_with_bundle``).
+
+    Returns:
+        The written ``.fpdb`` path, or None when cancelled or refused.
+    """
+    import uuid
+    from PyQt6.QtWidgets import QDialog
+    from . import block_library
+    from .block_definition import BlockDefinition
+    from .themed_message import themed_info
+    tree = {lib: ser for lib, ser in library_tree_for(project_scene, root).items()
+            if not block_library.is_reserved_library(lib)}
+    dlg = BlockSaveDialog(parent, library_tree=tree, root=root, context="duplicate",
+                          initial=(f"{src.name} copy", "", ""))
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    v = dlg.values()
+    copy = BlockDefinition.from_dict(src.to_dict())
+    copy.id, copy.version, copy.base_version = uuid.uuid4().hex, 1, None
+    copy.name, copy.library, copy.series = v["name"], v["library"], v["series"]
+    if not isinstance(bundled, dict):
+        bundled = {d.id: d.to_dict() for d in (bundled or ())}
+    try:
+        return block_library.save_to_library(copy, root=root,
+                                             overwrite=v.get("overwrite", False),
+                                             bundled=bundled)
+    except (OSError, block_library.SystemLibraryReadOnly) as exc:
+        themed_info(parent, "Duplicate to Library", f"Could not save:\n{exc}")
+        return None
+
+
 class BlockSaveDialog(HouseDialog):
     """Collect block identity + save options at Save time.
 
@@ -139,8 +188,10 @@ class BlockSaveDialog(HouseDialog):
     remembered under ``BlockEditor/save_schematic_template``; ``root`` is then
     the templates root the collision probe reads — schematics.md D-S14, SV3).
 
-    context: "new" | "seeded" | "edit". Shows a replace-source toggle for
-    "seeded" and an "updates N instances" warning for "edit" when N>0.
+    context: "new" | "seeded" | "edit" | "duplicate". Shows a replace-source
+    toggle for "seeded" and an "updates N instances" warning for "edit" when
+    N>0. "duplicate" is Duplicate to Library... (SB1b D9): title "Duplicate to
+    Library", primary "Duplicate", always writes to the library, no toggle.
 
     Args:
         parent: Qt parent widget.
@@ -156,20 +207,28 @@ class BlockSaveDialog(HouseDialog):
         kind: "block" or "schematic" -- a schematic shows Name + Series only
             (no Library, no library toggle; schematics.md D-S14).
         schematic_series: Series choices for a schematic.
+        system_origin: An edit of a System-origin project copy (SB1b): Library
+            / Series are locked and the library toggle is off and disabled --
+            the project copy is saved, the shipped file never is.
     """
 
     def __init__(self, parent=None, *, theme=None, library_tree=None, root=None,
                  collision_id=None, context="new", instance_count=0,
                  initial=("", "", ""), validator=None, kind="block",
-                 schematic_series=None, collision_source=None):
+                 schematic_series=None, collision_source=None,
+                 system_origin=False):
         is_schematic = kind == "schematic"
-        super().__init__(parent, title="Save Schematic" if is_schematic else "Save Block",
+        title = ("Save Schematic" if is_schematic
+                 else "Duplicate to Library" if context == "duplicate"
+                 else "Save Block")
+        super().__init__(parent, title=title,
                          icon="insert_block_icon.svg", min_width=420, theme=theme)
         from PyQt6.QtCore import QSettings
         from .ui_kit import CreatableSelector, ToggleSwitch
         self.setObjectName("BlockSaveDialog")
         self._validator = validator
         self._context = context
+        self._system_origin = system_origin
         self._kind = kind
         self._lib_root = root
         self._collision_id = collision_id
@@ -224,6 +283,15 @@ class BlockSaveDialog(HouseDialog):
                                                checked=bool(remembered) and not is_schematic)
         self.save_to_library_cb.setToolTip(
             "Also write this block to the on-disk library folder above")
+        if context == "duplicate":
+            self.save_to_library_cb.setChecked(True)
+            self.save_to_library_cb.hide()
+        if system_origin:
+            self.save_to_library_cb.setChecked(False)
+            self.save_to_library_cb.setEnabled(False)
+            self.save_to_library_cb.setToolTip(_SYSTEM_ORIGIN_TIP)
+            self.library_sel.setEnabled(False)
+            self.series_sel.setEnabled(False)
         self.save_template_cb = None
         if is_schematic:
             # Templates are an explicit push-back (schematics.md D-S6): the
@@ -255,7 +323,9 @@ class BlockSaveDialog(HouseDialog):
         self.error_label.hide()
         form.addRow("", self.error_label)
         self.body_layout().addLayout(form)
-        self.set_footer_buttons(primary=("Save", self._on_save), cancel=True)
+        self.set_footer_buttons(
+            primary=("Duplicate" if context == "duplicate" else "Save",
+                     self._on_save), cancel=True)
 
     # -- dropdowns ---------------------------------------------------------
     def _refresh_series(self, library: str) -> None:
@@ -268,6 +338,9 @@ class BlockSaveDialog(HouseDialog):
         from .themed_message import themed_info
         try:
             path = block_library.create_folder(name, root=self._lib_root)
+        except block_library.SystemLibraryReadOnly as exc:
+            themed_info(self, "New library", str(exc))
+            return
         except OSError as exc:
             themed_info(self, "New library", f"Could not create the folder:\n{exc}")
             return
@@ -296,6 +369,9 @@ class BlockSaveDialog(HouseDialog):
             return
         try:
             path = block_library.create_folder(lib, name, root=self._lib_root)
+        except block_library.SystemLibraryReadOnly as exc:
+            themed_info(self, "New series", str(exc))
+            return
         except OSError as exc:
             themed_info(self, "New series", f"Could not create the folder:\n{exc}")
             return
@@ -328,12 +404,17 @@ class BlockSaveDialog(HouseDialog):
 
     def validation_error(self) -> str | None:
         """Return an error string if the form is invalid, else None."""
+        from . import block_library
         v = self.values()
         if self._kind == "schematic":
             if not v["name"]:
                 return "Name is required."
         elif not (v["name"] and v["library"] and v["series"]):
             return "Name, Library and Series are all required."
+        elif (not self._system_origin
+              and block_library.is_reserved_library(v["library"])):
+            return (f"\u201c{block_library.SYSTEM_LIBRARY}\u201d is reserved for "
+                    "blocks shipped with FirePro3D.")
         if self._validator is not None:
             return self._validator(v["name"], v["library"], v["series"])
         return None
@@ -347,7 +428,7 @@ class BlockSaveDialog(HouseDialog):
         if self._kind == "schematic":
             QSettings("GV", "FirePro3D").setValue(
                 _SAVE_TEMPLATE_KEY, self.save_template_cb.isChecked())
-        else:
+        elif self._context != "duplicate" and not self._system_origin:
             QSettings("GV", "FirePro3D").setValue(
                 _SAVE_TO_LIB_KEY, self.save_to_library_cb.isChecked())
         err = self.validation_error()
@@ -797,7 +878,9 @@ class BlockEditorWidget(QWidget):
         defn = self.commit_block(cur.name, cur.library, cur.series)
         if defn is None:
             return None
-        if self.kind != "schematic" and block_library.source_status(defn) != "project-only":
+        if (self.kind != "schematic"
+                and not block_library.is_system_block(defn.id)
+                and block_library.source_status(defn) != "project-only"):
             self._save_to_library(defn, parent or self)
         n = self._project_scene.instance_count(defn.id)
         m = len(self._project_scene.block_registry.users_of(defn.id))
@@ -903,6 +986,8 @@ class BlockEditorWidget(QWidget):
         writes_as = None if save_as else self._edit_block_id
         src_def = proj.get_block_definition(writes_as) if writes_as else None
         writes_from = getattr(src_def, "source_path", None)
+        from . import block_library
+        sys_origin = bool(writes_as) and block_library.is_system_block(writes_as)
 
         if self.kind == "schematic":
             def _validator(name, library, series):
@@ -932,7 +1017,8 @@ class BlockEditorWidget(QWidget):
                                   collision_id=writes_as,
                                   context=context, instance_count=icount,
                                   initial=initial, validator=_validator,
-                                  collision_source=writes_from)
+                                  collision_source=writes_from,
+                                  system_origin=sys_origin)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         v = dlg.values()
@@ -1057,12 +1143,15 @@ class BlockEditorWidget(QWidget):
             The written ``.fpdb`` path, or None when the overwrite was declined.
         """
         from . import block_library
-        from .themed_message import themed_confirm
+        from .themed_message import themed_confirm, themed_info
         noun = "template" if root is not None else "block"
         bundled = self._project_scene.block_registry.bundle_for(defn.id)
         try:
             return block_library.save_to_library(defn, root=root, overwrite=overwrite,
                                                  bundled=bundled)
+        except block_library.SystemLibraryReadOnly as exc:
+            themed_info(parent, "Save to Library", str(exc))
+            return None
         except block_library.BlockNameCollision as e:
             if themed_confirm(parent, f"Overwrite {noun}?",
                               f"A different {noun} '{e.existing_name}' occupies that "
