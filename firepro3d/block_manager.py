@@ -775,6 +775,22 @@ class BlockManagerDialog(HouseDialog):
         if block_library.is_system_block(defn.id, self._lib_root):
             self._duplicate_and_retarget(defn)
             return
+        if block_library.is_reserved_library(defn.library):
+            # A user-id block still filed under System (e.g. a pre-SB1b hatch):
+            # re-file it (keeps its id) before the write would be refused.
+            from . import block_editor
+            v = block_editor.run_refile_dialog(
+                self.scene, defn, self, root=self._lib_root)
+            if v is None:
+                return
+            if not self.scene.set_block_metadata(
+                    defn.id, v["name"], v["library"], v["series"]):
+                themed_info(self, "Save to Library",
+                            f"“{v['name']}” is already used by another block "
+                            f"in {v['library']} / {v['series']}.")
+                return
+            self._save_to_library(overwrite=v.get("overwrite", False))
+            return
         try:
             block_library.save_to_library(
                 defn, root=self._lib_root, overwrite=overwrite,
@@ -802,7 +818,7 @@ class BlockManagerDialog(HouseDialog):
                                 f"in {defn.library} / {defn.series}.")
                     return
                 self._save_to_library()
-        except OSError as exc:
+        except (OSError, block_library.SystemLibraryReadOnly) as exc:
             themed_info(self, "Save to Library", f"Could not save:\n{exc}")
             self._sync_ui()
 
@@ -811,10 +827,22 @@ class BlockManagerDialog(HouseDialog):
         then switch the project to the copy (``retarget_block_refs``, one
         undo step; the copy is registered as baseline so undo keeps it)."""
         from . import block_editor
+        # An editor tab open on the old id would be orphaned by the retarget:
+        # close it through the main window's tab-close prompt BEFORE anything
+        # is written (Cancel keeps the tab and aborts; Discard drops its edits).
+        mgr = getattr(self.main_window, "block_editor_manager", None)
+        tab = mgr.editor_for(defn.id) if mgr is not None else None
+        if tab is not None:
+            tabs = self.main_window.central_tabs
+            self.main_window._on_tab_close_requested(tabs.indexOf(tab))
+            if mgr.editor_for(defn.id) is not None:
+                return
         written = block_editor.run_duplicate_dialog(
             self.scene, defn, self, root=self._lib_root,
             bundled=self.scene.block_registry.bundle_for(defn.id))
         if not written:
+            if tab is not None:
+                mgr.edit_definition(defn.id)    # dialog cancelled: restore the tab
             return
         copy = block_library.load_block_file(written)
         if copy is None:
@@ -826,6 +854,8 @@ class BlockManagerDialog(HouseDialog):
         self.scene.retarget_block_refs(defn.id, copy.id)
         self.model.refresh()
         self._select_id(copy.id)
+        if tab is not None:
+            mgr.edit_definition(copy.id)    # re-open on the copy (VC9 I2)
 
     def _reload(self) -> None:
         defn = self._current_def()

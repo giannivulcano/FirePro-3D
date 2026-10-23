@@ -135,3 +135,47 @@ def test_g2_manager_save_cancelled_changes_nothing(
     assert set(model_space._block_definitions) == before
     assert len(model_space._undo_stack) == steps
     dlg.close()
+
+
+def _reserved_library_user_block(ms):
+    """A pre-SB1b hatch: Library "System" but a user id, embedded in the project."""
+    d = BlockDefinition.new(name="Old Hatch", library="System", series="Hatches",
+                            primitives=[], origin=(0.0, 0.0))
+    assert not bl.is_system_block(d.id)
+    ms.register_block_definition(d)
+    return d
+
+
+def test_vc9_i1_manager_save_refiles_a_reserved_library_user_block(
+        model_space, qapp, monkeypatch):
+    from tests.test_system_library_duplicate import _accept_with
+    d = _reserved_library_user_block(model_space)
+    shown = []
+    monkeypatch.setattr("firepro3d.themed_message.themed_info",
+                        lambda *a, **k: shown.append(a))
+    _accept_with(monkeypatch, "Old Hatch", "Styles", "Hatches")
+    dlg = _dialog(model_space)
+    _select_block(dlg, d.id)
+    dlg._save_to_library()
+    path = os.path.join(bl.block_library_dir(), "Styles", "Hatches",
+                        "Old Hatch.fpdb")
+    assert shown == [] and os.path.isfile(path)
+    assert bl.load_block_file(path).id == d.id          # the id is kept
+    proj = model_space._block_definitions[d.id]
+    assert proj.library == "Styles" and bl.source_status(proj) == "library"
+    dlg.close()
+
+
+def test_vc9_i1_manager_save_refile_cancel_changes_nothing(
+        model_space, qapp, monkeypatch):
+    from PyQt6.QtWidgets import QDialog
+    d = _reserved_library_user_block(model_space)
+    monkeypatch.setattr(be.BlockSaveDialog, "exec",
+                        lambda self: QDialog.DialogCode.Rejected)
+    dlg = _dialog(model_space)
+    _select_block(dlg, d.id)
+    dlg._save_to_library()
+    assert model_space._block_definitions[d.id].library == "System"
+    assert [p for _d, _s, fs in os.walk(bl.block_library_dir())
+            for p in fs if p.endswith(".fpdb")] == []
+    dlg.close()

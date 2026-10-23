@@ -128,6 +128,38 @@ def save_schematic_template(project_scene, defn, parent, *, root: str | None = N
             return None
 
 
+def _ask_library_target(project_scene, parent, root, context, initial,
+                        collision_id=None) -> dict | None:
+    """Run the library Save dialog (System tier excluded from the Library
+    choices; the validator refuses it) and return ``values()``, or None on
+    cancel. The one dialog-building home for Duplicate and Block Manager
+    re-file (SB1b VC9 I1)."""
+    from PyQt6.QtWidgets import QDialog
+    from . import block_library
+    tree = {lib: ser for lib, ser in library_tree_for(project_scene, root).items()
+            if not block_library.is_reserved_library(lib)}
+    dlg = BlockSaveDialog(parent, library_tree=tree, root=root, context=context,
+                          initial=initial, collision_id=collision_id)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return dlg.values()
+
+
+def run_refile_dialog(project_scene, defn, parent, *, root: str | None = None,
+                      ) -> dict | None:
+    """Block Manager Save of a reserved-Library block with a user id (SB1b VC9
+    I1): ask Name / Library / Series, prefilled with the block's name, Library
+    "Styles" and its current series. The block keeps its id; the caller applies
+    the values (``set_block_metadata``) and writes the user-library file.
+
+    Returns:
+        The dialog ``values()`` dict, or None when cancelled.
+    """
+    return _ask_library_target(project_scene, parent, root, "refile",
+                               (defn.name, "Styles", defn.series),
+                               collision_id=defn.id)
+
+
 def run_duplicate_dialog(project_scene, src, parent, *, root: str | None = None,
                          bundled=()) -> str | None:
     """Duplicate to library... (SB1b D9): ask Name / Library / Series, then
@@ -150,17 +182,13 @@ def run_duplicate_dialog(project_scene, src, parent, *, root: str | None = None,
         The written ``.fpdb`` path, or None when cancelled or refused.
     """
     import uuid
-    from PyQt6.QtWidgets import QDialog
     from . import block_library
     from .block_definition import BlockDefinition
     from .themed_message import themed_info
-    tree = {lib: ser for lib, ser in library_tree_for(project_scene, root).items()
-            if not block_library.is_reserved_library(lib)}
-    dlg = BlockSaveDialog(parent, library_tree=tree, root=root, context="duplicate",
-                          initial=(f"{src.name} copy", "", ""))
-    if dlg.exec() != QDialog.DialogCode.Accepted:
+    v = _ask_library_target(project_scene, parent, root, "duplicate",
+                            (f"{src.name} copy", "", ""))
+    if v is None:
         return None
-    v = dlg.values()
     copy = BlockDefinition.from_dict(src.to_dict())
     copy.id, copy.version, copy.base_version = uuid.uuid4().hex, 1, None
     copy.name, copy.library, copy.series = v["name"], v["library"], v["series"]
@@ -192,6 +220,9 @@ class BlockSaveDialog(HouseDialog):
     toggle for "seeded" and an "updates N instances" warning for "edit" when
     N>0. "duplicate" is Duplicate to Library... (SB1b D9): title "Duplicate to
     Library", primary "Duplicate", always writes to the library, no toggle.
+    "refile" is the Block Manager Save of a block whose Library is reserved
+    but whose id is not a System id (SB1b VC9 I1): same always-writes shape
+    with the ordinary "Save Block" title and "Save" primary.
 
     Args:
         parent: Qt parent widget.
@@ -283,7 +314,7 @@ class BlockSaveDialog(HouseDialog):
                                                checked=bool(remembered) and not is_schematic)
         self.save_to_library_cb.setToolTip(
             "Also write this block to the on-disk library folder above")
-        if context == "duplicate":
+        if context in ("duplicate", "refile"):
             self.save_to_library_cb.setChecked(True)
             self.save_to_library_cb.hide()
         if system_origin:
@@ -428,7 +459,8 @@ class BlockSaveDialog(HouseDialog):
         if self._kind == "schematic":
             QSettings("GV", "FirePro3D").setValue(
                 _SAVE_TEMPLATE_KEY, self.save_template_cb.isChecked())
-        elif self._context != "duplicate" and not self._system_origin:
+        elif (self._context not in ("duplicate", "refile")
+              and not self._system_origin):
             QSettings("GV", "FirePro3D").setValue(
                 _SAVE_TO_LIB_KEY, self.save_to_library_cb.isChecked())
         err = self.validation_error()

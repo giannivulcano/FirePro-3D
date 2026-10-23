@@ -176,3 +176,76 @@ def test_g2_main_window_cancelled_duplicate_changes_nothing(
     QApplication.processEvents()
     assert (set(win.scene._block_definitions),
             dict(win.block_editor_manager._open)) == before
+
+
+def test_vc9_i2_manager_save_reopens_the_editor_on_the_copy(
+        qapp, _main_window_singleton, real_system_library, monkeypatch):
+    from firepro3d import block_editor as be
+    from firepro3d.block_manager import BlockManagerDialog
+    win = _main_window_singleton
+    path = os.path.join(real_system_library, "Hatches", "Diagonal.fpdb")
+    win.scene.load_blocks_from_files([path])
+    old_id = "builtin-hatch-diagonal"
+    mgr = win.block_editor_manager
+    monkeypatch.setattr(be, "run_duplicate_dialog",
+                        lambda scene, src, parent, **k: _write_copy(src))
+    copy_id = None
+    try:
+        assert mgr.edit_definition(old_id) is not None
+        win.scene.get_block_definition(old_id).set_primitives(
+            list(win.scene.get_block_definition(old_id).primitives))
+        dlg = BlockManagerDialog(win.scene, win, apply_stylesheet=False)
+        row = dlg.model.row_for_id(old_id)
+        dlg.view.setCurrentIndex(
+            dlg.proxy.mapFromSource(dlg.model.index(row, 0)))
+        dlg._save_to_library()
+        QApplication.processEvents()
+        copy_id = dlg._current_def().id
+        assert copy_id != old_id
+        assert mgr.editor_for(old_id) is None
+        assert mgr.editor_for(copy_id) is not None
+        dlg.close()
+    finally:
+        for bid in (old_id, copy_id):
+            w = mgr.editor_for(bid) if bid else None
+            if w is not None:
+                w._dirty = False
+                mgr.close(w)
+            if bid:
+                win.scene._block_definitions.pop(bid, None)
+        win.scene.blockDefinitionsChanged.emit()
+        QApplication.processEvents()
+
+
+def test_vc9_i2_dirty_tab_cancel_aborts_before_any_write(
+        qapp, _main_window_singleton, real_system_library, monkeypatch):
+    from firepro3d import block_editor as be
+    from firepro3d.block_manager import BlockManagerDialog
+    win = _main_window_singleton
+    path = os.path.join(real_system_library, "Hatches", "Diagonal.fpdb")
+    win.scene.load_blocks_from_files([path])
+    old_id = "builtin-hatch-diagonal"
+    mgr = win.block_editor_manager
+    ran = []
+    monkeypatch.setattr(be, "run_duplicate_dialog",
+                        lambda *a, **k: ran.append(1))
+    monkeypatch.setattr("firepro3d.themed_message.themed_confirm",
+                        lambda *a, **k: False)          # Cancel the prompt
+    try:
+        w = mgr.edit_definition(old_id)
+        w._dirty = True
+        dlg = BlockManagerDialog(win.scene, win, apply_stylesheet=False)
+        row = dlg.model.row_for_id(old_id)
+        dlg.view.setCurrentIndex(
+            dlg.proxy.mapFromSource(dlg.model.index(row, 0)))
+        dlg._duplicate_and_retarget(win.scene.get_block_definition(old_id))
+        assert ran == [] and mgr.editor_for(old_id) is w
+        dlg.close()
+    finally:
+        w = mgr.editor_for(old_id)
+        if w is not None:
+            w._dirty = False
+            mgr.close(w)
+        win.scene._block_definitions.pop(old_id, None)
+        win.scene.blockDefinitionsChanged.emit()
+        QApplication.processEvents()
