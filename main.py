@@ -56,6 +56,7 @@ from firepro3d.splash import FireProSplash
 from firepro3d import __version__ as APP_VERSION
 from firepro3d import theme as th
 from firepro3d import colour_picker
+from firepro3d import fill_types
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -760,6 +761,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # LT1-3: a new project's weight table copies the template.
         from firepro3d.paper_display import reset_project_line_weights
         reset_project_line_weights()
+        fill_types.reset_project_table()    # HF5 R9: startup = the seed set
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # Render the linked default title block on the startup sheet (Task A);
@@ -4341,6 +4343,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # LT1-3: a new project's weight table copies the template.
         from firepro3d.paper_display import reset_project_line_weights
         reset_project_line_weights()
+        fill_types.reset_project_table()    # HF5 R9: a new project = the seed set
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # _clear_scene + template replaced/set the units — re-seed open editors.
