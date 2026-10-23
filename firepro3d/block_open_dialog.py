@@ -15,6 +15,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (QDialogButtonBox, QFrame, QLabel, QLineEdit,
                              QStackedWidget, QTreeWidget, QTreeWidgetItem)
 
+from . import block_library
 from .blocks_browser import (_ROLE_ID, _ROLE_PATH, ensure_block_loaded,
                              library_only_entries)
 from .house_dialog import HouseDialog
@@ -109,7 +110,9 @@ class BlockOpenDialog(HouseDialog):
 
         grouped: dict = {}
         for lib, ser, name, block_id, path in library_only_entries(
-                self._scene, self._lib_root):
+                self._scene, self._lib_root,
+                entries=block_library.list_library(self._lib_root,
+                                                   system=False)):
             grouped.setdefault(lib, {}).setdefault(ser, []).append(
                 (name, block_id, path))
         if grouped:

@@ -283,3 +283,66 @@ def test_g5_system_first_then_user_dedup_by_id(real_system_library, tmp_path):
     rows = library_patterns()
     assert [bid for _n, bid, _p in rows].count("builtin-hatch-brick") == 1
     assert all(p.startswith(real_system_library) for _n, _b, p in rows[:5])
+
+
+def _leaf_ids(dlg):
+    from PyQt6.QtCore import Qt
+    ids = []
+
+    def walk(it):
+        for role in (Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 1,
+                     Qt.ItemDataRole.UserRole + 2):
+            v = it.data(0, role)
+            if isinstance(v, str):
+                ids.append(v)
+        for i in range(it.childCount()):
+            walk(it.child(i))
+    for i in range(dlg._tree.topLevelItemCount()):
+        walk(dlg._tree.topLevelItem(i))
+    return ids
+
+
+def _leaf_labels(dlg, root_text):
+    out = []
+    for i in range(dlg._tree.topLevelItemCount()):
+        top = dlg._tree.topLevelItem(i)
+        if top.text(0) != root_text:
+            continue
+
+        def walk(it):
+            if it.childCount() == 0:
+                out.append(it.text(0))
+            for j in range(it.childCount()):
+                walk(it.child(j))
+        walk(top)
+    return out
+
+
+def test_d14_schematic_new_dialog_lists_no_system_entry(qapp, tmp_path):
+    from firepro3d.schematic_new_dialog import NewSchematicDialog, _template_entries
+    sys_tpl = BlockDefinition.new(name="SysTemplate", library="Stage",
+                                  series="Tpl", primitives=[], origin=(0.0, 0.0),
+                                  kind="schematic")
+    stage = tmp_path / "stage"
+    bl.save_to_library(sys_tpl, root=str(stage))
+    shutil.copytree(stage, bl.system_root(), dirs_exist_ok=True)
+    assert any(e["tier"] == "system" and e["kind"] == "schematic"
+               for e in bl.list_library(str(tmp_path)))          # precondition
+    assert all(e.get("tier") != "system" for e in _template_entries(str(tmp_path)))
+    dlg = NewSchematicDialog(None, root=str(tmp_path))
+    assert sys_tpl.id not in _leaf_ids(dlg)
+
+
+def test_d14_open_picker_omits_system_library_but_shows_embedded_copy(
+        qapp, real_system_library, tmp_path):
+    from firepro3d.block_open_dialog import BlockOpenDialog
+    from firepro3d.model_space import Model_Space
+    scene = Model_Space()
+    dlg = BlockOpenDialog(scene, None, root=str(tmp_path))
+    assert not [i for i in _leaf_ids(dlg) if i.startswith("builtin-hatch-")]
+    assert _leaf_labels(dlg, "Library") == []
+    diag = os.path.join(real_system_library, "Hatches", "Diagonal.fpdb")
+    scene.load_blocks_from_files([diag])
+    dlg2 = BlockOpenDialog(scene, None, root=str(tmp_path))
+    assert "Diagonal" in _leaf_labels(dlg2, "Project")
+    assert _leaf_labels(dlg2, "Library") == []

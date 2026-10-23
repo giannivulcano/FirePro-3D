@@ -36,7 +36,8 @@ def _template_entries(root: str | None) -> list[dict]:
     here so a changed override is honoured on every open)."""
     from .app_data import schematics_dir
     return [e for e in block_library.list_library(
-                root if root is not None else schematics_dir())
+                root if root is not None else schematics_dir(),
+                system=False)
             if e.get("kind") == "schematic"]
 
 
