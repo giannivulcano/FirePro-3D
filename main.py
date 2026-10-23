@@ -740,8 +740,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # SB1b D5: clean the D-A39 seeded hatch copies and move the user
         # library's System/ defaults to Styles/ before a project reads them.
-        from firepro3d.system_library import migrate_user_library
-        migrate_user_library()
+        try:
+            from firepro3d.system_library import migrate_user_library
+            migrate_user_library()
+        except Exception:  # noqa: BLE001 -- a migration failure never blocks launch
+            import logging
+            logging.getLogger(__name__).warning(
+                "User library migration failed", exc_info=True)
 
         # New-project setup — mirrors new_file() without the save prompt
         self.scene._clear_scene()
