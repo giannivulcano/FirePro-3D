@@ -3030,7 +3030,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 = "block" for a new definition / keep the existing kind on
                 edit. A schematic carries no capability and is never placed.
             meta: The editor's ``block_meta`` (``attributes`` /
-                ``host_category`` / ``scale_mode``, SB1a S4); None leaves the
+                ``host_category`` / ``scale_mode`` / ``annotative_screen``,
+                SB1a S4, SB1c D2); None leaves the
                 definition's fields untouched.
 
         Returns:
@@ -3132,9 +3133,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     @staticmethod
     def _apply_block_meta(defn, meta) -> None:
-        """Write the editor's attributes / host_category / scale_mode onto
-        *defn* (SB1a S4). The caller's ``set_primitives`` (edit) clears the
-        caches; the registry cascade to nesting parents is the
+        """Write the editor's attributes / host_category / scale_mode /
+        annotative_screen onto *defn* (SB1a S4, SB1c D2). The caller's
+        ``set_primitives`` (edit) clears the caches; the registry cascade to nesting parents is the
         ``_block_registry.invalidate`` that follows it."""
         if meta is None or defn.kind == "schematic":
             return                      # a schematic never carries block meta

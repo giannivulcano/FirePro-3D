@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: implemented
 last-verified: 2026-10-23
-verified-commit: 1f158ae8
+verified-commit: 245088ad
 applies-to:
   - firepro3d/annotative.py            # new
   - firepro3d/block_instance.py
@@ -40,14 +40,22 @@ the paper heights of bubbles and room labels are per-category Display Manager se
 - **No per-view scale.** `PlanView.scale` and a detail-view scale are **dropped** (Phase 2
   ruling 2026-10-23): annotations stay consistent across views; model-geometry blocks (doors,
   schematics) stay real size and scale with their view. This amends concept F6 / F8.
-- **One factor, three contexts** -- `annotative.annotative_factor(item, painter=None) -> float`,
+- **One factor, four contexts** -- `annotative.annotative_factor(item, painter=None) -> float`,
   decided in this order:
 
   | Context | Factor k (scene units per authored mm) |
   |---|---|
   | paper pass (`paper_display.paper_pass_active()` and the item's `_paper_scale` S) | `1 / S` |
-  | model canvas, On screen = Fixed size (`linetype_render.screen_fixed_here`; plan / block_editor roles) | `FIXED_END_PX_PER_MM / device_scale` (painter) |
-  | otherwise (Scale with zoom, default) | `ScaleManager.drawing_scale` |
+  | section / elevation canvas (`SectionScene`, scene in mm), either On screen mode | `ScaleManager.drawing_scale`, read from the model's live ScaleManager (`scene._ms.scale_manager`); Fixed's screen-constant frame stays plan-only (VC9 I1 ruling 2026-10-23) |
+| plan canvas, On screen = Fixed size (`linetype_render.screen_fixed_here`; plan role only -- the Block Editor is k = 1) | `FIXED_END_PX_PER_MM / device_scale` (painter) |
+  | plan canvas, Scale with zoom (default) | `ScaleManager.drawing_scale` |
+| Block Editor and any other non-plan scene | `1` |
+
+  A drawing-scale change re-prepares the plan's annotative instances and the hosted copies in
+  open section scenes (`_on_project_settings_changed`, D7). The section canvas reads the model's
+  live ScaleManager because `SectionManager` keeps the one it was built with, which a project
+  load replaces. Hosted section copies decide crop clipping from their scaled extent (measured
+  after the copy is added to the scene).
 
   It reuses the ET1 end-type gates (`linetype_render.printed_factor`, `screen_fixed_here`,
   `end_render.screen_factor`, `mark_screen_ends`); it adds no new rule.
@@ -62,10 +70,10 @@ the paper heights of bubbles and room labels are per-category Display Manager se
 | D2 | Definition key `annotative_screen: "scale" \| "fixed"` (values `end_render.SCREEN_SCALE` / `SCREEN_FIXED`); default and missing-key = `"scale"`; meaningful only when `scale_mode == "annotative"`; carried by definition `to_dict`/`from_dict` and the `.fpdb` library | Phase 2 grill: default Scale with zoom |
 | D3 | Scale with zoom and paper fold k into the memoised variant: `render_ops_variant(mirrored, pose_scale * k)` (scales about the base point = insertion point) | bounds, `shape()`, HALO pick and box select stay exact with no extra code |
 | D4 | Fixed size: unscaled variant, painter scaled by k about the insertion point; `boundingRect` / `shape` / `_frame_rect` apply the same k from the last device scale and the item registers via `mark_screen_ends` so the view zoom hook re-prepares it | ET1 spec C precedent |
-| D5 | Nested blocks are flattened at compile, so a nested child follows its top-level parent's mode (annotative child in a real-size parent paints real size); in the Block Editor nested instances paint at k = 1 | WYSIWYG with the compiled result; section 2 approval |
+| D5 | Nested blocks are flattened at compile, so a nested child follows its top-level parent's mode (annotative child in a real-size parent paints real size); in the Block Editor nested instances paint at k = 1 | WYSIWYG with the compiled result; section 2 approval; reconfirmed by the user at smoke 2026-10-23 |
 | D6 | Paper pass: `_apply_block` calls `prepareGeometryChange` on an annotative instance before setting `_paper_scale` and again at restore; `paper_export` / print unchanged (same `SheetViewport.paint`) | the scene echo guard absorbs it |
 | D7 | Drawing-scale change: `_on_project_settings_changed` re-prepares the plan's annotative instances (today only editors are re-prepared) | trigger today is project load; the UI stays L715 (Phase 2 ruling) |
-| D8 | Block properties: row "On screen: Fixed size \| Scale with zoom" (`linetype_render.SCREEN_LABELS`) directly under "Scale mode", shown only when Annotative and never for schematic editors (`block_properties_info.py` `if not schematic:` gate); switching Scale mode refreshes the panel | LTS-1 precedent; section 2 approval |
+| D8 | Block properties: row "On screen: Fixed size \| Scale with zoom" (`linetype_render.SCREEN_LABELS`) directly under "Scale mode", shown only when Annotative and never for schematic editors (`block_properties_info.py` `if not schematic:` gate); switching Scale mode refreshes the panel; an annotative block that also carries a repeat / end capability shows that capability's own "On screen" row, which masks the block-level `annotative_screen` row (`_screen_row_free`) | LTS-1 precedent; section 2 approval |
 | D9 | Block Editor: 1 drawn mm = 1 printed mm for an annotative definition; ends / linetypes keep the ET1-1 drawing-scale preview | Phase 2 grill "Printed mm, like ends" |
 | D10 | Shared paper conversion `annotative.paper_scene_size(mm, S) = mm / S` used by `_apply_room_label_paper_height` with `ROOM_LABEL_PAPER_CAP_MM = 2.5` and by `_apply_gridline` plus the elevation-gridline caller with `GRIDLINE_BUBBLE_PAPER_CAP_MM = 3.0` (to `bubble_paper_geometry`); per-type mutate/restore helpers stay until SB3 / SB4b | Phase 2 AC5 / AC6 |
 | D11 | Model canvas unchanged for bubbles (`GridBubble.RADIUS_PX` 14 px screen-fixed) and room labels (150 mm model) | Phase 2 grill "Keep today" x2 |
@@ -74,18 +82,18 @@ the paper heights of bubbles and room labels are per-category Display Manager se
 
 ## Acceptance Criteria
 
-- [ ] AC1 Annotative blocks plot at authored mm in every sheet viewport (plan, detail,
+- [x] AC1 Annotative blocks plot at authored mm in every sheet viewport (plan, detail,
       section / elevation, NTS via fit) and PDF / print; two viewports at different scales give
       the same printed size.
-- [ ] AC2 "On screen" row (default Scale with zoom): Scale with zoom = authored mm x
+- [x] AC2 "On screen" row (default Scale with zoom): Scale with zoom = authored mm x
       `drawing_scale` model units; Fixed = authored mm x 6 px at any zoom.
-- [ ] AC3 Block Editor stores authored geometry 1:1 in printed mm.
-- [ ] AC4 Real-size blocks unchanged.
-- [ ] AC5 Gridline bubbles: canvas 14 px unchanged; paper 3.0 mm cap via the shared conversion.
-- [ ] AC6 Room labels: canvas 150 mm unchanged; paper 2.5 mm via the shared conversion.
-- [ ] AC7 Grid Line "Label Ht" DM column and both stored keys retired; a stale stored value is
+- [x] AC3 Block Editor stores authored geometry 1:1 in printed mm.
+- [x] AC4 Real-size blocks unchanged.
+- [x] AC5 Gridline bubbles: canvas 14 px unchanged; paper 3.0 mm cap via the shared conversion.
+- [x] AC6 Room labels: canvas 150 mm unchanged; paper 2.5 mm via the shared conversion.
+- [x] AC7 Grid Line "Label Ht" DM column and both stored keys retired; a stale stored value is
       ignored. (Probe correction: Room `label_height_mm` never had a DM row.)
-- [ ] AC8 No drawing-scale UI (stays task L715).
+- [x] AC8 No drawing-scale UI (stays task L715).
 
 ## Verification Checklist
 
@@ -121,9 +129,15 @@ reverted. The acceptance gate is the exported PDF at real scale.
 
 ## Edge Cases & Error Handling
 
-- **Crop edge (known limit):** the paper pass selects items by model bounds within the viewport
+- **Known limits:**
+  - Fixed-size bounds follow the active view's zoom only (`ModelSpace._active_view_scale`) --
+    the same limit as ET1.
+  - Crop edge: the paper pass selects items by model bounds within the viewport
   crop; an annotative block whose insertion point is just outside the crop and whose paper size
-  exceeds its model bounds (for example at 1:200) does not plot.
+  exceeds its model bounds (for example at 1:200) does not plot (`apply_paper_overrides`
+  iterates `scene.items(source_rect)`).
+  - A drawing-scale re-prepare does not re-evaluate a hosted section copy's clip rect; the next
+    section rebuild does.
 - Nested modes follow the top-level parent (D5).
 - A failed paper pass unwinds through the existing `apply_paper_overrides` exception path; the
   restore re-prepares geometry.

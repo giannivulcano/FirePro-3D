@@ -72,9 +72,9 @@ def _drawing_scale(sc) -> float:
 def annotative_factor(item, painter=None) -> float:
     """Scene units per authored mm for BlockInstance *item* (design table).
 
-    Real size, no scene, or any other non-plan scene (Block Editor,
-    schematic, render: D5) -> 1. A paper pass (``item._paper_scale`` = S) ->
-    1 / S. A section / elevation canvas (scene in mm) -> the project drawing
+    Real size, no scene, or any non-plan, non-section scene (the Block
+    Editor, whose nested instances follow D5, and any other scene role)
+    -> 1. A paper pass (``item._paper_scale`` = S) -> 1 / S. A section / elevation canvas (scene in mm) -> the project drawing
     scale for Scale with zoom and for Fixed size alike (VC9 I1 ruling: Fixed
     stays plan-only; its frame machinery is not extended there). Fixed size on
     a plan canvas -> ``FIXED_END_PX_PER_MM`` device px per mm: / the painter's
