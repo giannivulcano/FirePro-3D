@@ -192,7 +192,7 @@ class WallPlacementController:
                     wall.snap_endpoint_to(my_idx, target)
                     snapped.add(my_idx)
                     # Rebuild connected wall so its miter updates too
-                    other._rebuild_path()
+                    other.invalidate_geometry()
                     other.update()
 
         # Pass 2: tee join — snap unsnapped endpoints onto the host

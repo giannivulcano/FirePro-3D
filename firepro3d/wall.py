@@ -29,7 +29,9 @@ from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
 from .view_scale import scene_hit_width
 from PyQt6 import sip
-from .wall_outline import JunctionArm, intersect_lines, junction_pie
+from .wall_outline import (JunctionArm, WallOutline, boundary_segments,
+                           cluster_union, intersect_lines, junction_pie,
+                           stroke_segments, visible_corners)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -117,6 +119,19 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     HALO_AREA = True  # HALO: cursor inside = direct hit
 
+    @property
+    def _alignment(self) -> str:
+        """Alignment mode (Center / Left / Right).  A property so every
+        writer -- placement (wall_placement_controller), ``from_dict``,
+        ``set_property``, tests -- rebuilds the outline (design D3)."""
+        return self._alignment_value
+
+    @_alignment.setter
+    def _alignment(self, value: str) -> None:
+        self._alignment_value = value
+        if getattr(self, "_outline_ready", False):
+            self.invalidate_geometry()
+
     def __init__(self, pt1: QPointF, pt2: QPointF,
                  thickness_mm: float = DEFAULT_THICKNESS_MM,
                  color: str | QColor = "#cccccc"):
@@ -138,7 +153,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._top_offset_mm: float = 0.0           # offset from top level elevation
 
         # Alignment mode (centerline / left / right)
-        self._alignment: str = ALIGN_CENTER
+        self._alignment = ALIGN_CENTER
 
         # Per-endpoint join mode
         # Auto: solid at 2-wall corners, butt at T/cross intersections
@@ -161,7 +176,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self.setZValue(-50)                         # behind pipes, above underlays
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
-        self._rebuild_path()
+        # One cached outline per wall (wall polish D2/D3)
+        self._outline: WallOutline | None = None
+        self._outline_key: tuple | None = None
+        self._outline_ready = True
+        self.invalidate_geometry()
 
     # ── Geometry helpers ─────────────────────────────────────────────────────
 
@@ -221,8 +240,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Alignment controls how the wall rectangle relates to the click line
         (defined by _pt1 / _pt2):
           Center — click line is the wall centerline (default)
-          Left   — click line is the left (normal-side) face
-          Right  — click line is the right face
+          Left   — click line is the right face; the wall extends toward +normal
+          Right  — click line is the left face; the wall extends toward -normal
         """
         nx, ny = self.normal()
         ht = self.half_thickness_scene()
@@ -279,26 +298,131 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
 
-    def _rebuild_path(self):
-        """Reconstruct the QPainterPath from current geometry (mitered)."""
-        p1l, p1r, p2r, p2l = self.mitered_quad()
+    # -- Outline cache (wall polish D2/D3) ------------------------------------
 
+    def _rebuild_path(self):
+        """Legacy name kept for duck-typed callers (model_space, manip_handle,
+        sketch_adapters, tool_geometry, scene_tools, tests)."""
+        self.invalidate_geometry()
+
+    def _geometry_key(self) -> tuple:
+        """Own inputs of the outline; a mismatch self-heals in
+        ``outline_geometry()`` (neighbour changes arrive through
+        ``invalidate_geometry``)."""
+        return (self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y(),
+                self._thickness_mm, self._alignment,
+                self.half_thickness_scene(), self._join_mode_pt1,
+                self._join_mode_pt2, self.isVisible(), id(self.scene()))
+
+    def _tee_guests(self, pool) -> list["WallSegment"]:
+        """Walls with a free end inside this wall's band (they tee into it)."""
+        band = self.half_thickness_scene() + MITER_TOL
+        guests = []
+        for other in pool:
+            for ep in (other._pt1, other._pt2):
+                if self.endpoint_near(ep, MITER_TOL) is not None:
+                    continue
+                if self.nearest_centerline_point(ep, band) is not None:
+                    guests.append(other)
+                    break
+        return guests
+
+    def _rebuild_outline(self, extra=None) -> None:
+        """Recompute body, union body, faces, caps, centerline and
+        neighbours; set ``path()`` to the body (HALO, hit, bounds -- D9).
+        Stroke segments and corners are left for ``outline()`` (lazy)."""
+        e = self._join_ends(extra)
+        p1l, p1r, p2r, p2l = e["quad"]
+        w1, w2 = e["wedge"]
+        body = QPolygonF([p1l, p2l, *w2, p2r, p1r, *w1])
+        u1, u2 = e["tee_union"]
+        u1l, u1r = u1 if u1 is not None else (p1l, p1r)
+        u2l, u2r = u2 if u2 is not None else (p2l, p2r)
+        union_body = QPolygonF([u1l, u2l, *w2, u2r, u1r, *w1])
+        caps = []
+        if not e["partners"][0] and e["hosts"][0] is None:
+            caps.append((QPointF(p1l), QPointF(p1r)))
+        if not e["partners"][1] and e["hosts"][1] is None:
+            caps.append((QPointF(p2l), QPointF(p2r)))
+        cands = [o for o, _ep in e["partners"][0]]
+        cands += [o for o, _ep in e["partners"][1]]
+        cands += [h for h in e["hosts"] if h is not None]
+        cands += self._tee_guests(e["pool"])
+        neighbours: list = []
+        for w in cands:
+            if w is not self and not any(w is n for n in neighbours):
+                neighbours.append(w)
+        self._outline = WallOutline(
+            body=body, union_body=union_body, quad=e["quad"],
+            solid=e["solid"], wedge=e["wedge"],
+            faces=((QPointF(p1l), QPointF(p2l)), (QPointF(p1r), QPointF(p2r))),
+            caps=tuple(caps),
+            centerline=(self.centerline_pt1, self.centerline_pt2),
+            neighbours=tuple(neighbours))
+        self._outline_key = self._geometry_key()
+        # legacy paint-coordination readers
+        self._solid_pt1, self._solid_pt2 = e["solid"]
+        self._end_wedge_pts1, self._end_wedge_pts2 = w1, w2
         path = QPainterPath()
-        # Outer rectangle (possibly mitered; wedge vertices cover the
-        # junction triangle at 3-wall full miters)
-        path.moveTo(p1l)
-        path.lineTo(p2l)
-        for pt in self._end_wedge_pts2:
-            path.lineTo(pt)
-        path.lineTo(p2r)
-        path.lineTo(p1r)
-        for pt in self._end_wedge_pts1:
-            path.lineTo(pt)
+        path.addPolygon(body)
         path.closeSubpath()
-        self.setPath(path)
-        # Reposition owned openings to reflect updated wall geometry
+        self.setPath(path)          # prepareGeometryChange + update
         for op in self.openings:
             op._reposition()
+
+    def invalidate_geometry(self, extra=None) -> None:
+        """Rebuild this wall's outline and every wall it joined before or
+        joins after the change (design D3); clear the lazy strokes of those
+        walls and of their neighbours (their unions read the new bodies)."""
+        if sip.isdeleted(self):
+            return
+        old = list(self._outline.neighbours) if self._outline else []
+        self._rebuild_outline(extra)
+        touched = [self]
+        for w in old + list(self._outline.neighbours):
+            if sip.isdeleted(w) or any(w is t for t in touched):
+                continue
+            touched.append(w)
+            w._rebuild_outline(self)
+        for w in list(touched):
+            for x in w._outline.neighbours:
+                if not sip.isdeleted(x) and not any(x is t for t in touched):
+                    touched.append(x)
+        for w in touched:
+            if w._outline is not None:
+                w._outline.stroke_segments = None
+                w._outline.corners = None
+            w.update()
+
+    def outline_geometry(self) -> WallOutline:
+        """The cached outline without strokes (bodies, faces, caps)."""
+        if self._outline is None or self._outline_key != self._geometry_key():
+            self._rebuild_outline()
+        return self._outline
+
+    def outline(self) -> WallOutline:
+        """The cached outline with stroke segments and visible corners
+        (cluster union of this wall's and its neighbours' union bodies)."""
+        o = self.outline_geometry()
+        if o.stroke_segments is None:
+            polys = [o.union_body]
+            for w in o.neighbours:
+                if not sip.isdeleted(w):
+                    polys.append(w.outline_geometry().union_body)
+            boundary = boundary_segments(cluster_union(polys))
+            o.stroke_segments = stroke_segments(o.body, boundary)
+            o.corners = visible_corners(o.body, boundary)
+        return o
+
+    def itemChange(self, change, value):
+        """Scene add/remove and visibility (level switch, sheet viewport
+        isolation) change who joins whom (design D3/D4)."""
+        result = super().itemChange(change, value)
+        if (change in (QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged,
+                       QGraphicsItem.GraphicsItemChange.ItemVisibleHasChanged)
+                and getattr(self, "_outline_ready", False)):
+            self.invalidate_geometry()
+        return result
 
     # ── Colour ───────────────────────────────────────────────────────────────
 
@@ -454,7 +578,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 else:
                     new_thickness = self._thickness_mm * (d / (2 * ht_scene))
                 self._thickness_mm = max(new_thickness, 25.4)  # min ~1 inch
-        self._rebuild_path()
+        self.invalidate_geometry()
 
     def manip_handles(self):
         """U3: [pt1, pt2, mid(move), width] as live-apply manipulator grips.
@@ -489,7 +613,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     def translate(self, dx: float, dy: float):
         self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
         self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
-        self._rebuild_path()
+        self.invalidate_geometry()
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rigid rotate of the wall centerline about ``pivot`` (Y-up CCW+).
@@ -500,7 +624,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         from .cad_math import CAD_Math
         self._pt1 = CAD_Math.rotate_point(self._pt1, pivot, -angle_deg)
         self._pt2 = CAD_Math.rotate_point(self._pt2, pivot, -angle_deg)
-        self._rebuild_path()
+        self.invalidate_geometry()
 
     # ── Properties API ───────────────────────────────────────────────────────
 
@@ -589,7 +713,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             self._top_offset_mm  = p["top_offset_mm"]
             self._height_mm      = p["height_mm"]
             self.level           = p["base_level"]
-            self._rebuild_path()
+            self.invalidate_geometry()
             self.update()
             if sc and hasattr(sc, "sceneModified"):
                 sc.sceneModified.emit()
@@ -627,39 +751,39 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             parsed = self._parse_dim(value)
             if parsed is not None:
                 self._thickness_mm = max(parsed, 1.0)
-                self._rebuild_path()
+                self.invalidate_geometry()
                 self.update()
         elif key == "Fill Mode":
             self._fill_mode = str(value)
             self.update()
         elif key == "Alignment":
             self._alignment = str(value)
-            self._rebuild_path()
+            self.invalidate_geometry()
             self.update()
         elif key == "Base Level":
             self._base_level = str(value)
             self.level = str(value)
             self._height_mm = self._computed_height_mm()
-            self._rebuild_path()
+            self.invalidate_geometry()
             self.update()
         elif key == "Base Offset":
             parsed = self._parse_dim(value)
             if parsed is not None:
                 self._base_offset_mm = parsed
                 self._height_mm = self._computed_height_mm()
-                self._rebuild_path()
+                self.invalidate_geometry()
                 self.update()
         elif key == "Top Level":
             self._top_level = str(value)
             self._height_mm = self._computed_height_mm()
-            self._rebuild_path()
+            self.invalidate_geometry()
             self.update()
         elif key == "Top Offset":
             parsed = self._parse_dim(value)
             if parsed is not None:
                 self._top_offset_mm = parsed
                 self._height_mm = self._computed_height_mm()
-                self._rebuild_path()
+                self.invalidate_geometry()
                 self.update()
         elif key in ("Join Start", "Join End"):
             if str(value) in ("Auto", "Butt", "Solid"):
@@ -667,14 +791,14 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     self._join_mode_pt1 = str(value)
                 else:
                     self._join_mode_pt2 = str(value)
-                self._rebuild_path()
+                self.invalidate_geometry()
                 self.update()
                 # Rebuild connected walls so they reflect the change
                 sc = self.scene()
                 if sc and hasattr(sc, "_walls"):
                     for w in sc._walls:
                         if w is not self:
-                            w._rebuild_path()
+                            w.invalidate_geometry()
                             w.update()
 
     # ── Serialisation ────────────────────────────────────────────────────────
@@ -1068,26 +1192,14 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return "Butt"
 
     def mitered_quad(self) -> tuple[QPointF, QPointF, QPointF, QPointF]:
-        """Return quad_points adjusted for per-endpoint join modes.
-
-        Also sets ``_solid_pt1`` / ``_solid_pt2`` flags indicating which
-        endpoints use Solid mode (so paint() can skip drawing the end edge).
-        """
-        quad, solid_pt1, solid_pt2, wedge1, wedge2 = self._compute_mitered_quad()
-        self._solid_pt1 = solid_pt1
-        self._solid_pt2 = solid_pt2
-        self._end_wedge_pts1 = wedge1
-        self._end_wedge_pts2 = wedge2
-        return quad
+        """The cached mitered corners (p1l, p1r, p2r, p2l) of ``outline()``.
+        ``_solid_pt1`` / ``_solid_pt2`` are kept current by the rebuild."""
+        return self.outline_geometry().quad
 
     def snap_quad_points(self) -> tuple[QPointF, QPointF, QPointF, QPointF]:
-        """Return the mitered/joined wall quad without any state mutation.
-
-        Identical geometry to ``mitered_quad()`` but safe to call from the
-        snap engine (which must not touch paint coordination state).
-        """
-        quad, _solid_pt1, _solid_pt2, _w1, _w2 = self._compute_mitered_quad()
-        return quad
+        """Same corners as ``mitered_quad()`` (readers: section_scene,
+        tool_geometry, tests)."""
+        return self.outline_geometry().quad
 
     def _join_pool(self, extra=None) -> list["WallSegment"]:
         """Walls this wall may join (design D4): same scene and visible on
@@ -1345,7 +1457,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             self._pt1 = QPointF(target)
         else:
             self._pt2 = QPointF(target)
-        self._rebuild_path()
+        self.invalidate_geometry()
 
     def nearest_centerline_point(self, pos: QPointF,
                                  tolerance: float) -> QPointF | None:
