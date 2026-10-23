@@ -210,6 +210,38 @@ def _isolate_block_library(_isolate_qsettings, tmp_path_factory):
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_system_library_session(tmp_path_factory):
+    """Session-wide EMPTY System tier (SB1b D15): module-scoped fixtures (a
+    shared MainWindow) are built before any function-scoped fixture runs, and
+    must not see the real shipped tier either (D2 would make it own the
+    seeded hatch ids)."""
+    from firepro3d import block_library
+    block_library.set_system_root(str(tmp_path_factory.mktemp("system_library_s")))
+    yield
+    block_library.set_system_root(None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_system_library(_isolate_system_library_session, tmp_path_factory):
+    """Point the read-only System tier at an EMPTY per-test dir (SB1b D15), so
+    tests that enumerate a temp library see only their own blocks. A guard
+    that needs the real shipped tier requests ``real_system_library``."""
+    from firepro3d import block_library
+    prev = block_library._system_root_override[0]
+    block_library.set_system_root(str(tmp_path_factory.mktemp("system_library")))
+    yield
+    block_library.set_system_root(prev)
+
+
+@pytest.fixture
+def real_system_library():
+    """Opt in to the real shipped System tier; returns its root."""
+    from firepro3d import block_library
+    block_library.set_system_root(None)
+    return block_library.system_root()
+
+
 # Invariant 11: MainWindow autosaves to ~/.firepro3d/autosave/recovery.FPD and
 # closeEvent / _check_recovery DELETE that file -- so an unredirected test can
 # plant a recovery file (hanging later fixtures on the Recover dialog) or wipe

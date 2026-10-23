@@ -281,9 +281,14 @@ class BlockDefinition:
                  render_mode: str = "default", geoms: list[dict] | None = None,
                  constraints: list | None = None, tile: dict | None = None,
                  repeat: dict | None = None, end: dict | None = None,
-                 kind: str = "block", host_category: str = ""):
+                 kind: str = "block", host_category: str = "",
+                 base_version: int | None = None):
         self.id = id
         self.version = int(version)
+        # The library version this project copy was last loaded, reloaded or
+        # saved at (SB1b D7). version == base_version -> untouched; None (a
+        # pre-SB1b project) counts as untouched. Serialized; omitted when None.
+        self.base_version = None if base_version is None else int(base_version)
         self.name = name
         self.library = library
         self.series = series
@@ -810,6 +815,8 @@ class BlockDefinition:
             d["end"] = dict(self._end)      # omitted when None (byte-identical)
         if self.kind != "block":
             d["kind"] = self.kind   # omitted for plain blocks (byte-identical)
+        if self.base_version is not None:
+            d["base_version"] = self.base_version   # omitted when None (byte-identical)
         return d
 
     @classmethod
@@ -830,4 +837,5 @@ class BlockDefinition:
             end=data.get("end"),
             kind=data.get("kind", "block"),
             host_category=data.get("host_category", ""),
+            base_version=data.get("base_version"),
         )

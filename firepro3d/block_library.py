@@ -21,6 +21,7 @@ import os
 from . import capability_folder
 from .capability_folder import sanitize  # noqa: F401 -- public name, kept here
 from .app_data import block_library_dir
+from .assets import system_blocks_path
 from .block_definition import BlockDefinition
 from .colour_migration import migrate_fpdb_dict
 from .constants import COLOUR_TOKENS_MARK
@@ -87,8 +88,56 @@ class BlockNameCollision(Exception):
         self.filename = filename
 
 
+class SystemLibraryReadOnly(Exception):
+    """A write that would touch the read-only System tier, or a user Library
+    named "System" (SB1b D3; concept G5). The message is user-facing."""
+
+
+SYSTEM_LIBRARY = "System"   # the shipped tier's Library name (reserved, D3)
+
+_system_root_override: list = [None]   # tests point it at a temp dir (D15)
+
+
+def system_root() -> str:
+    """The read-only shipped tier (``firepro3d/system_blocks``)."""
+    return _system_root_override[0] or system_blocks_path()
+
+
+def set_system_root(path: str | None) -> None:
+    """Override :func:`system_root` (None restores the shipped folder)."""
+    _system_root_override[0] = path
+
+
 def _root(root: str | None) -> str:
     return root if root is not None else block_library_dir()
+
+
+def _roots(root: str | None, *, system: bool = True) -> list[tuple[str, str]]:
+    """``[(tier, base)]`` walked in order: System first (it owns its ids, D2)."""
+    out = [("system", system_root())] if system else []
+    out.append(("user", _root(root)))
+    return out
+
+
+def _under_system(path: str) -> bool:
+    base = os.path.normcase(os.path.abspath(system_root()))
+    p = os.path.normcase(os.path.abspath(path))
+    return p == base or p.startswith(base + os.sep)
+
+
+def is_reserved_library(name: str) -> bool:
+    """True for a user Library name the System tier reserves (any case)."""
+    return (name or "").strip().casefold() == SYSTEM_LIBRARY.casefold()
+
+
+def _assert_writable(*, path: str | None = None, library: str = "") -> None:
+    if is_reserved_library(library):
+        raise SystemLibraryReadOnly(
+            f"“{SYSTEM_LIBRARY}” is reserved for blocks shipped "
+            "with FirePro3D")
+    if path is not None and _under_system(path):
+        raise SystemLibraryReadOnly(
+            "Shipped blocks are read-only -- duplicate to customise")
 
 
 def _plain_segment(raw: str) -> bool:
@@ -164,6 +213,7 @@ def create_folder(library: str, series: str | None = None,
     Segments are :func:`sanitize`-d exactly as :func:`save_to_library` names
     them, so a folder made here is the one a later save lands in.
     """
+    _assert_writable(library=library)
     path = os.path.join(_root(root), *[sanitize(s) for s in (library, series) if s])
     os.makedirs(path, exist_ok=True)
     _notify_changed()
@@ -227,6 +277,7 @@ def _drop_stale_index(folder: str) -> None:
 
 def _delete_path(path: str) -> None:
     """Remove one ``.fpdb`` (no-op when absent) and its folder's stale index."""
+    _assert_writable(path=path)
     if os.path.isfile(path):
         os.remove(path)
     capability_folder.forget(path)
@@ -299,7 +350,15 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     Writes an optional ``weights`` map of the named line weights the definition
     and its bundle use (linetypes.md LT1-4); absent when none are used. Their
     Model px overrides ride in an optional ``weight_model_px`` (H-MW-a).
+    Raises:
+        SystemLibraryReadOnly: *definition* is in the reserved "System"
+            Library or its id is owned by a System-tier block (SB1b D3).
     """
+    _assert_writable(library=definition.library)
+    owner = _find_by_id(definition.id, root)
+    if owner is not None and owner[3]["tier"] == "system":
+        raise SystemLibraryReadOnly(
+            "Shipped blocks are read-only -- duplicate to customise")
     path = _target_path(root, definition.library, definition.series,
                         definition.name)
     series_dir, filename = os.path.dirname(path), os.path.basename(path)
@@ -351,13 +410,13 @@ def _previous_file(definition: BlockDefinition, root: str | None) -> str | None:
     """The file a Save of *definition* may re-file (see :func:`save_to_library`)."""
     src = getattr(definition, "source_path", None)
     if src and not any(_same_path(m["path"], src)
-                       for _l, _s, _f, m in _iter_entries(root)):
+                       for _l, _s, _f, m in _iter_entries(root, system=False)):
         src = None          # not a file of THIS library (Desktop, another or a
                             # nested library): never touched by its Save
     if src:
         meta = capability_folder.read_meta(src) if os.path.isfile(src) else None
         return src if meta is not None and meta["id"] == definition.id else None
-    owner = _find_by_id(definition.id, root)
+    owner = _find_by_id(definition.id, root, system=False)
     if owner is not None and owner[3]["consistent"]:
         return owner[3]["path"]
     return None
@@ -408,7 +467,7 @@ def _tiers(meta: dict, dirs: tuple) -> tuple[str, str]:
     return _human(dirs[0], lib), _human(dirs[1], ser)
 
 
-def _iter_entries(root: str | None):
+def _iter_entries(root: str | None, *, system: bool = True):
     """Yield ``(library, series, filename, meta)`` for every readable ``.fpdb``
     on disk -- the single walk behind ``list_library`` and the by-id lookups
     (identity is the ``id``, not the folder location).
@@ -420,21 +479,32 @@ def _iter_entries(root: str | None):
     When several files hold one id (a file copied to make a variant), the
     owner is the first consistent one, else the first whose filename still
     matches its stored name, else the first in walk order; the others are
-    ``duplicate``. Unreadable files and files without an id are skipped."""
-    base = _root(root)
-    if not os.path.isdir(base):
-        return
+    ``duplicate``. Unreadable files and files without an id are skipped.
+
+    Walks the System tier first, then the user root (SB1b D1);
+    ``meta['tier']`` is ``'system'`` or ``'user'``; a System file owns its id
+    over any user copy (D2)."""
     found = []
-    for dirs, path in _walk_fpdb(base):
-        meta = capability_folder.read_meta(path)
-        if meta is None or not meta["id"]:
+    for tier, base in _roots(root, system=system):
+        if not os.path.isdir(base):
             continue
-        library, series = _tiers(meta, dirs)
-        name = _human(os.path.basename(path)[:-5], meta["name"])
-        consistent = (library, series, name) == (
-            meta["library"], meta["series"], meta["name"])
-        found.append((library, series, name, consistent, path, meta))
+        for dirs, path in _walk_fpdb(base):
+            meta = capability_folder.read_meta(path)
+            if meta is None or not meta["id"]:
+                continue
+            if tier == "system":      # Library "System", Series = first folder
+                library = SYSTEM_LIBRARY
+                series = _human(dirs[0], meta["series"]) if dirs else UNGROUPED
+            else:
+                library, series = _tiers(meta, dirs)
+            name = _human(os.path.basename(path)[:-5], meta["name"])
+            consistent = (library, series, name) == (
+                meta["library"], meta["series"], meta["name"])
+            found.append((tier, library, series, name, consistent, path, meta))
     owner: dict = {}
+    for tier, *_x, path, meta in found:         # System owns its ids (D2)
+        if tier == "system":
+            owner.setdefault(meta["id"], path)
     for *_x, consistent, path, meta in found:   # the app-written file first
         if consistent:
             owner.setdefault(meta["id"], path)
@@ -443,21 +513,21 @@ def _iter_entries(root: str | None):
             owner.setdefault(meta["id"], path)
     for *_x, path, meta in found:               # else the first in walk order
         owner.setdefault(meta["id"], path)
-    for library, series, name, consistent, path, meta in found:
+    for tier, library, series, name, consistent, path, meta in found:
         yield library, series, os.path.basename(path), {
             **meta, "library": library, "series": series, "name": name,
-            "path": path, "consistent": consistent,
+            "path": path, "consistent": consistent, "tier": tier,
             "duplicate": owner[meta["id"]] != path}
 
 
-def _find_by_id(block_id: str, root: str | None):
+def _find_by_id(block_id: str, root: str | None, *, system: bool = True):
     """Locate the file that owns *block_id* anywhere in the tree (not just its
     def's current Library/Series folder). Returns ``(library, series, filename,
     meta)`` -- ``meta["path"]`` is the file -- or None. A duplicate-id copy
     never answers (the owner does). Fixes the 're-filed block reads
     project-only' class where a block's on-disk copy lives in a folder other
     than its current metadata would suggest."""
-    for library, series, filename, meta in _iter_entries(root):
+    for library, series, filename, meta in _iter_entries(root, system=system):
         if meta["id"] == block_id and not meta["duplicate"]:
             return library, series, filename, meta
     return None
@@ -481,11 +551,13 @@ def human_folders(root: str | None = None,
     """
     base = _root(root)
     if entries is None:
-        entries = list_library(root)
+        entries = list_library(root, system=False)
     lib_name: dict = {}
     ser_name: dict = {}
     for e in entries:
         if e.get("kind") == "schematic":
+            continue
+        if e.get("tier", "user") != "user":     # relpath below is vs the user base
             continue
         parts = os.path.relpath(os.path.dirname(e["path"]), base).split(os.sep)
         if parts and parts[0] not in ("", "."):
@@ -499,15 +571,17 @@ def human_folders(root: str | None = None,
     return {k: sorted(set(v)) for k, v in out.items()}
 
 
-def list_library(root: str | None = None) -> list[dict]:
+def list_library(root: str | None = None, *, system: bool = True) -> list[dict]:
     """List every ``.fpdb`` on disk (each parsed once per mtime, cached).
 
     Each entry: {library, series, filename, path, id, name, version, kind,
-    tile, repeat, end, duplicate} -- library / series from the folder, name
-    from the filename.
+    tile, repeat, end, duplicate, tier} -- library / series from the folder,
+    name from the filename; ``tier`` is ``'system'`` (read-only shipped, listed
+    first) or ``'user'``. ``system=False`` omits the System tier.
     """
     return [{"library": library, "series": series, "filename": filename, **meta}
-            for library, series, filename, meta in _iter_entries(root)]
+            for library, series, filename, meta
+            in _iter_entries(root, system=system)]
 
 
 def entry_path(entry: dict, root: str | None = None) -> str:
@@ -609,17 +683,27 @@ def load_block_file_with_bundle(path: str):
 
 
 def source_status(definition: BlockDefinition, root: str | None = None) -> str:
-    """Return 'project-only' | 'library' | 'modified' for an embedded def.
+    """Return 'project-only' | 'library' | 'update available' | 'modified'.
 
-    Resolves the library copy by ``id`` across the whole tree, so a block whose
-    metadata (Library/Series/name) has drifted from its on-disk location still
-    reads correctly instead of falsely 'project-only'.
+    Resolves the library copy by ``id`` across the whole tree (System tier
+    first), so a block whose metadata (Library/Series/name) has drifted from
+    its on-disk location still reads correctly instead of falsely
+    'project-only'. 'update available' = the library file is newer and the
+    project copy is untouched (``version == base_version``, or no
+    ``base_version``) (SB1b D8).
     """
     found = _find_by_id(definition.id, root)
     if found is None:
         return "project-only"
     _lib, _series, _fname, meta = found
-    return "library" if meta.get("version") == definition.version else "modified"
+    lib_version = meta.get("version")
+    if lib_version == definition.version:
+        return "library"
+    base = getattr(definition, "base_version", None)
+    untouched = base is None or definition.version == base
+    if untouched and isinstance(lib_version, int) and lib_version > definition.version:
+        return "update available"
+    return "modified"
 
 
 def reload_from_library(definition: BlockDefinition,
@@ -638,5 +722,6 @@ def delete_from_library(library: str, series: str, filename: str,
                         root: str | None = None) -> None:
     """Remove a .fpdb (no-op when absent) and its folder's stale
     ``index.json``, if any (the index is retired, 2026-10-10)."""
+    _assert_writable(library=library)
     _delete_path(os.path.join(_series_dir(root, library, series), filename))
     _notify_changed()
