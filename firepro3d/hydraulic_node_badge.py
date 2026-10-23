@@ -194,7 +194,6 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
             r = max(rect.width(), rect.height()) / 2.0
             painter.drawEllipse(rect.center(), r, r)
 
-
     def shape(self) -> QPainterPath:
         """Full bounding rect as clickable area."""
         path = QPainterPath()

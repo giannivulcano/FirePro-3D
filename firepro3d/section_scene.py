@@ -33,6 +33,7 @@ from PyQt6.QtCore import QSettings
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         GRIDLINE_BUBBLE_PAPER_CAP_MM)
 from . import theme as th
+from .paper_display import paper_pass_active, shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
@@ -113,6 +114,8 @@ class _ColourSrcMixin:
         raise NotImplementedError
 
     def paint(self, painter, option, widget=None):
+        if paper_pass_active():     # selection never plots (wall polish D11, L42)
+            option.state &= ~QStyle.StateFlag.State_Selected
         if (self._pen_src is None and self._brush_src is None
                 and self._paper_pen_width is None):
             super().paint(painter, option, widget)
@@ -494,7 +497,7 @@ class ElevGridlineItem(QGraphicsLineItem):
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
 
-        if self.isSelected() and not self._paper_line_w_mm:
+        if shows_selection(self) and not self._paper_line_w_mm:
             sel_pen = QPen(grid_color.lighter(150),
                            self._pen_w * 2, Qt.PenStyle.DashDotLine)
             painter.setPen(sel_pen)
@@ -1497,7 +1500,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
             painter.restore()
 
-            if item.isSelected() and not item._paper_line_w_mm:
+            if shows_selection(item) and not item._paper_line_w_mm:
                 sel_pen = QPen(datum_color.lighter(150),
                                item._pen_w * 2, Qt.PenStyle.DashDotLine)
                 painter.setPen(sel_pen)

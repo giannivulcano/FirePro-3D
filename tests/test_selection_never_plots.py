@@ -132,6 +132,12 @@ def _region(s):
     s.addItem(r)
     return r
 
+def _water_supply(s):
+    from firepro3d.water_supply import WaterSupply
+    w = WaterSupply(0.0, 0.0)
+    s.addItem(w)
+    return w
+
 def _g2d(cls_name, *args, **kw):
     def make(s):
         import firepro3d.geometry_2d as g
@@ -145,7 +151,7 @@ _KINDS = {
     "wall": _wall, "pipe": _pipe, "node": _node, "roof": _roof,
     "room": _room, "floor_slab": _slab, "wall_opening": _opening,
     "detail_marker": _detail, "hydraulic_badge": _badge,
-    "filled_region": _region,
+    "filled_region": _region, "water_supply": _water_supply,
     "line": _g2d("LineItem", QPointF(-800, 0), QPointF(800, 0)),
     "rectangle": _g2d("RectangleItem", QPointF(-600, -400), QPointF(600, 400)),
     "circle": _g2d("CircleItem", QPointF(0, 0), 500.0),
@@ -197,3 +203,67 @@ def test_selection_never_plots(sheet, kind, monkeypatch):
         f"{kind}: selection no longer shows on the canvas"
     assert _digest(_paper(sheet.paper)) == paper_off, \
         f"{kind}: selection highlight plots on paper"
+
+
+@pytest.mark.parametrize("kind", ["line", "filled_region", "rectangle",
+                                  "circle", "polygon", "ellipse", "spline"])
+def test_selection_never_plots_when_manipulator_wraps(sheet, kind):
+    """The real path: no monkeypatch -- the scene's own SelectionManipulator
+    boxes the selected item, and the sheet render is still unchanged."""
+    item = _KINDS[kind](sheet.model)
+    item.setSelected(False)
+    paper_off = _digest(_paper(sheet.paper))
+    canvas_off = _digest(_canvas(sheet.model))
+    item.setSelected(True)
+    manip = sheet.model._manipulator
+    assert manip is not None and manip.wraps(item), \
+        f"{kind}: the real manipulator does not wrap the selected item"
+    assert _digest(_canvas(sheet.model)) != canvas_off
+    assert _digest(_paper(sheet.paper)) == paper_off, \
+        f"{kind}: selection plots on paper with the manipulator attached"
+
+
+@pytest.fixture
+def section_sheet(qapp, paper_env, section_scene_for):
+    """A section scene plotted on a sheet through the real resolver path."""
+    from firepro3d.paper_space import (Sheet, SheetViewData, PaperScene,
+                                       ViewResolver)
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    ms, sec = section_scene_for("north")
+    w = WallSegment(QPointF(-3000.0, 0.0), QPointF(3000.0, 0.0))
+    ms._walls.append(w); ms.addItem(w)
+    op = WallOpening(w, offset_along=3000.0, width_mm=1200.0, height_mm=2100.0,
+                     sill_mm=0.0, feature_id="door_914")
+    w.openings.append(op)
+    sec.rebuild()
+    crop = QRectF(-3000.0, -3000.0, 6000.0, 6000.0)       # 1:100 into 60 mm
+    resolver = MagicMock(spec=ViewResolver)
+    resolver.resolve.side_effect = lambda vt, vn: (sec, QRectF(crop))
+    sh = Sheet.create_default()
+    sh.paper_size = "A4"
+    sh.sheet_views = [SheetViewData("plan", "V", "V", 0.01,
+                                    65.0, 60.0, 60.0, 60.0)]
+    paper = PaperScene(sh, resolver)
+    yield SimpleNamespace(sec=sec, paper=paper, crop=crop)
+    paper.dispose()
+
+
+def test_section_items_selection_never_plots(section_sheet):
+    """_ColourSrcMixin paints its own dashed selection outline (and Qt's
+    default one on the super() branch); neither may plot (D11, L42)."""
+    sec = section_sheet.sec
+    sel = [i for i in sec.items()
+           if i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+           and i.isVisible()]
+    assert sel, "the section scene has no selectable item"
+    for it in sel:
+        it.setSelected(False)
+    canvas_off = _digest(_render(sec, section_sheet.crop, 600, 600, 0xFF101010))
+    paper_off = _digest(_paper(section_sheet.paper))
+    for it in sel:
+        it.setSelected(True)
+    assert _digest(_render(sec, section_sheet.crop, 600, 600, 0xFF101010)) \
+        != canvas_off, "selection no longer shows on the section canvas"
+    assert _digest(_paper(section_sheet.paper)) == paper_off, \
+        "section selection highlight plots on paper"

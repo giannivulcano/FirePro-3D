@@ -83,6 +83,13 @@ class WaterSupply(QGraphicsSvgItem):
         """Called after scale calibration -- just re-centre."""
         self._centre_on_origin()
 
+    def paint(self, painter, option, widget=None):
+        # Qt's default selection outline must not plot (wall polish D11, L42).
+        from .paper_display import paper_pass_active
+        if paper_pass_active():
+            option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+
     def shape(self) -> QPainterPath:
         """Return full bounding rect as shape so clicking anywhere on the
         symbol selects it (not just the SVG path outlines)."""
