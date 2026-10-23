@@ -1,7 +1,7 @@
 ---
 status: partial          # HF4 BUILT 2026-10-20 (merge bb7074b8, feat/hf4-pick-region): Pick-point region finder (region_finder.py) + pick_region mode + hover overlay -- see "HF4 build design". Prior: HF3 BUILT 2026-10-20 (merge 66880197, feat/hf3-filled-region): FilledRegionItem (filled_region.py) + curve_chain.py Select-objects Fill, D-A13 refusals, Explode, H9 closed -- see "HF3 build design". Prior: HF1 BUILT 2026-10-18 (merge 084b43e0, feat/hf1-colour-tokens): colour tokens (token:auto / token:accent), per-paint resolver, theme bus, SAVE_VERSION 11 + .fpdb marker migration, universal picker -- see "HF1 build design". Prior: HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-10-22  # paper section/plan parity audit: HF1 known gap (1) closed only (section edge/void/mask now colour sources); prior 2026-10-20  # UP2 Account: H7 closed (both context menus open the picker, one deferred_undo_push; verified at ab930f58; nothing else re-audited); prior HF4 Account: D-A3..D-A6 + D-A25 re-stated against the build, §2 Pick-point pointer, "HF4 build design" pointer, applies-to + region_finder.py (verified at bb7074b8; sections 1-4 otherwise not re-audited); prior HF3 Account: Filled Region rules (D-A2/D-A3/D-A5/D-A7/D-A13/D-A26) re-stated against the build, H9 resolved, "HF3 build design" pointer, applies-to + filled_region.py / curve_chain.py (verified at 66880197; sections 1-4 otherwise not re-audited); prior 2026-10-19 UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior ab930f58   # UP2 Account (feat/up2-fill-picker-routing; H7 row only); prior bb7074b8 HF4 Account (merge feat/hf4-pick-region; D-A3..D-A6/D-A25 + applies-to); prior 66880197 HF3 Account (merge feat/hf3-filled-region; Filled Region rules + H9 + applies-to); prior 902c5c0e UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+last-verified: 2026-10-23  # SB1b Account: D-A39 seeding RETIRED (shipped hatches live in the read-only System tier; pointers only), D-A24 shipped set now in System, default Hatch patterns folder Styles/Hatches; prior 2026-10-22 paper section/plan parity audit: HF1 known gap (1) closed only (section edge/void/mask now colour sources); prior 2026-10-20  # UP2 Account: H7 closed (both context menus open the picker, one deferred_undo_push; verified at ab930f58; nothing else re-audited); prior HF4 Account: D-A3..D-A6 + D-A25 re-stated against the build, §2 Pick-point pointer, "HF4 build design" pointer, applies-to + region_finder.py (verified at bb7074b8; sections 1-4 otherwise not re-audited); prior HF3 Account: Filled Region rules (D-A2/D-A3/D-A5/D-A7/D-A13/D-A26) re-stated against the build, H9 resolved, "HF3 build design" pointer, applies-to + filled_region.py / curve_chain.py (verified at 66880197; sections 1-4 otherwise not re-audited); prior 2026-10-19 UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: 91513a00   # SB1b System library tier (ff merge feat/sb1b-system-library); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior ab930f58   # UP2 Account (feat/up2-fill-picker-routing; H7 row only); prior bb7074b8 HF4 Account (merge feat/hf4-pick-region; D-A3..D-A6/D-A25 + applies-to); prior 66880197 HF3 Account (merge feat/hf3-filled-region; Filled Region rules + H9 + applies-to); prior 902c5c0e UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
@@ -12,7 +12,8 @@ applies-to:
   - firepro3d/colour_picker.py      # HF1: universal picker Theme row (owner of D6 signature = ui-design-system.md)
   - firepro3d/capability_frame.py   # Block Editor capability frame base (CapabilityFrameItem, tag, frame_for) — shared with linetypes.md LT4 (RepeatFrame), owned here
   - firepro3d/tile_frame.py         # Block Editor pattern-tile frame (TileFrame) + tile panel rows
-  - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files (D-A39; the shipped index.json was removed 2026-10-10)
+  - firepro3d/system_blocks/Hatches/  # shipped pattern .fpdb files, read-only System tier (SB1b; the shipped index.json was removed 2026-10-10)
+  - firepro3d/system_library.py       # SB1b startup migration (reads + clears paths/hatch_seeded)
   - firepro3d/displayable_item.py   # draw_section_hatch adapter only (draw_fill retired by UP1; the mixin's other state is owned elsewhere)
   - firepro3d/fill_layers.py        # UP1: FillLayers / BackgroundLayer / PatternLayer + fill record read/write (contract = superpowers/specs/2026-10-18-up1-two-layer-fill-design.md)
   - firepro3d/filled_region.py      # HF3: FilledRegionItem -- loops of primitive records, two-layer fill, delegated transforms, Explode pieces (build contract = superpowers/specs/2026-10-20-hf3-filled-region-design.md)
@@ -44,14 +45,14 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   (`shipped_pattern_files`).
 - **Hatch patterns folder** (D-A37) = `app_data.hatch_patterns_dir()` (key
   and precedence owned by [`settings-dialog.md`](settings-dialog.md) §4.5b).
-  `seed_hatch_folder` copies the shipped files in **once per folder**
-  (recorded under `HATCH_SEEDED_KEY`), skipping any id already held by an
-  `.fpdb` in the folder and any clashing file name; it never rewrites an
-  unreadable `index.json`, and marks the folder seeded only when every shipped
-  id is present and the index is sound (a failed copy retries). Called at app
-  startup (`main.py`) and after System Settings Apply/OK. *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)* Seeding
-  writes no index and removes a stale one; the folder is marked seeded once
-  every shipped id is present.
+  Default `<block library>/Styles/Hatches`. **D-A39 seeding is RETIRED
+  (SB1b, 2026-10-23):** nothing copies the shipped files into this folder any
+  more; `seed_hatch_folder` is gone and `HATCH_SEEDED_KEY`
+  (`paths/hatch_seeded`) is only read and cleared by the startup migration.
+  Shipped patterns live in the read-only System tier and are never written;
+  customising one is Duplicate to library... — mechanics owned by
+  [block-system.md "System library tier (SB1b)"](block-system.md#system-library-tier-sb1b-2026-10-23).
+  *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)*
 - **Folder scan** — `library_patterns()` delegates to the shared
   `capability_folder.scan(folder, "tile")` (moved there in LT3 so the
   Linetypes folder reuses it with `"repeat"` — scan rules: `linetypes.md`
@@ -315,7 +316,8 @@ until that doc is approved.
   scene-aligned; no legacy flag or migration (old files re-display). "Pick
   pattern origin" nice-to-have.
 - **D-A24** Shipped System > Hatches set + template Fill Types (see concept
-  doc). The shipped set waits on SB1b; region/renderer/type work does not.
+  doc). The shipped set now lives in the System tier (SB1b, 2026-10-23;
+  see [block-system.md](block-system.md#system-library-tier-sb1b-2026-10-23)).
 
 **Colour tokens ("Automatic")**
 - **D-A18** The house picker gains **Automatic** (ink) and **Accent** for every
@@ -397,7 +399,10 @@ until that doc is approved.
   composition (pattern actually stamped).
 
 - **D-A39** *(user ruling 2026-10-02, HF2 smoke — supersedes D-A28's
-  code-level table)* **Blocks only.** The five patterns (Diagonal, Cross
+  code-level table; **the seeding half is RETIRED by SB1b, 2026-10-23** — shipped patterns now live in the
+  read-only System tier, and pickers list System + the Hatch patterns folder; see
+  [block-system.md](block-system.md#system-library-tier-sb1b-2026-10-23). "Blocks only" and the
+  frozen ids stand; the copy-into-folder / seeded-once sentences below are historical)* **Blocks only.** The five patterns (Diagonal, Cross
   Hatch, Horizontal, Concrete, Brick) ship as real `.fpdb` blocks with the
   app (same frozen ids) and are copied into the Hatch patterns folder
   (D-A37) on first run when missing — never overwriting a user's edited
@@ -416,9 +421,9 @@ until that doc is approved.
 
 - **D-A37** *(user ruling 2026-10-02, HF2 smoke — absorbed in-session)* A
   **Hatch patterns folder** (System Settings › General › Data folder;
-  default `<block library>/System/Hatches`) is the library source for
-  patterns: pickers list the project's pattern blocks + every
-  pattern block in that folder; picking a library pattern loads it into the
+  default `<block library>/Styles/Hatches` since SB1b; was `.../System/Hatches`) is the library source for
+  user patterns: pickers list the project's pattern blocks + the System tier's
+  pattern blocks + every pattern block in that folder (`library_patterns`); picking a library pattern loads it into the
   project first, then stores its id (D-A29). Library `index.json` entries
   carry a `tile` flag. *(2026-10-10: the per-folder `index.json` is retired — listings read the `.fpdb` files; see [block-system.md "Library on disk"](block-system.md#library-on-disk-no-index-2026-10-10).)* (Closes the gap that a library-only pattern could
   never reach a picker — patterns load on place, and can't be placed.)

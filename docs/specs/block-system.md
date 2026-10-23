@@ -1,7 +1,7 @@
 ---
 status: partial           # + attribute binding core (SB1a, 2026-10-21); + instance mirror & uniform scale pose (2026-10-12); + library disk scan, index.json retired (2026-10-10); + schematic kind pointer (SV1, 2026-10-08); + placement Weight / Linetype overrides pointer (WM2, 2026-10-07); + Block Editor capability slot pointer (LT4, 2026-10-06); + linetype capability (LT3, 2026-10-05); + pattern-tile capability (HF2, 2026-10-03); S1–S5 + Block Editor v2 (BE1–BE5) + block polish (2026-09-23: exact curve import, Save/Save As, library-folder Save dialog, library-backed browser, text in blocks) + nested blocks (2026-09-30: registry, nested references, drag-and-drop, Explode, .fpdb schema 2, one-click placement) built; thumbnails deferred (attribute authoring built by SB1a, 2026-10-21); paper placement resolved by schematics.md D-S2/D-S3 (schematic viewports only)
-last-verified: 2026-10-22  # gridline-hosted blocks Account: new "Gridline-hosted instances" subsection (the one home for the host record), C3 bullets, block_drop.py; prior 2026-10-21 SB1a Account (pointers only: attribute schema/binding, three new modules, D6/D9 amended); prior 2026-10-18 HF1 Account (pointer only: token pens + .fpdb colour_tokens marker); prior HF2 polish Account (pointers only: pose Scale scope + Explode hatch-angle gap point at hatch-and-fill D-A11); prior NB Account (pointers only: block_snap_geometry paths=True, DD8 rotation-as-variable, Explode remap); prior block-primitive-snap Account (pointers only: Explode pose_primitive / compose_pose, posed snap stand-ins bullet, applies-to + block_snap_geometry.py); prior 2026-10-13 reference geometry Account (scaffolding bullet -> flag form, prim_refs skips reference records RG15, Explode skips reference shapes); prior 2026-10-12 block mirror/scale Account: new "Instance pose: mirror & scale (2026-10-12)" section (the one home: P = T·R·S·M, variant op cache, reflect/scale hooks, sparse records + place_kwargs, readable text, Explode closed form, placement arrow flips, Mirrored / Scale rows, decisions + known gaps); Decision 8 arrow-flip note closed; Decision 9 "no rescale/mirror" retired; flyweight-core / property-row / I-O record shapes reconciled; applies-to + block_pose.py; prior placement batch Account: Decision 8 amended (Paste-style prototype ghost, Space / Shift+Space rotation, focus hand-off), HUD line + drag paragraph pointers; prior disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
-verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior 0c06b766 SB1a Account (pointers only); prior 084b43e0 HF1 Account (pointer only); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish; pointers only); prior b62aab92 NB Account (feat/nested-block-constraint-handles merge; pointers only); prior 5e4948d6 merge feat/block-primitive-snap (pointers only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
+last-verified: 2026-10-23  # SB1b Account: new "System library tier (SB1b, 2026-10-23)" section (the one home), status values + base_version, pointers reconciled; prior 2026-10-22 gridline-hosted blocks Account: new "Gridline-hosted instances" subsection (the one home for the host record), C3 bullets, block_drop.py; prior 2026-10-21 SB1a Account (pointers only: attribute schema/binding, three new modules, D6/D9 amended); prior 2026-10-18 HF1 Account (pointer only: token pens + .fpdb colour_tokens marker); prior HF2 polish Account (pointers only: pose Scale scope + Explode hatch-angle gap point at hatch-and-fill D-A11); prior NB Account (pointers only: block_snap_geometry paths=True, DD8 rotation-as-variable, Explode remap); prior block-primitive-snap Account (pointers only: Explode pose_primitive / compose_pose, posed snap stand-ins bullet, applies-to + block_snap_geometry.py); prior 2026-10-13 reference geometry Account (scaffolding bullet -> flag form, prim_refs skips reference records RG15, Explode skips reference shapes); prior 2026-10-12 block mirror/scale Account: new "Instance pose: mirror & scale (2026-10-12)" section (the one home: P = T·R·S·M, variant op cache, reflect/scale hooks, sparse records + place_kwargs, readable text, Explode closed form, placement arrow flips, Mirrored / Scale rows, decisions + known gaps); Decision 8 arrow-flip note closed; Decision 9 "no rescale/mirror" retired; flyweight-core / property-row / I-O record shapes reconciled; applies-to + block_pose.py; prior placement batch Account: Decision 8 amended (Paste-style prototype ghost, Space / Shift+Space rotation, focus hand-off), HUD line + drag paragraph pointers; prior disk-scan Account: new "Library on disk — no index (2026-10-10)" section (the one home: walk, folder/filename win, tiers, consistent/owner, copies, source_path re-file, collisions, entry shape) + D3 / Tech Context / I-O / edge-case / acceptance / LT3-HF2 flag pointers reconciled; prior SV4 Account (Block Manager Kind-column + kind-frozen pointer in "Schematic kind (SV1)"); prior SV3 Account (one-tier root pointer in the library-layout clause); prior SV2 Account (materializer pointer bullet in "Schematic kind (SV1)"); prior SV1 Account ("Schematic kind (SV1)" pointer subsection; kind-table gate line); prior LT5 Account ("End capability (LT5)" pointer subsection); prior WM2 Account (Placement Weight / Linetype overrides pointer subsection); prior LT4 Account: "Block Editor capability slot (LT4)" pointer subsection (block_capability slot, symbol_use_refusal, library-row badges) + HF2 refusal name fixed (pattern_use_refusal → symbol_use_refusal alias; counts nesting too); prior LT3 Account: "Linetype capability (LT3)" pointer subsection (repeat key, placement/paste/drag refusal, linetype refs in referenced_ids + live-line delete refusal, stroke-op pieces); prior 2026-10-03 HF2 Account: "Pattern-tile capability (HF2)" subsection (tile key, typed RenderOp compile, referenced_ids, pattern placement refusal, browser badge + Edit Block) + flyweight-core render-op wording; prior 2026-10-02 CS1 constraint-foundation account: origin fixed at (0,0) (Set Origin + red marker + bbox-top-left default retired; migration on open), Create Block from selection = bbox-centre base + place_at (D24), BlockDefinition.constraints, reference lines persist as scaffolding (is_scaffold, D23), primitive uid incl. nested block_instance records; prior 2026-09-30 Block Editor ribbon tab account (feat/block-editor-ribbon-tab: permanent tab, Open picker, browser helpers); prior 2026-09-30 nested-blocks; prior 2026-09-28
+verified-commit: 91513a00   # SB1b System library tier (ff merge feat/sb1b-system-library); prior d44b0e11 gridline-hosted blocks (ff merge, 0.60.0); prior 0c06b766 SB1a Account (pointers only); prior 084b43e0 HF1 Account (pointer only); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish; pointers only); prior b62aab92 NB Account (feat/nested-block-constraint-handles merge; pointers only); prior 5e4948d6 merge feat/block-primitive-snap (pointers only); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; source_path re-file ruling); prior f2a059d6 SV4 Account (pointer only); prior 3f31e0af SV3 Account (feat/sv3-schematics-library; pointer only); prior 7dd64383 SV2 Account (pointer bullet only); prior b851b1aa SV1 Account (feat/sv1-schematic-kind; pointer subsection only); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior b9b1094 LT4 repeat authoring (feat/lt4-repeat-authoring; pointer subsection only); prior be7c88a LT3 linetype renderer (feat/lt3-linetype-renderer); prior 53e1773 HF2 pattern renderer + tile blocks (hf2-pattern-renderer); prior 2a22ba9 CS1 constraint foundation (feat/cs1-constraint-foundation); prior 44325e5 Block Editor ribbon tab account (feat/block-editor-ribbon-tab); prior 345f1b7 nested-blocks account (feat/nested-blocks); prior d34aeb0   # batch A dead-code sweep; prior 892cf76   # snap-polish: block snap points (origin + stroked vertices + text boxes, never glyphs); prior f2b1d99   # HALO pixel ranking / grip limit / editor undo baseline; prior 434066c
 related-contract: model-space-containment-contract.md   # LANDED in code (C1/C2/C5/C7/C8 + C3 instance level-scope). Body reconciled: "siblings"→C2 (Feature composes Blocks); Quick Block retired (C7); BlockInstance is level-scoped (C3). Flyweight/library/Manager/Editor bulk stays current.
 applies-to:
   - firepro3d/block_definition.py   # new — the flyweight definition + render-op compile; SB1a: bound_prims split, authored attributes / host_category / scale_mode
@@ -12,7 +12,9 @@ applies-to:
   - firepro3d/block_attributes_dialog.py  # SB1a — Edit Attributes dialog for a placed instance
   - firepro3d/block_attributes_editor.py  # SB1a — Attributes editor dialog (Block Editor authoring)
   - firepro3d/block_properties_info.py    # Block Editor Block-view panel (SB1a: Attributes section, Host category, Scale mode, Sample values rows)
-  - firepro3d/block_library.py      # .fpdb I/O, disk walk (no index since 2026-10-10), divergence
+  - firepro3d/block_library.py      # .fpdb I/O, disk walk (no index since 2026-10-10), divergence; SB1b: multi-root (System tier first), write guard, status values
+  - firepro3d/system_library.py     # SB1b (2026-10-23) — startup migration into the System tier model (seeded-hatch clean-up, System/ → Styles/)
+  - firepro3d/system_blocks/        # SB1b (2026-10-23) — the read-only shipped tier (<Series>/*.fpdb; ships Hatches only)
   - firepro3d/capability_folder.py  # read_meta / owns_name / sanitize -- the shared per-file parse (library walk + capability scan)
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
   - firepro3d/blocks_browser.py     # new — Blocks browser dock (mirrors feature_browser) + module helpers library_only_entries / ensure_block_loaded (shared with the Open picker, 2026-09-30)
@@ -68,7 +70,8 @@ source-tasks:
 > **SB1a (attribute authoring + binding core) is built** — schema, resolver, dialogs, `@[key]`
 > tokens, `keep_upright`, explode baking and the as-built reconciliations are owned by
 > `docs/superpowers/specs/2026-10-21-sb1a-block-binding-core-design.md` (not restated here).
-> The rest (System tier SB1b, annotative sizing SB1c, host values SB2/SB3) is unbuilt; this spec
+> **SB1b (the System tier) is built** — owned by the "System library tier (SB1b, 2026-10-23)"
+> section below. The rest (annotative sizing SB1c, host values SB2/SB3) is unbuilt; this spec
 > is amended in place as those tasks land. Everything below not marked SB1a is the current contract.
 
 > **Reference-graphic unification (2026-09-17, `3c3b00c`).** `BlockDefinition`
@@ -544,7 +547,9 @@ nested records ride inside each embedded definition's `primitives`.
 ### Library on disk — no index (2026-10-10)
 
 The one home for how the library folders map to blocks (ratified in the 2026-10-10 FP1 round; the
-schematics one-tier root, the capability pickers and the hatch seeding link here). The per-folder
+schematics one-tier root, the capability pickers and the hatch seeding link here; the read-only System
+tier that now sits beside this user root is owned by "System library tier (SB1b, 2026-10-23)" below,
+and the D-A39 hatch seeding it replaced is retired). The per-folder
 `index.json` is **retired**: never written; a stale one is removed when the app next writes or deletes
 in its folder (`_drop_stale_index`); the shipped `system_blocks/Hatches/index.json` is gone.
 
@@ -594,6 +599,74 @@ in its folder (`_drop_stale_index`); the shipped `system_blocks/Hatches/index.js
   `sanitize` (re-exported as `block_library.sanitize`); `BlockDefinition.source_path`;
   `load_blocks_from_files` summary key `ids`; `ensure_block_loaded` returns the resolved id (or None).
 
+## System library tier (SB1b, 2026-10-23)
+
+The one home for the shipped, read-only tier (HOW + ratified decisions D1–D14:
+[`2026-10-22-system-library-tier-design.md`](../superpowers/specs/2026-10-22-system-library-tier-design.md);
+concept: `2026-09-29-system-blocks-concept-design.md`). Other specs link here.
+
+- **The tier.** Shipped blocks live read-only under `firepro3d/system_blocks/<Series>/*.fpdb`
+  (`block_library.system_root()`; tests override it with `set_system_root`). SB1b ships **Hatches only**
+  — no empty series folders. A System entry reads Library `"System"` (`SYSTEM_LIBRARY`) and Series = its
+  first folder.
+- **Multi-root library.** `block_library._roots` walks the System root first, then the user root
+  (`_iter_entries`; entries carry `tier` = `system` | `user`). Callers keep the `root=` idiom;
+  `system=False` omits the tier (schematics, the Open picker). A missing System root is an empty tier.
+- **System owns its ids.** An id held by a System file is owned by it: a user file carrying a frozen
+  System id is a `duplicate` and loses (`_find_by_id`, `is_system_block`). Shipped ids stay frozen.
+- **Write guard.** `save_to_library`, `create_folder` and `delete_from_library` call `_assert_writable`
+  and raise `SystemLibraryReadOnly` for any path under the System root **and** for a user Library named
+  "System" (any case — `is_reserved_library`). The app never writes the tier; the only way from System
+  content into a user library is **Duplicate**, which always mints a new id.
+- **`base_version` and status.** `BlockDefinition.base_version` is the library `version` the project copy
+  was last loaded, reloaded or saved at; it is serialized with the definition (omitted when None) and
+  round-trips through `.fpdb` / `.fpd`. A definition without it (an older project) counts as untouched.
+  `source_status` returns `project-only` | `library` | `update available` | `modified`: `update available` =
+  the library file's `version` is greater and the project copy is untouched (`version == base_version`, or
+  no `base_version`); an edited older copy stays `modified`. The Block Manager pill token for `update
+  available` is `accent`; Reload is enabled for it and for `modified`.
+- **Pull-only updates.** A newer shipped version only surfaces as the pill; the project copy stays
+  authoritative until the user presses **Reload** (decision 4 above; reload resets `base_version`).
+- **Duplicate to library...** (the only customization path). `block_editor.run_duplicate_dialog` asks Name
+  (default "<name> copy") / Library / Series in `BlockSaveDialog` context `"duplicate"` (the System tier is
+  not offered and the validator refuses "System"), then writes a copy under a **new id** (version 1, no
+  `base_version`) with its nested bundle. Entry points: Blocks browser right-click **Duplicate to
+  library...** on a System row; **Edit Block** and double-click on a System block open the same dialog
+  (no read-only editor); both load the copy into the project (one undo step) and open it in a Block Editor
+  tab (`MainWindow._duplicate_block_from_browser`). Cancel writes nothing. The browser lists the System
+  Library row first with a padlock and tooltip, a separator, then user libraries A–Z.
+- **Block Manager Save on an edited System copy** = Duplicate + `Model_Space.retarget_block_refs(old, new)`
+  (one undo step; the copy is registered as baseline so undo keeps it): placed instances, nested
+  instance / fill-pattern refs inside other definitions, 2D items' fill-pattern layer and per-item Display
+  `section_pattern` are re-pointed. Not retargeted: Display category defaults (app-wide settings),
+  linetype / end refs (none ship in System yet), schematic viewports. An open editor tab on the old id is
+  closed first through the tab-close prompt (Commit / Discard / Cancel; Cancel aborts); after the Duplicate
+  dialog the tab re-opens on the copy, or on the original if the dialog was cancelled.
+- **Reserved-Library re-file.** A block with a non-System id whose Library is "System" (e.g. a pre-SB1b
+  seeded hatch) cannot be written back: Manager Save opens the Save dialog in context `"refile"`, prefilled
+  Library "Styles" and its series; it **keeps its id**, and the project copy takes the chosen Library /
+  Series (`set_block_metadata`) before the write.
+- **Schematics.** `NewSchematicDialog` lists with `system=False`; System content is never a schematic
+  template.
+- **Startup migration** (`system_library.migrate_user_library`, called from `main.py` after settings
+  restore; idempotent by on-disk state, no flag; a failing step is logged and skipped, never blocks
+  startup): (1) every folder in the `paths/hatch_seeded` list — a seeded `.fpdb` byte-identical to its
+  shipped file is deleted; one holding a shipped id but differing is re-id'd (fresh uuid, Library
+  restamped "Styles") and becomes an ordinary user block; the key is then cleared (kept on a failure, so it
+  retries); (2) the user library's `System/` defaults folder moves to `Styles/` (file by file, never
+  overwriting, when `Styles/` exists — a clashing file stays and is logged) with moved files' Library
+  restamped "Styles", unless a Hatch patterns / Linetypes / End types folder override points inside it.
+  Default capability folders are now `<block library>/Styles/{Hatches,Linetypes,End Types}`
+  (`app_data`). D-A39 seeding (`seed_hatch_folder`) is retired; the pattern pickers read System + the user
+  Hatch patterns folder (owned by `hatch-and-fill.md`).
+- **Known gaps (tracked, not defects of the contract).**
+  (a) When a folder override points inside `<lib>/System`, the migration leaves that folder and its blocks
+  keep Library "System": read-only with no app write path — tracked by the `todo_open` design task
+  "System-block authoring path". (b) Block Manager Save: choosing **Commit** in the editor-tab prompt and
+  then **Cancel** in the Duplicate dialog keeps the committed edits and their undo step. (c) An older-version
+  seeded copy that is not byte-identical to the current shipped file is treated as edited and re-id'd
+  rather than deleted.
+
 ## Existing Code Context (reuse map)
 
 - **REUSE:** `titleblock_template.py` (library I/O + embed + divergence), `titleblock_editor.py`
@@ -624,8 +697,10 @@ in its folder (`_drop_stale_index`); the shipped `system_blocks/Hatches/index.js
   compiles to a red box-with-diagonal **placeholder** (never a crash); a project load lists the
   missing ids and their users in a "Missing Nested Blocks" warning, and a library load's summary
   counts them ("N nested block(s) missing").
-- **Divergence:** embedded `version` ≠ library `version` for same `id` → Manager marks "modified";
-  Save-to-Library / Reload-from-Library resolve it (embedded stays authoritative until the user acts).
+- **Divergence:** embedded `version` ≠ library `version` for same `id` → Manager marks "modified"
+  (or "update available" when the project copy is untouched and the library is newer — see "System
+  library tier (SB1b, 2026-10-23)"); Save-to-Library / Reload-from-Library resolve it (embedded stays
+  authoritative until the user acts).
 - **Library lookups resolve by `id`, not folder location (2026-09-05).** `source_status` /
   `reload_from_library` scan the *whole* tree for the definition's `id` (a single `_iter_entries`
   walk → `_find_by_id`, owner only), so a block whose metadata (Library/Series/name) has drifted from
