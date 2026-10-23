@@ -252,7 +252,7 @@ def test_refused_library_load_leaves_menu_pick_unfilled(qapp, monkeypatch, tmp_p
     root = tmp_path / "patterns_root"; root.mkdir()
     QSettings("GV", "FirePro3D").setValue(app_data.HATCH_DIR_KEY, str(root))
     bl.save_to_library(BlockDefinition.new(
-        name="Zig", library="System", series="Hatches", origin=(0.0, 0.0),
+        name="Zig", library="Styles", series="Hatches", origin=(0.0, 0.0),
         primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
         tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"}), root=str(root))
     ms = Model_Space()

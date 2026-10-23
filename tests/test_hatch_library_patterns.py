@@ -22,14 +22,14 @@ from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 
 
-def _pattern(name="Zig", library="System", series="Hatches"):
+def _pattern(name="Zig", library="Styles", series="Hatches"):
     return BlockDefinition.new(
         name=name, library=library, series=series, origin=(0.0, 0.0),
         primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
         tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
 
 
-def _symbol(name="Valve", library="System", series="Hatches"):
+def _symbol(name="Valve", library="Styles", series="Hatches"):
     return BlockDefinition.new(
         name=name, library=library, series=series, origin=(0.0, 0.0),
         primitives=[LineItem(QPointF(0, 0), QPointF(10, 0)).to_dict()])
@@ -113,7 +113,7 @@ def test_series_folder_itself_works_as_the_patterns_folder(qapp, tmp_path):
     # The default is <block library>/System/Hatches — a Series folder.
     p = _pattern()
     bl.save_to_library(p, root=str(tmp_path))
-    series = tmp_path / "System" / "Hatches"
+    series = tmp_path / "Styles" / "Hatches"
     QSettings("GV", "FirePro3D").setValue(app_data.HATCH_DIR_KEY, str(series))
     assert _labels(Model_Space().block_registry).get("Zig") == p.id
 
@@ -147,7 +147,7 @@ def test_a_stale_index_is_ignored_the_file_decides(hatch_dir):
     p, s = _pattern(), _symbol()
     bl.save_to_library(p, root=str(hatch_dir))
     bl.save_to_library(s, root=str(hatch_dir))
-    idx_path = hatch_dir / "System" / "Hatches" / "index.json"
+    idx_path = hatch_dir / "Styles" / "Hatches" / "index.json"
     idx_path.write_text(json.dumps(                    # an older build's index
         {"Zig.fpdb": {"id": p.id, "tile": False},
          "Valve.fpdb": {"id": s.id, "tile": True}}))
@@ -159,7 +159,7 @@ def test_a_stale_index_is_ignored_the_file_decides(hatch_dir):
 def test_unreadable_files_are_skipped(hatch_dir):
     p = _pattern()
     bl.save_to_library(p, root=str(hatch_dir))
-    bad = hatch_dir / "System" / "Hatches" / "broken.fpdb"
+    bad = hatch_dir / "Styles" / "Hatches" / "broken.fpdb"
     bad.write_text("{not json")
     assert [bid for _n, bid, _p in hp.library_patterns()] == [p.id]
 
@@ -285,7 +285,7 @@ def test_pattern_tile_toggle_seeds_size_model(qapp):
 def test_empty_library_pattern_is_hidden(hatch_dir):
     good = _pattern()
     empty = BlockDefinition.new(
-        name="Empty", library="System", series="Hatches", origin=(0.0, 0.0),
+        name="Empty", library="Styles", series="Hatches", origin=(0.0, 0.0),
         primitives=[], tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
     bl.save_to_library(good, root=str(hatch_dir))
     bl.save_to_library(empty, root=str(hatch_dir))
@@ -298,7 +298,7 @@ def test_empty_library_pattern_is_hidden(hatch_dir):
 
 def test_zero_size_library_pattern_is_hidden(hatch_dir):
     flat = BlockDefinition.new(
-        name="Flat", library="System", series="Hatches", origin=(0.0, 0.0),
+        name="Flat", library="Styles", series="Hatches", origin=(0.0, 0.0),
         primitives=[LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()],
         tile={"w": 5.0, "h": 0.0, "row_shift": 0.0, "size": "model"})
     bl.save_to_library(flat, root=str(hatch_dir))

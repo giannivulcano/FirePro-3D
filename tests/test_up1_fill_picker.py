@@ -193,7 +193,7 @@ def test_pattern_needs_load_cases(qapp, tmp_path):
     root.mkdir()
     QSettings("GV", "FirePro3D").setValue(app_data.HATCH_DIR_KEY, str(root))
     pat = BlockDefinition.new(
-        name="Zig", library="System", series="Hatches", origin=(0.0, 0.0),
+        name="Zig", library="Styles", series="Hatches", origin=(0.0, 0.0),
         primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
         tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
     bl.save_to_library(pat, root=str(root))
