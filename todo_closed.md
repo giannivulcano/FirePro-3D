@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System -- SB1c annotative sizing -- 2026-10-23
+
+- [x] [type:feature] SB1c — Annotative sizing: `PlanView.scale` (+ detail-view scale), annotative blocks paint at printed size × painting-view scale, one scene-scoped paper override replaces the §9.9 per-category label helpers [subject:Architecture] [P1] [done:2026-10-23]
+  - Details: concept F6 — **proposal, pending a human gate**: first plan step is a P4 probe of view resolution from `paint(widget)` and conservative `boundingRect` (max live-view scale + `prepareGeometryChange`) against HALO pick, rubber-band and viewport clip; re-ratify F6 with the probe result before building. Q10: bubbles stop being screen-fixed. Guard G3 (PDF cap height at two viewport scales = authored mm). F8: `view-relationships.md` (PlanView.scale; per-paint scaling on the shared scene, not a third view pattern §5.3) + `paper-space.md §9.9`. Supersedes "Pipe labels adopt the §9.9 true-scale mechanism"; the "Thin-lines toggle" task should be re-checked against this (view scale makes model labels true-scale by default). `level_manager.py`, `detail_view.py`, `paper_display.py`, `model_view.py`. **SB1a note (2026-10-21):** `scale_mode: "annotative"` is authored, stored and round-tripped by SB1a but paints real size -- no guard exists for the 'paints real size until SB1c' assumption; this task adds the guard with the behaviour.
+  - Built 2026-10-23 on `feature/sb1c-annotative` (design: `docs/superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md`). Grill dropped the per-view scale (PlanView.scale / detail scale): annotative blocks plot at authored printed mm in every sheet viewport + PDF; On screen row (Scale with zoom = mm x project drawing scale, default; Fixed size = 6 px/mm, plan only); section/elevation canvases scale with the drawing scale (VC9 ruling); nested blocks take the parent's mode (reconfirmed at smoke); bubbles 3.0 mm / room labels 2.5 mm paper caps via the shared conversion; DM Grid Line Label Ht column + stored keys retired.
+
 ## Block System -- SB1b System library tier -- 2026-10-23
 
 - [x] SB1b — System library tier: shipped read-only `firepro3d/system_blocks/<Series>/`, multi-root `block_library` (System + User), frozen System ids, `SYSTEM_DEFAULTS` fallback map, Blocks browser System-first with lock + "Duplicate to library…" [type:feature] [done:2026-10-23] [subject:Architecture] [P1]
