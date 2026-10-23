@@ -297,11 +297,10 @@ def project_pattern_refs(scene) -> set[str]:
     """Every pattern ref a project uses or will draw with (D-A39).
 
     Collected (canonical ids): 2D items' pattern layer (``fill_layers.pattern``); every block
-    definition's primitive pattern fills; each item's Display Manager section
-    pattern (``_display_section_pattern`` + a per-instance
-    ``_display_overrides`` value); every Display Manager category
-    ``section_pattern`` (QSettings / factory, via the DM reader); and
-    ``DEFAULT_TILE_REF`` — the pattern walls / floors / roofs fall back to.
+    definition's primitive pattern fills; every Fill Type's pattern (HF5: the
+    Display Manager section cells and Filled Regions name table types, so the
+    types' patterns cover every section cut); and ``DEFAULT_TILE_REF`` — the
+    pattern walls / floors / roofs fall back to.
 
     Args:
         scene: The project ``Model_Space``.
@@ -314,10 +313,6 @@ def project_pattern_refs(scene) -> set[str]:
         fl = getattr(item, "fill_layers", None)
         if fl is not None and fl.pattern is not None:
             refs.add(fl.pattern.ref)
-        refs.add(canonical_ref(getattr(item, "_display_section_pattern", None)))
-        ov = getattr(item, "_display_overrides", None)
-        if isinstance(ov, dict):
-            refs.add(canonical_ref(ov.get("section_pattern")))
     store = getattr(scene, "_block_definitions", None) or {}
     for defn in list(store.values()):
         for p in getattr(defn, "primitives", ()) or ():
@@ -326,15 +321,6 @@ def project_pattern_refs(scene) -> set[str]:
     for t in project_table().all():           # HF5: a table type's pattern is a use too
         if t.layers.pattern is not None:
             refs.add(t.layers.pattern.ref)
-    try:
-        from .display_manager import _CATEGORIES, _read_category_from_settings
-        for cat in _CATEGORIES:
-            if cat.get("section_pattern") is None:
-                continue
-            refs.add(canonical_ref(
-                _read_category_from_settings(cat["key"]).get("section_pattern")))
-    except Exception:                     # noqa: BLE001 — DM unavailable headless
-        _log.debug("Display Manager categories unreadable", exc_info=True)
     refs.discard(None)
     refs.discard("")
     return {r for r in refs if isinstance(r, str)}

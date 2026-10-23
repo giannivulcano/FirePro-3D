@@ -23,13 +23,16 @@ from PyQt6.QtGui import (QColor, QFont, QBrush, QPen,
 from PyQt6.QtCore import Qt, QSettings, QByteArray, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
+import json
 import os
 import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
+from . import fill_types
 from .hatch_patterns import BUILTIN_DIAGONAL
 from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO
 from .colour_tokens import is_token, resolve_colour, token_label
+from .fill_layers import to_record
 
 
 # ---------------------------------------------------------------------------
@@ -261,13 +264,13 @@ _CATEGORIES: list[dict] = [
     {"key": "Node",             "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Design Area",      "color": "#dc1e1e", "fill": "#ffc800", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal", "section_type": "Wall Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Door",            "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Window",          "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Opening",         "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": "#8B4513", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": None,      "section_pattern": None,         "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal", "section_type": "Floor Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Elevation Marker", "label": "Section Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
@@ -324,7 +327,9 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     priority over QSettings, which in turn takes priority over factory
     defaults from ``_CATEGORIES``.
 
-    Returns dict with keys: color, fill, hatch, scale, opacity, visible, font.
+    Returns dict with keys: color, fill, section_type (a Fill Type *name*, or
+    None for a category without a section cell), section_look (its fill
+    record), scale, opacity, visible, font.
     """
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
@@ -340,12 +345,24 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
 
     color   = _s("color", cat_def["color"])
     fill    = _s("fill", cat_def.get("fill"))
-    # Read "section" key, falling back to legacy "hatch" key in QSettings
-    section = _s("section", None)
-    if section is None:
-        section = _s("hatch", cat_def.get("section"))
-    section_pattern = _s("section_pattern", cat_def.get("section_pattern"))
-    section_scale = float(_s("section_scale", 1.0))
+    section_type = section_look = None
+    if cat_def.get("section_type"):
+        # HF5 R7: the category names a Fill Type and stores its look. Legacy
+        # colour / pattern / scale (a pre-HF5 file or QSettings) are conversion
+        # input only; an override carrying them and no type wins over a stored one.
+        legacy_ov = ("section_type" not in ov
+                     and any(k in ov for k in _LEGACY_SECTION_PROPS))
+        section_type = (cat_def["section_type"] if legacy_ov
+                        else _s("section_type", None) or cat_def["section_type"])
+        section_look = None if legacy_ov else _parse_section_look(_s("section_look", None))
+    if section_type and section_look is None:
+        # Read "section" key, falling back to legacy "hatch" key in QSettings
+        section = _s("section", None)
+        if section is None:
+            section = _s("hatch", cat_def.get("section"))
+        section_look = to_record(fill_types.legacy_section_layers(
+            section, _s("section_pattern", cat_def.get("section_pattern")),
+            float(_s("section_scale", 1.0))))
     scale   = float(_s("scale", cat_def["scale"]))
     opacity = int(float(_s("opacity", cat_def["opacity"])))
     visible = _s("visible", cat_def["visible"])
@@ -357,10 +374,34 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     if font is not None:
         font = int(float(_s("font", font)))
 
-    return {"color": color, "fill": fill, "section": section,
-            "section_pattern": section_pattern, "section_scale": section_scale,
+    return {"color": color, "fill": fill, "section_type": section_type,
+            "section_look": section_look,
             "scale": scale, "opacity": opacity, "visible": visible,
             "font": font}
+
+
+def _store_section_cell(settings: QSettings, key: str, vals: dict,
+                        prefix: str = "") -> None:
+    """Write category *key*'s section cell (HF5 R7) as ``section_type`` (the
+    Fill Type's name) + ``section_look`` (its fill record, JSON) under
+    ``display/{key}/{prefix}...``; the legacy colour / pattern / scale keys
+    are retired (removed), never written again.
+
+    Args:
+        settings: The QSettings store.
+        key: Category key.
+        vals: Category values carrying ``section_type`` / ``section_look``.
+        prefix: ``"default_"`` for the "Set as Default" keys, else ``""``.
+    """
+    name = vals.get("section_type")
+    if not (_category_has_section(key) and name):
+        return
+    settings.setValue(f"display/{key}/{prefix}section_type", name)
+    if vals.get("section_look"):
+        settings.setValue(f"display/{key}/{prefix}section_look",
+                          json.dumps(vals["section_look"]))
+    for legacy in (*_LEGACY_SECTION_PROPS, "hatch"):
+        settings.remove(f"display/{key}/{prefix}{legacy}")
 
 
 def _write_category_to_settings(key: str, vals: dict,
@@ -374,12 +415,7 @@ def _write_category_to_settings(key: str, vals: dict,
     settings.setValue(f"display/{key}/visible", str(vals["visible"]).lower())
     if vals.get("fill") is not None:
         settings.setValue(f"display/{key}/fill", vals["fill"])
-    if vals.get("section") is not None:
-        settings.setValue(f"display/{key}/section", vals["section"])
-    if vals.get("section_pattern"):
-        settings.setValue(f"display/{key}/section_pattern", vals["section_pattern"])
-    if vals.get("section_scale") is not None:
-        settings.setValue(f"display/{key}/section_scale", vals["section_scale"])
+    _store_section_cell(settings, key, vals)
     if vals.get("font") is not None:
         settings.setValue(f"display/{key}/font", vals["font"])
 
@@ -389,12 +425,27 @@ def _apply_to_scene_items(scene, key: str, vals: dict,
     """Apply display settings *vals* to all items of category *key*."""
     items = _items_for_category_static(scene, key)
     for obj in items:
-        _apply_vals_to_item(obj, vals, respect_overrides)
+        _apply_vals_to_item(obj, vals, respect_overrides, key=key)
 
 
-def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True) -> None:
+def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True,
+                        key: str | None = None) -> None:
     """Apply one category's display *vals* to *obj* (its per-item
-    ``_display_overrides`` win when *respect_overrides*)."""
+    ``_display_overrides`` win when *respect_overrides*).
+
+    *key* names the category: with a section cell, the item's cut Fill Type is
+    the category's (``vals["section_type"]`` / ``section_look``, legacy
+    converted) unless a per-item override names another (legacy per-item
+    section keys convert here, once -- R4)."""
+    tid = None
+    if key is not None and _category_has_section(key):
+        tid = fill_types.category_section_type(key, vals)
+        if respect_overrides:
+            ov = getattr(obj, "_display_overrides", None)
+            if isinstance(ov, dict):
+                fill_types.convert_item_section_override(
+                    key, ov, fill_types.resolve(tid, None)[0] if tid else None)
+                tid = ov.get("section_type", tid)
     if respect_overrides:
         ov = getattr(obj, "_display_overrides", {})
         c = ov.get("color", vals["color"])
@@ -403,18 +454,11 @@ def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True) -> None
         v = ov.get("visible", vals["visible"])
         f = ov.get("fill", vals.get("fill"))
         fn = ov.get("font", vals.get("font"))
-        sc = ov.get("section", vals.get("section"))
-        sp = ov.get("section_pattern", vals.get("section_pattern"))
-        ss = ov.get("section_scale", vals.get("section_scale"))
     else:
         c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
         f, fn = vals.get("fill"), vals.get("font")
-        sc = vals.get("section")
-        sp = vals.get("section_pattern")
-        ss = vals.get("section_scale")
     apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn,
-                          section_color=sc, section_pattern=sp,
-                          section_scale=ss)
+                          section_type=tid)
 
 
 def refresh_category_display(item) -> None:
@@ -427,7 +471,7 @@ def refresh_category_display(item) -> None:
     """
     key = "Reference Geometry" if getattr(item, "reference", False) else "2D Geometry"
     vals = _read_category_from_settings(key)
-    _apply_vals_to_item(item, vals, respect_overrides=True)
+    _apply_vals_to_item(item, vals, respect_overrides=True, key=key)
 
 
 def _category_has_fill(key: str) -> bool:
@@ -437,9 +481,24 @@ def _category_has_fill(key: str) -> bool:
 
 
 def _category_has_section(key: str) -> bool:
-    """Return True if this category supports a section colour column."""
+    """Return True if this category's section cell picks a Fill Type (HF5)."""
     c = _CATEGORY_MAP.get(key)
-    return c is not None and c.get("section") is not None
+    return c is not None and c.get("section_type") is not None
+
+
+_LEGACY_SECTION_PROPS = ("section", "section_pattern", "section_scale")
+_SECTION_PROPS = ("section_type", "section_look") + _LEGACY_SECTION_PROPS
+
+
+def _parse_section_look(raw) -> dict | None:
+    """A stored ``section_look`` (a JSON string in QSettings, a dict in a
+    project payload) as a fill record; None when absent or unreadable."""
+    if isinstance(raw, str) and raw.strip():
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    return raw if isinstance(raw, dict) and raw else None
 
 
 _NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor"}
@@ -464,9 +523,7 @@ def apply_display_to_item(item, color: str | None, scale: float,
                           opacity: float, visible: bool,
                           fill_color: str | None = None,
                           font_size: int | None = None,
-                          section_color: str | None = None,
-                          section_pattern: str | None = None,
-                          section_scale: float | None = None):
+                          section_type: str | None = None):
     """Apply display settings to *item* (Pipe, Sprinkler, Fitting, Node,
     WaterSupply, GridlineItem, or HydraulicNodeBadge).  Called both by the
     live-preview loop and at project load."""
@@ -491,12 +548,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
                 item._fill_mode = "Section"
             else:
                 item._fill_mode = "Solid"
-        if section_color:
-            item._display_section_color = section_color
-        if section_pattern:
-            item._display_section_pattern = section_pattern
-        if section_scale is not None:
-            item._display_section_scale = section_scale
+        if section_type is not None:
+            item._display_section_type = section_type
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -549,12 +602,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
         if hasattr(item, '_display_fill_color') and fill_color is not None:
             _mode, _hex = _parse_fill_value(fill_color)
             item._display_fill_color = _hex
-        if section_color and hasattr(item, '_display_section_color'):
-            item._display_section_color = section_color
-        if section_pattern and hasattr(item, '_display_section_pattern'):
-            item._display_section_pattern = section_pattern
-        if section_scale is not None and hasattr(item, '_display_section_scale'):
-            item._display_section_scale = section_scale
+        if section_type is not None and hasattr(item, '_display_section_type'):
+            item._display_section_type = section_type
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -911,16 +960,20 @@ def apply_category_defaults(item):
     font = cat_def.get("font")
     if font is not None:
         font = int(float(_v("font", font)))
-    section = _vc("section", cat_def.get("section"))
-    section_pattern = _v("section_pattern", cat_def.get("section_pattern"))
-    section_scale_raw = _v("section_scale", None)
-    section_scale = float(section_scale_raw) if section_scale_raw else None
+    section_type = None
+    if _category_has_section(key):
+        section_scale_raw = _v("section_scale", None)
+        section_type = fill_types.category_section_type(key, {
+            "section_type": _vc("section_type", cat_def["section_type"]),
+            "section_look": _parse_section_look(_vc("section_look", None)),
+            "section": _vc("section", cat_def.get("section")),
+            "section_pattern": _v("section_pattern", cat_def.get("section_pattern")),
+            "section_scale": float(section_scale_raw) if section_scale_raw else None,
+        })
 
     apply_display_to_item(item, color, scale, opacity, visible,
                           fill_color=fill, font_size=font,
-                          section_color=section,
-                          section_pattern=section_pattern,
-                          section_scale=section_scale)
+                          section_type=section_type)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1138,6 +1191,9 @@ class DisplayManager(QDialog):
                 v = self._settings.value(f"display/{key}/{prop}")
                 if v is not None:
                     snap[prop] = v
+            for prop in ("section_type", "section_look"):
+                # None = absent: a Cancel removes what the live preview wrote.
+                snap[prop] = self._settings.value(f"display/{key}/{prop}")
             self._elev_settings_snapshot[key] = snap
 
     def _restore_snapshot(self):
@@ -1241,7 +1297,10 @@ class DisplayManager(QDialog):
         if hasattr(self, "_elev_settings_snapshot"):
             for key, snap in self._elev_settings_snapshot.items():
                 for prop, val in snap.items():
-                    self._settings.setValue(f"display/{key}/{prop}", val)
+                    if val is None:
+                        self._settings.remove(f"display/{key}/{prop}")
+                    else:
+                        self._settings.setValue(f"display/{key}/{prop}", val)
             self._settings.sync()
             elev_mgr = getattr(self._scene, "_section_manager", None)
             if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
@@ -1309,7 +1368,8 @@ class DisplayManager(QDialog):
     def _read_item_display_state(self, item, category_key: str) -> dict:
         """Read the *current* display properties directly from a scene item.
 
-        Returns a dict with keys: color, fill, scale, opacity, visible, font.
+        Returns a dict with keys: color, fill, section_type, scale, opacity,
+        visible, font.
         This ensures the dialog always reflects what is actually on screen.
         """
         from .gridline import GridlineItem
@@ -1391,20 +1451,11 @@ class DisplayManager(QDialog):
                             cat_def.get("fill"))
             font = cat_def.get("font")
 
-        # Section colour + pattern — read from item or fall back to category default
-        section = _fill_or(getattr(item, "_display_section_color", None),
-                           cat_def.get("section"))
-        section_pattern = (getattr(item, "_display_section_pattern", None)
-                           or cat_def.get("section_pattern"))
-
-        section_scale = getattr(item, "_display_section_scale", 1.0) or 1.0
-
         return {
             "color": color,
             "fill": fill,
-            "section": section,
-            "section_pattern": section_pattern,
-            "section_scale": section_scale,
+            # The cut's Fill Type id (None = not applied yet: the category's).
+            "section_type": getattr(item, "_display_section_type", None),
             "scale": scale,
             "opacity": opa,
             "visible": vis,
@@ -1535,9 +1586,7 @@ class DisplayManager(QDialog):
                 saved_opacity = _first["opacity"]
                 saved_visible = _first["visible"]
                 saved_font    = _first["font"]
-                saved_section = _first.get("section")
-                saved_section_pattern = _first.get("section_pattern")
-                saved_section_scale = _first.get("section_scale", 1.0)
+                saved_section_type = _first.get("section_type")
             else:
                 saved_color = self._settings.value(
                     f"display/{key}/color", cat_def["color"])
@@ -1555,15 +1604,13 @@ class DisplayManager(QDialog):
                 if saved_font is not None:
                     saved_font = int(float(self._settings.value(
                         f"display/{key}/font", saved_font)))
-                saved_section = (self._settings.value(f"display/{key}/section")
-                                 or self._settings.value(
-                                     f"display/{key}/hatch",
-                                     cat_def.get("section")))
-                saved_section_pattern = self._settings.value(
-                    f"display/{key}/section_pattern",
-                    cat_def.get("section_pattern"))
-                saved_section_scale = float(self._settings.value(
-                    f"display/{key}/section_scale", 1.0))
+                saved_section_type = None
+            if _category_has_section(key):
+                cat_tid = fill_types.category_section_type(
+                    key, _read_category_from_settings(key, self._settings))
+                saved_section_type = saved_section_type or cat_tid
+            else:
+                cat_tid = None
 
             # ── Category row (child of its group) ─────────────────────
             grp_name = cat_def.get("group", "Other")
@@ -1584,9 +1631,7 @@ class DisplayManager(QDialog):
                 cat_item, saved_visible, saved_color, saved_fill,
                 saved_scale, saved_opacity, saved_font,
                 is_category=True, category_key=key,
-                section=saved_section,
-                section_pattern=saved_section_pattern,
-                section_scale=saved_section_scale)
+                **self._section_cell_args(saved_section_type))
 
             self._cat_data[key] = {
                 "items": items,
@@ -1604,9 +1649,7 @@ class DisplayManager(QDialog):
                 inst_opacity = _ist["opacity"]
                 inst_visible = _ist["visible"]
                 inst_font    = _ist["font"]
-                inst_section = _ist.get("section")
-                inst_section_pattern = _ist.get("section_pattern")
-                inst_section_scale = _ist.get("section_scale", 1.0)
+                inst_section_type = _ist.get("section_type") or cat_tid
 
                 child = QTreeWidgetItem(cat_item)
                 child.setText(_COL_NAME, self._label_for_item(obj, i, key))
@@ -1616,9 +1659,8 @@ class DisplayManager(QDialog):
                     child, inst_visible, inst_color, inst_fill,
                     inst_scale, inst_opacity, inst_font,
                     is_category=False, category_key=key,
-                    item_ref=obj, section=inst_section,
-                    section_pattern=inst_section_pattern,
-                    section_scale=inst_section_scale)
+                    item_ref=obj,
+                    **self._section_cell_args(inst_section_type))
 
                 self._inst_data[id(obj)] = {
                     "tree_item": child,
@@ -1626,6 +1668,18 @@ class DisplayManager(QDialog):
                     "item_ref": obj,
                     "category": key,
                 }
+
+    @staticmethod
+    def _section_cell_args(type_id) -> dict:
+        """Section-button arguments of a Fill Type (colour = its body, pattern,
+        scale); empty for a row without a section cell."""
+        if not type_id:
+            return {}
+        layers, _missing = fill_types.resolve(type_id, None)
+        bg, pat = layers.background, layers.pattern
+        return {"section": bg.color if bg is not None else "",
+                "section_pattern": pat.ref if pat is not None else BUILTIN_DIAGONAL,
+                "section_scale": pat.scale if pat is not None else 1.0}
 
     def _add_model_blocks_row(self):
         """Weight-only "Blocks" row (linetypes.md LT2-6): the canvas weight of
@@ -2166,12 +2220,7 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/default_visible", s["visible"])
             if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/default_fill", s["fill"])
-            if s.get("section") is not None:
-                self._settings.setValue(f"display/{key}/default_section", s["section"])
-            if s.get("section_pattern"):
-                self._settings.setValue(f"display/{key}/default_section_pattern", s["section_pattern"])
-            if s.get("section_scale") is not None:
-                self._settings.setValue(f"display/{key}/default_section_scale", s["section_scale"])
+            _store_section_cell(self._settings, key, s, prefix="default_")
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/default_font", s["font"])
             # Also save as current settings so they persist across sessions
@@ -2181,12 +2230,7 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/visible", s["visible"])
             if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
-            if s.get("section") is not None:
-                self._settings.setValue(f"display/{key}/section", s["section"])
-            if s.get("section_pattern"):
-                self._settings.setValue(f"display/{key}/section_pattern", s["section_pattern"])
-            if s.get("section_scale") is not None:
-                self._settings.setValue(f"display/{key}/section_scale", s["section_scale"])
+            _store_section_cell(self._settings, key, s)
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/font", s["font"])
         from .paper_display import model_blocks_weight
@@ -2245,6 +2289,14 @@ class DisplayManager(QDialog):
             result["section_pattern"] = w["section_btn"].property("_pattern") or "diagonal"
             _ss = w["section_btn"].property("_section_scale")
             result["section_scale"] = float(_ss) if _ss else 1.0
+            table = fill_types.project_table()
+            before = len(table.all())
+            t = table.ensure_look(f"{key} Section", fill_types.legacy_section_layers(
+                result["section"], result["section_pattern"], result["section_scale"]))
+            if len(table.all()) != before:
+                fill_types.notify_changed()
+            result["section_type"] = t.name
+            result["section_look"] = to_record(t.layers)
         else:
             result["section"] = None
             result["section_pattern"] = None
@@ -2270,6 +2322,8 @@ class DisplayManager(QDialog):
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
             cat_settings = self._read_category_settings(key)
+            cat_tid = (fill_types.category_section_type(key, cat_settings)
+                       if _category_has_section(key) else None)
 
             for obj in self._cat_data[key]["items"]:
                 overrides = getattr(obj, "_display_overrides", {})
@@ -2279,19 +2333,17 @@ class DisplayManager(QDialog):
                 eff_visible = overrides.get("visible", cat_settings["visible"])
                 eff_fill = overrides.get("fill", cat_settings.get("fill"))
                 eff_font = overrides.get("font", cat_settings.get("font"))
-                eff_section = overrides.get("section", cat_settings.get("section"))
-                eff_sec_pat = overrides.get("section_pattern",
-                                            cat_settings.get("section_pattern"))
-                eff_sec_scl = overrides.get("section_scale",
-                                            cat_settings.get("section_scale"))
+                eff_tid = cat_tid
+                if cat_tid is not None and isinstance(overrides, dict):
+                    fill_types.convert_item_section_override(
+                        key, overrides, fill_types.resolve(cat_tid, None)[0])
+                    eff_tid = overrides.get("section_type", cat_tid)
 
                 apply_display_to_item(obj, eff_color, eff_scale,
                                       eff_opacity, eff_visible,
                                       fill_color=eff_fill,
                                       font_size=eff_font,
-                                      section_color=eff_section,
-                                      section_pattern=eff_sec_pat,
-                                      section_scale=eff_sec_scl)
+                                      section_type=eff_tid)
 
             # Sync elevation-related categories to QSettings so elevation
             # scene rebuilds pick up changes during live preview.
@@ -2302,12 +2354,7 @@ class DisplayManager(QDialog):
                 self._settings.setValue(f"display/{key}/visible", cat_settings["visible"])
                 if cat_settings.get("fill") is not None:
                     self._settings.setValue(f"display/{key}/fill", cat_settings["fill"])
-                if cat_settings.get("section") is not None:
-                    self._settings.setValue(f"display/{key}/section", cat_settings["section"])
-                if cat_settings.get("section_pattern"):
-                    self._settings.setValue(f"display/{key}/section_pattern", cat_settings["section_pattern"])
-                if cat_settings.get("section_scale") is not None:
-                    self._settings.setValue(f"display/{key}/section_scale", cat_settings["section_scale"])
+                _store_section_cell(self._settings, key, cat_settings)
                 if cat_settings.get("font") is not None:
                     self._settings.setValue(f"display/{key}/font", cat_settings["font"])
                 elev_dirty = True
@@ -3054,21 +3101,9 @@ class DisplayManager(QDialog):
         """Persist category settings to QSettings and keep scene state."""
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
-            s = self._read_category_settings(key)
-            self._settings.setValue(f"display/{key}/color", s["color"])
-            self._settings.setValue(f"display/{key}/scale", s["scale"])
-            self._settings.setValue(f"display/{key}/opacity", s["opacity"])
-            self._settings.setValue(f"display/{key}/visible", s["visible"])
-            if s.get("fill") is not None:
-                self._settings.setValue(f"display/{key}/fill", s["fill"])
-            if s.get("section") is not None:
-                self._settings.setValue(f"display/{key}/section", s["section"])
-            if s.get("section_pattern"):
-                self._settings.setValue(f"display/{key}/section_pattern", s["section_pattern"])
-            if s.get("section_scale") is not None:
-                self._settings.setValue(f"display/{key}/section_scale", s["section_scale"])
-            if s.get("font") is not None:
-                self._settings.setValue(f"display/{key}/font", s["font"])
+            # One writer (HF5): the shared helper stores the section type + look.
+            _write_category_to_settings(
+                key, self._read_category_settings(key), self._settings)
         from .paper_display import model_blocks_weight
         self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/line_weight",
                                 model_blocks_weight())
@@ -3131,8 +3166,9 @@ def apply_saved_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys so they win over current keys
         default_ov: dict = {}
-        for prop in ("color", "fill", "section", "section_pattern",
-                      "section_scale", "scale", "opacity", "visible", "font"):
+        for prop in ("color", "fill", "section_type", "section_look", "section",
+                      "section_pattern", "section_scale", "scale", "opacity",
+                      "visible", "font"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -3159,7 +3195,9 @@ def apply_default_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys (fall back to regular keys)
         default_ov: dict = {}
-        for prop in ("color", "fill", "section", "section_pattern", "section_scale", "scale", "opacity", "visible", "font"):
+        for prop in ("color", "fill", "section_type", "section_look", "section",
+                     "section_pattern", "section_scale", "scale", "opacity",
+                     "visible", "font"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -3234,8 +3272,9 @@ def apply_project_display_settings(scene, display_dict: dict):
 
         # User defaults win over project-embedded values
         merged = dict(proj)
-        for prop in ("color", "fill", "section", "section_pattern",
-                      "section_scale", "scale", "opacity", "visible", "font"):
+        for prop in ("color", "fill", "section_type", "section_look", "section",
+                      "section_pattern", "section_scale", "scale", "opacity",
+                      "visible", "font"):
             user_default = settings.value(f"display/{key}/default_{prop}")
             if user_default is not None:
                 merged[prop] = user_default
@@ -3271,7 +3310,7 @@ def refresh_token_latched(scene) -> None:
             ov = getattr(item, "_display_overrides", None) or {}
             if (is_token(ov.get("color", vals.get("color")))
                     or is_token(ov.get("fill", vals.get("fill")))):
-                _apply_vals_to_item(item, vals, respect_overrides=True)
+                _apply_vals_to_item(item, vals, respect_overrides=True, key=key)
 
 
 def _items_for_category_static(scene, key: str) -> list:

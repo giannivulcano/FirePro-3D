@@ -33,10 +33,10 @@ from PyQt6.QtCore import QSettings
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         GRIDLINE_BUBBLE_PAPER_CAP_MM)
 from . import theme as th
-from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
+from .colour_tokens import resolve_colour, resolve_pen_brush
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
-from .displayable_item import draw_section_hatch
+from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
 
@@ -238,29 +238,25 @@ class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, _SrcEllipse):
 
 
 class _ElevCutRect(_ElevProxyRect):
-    """A cut cross-section (wall / slab): Section colour body + Section
-    pattern hatch inside the rect, outline in the category Colour (s5)."""
+    """A cut cross-section (wall / slab): the category's Fill Type draws the
+    body + hatch inside the rect (By element pattern = the outline colour),
+    outline in the category Colour (s5; HF5)."""
 
-    _section_src = None
-    _pattern = "diagonal"
+    _section_type = None     # Fill Type id (DM category section type)
+    _section_src = None      # paper-pass body colour only ("" = no body); None in model
     _hatch_scene = None      # the SectionScene (paper override / block registry)
-    _hatch_scale = 1.0       # DM Section Scale column
 
-    def set_section(self, section_src, pattern, hatch_scene, hatch_scale=1.0):
-        self._section_src = section_src
-        self._pattern = pattern or "diagonal"
+    def set_section(self, section_type, hatch_scene):
+        self._section_type = section_type
         self._hatch_scene = hatch_scene
-        self._hatch_scale = hatch_scale
 
     def _draw_shape(self, painter):
         pen, _brush = self.resolved_pen_brush()
         path = QPainterPath()
         path.addRect(self.rect())
-        draw_section_hatch(painter, path, self._hatch_scene,
-                           color=pen.color(), pattern=self._pattern,
-                           line_width=1.0,
-                           section_fill=section_fill_colour(self._section_src, self),
-                           hatch_scale=self._hatch_scale)
+        draw_section_type(painter, path, self._hatch_scene, self,
+                          self._section_type, pen.color(), 1.0,
+                          paper_body=self._section_src)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self.rect())
@@ -1991,8 +1987,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     rect.setPen(pen_black)
                     rect.set_colour_src(pen=props["color"])
                     rect._paper_cat = "Wall" if kind == "wall" else "Floor"
-                    rect.set_section(props["section"], props["section_pattern"], self,
-                                     hatch_scale=props["section_scale"])
+                    rect.set_section(props["section_type"], self)
                     rect.setOpacity(props["opacity"] / 100.0)
                     rect.setData(_ROLE_SOURCE, src)
                     rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -2045,6 +2040,15 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
     # ── Display manager helpers ──────────────────────────────────────────
 
+    @staticmethod
+    def _category_section_type(key: str, settings) -> "str | None":
+        """The Fill Type id of category *key*'s section cell (HF5 R7), read
+        from the live Display Manager QSettings (legacy keys converted)."""
+        from . import fill_types
+        from .display_manager import _read_category_from_settings
+        return fill_types.category_section_type(
+            key, _read_category_from_settings(key, settings))
+
     def _wall_display_props(self) -> dict:
         """Read Wall display properties from QSettings (display manager)."""
         s = QSettings("GV", "FirePro3D")
@@ -2054,9 +2058,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             "opacity": int(float(s.value("display/Wall/opacity", 100))),
             "visible": str(s.value("display/Wall/visible", "true")).lower() not in ("false", "0"),
             "has_explicit_fill": s.contains("display/Wall/fill"),
-            "section": s.value("display/Wall/section", "#666666"),
-            "section_pattern": s.value("display/Wall/section_pattern", "diagonal"),
-            "section_scale": float(s.value("display/Wall/section_scale", 1.0) or 1.0),
+            "section_type": self._category_section_type("Wall", s),
         }
 
     def _roof_display_props(self) -> dict:
@@ -2077,9 +2079,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             "fill":    s.value("display/Floor/fill",    "#8888cc"),
             "opacity": int(float(s.value("display/Floor/opacity", 100))),
             "visible": str(s.value("display/Floor/visible", "true")).lower() not in ("false", "0"),
-            "section": s.value("display/Floor/section", "#666666"),
-            "section_pattern": s.value("display/Floor/section_pattern", "diagonal"),
-            "section_scale": float(s.value("display/Floor/section_scale", 1.0) or 1.0),
+            "section_type": self._category_section_type("Floor", s),
         }
 
     def _pipe_display_props(self) -> dict:

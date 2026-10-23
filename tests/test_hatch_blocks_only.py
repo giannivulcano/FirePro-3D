@@ -275,8 +275,9 @@ def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp, monkeypatch):
         dlg._pick_section("Wall", is_category=True)
         assert hp.BUILTIN_BRICK not in sc._block_definitions    # not before OK
         dlg.accept()
-        assert QSettings("GV", "FirePro3D").value(
-            "display/Wall/section_pattern") == hp.BUILTIN_BRICK
+        import json
+        look = json.loads(QSettings("GV", "FirePro3D").value("display/Wall/section_look"))
+        assert look["pattern"]["ref"] == hp.BUILTIN_BRICK     # HF5 R7: the type's look
         assert hp.resolve_tile(hp.BUILTIN_BRICK, sc.block_registry) is not None
         assert not sc.can_undo()
         assert hp.BUILTIN_BRICK in sc._undo_stack[0]["block_definitions"]

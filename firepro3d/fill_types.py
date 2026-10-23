@@ -15,7 +15,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from .constants import (FILL_TYPE_FALLBACK_COLOR, FILL_TYPE_FALLBACK_NAME,
                         FILL_TYPE_FALLBACK_OPACITY, FILL_TYPE_SOLID_BLACK,
                         TOKEN_ELEMENT)
-from .fill_layers import BackgroundLayer, FillLayers, from_record, to_record
+from .fill_layers import BackgroundLayer, FillLayers, PatternLayer, from_record, to_record
 
 _LAYER_KEYS = ("background", "pattern")
 FALLBACK_LAYERS = FillLayers(BackgroundLayer(FILL_TYPE_FALLBACK_COLOR,
@@ -283,3 +283,85 @@ def record_fill_layers(rec: dict) -> FillLayers:
 def element_colour(value, element_value):
     """R8: ``token:element`` -> the drawing element's colour; anything else unchanged."""
     return element_value if value == TOKEN_ELEMENT else value
+
+
+# -- section cuts (HF5 R4 / R7) ---------------------------------------------
+def legacy_section_layers(section, pattern, scale) -> FillLayers:
+    """R4: a pre-HF5 section cell (colour + pattern + scale) as a look.
+
+    Body colour -> background (a '#hex' or token; '' / None / 'hatch:...' -> none,
+    as ``colour_tokens.section_fill_colour`` reads it); the pattern always drew
+    (default diagonal) in the element's line colour -> By element (R8).
+    """
+    from .colour_tokens import is_token
+    from .hatch_patterns import canonical_ref
+    bg = None
+    if isinstance(section, str) and (section.startswith("#") or is_token(section)):
+        bg = BackgroundLayer(section, 1.0)
+    try:
+        sc = float(scale) if scale is not None else 1.0
+    except (TypeError, ValueError):
+        sc = 1.0
+    return FillLayers(bg, PatternLayer(canonical_ref(pattern or "diagonal"), TOKEN_ELEMENT,
+                                       1.0, sc if sc > 0 else 1.0))
+
+
+def category_section_type(key: str, vals: dict) -> str | None:
+    """The project type id a category's section settings name (R7), converting legacy (R4).
+
+    ``section_type`` (a name) + ``section_look`` (a fill record) win: the project
+    type of that name, else a type added from the look. Without a name, legacy
+    ``section`` / ``section_pattern`` / ``section_scale`` convert to one type per
+    distinct look (``<key> Section`` / ``<key> Section N``).
+    """
+    table = project_table()
+    name = vals.get("section_type")
+    if name:
+        rec = vals.get("section_look")
+        look = from_record(rec) if rec else None
+        if look is None or look.is_empty:
+            look = legacy_section_layers(vals.get("section"), vals.get("section_pattern"),
+                                         vals.get("section_scale"))
+        before = len(table.all())
+        t = table.ensure_named(name, look)
+        if len(table.all()) != before:
+            notify_changed()
+        return t.id
+    if vals.get("section") is not None or vals.get("section_pattern"):
+        before = len(table.all())
+        t = table.ensure_look(f"{key} Section", legacy_section_layers(
+            vals.get("section"), vals.get("section_pattern"), vals.get("section_scale")))
+        if len(table.all()) != before:
+            notify_changed()
+        return t.id
+    return None
+
+
+def convert_item_section_override(key: str, ov: dict,
+                                  base: FillLayers | None = None) -> None:
+    """Per-item legacy section override keys -> one ``section_type`` id (R4), in place.
+
+    Args:
+        key: Category key (names the converted types ``<key> Section N``).
+        ov: The item's ``_display_overrides`` (mutated).
+        base: The category's look; a legacy override carried only some of
+            colour / pattern / scale and the rest inherited the category's.
+    """
+    legacy = [k for k in ("section", "section_pattern", "section_scale") if k in ov]
+    if not legacy or "section_type" in ov:
+        for k in legacy:
+            ov.pop(k, None)
+        return
+    bg = base.background if base is not None else None
+    pat = base.pattern if base is not None else None
+    sec = ov["section"] if "section" in ov else (bg.color if bg is not None else None)
+    ref = ov.get("section_pattern") or (pat.ref if pat is not None else None)
+    scl = ov["section_scale"] if "section_scale" in ov else (pat.scale if pat is not None else None)
+    table = project_table()
+    before = len(table.all())
+    t = table.ensure_look(f"{key} Section", legacy_section_layers(sec, ref, scl))
+    for k in legacy:
+        ov.pop(k)
+    ov["section_type"] = t.id
+    if len(table.all()) != before:
+        notify_changed()

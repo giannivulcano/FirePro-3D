@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from .colour_tokens import resolve_colour, section_fill_colour
+from .colour_tokens import resolve_colour
 from .geometry_utils import triangulate_polygon
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
@@ -228,22 +228,16 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
 
         # Section-cut hatch overlay
         if getattr(self, "_is_section_cut", False) and len(self._points) >= 3:
-            from .displayable_item import draw_section_hatch
+            from .displayable_item import draw_section_type
             clip = QPainterPath()
             clip.addPolygon(QPolygonF(self._points))
             clip.closeSubpath()
-            sec_fill = section_fill_colour(
-                getattr(self, "_display_section_color", None), self)
-            pattern = getattr(self, "_display_section_pattern", None) or "diagonal"
-            h_scale = getattr(self, "_display_section_scale", 1.0) or 1.0
-            draw_section_hatch(painter, clip, self.scene(),
-                               color=line_col,
-                               pattern=pattern,
-                               # canvas cosmetic px width (paper uses hatch_line_mm)
-                               line_width=pen.widthF() if pen.isCosmetic() else 1.0,
-                               section_fill=sec_fill,
-                               hatch_scale=h_scale,
-                               to_scene=self.sceneTransform())
+            draw_section_type(painter, clip, self.scene(), self,
+                              getattr(self, "_display_section_type", None),
+                              line_col,
+                              # canvas cosmetic px width (paper uses hatch_line_mm)
+                              line_width=pen.widthF() if pen.isCosmetic() else 1.0,
+                              to_scene=self.sceneTransform())
 
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
