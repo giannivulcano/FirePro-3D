@@ -264,8 +264,12 @@ def test_c1_same_filename_copy_in_another_folder_never_owns_and_survives_save(
 def test_i1_pattern_copy_elsewhere_does_not_rob_the_shipped_id(tmp_path, qapp):
     from firepro3d import hatch_patterns as hp
     from firepro3d.model_space import Model_Space
-    hatches = tmp_path / "System" / "Hatches"
-    hp.seed_hatch_folder(str(hatches))
+    hatches = tmp_path / "Styles" / "Hatches"
+    hatches.mkdir(parents=True)
+    for _bid, src in hp.shipped_pattern_files():          # a user folder holding them
+        data = json.loads(open(src, encoding="utf-8").read())
+        data["library"], data["series"] = "Styles", "Hatches"   # as a user save files it
+        (hatches / os.path.basename(src)).write_text(json.dumps(data), encoding="utf-8")
     archive = tmp_path / "Archive" / "Old"
     archive.mkdir(parents=True)
     shutil.copyfile(hatches / "Brick.fpdb", archive / "Brick.fpdb")

@@ -738,10 +738,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.restore_settings()
         self._splash_progress(100, "Ready")
 
-        # Hatch D-A39: copy the shipped patterns into the Hatch patterns folder
-        # (once per folder) before the first project loads them from there.
-        from firepro3d.hatch_patterns import seed_hatch_folder
-        seed_hatch_folder()
+        # SB1b D5: clean the D-A39 seeded hatch copies and move the user
+        # library's System/ defaults to Styles/ before a project reads them.
+        from firepro3d.system_library import migrate_user_library
+        migrate_user_library()
 
         # New-project setup — mirrors new_file() without the save prompt
         self.scene._clear_scene()

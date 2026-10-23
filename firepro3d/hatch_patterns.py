@@ -4,9 +4,10 @@ hatch-and-fill.md D-A29 / D-A37 / D-A39, concept HD4a. A pattern is a Block
 definition with a ``tile``. **Blocks only (D-A39):** there is no code-level
 pattern table. The five standard patterns (Diagonal, Cross Hatch, Horizontal,
 Concrete, Brick) ship as real ``.fpdb`` blocks under
-``firepro3d/system_blocks/Hatches`` (frozen ids below), are copied into the
-Hatch patterns folder once (``seed_hatch_folder``) and are loaded into a
-project from that folder on new / open (``ensure_project_patterns``). A ref
+``firepro3d/system_blocks/Hatches`` (frozen ids below). They live in the
+read-only System tier (SB1b) and load from there into a project on new / open
+(``ensure_project_patterns``); the old copy-into-the-user-folder seeding is
+retired (the startup migration only cleans its leftovers). A ref
 resolves through the project block registry only; one that can't resolve
 draws the tone (D-A36). Pure data at import time — ``geometry_2d`` imports
 this module — so Qt / block imports stay inside the functions.
@@ -16,10 +17,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 
 # The folder walk + log-once are shared with the Linetypes folder (LT3 H3-i).
-from .capability_folder import _log_once, _scan_dirs, read_meta
+from .capability_folder import _log_once
 
 # Frozen ids of the shipped patterns (D-A39: ordinary block ids — the files
 # live in firepro3d/system_blocks/Hatches; the ids predate the shipped files).
@@ -43,7 +43,8 @@ DEFAULT_TILE_REF = BUILTIN_DIAGONAL
 #: as the current value, never applied (``ref_from_value`` keeps the stored ref).
 MISSING_PATTERN_LABEL = "<missing pattern>"
 
-#: QSettings key: the Hatch patterns folders already seeded (D-A39 "once").
+#: QSettings key: the Hatch patterns folders the retired D-A39 seeding recorded;
+#: read (then cleared) only by ``system_library.migrate_user_library``.
 HATCH_SEEDED_KEY = "paths/hatch_seeded"
 
 
@@ -102,90 +103,6 @@ def _seeded_folders() -> list[str]:
     if isinstance(raw, str):
         raw = [raw] if raw else []
     return [os.path.normcase(os.path.abspath(p)) for p in (raw or []) if p]
-
-
-def _mark_seeded(folder: str) -> None:
-    from PyQt6.QtCore import QSettings
-    s = QSettings("GV", "FirePro3D")
-    seen = _seeded_folders()
-    key = os.path.normcase(os.path.abspath(folder))
-    if key not in seen:
-        seen.append(key)
-    s.setValue(HATCH_SEEDED_KEY, seen)
-    s.sync()
-
-
-def _folder_ids(folder: str) -> set[str]:
-    """Every block id held by an ``.fpdb`` in *folder* (+ two subfolder levels),
-    read from the files themselves (``capability_folder.read_meta``)."""
-    ids = set()
-    for d in _scan_dirs(folder):
-        try:
-            names = [e.path for e in os.scandir(d)
-                     if e.is_file() and e.name.lower().endswith(".fpdb")]
-        except OSError:
-            continue
-        for path in names:
-            meta = read_meta(path)        # None = unreadable: not ours
-            if meta is not None and meta["id"]:
-                ids.add(meta["id"])
-    return ids
-
-
-def seed_hatch_folder(folder: str | None = None) -> list[str]:
-    """Copy the shipped patterns into the Hatch patterns folder, once (D-A39).
-
-    Runs once per folder (recorded under ``HATCH_SEEDED_KEY``): a shipped
-    pattern the user later deletes is not re-seeded. A shipped pattern whose id
-    is already held by any ``.fpdb`` in the folder (the user's edited copy,
-    whatever its file name) is skipped — never overwritten. A copy that would
-    clash with a different block's file name is skipped too. No index is
-    written (the files are the library, 2026-10-10); a stale ``index.json``
-    in the folder is removed. The folder is recorded as seeded only once
-    every shipped pattern is present, so a failed copy retries.
-
-    Args:
-        folder: Target folder; None = ``app_data.hatch_patterns_dir()``.
-
-    Returns:
-        The block ids copied (empty when the folder was already seeded).
-    """
-    if folder is None:
-        from .app_data import hatch_patterns_dir
-        folder = hatch_patterns_dir()
-    folder = os.path.abspath(folder)
-    if os.path.normcase(folder) in _seeded_folders():
-        return []
-    try:
-        os.makedirs(folder, exist_ok=True)
-    except OSError as exc:
-        _log.warning("Hatch patterns folder %s not writable: %s", folder, exc)
-        return []
-    have = _folder_ids(folder)
-    copied = []
-    for bid, src in shipped_pattern_files():
-        if bid in have:
-            continue
-        fname = os.path.basename(src)
-        dst = os.path.join(folder, fname)
-        if os.path.exists(dst):
-            continue                      # a different block owns the name
-        try:
-            shutil.copyfile(src, dst)
-        except OSError as exc:
-            _log.warning("Hatch pattern seed %s failed: %s", fname, exc)
-            continue
-        copied.append(bid)
-    if copied:
-        from . import block_library
-        block_library._drop_stale_index(folder)
-        block_library._notify_changed()   # an open Blocks browser refreshes
-    # Seeded once only when complete: every shipped pattern is in the
-    # folder — a failed copy retries.
-    shipped = {bid for bid, _src in shipped_pattern_files()}
-    if shipped and shipped <= (have | set(copied)):
-        _mark_seeded(folder)
-    return copied
 
 
 def tile_is_valid(defn) -> bool:

@@ -1034,25 +1034,25 @@ class GeneralPane(SettingsPane):
         dv.addLayout(blk_row)
 
         # Hatch patterns folder (D-A37) — the library source every pattern
-        # picker lists; overrides ``<block library>/System/Hatches``.
+        # picker lists; overrides ``<block library>/Styles/Hatches``.
         hatch_hint = QLabel(
             "Hatch patterns (optional): a folder of hatch pattern blocks "
             "offered in every pattern picker. Leave blank to use "
-            "<block library>/System/Hatches.")
+            "<block library>/Styles/Hatches.")
         hatch_hint.setWordWrap(True)
         dv.addWidget(hatch_hint)
         hatch_row = QHBoxLayout()
         self._hatch_dir_edit = QLineEdit()
-        self._hatch_dir_edit.setPlaceholderText("(block library)/System/Hatches")
+        self._hatch_dir_edit.setPlaceholderText("(block library)/Styles/Hatches")
         self._hatch_dir_edit.setToolTip(
             "Folder of hatch pattern blocks offered in every pattern picker "
-            "(default: <block library>/System/Hatches)")
+            "(default: <block library>/Styles/Hatches)")
         hatch_browse = QPushButton("Browse…")
         hatch_browse.setToolTip("Choose the hatch patterns folder")
         hatch_browse.clicked.connect(self._pick_hatch_dir)
         hatch_reset = QPushButton("Reset")
         hatch_reset.setToolTip(
-            "Use the default (<block library>/System/Hatches)")
+            "Use the default (<block library>/Styles/Hatches)")
         hatch_reset.clicked.connect(self._hatch_dir_edit.clear)
         hatch_row.addWidget(self._hatch_dir_edit, 1)
         hatch_row.addWidget(hatch_browse)
@@ -1060,50 +1060,50 @@ class GeneralPane(SettingsPane):
         dv.addLayout(hatch_row)
 
         # Linetypes folder (linetypes.md LT3-13) — the library source every
-        # Linetype picker lists; overrides ``<block library>/System/Linetypes``.
+        # Linetype picker lists; overrides ``<block library>/Styles/Linetypes``.
         lt_hint = QLabel(
             "Linetypes (optional): a folder of linetype blocks offered in "
             "every Linetype picker. Leave blank to use "
-            "<block library>/System/Linetypes.")
+            "<block library>/Styles/Linetypes.")
         lt_hint.setWordWrap(True)
         dv.addWidget(lt_hint)
         lt_row = QHBoxLayout()
         self._lt_dir_edit = QLineEdit()
-        self._lt_dir_edit.setPlaceholderText("(block library)/System/Linetypes")
+        self._lt_dir_edit.setPlaceholderText("(block library)/Styles/Linetypes")
         self._lt_dir_edit.setToolTip(
             "Folder of linetype blocks offered in every Linetype picker "
-            "(default: <block library>/System/Linetypes)")
+            "(default: <block library>/Styles/Linetypes)")
         lt_browse = QPushButton("Browse…")
         lt_browse.setToolTip("Choose the linetypes folder")
         lt_browse.clicked.connect(self._pick_lt_dir)
         lt_reset = QPushButton("Reset")
         lt_reset.setToolTip(
-            "Use the default (<block library>/System/Linetypes)")
+            "Use the default (<block library>/Styles/Linetypes)")
         lt_reset.clicked.connect(self._lt_dir_edit.clear)
         lt_row.addWidget(self._lt_dir_edit, 1)
         lt_row.addWidget(lt_browse)
         lt_row.addWidget(lt_reset)
         dv.addLayout(lt_row)
         # End Types folder (LT5 Q13) — the library source every Start End /
-        # Finish End picker lists; overrides ``<block library>/System/End Types``.
+        # Finish End picker lists; overrides ``<block library>/Styles/End Types``.
         end_hint = QLabel(
             "End types (optional): a folder of end type blocks offered in "
             "every Start End / Finish End picker. Leave blank to use "
-            "<block library>/System/End Types.")
+            "<block library>/Styles/End Types.")
         end_hint.setWordWrap(True)
         dv.addWidget(end_hint)
         end_row = QHBoxLayout()
         self._end_dir_edit = QLineEdit()
-        self._end_dir_edit.setPlaceholderText("(block library)/System/End Types")
+        self._end_dir_edit.setPlaceholderText("(block library)/Styles/End Types")
         self._end_dir_edit.setToolTip(
             "Folder of end type blocks offered in every Start End / Finish End "
-            "picker (default: <block library>/System/End Types)")
+            "picker (default: <block library>/Styles/End Types)")
         end_browse = QPushButton("Browse…")
         end_browse.setToolTip("Choose the end types folder")
         end_browse.clicked.connect(self._pick_end_dir)
         end_reset = QPushButton("Reset")
         end_reset.setToolTip(
-            "Use the default (<block library>/System/End Types)")
+            "Use the default (<block library>/Styles/End Types)")
         end_reset.clicked.connect(self._end_dir_edit.clear)
         end_row.addWidget(self._end_dir_edit, 1)
         end_row.addWidget(end_browse)

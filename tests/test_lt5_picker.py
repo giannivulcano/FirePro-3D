@@ -36,7 +36,7 @@ def _folder(end_dir, name="Tick", series="End Types"):
 def test_default_under_block_library(qapp):
     QSettings("GV", "FirePro3D").setValue(app_data.END_DIR_KEY, "")
     assert app_data.end_types_dir() == os.path.join(
-        app_data.block_library_dir(), "System", "End Types")
+        app_data.block_library_dir(), "Styles", "End Types")
 
 
 def test_override_wins(qapp, tmp_path):
@@ -51,11 +51,11 @@ def test_general_pane_end_types_row_round_trips(qapp, tmp_path):
     pane.load()
     assert pane._end_dir_edit.toolTip() == (
         "Folder of end type blocks offered in every Start End / Finish End "
-        "picker (default: <block library>/System/End Types)")
-    assert pane._end_dir_edit.placeholderText() == "(block library)/System/End Types"
+        "picker (default: <block library>/Styles/End Types)")
+    assert pane._end_dir_edit.placeholderText() == "(block library)/Styles/End Types"
     tips = {b.toolTip() for b in pane.findChildren(QPushButton)}
     assert "Choose the end types folder" in tips
-    assert "Use the default (<block library>/System/End Types)" in tips
+    assert "Use the default (<block library>/Styles/End Types)" in tips
     pane._end_dir_edit.setText(str(tmp_path / "e"))
     pane.apply()
     assert app_data.end_types_dir() == str(tmp_path / "e")
@@ -68,7 +68,7 @@ def test_general_pane_end_types_row_round_trips(qapp, tmp_path):
     pane2._end_dir_edit.clear()
     pane2.apply()
     assert app_data.end_types_dir() == os.path.join(
-        app_data.block_library_dir(), "System", "End Types")
+        app_data.block_library_dir(), "Styles", "End Types")
 
 
 # ── choices ─────────────────────────────────────────────────────────────────

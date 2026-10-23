@@ -64,6 +64,11 @@ def app_data_dir(subdir: str = "") -> str:
     return os.path.join(root, subdir) if subdir else root
 
 
+def configured_dir(key: str) -> str | None:
+    """Public wrapper of :func:`_configured_dir` (startup migration reads it)."""
+    return _configured_dir(key)
+
+
 def _configured_dir(key: str) -> str | None:
     """A dedicated library-folder override stored under *key*, or None."""
     try:
@@ -105,26 +110,26 @@ def hatch_patterns_dir() -> str:
     """Folder of hatch-pattern blocks offered in every pattern picker (D-A37).
 
     Precedence: an explicit override (System Settings > General > Data folder >
-    *Hatch patterns*) → else ``<block_library_dir>/System/Hatches``. The default
+    *Hatch patterns*) → else ``<block_library_dir>/Styles/Hatches``. The default
     lives under the block library, so it follows the block-library override and
     is carried by the ``blocks`` data-root migration; an explicit override is
     never migrated.
     """
     return (_configured_dir(HATCH_DIR_KEY)
-            or os.path.join(block_library_dir(), "System", "Hatches"))
+            or os.path.join(block_library_dir(), "Styles", "Hatches"))
 
 
 def linetypes_dir() -> str:
     """Folder of linetype blocks offered in every Linetype picker (LT3-13).
 
     Precedence: an explicit override (System Settings > General > Data folder >
-    *Linetypes*) -> else ``<block_library_dir>/System/Linetypes``. The default
+    *Linetypes*) -> else ``<block_library_dir>/Styles/Linetypes``. The default
     lives under the block library, so it follows the block-library override and
     is carried by the ``blocks`` data-root migration; an explicit override is
     never migrated.
     """
     return (_configured_dir(LINETYPE_DIR_KEY)
-            or os.path.join(block_library_dir(), "System", "Linetypes"))
+            or os.path.join(block_library_dir(), "Styles", "Linetypes"))
 
 
 def end_types_dir() -> str:
@@ -132,13 +137,13 @@ def end_types_dir() -> str:
     picker (LT5 Q13).
 
     Precedence: an explicit override (System Settings > General > Data folder >
-    *End types*) -> else ``<block_library_dir>/System/End Types``. The default
+    *End types*) -> else ``<block_library_dir>/Styles/End Types``. The default
     lives under the block library, so it follows the block-library override and
     is carried by the ``blocks`` data-root migration; an explicit override is
     never migrated (``_MIGRATABLE`` unchanged, as for Linetypes).
     """
     return (_configured_dir(END_DIR_KEY)
-            or os.path.join(block_library_dir(), "System", "End Types"))
+            or os.path.join(block_library_dir(), "Styles", "End Types"))
 
 
 def schematics_dir() -> str:

@@ -54,7 +54,7 @@ def _labels(registry):
 def test_hatch_dir_defaults_under_the_block_library(qapp):
     QSettings("GV", "FirePro3D").setValue(app_data.HATCH_DIR_KEY, "")
     assert app_data.hatch_patterns_dir() == os.path.join(
-        app_data.block_library_dir(), "System", "Hatches")
+        app_data.block_library_dir(), "Styles", "Hatches")
 
 
 def test_hatch_dir_override_wins(hatch_dir):
@@ -67,7 +67,7 @@ def test_general_pane_hatch_patterns_row_round_trips(qapp, tmp_path):
     pane.load()
     assert pane._hatch_dir_edit.toolTip() == (
         "Folder of hatch pattern blocks offered in every pattern picker "
-        "(default: <block library>/System/Hatches)")
+        "(default: <block library>/Styles/Hatches)")
     pane._hatch_dir_edit.setText(str(tmp_path / "hatches"))
     pane.apply()
     assert QSettings("GV", "FirePro3D").value(
@@ -82,7 +82,7 @@ def test_general_pane_hatch_patterns_row_round_trips(qapp, tmp_path):
     pane2._hatch_dir_edit.clear()                 # blank = default
     pane2.apply()
     assert app_data.hatch_patterns_dir() == os.path.join(
-        app_data.block_library_dir(), "System", "Hatches")
+        app_data.block_library_dir(), "Styles", "Hatches")
 
 
 # ── Tile flag + scan (read from the files; index retired 2026-10-10) ─────────
@@ -110,7 +110,7 @@ def test_library_pattern_is_listed_and_symbol_is_not(hatch_dir):
 
 
 def test_series_folder_itself_works_as_the_patterns_folder(qapp, tmp_path):
-    # The default is <block library>/System/Hatches — a Series folder.
+    # The default is <block library>/Styles/Hatches — a Series folder.
     p = _pattern()
     bl.save_to_library(p, root=str(tmp_path))
     series = tmp_path / "Styles" / "Hatches"

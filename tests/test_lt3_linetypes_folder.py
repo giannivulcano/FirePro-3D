@@ -36,7 +36,7 @@ def _symbol(name="Sym"):
 def test_default_under_block_library(qapp):
     QSettings("GV", "FirePro3D").setValue(app_data.LINETYPE_DIR_KEY, "")
     assert app_data.linetypes_dir() == os.path.join(
-        app_data.block_library_dir(), "System", "Linetypes")
+        app_data.block_library_dir(), "Styles", "Linetypes")
 
 
 def test_override_wins(qapp, tmp_path):
@@ -51,8 +51,8 @@ def test_general_pane_linetypes_row_round_trips(qapp, tmp_path):
     pane.load()
     assert pane._lt_dir_edit.toolTip() == (
         "Folder of linetype blocks offered in every Linetype picker "
-        "(default: <block library>/System/Linetypes)")
-    assert pane._lt_dir_edit.placeholderText() == "(block library)/System/Linetypes"
+        "(default: <block library>/Styles/Linetypes)")
+    assert pane._lt_dir_edit.placeholderText() == "(block library)/Styles/Linetypes"
     pane._lt_dir_edit.setText(str(tmp_path / "lts"))
     pane.apply()
     assert QSettings("GV", "FirePro3D").value(
@@ -67,7 +67,7 @@ def test_general_pane_linetypes_row_round_trips(qapp, tmp_path):
     pane2._lt_dir_edit.clear()                     # blank = default
     pane2.apply()
     assert app_data.linetypes_dir() == os.path.join(
-        app_data.block_library_dir(), "System", "Linetypes")
+        app_data.block_library_dir(), "Styles", "Linetypes")
 
 
 def test_general_pane_linetypes_buttons_have_tooltips(qapp):
@@ -76,7 +76,7 @@ def test_general_pane_linetypes_buttons_have_tooltips(qapp):
     pane = pd.GeneralPane()
     tips = {b.toolTip() for b in pane.findChildren(QPushButton)}
     assert "Choose the linetypes folder" in tips
-    assert "Use the default (<block library>/System/Linetypes)" in tips
+    assert "Use the default (<block library>/Styles/Linetypes)" in tips
 
 
 # ── Shared scan ─────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 """Hatch D-A39 "Blocks only": the five patterns ship as real ``.fpdb`` blocks,
-seed the Hatch patterns folder once, load into a project on new / open
-outside the undo history, and are real block dependencies. No code table.
+load into a project on new / open outside the undo history, and are real
+block dependencies. No code table. (The D-A39 seeding into the user folder is
+retired by SB1b D4; its migration is guarded in test_system_library_migration.)
 """
 from __future__ import annotations
 
@@ -84,49 +85,15 @@ def test_shipped_files_hold_the_five_patterns():
     assert set(hp.LEGACY_ALIAS.values()) <= ids
 
 
-# ── (b) seeding ─────────────────────────────────────────────────────────────
+# ── (b) helpers ─────────────────────────────────────────────────────────────
 
-def _ids_in(folder):
-    return {json.load(open(os.path.join(folder, n), encoding="utf-8"))["id"]
-            for n in os.listdir(folder) if n.endswith(".fpdb")}
-
-
-def test_seed_copies_missing_once_keeps_edits_and_never_reseeds(qapp, tmp_path):
-    folder = tmp_path / "Hatches"
-    folder.mkdir()
-    # The user's edited Diagonal, under another file name: same id, new content.
-    edited = json.load(open(os.path.join(hp.shipped_patterns_dir(), "Diagonal.fpdb"),
-                            encoding="utf-8"))
-    edited["primitives"] = edited["primitives"] * 2
-    edited["version"] = 7
-    (folder / "My diagonal.fpdb").write_text(json.dumps(edited), encoding="utf-8")
-
-    copied = hp.seed_hatch_folder(str(folder))
-    assert sorted(copied) == sorted(v[0] for v in _EXPECTED.values()
-                                    if v[0] != hp.BUILTIN_DIAGONAL)
-    assert not (folder / "Diagonal.fpdb").exists()          # edit not shadowed
-    mine = json.loads((folder / "My diagonal.fpdb").read_text(encoding="utf-8"))
-    assert mine["version"] == 7 and len(mine["primitives"]) == 2
-    assert not (folder / "index.json").exists()             # retired 2026-10-10
-    # Every shipped pattern is now offered by the folder scan (pickers).
-    assert {bid for _n, bid, _p in hp.library_patterns(str(folder))} == \
-        {v[0] for v in _EXPECTED.values()}
-
-    # Deleted shipped pattern is not re-seeded: the folder is seeded once.
-    os.remove(folder / "Brick.fpdb")
-    assert hp.seed_hatch_folder(str(folder)) == []
-    assert hp.BUILTIN_BRICK not in _ids_in(str(folder))
-
-    # Another folder is its own first run.
-    other = tmp_path / "Other"
-    assert len(hp.seed_hatch_folder(str(other))) == 5
-    assert _ids_in(str(other)) == {v[0] for v in _EXPECTED.values()}
-
-
-def test_seed_defaults_to_the_configured_hatch_folder(qapp):
-    folder = app_data.hatch_patterns_dir()
-    assert hp.seed_hatch_folder() and len(_ids_in(folder)) == 5
-    assert QSettings("GV", "FirePro3D").value(hp.HATCH_SEEDED_KEY)
+def _put_shipped_into(folder):
+    """Copy the five shipped patterns into *folder* -- a stand-in for a user
+    Hatch patterns folder that holds them (SB1b retired the D-A39 seeding)."""
+    import shutil
+    os.makedirs(str(folder), exist_ok=True)
+    for _bid, src in hp.shipped_pattern_files():
+        shutil.copyfile(src, os.path.join(str(folder), os.path.basename(src)))
 
 
 # ── (e) code table gone ─────────────────────────────────────────────────────
@@ -191,6 +158,7 @@ def test_host_block_bundles_the_shipped_pattern(qapp, tmp_path, shipped_hatches)
 def mw(qapp, tmp_path, monkeypatch):
     """Fresh MainWindow (isolated QSettings / block library via conftest)."""
     monkeypatch.setenv("APPDATA", str(tmp_path))
+    _put_shipped_into(app_data.hatch_patterns_dir())   # T6 makes pickers System-first
     import main as main_mod
     from firepro3d import snap_engine
     from firepro3d.view_3d import View3D
@@ -234,7 +202,7 @@ def _assert_unloadable_by_undo(scene):
 def test_new_project_section_cut_wall_renders_hatch(mw):
     from tests._paper_iso_helpers import make_wall
     win = mw
-    assert hp.library_patterns()                           # startup seeded the folder
+    assert hp.library_patterns()                           # the folder holds the patterns
     win.new_file()                                         # File > New
     sc = win.scene
     w = make_wall(sc, (0, 0), (4000, 0), "Level 1")
@@ -299,7 +267,7 @@ def _picked(dm, ref):
 
 def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp, monkeypatch):
     from firepro3d import display_manager as dm
-    hp.seed_hatch_folder()
+    _put_shipped_into(app_data.hatch_patterns_dir())
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
     monkeypatch.setattr(dm, "SectionPatternDialog", _picked(dm, hp.BUILTIN_BRICK))
@@ -318,7 +286,7 @@ def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp, monkeypatch):
 
 def test_dm_category_pattern_cancel_loads_nothing(qapp, monkeypatch):
     from firepro3d import display_manager as dm
-    hp.seed_hatch_folder()
+    _put_shipped_into(app_data.hatch_patterns_dir())
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
     monkeypatch.setattr(dm, "SectionPatternDialog", _picked(dm, hp.BUILTIN_BRICK))
@@ -356,54 +324,6 @@ def test_sheet_2d_fill_resolves_through_the_project(qapp, shipped_hatches):
     gaps = sorted(b - a for a, b in zip(ys, ys[1:]))
     assert len(ys) >= 10 and gaps[len(gaps) // 2] == 15    # 3 mm printed rows
     assert paper.block_registry is ms.block_registry
-
-
-def test_settings_change_seeds_a_new_hatch_folder(qapp, make_model_space, tmp_path):
-    from firepro3d.settings.system_settings_dialog import SystemSettingsDialog
-    scene = make_model_space()
-    dlg = SystemSettingsDialog(scene=scene, view=getattr(scene, "_view_for_test", None),
-                               snap_toolbar=None)
-    try:
-        target = tmp_path / "Team hatches"
-        dlg._panes["general"]._hatch_dir_edit.setText(str(target))
-        dlg._apply_all()
-        assert app_data.hatch_patterns_dir() == str(target)
-        assert _ids_in(str(target)) == {v[0] for v in _EXPECTED.values()}
-    finally:
-        dlg.deleteLater()
-
-
-def _seeded(folder):
-    return os.path.normcase(os.path.abspath(str(folder))) in hp._seeded_folders()
-
-
-def test_seed_removes_a_stale_index_and_marks_the_folder(qapp, tmp_path):
-    # The index is retired (2026-10-10): a leftover one -- even unreadable --
-    # no longer blocks seeding; the copy removes it.
-    folder = tmp_path / "Hatches"
-    folder.mkdir()
-    (folder / "index.json").write_bytes(b'{"Mine.fpdb": {"id": "x"')   # truncated
-    copied = hp.seed_hatch_folder(str(folder))
-    assert not (folder / "index.json").exists()
-    assert len(copied) == 5 and _ids_in(str(folder)) == {v[0] for v in _EXPECTED.values()}
-    assert _seeded(folder)
-
-
-def test_seed_marks_the_folder_only_when_complete(qapp, tmp_path, monkeypatch):
-    folder = tmp_path / "Hatches"
-    real_copy = hp.shutil.copyfile
-
-    def flaky(src, dst):
-        if os.path.basename(src) == "Brick.fpdb":
-            raise OSError("locked by antivirus")
-        return real_copy(src, dst)
-
-    monkeypatch.setattr(hp.shutil, "copyfile", flaky)
-    assert hp.BUILTIN_BRICK not in hp.seed_hatch_folder(str(folder))
-    assert not _seeded(folder)
-    monkeypatch.setattr(hp.shutil, "copyfile", real_copy)
-    assert hp.seed_hatch_folder(str(folder)) == [hp.BUILTIN_BRICK]   # retried
-    assert _seeded(folder)
 
 
 def test_shipped_files_are_read_once_per_process(qapp, monkeypatch):

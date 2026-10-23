@@ -1,5 +1,8 @@
 """Shipped pattern blocks, legacy alias and registry refs (hatch D-A29/D-A39, HD4a)."""
 from PyQt6.QtCore import QPointF
+import os
+
+from firepro3d import app_data
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.fill_layers import FillLayers, PatternLayer
@@ -34,10 +37,19 @@ def test_tile_round_trips_through_to_dict(qapp):
     assert plain.tile is None
 
 
+def _put_shipped_into(folder):
+    """Copy the shipped patterns into *folder* -- a stand-in for a user Hatch
+    patterns folder that holds them (SB1b retired the D-A39 seeding)."""
+    import shutil
+    os.makedirs(str(folder), exist_ok=True)
+    for _bid, src in hp.shipped_pattern_files():
+        shutil.copyfile(src, os.path.join(str(folder), os.path.basename(src)))
+
+
 def test_tile_choices_lists_project_then_folder_tiles(qapp):
     """D-A39 (supersedes D-A28's built-in section): blocks only — the
     project's tiles by name, then the Hatch patterns folder's by name."""
-    hp.seed_hatch_folder()
+    _put_shipped_into(app_data.hatch_patterns_dir())
     sc = Model_Space()
     sc.register_block_definition(_tile_def("Zig"))
     sc.register_block_definition(BlockDefinition.new(

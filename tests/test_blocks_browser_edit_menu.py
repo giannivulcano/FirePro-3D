@@ -116,7 +116,11 @@ def test_library_pattern_leaf_is_loaded_then_emits(model_space, qapp, tmp_path):
     """A tiled (pattern) leaf edits like any block: the shipped Diagonal,
     library-only, loads into the project and then opens (D-A39)."""
     from firepro3d import hatch_patterns as hp
-    hp.seed_hatch_folder(str(tmp_path / "System" / "Hatches"))
+    import os
+    import shutil
+    (tmp_path / "Styles" / "Hatches").mkdir(parents=True)   # a user folder holding them
+    for _bid, src in hp.shipped_pattern_files():
+        shutil.copyfile(src, tmp_path / "Styles" / "Hatches" / os.path.basename(src))
     b = BlocksBrowser(model_space, root=str(tmp_path))
     leaf = _leaf(b, hp.BUILTIN_DIAGONAL)
     assert leaf is not None and hp.BUILTIN_DIAGONAL not in model_space._block_definitions
@@ -135,6 +139,17 @@ def test_main_window_edit_block_opens_a_pattern(qapp, _main_window_singleton):
     tab with its pattern tile."""
     from firepro3d import hatch_patterns as hp
     win = _main_window_singleton
+    # The module window predates this test's isolated library, and startup no
+    # longer seeds the folder (SB1b D4): put the patterns where File > New
+    # loads them from (T6 makes this System-first and drops the copy).
+    import os
+    import shutil
+    from firepro3d import app_data
+    folder = app_data.hatch_patterns_dir()
+    os.makedirs(folder, exist_ok=True)
+    for _bid, src in hp.shipped_pattern_files():
+        shutil.copyfile(src, os.path.join(folder, os.path.basename(src)))
+    win.new_file()                                       # File > New
     assert hp.BUILTIN_DIAGONAL in win.scene._block_definitions
     QApplication.processEvents()
     mgr = win.block_editor_manager

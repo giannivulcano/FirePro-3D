@@ -2,6 +2,9 @@
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath
 
+import os
+
+from firepro3d import app_data
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.fill_layers import FillLayers, PatternLayer
@@ -198,10 +201,19 @@ def _zig_registry():
     return sc.block_registry, d.id
 
 
+def _put_shipped_into(folder):
+    """Copy the shipped patterns into *folder* -- a stand-in for a user Hatch
+    patterns folder that holds them (SB1b retired the D-A39 seeding)."""
+    import shutil
+    os.makedirs(str(folder), exist_ok=True)
+    for _bid, src in hp.shipped_pattern_files():
+        shutil.copyfile(src, os.path.join(str(folder), os.path.basename(src)))
+
+
 def test_section_dialog_keeps_unknown_stored_ref(qapp):
     """An unresolvable stored ref survives OK, colour-only edit or untouched (I1)."""
     from firepro3d.display_manager import SectionPatternDialog
-    hp.seed_hatch_folder()                # D-A39: category dialogs list the folder
+    _put_shipped_into(app_data.hatch_patterns_dir())   # the folder holds the patterns
     dlg = SectionPatternDialog("#666666", "deleted-project-tile-uuid", 1.0,
                                registry=None)
     assert dlg.get_result()[1] == "deleted-project-tile-uuid"
@@ -215,7 +227,7 @@ def test_section_dialog_keeps_unknown_stored_ref(qapp):
 def test_section_dialog_lists_project_tiles_only_with_registry(qapp):
     """Instance dialogs (registry) list + return a project id; category ones do not (I2b)."""
     from firepro3d.display_manager import SectionPatternDialog
-    hp.seed_hatch_folder()                # D-A39: the shipped patterns are folder blocks
+    _put_shipped_into(app_data.hatch_patterns_dir())   # the folder holds the patterns
     reg, tid = _zig_registry()
     dlg = SectionPatternDialog("#666666", "diagonal", 1.0, registry=reg)
     labels = [dlg._combo.itemText(i) for i in range(dlg._combo.count())]
