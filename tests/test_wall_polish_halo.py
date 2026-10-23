@@ -119,3 +119,43 @@ def test_neighbour_edit_refreshes_joined_wall(qapp):
     for p in fresh:
         assert any(abs(p.x() - v.x()) < 1e-6 and abs(p.y() - v.y()) < 1e-6
                    for v in poly), "A.path() (HALO/hit) is stale"
+
+
+def test_saved_and_loaded_joined_walls_through_real_io(qapp, tmp_path):
+    """F1(d): two joined walls (one Left-aligned) saved by the real
+    save_to_file and loaded by the real load_from_file into a fresh scene:
+    HALO sits on the drawn body at the junction side, and the joined pair's
+    cached outline equals a fresh rebuild."""
+    from firepro3d.model_space import Model_Space
+    src = Model_Space()
+    a = WallSegment(QPointF(0, 0), QPointF(3000, 0))
+    b = WallSegment(QPointF(3000, 0), QPointF(3000, 2500))
+    for w in (a, b):
+        src.addItem(w)
+        src._walls.append(w)
+    a._alignment = ALIGN_LEFT
+    path = str(tmp_path / "walls.json")
+    src.save_to_file(path)
+
+    dst = Model_Space()
+    dst.load_from_file(path)
+    assert len(dst._walls) == 2
+    la = min(dst._walls, key=lambda w: w.pt1.x())
+    lb = max(dst._walls, key=lambda w: w.pt1.x())
+    assert la._alignment == ALIGN_LEFT
+    _assert_halo_on_body(la)           # the Left-aligned wall
+    for w in (la, lb):
+        # junction-side body point: just inside the drawn face at the joint
+        off = w._centerline_offset()
+        j = w.pt2 if w is la else w.pt1
+        k = w.pt1 if w is la else w.pt2
+        t = 0.1
+        pt = QPointF(j.x() + (k.x() - j.x()) * t + off.x(),
+                     j.y() + (k.y() - j.y()) * t + off.y())
+        assert halo_scene_path(w).contains(pt)
+    for w in (la, lb):
+        cached = [(round(p.x(), 6), round(p.y(), 6))
+                  for p in w.mitered_quad()]
+        fresh = [(round(p.x(), 6), round(p.y(), 6))
+                 for p in w._compute_mitered_quad()[0]]
+        assert cached == fresh

@@ -132,13 +132,47 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if getattr(self, "_outline_ready", False):
             self.invalidate_geometry()
 
+    @property
+    def _thickness_mm(self) -> float:
+        """Wall thickness in mm.  A property so every writer (grip drag,
+        ``set_property``, tests) rebuilds the outline (design D3)."""
+        return self._thickness_value
+
+    @_thickness_mm.setter
+    def _thickness_mm(self, value: float) -> None:
+        self._thickness_value = value
+        if getattr(self, "_outline_ready", False):
+            self.invalidate_geometry()
+
+    @property
+    def _join_mode_pt1(self) -> str:
+        """Join mode at pt1 (Auto / Butt / Solid); setter invalidates."""
+        return self._join_mode_pt1_value
+
+    @_join_mode_pt1.setter
+    def _join_mode_pt1(self, value: str) -> None:
+        self._join_mode_pt1_value = value
+        if getattr(self, "_outline_ready", False):
+            self.invalidate_geometry()
+
+    @property
+    def _join_mode_pt2(self) -> str:
+        """Join mode at pt2 (Auto / Butt / Solid); setter invalidates."""
+        return self._join_mode_pt2_value
+
+    @_join_mode_pt2.setter
+    def _join_mode_pt2(self, value: str) -> None:
+        self._join_mode_pt2_value = value
+        if getattr(self, "_outline_ready", False):
+            self.invalidate_geometry()
+
     def __init__(self, pt1: QPointF, pt2: QPointF,
                  thickness_mm: float = DEFAULT_THICKNESS_MM,
                  color: str | QColor = "#cccccc"):
         super().__init__()
         self._pt1 = QPointF(pt1)
         self._pt2 = QPointF(pt2)
-        self._thickness_mm: float = float(thickness_mm)
+        self._thickness_mm = float(thickness_mm)
         self._colour: str = normalize_colour(color, _DEFAULT_COLOUR)
         self._fill_mode: str = FILL_NONE
 
@@ -159,8 +193,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         # Auto: solid at 2-wall corners, butt at T/cross intersections
         # Solid: continuous fill, no visible miter line
         # Butt: no miter extension
-        self._join_mode_pt1: str = "Auto"
-        self._join_mode_pt2: str = "Auto"
+        self._join_mode_pt1 = "Auto"
+        self._join_mode_pt2 = "Auto"
         self._solid_pt1: bool = False   # set by mitered_quad()
         self._solid_pt2: bool = False
         # Extra end vertices covering the junction wedge at 3-wall full
@@ -775,13 +809,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     self._join_mode_pt2 = str(value)
                 self.invalidate_geometry()
                 self.update()
-                # Rebuild connected walls so they reflect the change
-                sc = self.scene()
-                if sc and hasattr(sc, "_walls"):
-                    for w in sc._walls:
-                        if w is not self:
-                            w.invalidate_geometry()
-                            w.update()
 
     # ── Serialisation ────────────────────────────────────────────────────────
 

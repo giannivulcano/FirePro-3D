@@ -362,3 +362,33 @@ def test_butt_l_union_keeps_both_bodies(qapp):
     assert any(_on_segment(QPointF(1000, 200), a, b)
                for a, b in o.stroke_segments)          # far face kept
     assert not _stroked(w0, QPointF(2900, 100))        # miter diagonal hidden
+
+
+def _snapshot(wall):
+    """Body, union body and stroke segments of the wall's cached outline."""
+    def pts(poly):
+        return [(round(poly.at(k).x(), 6), round(poly.at(k).y(), 6))
+                for k in range(poly.count())]
+    o = wall.outline()
+    segs = [tuple(round(c, 6) for c in (a.x(), a.y(), b.x(), b.y()))
+            for a, b in o.stroke_segments]
+    return pts(o.body), pts(o.union_body), segs
+
+
+@pytest.mark.parametrize("attr, value", [("_join_mode_pt1", "Butt"),
+                                         ("_thickness_mm", 400.0)])
+def test_direct_attribute_write_refreshes_partner_outline(qapp, attr, value):
+    """F1(a): a direct write of a geometry input on a joined wall refreshes
+    the PARTNER's cached outline (no reliance on the paint-time self-heal on
+    the partner's own key, which does not see the other wall's change)."""
+    s = _ms()
+    a = _wall(s, (0, 0), (3000, 0))
+    b = _wall(s, (3000, 0), (3000, 2500))
+    before = _snapshot(a)
+    setattr(b, attr, value)
+    cached_snap = _snapshot(a)
+    a._rebuild_outline()
+    a._outline.stroke_segments = None
+    fresh = _snapshot(a)
+    assert cached_snap == fresh, "partner outline stale after direct write"
+    assert fresh != before, "scenario: the write must change the partner"
