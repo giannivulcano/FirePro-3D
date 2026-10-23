@@ -26,7 +26,8 @@ from .colour_tokens import normalize_colour, resolve_colour, section_fill_colour
 
 _DEFAULT_COLOUR = "#cccccc"
 from .constants import (DEFAULT_LEVEL,
-                       MITER_TOL, MAX_MITER_FACTOR)
+                       MITER_TOL, MAX_MITER_FACTOR,
+                       WALL_OUTLINE_ON_EDGE_TOL)
 from .view_scale import scene_hit_width
 from PyQt6 import sip
 from .wall_outline import (JunctionArm, WallOutline, boundary_segments,
@@ -447,6 +448,53 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             o.stroke_segments = stroke_segments(o.body, boundary)
             o.corners = visible_corners(o.body, boundary)
         return o
+
+    def snap_geometry(self) -> dict:
+        """Snap targets from the cached outline (design D10; named targets
+        per snapping-engine.md s8.3).
+
+        Returns:
+            ``named``: ``(snap_type, point, name)`` -- true centerline ends
+            and midpoint; the mitered quad corners that are visible outline
+            corners (``face-<side>-corner-<A|B>``); any other visible
+            outline corner on this wall (unnamed endpoint, e.g. a T-break);
+            both face midpoints.
+            ``faces``: the two full face lines (always foot-snappable).
+            ``edges``: true centerline + caps on free ends (foot snaps
+            gated by the Nearest toggle).
+        """
+        o = self.outline()
+        c1, c2 = o.centerline
+        named = [("endpoint", QPointF(c1), "centerline-end-A"),
+                 ("endpoint", QPointF(c2), "centerline-end-B"),
+                 ("midpoint", QPointF((c1.x() + c2.x()) / 2.0,
+                                      (c1.y() + c2.y()) / 2.0),
+                  "centerline-mid")]
+        p1l, p1r, p2r, p2l = o.quad
+        tol = WALL_OUTLINE_ON_EDGE_TOL
+
+        def visible(pt):
+            return any(abs(pt.x() - c.x()) <= tol and abs(pt.y() - c.y()) <= tol
+                       for c in o.corners)
+
+        quad_names = ((p1l, "face-left-corner-A"), (p1r, "face-right-corner-A"),
+                      (p2l, "face-left-corner-B"), (p2r, "face-right-corner-B"))
+        for pt, name in quad_names:
+            if visible(pt):
+                named.append(("endpoint", QPointF(pt), name))
+        for c in o.corners:
+            if not any(abs(c.x() - q.x()) <= tol and abs(c.y() - q.y()) <= tol
+                       for q, _n in quad_names):
+                named.append(("endpoint", QPointF(c), None))
+        (fl1, fl2), (fr1, fr2) = o.faces
+        named.append(("midpoint", QPointF((fl1.x() + fl2.x()) / 2.0,
+                                          (fl1.y() + fl2.y()) / 2.0),
+                      "face-left-mid"))
+        named.append(("midpoint", QPointF((fr1.x() + fr2.x()) / 2.0,
+                                          (fr1.y() + fr2.y()) / 2.0),
+                      "face-right-mid"))
+        return {"named": named, "faces": list(o.faces),
+                "edges": [o.centerline, *o.caps]}
 
     def itemChange(self, change, value):
         """Scene add/remove and visibility (level switch, sheet viewport

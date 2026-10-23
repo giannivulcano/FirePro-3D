@@ -116,15 +116,6 @@ _EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
 _EPS_DEGENERATE: float = 1e-12  # zero-length segment / zero-radius guard
 _EPS_COINCIDENT: float = 1e-6   # cursor-on-center / point-coincidence
 
-# Below this half-thickness (in scene units) a WallSegment is too thin
-# for the user to visually distinguish its face corners from the
-# centerline endpoint. We suppress named face-corner / face-mid
-# candidates in that regime so the marker glyph doesn't flicker.
-# The value matches half of a physical 6 mm wall in the default scale
-# (practical floor for real FirePro3D drawings); drawings that use a
-# finer scale will almost always have thicker walls.
-_FACE_COLLAPSE_SCENE_EPS: float = 3.0
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Snap marker legend
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1452,16 +1443,13 @@ class SnapEngine:
             ]
             for j in range(4):
                 yield ("seg", (corners[j], corners[(j + 1) % 4], src, key))
-        elif isinstance(item, WallSegment):
-            # Use mitered geometry so joined walls share clean corners
-            # instead of crossing each other inside the joint — the
-            # root cause of the §7.1 wall-corner false negative.
+        elif callable(getattr(item, "snap_geometry", None)):
             try:
-                p1l, p1r, p2r, p2l = item.snap_quad_points()
+                geo = item.snap_geometry()
             except (ValueError, AttributeError):
                 return
-            yield ("seg", (p1l, p2l, src, key))
-            yield ("seg", (p1r, p2r, src, key))
+            for a, b in geo["faces"]:
+                yield ("seg", (a, b, src, key))
         elif isinstance(item, CircleItem):
             yield ("circle", (item._center, item._radius, src))
         elif isinstance(item, RegularPolygonItem):
@@ -1685,55 +1673,18 @@ class SnapEngine:
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.top())), None))
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.bottom())), None))
 
-        # ── WallSegment (must come before generic QGraphicsPathItem) ─────
-        elif isinstance(item, WallSegment):
-            p1, p2 = item.pt1, item.pt2
-
-            # Centerline endpoints (named, but rendered OUTLINED — default glyph)
-            if self.snap_endpoint:
-                pts.append(("endpoint", p1, "centerline-end-A"))
-                pts.append(("endpoint", p2, "centerline-end-B"))
-
-            # Centerline midpoint
-            if self.snap_midpoint:
-                mid_c = QPointF((p1.x() + p2.x()) / 2,
-                                (p1.y() + p2.y()) / 2)
-                pts.append(("midpoint", mid_c, "centerline-mid"))
-
-            # Face targets use mitered geometry so they land on the
-            # visible wall corners, not the raw unmitered quad. Use the
-            # side-effect-free snap_quad_points() (wall.py) — NOT
-            # mitered_quad(), which writes paint coordination state.
+        # ── snap_geometry hook (WallSegment; before generic QGraphicsPathItem)
+        elif callable(getattr(item, "snap_geometry", None)):
             try:
-                p1l, p1r, p2r, p2l = item.snap_quad_points()
+                geo = item.snap_geometry()
             except Exception:
-                p1l = p1r = p2r = p2l = None
-
-            # Defensive rail: if the wall half-thickness in scene units
-            # is below _FACE_COLLAPSE_SCENE_EPS, the face corners and
-            # face midpoints collapse visually onto the centerline at
-            # any reasonable zoom — drop them so the marker doesn't
-            # flicker between filled (face) and outlined (centerline).
-            try:
-                _ht = item.half_thickness_scene()
-            except Exception:
-                _ht = 0.0
-
-            if (p1l is not None and self.snap_endpoint
-                    and _ht >= _FACE_COLLAPSE_SCENE_EPS):
-                pts.append(("endpoint", p1l, "face-left-corner-A"))
-                pts.append(("endpoint", p1r, "face-right-corner-A"))
-                pts.append(("endpoint", p2l, "face-left-corner-B"))
-                pts.append(("endpoint", p2r, "face-right-corner-B"))
-
-            if (p1l is not None and self.snap_midpoint
-                    and _ht >= _FACE_COLLAPSE_SCENE_EPS):
-                left_mid = QPointF(
-                    (p1l.x() + p2l.x()) / 2, (p1l.y() + p2l.y()) / 2)
-                right_mid = QPointF(
-                    (p1r.x() + p2r.x()) / 2, (p1r.y() + p2r.y()) / 2)
-                pts.append(("midpoint", left_mid,  "face-left-mid"))
-                pts.append(("midpoint", right_mid, "face-right-mid"))
+                geo = None
+            for snap_type, pt, name in (geo["named"] if geo else ()):
+                if snap_type == "endpoint" and not self.snap_endpoint:
+                    continue
+                if snap_type == "midpoint" and not self.snap_midpoint:
+                    continue
+                pts.append((snap_type, pt, name))
 
         # ── PolylineItem (must come before generic QGraphicsPathItem) ────
         elif isinstance(item, PolylineItem):
@@ -2116,17 +2067,22 @@ class SnapEngine:
             _seg_snap(item.mapToScene(line.p1()),
                       item.mapToScene(line.p2()))
 
-        # ── WallSegment — project onto centerline and face edges ──────────
-        elif isinstance(item, WallSegment):
-            _seg_snap(item.pt1, item.pt2)  # centerline
+        # ── snap_geometry hook (WallSegment) — centerline, caps, faces ────
+        elif callable(getattr(item, "snap_geometry", None)):
             try:
-                p1l, p1r, p2r, p2l = item.snap_quad_points()
-                _seg_snap(p1l, p2l)  # left face edge (mitered)
-                _seg_snap(p1r, p2r)  # right face edge (mitered)
-                _seg_snap(p1l, p1r)  # start cap
-                _seg_snap(p2l, p2r)  # end cap
+                geo = item.snap_geometry()
             except Exception:
-                pass
+                geo = None
+            if geo is not None:
+                for a, b in geo["edges"]:
+                    _seg_snap(a, b)
+                for a, b in geo["faces"]:
+                    _seg_snap(a, b)
+                    if not self.snap_nearest:
+                        # D10: a face foot-snaps even with Nearest off
+                        foot = self._project_to_segment(cursor, a, b)
+                        if foot is not None:
+                            pts.append(("nearest", foot))
 
         # ── RectangleItem — project onto each of the 4 edges ─────────────
         elif isinstance(item, RectangleItem):
