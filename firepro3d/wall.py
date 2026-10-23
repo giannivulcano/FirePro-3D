@@ -106,6 +106,7 @@ def compute_wall_quad(
 # ── WallSegment ──────────────────────────────────────────────────────────────
 
 from .displayable_item import DisplayableItemMixin
+from .paper_display import shows_selection
 
 
 class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
@@ -579,7 +580,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             painter.drawLine(a, b)
 
         # Selection highlight -- same pieces (Task 6 gates it off paper)
-        if self.isSelected():
+        if shows_selection(self):
             sel_pen = QPen(_SELECTION_COLOR, 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)

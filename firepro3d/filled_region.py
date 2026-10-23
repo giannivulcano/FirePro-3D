@@ -18,6 +18,7 @@ from .constants import TOKEN_AUTO, Z_FILLED_REGION
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import BackgroundLayer, FillLayers
 from .geometry_2d import Geometry2DMixin, _manip_wraps, _scene_hit_width
+from .paper_display import shows_selection
 
 log = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
             self._paint_routed_stroke(painter, option, widget, rs,
                                       lambda p: p.drawPath(self.path()))
             self._paint_lt_badge(painter)
-        elif self.isSelected() and not _manip_wraps(self):
+        elif shows_selection(self) and not _manip_wraps(self):
             # Invisible outline: a dashed cosmetic trace is the only selection cue.
             pen = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)

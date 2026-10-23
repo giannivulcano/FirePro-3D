@@ -8,6 +8,7 @@ from .sprinkler import Sprinkler
 from .constants import (DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE,
                         Z_COPLANAR_TOL)
 from .displayable_item import DisplayableItemMixin
+from .paper_display import shows_selection
 
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     RADIUS = 13
@@ -334,7 +335,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         painter.setPen(QPen(Qt.PenStyle.NoPen))
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        if self.isSelected():
+        if shows_selection(self):
             if self.has_sprinkler():
                 # Sprinkler node: draw highlight behind the sprinkler graphic.
                 # Drawn here (Node Z=10) so it appears under the Sprinkler (Z=100)

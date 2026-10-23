@@ -378,6 +378,14 @@ def paper_pass_active() -> bool:
     return _THIN_SUSPEND > 0
 
 
+def shows_selection(item) -> bool:
+    """True when *item* should paint its selection highlight: selected and
+    not inside a paper/PDF pass -- selection never plots (wall polish D11,
+    L42).  Looks ``paper_pass_active`` up at call time, so tests that patch
+    the module attribute reach it."""
+    return item.isSelected() and not paper_pass_active()
+
+
 def paper_pass_color_mode():
     """The saved ``PaperColorMode`` the live paper pass was applied under
     (``FULL_COLOR`` when no pass recorded one -- e.g. a test-forced counter).

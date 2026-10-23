@@ -74,6 +74,7 @@ class _RoundedRectBgItem(QGraphicsRectItem):
 
 
 from .displayable_item import DisplayableItemMixin
+from .paper_display import shows_selection
 
 
 class Room(DisplayableItemMixin, QGraphicsPolygonItem):
@@ -459,7 +460,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         painter.drawPolygon(self.polygon())
 
         # Selection highlight
-        if self.isSelected():
+        if shows_selection(self):
             sel_pen = QPen(QColor("red"), 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)

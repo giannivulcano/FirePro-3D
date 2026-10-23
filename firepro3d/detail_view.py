@@ -24,6 +24,7 @@ from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPainterPath
 
 from .gridline import BUBBLE_RADIUS_MM
 from .constants import DEFAULT_LEVEL, Z_DETAIL_MARKER
+from .paper_display import shows_selection
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -174,7 +175,7 @@ class DetailMarker(QGraphicsPathItem):
 
         self._paint_callout(painter)
 
-        if self.isSelected():
+        if shows_selection(self):
             hl_pen = QPen(self._tag_color.lighter(150), max(1, R * 0.08))
             painter.setPen(hl_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
