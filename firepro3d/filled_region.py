@@ -132,8 +132,21 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
     def fill_layers(self, layers):
         if self._fill_type:
             t = fill_types.project_table().get(self._fill_type)
-            base = t.layers if t is not None else fill_types.FALLBACK_LAYERS
-            self._fill_overrides = fill_types.diff_overrides(base, layers)
+            if t is not None:
+                self._fill_overrides = fill_types.diff_overrides(t.layers, layers)
+            else:
+                # Missing type: keep prior overrides of layers the edit leaves alone,
+                # so they survive until the type returns.
+                cur = fill_types.resolve(self._fill_type, self._fill_overrides)[0]
+                vs_fallback = fill_types.diff_overrides(fill_types.FALLBACK_LAYERS, layers)
+                ov = dict(self._fill_overrides)
+                for k in ("background", "pattern"):
+                    if getattr(cur, k) != getattr(layers, k):      # only the layer the edit changed
+                        if k in vs_fallback:
+                            ov[k] = vs_fallback[k]
+                        else:
+                            ov.pop(k, None)
+                self._fill_overrides = ov
         else:
             self._own_fill = layers
 
@@ -246,7 +259,7 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         if isinstance(tid, str) and tid:
             ov = data.get("fill") if isinstance(data.get("fill"), dict) else {}
             obj._own_fill = None
-            obj._fill_type = tid
+            obj._fill_type = fill_types.canonical_id(tid)     # name-duplicate -> kept id
             obj._fill_overrides = {k: v for k, v in ov.items()
                                    if k in ("background", "pattern")
                                    and (v is None or isinstance(v, dict))}

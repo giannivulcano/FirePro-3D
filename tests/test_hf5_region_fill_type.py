@@ -133,19 +133,39 @@ def test_by_element_pattern_uses_region_colour(qapp):
     assert r._layer_qcolor(TOKEN_ELEMENT, 1.0).rgb() == QColor("#0000ff").rgb()
 
 
-def test_duplicate_named_row_realiases_regions_to_first_type(qapp):
-    """Group A review I1: a name-duplicate row's regions resolve to the kept type."""
+def _typed_rec(tid):
+    d = _square().to_dict()
+    d.pop("fill", None)                  # a pure-type record carries no fill
+    d["fill_type"] = tid
+    return d
+
+
+def test_duplicate_named_row_repoints_regions_to_first_type(qapp):
+    """Group A review I1 + Group B review: a region typed with a dropped duplicate id
+    loads with the kept id (persisted on the next save), painting the kept look."""
     rows = [{"id": "keep", "name": "Red", "background": {"color": "#ff0000", "opacity": 1.0}},
             {"id": "dup", "name": "red", "background": {"color": "#0000ff", "opacity": 1.0}}]
     table = ft.FillTypeTable.from_payload(rows)
     assert len(table.all()) == 1
-    assert table.get("dup") is table.get("keep")
-    assert table.copy().get("dup").id == "keep"
     ft.set_project_table(table)
     sc = editor_scene()
-    r = add_region(sc, _square())
-    r.set_fill_type("dup")
-    assert not r.fill_type_missing and r.fill_type == "dup"      # saved id untouched
-    assert r.to_dict()["fill_type"] == "dup"
+    r = add_region(sc, FilledRegionItem.from_dict(_typed_rec("dup")))
+    assert r.fill_type == "keep" and not r.fill_type_missing
+    assert r.to_dict()["fill_type"] == "keep"
     assert _rgb(_render(sc), 30, 30) == (255, 0, 0)
-    assert ft.resolve("dup", {}, table)[1] is False
+    gone = FilledRegionItem.from_dict(_typed_rec("nope"))
+    assert gone.fill_type == "nope" and gone.fill_type_missing      # truly missing keeps its id
+
+
+def test_missing_type_edit_keeps_untouched_layer_overrides(qapp):
+    both = FillLayers(BackgroundLayer("#ff0000", 1.0), PatternLayer("diagonal", "#000000", 1.0, 1.0))
+    ft.set_project_table(ft.FillTypeTable())
+    r = _square()
+    r.set_fill_type("gone")
+    r._fill_overrides = {"pattern": {"ref": "diagonal", "color": "#000000", "opacity": 1.0, "scale": 3.0}}
+    cur = r.fill_layers
+    r.fill_layers = FillLayers(BackgroundLayer("#00ff00", 1.0), cur.pattern)    # edits background only
+    assert r._fill_overrides["pattern"]["scale"] == 3.0               # prior pattern override kept
+    assert r._fill_overrides["background"]["color"] == "#00ff00"
+    ft.set_project_table(ft.FillTypeTable([ft.FillType("gone", "Gone", both)]))
+    assert r.fill_layers.pattern.scale == 3.0 and r.fill_layers.background.color == "#00ff00"

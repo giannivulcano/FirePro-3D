@@ -257,6 +257,20 @@ def resolve(type_id, overrides, table: FillTypeTable | None = None):
     return merge_overrides(t.layers, overrides), False
 
 
+def canonical_id(type_id, table: FillTypeTable | None = None):
+    """The kept id for *type_id* (follows a load-time duplicate alias); an id the
+    table does not resolve is returned unchanged so a missing type stays missing."""
+    t = (table if table is not None else project_table()).get(type_id)
+    return t.id if t is not None else type_id
+
+
+def canonicalise_records(prims, table: FillTypeTable | None = None) -> None:
+    """Re-point every typed primitive record's ``fill_type`` to its kept id, in place."""
+    for p in prims if isinstance(prims, list) else ():
+        if isinstance(p, dict) and isinstance(p.get("fill_type"), str) and p["fill_type"]:
+            p["fill_type"] = canonical_id(p["fill_type"], table)
+
+
 def record_fill_layers(rec: dict) -> FillLayers:
     """The fill a primitive record draws: typed (``fill_type`` + sparse ``fill``) or custom."""
     if not isinstance(rec, dict):

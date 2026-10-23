@@ -426,6 +426,8 @@ class SceneIOMixin:
 
         # --- Blocks: definitions first (registry), then instances ---
         for bid, ddict in payload.get("block_definitions", {}).items():
+            # HF5: a name-duplicate type's id re-points to the kept one (persisted on next save).
+            fill_types.canonicalise_records(ddict.get("primitives"))
             self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
         from .block_instance import BlockInstance
         orphan_hosts = 0

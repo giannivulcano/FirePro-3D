@@ -108,3 +108,47 @@ def test_saved_typed_block_region_resolves_against_the_files_own_types(qapp, tmp
     ops = ms2._block_definitions[defn.id].render_ops()
     fills = [o for o in ops if o.kind == FILL]
     assert fills and fills[0].colour == "#ff0000"             # type t, not the fallback #808080
+
+
+def test_duplicate_type_ids_repoint_and_stay_repointed_across_save_open(qapp, tmp_path):
+    """Review: a name-duplicate type's regions (block definition record + typed region)
+    re-point to the kept id on open and survive save / reopen, not 'missing'."""
+    import json
+    from PyQt6.QtCore import QPointF
+    from firepro3d.filled_region import FilledRegionItem
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.render_op import FILL
+
+    ft.reset_project_table()
+    keep = ft.project_table().add(ft.FillType("keep", "Red", RED))
+    a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+    region = FilledRegionItem.from_pieces([[LineItem(a, b), LineItem(b, c), LineItem(c, d), LineItem(d, a)]])
+    region.set_fill_type(keep.id)
+    ms = Model_Space()
+    defn = ms.commit_block_definition(block_id=None, name="Host", library="L", series="S",
+                                      primitives=[region.to_dict()], origin=(0.0, 0.0),
+                                      place_instance=False)
+    p1 = str(tmp_path / "a.fpd")
+    ms.save_to_file(p1)
+    with open(p1, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    payload["fill_types"].append({"id": "dup", "name": "red",
+                                  "background": {"color": "#0000ff", "opacity": 1.0}})
+    payload["block_definitions"][defn.id]["primitives"][0]["fill_type"] = "dup"
+    with open(p1, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    p2 = str(tmp_path / "b.fpd")
+    ft.reset_project_table()
+    ms2 = Model_Space()
+    ms2.load_from_file(p1)
+    assert ms2._block_definitions[defn.id].primitives[0]["fill_type"] == "keep"
+    ms2.save_to_file(p2)
+    ft.reset_project_table()
+    ms3 = Model_Space()
+    ms3.load_from_file(p2)
+    prim = ms3._block_definitions[defn.id].primitives[0]
+    assert prim["fill_type"] == "keep" and ft.project_table().get("keep") is not None
+    fills = [o for o in ms3._block_definitions[defn.id].render_ops() if o.kind == FILL]
+    assert fills and fills[0].colour == "#ff0000"
+    reg = FilledRegionItem.from_dict(prim)
+    assert reg.fill_type == "keep" and not reg.fill_type_missing
