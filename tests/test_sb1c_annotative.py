@@ -413,7 +413,9 @@ def test_g_section_copy_clip_uses_scaled_extent(qapp, section_scene_for):
     _src, cp, _ = _hosted_pair(section_scene_for, "annotative", along=100.0)
     assert cp is not None
     b = cp.scene()._basis
-    assert b.h_min < cp.mapRectToScene(cp.boundingRect()).center().x() < b.h_max
+    r = cp.mapRectToScene(cp.boundingRect())
+    assert b.h_min < r.center().x() < b.h_max
+    assert r.left() < b.h_min                   # the scaled extent overhangs the crop
     assert isinstance(cp.parentItem(), QGraphicsRectItem)
     assert cp.parentItem().rect().left() == pytest.approx(b.h_min)
 
@@ -425,5 +427,7 @@ def test_g_section_copy_kept_when_scaled_extent_reaches_crop(qapp, section_scene
                                  cut_len=900.0)
     assert cp is not None
     b = cp.scene()._basis
-    assert cp.mapRectToScene(cp.boundingRect()).center().x() > b.h_max
+    r = cp.mapRectToScene(cp.boundingRect())
+    assert r.center().x() > b.h_max
+    assert r.left() < b.h_max                   # the scaled extent reaches the crop
     assert cp.parentItem() is not None
