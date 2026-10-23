@@ -257,8 +257,49 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         props = {"Type": {"type": "label", "value": "Filled Region"},
                  "Loops": {"type": "label", "value": str(len(self._loops))},
                  "Outline": {"type": "toggle", "value": bool(self.outline)}}
-        props.update(self._geom2d_properties())
+        table = fill_types.project_table()
+        names = [t.name for t in table.all()]
+        if not self._fill_type:
+            value = FILL_TYPE_CUSTOM_LABEL
+        elif self.fill_type_missing:
+            value = f"? {self._fill_type[:8]}"
+            names.append(value)
+        else:
+            value = table.get(self._fill_type).name
+        props["Fill Type"] = {"type": "enum", "options": [FILL_TYPE_CUSTOM_LABEL, *names],
+                              "value": value,
+                              "tooltip": "Named fill style from the project's Fill Types "
+                                         "(Display Manager). (Custom) = this region's own fill."}
+        geom = self._geom2d_properties()
+        if not self._fill_type:
+            props.update(geom)
+            return props
+        # R3: each overridden layer gets a "Reset ... to type" row right after its fill row.
+        after = {"Fill": ("background", "Fill"), "Fill Pattern": ("pattern", "Pattern")}
+        for key, row in geom.items():
+            props[key] = row
+            hit = after.get(key)
+            if hit is not None and hit[0] in self._fill_overrides:
+                layer, label = hit
+                ov = self._fill_overrides[layer]
+                fields = ", ".join(sorted(ov)) if isinstance(ov, dict) else "layer off"
+                props[f"Reset {label} to type"] = {
+                    "type": "button", "value": "Reset to type",
+                    "tooltip": "Overridden: " + fields,
+                    "callback": lambda l=layer: self._dim_edit(
+                        lambda _v: self.reset_fill_layer(l), None)}
         return props
+
+    def _pick_fill_type_by_label(self, label) -> None:
+        """Panel Fill Type pick: (Custom) -> None, else by name (unknown / '? <id8>' = no-op)."""
+        if label == FILL_TYPE_CUSTOM_LABEL:
+            tid = None
+        else:
+            hit = fill_types.project_table().by_name(label)
+            if hit is None:             # also the '? <id8>' missing marker: not a pick
+                return
+            tid = hit.id
+        self._dim_edit(self.set_fill_type, tid)
 
     def _set_outline(self, on: bool) -> None:
         if on == self.outline:
@@ -268,6 +309,9 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         self.update()
 
     def set_property(self, key: str, value):
+        if key == "Fill Type":
+            self._pick_fill_type_by_label(value)
+            return
         if key == "Outline":
             self._dim_edit(lambda v: self._set_outline(bool(v)), value)
             return
