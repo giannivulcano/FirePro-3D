@@ -43,15 +43,39 @@ def frame_scaled(item) -> bool:
             and _lr.screen_fixed_here(paper_scale=None, role=role))
 
 
+def _is_section_canvas(sc) -> bool:
+    """True when *sc* is a section / elevation scene (``SectionScene``).
+
+    Recognised by type, not by a ``scene_role``: other readers branch on the
+    role (linetype / end sizing, block drop), and a new value there would
+    change them. The import is local (section_scene imports block_instance).
+    """
+    if sc is None:
+        return False
+    from .section_scene import SectionScene
+    return isinstance(sc, SectionScene)
+
+
+def _drawing_scale(sc) -> float:
+    """The project drawing scale read off *sc*'s ScaleManager (``scale_manager``
+    on a model scene, ``_sm`` on a section scene); 1 when absent."""
+    sm = getattr(sc, "scale_manager", None) or getattr(sc, "_sm", None)
+    ds = getattr(sm, "drawing_scale", None)
+    return float(ds) if ds else 1.0
+
+
 def annotative_factor(item, painter=None) -> float:
     """Scene units per authored mm for BlockInstance *item* (design table).
 
-    Real size, no scene, or a non-plan scene (Block Editor, schematic,
-    render: D5) -> 1. A paper pass (``item._paper_scale`` = S) -> 1 / S.
-    Fixed size on a plan canvas -> ``FIXED_END_PX_PER_MM`` device px per mm:
-    / the painter's device scale when *painter* is given (paint), else / the
-    scene's visible-view zoom (bounds; the zoom hook re-prepares). Otherwise
-    (Scale with zoom) -> the project drawing scale.
+    Real size, no scene, or any other non-plan scene (Block Editor,
+    schematic, render: D5) -> 1. A paper pass (``item._paper_scale`` = S) ->
+    1 / S. A section / elevation canvas (scene in mm) -> the project drawing
+    scale for Scale with zoom and for Fixed size alike (VC9 I1 ruling: Fixed
+    stays plan-only; its frame machinery is not extended there). Fixed size on
+    a plan canvas -> ``FIXED_END_PX_PER_MM`` device px per mm: / the painter's
+    device scale when *painter* is given (paint), else / the scene's
+    visible-view zoom (bounds; the zoom hook re-prepares). Otherwise (Scale
+    with zoom) -> the project drawing scale.
     """
     d = item.definition()
     if not is_annotative(d):
@@ -59,6 +83,8 @@ def annotative_factor(item, painter=None) -> float:
     if item._paper_scale:
         return 1.0 / item._paper_scale
     sc = item.scene()
+    if _is_section_canvas(sc):
+        return _drawing_scale(sc)
     if sc is None or getattr(sc, "scene_role", None) != _PLAN_ROLE:
         return 1.0
     if frame_scaled(item):
@@ -71,15 +97,15 @@ def annotative_factor(item, painter=None) -> float:
         return _er.screen_factor(paper_scale=None, role=_PLAN_ROLE, device_scale=dev)
     # Not linetype_render.printed_factor: it returns drawing_scale for the
     # block_editor role, but D5 needs k = 1 there (handled above).
-    sm = getattr(sc, "scale_manager", None)
-    ds = getattr(sm, "drawing_scale", None)
-    return float(ds) if ds else 1.0
+    return _drawing_scale(sc)
 
 
 def reprepare_annotative(scene) -> None:
     """Re-prepare every annotative instance of *scene* (a drawing-scale
-    change resizes them, D7)."""
-    for inst in list(getattr(scene, "_block_instances", ())):
+    change resizes them, D7); a section scene's hosted copies included."""
+    insts = list(getattr(scene, "_block_instances", ()))
+    insts += list(getattr(scene, "_hosted_copies", {}).values())
+    for inst in insts:
         if is_annotative(inst.definition()):
             inst.prepareGeometryChange()
             inst.update()
@@ -87,13 +113,14 @@ def reprepare_annotative(scene) -> None:
 
 def model_factor(item) -> float:
     """Explode / model-pose scale factor of *item* (ruling 2026-10-23: explode
-    bakes the size you see): an annotative block on a plan canvas -> the
-    drawing scale (Fixed size too, its screen size is zoom-dependent);
+    bakes the size you see): an annotative block on a plan or section canvas
+    -> the drawing scale (Fixed size too, its screen size is zoom-dependent);
     otherwise 1."""
     if not is_annotative(item.definition()):
         return 1.0
     sc = item.scene()
+    if _is_section_canvas(sc):
+        return _drawing_scale(sc)
     if sc is None or getattr(sc, "scene_role", None) != _PLAN_ROLE:
         return 1.0
-    ds = getattr(getattr(sc, "scale_manager", None), "drawing_scale", None)
-    return float(ds) if ds else 1.0
+    return _drawing_scale(sc)

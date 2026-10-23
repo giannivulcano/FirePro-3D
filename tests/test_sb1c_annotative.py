@@ -340,3 +340,61 @@ def test_fixed_first_bounds_read_registers_for_reprepare(qapp):
     assert inst not in ms._screen_end_items
     inst.boundingRect()
     assert inst in ms._screen_end_items
+
+
+# -- VC9 I1: annotative blocks on a section / elevation canvas ---------------
+
+def _hosted_pair(section_scene_for, mode, screen="scale", ppm=1.0):
+    """(plan instance, hosted section copy, ppm): a gridline-hosted block of
+    *mode* in a real Model_Space, projected into a parallel SectionScene."""
+    from firepro3d.gridline import GridlineItem
+    from firepro3d.section_marker import SectionMarker
+    from firepro3d.section_scene import SectionScene, _HostedBlockCopy
+    ms, _ = section_scene_for("north")
+    if ppm != 1.0:
+        ms.scale_manager.calibrate(QPointF(0.0, 0.0), QPointF(100.0 * ppm, 0.0),
+                                   100.0, "mm")
+    ms.scale_manager.drawing_scale = 100.0
+    d = _annot_def(screen, mode)
+    ms.register_block_definition(d)
+    gl = GridlineItem(QPointF(0.0, -3000.0), QPointF(6000.0, -3000.0), label="B")
+    ms._gridlines.append(gl)
+    ms.addItem(gl)
+    host = {"gridline": gl._uid, "offset_mm": 0.0, "along_mm": 1000.0,
+            "elevation_mm": 500.0, "facing": 1}
+    src = ms.place_block_instance(d.id, (0, 0), host=host)
+    marker = SectionMarker("Section 1", QPointF(0.0, 0.0), QPointF(10000.0 * ppm, 0.0),
+                           1, 80000.0)
+    sec = SectionScene(marker, ms, ms._level_manager, ms.scale_manager)
+    sec.rebuild()
+    (cp,) = [it for it in sec.items() if isinstance(it, _HostedBlockCopy)]
+    cp._keep_scenes = (ms, sec)         # the scenes own the C++ items: keep them alive
+    return src, cp, sec._ppm()
+
+
+def _w(item):
+    return item.mapRectToScene(item.boundingRect()).width()
+
+
+@pytest.mark.parametrize("screen", ["scale", "fixed"])
+@pytest.mark.parametrize("ppm", [1.0, 2.0])
+def test_g_section_copy_annotative_scales_with_drawing_scale(qapp, section_scene_for,
+                                                             screen, ppm):
+    """VC9 I1 ruling: on a section canvas (scene in mm) a 6 mm tag at 1:100
+    is the plan instance's model size -- Fixed size uses the same factor."""
+    # Reference: the plan instance of a Scale-with-zoom twin (plan Fixed size is
+    # zoom-dependent, so it is no reference); the plan scene is px, the section mm.
+    ref, _cp, _ = _hosted_pair(section_scene_for, "annotative", "scale", ppm)
+    src, cp, got_ppm = _hosted_pair(section_scene_for, "annotative", screen, ppm)
+    assert got_ppm == pytest.approx(ppm)
+    plan_mm = _w(ref) / ppm
+    assert plan_mm > 2 * HALF * 100.0 / ppm * 0.9      # k = drawing scale, not 1
+    assert _w(cp) == pytest.approx(plan_mm, rel=0.02)
+    assert not an.frame_scaled(cp)           # Fixed frame stays plan-only
+
+
+def test_g_section_copy_real_size_unchanged(qapp, section_scene_for):
+    src, cp, _ = _hosted_pair(section_scene_for, "real_size")
+    assert an.annotative_factor(cp) == 1.0
+    assert _w(cp) == pytest.approx(_w(src), rel=0.02)
+    assert _w(cp) < 2 * HALF * 10.0          # authored size, never x drawing scale
