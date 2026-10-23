@@ -139,6 +139,19 @@ def test_g1_previous_file_never_offers_a_system_file(real_system_library):
     assert bl._previous_file(defn, None) is None
 
 
+def test_g1_user_root_inside_the_system_root_is_refused(tmp_path):
+    """D3 guards the PATH too: a user root at / inside the System root (a
+    mis-set library folder) must not let a save or a new folder land there."""
+    sysroot = tmp_path / "sys"
+    sysroot.mkdir()
+    bl.set_system_root(str(sysroot))
+    with pytest.raises(bl.SystemLibraryReadOnly):
+        bl.save_to_library(_defn(), root=str(sysroot))
+    with pytest.raises(bl.SystemLibraryReadOnly):
+        bl.create_folder("Mine", "Set", root=str(sysroot / "nested"))
+    assert list(sysroot.rglob("*")) == []
+
+
 def test_missing_system_root_is_an_empty_tier(tmp_path):
     bl.set_system_root(str(tmp_path / "absent"))
     assert [e for e in bl.list_library() if e["tier"] == "system"] == []

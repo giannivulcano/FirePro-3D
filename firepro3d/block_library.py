@@ -215,6 +215,7 @@ def create_folder(library: str, series: str | None = None,
     """
     _assert_writable(library=library)
     path = os.path.join(_root(root), *[sanitize(s) for s in (library, series) if s])
+    _assert_writable(path=path)
     os.makedirs(path, exist_ok=True)
     _notify_changed()
     return path
@@ -361,6 +362,7 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
             "Shipped blocks are read-only -- duplicate to customise")
     path = _target_path(root, definition.library, definition.series,
                         definition.name)
+    _assert_writable(path=path)    # a user root at / inside the System root
     series_dir, filename = os.path.dirname(path), os.path.basename(path)
 
     # (a) Cross-id collision check — BEFORE any mutation, so a refused save is inert.
