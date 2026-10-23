@@ -242,3 +242,101 @@ def test_g_fixed_bounds_follow_zoom(qapp):
         assert inst.boundingRect().width() > 2 * w1
     finally:
         v.close()
+
+
+def test_g_fixed_shape_and_snap_follow_zoom(qapp):
+    """G-B review I1: under Fixed size the compiled ops never change with
+    zoom, so the pose key's frame k is what refreshes the memoised snap
+    stand-ins (the shape memo also keys on the zoomed hit width)."""
+    ms, d, inst = _placed("fixed")
+    v = _view(ms, 1.0)
+    try:
+        v.viewport().repaint()
+        qapp.processEvents()
+        inst.shape()                                            # fill both memos at zoom 1
+        inst.snap_primitives()
+        for _ in range(12):
+            _wheel(v, up=False)
+        qapp.processEvents()
+        z = scene_view_scale(ms)
+        assert z < 0.5, z
+        geo = 2 * HALF * FIXED_END_PX_PER_MM / z                 # printed extent in scene mm
+        sw = inst.shape().boundingRect().width()
+        assert geo <= sw <= geo + 2 * 10.0 / z, (sw, geo)         # strokes + the ~10 px hit band
+        left = min(b.left() for b, _ in inst.snap_primitives())
+        right = max(b.right() for b, _ in inst.snap_primitives())
+        assert right - left == pytest.approx(geo + 2.0, rel=0.1, abs=2.0), (right - left, geo)
+    finally:
+        v.close()
+
+
+def _annot_end_placed(screen_mode, drawing_scale=100.0):
+    """An annotative block whose line carries a printed-size (Scale-with-zoom)
+    finish arrow, 3 mm long and 1 mm half-width, tip at the line's right end."""
+    from tests.lt5_support import arrow, set_ends
+    a = arrow(length=3.0, half=1.0)
+    ln = LineItem(QPointF(-HALF, 0.0), QPointF(HALF, 0.0))
+    set_ends(ln, finish=a.id)
+    d = BlockDefinition.new(name="AE", library="L", series="S",
+                            primitives=[ln.to_dict()], origin=(0.0, 0.0))
+    d.scale_mode = "annotative"
+    d.annotative_screen = screen_mode
+    ms = Model_Space(scene_role="plan")
+    for x in (a, d):
+        ms.register_block_definition(x)
+    inst = ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
+    ms.scale_manager.drawing_scale = drawing_scale
+    return ms, inst
+
+
+def _head_px(ms, tip_x, px_per_mm):
+    """Device-px width of the arrowhead whose tip is at scene *tip_x* (the
+    crop's right edge), via the real scene render."""
+    from tests.test_et1_raw import _head_width, _render as et_render
+    w, h = 200, 100
+    crop = QRectF(tip_x - w / px_per_mm, -h / 2 / px_per_mm, w / px_per_mm, h / px_per_mm)
+    return _head_width(et_render(ms, crop, w, h))
+
+
+@pytest.mark.parametrize("zoom", [0.25, 2.0])
+def test_g_fixed_annotative_end_constant_px_and_bounded(qapp, zoom):
+    """G-B review I2: a Fixed annotative block's printed-size end draws a
+    constant 3 mm x FIXED_END_PX_PER_MM device px head (the linetype/end
+    factor must ignore the drawing scale) and its bounds hold the head."""
+    ms, inst = _annot_end_placed("fixed")
+    v = _view(ms, zoom)
+    try:
+        v.viewport().repaint()
+        qapp.processEvents()
+        z = scene_view_scale(ms)
+        k = FIXED_END_PX_PER_MM / z
+        head = _head_px(ms, HALF * k, z)
+        assert abs(head - 3.0 * FIXED_END_PX_PER_MM) <= 2, head
+        mb = inst.manip_bounds()                                  # frame rect, no hit band
+        assert mb.top() <= -1.0 * k and mb.bottom() >= 1.0 * k, (mb, k)   # head half-width
+        assert mb.right() >= HALF * k
+    finally:
+        v.close()
+
+
+def test_g_scale_with_zoom_annotative_end_pad(qapp):
+    """G-B review I2 (control): Scale-with-zoom at 1:100 draws the head at
+    3 mm x 100 scene mm and the bounds hold it."""
+    ms, inst = _annot_end_placed("scale", 100.0)
+    s = 0.25
+    head = _head_px(ms, HALF * 100.0, s)
+    assert abs(head - 3.0 * 100.0 * s) <= 3, head
+    mb = inst.manip_bounds()
+    assert mb.top() <= -100.0 and mb.bottom() >= 100.0, mb
+    assert mb.right() >= HALF * 100.0
+
+
+def test_fixed_first_bounds_read_registers_for_reprepare(qapp):
+    """G-B review m3: a bare boundingRect() on a never-painted Fixed item
+    registers it with the zoom hook (bounds follow the zoom from first read)."""
+    ms, d, inst = _placed("fixed")
+    ms._screen_end_items.discard(inst)
+    inst._screen_ends = False
+    assert inst not in ms._screen_end_items
+    inst.boundingRect()
+    assert inst in ms._screen_end_items
