@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QTabWidget,
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen,
-                         QIcon)
+                         QIcon, QPixmap)
 from PyQt6.QtCore import Qt, QSettings, QByteArray, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -29,10 +29,10 @@ import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
 from . import fill_types
-from .hatch_patterns import BUILTIN_DIAGONAL
-from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO
+from .ui_kit import Selector
+from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO, TOKEN_ELEMENT
 from .colour_tokens import is_token, resolve_colour, token_label
-from .fill_layers import to_record
+from .fill_layers import alpha as fill_alpha, to_record
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +499,32 @@ def _parse_section_look(raw) -> dict | None:
         except ValueError:
             return None
     return raw if isinstance(raw, dict) and raw else None
+
+
+def _fill_type_icon(layers, registry=None) -> QIcon:
+    """40x20 swatch of a Fill Type's look for the section selector: body behind
+    the pattern; By element (R8) previews in Automatic (the element's colour is
+    only known at paint)."""
+    from .hatch_render import pattern_preview
+    bg = layers.background
+    ground = None
+    if bg is not None:
+        ground = resolve_colour(bg.color)
+        ground.setAlpha(fill_alpha(bg.opacity))
+    pat = layers.pattern
+    if pat is None:
+        pix = QPixmap(40, 20)
+        pix.fill(ground if ground is not None else QColor(0, 0, 0, 0))
+    else:
+        col = resolve_colour(TOKEN_AUTO if pat.color == TOKEN_ELEMENT else pat.color)
+        col.setAlpha(fill_alpha(pat.opacity))
+        pix = pattern_preview(pat.ref, col, 40, 20, registry, background=ground)
+    return QIcon(pix)
+
+
+def _missing_type_label(type_id: str) -> str:
+    """Selector text of a section type the table does not hold ("? <id8>")."""
+    return f"? {str(type_id)[:8]}"
 
 
 _NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor"}
@@ -977,105 +1003,6 @@ def apply_category_defaults(item):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Section-pattern picker dialog
-# ──────────────────────────────────────────────────────────────────────────────
-
-class SectionPatternDialog(QDialog):
-    """Compact dialog for picking a section hatch colour + pattern."""
-
-    def __init__(self, current_color: str, current_pattern: str,
-                 current_scale: float = 1.0, parent=None, registry=None):
-        super().__init__(parent)
-        self._registry = registry
-
-        self.setWindowTitle("Section Pattern")
-        self.setFixedSize(280, 170)
-        _t = th.detect()
-        self.setStyleSheet(f"background: {_t.bg_raised}; color: {_t.text_primary};")
-
-        lay = QVBoxLayout(self)
-
-        # ── Pattern combo ──
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Pattern:"))
-        self._combo = QComboBox()
-        from .hatch_patterns import tile_choices, canonical_ref
-        for name, ref in tile_choices(registry):
-            self._combo.addItem(name, ref)
-        # An unknown stored ref (deleted project tile, foreign QSettings) is
-        # kept, never replaced: blank selection, get_result falls back to it.
-        self._orig_pattern = current_pattern
-        idx = self._combo.findData(canonical_ref(current_pattern))
-        if idx >= 0:
-            self._combo.setCurrentIndex(idx)
-        elif current_pattern:
-            self._combo.setCurrentIndex(-1)
-        row1.addWidget(self._combo, 1)
-        lay.addLayout(row1)
-
-        # ── Colour button + preview ──
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Colour:"))
-        self._color_btn = QPushButton()
-        self._color_btn.setFixedSize(40, 20)
-        self._cur_color = current_color if current_color is not None else "#666666"
-        _apply_swatch_look(self._color_btn, self._cur_color, _t)
-        self._color_btn.clicked.connect(self._pick_color)
-        row2.addWidget(self._color_btn)
-        self._preview = QLabel()
-        self._preview.setFixedSize(60, 20)
-        row2.addWidget(self._preview)
-        row2.addStretch()
-        lay.addLayout(row2)
-
-        # ── Scale spinbox ──
-        row3 = QHBoxLayout()
-        row3.addWidget(QLabel("Scale:"))
-        self._scale_spin = QDoubleSpinBox()
-        self._scale_spin.setRange(0.25, 4.0)
-        self._scale_spin.setSingleStep(0.25)
-        self._scale_spin.setDecimals(2)
-        self._scale_spin.setValue(current_scale)
-        self._scale_spin.setSuffix("x")
-        self._scale_spin.setFixedHeight(22)
-        row3.addWidget(self._scale_spin)
-        row3.addStretch()
-        lay.addLayout(row3)
-
-        # ── Buttons ──
-        bbox = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel)
-        bbox.accepted.connect(self.accept)
-        bbox.rejected.connect(self.reject)
-        lay.addWidget(bbox)
-
-        self._combo.currentIndexChanged.connect(lambda _: self._refresh_preview())
-        self._refresh_preview()
-
-    def _pick_color(self):
-        v = colour_picker.pick_colour(self._cur_color, self, "Section")
-        if v is not None:
-            self._cur_color = v
-            _apply_swatch_look(self._color_btn, self._cur_color, th.detect())
-            self._refresh_preview()
-
-    def _current_pattern(self):
-        """The picked pattern ref, else the original stored ref (kept if unknown)."""
-        return self._combo.currentData() or self._orig_pattern
-
-    def _refresh_preview(self):
-        from .hatch_render import pattern_preview
-        pix = pattern_preview(self._current_pattern(), _fill_qcolor(self._cur_color),
-                              60, 20, self._registry)
-        self._preview.setPixmap(pix)
-
-    def get_result(self) -> tuple[str, str, float]:
-        """Return (hex_color, pattern_ref, scale)."""
-        return self._cur_color, self._current_pattern(), self._scale_spin.value()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # DisplayManager dialog
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1495,7 +1422,7 @@ class DisplayManager(QDialog):
         self._tree.setColumnWidth(_COL_VIS, 40)
         self._tree.setColumnWidth(_COL_COLOR, 60)
         self._tree.setColumnWidth(_COL_FILL, 60)
-        self._tree.setColumnWidth(_COL_SECTION, 60)
+        self._tree.setColumnWidth(_COL_SECTION, 130)
         self._tree.setColumnWidth(_COL_SCALE, 90)
         self._tree.setColumnWidth(_COL_OPACITY, 90)
         self._tree.setColumnWidth(_COL_FONT, 70)
@@ -1631,7 +1558,7 @@ class DisplayManager(QDialog):
                 cat_item, saved_visible, saved_color, saved_fill,
                 saved_scale, saved_opacity, saved_font,
                 is_category=True, category_key=key,
-                **self._section_cell_args(saved_section_type))
+                section_type=saved_section_type)
 
             self._cat_data[key] = {
                 "items": items,
@@ -1660,7 +1587,7 @@ class DisplayManager(QDialog):
                     inst_scale, inst_opacity, inst_font,
                     is_category=False, category_key=key,
                     item_ref=obj,
-                    **self._section_cell_args(inst_section_type))
+                    section_type=inst_section_type)
 
                 self._inst_data[id(obj)] = {
                     "tree_item": child,
@@ -1669,17 +1596,9 @@ class DisplayManager(QDialog):
                     "category": key,
                 }
 
-    @staticmethod
-    def _section_cell_args(type_id) -> dict:
-        """Section-button arguments of a Fill Type (colour = its body, pattern,
-        scale); empty for a row without a section cell."""
-        if not type_id:
-            return {}
-        layers, _missing = fill_types.resolve(type_id, None)
-        bg, pat = layers.background, layers.pattern
-        return {"section": bg.color if bg is not None else "",
-                "section_pattern": pat.ref if pat is not None else BUILTIN_DIAGONAL,
-                "section_scale": pat.scale if pat is not None else 1.0}
+        # A later category may have added its section type to the table: every
+        # selector lists the final set.
+        self._refresh_section_selectors()
 
     def _add_model_blocks_row(self):
         """Weight-only "Blocks" row (linetypes.md LT2-6): the canvas weight of
@@ -1744,9 +1663,7 @@ class DisplayManager(QDialog):
                           is_category: bool,
                           category_key: str,
                           item_ref=None,
-                          section: str | None = None,
-                          section_pattern: str | None = None,
-                          section_scale: float = 1.0) -> dict:
+                          section_type: str | None = None) -> dict:
         """Create and embed widgets for one tree row. Returns widget dict."""
         _t = th.detect()
         has_fill = _category_has_fill(category_key)
@@ -1787,28 +1704,12 @@ class DisplayManager(QDialog):
             fill_btn.setEnabled(False)
         self._tree.setItemWidget(tree_item, _COL_FILL, fill_btn)
 
-        # ── Section colour+pattern swatch (for sectioned geometry) ─────
-        section_btn = QPushButton()
-        section_btn.setFixedSize(40, 20)
-        _sec_pat = section_pattern or BUILTIN_DIAGONAL
-        if has_section and section is not None:
-            section_btn.setProperty("_color", section)
-            section_btn.setProperty("_pattern", _sec_pat)
-            section_btn.setProperty("_section_scale", section_scale)
-            from .hatch_render import pattern_preview
-            pix = pattern_preview(_sec_pat, _fill_qcolor(section), 40, 20,
-                                  self._scene.block_registry)
-            section_btn.setIcon(QIcon(pix))
-            section_btn.setIconSize(pix.size())
-            section_btn.setStyleSheet(
-                f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
-                f"background: transparent;")
-        else:
-            section_btn.setProperty("_color", "")
-            section_btn.setProperty("_pattern", "")
-            section_btn.setStyleSheet(_disabled_ss)
-            section_btn.setEnabled(False)
-        self._tree.setItemWidget(tree_item, _COL_SECTION, section_btn)
+        # ── Section cell: a Fill Type selector (HF5; Wall / Floor only) ──
+        section_sel = None
+        if has_section:
+            section_sel = Selector()
+            self._fill_section_selector(section_sel, section_type)
+            self._tree.setItemWidget(tree_item, _COL_SECTION, section_sel)
 
         # ── Scale spinbox ────────────────────────────────────────────
         scale_spin = QDoubleSpinBox()
@@ -1864,8 +1765,9 @@ class DisplayManager(QDialog):
                 fill_btn.clicked.connect(
                     lambda _, k=category_key: self._pick_category_prop(k, "fill"))
             if has_section:
-                section_btn.clicked.connect(
-                    lambda _, k=category_key: self._pick_category_prop(k, "section"))
+                section_sel.currentTextChanged.connect(
+                    lambda name, k=category_key: self._on_category_changed(
+                        k, "section_type", name))
             scale_spin.valueChanged.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "scale", v))
             opacity_spin.valueChanged.connect(
@@ -1882,8 +1784,8 @@ class DisplayManager(QDialog):
                 fill_btn.clicked.connect(
                     lambda _, ref=item_ref: self._pick_instance_prop(ref, "fill"))
             if has_section:
-                section_btn.clicked.connect(
-                    lambda _, ref=item_ref: self._pick_instance_prop(ref, "section"))
+                section_sel.currentTextChanged.connect(
+                    lambda name, ref=item_ref: self._on_instance_section_picked(ref, name))
             scale_spin.valueChanged.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "scale", v))
             opacity_spin.valueChanged.connect(
@@ -1899,7 +1801,7 @@ class DisplayManager(QDialog):
             "vis": vis_cb,
             "color_btn": color_btn,
             "fill_btn": fill_btn,
-            "section_btn": section_btn,
+            "section_sel": section_sel,
             "scale": scale_spin,
             "opacity": opacity_spin,
             "font": font_spin,
@@ -1913,10 +1815,8 @@ class DisplayManager(QDialog):
     # ── Generic colour picker (replaces 6 specific pick methods) ────────
 
     def _pick_category_prop(self, category_key: str, prop: str):
-        """Open a colour/pattern dialog for *prop* ('color', 'fill', or 'section')
-        on the category row and propagate to instances."""
-        if prop == "section":
-            return self._pick_section(category_key, is_category=True)
+        """Open a colour dialog for *prop* ('color' or 'fill') on the category
+        row and propagate to instances."""
         btn_key = {"color": "color_btn", "fill": "fill_btn"}[prop]
         default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = self._cat_data[category_key]["widgets"]
@@ -1929,9 +1829,7 @@ class DisplayManager(QDialog):
             self._on_category_changed(category_key, prop, v)
 
     def _pick_instance_prop(self, item_ref, prop: str):
-        """Open a colour/pattern dialog for *prop* on an instance row."""
-        if prop == "section":
-            return self._pick_section(item_ref, is_category=False)
+        """Open a colour dialog for *prop* on an instance row."""
         data = self._inst_data.get(id(item_ref))
         if data is None:
             return
@@ -1946,80 +1844,57 @@ class DisplayManager(QDialog):
             self._update_swatch(widgets[btn_key], prop, v)
             self._on_instance_changed(item_ref, prop, v)
 
-    def _pick_section(self, key_or_ref, *, is_category: bool):
-        """Open the SectionPatternDialog for a category or instance row."""
-        if is_category:
-            widgets = self._cat_data[key_or_ref]["widgets"]
-        else:
-            data = self._inst_data.get(id(key_or_ref))
-            if data is None:
-                return
-            widgets = data["widgets"]
-        btn = widgets["section_btn"]
-        cur_color = btn.property("_color")
-        if cur_color is None:
-            cur_color = "#666666"
-        cur_pattern = btn.property("_pattern") or BUILTIN_DIAGONAL
-        cur_scale = btn.property("_section_scale") or 1.0
-        if isinstance(cur_scale, str):
-            cur_scale = float(cur_scale or "1.0")
-        # Category settings are global QSettings: they list the Hatch patterns
-        # folder only (registry None, D-A39); instance overrides are
-        # project-scoped (project tiles + the folder).
-        reg = None if is_category else self._scene.block_registry
-        dlg = SectionPatternDialog(cur_color, cur_pattern, cur_scale, self,
-                                   registry=reg)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            new_color, new_pattern, new_scale = dlg.get_result()
-            if not is_category:
-                # D-A37: a library pattern loads into the project before its
-                # id is stored; a failed load keeps the previous pattern.
-                from .hatch_patterns import ensure_pattern_available
-                if not ensure_pattern_available(new_pattern, self._scene):
-                    new_pattern = cur_pattern
-            btn.setProperty("_pattern", new_pattern)
-            btn.setProperty("_section_scale", new_scale)
-            self._update_swatch(btn, "section", new_color, pattern=new_pattern)
-            if is_category:
-                self._on_category_changed(key_or_ref, "section", new_color)
-                self._on_category_changed(key_or_ref, "section_pattern", new_pattern)
-                self._on_category_changed(key_or_ref, "section_scale", new_scale)
-            else:
-                self._on_instance_changed(key_or_ref, "section", new_color)
-                self._on_instance_changed(key_or_ref, "section_pattern", new_pattern)
-                self._on_instance_changed(key_or_ref, "section_scale", new_scale)
-
     # ── Swatch update (replaces 3 specific update methods) ────────────
 
-    def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str,
-                        pattern: str | None = None):
-        """Update a swatch button for 'color', 'fill', or 'section'."""
+    def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str):
+        """Update a swatch button for 'color' or 'fill'."""
         _t = th.detect()
-        if prop == "section":
-            btn.setProperty("_color", hex_color)
-            if pattern:
-                btn.setProperty("_pattern", pattern)
-            pat = btn.property("_pattern") or BUILTIN_DIAGONAL
-            from .hatch_render import pattern_preview
-            pix = pattern_preview(pat, _fill_qcolor(hex_color), 40, 20,
-                                  self._scene.block_registry)
-            btn.setIcon(QIcon(pix))
-            btn.setIconSize(pix.size())
-            btn.setText("")
-            btn.setStyleSheet(
-                f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
-                f"background: transparent;")
-        else:
-            # color and fill are both solid swatches
-            _, hex_col = _parse_fill_value(hex_color)
-            btn.setProperty("_color", hex_col)
-            btn.setIcon(QIcon())
-            _apply_swatch_look(btn, hex_col, _t)
+        # color and fill are both solid swatches
+        _, hex_col = _parse_fill_value(hex_color)
+        btn.setProperty("_color", hex_col)
+        btn.setIcon(QIcon())
+        _apply_swatch_look(btn, hex_col, _t)
+
+    # ── Section cell: Fill Type selector (HF5) ─────────────────────────
+
+    def _fill_section_selector(self, sel: Selector, type_id) -> None:
+        """(Re)fill *sel* with the project's Fill Types (name + look swatch) and
+        select *type_id*; an id the table lacks gets a "? <id8>" entry so the
+        row shows it (never silently another type). No signals fire."""
+        table = fill_types.project_table()
+        sel.blockSignals(True)
+        try:
+            sel.clear()
+            for t in table.all():
+                sel.addItem(_fill_type_icon(t.layers, self._scene.block_registry),
+                            t.name, t.id)
+            cur = table.get(type_id) if type_id else None
+            if cur is not None:
+                sel.setCurrentIndex(sel.findData(cur.id))
+            elif type_id:
+                sel.addItem(_missing_type_label(type_id), type_id)
+                sel.setCurrentIndex(sel.count() - 1)
+        finally:
+            sel.blockSignals(False)
+
+    def _refresh_section_selectors(self) -> None:
+        """Re-list the Fill Types in every section selector (the table changed:
+        add / rename / restyle / delete), keeping each row's selection by id."""
+        for data in (*self._cat_data.values(), *self._inst_data.values()):
+            sel = data["widgets"].get("section_sel")
+            if sel is not None:
+                self._fill_section_selector(sel, sel.currentData())
+
+    def _on_instance_section_picked(self, item_ref, name: str) -> None:
+        """An instance row picked a Fill Type by name: store its id as the
+        item's override (R7: per-item overrides store the id)."""
+        t = fill_types.project_table().by_name(name)
+        if t is not None:
+            self._on_instance_changed(item_ref, "section_type", t.id)
 
     # Legacy aliases so existing internal calls still work
     _update_color_btn = lambda self, btn, v: self._update_swatch(btn, "color", v)
     _update_fill_btn  = lambda self, btn, v: self._update_swatch(btn, "fill", v)
-    _update_section_btn = lambda self, btn, v: self._update_swatch(btn, "section", v)
 
     # ------------------------------------------------------------------
     # Change handlers
@@ -2076,12 +1951,8 @@ class DisplayManager(QDialog):
                 if fill_val is not None:
                     self._update_fill_btn(w["fill_btn"], fill_val)
             if _category_has_section(cat_key):
-                section_val = cat_widgets["section_btn"].property("_color")
-                section_pat = cat_widgets["section_btn"].property("_pattern") or "diagonal"
-                if section_val is not None:
-                    w["section_btn"].setProperty("_pattern", section_pat)
-                    self._update_swatch(w["section_btn"], "section", section_val,
-                                        pattern=section_pat)
+                self._fill_section_selector(
+                    w["section_sel"], cat_widgets["section_sel"].currentData())
             w["scale"].setValue(cat_widgets["scale"].value())
             w["opacity"].setValue(cat_widgets["opacity"].value())
             if _category_has_font(cat_key):
@@ -2111,10 +1982,9 @@ class DisplayManager(QDialog):
                 self._update_color_btn(cw["color_btn"], cat_def["color"])
                 if _category_has_fill(key) and cat_def["fill"]:
                     self._update_fill_btn(cw["fill_btn"], cat_def["fill"])
-                if _category_has_section(key) and cat_def.get("section"):
-                    cw["section_btn"].setProperty("_pattern", cat_def.get("section_pattern") or "diagonal")
-                    self._update_swatch(cw["section_btn"], "section", cat_def["section"],
-                                        pattern=cat_def.get("section_pattern"))
+                factory_tid = self._factory_section_type(cat_def)
+                if factory_tid is not None:
+                    self._fill_section_selector(cw["section_sel"], factory_tid)
                 cw["scale"].setValue(cat_def["scale"])
                 cw["opacity"].setValue(cat_def["opacity"])
                 if _category_has_font(key) and cat_def["font"] is not None:
@@ -2130,10 +2000,8 @@ class DisplayManager(QDialog):
                         self._update_color_btn(iw["color_btn"], cat_def["color"])
                         if _category_has_fill(key) and cat_def["fill"]:
                             self._update_fill_btn(iw["fill_btn"], cat_def["fill"])
-                        if _category_has_section(key) and cat_def.get("section"):
-                            iw["section_btn"].setProperty("_pattern", cat_def.get("section_pattern") or "diagonal")
-                            self._update_swatch(iw["section_btn"], "section", cat_def["section"],
-                                                pattern=cat_def.get("section_pattern"))
+                        if factory_tid is not None:
+                            self._fill_section_selector(iw["section_sel"], factory_tid)
                         iw["scale"].setValue(cat_def["scale"])
                         iw["opacity"].setValue(cat_def["opacity"])
                         if _category_has_font(key) and cat_def["font"] is not None:
@@ -2144,6 +2012,22 @@ class DisplayManager(QDialog):
         # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
         from .paper_display import model_blocks_factory_weight
         self._model_blocks_combo.setCurrentText(model_blocks_factory_weight())
+
+    @staticmethod
+    def _factory_section_type(cat_def: dict):
+        """Id of a category's factory section type (the project's of that
+        name wins, else it is added from the factory look); None when the
+        category has no section cell."""
+        name = cat_def.get("section_type")
+        if not name:
+            return None
+        before = len(fill_types.project_table().all())
+        t = fill_types.project_table().ensure_named(
+            name, fill_types.legacy_section_layers(
+                cat_def.get("section"), cat_def.get("section_pattern"), 1.0))
+        if len(fill_types.project_table().all()) != before:
+            fill_types.notify_changed()
+        return t.id
 
     def _reset_paper_space_tab(self):
         """Reset Paper Space tab to B&W factory defaults."""
@@ -2254,15 +2138,11 @@ class DisplayManager(QDialog):
         elif prop == "fill":
             if widgets["fill_btn"].isEnabled() and value is not None:
                 self._update_fill_btn(widgets["fill_btn"], value)
-        elif prop == "section":
-            if widgets["section_btn"].isEnabled() and value is not None:
-                self._update_swatch(widgets["section_btn"], "section", value)
-        elif prop == "section_pattern":
-            if widgets["section_btn"].isEnabled() and value:
-                widgets["section_btn"].setProperty("_pattern", value)
-                cur_col = widgets["section_btn"].property("_color") or "#666666"
-                self._update_swatch(widgets["section_btn"], "section", cur_col,
-                                    pattern=value)
+        elif prop == "section_type":
+            sel = widgets.get("section_sel")
+            t = fill_types.project_table().by_name(value) if sel is not None else None
+            if t is not None:
+                self._fill_section_selector(sel, t.id)
         elif prop == "scale":
             widgets["scale"].setValue(value)
         elif prop == "opacity":
@@ -2285,21 +2165,14 @@ class DisplayManager(QDialog):
         else:
             result["fill"] = None
         if _category_has_section(key):
-            result["section"] = w["section_btn"].property("_color")
-            result["section_pattern"] = w["section_btn"].property("_pattern") or "diagonal"
-            _ss = w["section_btn"].property("_section_scale")
-            result["section_scale"] = float(_ss) if _ss else 1.0
-            table = fill_types.project_table()
-            before = len(table.all())
-            t = table.ensure_look(f"{key} Section", fill_types.legacy_section_layers(
-                result["section"], result["section_pattern"], result["section_scale"]))
-            if len(table.all()) != before:
-                fill_types.notify_changed()
-            result["section_type"] = t.name
-            result["section_look"] = to_record(t.layers)
+            # The picked Fill Type's name + its current look (R7: QSettings and
+            # the project payload store both; the project's type wins by name).
+            t = fill_types.project_table().get(w["section_sel"].currentData())
+            result["section_type"] = t.name if t is not None else _CATEGORY_MAP[key]["section_type"]
+            result["section_look"] = to_record(t.layers) if t is not None else None
         else:
-            result["section"] = None
-            result["section_pattern"] = None
+            result["section_type"] = None
+            result["section_look"] = None
         if _category_has_font(key):
             result["font"] = w["font"].value()
         else:

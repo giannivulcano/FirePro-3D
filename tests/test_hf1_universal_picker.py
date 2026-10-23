@@ -110,16 +110,6 @@ def _assert_full_picker(seen):
     assert seen[0]["standard"][-1] == "", "No Fill chip ends the Standard row"
 
 
-def test_dm_section_dialog_picker_shows_theme_and_no_fill(qapp, picker_spy):
-    from firepro3d.display_manager import SectionPatternDialog
-    dlg = SectionPatternDialog("#666666", "diagonal", 1.0)
-    try:
-        dlg._pick_color()
-    finally:
-        _dispose(dlg)
-    _assert_full_picker(picker_spy)
-
-
 @pytest.mark.parametrize("prop", ["color", "fill"])
 def test_dm_category_pick_shows_theme_and_no_fill(qapp, picker_spy, prop):
     from firepro3d.display_manager import DisplayManager, _CATEGORIES
@@ -449,31 +439,6 @@ def test_dm_swatch_looks(qapp, force_theme):
     _apply_swatch_look(b, TOKEN_ACCENT, t)
     assert b.text() == "Accent" and t.accent.lower() in b.styleSheet().lower()
     _dispose(b)
-
-
-def test_dm_section_token_and_no_fill_render_in_the_dialog(qapp, monkeypatch,
-                                                           force_theme):
-    from firepro3d.display_manager import SectionPatternDialog
-    force_theme("light")
-    dlg = SectionPatternDialog("#666666", "diagonal", 1.0)
-    try:
-        _pick_returns(monkeypatch, TOKEN_ACCENT)
-        dlg._pick_color()
-        assert dlg.get_result()[0] == TOKEN_ACCENT
-        img = dlg._preview.pixmap().toImage()
-        accent = theme.detect().accent.lower()
-        names = {img.pixelColor(x, y).name() for x in range(img.width())
-                 for y in range(img.height()) if img.pixelColor(x, y).alpha() == 255}
-        assert accent in names, (accent, names)
-        _pick_returns(monkeypatch, "")
-        dlg._pick_color()
-        assert dlg.get_result()[0] == ""
-        img = dlg._preview.pixmap().toImage()
-        assert all(img.pixelColor(x, y).alpha() == 0 or img.pixelColor(x, y).name() == "#2b2b2b"
-                   for x in range(img.width()) for y in range(img.height()))
-        assert dlg._color_btn.text() == "None"
-    finally:
-        _dispose(dlg)
 
 
 def test_dm_svg_tint_fill_token_and_no_fill(qapp, force_theme, tmp_path):
