@@ -229,8 +229,8 @@ def test_vc9_i2_dirty_tab_cancel_aborts_before_any_write(
     ran = []
     monkeypatch.setattr(be, "run_duplicate_dialog",
                         lambda *a, **k: ran.append(1))
-    monkeypatch.setattr("firepro3d.themed_message.themed_confirm",
-                        lambda *a, **k: False)          # Cancel the prompt
+    monkeypatch.setattr("firepro3d.themed_message.themed_choice",
+                        lambda *a, **k: "cancel")       # Cancel the prompt
     try:
         w = mgr.edit_definition(old_id)
         w._dirty = True
@@ -247,5 +247,54 @@ def test_vc9_i2_dirty_tab_cancel_aborts_before_any_write(
             w._dirty = False
             mgr.close(w)
         win.scene._block_definitions.pop(old_id, None)
+        win.scene.blockDefinitionsChanged.emit()
+        QApplication.processEvents()
+
+
+def test_vc9_i2_dirty_tab_commit_carries_the_edit_to_the_copy(
+        qapp, _main_window_singleton, real_system_library, monkeypatch):
+    from PyQt6.QtCore import QPointF
+    from firepro3d import block_editor as be
+    from firepro3d.block_manager import BlockManagerDialog
+    from firepro3d.geometry_2d import LineItem
+    win = _main_window_singleton
+    path = os.path.join(real_system_library, "Hatches", "Diagonal.fpdb")
+    win.scene.load_blocks_from_files([path])
+    old_id = "builtin-hatch-diagonal"
+    mgr = win.block_editor_manager
+    written = []
+
+    def _dup(scene, src, parent, **k):
+        written.append([p.get("pt2") for p in src.primitives])
+        return _write_copy(src)
+    monkeypatch.setattr(be, "run_duplicate_dialog", _dup)
+    monkeypatch.setattr("firepro3d.themed_message.themed_choice",
+                        lambda *a, **k: "commit")
+    copy_id = None
+    try:
+        w = mgr.edit_definition(old_id)
+        w.seed_from_dicts(
+            list(win.scene.get_block_definition(old_id).primitives)
+            + [LineItem(QPointF(0, 0), QPointF(7, 9)).to_dict()])
+        w._dirty = True
+        dlg = BlockManagerDialog(win.scene, win, apply_stylesheet=False)
+        row = dlg.model.row_for_id(old_id)
+        dlg.view.setCurrentIndex(
+            dlg.proxy.mapFromSource(dlg.model.index(row, 0)))
+        dlg._duplicate_and_retarget(win.scene.get_block_definition(old_id))
+        QApplication.processEvents()
+        copy_id = dlg._current_def().id
+        assert len(written) == 1 and [7.0, 9.0] in written[0]   # edit carried
+        assert mgr.editor_for(old_id) is None
+        assert mgr.editor_for(copy_id) is not None
+        dlg.close()
+    finally:
+        for bid in (old_id, copy_id):
+            w = mgr.editor_for(bid) if bid else None
+            if w is not None:
+                w._dirty = False
+                mgr.close(w)
+            if bid:
+                win.scene._block_definitions.pop(bid, None)
         win.scene.blockDefinitionsChanged.emit()
         QApplication.processEvents()

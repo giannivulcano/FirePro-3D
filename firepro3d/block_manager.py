@@ -833,6 +833,23 @@ class BlockManagerDialog(HouseDialog):
         mgr = getattr(self.main_window, "block_editor_manager", None)
         tab = mgr.editor_for(defn.id) if mgr is not None else None
         if tab is not None:
+            tab.editor_scene.commit_text_edit()
+            if tab.is_dirty():
+                from .themed_message import themed_choice
+                choice = themed_choice(
+                    self, "Save to Library",
+                    f"The open editor for “{defn.name}” has unsaved edits. "
+                    "Commit them to the project block before it is copied?",
+                    [("Cancel", "cancel", None), ("Discard", "discard", "danger"),
+                     ("Commit", "commit", "primary")], kind="warn")
+                if choice == "commit":
+                    if tab.save(self) is None:
+                        return
+                    defn = self.scene._block_definitions.get(defn.id, defn)
+                elif choice == "discard":
+                    tab._mark_clean()
+                else:
+                    return
             tabs = self.main_window.central_tabs
             self.main_window._on_tab_close_requested(tabs.indexOf(tab))
             if mgr.editor_for(defn.id) is not None:
