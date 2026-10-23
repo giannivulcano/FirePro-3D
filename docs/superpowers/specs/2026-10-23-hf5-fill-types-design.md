@@ -10,6 +10,12 @@ applies-to:
   - firepro3d/block_registry.py
   - firepro3d/scene_io.py
   - firepro3d/settings/template.py
+  - firepro3d/model_space.py          # fill_types table + bundled-type merge
+  - firepro3d/colour_tokens.py        # token:element (R8)
+  - firepro3d/displayable_item.py     # draw_section_hatch adapter
+  - firepro3d/wall.py                 # section-cut caller
+  - firepro3d/floor_slab.py           # section-cut caller
+  - firepro3d/section_scene.py        # section-view caller
 source-tasks: [HF5 (todo_open.md, Hatch & Fill build)]
 ---
 
@@ -47,6 +53,11 @@ vocabulary (colour + pattern + scale cell, `SectionPatternDialog`) from regions 
   with the template set.
 - **R7 App-wide section default:** QSettings stores the type's name + look; on open the project type
   with that name is used, else the type is added from the stored look (project wins).
+- **R8 "By element" pattern colour** (Phase 3 resume, AskUserQuestion 2026-10-23): a pattern
+  layer's colour gains a **By element** choice = the line colour of whatever draws the fill (a
+  wall / floor cut: the element's resolved line colour, so category colour, per-item colour
+  override and the paper pen remap all reach it as today; a Filled Region: its own colour, which
+  is also its outline colour). Converted section types use it.
 
 ## Architecture & Constraints
 
@@ -89,10 +100,17 @@ vocabulary (colour + pattern + scale cell, `SectionPatternDialog`) from regions 
 - The Section cell (category row and per-item override) becomes a Fill Type selector;
   `SectionPatternDialog` is retired.
 - Walls, floor slabs and section views draw the cut by resolving the type and calling the existing
-  renderer: the type background is the cut body fill, its pattern colour replaces today's fixed
-  `_SECTION_HATCH_COLOR`.
-- Legacy conversion (R4): colour -> background (opacity 1), pattern + scale + today's fixed hatch
-  colour -> pattern. Look identical.
+  renderer: the type background is the cut body fill; the type's pattern colour colours the hatch,
+  with **By element** (R8) resolving to the line colour the caller passes today (`line_col` in
+  `wall.py` / `floor_slab.py`, the section item's pen colour in `section_scene.py`).
+  `_SECTION_HATCH_COLOR` stays only as the no-colour fallback.
+- Legacy conversion (R4): section colour -> background (opacity 1; `""` / unset -> no background;
+  a `hatch:` form -> no background, as `section_fill_colour` reads it today), pattern + scale ->
+  pattern with colour **By element**, opacity 1. Look identical on canvas and paper.
+- "By element" is stored as a new colour token value (`token:element`, beside `token:auto` /
+  `token:accent`). Only the fill paths that know an element colour (section cut, Filled Region)
+  resolve it; anywhere else it falls back like any unknown token (Automatic + one warning, HD6).
+  The picker offers it only for a Fill Type's / region override's pattern colour.
 - App-wide default (R7): QSettings stores name + look; matched by name on open, else added.
 - Roof row loses its section cell (`roof.py` never draws a section; roof section cut is a separate
   filed task).
@@ -111,6 +129,11 @@ vocabulary (colour + pattern + scale cell, `SectionPatternDialog`) from regions 
   project type (project look used); a new name is added (fresh id when its id is taken). Region
   `fill_type` ids in the loaded definitions are remapped before the definitions register. Pattern
   blocks keep today's rule (by id, project copy wins).
+- Precedent: named line weights already bundle this way (`rec["weights"]` written in
+  `save_to_library`, merged on load by `Model_Space._merge_bundled_weights`, project wins, outside
+  undo but dirtying the project). Fill types follow the same shape: a `_merge_bundled_fill_types`
+  beside it at every library-load entry (`model_space` load / reload, `block_drop`, `main.py`
+  loaders -- the plan greps every `load_block_file_with_bundle` caller).
 - A type whose pattern block cannot resolve draws the tone (D-A36).
 
 ### §4 Restyle and delete guard
@@ -144,6 +167,11 @@ vocabulary (colour + pattern + scale cell, `SectionPatternDialog`) from regions 
 - Pattern off in the type but a pattern override on the region: override wins (field-level merge).
 - Per-item `_display_overrides` are not serialized for walls (open bug, todo_open.md); HF5 converts
   what is present and does not fix that bug.
+- A wall with a per-item **line colour** override (not a section override) keeps its coloured
+  hatch: the converted type's pattern is By element (R8).
+- `token:element` reaching a consumer with no element colour (a plain shape fill pasted from a
+  region, an older build reading the file) draws Automatic + one warning, never blank.
+- D-A12's "By Pattern" (the tile's authored pen colours, WM-8) is still unbuilt; HF5 does not add it.
 
 ## Acceptance Criteria
 
@@ -153,7 +181,8 @@ vocabulary (colour + pattern + scale cell, `SectionPatternDialog`) from regions 
 - AC4 A pre-HF5 project opens with regions and section cuts pixel-identical.
 - AC5 The Display Manager section cell (category + per-item) is a Fill Type selector; walls, floors
   and section views draw via the type; restyle updates cut walls (G6); Roof section cell gone;
-  `SectionPatternDialog` retired.
+  `SectionPatternDialog` retired; converted section types colour their hatch By element (R8), so a
+  per-item line colour still recolours the cut.
 - AC6 App-wide section default matched by name, else added.
 - AC7 `.fpdb` bundles types + pattern blocks; load merges by name, project wins, ids remapped (G7).
 - AC8 Deleting a used type or pattern block is refused with "Used by N".
@@ -166,7 +195,11 @@ vocabulary (colour + pattern + scale cell, `SectionPatternDialog`) from regions 
 - G6: restyle a type in a shown view; pixel-sample a region and a cut wall -- both change.
 - G7: block with a typed region -> library -> fresh project: type + pattern arrive; into a project
   with a same-named, different-look type: project look wins.
-- Legacy open: pre-HF5 project (custom region + custom DM sections) renders digest-identical.
+- Legacy open: pre-HF5 project (custom region + custom DM sections) renders digest-identical, on
+  the canvas and in a paper-viewport / PDF render (the paper pen remap reaches the hatch through
+  By element).
+- By element: a wall with a red per-item line colour, after conversion, samples red hatch pixels;
+  changing the Wall category colour recolours an un-overridden wall's hatch.
 - Delete refusal through the real tab action and the Block Manager action.
 - Missing-type fallback colour + "?" in the panel.
 - Round-trip: save -> open -> undo keeps `fill_type` + overrides.
