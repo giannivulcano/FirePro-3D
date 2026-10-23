@@ -83,6 +83,11 @@ FIXED_LINETYPE_PX_PER_MM = 6.0
 # ET1: Fixed-size end types (On screen = Fixed size) share the LTS px-per-mm
 # mapping on model canvases (linetypes.md ET1 / LTS-3).
 FIXED_END_PX_PER_MM = FIXED_LINETYPE_PX_PER_MM
+# SB1c (D10): fixed ON-PAPER cap heights, mm. Room labels and gridline
+# bubbles plot at these through annotative.paper_scene_size until SB3 / SB4b
+# make them System blocks (the Display Manager rows retired, D12).
+ROOM_LABEL_PAPER_CAP_MM = 2.5
+GRIDLINE_BUBBLE_PAPER_CAP_MM = 3.0
 # ET1: per-end Scale on a line's end record (a plain multiplier, Q5 / Q10-b).
 END_SCALE_MIN = 0.1
 END_SCALE_MAX = 10.0
@@ -261,7 +266,7 @@ DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (pape
 # Model-placed text seeds this larger CAP height instead (paper text keeps 3/16").
 # It is a plain authoring default: tune to your typical plot scale
 # (model height ≈ desired paper height × plot scale). Annotative auto-scaling is
-# the reserved block scale_mode="annotative" (v2).
+# the block scale_mode="annotative" (authored in printed mm; SB1c, annotative.py).
 DEFAULT_MODEL_TEXT_HEIGHT_MM = 100.0  # model/Block-Editor default CAP height (scene mm)
 DEFAULT_MODEL_TEXT_PADDING_MM = 15.0  # model/Block-Editor default cell padding (scene mm)
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
