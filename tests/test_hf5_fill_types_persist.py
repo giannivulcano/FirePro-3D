@@ -79,3 +79,32 @@ def test_startup_installs_seed_over_stale_table(qapp, tmp_path, monkeypatch):
         assert ft.project_table().by_name("Solid Black") is not None
     finally:
         dispose_main_window(w)
+
+
+def test_saved_typed_block_region_resolves_against_the_files_own_types(qapp, tmp_path):
+    """M8: the file's fill_types load before block definitions parse / compile, so a
+    typed region inside a saved block draws its type, not the fallback grey."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.filled_region import FilledRegionItem
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.render_op import FILL
+
+    ft.reset_project_table()
+    typed = ft.project_table().add(ft.FillType(ft.new_id(), "t", RED))
+    a, b, c, d = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+    region = FilledRegionItem.from_pieces([[LineItem(a, b), LineItem(b, c),
+                                            LineItem(c, d), LineItem(d, a)]])
+    region.set_fill_type(typed.id)
+    ms = Model_Space()
+    defn = ms.commit_block_definition(block_id=None, name="Host", library="L", series="S",
+                                      primitives=[region.to_dict()], origin=(0.0, 0.0),
+                                      place_instance=False)
+    path = str(tmp_path / "typed_block.fpd")
+    ms.save_to_file(path)
+    ft.reset_project_table()                      # a different session's table
+    assert ft.project_table().get(typed.id) is None
+    ms2 = Model_Space()
+    ms2.load_from_file(path)
+    ops = ms2._block_definitions[defn.id].render_ops()
+    fills = [o for o in ops if o.kind == FILL]
+    assert fills and fills[0].colour == "#ff0000"             # type t, not the fallback #808080

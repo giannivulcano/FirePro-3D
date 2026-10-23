@@ -2536,8 +2536,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         switches to the user's duplicate). Holders: placed block instances
         (+ definition backrefs), nested instance primitives and fill-pattern
         refs inside other definitions (``set_primitives``), 2D items' fill
-        pattern layer, and per-item Display overrides ``section_pattern``; the
-        Display Manager is re-applied so the derived section cache follows.
+        pattern layer, per-item Display overrides ``section_pattern`` and the
+        pattern ref of every Fill Type (HF5; the project-wide table is outside
+        undo, like line weights); the Display Manager is re-applied so the
+        derived section cache follows.
         Not touched: Display category defaults (app-wide QSettings, a
         project-local switch must not rewrite other projects), linetype / end
         refs (none ship in System yet) and schematic viewports (never System,
@@ -2583,7 +2585,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     p["block_id"] = new_id
                     changed += 1
                 fill = p.get("fill")
-                if isinstance(fill, dict):
+                if p.get("fill_type") and isinstance(fill, dict):
+                    # HF5: a typed record's fill is sparse overrides -- patch the ref in place.
+                    pov = fill.get("pattern")
+                    if isinstance(pov, dict) and canonical_ref(pov.get("ref")) == old_c:
+                        pov["ref"] = new_id
+                        changed += 1
+                elif isinstance(fill, dict):
                     layers = from_record(fill)
                     if layers.pattern is not None and layers.pattern.ref == old_c:
                         p["fill"] = to_record(_replace(
@@ -2593,6 +2601,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 d.set_primitives(prims)
                 self._block_registry.invalidate(d.id, already=d._instances)
                 count += changed
+        # HF5: Fill Types whose pattern is old_id (before H3, so typed items resolve
+        # to the new ref and are skipped there). Outside undo.
+        from . import fill_types
+        table = fill_types.project_table()
+        table_hits = 0
+        for t in table.all():
+            if t.layers.pattern is not None and t.layers.pattern.ref == old_c:
+                table.replace(_replace(t, layers=_replace(
+                    t.layers, pattern=_replace(t.layers.pattern, ref=new_id))))
+                table_hits += 1
+        if table_hits:
+            count += table_hits
+            fill_types.notify_changed()
         # H3 + H5: scene items' fill pattern layer / Display section override.
         for item in self.items():
             fl = getattr(item, "fill_layers", None)

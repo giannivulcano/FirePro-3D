@@ -288,8 +288,9 @@ def pattern_needs_load(ref: str | None, scene) -> bool:
 def _fill_ref(primitive) -> str | None:
     if not isinstance(primitive, dict):
         return None
-    from .fill_layers import pattern_ref      # lazy: fill_layers imports us
-    return pattern_ref(primitive.get("fill"))
+    from .fill_layers import pattern_ref, to_record      # lazy: fill_layers imports us
+    from .fill_types import record_fill_layers
+    return pattern_ref(to_record(record_fill_layers(primitive)))      # HF5: follows a type
 
 
 def project_pattern_refs(scene) -> set[str]:
@@ -321,6 +322,10 @@ def project_pattern_refs(scene) -> set[str]:
     for defn in list(store.values()):
         for p in getattr(defn, "primitives", ()) or ():
             refs.add(_fill_ref(p))
+    from .fill_types import project_table
+    for t in project_table().all():           # HF5: a table type's pattern is a use too
+        if t.layers.pattern is not None:
+            refs.add(t.layers.pattern.ref)
     try:
         from .display_manager import _CATEGORIES, _read_category_from_settings
         for cat in _CATEGORIES:

@@ -152,8 +152,10 @@ def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
     """
     if getattr(item, "reference", False):
         return []
-    from .fill_layers import alpha, from_record
-    fl = from_record(prim.get("fill"))
+    from . import fill_types
+    from .constants import TOKEN_AUTO
+    from .fill_layers import alpha
+    fl = fill_types.record_fill_layers(prim)         # HF5: typed record -> type + overrides
     if fl.is_empty:
         return []
     gcp = getattr(item, "get_closed_path", None)
@@ -163,12 +165,16 @@ def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
     clip = item.mapToParent(cp)
     clip.translate(-ox, -oy)
     ops = []
+    st = prim.get("style")
+    elem = (st.get("colour") if isinstance(st, dict) else None) or prim.get("color") or TOKEN_AUTO
     bg = fl.background
     if bg is not None:
-        ops.append(RenderOp(FILL, clip, colour=bg.color, alpha=alpha(bg.opacity)))
+        ops.append(RenderOp(FILL, clip, colour=fill_types.element_colour(bg.color, elem),
+                            alpha=alpha(bg.opacity)))
     pat = fl.pattern
     if pat is not None:
-        ops.append(RenderOp(PATTERN, clip, colour=pat.color, alpha=alpha(pat.opacity),
+        ops.append(RenderOp(PATTERN, clip, colour=fill_types.element_colour(pat.color, elem),
+                            alpha=alpha(pat.opacity),
                             tile_ref=pat.ref, origin=QPointF(-ox, -oy),
                             scale=pat.scale))
     return ops
