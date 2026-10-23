@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-09   # SV4 Account: Q2 paper-tag host + build-order phase 7 now point at schematics.md D-S2 (pointers only); prior 2026-09-29
-verified-commit: f2a059d6   # SV4 Account (pointers only); prior c60baa2
+last-verified: 2026-10-23   # SB1c Account: pointers + F6/F8/G3 PlanView.scale marked superseded only; prior 2026-10-09   # SV4 Account: Q2 paper-tag host + build-order phase 7 now point at schematics.md D-S2 (pointers only); prior 2026-09-29
+verified-commit: 245088ad   # SB1c Account; prior f2a059d6   # SV4 Account (pointers only); prior c60baa2
 applies-to:
   # Nothing is built yet. These are the modules the phased build will touch.
   - firepro3d/block_definition.py     # split static/bound compile, attribute schema, annotative scale_mode
@@ -11,8 +11,8 @@ applies-to:
   - firepro3d/block_editor.py         # host category, field picker, instance attributes, sample preview
   - firepro3d/text_item.py            # @[key] fields in the text primitive, keep_upright
   - firepro3d/titleblock_template.py  # shared @[Key] substitution (reuse)
-  - firepro3d/level_manager.py        # PlanView.scale
-  - firepro3d/detail_view.py          # detail-view scale; callout bubble via BoundLabelItem
+  - firepro3d/level_manager.py        # (PlanView.scale dropped by SB1c)
+  - firepro3d/detail_view.py          # (detail-view scale dropped by SB1c); callout bubble via BoundLabelItem
   - firepro3d/paper_display.py        # §9.9 per-category helpers become one annotative override
   - firepro3d/settings/panes.py       # Annotation defaults pane (category -> block)
   - firepro3d/settings/template.py    # annotation_defaults cloned from the template
@@ -34,6 +34,10 @@ source-tasks:
 
 # System Blocks — Concept Design
 
+> **SB1c supersedes F6 / F8 / Q10 / G3 on annotative sizing (2026-10-23):** `PlanView.scale` and
+> the detail-view scale were DROPPED by user ruling; the contract is
+> [`2026-10-23-sb1c-annotative-sizing-design.md`](2026-10-23-sb1c-annotative-sizing-design.md).
+>
 > **Status: proposal (concept).** This document records a *design decision*, not
 > current behaviour. Nothing here is built. The grill (Phase 2, Q1–Q16) settled
 > **what** to build, and the brainstorm (Phase 3, F1–F8) settled **how**, at
@@ -67,7 +71,7 @@ All three payoffs weigh equally (Q1):
    re-implementing paint, shape, selection chrome, paper sizing and HALO trace.
    Twelve converge on one mechanism. This also dissolves the blocker in the folded
    task: gridlines are parametric and bubbles are screen-fixed, and the composite
-   rule (Q9) and view-scale sizing (Q10/F6) together remove that blocker.
+   rule (Q9) and view-scale sizing (Q10/F6; superseded by SB1c, no per-view scale) together remove that blocker.
 
 ## Architecture & Constraints
 
@@ -209,7 +213,7 @@ override, and a placeholder for an empty or `None` value.
 | F3 | Block schema | **No new "kind" field.** Annotation = `scale_mode: "annotative"` (already reserved) + `host_category`; symbol = `real_size`. `attributes` (the reserved list) holds attribute definitions `{key, label, type, source: host\|instance, host_key, default, prefix, suffix, precision, placeholder}`. Text references **attribute keys** through `@[key]`. The instance's `attributes` dict holds overrides and typed values. Substitution reuses `titleblock_template.resolve_text`. `keep_upright` is a text-primitive flag. | Text referencing host keys directly; a separate kind enum | The indirection routes bound, overridden and instance-typed values through one resolver. Reusing the reserved slots means no schema fork. |
 | F4 | System tier | **Multi-root `block_library`:** `[System (read-only, shipped at firepro3d/system_blocks/ via asset_path()), User]`. The library name "System" is reserved. System block ids are **frozen uuids** (the Feature frozen-id precedent). The browser shows System first, with a lock, and has *Duplicate to library…*. `SYSTEM_DEFAULTS` maps category → System id. | Seeding an editable copy into user data | An in-place-editable System copy gets clobbered or forks on app update. Read-only plus Duplicate keeps shipped content and customized content cleanly apart. |
 | F5 | Intrinsic-label seam | **One reusable `BoundLabelItem`,** a lightweight child item of the host that draws a block with the host as its data source. It replaces the pipe label text item, the room label child, `GridBubble`, `HydraulicNodeBadge`, `_ElevBubble` and the other heads. Composite items position their own `BoundLabelItem`s. The project settings gain `annotation_defaults`, with a Project Settings pane, cloned from the template. | Painting the label inside the host's `paint()` | That inflates the host's bounds and shape and breaks hit-testing. Every converted site is already an item, so the scene-object count is unchanged. |
-| F6 *(pending a gate)* | Annotative sizing | `PlanView.scale` (the denominator, default 100) plus a detail-view scale. An annotative block paints scaled by the denominator of the **view currently painting** (`paint(widget)` → `Model_View` → its view). The paper pass sets **one** scene-scoped override (`1/S`) during a viewport render, replacing the per-category `§9.9` helpers. `boundingRect()` = the largest scale among live views, with a geometry change announced whenever any view's scale changes. | Screen-fixed in model; model-sized everywhere (Q10) | This is the only option where the authored printed size holds in both model and paper (WYSIWYG, Revit-like). **Probe first:** view resolution from `widget`, conservative bounds against HALO pick and viewport clip. |
+| F6 *(SUPERSEDED by SB1c, 2026-10-23: no per-view scale; contract = [`2026-10-23-sb1c-annotative-sizing-design.md`](2026-10-23-sb1c-annotative-sizing-design.md))* | Annotative sizing | ~~`PlanView.scale` (the denominator, default 100) plus a detail-view scale. An annotative block paints scaled by the denominator of the **view currently painting** (`paint(widget)` → `Model_View` → its view). The paper pass sets **one** scene-scoped override (`1/S`) during a viewport render, replacing the per-category `§9.9` helpers. `boundingRect()` = the largest scale among live views, with a geometry change announced whenever any view's scale changes. | Screen-fixed in model; model-sized everywhere (Q10) | This is the only option where the authored printed size holds in both model and paper (WYSIWYG, Revit-like). **Probe first:** view resolution from `widget`, conservative bounds against HALO pick and viewport clip.~~ |
 | F7 | Ids + hosting (build phase 5) | Every model element gets a **`uid`** (uuid4 hex), minted on create and written by `to_dict` on **both** serialization paths. Undo restore re-applies the saved uid. Copy and paste mint new uids. A scene `uid → element` index is kept at the add/remove choke points. A `HostedTagItem` holds `host_uid`, an anchor-frame offset and leader data. **Text is pulled** at paint (F1's key limits rebuilds to real changes, so no per-element signals are needed). **Position is pushed** through one generalized `HostedDependents` host-geometry hook, modelled on the wall → opening `_reposition`. Delete cascades through the uid index. | A full per-element change-signal system | Elements are `QGraphicsItem`s, not QObjects, and have no signals. Pull-for-text avoids building one. Pushing only geometry mirrors the one hosting relationship that already works. |
 | F8 | Spec amendments | See the list below. | — | Rule A: each fact goes to its owning spec. |
 
@@ -217,7 +221,8 @@ override, and a placeholder for an empty or `None` value.
 
 - `model-space-containment-contract.md` **C9**: the *host-bound annotation → model*
   class (Q2).
-- `view-relationships.md`: `PlanView.scale` + detail-view scale. Record that this
+- `view-relationships.md`: ~~`PlanView.scale` + detail-view scale~~ (dropped by SB1c, 2026-10-23;
+  see the SB1c design doc). Record that annotative sizing
   is per-paint scaling on the one shared scene, **not** a third view pattern (§5.3).
 - `block-system.md`: decision 6 (text + fields in blocks), decision 9
   (`annotative` activated, attributes schema), the System tier and multi-root
@@ -236,7 +241,7 @@ override, and a placeholder for an empty or `None` value.
 | Phase | Delivers | Depends on |
 |---|---|---|
 | 0 | merge `feat/nested-blocks` (the `BlockRegistry` invalidation hook) | — |
-| 1 | block-side core: F1 split cache, F3 schema + `@[key]` + instance attributes + `keep_upright`, F4 System tier, F6 probe → `PlanView.scale` + annotative paint + paper override, Block Editor authoring (Q11) | 0 |
+| 1 | block-side core: F1 split cache, F3 schema + `@[key]` + instance attributes + `keep_upright`, F4 System tier, F6 probe → ~~`PlanView.scale` +~~ annotative paint + paper override (built as SB1c, no per-view scale), Block Editor authoring (Q11) | 0 |
 | 2 | typed parameters: F2 registry for the categories being labelled, `category_of`, Mark + patterns + Renumber (Q7) | — (runs in parallel with 1) |
 | 3 | **first vertical slice: room tag** end to end. The user designs it, it passes the visual gate, and the `annotation_defaults` pane lands. **Reassessment checkpoint (Q16).** | 1, 2 |
 | 4 | the remaining intrinsic conversions, **one follow-up each**, each user-designed and visually gated (Q13): pipe label, grid bubble, elevation bubble + datum, elevation-marker head, detail-callout bubble, hydraulic badge, viewport title, sprinkler/water-supply/riser symbols | 3 (+ passing the checkpoint) |
@@ -285,7 +290,7 @@ Every build phase must meet the guards that apply to it:
 |---|---|---|
 | G1 | live binding | edit a room's name through the property panel → the rendered tag text changes; switch project units → a bound length re-formats |
 | G2 | round-trip | attribute definitions, instance overrides and values, Marks, `annotation_defaults` (and later `uid` / `host_uid`) survive `.fpd` save/load **and** undo/redo |
-| G3 | printed size | export a PDF with the tag in viewports at two scales → the measured cap height equals the authored mm in both; the model view at `PlanView.scale` is checked too |
+| G3 | printed size | export a PDF with the tag in viewports at two scales → the measured cap height equals the authored mm in both; the model view at the project drawing scale is checked too (SB1c: no `PlanView.scale`) |
 | G4 | host lifecycle (phase 6) | move, rotate, delete, change type, and undo the host through the real tools → the Q3 table holds |
 | G5 | System library | shipped blocks can't be written; Duplicate gives an editable copy; a missing mapped block falls back to `SYSTEM_DEFAULTS`, never vanishes |
 | G6 | performance | a labelled network at realistic scale stays responsive; the static ops stay shared (the metric and threshold get confirmed with the user before phase 3) |

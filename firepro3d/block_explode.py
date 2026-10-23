@@ -12,6 +12,7 @@ from PyQt6.QtGui import QTransform
 
 from .block_attributes import resolve_fields, resolve_values
 from .block_definition import _nested_pose, is_scaffold
+from .annotative import model_factor
 from .block_pose import is_upright, pose_matrix, valid_scale
 from .stroke_style import compose_overrides
 
@@ -54,10 +55,11 @@ def has_nested(instances) -> bool:
 
 
 def instance_pose(inst) -> tuple:
-    """``(x, y, rotation, mirrored, scale)`` of a placed instance."""
+    """``(x, y, rotation, mirrored, scale)`` of a placed instance (an
+    annotative block: scale x its plan factor, SB1c)."""
     x, y = inst.block_pos()
     return (x, y, inst.block_rotation(), inst.block_mirrored(),
-            inst.block_scale())
+            inst.block_scale() * model_factor(inst))
 
 
 def compose_pose(pose, rec, ox, oy) -> tuple:

@@ -30,7 +30,8 @@ from PyQt6.QtGui import (
 
 from PyQt6.QtCore import QSettings
 
-from .constants import DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG
+from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
+                        GRIDLINE_BUBBLE_PAPER_CAP_MM)
 from . import theme as th
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
@@ -514,7 +515,8 @@ class ElevGridlineItem(QGraphicsLineItem):
         the stored colour strings (B&W / Custom), ``None`` keeps them."""
         from .gridline import bubble_paper_geometry
         S = max(paper_scale, 1e-9)
-        r_mm, em_mm = bubble_paper_geometry(3.0 if cap_mm is None else cap_mm)
+        r_mm, em_mm = bubble_paper_geometry(
+            GRIDLINE_BUBBLE_PAPER_CAP_MM if cap_mm is None else cap_mm)
         saved = {"grid_src": self._grid_src}
         self.prepareGeometryChange()
         self._paper_line_w_mm = line_w_mm
@@ -1421,10 +1423,14 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             cp.set_block_mirrored(mirrored)
             cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
             cp.setData(_ROLE_SOURCE, src)
+            # Measure in the scene: an annotative copy sizes from its scene's
+            # drawing scale, so its unparented bounds are the authored size.
+            self.addItem(cp)
             br = cp.mapRectToScene(cp.boundingRect())
             top = cp
             if br.left() < b.h_min or br.right() > b.h_max:
                 if self._clip_h(br.left(), br.right()) is None:
+                    self.removeItem(cp)
                     continue
                 clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
                                                 b.h_max - b.h_min, br.height() + 2.0))
@@ -1433,8 +1439,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 self.addItem(clip)
                 cp.setParentItem(clip)
                 top = clip
-            else:
-                self.addItem(cp)
             wx, wy = hb.world_point(gl, host, ppm)
             self._register_depth_item(b.sort_key(wx, wy), top)
             self._hosted_copies[id(src)] = cp

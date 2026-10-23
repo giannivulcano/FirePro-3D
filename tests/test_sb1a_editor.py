@@ -32,7 +32,8 @@ def test_meta_round_trips_commit_and_undo(qapp):
     project, w = _editor()
     w.seed_from_dicts([_line(), _text("@[Mark]")])
     sc = w.editor_scene
-    assert sc.block_meta == {"attributes": [], "host_category": "", "scale_mode": "real_size"}
+    assert sc.block_meta == {"attributes": [], "host_category": "", "scale_mode": "real_size",
+                             "annotative_screen": "scale"}
     sc.set_block_meta({"attributes": [_attr("Mark", default="A1")],
                        "host_category": "Rooms", "scale_mode": "annotative"})
     sc.undo()

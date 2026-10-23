@@ -23,6 +23,7 @@ from PyQt6.QtGui import (QBrush, QPainterPath, QPainterPathStroker, QPen,
                          QColor, QPolygonF, QTransform)
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
+from . import annotative as _an
 from . import crisp_stroke as _cs
 from . import end_render as _er
 from . import hatch_render as _hr
@@ -209,13 +210,14 @@ class BlockInstance(QGraphicsObject):
                                 self.host_values())
         strings = tuple(resolve_fields(str(b.prim.get("text", "")), values)[0]
                         for b in bps)
-        key = (strings, self._pose_mirrored, float(f"{self._pose_scale:.9g}"))
+        vs = self._variant_scale()
+        key = (strings, self._pose_mirrored, float(f"{vs:.9g}"))
         c = self._bound_cache
         if c is not None and c[0] is bps and c[1] == key:
             return c[2]
         from .block_definition import _local_path
         from .text_item import TextItem
-        sm = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored, self._pose_scale)
+        sm = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored, vs)
         out = []
         for b, s in zip(bps, strings):
             rec = dict(b.prim)
@@ -241,7 +243,7 @@ class BlockInstance(QGraphicsObject):
         list is memoised so identity-keyed caches (posed path, shape, snap
         stand-ins) rebuild only when the static or bound part changes."""
         d = self.definition()
-        base = (d.render_ops_variant(self._pose_mirrored, self._pose_scale)
+        base = (d.render_ops_variant(self._pose_mirrored, self._variant_scale())
                 if d is not None else [])
         a = self._ov_args
         if a is None:
@@ -284,19 +286,51 @@ class BlockInstance(QGraphicsObject):
         self.update()
 
     # ── Pose (baked into geometry, not Qt transform) ─────────────────────
-    def pose_transform(self) -> QTransform:
+    def _rigid_pose(self) -> QTransform:
         """Local→scene mapping for this instance's (position, rotation)."""
         t = QTransform()
         t.translate(self._pose_x, self._pose_y)
         t.rotate(-self._pose_rot)          # Qt CW+, app Y-up CCW+
         return t
 
+    def pose_transform(self) -> QTransform:
+        """Local -> scene for (position, rotation), x the Fixed-size frame k
+        of an annotative block at the visible view's zoom (SB1c D4) -- the
+        bounds / shape / snap frame. Paint builds its own from its painter."""
+        t = self._rigid_pose()
+        kf = self._annot_ks()[1]
+        if kf != 1.0:
+            t.scale(kf, kf)
+        return t
+
     def full_pose_transform(self) -> QTransform:
-        """Local -> scene map incl. mirror + scale (design DD2). The painter
-        stays on the rigid ``pose_transform``: mirror / scale live in the
-        variant ops (``render_ops``)."""
+        """Local -> scene map incl. mirror + scale (design DD2) -- explode's
+        model pose: an annotative block bakes its plan size (SB1c ruling).
+        The painter stays on the rigid ``pose_transform``: mirror / scale
+        live in the variant ops (``render_ops``)."""
         return pose_matrix(self._pose_x, self._pose_y, self._pose_rot,
-                           self._pose_mirrored, self._pose_scale)
+                           self._pose_mirrored,
+                           self._pose_scale * _an.model_factor(self))
+
+    def _annot_ks(self) -> tuple[float, float]:
+        """``(variant k, frame k)`` of this placement (SB1c D3 / D4): Scale
+        with zoom and paper fold k into the definition variant; Fixed size
+        scales the frame about the insertion point. ``(1, 1)`` for real size."""
+        k = _an.annotative_factor(self)
+        if k == 1.0:
+            return (1.0, 1.0)
+        return (1.0, k) if _an.frame_scaled(self) else (k, 1.0)
+
+    def _variant_scale(self) -> float:
+        """The scale the definition variant is compiled at (pose x variant k)."""
+        return self._pose_scale * self._annot_ks()[0]
+
+    def display_pose_transform(self) -> QTransform:
+        """Local -> scene map as displayed (mirror + pose scale x annotative
+        k, SB1c) -- the text-box consumers (halo area, snap engine)."""
+        kv, kf = self._annot_ks()
+        return pose_matrix(self._pose_x, self._pose_y, self._pose_rot,
+                           self._pose_mirrored, self._pose_scale * kv * kf)
 
     def set_block_mirrored(self, mirrored: bool) -> None:
         """Set the mirror flag (local x -> -x, innermost -- design DD2).
@@ -473,7 +507,7 @@ class BlockInstance(QGraphicsObject):
         """
         if ops is None:
             ops = self.render_ops()
-        pose = (self._pose_x, self._pose_y, self._pose_rot)
+        pose = (self._pose_x, self._pose_y, self._pose_rot, self._annot_ks()[1])
         c = self._posed_cache
         if c is not None and c[0] is ops and c[1] == pose and ops:
             return c[2]
@@ -482,9 +516,10 @@ class BlockInstance(QGraphicsObject):
         return path
 
     def _pose_key(self) -> tuple:
-        """The full pose as a cache key (mirror / scale included)."""
+        """The displayed pose as a cache key (mirror / scale x annotative k)."""
+        kv, kf = self._annot_ks()
         return (self._pose_x, self._pose_y, self._pose_rot,
-                self._pose_mirrored, self._pose_scale)
+                self._pose_mirrored, self._pose_scale * kv * kf)
 
     def snap_primitives(self) -> tuple:
         """Posed scene-space stand-ins of this placement's primitives.
@@ -535,6 +570,9 @@ class BlockInstance(QGraphicsObject):
     def _frame_rect(self) -> QRectF:
         """Posed geometry + 2 mm pen margin (+ missing-linetype badge and
         end-glyph pads): the bounds before the hit band."""
+        if _an.frame_scaled(self):
+            # Bounds follow the zoom from the first read (ET1 spec C).
+            _er.mark_screen_ends(self, True)
         ops = self.render_ops()
         r = self._posed_path(ops).boundingRect()
         m = 2.0  # pen margin (mm)
@@ -596,6 +634,7 @@ class BlockInstance(QGraphicsObject):
         from .view_scale import scene_hit_width
         unit = scene_hit_width(self, 1.0, 1.0)      # scene mm per device px (linear)
         a = self._lt_args()
+        kf = self._annot_ks()[1]
         on_screen = _lr.screen_fixed_here(paper_scale=a["paper_scale"], role=a["role"])
         ff = None
         pad = 0.0
@@ -607,12 +646,12 @@ class BlockInstance(QGraphicsObject):
             # ends take the printed factor.
             printed = printed_scale if on_screen else printed_all
             if model > 0.0 and on_screen:
-                pad = max(pad, model)
+                pad = max(pad, model * kf)
             if printed > 0.0:
                 if ff is None:
                     ff = _lr.printed_factor(**a)
                 if ff > 0.0 and math.isfinite(ff):
-                    pad = max(pad, printed * ff)
+                    pad = max(pad, printed * ff * kf)
             if scr > 0.0 and on_screen:
                 pad = max(pad, scr * FIXED_END_PX_PER_MM * unit)
                 fixed = True
@@ -759,7 +798,7 @@ class BlockInstance(QGraphicsObject):
                 area = area.united(p)
             d = self.definition()
             if d is not None:
-                full = self.full_pose_transform()
+                full = self.display_pose_transform()
                 for box in d.text_snap_points():
                     p = QPainterPath()
                     p.addPolygon(QPolygonF([full.map(box[i]) for i in (0, 2, 4, 6)]))
@@ -798,9 +837,13 @@ class BlockInstance(QGraphicsObject):
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):
-        pose = self.pose_transform()
+        frame_k = _an.frame_scaled(self)        # SB1c D4 (not `fixed`: the linetype loop reuses it)
+        pose = self._rigid_pose()
+        if frame_k:
+            k = _an.annotative_factor(self, painter)   # this painter's zoom
+            pose.scale(k, k)
         ops = self.render_ops()
-        self._drew_screen = False               # ET1 spec C: set by _draw_op_ends
+        self._drew_screen = frame_k             # ET1 spec C (+ SB1c: a Fixed-size frame)
         self._paint_sf = None                   # set where the ends' factors are read
         if not ops:
             if self.definition() is None:      # orphan placeholder
@@ -821,7 +864,7 @@ class BlockInstance(QGraphicsObject):
             eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
             miss = self._paint_plain_ops(painter, pose, ops, override, selected,
                                          tint, eo)
-            if self._paint_sf is not None:     # paper passes never touch the mark
+            if self._paint_sf is not None or frame_k:   # paper passes never touch the mark
                 _er.mark_screen_ends(self, self._drew_screen)
             if (miss or self._lt_tip_id is not None) and not self._is_ghost:
                 _lr.sync_missing_tooltip(self, None, end_ids=miss)  # refs edited away
@@ -974,7 +1017,7 @@ class BlockInstance(QGraphicsObject):
                 continue
             painter.drawPath(pose.map(self._text_path(op)))
         xf.unposed()
-        if sf is not None:                      # paper passes never touch the mark
+        if sf is not None or frame_k:           # paper passes never touch the mark
             _er.mark_screen_ends(self, self._drew_screen)
         miss_e = tuple(dict.fromkeys(miss_e))
         if routed and (missing or self._lt_tip_id or miss_e):
@@ -1246,9 +1289,12 @@ class BlockInstance(QGraphicsObject):
         """Surface inputs of ``linetype_render.length_factor`` (LT3-5)."""
         sc = self.scene()
         sm = self._scale_manager()
+        ds = sm.drawing_scale if sm is not None else None
+        if ds is not None and _an.frame_scaled(self):
+            ds = 1.0    # SB1c D4: local unit = printed mm; the frame k makes px
         return {"paper_scale": self._paper_scale,
                 "role": getattr(sc, "scene_role", None),
-                "drawing_scale": sm.drawing_scale if sm is not None else None}
+                "drawing_scale": ds}
 
     def _linetype_factor(self, lt, device_scale=None) -> float:
         """LT3-5 length factor (``linetype_render.length_factor``)."""

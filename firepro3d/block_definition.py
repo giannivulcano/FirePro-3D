@@ -24,7 +24,7 @@ from .geometry_2d import (
     RegularPolygonItem, EllipseItem, SplineItem,
 )
 from .filled_region import FilledRegionItem
-from .end_render import SCREEN_FIXED
+from .end_render import SCREEN_FIXED, SCREEN_SCALE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .text_item import TextItem
 
@@ -266,7 +266,8 @@ class BlockDefinition:
         id: Stable uuid4 hex identity (registry key + instance reference + library link).
         version: Monotonic revision, bumped on each edit; drives library divergence.
         name/library/series: Human-readable metadata (2-tier library taxonomy).
-        scale_mode: v1 sole value "real_size" ("annotative" reserved for v2).
+        scale_mode: "real_size" or "annotative" (SB1c: authored in printed mm).
+        annotative_screen: "scale" | "fixed" (On screen, D2).
         origin: Definition-local insertion origin, in scene millimetres.
         attributes: Reserved slot list; no UI in v1.
         primitives: List of 2D-primitive dicts (geometry_2d to_dict form).
@@ -282,7 +283,8 @@ class BlockDefinition:
                  constraints: list | None = None, tile: dict | None = None,
                  repeat: dict | None = None, end: dict | None = None,
                  kind: str = "block", host_category: str = "",
-                 base_version: int | None = None):
+                 base_version: int | None = None,
+                 annotative_screen: str = SCREEN_SCALE):
         self.id = id
         self.version = int(version)
         # The library version this project copy was last loaded, reloaded or
@@ -297,6 +299,10 @@ class BlockDefinition:
         # never serialized (block-system.md "Library on disk").
         self.source_path: str | None = None
         self.scale_mode = scale_mode
+        # SB1c D2: On screen mode of an annotative block ("scale" | "fixed");
+        # meaningful only when scale_mode == "annotative".
+        self.annotative_screen = (SCREEN_FIXED if annotative_screen == SCREEN_FIXED
+                                  else SCREEN_SCALE)
         # Set directly (not via the setter): the caches do not exist yet.
         self._origin = (float(origin[0]), float(origin[1]))
         self._attributes: list[dict] = []
@@ -817,6 +823,8 @@ class BlockDefinition:
             d["kind"] = self.kind   # omitted for plain blocks (byte-identical)
         if self.base_version is not None:
             d["base_version"] = self.base_version   # omitted when None (byte-identical)
+        if self.annotative_screen == SCREEN_FIXED:
+            d["annotative_screen"] = SCREEN_FIXED   # omitted when "scale" (byte-identical)
         return d
 
     @classmethod
@@ -827,6 +835,7 @@ class BlockDefinition:
             name=data.get("name", ""), library=data.get("library", ""),
             series=data.get("series", ""),
             scale_mode=data.get("scale_mode", "real_size"),
+            annotative_screen=data.get("annotative_screen", SCREEN_SCALE),
             origin=(origin[0], origin[1]),
             attributes=data.get("attributes", []),
             primitives=[_load_prim(p) for p in data.get("primitives", [])],

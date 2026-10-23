@@ -358,8 +358,8 @@ class TestRoomLabelPaperHeight:
             room._update_label()
         return scene, room
 
-    def test_room_category_has_label_height(self):
-        assert factory_paper_categories()["Room"].get("label_height_mm") == 2.5
+    def test_room_category_has_no_label_height(self):
+        assert "label_height_mm" not in factory_paper_categories()["Room"]
 
     def test_label_font_scaled_to_paper_then_restored(self, scene_with_room):
         scene, room = scene_with_room

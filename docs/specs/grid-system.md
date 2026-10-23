@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -50,7 +50,7 @@ Gridlines support arbitrary angles (not just cardinal); the angle is a first-cla
 ### 3.5 Cross-References
 
 - **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules. Snap reads `line()`, which the parametric model keeps in sync.
-- **Paper space:** True-scale bubble rendering through sheet viewports is defined in `docs/specs/paper-space.md` §9.9.1 (label height is a Grid Line paper-category setting; there is no per-item property). See §10.2.
+- **Paper space:** True-scale bubble rendering through sheet viewports is defined in `docs/specs/paper-space.md` §9.9.1 (label height is the fixed printed constant `GRIDLINE_BUBBLE_PAPER_CAP_MM`, no longer a Grid Line paper-category setting; there is no per-item property). See §10.2.
 - **Theming:** Selection-grip style is the selection manipulator's (theme `selection` tokens — `selection-manipulator.md`; tokens in `docs/architecture/theming.md`). See §5 / §14.
 - **Constants:** Grid constant *values* live in `firepro3d/constants.py` (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors). This spec names them, not their values (Rule A).
 
@@ -87,7 +87,7 @@ bubble2 at  p2 + _bubble2_offset · û
 reposition grips + lock indicator
 ```
 
-**Removed fields:** `_p1`/`_p2` explicit endpoints (now derived); `level` (gridlines are level-independent); `_user_layer` (layer system removed); `paper_height_mm` (retired 2026-08-08 — bubble label height is category-owned, paper-space §9.9.1).
+**Removed fields:** `_p1`/`_p2` explicit endpoints (now derived); `level` (gridlines are level-independent); `_user_layer` (layer system removed); `paper_height_mm` (retired 2026-08-08 — bubble label height is a fixed printed constant, paper-space §9.9.1).
 
 **Retired concept:** the length-proportional bubble overshoot (`GRIDLINE_BUBBLE_OVERSHOOT_FRAC`) is gone. `line()` is the *clicked span* (origin→far); bubbles stand off by explicit absolute per-end offsets (default `GRIDLINE_BUBBLE_OFFSET_MM`, `constants.py`). `paint()` draws from the offset bubble edge, shortened so the line meets each visible bubble.
 
@@ -378,7 +378,7 @@ The **selection highlight** and the **duplicate-warning** recolor never change l
 Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for the render-pass contract). Grid-system-side summary:
 
 - **Model-space editing:** unchanged — bubbles stay `ItemIgnoresTransformations`, fixed screen size, always readable. (The thin-lines WYSIWYG-preview toggle is deferred.)
-- **Sheet view rendering:** bubbles render at a true paper size derived from the Grid Line paper category's `bubble_label_height_mm` (label cap height, factory 3.0 mm); the category line weight drives both the gridline line and the bubble border on paper.
+- **Sheet view rendering:** bubbles render at a true paper size derived from the fixed printed cap height `GRIDLINE_BUBBLE_PAPER_CAP_MM` (3.0 mm; the Grid Line `bubble_label_height_mm` key and "Label Ht" column are retired by SB1c, see [the SB1c design](../superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md)); the category line weight drives both the gridline line and the bubble border on paper.
 - **Retired:** the per-item `GridlineItem.paper_height_mm` field. `to_dict` stops writing it; `from_dict` ignores the legacy key. Sizing is uniform per category (grill decision 2026-08-07).
 - Selection ring, manipulator grips, lock indicator, and the duplicate-label warning color never plot.
 - **Elevation / section gridlines (2026-10-22):** `ElevGridlineItem` plots through the same "Grid Line" paper row as the plan gridline, with parity in weight, paper-mm dash-dot, colour (B&W / Custom) and true-scale bubble size; `ElevDatumItem` plots through the "Level Datum" row (visibility, opacity, weight, dash, colour/fill). Mechanism owned by `paper-space.md` §9.9.1 (Rule A).
@@ -479,7 +479,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [x] Draw-tab ribbon "Gridline" button sets `draw_gridline`; modal Grid Lines dialog removed
 - [x] Properties-panel editing: Origin X/Y translate whole line, Length (origin fixed), Angle (rotate about origin), Bubble visible/offset, Label, Locked; End X/Y read-only; each geometry/offset commit = one undo step
 - [x] Origin Y / End Y displayed and parsed up-positive; negative-zero normalized to 0
-- [x] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (category-owned label height; per-item `paper_height_mm` retired) — built 2026-08-08
+- [x] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (label height now a fixed constant, SB1c; per-item `paper_height_mm` retired) — built 2026-08-08
 - [x] Angled gridlines supported as first-class (stored angle)
 - [x] Section views draw a gridline where it crosses the cut line; parallel gridlines hidden (angled projection, 872 — owned by `section-view-subsystem.md` §4.1)
 - [x] Auto-numbering counters sync to max existing label on load/undo/before each on-canvas placement

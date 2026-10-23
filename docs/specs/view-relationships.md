@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-22  # gridline-hosted blocks Account: s5.3 pattern-2 pointer only; prior paper section/plan parity audit: Elevation-colours bullet only (stale canvas-latched open gap dropped); prior 2026-10-21 section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
-verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
+last-verified: 2026-10-23  # SB1c Account: s5.3 annotative-sizing pointer only; prior 2026-10-22  # gridline-hosted blocks Account: s5.3 pattern-2 pointer only; prior paper section/plan parity audit: Elevation-colours bullet only (stale canvas-latched open gap dropped); prior 2026-10-21 section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
+verified-commit: 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
@@ -228,6 +228,8 @@ The spec **constrains** future views to follow one of these two existing pattern
 
 1. **Plan-family pattern** — operates on `Model_Space` directly, possibly with clipping. Cheap but inherits plan behavior.
 2. **Materialization pattern** — owns its scene/representation, rebuilds from the data model on demand, listens to model changes to know when to rebuild. (Gridline-hosted blocks are model data that this pattern materializes into parallel sections; they add no third pattern — `section-view-subsystem.md` s16.)
+
+Annotative block sizing (SB1c) adds no third pattern and no per-view scale (`PlanView.scale` / a detail-view scale were dropped, user ruling 2026-10-23): it is per-paint sizing on the shared scene; contract in [`2026-10-23-sb1c-annotative-sizing-design.md`](../superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md).
 
 Introducing a third pattern (e.g. a "shadow scene" with cloned items, or a global scene that all views share with per-view filtering) requires updating this spec first. This is deliberate: two patterns are enough surface area to reason about; three is too many.
 
