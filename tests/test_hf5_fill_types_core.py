@@ -110,3 +110,26 @@ def test_store_reset_and_bus():
     ft.reset_project_table()
     assert ft.project_table().by_name("Solid Black") is not None
     assert len(hits) >= 2
+
+
+def test_name_duplicate_row_is_aliased_to_the_kept_type():
+    """Group A review I1: the dropped duplicate's id resolves to the first type."""
+    from firepro3d.filled_region import FilledRegionItem
+    rows = [{"id": "keep", "name": "Red", "background": {"color": "#ff0000", "opacity": 1.0}},
+            {"id": "dup", "name": "red", "background": {"color": "#0000ff", "opacity": 1.0}},
+            {"id": "keep", "name": "Other"}]                 # duplicate id: no alias, dropped
+    t = ft.FillTypeTable.from_payload(rows)
+    assert [x.id for x in t.all()] == ["keep"]
+    assert t.get("dup") is t.get("keep") and t.copy().get("dup").id == "keep"
+    assert ft.resolve("dup", {}, t) == (t.get("keep").layers, False)
+    ft.set_project_table(t)
+    r = FilledRegionItem([])
+    r.set_fill_type("dup")
+    assert r.fill_layers == t.get("keep").layers and not r.fill_type_missing
+    assert r.to_dict()["fill_type"] == "dup"                  # no silent rewrite
+
+
+def test_resolve_with_an_empty_explicit_table_does_not_fall_back_to_the_project_table():
+    ft.set_project_table(ft.FillTypeTable([ft.FillType("x", "X", CONCRETE)]))
+    assert ft.resolve("x", {}, ft.FillTypeTable())[1] is True
+    assert ft.resolve("x", {})[1] is False

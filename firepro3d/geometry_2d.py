@@ -23,7 +23,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
-from .constants import CRISP_AXIS_TOL, TOKEN_AUTO
+from .constants import CRISP_AXIS_TOL, TOKEN_AUTO, TOKEN_ELEMENT
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
@@ -380,6 +380,10 @@ class Geometry2DMixin:
         or the layer's own, resolved per paint on this item's surface, at the
         layer's opacity."""
         v = self._fill_value()
+        if v is None and own == TOKEN_ELEMENT:
+            # HF5 R8: By element = this item's stroke colour (a region's own).
+            from . import fill_types
+            own = fill_types.element_colour(own, self._stroke_colour() or TOKEN_AUTO)
         col = resolve_colour(own if v is None else v, item=self)
         col.setAlpha(_fill_alpha(opacity))
         return col

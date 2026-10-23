@@ -176,8 +176,10 @@ def _reset_fill_types():
     """HF5: the project fill-type store is module global -- no leaks between tests."""
     from firepro3d import fill_types as _ft
     _ft._TABLE = None
+    _ft._BUS = None
     yield
     _ft._TABLE = None
+    _ft._BUS = None
 
 
 @pytest.fixture(autouse=True)

@@ -14,9 +14,10 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QBrush, QPainterPath, QPainterPathStroker, QPen
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle
 
-from .constants import TOKEN_AUTO, Z_FILLED_REGION
+from . import fill_types
+from .constants import FILL_TYPE_CUSTOM_LABEL, TOKEN_AUTO, Z_FILLED_REGION
 from .displayable_item import DisplayableItemMixin
-from .fill_layers import BackgroundLayer, FillLayers
+from .fill_layers import EMPTY, BackgroundLayer, FillLayers
 from .geometry_2d import Geometry2DMixin, _manip_wraps, _scene_hit_width
 
 log = logging.getLogger(__name__)
@@ -115,6 +116,54 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
             cached = self._stroke_pieces_cache = tuple(out)
         return cached
 
+    # -- HF5 fill type (R2/R3): typed = type look + sparse overrides --------
+    _fill_type: str | None = None
+    _fill_overrides: dict = {}      # never mutated in place (reassigned)
+    _own_fill = None                # set via the fill_layers setter (custom regions)
+
+    @property
+    def fill_layers(self):
+        """The fill that paints: the resolved type (+ overrides) or the region's own."""
+        if self._fill_type:
+            return fill_types.resolve(self._fill_type, self._fill_overrides)[0]
+        return self._own_fill if self._own_fill is not None else EMPTY
+
+    @fill_layers.setter
+    def fill_layers(self, layers):
+        if self._fill_type:
+            t = fill_types.project_table().get(self._fill_type)
+            base = t.layers if t is not None else fill_types.FALLBACK_LAYERS
+            self._fill_overrides = fill_types.diff_overrides(base, layers)
+        else:
+            self._own_fill = layers
+
+    @property
+    def fill_type(self) -> str | None:
+        """The Fill Type id, or None for (Custom)."""
+        return self._fill_type
+
+    @property
+    def fill_type_missing(self) -> bool:
+        """True when typed but the id resolves to no type (fallback look)."""
+        return bool(self._fill_type) and fill_types.project_table().get(self._fill_type) is None
+
+    def set_fill_type(self, type_id: str | None) -> None:
+        """Pick a type (overrides cleared) or None = (Custom) with the resolved look copied."""
+        if type_id:
+            self._fill_type, self._fill_overrides = type_id, {}
+        else:
+            look = self.fill_layers
+            self._fill_type, self._fill_overrides = None, {}
+            self._own_fill = look
+        self.update()
+
+    def reset_fill_layer(self, layer: str) -> None:
+        """Drop the overrides of one layer ('background' | 'pattern')."""
+        ov = dict(self._fill_overrides)
+        ov.pop(layer, None)
+        self._fill_overrides = ov
+        self.update()
+
     # -- fill protocol (UP1 / halo) ----------------------------------------
     def is_closed(self) -> bool:
         return True
@@ -178,7 +227,14 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         d = {"type": TYPE_KEY,
              "loops": [[_piece_record(p) for p in loop] for loop in self._loops],
              "outline": bool(self.outline)}
-        return self._geom2d_to_dict(d)
+        d = self._geom2d_to_dict(d)
+        if self._fill_type:
+            d["fill_type"] = self._fill_type
+            if self._fill_overrides:
+                d["fill"] = dict(self._fill_overrides)
+            else:
+                d.pop("fill", None)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "FilledRegionItem":
@@ -186,6 +242,14 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
                   data.get("lineweight", 1.0))
         obj.outline = bool(data.get("outline", False))
         obj._geom2d_from_dict(data)
+        tid = data.get("fill_type")
+        if isinstance(tid, str) and tid:
+            ov = data.get("fill") if isinstance(data.get("fill"), dict) else {}
+            obj._own_fill = None
+            obj._fill_type = tid
+            obj._fill_overrides = {k: v for k, v in ov.items()
+                                   if k in ("background", "pattern")
+                                   and (v is None or isinstance(v, dict))}
         return obj
 
     # -- panel -------------------------------------------------------------

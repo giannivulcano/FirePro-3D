@@ -55,6 +55,9 @@ class FillTypeTable:
 
     def __init__(self, types=()):
         self._types: dict[str, FillType] = {}
+        # {dropped id: kept id} for a same-name duplicate row dropped on load
+        # (first wins); lookups follow it so the duplicate's regions re-point.
+        self._aliases: dict[str, str] = {}
         for t in types:
             self.add(t)
 
@@ -63,8 +66,13 @@ class FillTypeTable:
         return sorted(self._types.values(), key=lambda t: t.name.casefold())
 
     def get(self, type_id) -> FillType | None:
-        """The type with *type_id*, or None."""
-        return self._types.get(type_id) if isinstance(type_id, str) else None
+        """The type with *type_id* (following a load-time duplicate alias), or None."""
+        if not isinstance(type_id, str):
+            return None
+        hit = self._types.get(type_id)
+        if hit is None:
+            hit = self._types.get(self._aliases.get(type_id))
+        return hit
 
     def by_name(self, name) -> FillType | None:
         """The type called *name* (casefolded), or None."""
@@ -99,7 +107,9 @@ class FillTypeTable:
 
     def copy(self) -> "FillTypeTable":
         """An independent table with the same (immutable) types."""
-        return FillTypeTable(self._types.values())
+        out = FillTypeTable(self._types.values())
+        out._aliases = dict(self._aliases)
+        return out
 
     def free_name(self, base: str) -> str:
         """*base*, or '*base* N' for the first unused N >= 2."""
@@ -128,12 +138,21 @@ class FillTypeTable:
 
     @classmethod
     def from_payload(cls, rows) -> "FillTypeTable":
-        """Parse rows, dropping invalid ones and duplicate ids / names (first wins)."""
+        """Parse rows, dropping invalid ones and duplicate ids / names (first wins).
+
+        A row dropped for a duplicate *name* is aliased to the type that kept
+        the name, so regions typed with the dropped id resolve to it.
+        """
         table = cls()
         for d in rows if isinstance(rows, list) else ():
             t = FillType.from_payload(d)
-            if t is not None and t.id not in table._types and not table._name_taken(t.name):
+            if t is None or t.id in table._types:
+                continue
+            kept = table.by_name(t.name)
+            if kept is None:
                 table._types[t.id] = t
+            else:
+                table._aliases[t.id] = kept.id
         return table
 
 
@@ -232,7 +251,7 @@ def diff_overrides(base: FillLayers, new: FillLayers) -> dict:
 
 def resolve(type_id, overrides, table: FillTypeTable | None = None):
     """``(FillLayers, missing)`` for a typed fill; missing -> the fallback look."""
-    t = (table or project_table()).get(type_id)
+    t = (table if table is not None else project_table()).get(type_id)
     if t is None:
         return FALLBACK_LAYERS, True
     return merge_overrides(t.layers, overrides), False
