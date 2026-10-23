@@ -2340,6 +2340,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if getattr(self, "scene", None) is not None:
             self.scene._refresh_all_labels()
             self._sync_editor_units()
+            # SB1c D7: annotative blocks size by the drawing scale.
+            from firepro3d.annotative import reprepare_annotative
+            reprepare_annotative(self.scene)
         self._modified = True
         self._update_title()
 
