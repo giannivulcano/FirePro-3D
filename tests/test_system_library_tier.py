@@ -252,3 +252,34 @@ def test_g9_base_version_survives_project_round_trip(model_space, tmp_path):
     model_space.load_blocks_from_files([bl.save_to_library(lib)])
     reopened = _round_trip_project(model_space, tmp_path)
     assert reopened._block_definitions[lib.id].base_version == 1
+
+
+def _shipped_ids():
+    from firepro3d.hatch_patterns import shipped_pattern_files
+    return sorted(bid for bid, _p in shipped_pattern_files())
+
+
+def test_g5_picker_lists_system_hatches_without_a_user_folder(
+        real_system_library, tmp_path):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.app_data import HATCH_DIR_KEY
+    from firepro3d.hatch_patterns import library_patterns, tile_choices
+    QSettings("GV", "FirePro3D").setValue(HATCH_DIR_KEY, str(tmp_path / "absent"))
+    assert sorted(bid for _n, bid, _p in library_patterns()) == _shipped_ids()
+    labels = [label for label, _ref in tile_choices(None)]
+    for name in SHIPPED:
+        assert name in labels
+
+
+def test_g5_system_first_then_user_dedup_by_id(real_system_library, tmp_path):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.app_data import HATCH_DIR_KEY
+    from firepro3d.hatch_patterns import library_patterns
+    user = tmp_path / "hatches"
+    user.mkdir()
+    shutil.copyfile(os.path.join(real_system_library, "Hatches", "Brick.fpdb"),
+                    user / "Brick.fpdb")                      # same id: dropped
+    QSettings("GV", "FirePro3D").setValue(HATCH_DIR_KEY, str(user))
+    rows = library_patterns()
+    assert [bid for _n, bid, _p in rows].count("builtin-hatch-brick") == 1
+    assert all(p.startswith(real_system_library) for _n, _b, p in rows[:5])

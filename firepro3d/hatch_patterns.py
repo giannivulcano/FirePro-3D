@@ -188,21 +188,29 @@ _log = logging.getLogger(__name__)
 
 
 def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
-    """Pattern blocks in the Hatch patterns folder (D-A37) -- the ``tile``
-    blocks of :func:`capability_folder.scan` (folder + two subfolder levels,
-    each file's ``tile`` flag, mtime cache). Never called from paint paths.
+    """Pattern blocks of the read-only System tier, then the Hatch patterns
+    folder (SB1b D4; D-A37) -- the ``tile`` blocks of
+    :func:`capability_folder.scan` (folder + two subfolder levels, each
+    file's ``tile`` flag, mtime cache). Never called from paint paths.
 
     Args:
         folder: Folder to scan; None = the configured Hatch patterns folder.
 
     Returns:
-        ``[(name, block_id, .fpdb path)]`` sorted by name; first id wins.
+        ``[(name, block_id, .fpdb path)]``: System rows first, each part
+        sorted by name; first id wins.
     """
     if folder is None:
         from .app_data import hatch_patterns_dir
         folder = hatch_patterns_dir()
+    from .block_library import system_root
     from .capability_folder import scan
-    return scan(folder, "tile")
+    out, seen = [], set()
+    for row in scan(system_root(), "tile") + scan(folder, "tile"):
+        if row[1] not in seen:                # System first; first id wins (D2)
+            seen.add(row[1])
+            out.append(row)
+    return out
 
 
 def _unique(name: str, used: set, tag: str) -> str:
