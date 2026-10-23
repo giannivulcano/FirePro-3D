@@ -62,9 +62,23 @@ class BlockPropertiesInfo:
             props["Host category"] = {"type": "string", "value": meta["host_category"]}
             props["Scale mode"] = {"type": "enum", "options": ["Real size", "Annotative"],
                                    "value": _SCALE_LABELS.get(meta["scale_mode"], "Real size")}
+            if meta["scale_mode"] == "annotative" and self._screen_row_free():
+                from .end_render import SCREEN_FIXED
+                from .linetype_render import SCREEN_LABELS
+                # SB1c D8: the ET1 / LTS-1 On screen idiom, annotative only.
+                props["On screen"] = {
+                    "type": "enum", "options": list(SCREEN_LABELS),
+                    "value": (SCREEN_LABELS[0] if meta.get("annotative_screen") == SCREEN_FIXED
+                              else SCREEN_LABELS[1])}
             props["Sample values"] = {"type": "bool",
                                       "value": self._scene.show_sample_values}
         return props
+
+    def _screen_row_free(self) -> bool:
+        """True unless a linetype / end capability already owns the
+        "On screen" row (capability_panel; one key, one meaning)."""
+        cap = self._scene.block_capability
+        return cap is None or cap[0] not in ("repeat", "end")
 
     def _open_attributes_editor(self) -> None:
         if self._editor is not None:
@@ -82,6 +96,13 @@ class BlockPropertiesInfo:
         if key == "Scale mode":
             self._scene.set_block_meta({**self._scene.block_meta,
                                         "scale_mode": _SCALE_MODES.get(str(value), "real_size")})
+            return
+        if key == "On screen" and self._screen_row_free():
+            from .end_render import SCREEN_FIXED, SCREEN_SCALE
+            from .linetype_render import SCREEN_LABELS
+            self._scene.set_block_meta({**self._scene.block_meta,
+                                        "annotative_screen": (SCREEN_FIXED if str(value) == SCREEN_LABELS[0]
+                                                              else SCREEN_SCALE)})
             return
         if self._editor is not None:
             from .capability_panel import set_capability_property

@@ -276,9 +276,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # In the undo snapshot; the frame item mirrors it.
         self.block_capability: tuple | None = None
         # Block Editor authored definition fields (SB1a S4): attributes /
-        # host_category / scale_mode. Always a dict (empty defaults off-editor).
+        # host_category / scale_mode / annotative_screen (SB1c D2). Always a
+        # dict (empty defaults off-editor).
         self.block_meta: dict = {"attributes": [], "host_category": "",
-                                 "scale_mode": "real_size"}
+                                 "scale_mode": "real_size",
+                                 "annotative_screen": "scale"}
         self.show_sample_values = True   # view flag (A6), not in the undo snapshot
         self._cap_frame = None           # CapabilityFrameItem while set
         self._tile_editor = None         # owning BlockEditorWidget (set by it)
@@ -1777,13 +1779,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                                   push_undo=push_undo)
 
     def set_block_meta(self, meta: dict, *, push_undo: bool = True) -> None:
-        """Replace the edited block's attributes / host_category / scale_mode
-        (SB1a S4). ``attributes`` records are normalised. One undo step
-        unless ``push_undo`` is False (undo restore / a composite edit)."""
+        """Replace the edited block's attributes / host_category / scale_mode /
+        annotative_screen (SB1a S4, SB1c D2). ``attributes`` records are
+        normalised. One undo step unless ``push_undo`` is False (undo restore
+        / a composite edit)."""
         from .block_attributes import normalise_attr
         new = {"attributes": [normalise_attr(a) for a in meta.get("attributes", [])],
                "host_category": str(meta.get("host_category", "")),
-               "scale_mode": str(meta.get("scale_mode", "real_size"))}
+               "scale_mode": str(meta.get("scale_mode", "real_size")),
+               "annotative_screen": ("fixed" if meta.get("annotative_screen") == "fixed"
+                                     else "scale")}
         if new == self.block_meta:
             return
         self.block_meta = new
@@ -3136,6 +3141,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         defn.attributes = list(meta.get("attributes", []))   # setter normalises
         defn.host_category = str(meta.get("host_category", ""))
         defn.scale_mode = str(meta.get("scale_mode", "real_size"))
+        defn.annotative_screen = ("fixed" if meta.get("annotative_screen") == "fixed"
+                                  else "scale")
 
     @staticmethod
     def _apply_fitting_dm_colors(fitting):

@@ -683,7 +683,8 @@ class BlockEditorWidget(QWidget):
         # So do the authored attributes / host category / scale mode (SB1a S4).
         self.editor_scene.set_block_meta(
             {"attributes": defn.attributes, "host_category": defn.host_category,
-             "scale_mode": defn.scale_mode}, push_undo=False)
+             "scale_mode": defn.scale_mode,
+             "annotative_screen": defn.annotative_screen}, push_undo=False)
         self.editor_scene.refresh_sample_preview()   # texts seeded before the meta
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
