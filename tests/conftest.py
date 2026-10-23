@@ -222,6 +222,21 @@ def _isolate_system_library_session(tmp_path_factory):
     block_library.set_system_root(None)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_block_library_session(tmp_path_factory):
+    """Session-wide block library in the DEFAULT isolated QSettings store: a
+    module-scoped MainWindow built before the first test's
+    ``_isolate_block_library`` would otherwise resolve the REAL
+    ``%APPDATA%/FirePro3D/blocks`` -- and its startup runs
+    ``system_library.migrate_user_library()`` (SB1b D5), which moves files."""
+    from firepro3d.app_data import BLOCK_DIR_KEY, SCHEMATIC_DIR_KEY
+    from PyQt6.QtCore import QSettings
+    s = QSettings("GV", "FirePro3D")
+    s.setValue(BLOCK_DIR_KEY, str(tmp_path_factory.mktemp("block_library_s")))
+    s.setValue(SCHEMATIC_DIR_KEY, str(tmp_path_factory.mktemp("schematics_s")))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _isolate_system_library(_isolate_system_library_session, tmp_path_factory):
     """Point the read-only System tier at an EMPTY per-test dir (SB1b D15), so
