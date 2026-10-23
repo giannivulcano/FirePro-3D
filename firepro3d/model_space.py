@@ -2245,6 +2245,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if loaded is None:
             return False
         lib_def, bundled = loaded
+        lib_def.base_version = lib_def.version       # reloaded at (SB1b D7)
+        for b in bundled:
+            b.base_version = b.version
         lib_def.source_path = path       # the file a later Save may re-file
         # folder + filename win, exactly as a first load (2026-10-10) -- unless
         # another project definition already holds that identity (the load
@@ -2309,6 +2312,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 summary["failed"].append(path)
                 continue
             defn, bundled = loaded
+            defn.base_version = defn.version       # loaded at (SB1b D7)
+            for b in bundled:
+                b.base_version = b.version
             entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
             if entry is not None:
                 defn.library, defn.series = entry["library"], entry["series"]

@@ -177,3 +177,64 @@ def test_g6_status_values(version, base, expected):
     proj = BlockDefinition.from_dict(lib.to_dict())
     proj.version, proj.base_version = version, base
     assert bl.source_status(proj) == expected
+
+
+# ---------------------------------------------------------------------------
+# T4: base_version stamped on load / reload (D7), G6 project half, G9
+# ---------------------------------------------------------------------------
+def _round_trip_project(scene, tmp_path):
+    """Save the project with the real serializer and reopen it in a fresh scene."""
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.model_space import Model_Space
+    from firepro3d.scale_manager import ScaleManager
+
+    proj = tmp_path / "proj.fpd"
+    scene.save_to_file(str(proj))
+    fresh = Model_Space()
+    fresh._level_manager = LevelManager()
+    fresh.scale_manager = ScaleManager()
+    fresh.load_from_file(str(proj))
+    return fresh
+
+
+def test_g6_reload_clears_update_available(model_space):
+    lib = _defn(name="Tag")
+    path = bl.save_to_library(lib)
+    model_space.load_blocks_from_files([path])
+    proj = model_space._block_definitions[lib.id]
+    assert (proj.base_version, bl.source_status(proj)) == (1, "library")
+    lib.version = 3
+    bl.save_to_library(lib)                       # the library moves on
+    assert bl.source_status(proj) == "update available"
+    assert model_space.reload_block_definition(lib.id)
+    proj = model_space._block_definitions[lib.id]
+    assert (proj.base_version, bl.source_status(proj)) == (3, "library")
+
+
+def test_g6_edited_older_copy_reads_modified(model_space):
+    lib = _defn(name="Tag")
+    path = bl.save_to_library(lib)
+    model_space.load_blocks_from_files([path])
+    proj = model_space._block_definitions[lib.id]
+    proj.set_primitives(list(proj.primitives))    # the real edit path bumps version
+    lib.version = 5
+    bl.save_to_library(lib)
+    assert bl.source_status(proj) == "modified"
+
+
+def test_g6_replace_on_load_stamps_the_new_copy(model_space):
+    lib = _defn(name="Tag")
+    model_space.load_blocks_from_files([bl.save_to_library(lib)])
+    lib.version = 4
+    path = bl.save_to_library(lib)
+    summary = model_space.load_blocks_from_files([path])
+    assert summary["replaced"] == ["Tag"]
+    proj = model_space._block_definitions[lib.id]
+    assert (proj.base_version, bl.source_status(proj)) == (4, "library")
+
+
+def test_g9_base_version_survives_project_round_trip(model_space, tmp_path):
+    lib = _defn(name="Tag")
+    model_space.load_blocks_from_files([bl.save_to_library(lib)])
+    reopened = _round_trip_project(model_space, tmp_path)
+    assert reopened._block_definitions[lib.id].base_version == 1
