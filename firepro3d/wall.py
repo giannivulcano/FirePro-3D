@@ -441,12 +441,12 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        p1l, p1r, p2r, p2l = self.mitered_quad()
+        o = self.outline()
         dc = self._display_color            # None = unset; "" = No stroke
         line_col = resolve_colour(self._colour if dc is None else dc, item=self)
         pen = self._outline_pen(line_col)
 
-        # Fill (always fill the full quad area); "" = No Fill draws nothing
+        # Fill (own body only -- D7: differing fills meet at the miter)
         fill_brush = Qt.BrushStyle.NoBrush
         dfc = self._display_fill_color
         fill_src = self._colour if dfc is None else dfc     # "" = no colour
@@ -455,12 +455,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             if not getattr(self, "_paper_fill_opaque", False):
                 fill_color.setAlpha(80)
             fill_brush = QBrush(fill_color)
-
-        solid_pt1 = getattr(self, "_solid_pt1", False)
-        solid_pt2 = getattr(self, "_solid_pt2", False)
-        # Fill polygon includes junction-wedge vertices (3-wall miters)
-        fill_poly = QPolygonF([p1l, p2l, *self._end_wedge_pts2,
-                               p2r, p1r, *self._end_wedge_pts1])
+        fill_poly = o.body
 
         # Fill, then the section hatch, then the outline on top: the hatch
         # body fills the whole polygon, so an outline stroked before it loses
@@ -494,34 +489,21 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                hatch_scale=h_scale,
                                to_scene=self.sceneTransform())
 
+        # Outline: only the cluster-union boundary on this wall's own edges
+        # (D6) -- no seam line inside a joined junction.
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        if not solid_pt1 and not solid_pt2:
-            painter.drawPolygon(fill_poly)
-        else:
-            # Left / right side edges always; an end edge only if NOT solid
-            painter.drawLine(p1l, p2l)
-            painter.drawLine(p1r, p2r)
-            if not solid_pt1:
-                painter.drawLine(p1l, p1r)
-            if not solid_pt2:
-                painter.drawLine(p2l, p2r)
+        for a, b in o.stroke_segments:
+            painter.drawLine(a, b)
 
-        # Selection highlight
+        # Selection highlight -- same pieces (Task 6 gates it off paper)
         if self.isSelected():
             sel_pen = QPen(_SELECTION_COLOR, 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            if not solid_pt1 and not solid_pt2:
-                painter.drawPolygon(fill_poly)
-            else:
-                painter.drawLine(p1l, p2l)
-                painter.drawLine(p1r, p2r)
-                if not solid_pt1:
-                    painter.drawLine(p1l, p1r)
-                if not solid_pt2:
-                    painter.drawLine(p2l, p2r)
+            for a, b in o.stroke_segments:
+                painter.drawLine(a, b)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 

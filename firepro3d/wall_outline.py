@@ -133,15 +133,64 @@ def junction_pie(arms: list[JunctionArm], junction: QPointF,
     return {order[i].key: (ccw_c[i], cw_c[i]) for i in range(n)}, hub
 
 
-def cluster_union(polys: list[QPolygonF]) -> QPainterPath:
-    """Simplified union of a cluster's union bodies (design D6)."""
+def _poly_path(poly: QPolygonF) -> QPainterPath:
+    p = QPainterPath()
+    p.addPolygon(poly)
+    p.closeSubpath()
+    return p
+
+
+def _union_in_order(paths: list[QPainterPath]) -> QPainterPath:
     u = QPainterPath()
-    for poly in polys:
-        p = QPainterPath()
-        p.addPolygon(poly)
-        p.closeSubpath()
+    for p in paths:
         u = u.united(p)
     return u.simplified()
+
+
+def _interior_point(poly: QPolygonF, path: QPainterPath) -> QPointF | None:
+    """Mean of the vertices when it lies inside *path*, else None."""
+    n = poly.count()
+    if n > 1 and poly.at(0) == poly.at(n - 1):
+        n -= 1
+    if n < 3:
+        return None
+    pt = QPointF(sum(poly.at(i).x() for i in range(n)) / n,
+                 sum(poly.at(i).y() for i in range(n)) / n)
+    return pt if path.contains(pt) else None
+
+
+def cluster_union(polys: list[QPolygonF]) -> QPainterPath:
+    """Simplified union of a cluster's union bodies (design D6).
+
+    Qt's path clipper is order-sensitive when bodies share collinear edges
+    (an explicit-Butt wall end lying on its partner's face dropped a whole
+    body in one order).  The first order whose result still contains every
+    input's interior point and spans the inputs' bounds wins; the plain
+    order is used when none validates.
+    """
+    paths = [_poly_path(poly) for poly in polys]
+    probes = [_interior_point(poly, p) for poly, p in zip(polys, paths)]
+    bounds = QPainterPath()
+    for p in paths:
+        bounds.addPath(p)
+    want = bounds.boundingRect()
+    n = len(paths)
+    first = None
+    for k in range(max(n, 1)):
+        for order in ((paths[k:] + paths[:k]),
+                      (paths[k:] + paths[:k])[::-1]):
+            u = _union_in_order(order)
+            if first is None:
+                first = u
+            got = u.boundingRect()
+            tol = WALL_OUTLINE_ON_EDGE_TOL
+            if (abs(got.left() - want.left()) <= tol
+                    and abs(got.top() - want.top()) <= tol
+                    and abs(got.right() - want.right()) <= tol
+                    and abs(got.bottom() - want.bottom()) <= tol
+                    and all(pt is None or u.contains(pt) for pt in probes)):
+                return u
+    return first if first is not None else QPainterPath()
 
 
 def boundary_segments(path: QPainterPath) -> list[Line]:
