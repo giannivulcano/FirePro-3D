@@ -261,15 +261,41 @@ def visible_corners(body: QPolygonF, boundary: list[Line],
     """Union-outline vertices lying on this wall's body boundary (D2).
 
     Mitred junction corners are outline vertices and are kept; corners
-    hidden inside a junction are not on the union boundary and drop out.
+    hidden inside a junction are not on the union boundary and drop out, as
+    do collinear (straight-through) union vertices.
     """
     edges = [(p, q, math.hypot(q.x() - p.x(), q.y() - p.y()))
              for p, q in _edges(body)]
     out: list[QPointF] = []
     seen: set[tuple[float, float]] = set()
+
+    def _same(u: QPointF, v: QPointF) -> bool:
+        return abs(u.x() - v.x()) <= tol and abs(u.y() - v.y()) <= tol
+
+    def _is_straight(a: QPointF) -> bool:
+        # A union vertex whose incoming and outgoing boundary edges are
+        # collinear is not a corner (e.g. the seam of a collinear join).
+        for p, q in boundary:
+            if not _same(q, a):
+                continue
+            for r, t in boundary:
+                if not _same(r, a):
+                    continue
+                span = math.hypot(t.x() - p.x(), t.y() - p.y())
+                if span <= 0.0:
+                    continue
+                if (_dist_to_line(a, p, t, span) <= tol
+                        and (a.x() - p.x()) * (t.x() - a.x())
+                        + (a.y() - p.y()) * (t.y() - a.y()) > 0.0):
+                    return True
+        return False
+
     for a, _b in boundary:
         k = (round(a.x() / tol), round(a.y() / tol))
         if k in seen:
+            continue
+        if _is_straight(a):
+            seen.add(k)
             continue
         for p, q, length in edges:
             if length <= 0.0 or _dist_to_line(a, p, q, length) > tol:

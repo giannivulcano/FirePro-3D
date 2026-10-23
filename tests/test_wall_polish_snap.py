@@ -74,17 +74,62 @@ def test_thin_wall_keeps_face_corners(qapp):
 
 
 def test_hidden_in_junction_corner_is_not_a_target(qapp):
-    """Only visible outline corners snap: at a T the stub's coped corners
-    are targets; the host has no corner at the T centre."""
+    """Collinear joined pair: the seam corners are hidden inside the
+    junction, so neither wall emits a face corner at the shared end."""
     s = _ms()
-    host = _add(s, (0, 0), (6000, 0), align="Center")
+    a = _add(s, (0, 0), (3000, 0), align="Center")
+    b = _add(s, (3000, 0), (6000, 0), align="Center")
+    a_names = {n for _t, _p, n in a.snap_geometry()["named"]}
+    b_names = {n for _t, _p, n in b.snap_geometry()["named"]}
+    assert "face-left-corner-A" in a_names           # free end kept
+    assert "face-right-corner-A" in a_names
+    assert "face-left-corner-B" not in a_names
+    assert "face-right-corner-B" not in a_names
+    assert "face-left-corner-B" in b_names
+    assert "face-right-corner-A" not in b_names
+    assert "face-left-corner-A" not in b_names
+    # no unnamed phantom corner on the seam either
+    for w in (a, b):
+        for _t, p, n in w.snap_geometry()["named"]:
+            if n is None:
+                assert abs(p.x() - 3000.0) > 1.0
+
+
+def test_tee_stub_has_coped_corners(qapp):
+    s = _ms()
+    _add(s, (0, 0), (6000, 0), align="Center")
     stub = _add(s, (3000, 0), (3000, 2500), align="Center")
-    names = {n for _t, _p, n in host.snap_geometry()["named"]}
-    assert "face-left-corner-A" in names            # free-end corner kept
-    pts = [p for _t, p, _n in stub.snap_geometry()["named"]
-           if _n and _n.startswith("face-") and _n.endswith("-A")]
+    pts = [p for _t, p, n in stub.snap_geometry()["named"]
+           if n and n.startswith("face-") and n.endswith("-A")]
     assert len(pts) == 2                                 # both coped corners
     assert all(abs(p.y() - 100.0) < 1e-6 for p in pts)   # on host near face
+
+
+def test_hidden_wall_gives_no_face_snap(qapp):
+    s = _ms()
+    w = _add(s, (0, 0), (6000, 0))
+    eng = SnapEngine()
+    eng.snap_nearest = False
+    y = _far_face_y(w)
+    assert eng.find(QPointF(2000, y + 3.0), s, QTransform()) is not None
+    w.hide()
+    r = eng.find(QPointF(2000, y + 3.0), s, QTransform())
+    assert r is None or abs(r.point.y() - y) > 1e-6
+
+
+def test_face_foot_not_duplicated_with_nearest_on(qapp):
+    s = _ms()
+    w = _add(s, (0, 0), (6000, 0))
+    eng = SnapEngine()
+    y = _far_face_y(w)
+    cur = QPointF(2000, y + 3.0)
+    for nearest in (True, False):
+        eng.snap_nearest = nearest
+        pts = eng._geometric_snaps(cur, w)
+        feet = [p for t, p in pts if t == "nearest"
+                and abs(p.y() - y) < 1e-6
+                and abs(p.x() - 2000.0) < 1e-6]
+        assert len(feet) == 1, (nearest, feet)
 
 
 def test_shaft_snaps_on_mid_level(qapp):

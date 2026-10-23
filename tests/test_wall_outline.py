@@ -126,3 +126,23 @@ class TestUnionAndStrokes:
         assert (950.0, 50.0) in keys          # inner mitred corner: visible
         assert (1050.0, -50.0) in keys        # outer mitred corner: visible
         assert (0.0, 50.0) in keys and (0.0, -50.0) in keys
+
+    def test_visible_corners_drop_collinear_seam_vertex(self, qapp):
+        """A union vertex between two collinear boundary edges (the seam of
+        a straight-through join, here with float noise) is not a corner."""
+        a = _poly((0, 100), (3000, 100), (3000, -100), (0, -100))
+        b = _poly((3000, 100.0000001), (6000, 100), (6000, -100),
+                  (3000, -100))
+        boundary = [
+            (QPointF(0, 100), QPointF(3000, 100.0000001)),
+            (QPointF(3000, 100.0000001), QPointF(6000, 100)),
+            (QPointF(6000, 100), QPointF(6000, -100)),
+            (QPointF(6000, -100), QPointF(0, -100)),
+            (QPointF(0, -100), QPointF(0, 100)),
+        ]
+        for body in (a, b):
+            keys = {(round(p.x()), round(p.y()))
+                    for p in visible_corners(body, boundary)}
+            assert (3000, 100) not in keys
+        assert (0, 100) in {(round(p.x()), round(p.y()))
+                            for p in visible_corners(a, boundary)}
