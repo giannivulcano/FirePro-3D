@@ -2524,6 +2524,93 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             place_instance=False, constraints=copy.deepcopy(src.constraints),
             capability=capability, kind=src.kind)
 
+    def retarget_block_refs(self, old_id: str, new_id: str) -> int:
+        """Re-point every project holder of *old_id* to *new_id* (one undo step).
+
+        SB1b D12 (Block Manager Save on an edited System copy -> the project
+        switches to the user's duplicate). Holders: placed block instances
+        (+ definition backrefs), nested instance primitives and fill-pattern
+        refs inside other definitions (``set_primitives``), 2D items' fill
+        pattern layer, and per-item Display overrides ``section_pattern``; the
+        Display Manager is re-applied so the derived section cache follows.
+        Not touched: Display category defaults (app-wide QSettings, a
+        project-local switch must not rewrite other projects), linetype / end
+        refs (none ship in System yet) and schematic viewports (never System,
+        D14).
+
+        Args:
+            old_id: The block / pattern id to leave.
+            new_id: The registered definition id to point at instead.
+
+        Returns:
+            The number of holders changed; 0 (no undo step) when the ids are
+            equal, either is unknown, or nothing referenced *old_id*.
+        """
+        import copy
+        from dataclasses import replace as _replace
+        from .fill_layers import from_record, to_record
+        from .hatch_patterns import canonical_ref
+        defs = self._block_definitions
+        if old_id == new_id or old_id not in defs or new_id not in defs:
+            return 0
+        old_c = canonical_ref(old_id)
+        count = 0
+        # H1: placed instances (+ backrefs).
+        old_d, new_d = defs[old_id], defs[new_id]
+        for inst in list(self._block_instances):
+            if inst.block_id != old_id:
+                continue
+            inst.block_id = new_id
+            if inst in old_d._instances:
+                old_d._instances.remove(inst)
+            if inst not in new_d._instances:
+                new_d._instances.append(inst)
+            inst.on_definition_changed()
+            count += 1
+        # H2 + H4: nested instance prims / fill refs inside other definitions.
+        for d in list(defs.values()):
+            if d.id in (old_id, new_id):
+                continue
+            prims = copy.deepcopy(d.primitives)
+            changed = 0
+            for p in prims:
+                if p.get("type") == "block_instance" and p.get("block_id") == old_id:
+                    p["block_id"] = new_id
+                    changed += 1
+                fill = p.get("fill")
+                if isinstance(fill, dict):
+                    layers = from_record(fill)
+                    if layers.pattern is not None and layers.pattern.ref == old_c:
+                        p["fill"] = to_record(_replace(
+                            layers, pattern=_replace(layers.pattern, ref=new_id)))
+                        changed += 1
+            if changed:
+                d.set_primitives(prims)
+                self._block_registry.invalidate(d.id, already=d._instances)
+                count += changed
+        # H3 + H5: scene items' fill pattern layer / Display section override.
+        for item in self.items():
+            fl = getattr(item, "fill_layers", None)
+            if (fl is not None and getattr(fl, "pattern", None) is not None
+                    and fl.pattern.ref == old_c):
+                item.fill_layers = _replace(
+                    fl, pattern=_replace(fl.pattern, ref=new_id))
+                item.update()
+                count += 1
+            ov = getattr(item, "_display_overrides", None)
+            if (isinstance(ov, dict)
+                    and canonical_ref(ov.get("section_pattern")) == old_c):
+                ov["section_pattern"] = new_id
+                count += 1
+        if count == 0:
+            return 0
+        # H7: re-derive the item section-pattern caches from the overrides.
+        from .display_manager import apply_saved_display_settings
+        apply_saved_display_settings(self)
+        self.push_undo_state()
+        self.blockDefinitionsChanged.emit()
+        return count
+
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None, mirrored: bool = False,
