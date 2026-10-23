@@ -28,6 +28,8 @@ _DEFAULT_COLOUR = "#cccccc"
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
 from .view_scale import scene_hit_width
+from PyQt6 import sip
+from .wall_outline import JunctionArm, intersect_lines, junction_pie
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -1087,220 +1089,66 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         quad, _solid_pt1, _solid_pt2, _w1, _w2 = self._compute_mitered_quad()
         return quad
 
-    def _compute_mitered_quad(
-        self,
-    ) -> tuple[tuple[QPointF, QPointF, QPointF, QPointF], bool, bool,
-               list[QPointF], list[QPointF]]:
-        """Pure computation shared by mitered_quad() and snap_quad_points().
+    def _join_pool(self, extra=None) -> list["WallSegment"]:
+        """Walls this wall may join (design D4): same scene and visible on
+        the active view (``LevelManager.apply_to_scene`` and sheet viewport
+        isolation express level visibility as ``isVisible()``).
 
-        Returns ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2, wedge_pts1,
-        wedge_pts2) where the wedge lists hold extra end vertices that
-        make the fill polygon cover the junction wedge at 3-wall full
-        miters.  Does NOT read or write ``self._solid_pt1`` /
-        ``self._solid_pt2``.
+        *extra* adds a wall that is already in the scene but not yet in
+        ``scene._walls`` -- load and placement call ``addItem`` before the
+        append, and ``itemChange`` refreshes neighbours in between.
+        """
+        sc = self.scene()
+        if sc is None or not hasattr(sc, "_walls"):
+            return []
+        cands = list(sc._walls)
+        if extra is not None and not any(w is extra for w in cands):
+            cands.append(extra)
+        return [w for w in cands
+                if w is not self and not sip.isdeleted(w)
+                and w.scene() is sc and w.isVisible()]
+
+    def _junction_arm(self, end_idx: int) -> JunctionArm | None:
+        """This wall's end *end_idx* as a pie arm (wall_outline.junction_pie).
+
+        At pt1 the outward vector is pt1->pt2 and the +90 deg face is the
+        left face; at pt2 the vector flips and so do the faces.
         """
         p1l, p1r, p2r, p2l = self.quad_points()
-        solid_pt1 = False
-        solid_pt2 = False
-        wedge1: list[QPointF] = []
-        wedge2: list[QPointF] = []
-
-        sc = self.scene()
-        if sc is None or not hasattr(sc, '_walls'):
-            return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2,
-                    wedge1, wedge2)
-
-        MAX_MITER = self.half_thickness_scene() * MAX_MITER_FACTOR
-
-        for my_idx in (0, 1):
-            my_pt = self._pt1 if my_idx == 0 else self._pt2
-
-            partners = []
-            for other in sc._walls:
-                if other is self:
-                    continue
-                other_ep = other.endpoint_near(my_pt, MITER_TOL)
-                if other_ep is not None:
-                    partners.append((other, other_ep))
-
-            raw_mode = (self._join_mode_pt1 if my_idx == 0
-                        else self._join_mode_pt2)
-            if raw_mode == "Auto" and len(partners) == 2:
-                # 3-wall junction: full miter cleanup (pie join) — each
-                # face miters to its angular neighbour; falls back to
-                # Butt when the geometry degenerates.
-                pie = self._pie_miter_corners(
-                    my_idx, my_pt, partners, (p1l, p1r, p2r, p2l),
-                    MAX_MITER)
-                if pie is not None:
-                    int_l, int_r, wpts = pie
-                    if my_idx == 0:
-                        p1l, p1r = int_l, int_r
-                        solid_pt1 = True
-                        wedge1 = wpts
-                    else:
-                        p2l, p2r = int_l, int_r
-                        solid_pt2 = True
-                        wedge2 = wpts
-                continue
-
-            if raw_mode == "Auto" and not partners:
-                # Tee join: endpoint on a host wall mid-span — cope the
-                # end to the host's near face (any angle; also cleans up
-                # legacy face-snapped endpoints).
-                tee = self._tee_cope_corners(
-                    my_idx, my_pt, sc._walls, (p1l, p1r, p2r, p2l),
-                    MAX_MITER)
-                if tee is not None:
-                    int_l, int_r = tee
-                    if my_idx == 0:
-                        p1l, p1r = int_l, int_r
-                        solid_pt1 = True
-                    else:
-                        p2l, p2r = int_l, int_r
-                        solid_pt2 = True
-                continue
-
-            mode = self._resolve_join_mode(my_idx, 1 + len(partners))
-
-            if mode == "Butt" or not partners:
-                continue
-
-            other, other_ep = partners[0]
-            o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
-
-            cross = (my_idx == other_ep)
-            if cross:
-                left_target = (o_p1r, o_p2r)
-                right_target = (o_p1l, o_p2l)
-            else:
-                left_target = (o_p1l, o_p2l)
-                right_target = (o_p1r, o_p2r)
-
-            int_l = self._intersect_lines(p1l, p2l,
-                                          left_target[0], left_target[1])
-            int_r = self._intersect_lines(p1r, p2r,
-                                          right_target[0], right_target[1])
-
-            if int_l is not None and int_r is not None:
-                dist_l = math.hypot(int_l.x() - my_pt.x(),
-                                    int_l.y() - my_pt.y())
-                dist_r = math.hypot(int_r.x() - my_pt.x(),
-                                    int_r.y() - my_pt.y())
-                if dist_l < MAX_MITER and dist_r < MAX_MITER:
-                    if my_idx == 0:
-                        p1l, p1r = int_l, int_r
-                        if mode == "Solid":
-                            solid_pt1 = True
-                    else:
-                        p2l, p2r = int_l, int_r
-                        if mode == "Solid":
-                            solid_pt2 = True
-
-        return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2, wedge1, wedge2)
-
-    def _pie_miter_corners(self, my_idx: int, my_pt: QPointF, partners,
-                           quad, max_miter: float):
-        """Full-miter corners for one endpoint of a 3-wall junction.
-
-        Sorts the two partners angularly around the junction, miters
-        this wall's left/right face against the wedge-facing face of the
-        angularly adjacent partner, and computes the third junction
-        corner (the partners' far-face intersection) so the fill polygon
-        can cover the junction wedge.
-
-        Returns ``(int_left, int_right, wedge_pts)`` or ``None`` when
-        the geometry degenerates (zero-length walls, parallel faces,
-        miter beyond *max_miter*) — the caller then falls back to Butt.
-        """
-        p1l, p1r, p2r, p2l = quad
         dx = self._pt2.x() - self._pt1.x()
         dy = self._pt2.y() - self._pt1.y()
         length = math.hypot(dx, dy)
         if length < 1e-9:
             return None
-        if my_idx == 0:
-            ux, uy = dx / length, dy / length
-        else:
-            ux, uy = -dx / length, -dy / length
-        # Which rotation direction from the outward vector reaches my
-        # LEFT face: +rot90 at pt1, −rot90 at pt2 (quad_points puts the
-        # left face on the +rot90(pt1→pt2) side).
-        left_sign = 1.0 if my_idx == 0 else -1.0
+        if end_idx == 0:
+            return JunctionArm(self, dx / length, dy / length,
+                               (p1l, p2l), (p1r, p2r))
+        return JunctionArm(self, -dx / length, -dy / length,
+                           (p1r, p2r), (p1l, p2l))
 
-        infos = []
-        for other, other_ep in partners:
-            odx = other._pt2.x() - other._pt1.x()
-            ody = other._pt2.y() - other._pt1.y()
-            olen = math.hypot(odx, ody)
-            if olen < 1e-9:
-                return None
-            if other_ep == 0:
-                oux, ouy = odx / olen, ody / olen
-            else:
-                oux, ouy = -odx / olen, -ody / olen
-            cross = ux * ouy - uy * oux
-            dot = ux * oux + uy * ouy
-            theta = math.atan2(cross, dot)
-            phi = theta if theta > 1e-9 else theta + 2.0 * math.pi
-            infos.append((phi, other, oux, ouy))
+    def _pie_corners(self, my_idx: int, my_pt: QPointF, partners,
+                     max_miter: float):
+        """N-way pie corners for one end (design D5).
 
-        infos.sort(key=lambda e: e[0])
-        ccw, cw = infos[0], infos[-1]
-        left_info = ccw if left_sign > 0 else cw
-        right_info = cw if left_sign > 0 else ccw
-
-        def faces(info, s):
-            """(wedge-facing face line, far face line) of a partner."""
-            _phi, other, oux, ouy = info
-            o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
-            left_line = (o_p1l, o_p2l)
-            right_line = (o_p1r, o_p2r)
-            odx2 = other._pt2.x() - other._pt1.x()
-            ody2 = other._pt2.y() - other._pt1.y()
-            olen2 = math.hypot(odx2, ody2)
-            lnx, lny = -ody2 / olen2, odx2 / olen2   # left-face offset dir
-            wnx, wny = s * ouy, -s * oux             # −s·rot90(u_partner)
-            if lnx * wnx + lny * wny > 0:
-                return left_line, right_line
-            return right_line, left_line
-
-        wedge_l, far_l = faces(left_info, left_sign)
-        wedge_r, far_r = faces(right_info, -left_sign)
-
-        int_l = self._intersect_lines(p1l, p2l, wedge_l[0], wedge_l[1])
-        int_r = self._intersect_lines(p1r, p2r, wedge_r[0], wedge_r[1])
-        if int_l is None or int_r is None:
-            return None
-        if (math.hypot(int_l.x() - my_pt.x(), int_l.y() - my_pt.y())
-                >= max_miter
-                or math.hypot(int_r.x() - my_pt.x(), int_r.y() - my_pt.y())
-                >= max_miter):
-            return None
-
-        wedge_pts: list[QPointF] = []
-        extra = self._intersect_lines(far_l[0], far_l[1], far_r[0], far_r[1])
-        if extra is not None and math.hypot(
-                extra.x() - my_pt.x(), extra.y() - my_pt.y()) < max_miter:
-            wedge_pts.append(extra)
-        return int_l, int_r, wedge_pts
-
-    def _tee_cope_corners(self, my_idx: int, my_pt: QPointF, walls,
-                          quad, max_miter: float):
-        """Cope an endpoint that tees into a host wall mid-span.
-
-        Host = the nearest wall whose centerline passes within its half
-        thickness (+ ``MITER_TOL``) of the endpoint, away from the
-        host's own endpoints.  Both of this wall's face lines are
-        intersected with the host's *near* face (the face on this wall's
-        body side), so the end hugs the host face at any angle.  Works
-        for endpoints on the host centerline (tee snap) and for legacy
-        endpoints snapped to the face.
-
-        Returns ``(int_left, int_right)`` or ``None`` (no host, ref on
-        the host centerline, parallel faces, or miter beyond the clamp).
+        Returns ``(int_left, int_right, hub)`` -- left/right as this wall's
+        ``quad_points`` faces -- or None (degenerate: caller keeps Butt).
         """
-        p1l, p1r, p2r, p2l = quad
+        arms = [self._junction_arm(my_idx)]
+        arms += [other._junction_arm(other_ep) for other, other_ep in partners]
+        if any(a is None for a in arms):
+            return None
+        res = junction_pie(arms, my_pt, max_miter)
+        if res is None:
+            return None
+        corners, hub = res
+        ccw, cw = corners[self]
+        if my_idx == 0:
+            return ccw, cw, hub          # (p1l, p1r)
+        return cw, ccw, hub              # (p2l, p2r)
+
+    def _tee_host(self, my_pt: QPointF, walls) -> "WallSegment | None":
+        """Nearest wall whose centerline passes within its half thickness
+        (+ ``MITER_TOL``) of *my_pt*, away from that wall's own ends."""
         host = None
         host_dist = float("inf")
         for other in walls:
@@ -1314,9 +1162,145 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             if d < host_dist:
                 host_dist = d
                 host = other
-        if host is None:
-            return None
+        return host
 
+    def _tee_union_end(self, host: "WallSegment", quad):
+        """Union-only end for a coped tee (G0): this wall's face lines run
+        to the host's TRUE centerline, so the stub's union polygon overlaps
+        the host with area and ``united()`` merges them.  Returns
+        ``(left, right)`` or None when a face runs parallel to the host."""
+        p1l, p1r, p2r, p2l = quad
+        a, b = host.centerline_pt1, host.centerline_pt2
+        ul = intersect_lines(p1l, p2l, a, b)
+        ur = intersect_lines(p1r, p2r, a, b)
+        if ul is None or ur is None:
+            return None
+        return ul, ur
+
+    def _compute_mitered_quad(
+        self, extra=None,
+    ) -> tuple[tuple[QPointF, QPointF, QPointF, QPointF], bool, bool,
+               list[QPointF], list[QPointF]]:
+        """Pure computation behind ``outline()`` / ``mitered_quad()``.
+
+        Returns ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2, wedge_pts1,
+        wedge_pts2); a pie end's wedge list is ``[hub]`` (design D7).
+        Does NOT read or write the cached outline.
+        """
+        e = self._join_ends(extra)
+        return (e["quad"], e["solid"][0], e["solid"][1],
+                e["wedge"][0], e["wedge"][1])
+
+    def _join_ends(self, extra=None) -> dict:
+        """Resolve both ends against the visible join pool.
+
+        Returns a dict: ``quad`` (p1l, p1r, p2r, p2l), ``solid`` (2 bools),
+        ``wedge`` (2 vertex lists), ``partners`` (2 lists of
+        ``(wall, endpoint_idx)``), ``hosts`` (tee host per end or None, found
+        whenever an end has no endpoint partner), ``tee_union`` (union-only
+        end corners per coped tee end or None) and ``pool``.
+        """
+        p1l, p1r, p2r, p2l = self.quad_points()
+        solid = [False, False]
+        wedge: list[list[QPointF]] = [[], []]
+        partners: list[list] = [[], []]
+        hosts: list = [None, None]
+        tee_union: list = [None, None]
+        pool = self._join_pool(extra)
+
+        if pool:
+            MAX_MITER = self.half_thickness_scene() * MAX_MITER_FACTOR
+            for my_idx in (0, 1):
+                my_pt = self._pt1 if my_idx == 0 else self._pt2
+                mine = partners[my_idx]
+                for other in pool:
+                    other_ep = other.endpoint_near(my_pt, MITER_TOL)
+                    if other_ep is not None:
+                        mine.append((other, other_ep))
+                if not mine:
+                    hosts[my_idx] = self._tee_host(my_pt, pool)
+
+                raw_mode = (self._join_mode_pt1 if my_idx == 0
+                            else self._join_mode_pt2)
+                if raw_mode == "Auto" and len(mine) >= 2:
+                    # 3+ walls: full pie (D5); degenerate -> Butt
+                    pie = self._pie_corners(my_idx, my_pt, mine, MAX_MITER)
+                    if pie is not None:
+                        int_l, int_r, hub = pie
+                        if my_idx == 0:
+                            p1l, p1r = int_l, int_r
+                        else:
+                            p2l, p2r = int_l, int_r
+                        solid[my_idx] = True
+                        wedge[my_idx] = [hub]
+                    continue
+
+                if raw_mode == "Auto" and not mine:
+                    # Tee join: cope to the host's near face (any angle)
+                    host = hosts[my_idx]
+                    quad = (p1l, p1r, p2r, p2l)
+                    tee = (self._tee_cope_corners(my_idx, my_pt, host, quad,
+                                                  MAX_MITER)
+                           if host is not None else None)
+                    if tee is not None:
+                        int_l, int_r = tee
+                        if my_idx == 0:
+                            p1l, p1r = int_l, int_r
+                        else:
+                            p2l, p2r = int_l, int_r
+                        solid[my_idx] = True
+                        tee_union[my_idx] = self._tee_union_end(host, quad)
+                    continue
+
+                mode = self._resolve_join_mode(my_idx, 1 + len(mine))
+                if mode == "Butt" or not mine:
+                    continue
+
+                other, other_ep = mine[0]
+                o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
+                cross = (my_idx == other_ep)
+                if cross:
+                    left_target = (o_p1r, o_p2r)
+                    right_target = (o_p1l, o_p2l)
+                else:
+                    left_target = (o_p1l, o_p2l)
+                    right_target = (o_p1r, o_p2r)
+                int_l = self._intersect_lines(p1l, p2l,
+                                              left_target[0], left_target[1])
+                int_r = self._intersect_lines(p1r, p2r,
+                                              right_target[0], right_target[1])
+                if int_l is not None and int_r is not None:
+                    dist_l = math.hypot(int_l.x() - my_pt.x(),
+                                        int_l.y() - my_pt.y())
+                    dist_r = math.hypot(int_r.x() - my_pt.x(),
+                                        int_r.y() - my_pt.y())
+                    if dist_l < MAX_MITER and dist_r < MAX_MITER:
+                        if my_idx == 0:
+                            p1l, p1r = int_l, int_r
+                        else:
+                            p2l, p2r = int_l, int_r
+                        if mode == "Solid":
+                            solid[my_idx] = True
+
+        return {"quad": (p1l, p1r, p2r, p2l), "solid": tuple(solid),
+                "wedge": (wedge[0], wedge[1]),
+                "partners": (partners[0], partners[1]),
+                "hosts": (hosts[0], hosts[1]),
+                "tee_union": (tee_union[0], tee_union[1]), "pool": pool}
+
+    def _tee_cope_corners(self, my_idx: int, my_pt: QPointF, host,
+                          quad, max_miter: float):
+        """Cope an endpoint that tees into *host* mid-span.
+
+        Both of this wall's face lines are intersected with the host's
+        *near* face (the face on this wall's body side), so the end hugs
+        the host face at any angle.  Works for endpoints on the host
+        centerline (tee snap) and for legacy endpoints snapped to the face.
+
+        Returns ``(int_left, int_right)`` or ``None`` (ref on the host
+        centerline, parallel faces, or miter beyond the clamp).
+        """
+        p1l, p1r, p2r, p2l = quad
         # Near face = host face on my body's side of the host centerline
         ref = self._pt2 if my_idx == 0 else self._pt1
         hax, hay = host._pt1.x(), host._pt1.y()
