@@ -30,7 +30,8 @@ from PyQt6.QtGui import (
 
 from PyQt6.QtCore import QSettings
 
-from .constants import DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG
+from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
+                        GRIDLINE_BUBBLE_PAPER_CAP_MM)
 from . import theme as th
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
@@ -514,7 +515,8 @@ class ElevGridlineItem(QGraphicsLineItem):
         the stored colour strings (B&W / Custom), ``None`` keeps them."""
         from .gridline import bubble_paper_geometry
         S = max(paper_scale, 1e-9)
-        r_mm, em_mm = bubble_paper_geometry(3.0 if cap_mm is None else cap_mm)
+        r_mm, em_mm = bubble_paper_geometry(
+            GRIDLINE_BUBBLE_PAPER_CAP_MM if cap_mm is None else cap_mm)
         saved = {"grid_src": self._grid_src}
         self.prepareGeometryChange()
         self._paper_line_w_mm = line_w_mm

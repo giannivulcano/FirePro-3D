@@ -60,41 +60,21 @@ def temp_settings(tmp_path):
 
 
 class TestGridLineCategoryModel:
-    def test_factory_has_bubble_height_and_medium_weight(self):
+    def test_factory_medium_weight_no_bubble_height(self):
         cat = factory_paper_categories()["Grid Line"]
-        assert cat["bubble_label_height_mm"] == 3.0
+        assert "bubble_label_height_mm" not in cat       # SB1c D12: retired
         assert cat["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
 
     def test_fresh_settings_load_defaults(self, temp_settings):
         cats = load_paper_categories(temp_settings)
-        assert cats["Grid Line"]["bubble_label_height_mm"] == 3.0
+        assert "bubble_label_height_mm" not in cats["Grid Line"]
 
-    def test_legacy_saved_category_backfills_height(self, temp_settings):
+    def test_legacy_saved_category_keeps_line_weight(self, temp_settings):
         cats = load_paper_categories(temp_settings)
-        cats["Grid Line"].pop("bubble_label_height_mm")   # simulate pre-feature save
         cats["Grid Line"]["line_weight"] = "Very Light"   # legacy value must survive
         save_paper_categories(cats, temp_settings)
         loaded = load_paper_categories(temp_settings)
-        assert loaded["Grid Line"]["bubble_label_height_mm"] == 3.0  # backfilled
         assert loaded["Grid Line"]["line_weight"] == "Very Light"    # saved value kept
-
-    def test_round_trip(self, temp_settings):
-        cats = load_paper_categories(temp_settings)
-        cats["Grid Line"]["bubble_label_height_mm"] = 4.5
-        save_paper_categories(cats, temp_settings)
-        assert load_paper_categories(temp_settings)["Grid Line"]["bubble_label_height_mm"] == 4.5
-
-    def test_project_snapshot_round_trips_bubble_height(self):
-        # Arrange: write a non-default bubble height into the (isolated) QSettings.
-        cats = load_paper_categories()
-        cats["Grid Line"]["bubble_label_height_mm"] = 4.5
-        save_paper_categories(cats)
-        # Act: capture a project snapshot, wipe settings back to factory, then restore.
-        snapshot = get_paper_display_for_save()
-        save_paper_categories(factory_paper_categories())  # wipe
-        apply_paper_display_from_project(snapshot)
-        # Assert: bubble height survived the round-trip.
-        assert load_paper_categories()["Grid Line"]["bubble_label_height_mm"] == pytest.approx(4.5)
 
 
 class TestPerItemFieldRetired:
@@ -694,42 +674,21 @@ class TestRepaintEcho:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Display Manager — "Label Ht" column on the Paper Space tab
+# Display Manager — "Label Ht" column retired (SB1c D12)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestDisplayManagerLabelHt:
-    """Widget-driven tests: drive the DimensionEdit, verify QSettings round-trip."""
-
-    def test_grid_line_row_edits_height(self, qapp):
-        """Editing the Label Ht cell for Grid Line persists bubble_label_height_mm."""
-        from firepro3d.display_manager import DisplayManager
-        from firepro3d.model_space import Model_Space
-        from firepro3d.paper_display import load_paper_categories
-        from PyQt6.QtCore import QSettings
-
-        scene = Model_Space()
-        dlg = DisplayManager(scene)
-        try:
-            edit = dlg._paper_cat_data["Grid Line"]["bubble_ht"]
-            edit.setText("5mm")
-            edit.editingFinished.emit()
-
-            settings = QSettings("GV", "FirePro3D")
-            cats = load_paper_categories(settings)
-            assert cats["Grid Line"]["bubble_label_height_mm"] == pytest.approx(5.0)
-        finally:
-            dlg.close()
-
-    def test_other_rows_disabled(self, qapp):
-        """Non-Grid-Line rows have a disabled (grayed-out) bubble_ht widget."""
+class TestDisplayManagerLabelHtRetired:
+    def test_label_ht_column_retired(self, qapp):
         from firepro3d.display_manager import DisplayManager
         from firepro3d.model_space import Model_Space
 
         scene = Model_Space()
         dlg = DisplayManager(scene)
         try:
-            assert not dlg._paper_cat_data["Wall"]["bubble_ht"].isEnabled()
-            assert not dlg._paper_cat_data["Pipe"]["bubble_ht"].isEnabled()
+            tree = dlg._ps_tree
+            headers = [tree.headerItem().text(i) for i in range(tree.columnCount())]
+            assert "Label Ht" not in headers and tree.columnCount() == 7
+            assert "bubble_ht" not in dlg._paper_cat_data["Grid Line"]
         finally:
             dlg.close()
 

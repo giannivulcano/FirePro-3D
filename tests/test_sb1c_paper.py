@@ -116,3 +116,62 @@ def test_g_real_size_unchanged(qapp, tmp_path):
     w200 = _h_stroke_widths(_export(tmp_path, _scene("real_size", half=1500.0), 0.005, "r200.pdf"))
     assert len(w50) == 1 and abs(w50[0] - 60.0) < 0.5, w50       # 3000 mm x 1:50
     assert len(w200) == 1 and abs(w200[0] - 15.0) < 0.5, w200    # 3000 mm x 1:200
+
+
+from PyQt6.QtCore import QSettings
+from PyQt6.QtWidgets import QGraphicsScene
+
+
+def test_g_dm_stale_bubble_height_ignored(qapp):
+    from firepro3d import paper_display as pd
+    from firepro3d.gridline import GridlineItem, bubble_paper_geometry
+    QSettings("GV", "FirePro3D").setValue(
+        "paper/categories/Grid Line/bubble_label_height_mm", 4.0)
+    assert "bubble_label_height_mm" not in pd.load_paper_categories()["Grid Line"]
+    ms = Model_Space()
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
+    gl.set_bubble_offset(1, 0.0)
+    gl.set_bubble_offset(2, 0.0)
+    ms.addItem(gl)
+    ms._gridlines.append(gl)
+    before = QRectF(gl.bubble1.rect())
+    saved = pd.apply_paper_overrides(ms, QRectF(-3000, -3000, 6000, 16000), 0.02)
+    try:
+        r = gl.bubble1.rect().width() / 2.0
+        assert r == pytest.approx(bubble_paper_geometry(3.0)[0] / 0.02, rel=1e-6)
+    finally:
+        pd.restore_model_display(saved)
+    assert gl.bubble1.rect() == before                       # canvas restored exactly (D11)
+
+
+def test_g_room_stale_label_height_ignored(qapp):
+    from firepro3d import paper_display as pd
+    from firepro3d.room import Room
+    QSettings("GV", "FirePro3D").setValue("paper/categories/Room/label_height_mm", 4.0)
+    scene = QGraphicsScene()
+    room = Room(boundary=[QPointF(0, 0), QPointF(6000, 0),
+                          QPointF(6000, 4000), QPointF(0, 4000)], color="#4488cc")
+    room._tag = "R101"
+    room._show_label = True
+    scene.addItem(room)
+    if hasattr(room, "_update_label"):
+        room._update_label()
+    orig = room._label_font_size
+    saved = pd.apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000), paper_scale=0.01)
+    try:
+        assert room._label_font_size == pytest.approx(2.5 / 0.01)
+    finally:
+        pd.restore_model_display(saved)
+    assert room._label_font_size == pytest.approx(orig)       # canvas unchanged (D11)
+
+
+def test_g_dm_label_ht_column_gone(qapp):
+    from firepro3d.display_manager import DisplayManager
+    dlg = DisplayManager(Model_Space())
+    try:
+        tree = dlg._ps_tree
+        headers = [tree.headerItem().text(i) for i in range(tree.columnCount())]
+        assert "Label Ht" not in headers and tree.columnCount() == 7
+        assert "bubble_ht" not in dlg._paper_cat_data["Grid Line"]
+    finally:
+        dlg.close()

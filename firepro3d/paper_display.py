@@ -21,7 +21,8 @@ from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
                         PAPER_LEGACY_PX_PER_MM, PAPER_LEGACY_SNAP_PX,
-                        UNDERLAY_LINE_WIDTH_PX)
+                        UNDERLAY_LINE_WIDTH_PX,
+                        GRIDLINE_BUBBLE_PAPER_CAP_MM, ROOM_LABEL_PAPER_CAP_MM)
 
 _log = logging.getLogger(__name__)
 
@@ -539,12 +540,6 @@ def _make_factory_category(key: str) -> dict:
         "opacity": 100,
         "visible": True,
     }
-    if key == "Grid Line":
-        cat["bubble_label_height_mm"] = 3.0
-    if key == "Room":
-        # Fixed ON-PAPER cap height for the room tag label (§9.9). Without this
-        # the label is model-unit sized and shrinks to sub-pixel at plot scale.
-        cat["label_height_mm"] = 2.5
     return cat
 
 
@@ -580,17 +575,6 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
                 else:
                     entry[prop] = raw
             # else: factory default already set above
-        # Load any category-specific numeric extras (e.g. bubble_label_height_mm).
-        for prop in factory:
-            if prop not in entry or prop not in ("color", "fill", "section_color",
-                                                  "line_weight", "opacity", "visible"):
-                raw = settings.value(f"paper/categories/{key}/{prop}")
-                if raw is not None:
-                    try:
-                        entry[prop] = float(raw)
-                    except (ValueError, TypeError):
-                        pass  # unparseable stored value — keep factory default
-                # else: factory default already in entry from dict(factory) above
         result[key] = entry
     return result
 
@@ -612,16 +596,6 @@ def save_paper_categories(cats: dict[str, dict],
                                  str(val).lower() if prop == "visible" else val)
             else:
                 settings.remove(f"paper/categories/{key}/{prop}")
-        # Persist any category-specific numeric extras present in the factory.
-        factory = factory_all[key]
-        for prop in factory:
-            if prop not in ("color", "fill", "section_color",
-                            "line_weight", "opacity", "visible"):
-                val = entry.get(prop)
-                if val is not None:
-                    settings.setValue(f"paper/categories/{key}/{prop}", val)
-                else:
-                    settings.remove(f"paper/categories/{key}/{prop}")
     settings.sync()
 
 
@@ -906,12 +880,14 @@ def _apply_room_label_paper_height(room, cat, color_mode, paper_scale, entry):
     category colour (black by default) so the tag reads; full-colour keeps the
     authored colour. Original size + colour are saved on *entry* and restored by
     ``restore_model_display``.
+
+    The size is a fixed 2.5 mm on paper (``ROOM_LABEL_PAPER_CAP_MM``) through
+    the shared annotative conversion (SB1c D10).
     """
-    S = max(paper_scale, 1e-9)
-    cap_mm = cat.get("label_height_mm", 2.5)
+    from .annotative import paper_scene_size
     entry["room_label_font_size"] = room._label_font_size
     entry["room_label_font_color"] = room._label_font_color
-    room._label_font_size = cap_mm / S
+    room._label_font_size = paper_scene_size(ROOM_LABEL_PAPER_CAP_MM, paper_scale)
     if color_mode != PaperColorMode.FULL_COLOR:
         room._label_font_color = cat["color"]
     room._update_label()
@@ -1042,15 +1018,15 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
     """
     from PyQt6.QtGui import QColor, QBrush
     from .gridline import bubble_paper_geometry
+    from .annotative import paper_scene_size
 
     S = max(paper_scale, 1e-9)
-    cap_mm = cat.get("bubble_label_height_mm", 3.0)
-    r_mm, em_mm = bubble_paper_geometry(cap_mm)
+    r_mm, em_mm = bubble_paper_geometry(GRIDLINE_BUBBLE_PAPER_CAP_MM)
 
     gl._paper_render = True          # write-together unit with the floats below
     gl._paper_line_w = lw_mm / S
     gl._paper_line_w_mm = lw_mm      # ON-PAPER mm (NOT divided by S) — dash normaliser
-    gl._paper_bubble_r = r_mm / S
+    gl._paper_bubble_r = paper_scene_size(r_mm, paper_scale)
 
     if color_mode != PaperColorMode.FULL_COLOR:
         gl._grid_color = _paper_qcolor(cat["color"], gl)
@@ -1063,7 +1039,9 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
                  else QColor(gl._grid_color))
 
     for bubble in (gl.bubble1, gl.bubble2):
-        bubble._paper_saved = bubble.enter_paper_mode(r_mm / S, em_mm / S)
+        bubble._paper_saved = bubble.enter_paper_mode(
+            paper_scene_size(r_mm, paper_scale),
+            paper_scene_size(em_mm, paper_scale))
         # Model-side Display Manager bubble scale multiplier never affects
         # paper output (§9.9.1 isolation) — the multiplier is applied as an
         # item scale on each bubble, which would compound the paper radius.
@@ -1293,7 +1271,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     resolve_line_weight_mm(cat["line_weight"]), paper_scale,
                     color_src=cat["color"] if bw else None,
                     fill_src=cat["fill"] if bw else None,
-                    cap_mm=cat.get("bubble_label_height_mm"))
+                    cap_mm=GRIDLINE_BUBBLE_PAPER_CAP_MM)
                 saved.append(entry)
                 item.setOpacity(cat["opacity"] / 100.0)
                 continue
