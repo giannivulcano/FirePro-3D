@@ -7,7 +7,7 @@ docs/superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md.
 """
 from __future__ import annotations
 
-from .constants import FIXED_END_PX_PER_MM
+from . import end_render as _er
 from .end_render import SCREEN_FIXED, SCREEN_SCALE
 from . import linetype_render as _lr
 
@@ -68,7 +68,9 @@ def annotative_factor(item, painter=None) -> float:
         else:
             from .view_scale import scene_view_scale
             dev = scene_view_scale(sc)
-        return FIXED_END_PX_PER_MM / max(float(dev), 1e-12)
+        return _er.screen_factor(paper_scale=None, role=_PLAN_ROLE, device_scale=dev)
+    # Not linetype_render.printed_factor: it returns drawing_scale for the
+    # block_editor role, but D5 needs k = 1 there (handled above).
     sm = getattr(sc, "scale_manager", None)
     ds = getattr(sm, "drawing_scale", None)
     return float(ds) if ds else 1.0
@@ -81,3 +83,17 @@ def reprepare_annotative(scene) -> None:
         if is_annotative(inst.definition()):
             inst.prepareGeometryChange()
             inst.update()
+
+
+def model_factor(item) -> float:
+    """Explode / model-pose scale factor of *item* (ruling 2026-10-23: explode
+    bakes the size you see): an annotative block on a plan canvas -> the
+    drawing scale (Fixed size too, its screen size is zoom-dependent);
+    otherwise 1."""
+    if not is_annotative(item.definition()):
+        return 1.0
+    sc = item.scene()
+    if sc is None or getattr(sc, "scene_role", None) != _PLAN_ROLE:
+        return 1.0
+    ds = getattr(getattr(sc, "scale_manager", None), "drawing_scale", None)
+    return float(ds) if ds else 1.0

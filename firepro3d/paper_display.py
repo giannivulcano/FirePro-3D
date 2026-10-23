@@ -1000,6 +1000,9 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     two hooks instead. Fill / pattern ops stay under the hatch rules.
     """
     from PyQt6.QtGui import QColor
+    from .annotative import is_annotative
+    if is_annotative(inst.definition()):
+        inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
     inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
@@ -1595,6 +1598,9 @@ def restore_model_display(saved: list[dict]):
 
         elif cat_key == "Blocks":
             # Paint hooks only (H5); opacity/visibility restored above.
+            from .annotative import is_annotative
+            if is_annotative(item.definition()):
+                item.prepareGeometryChange()     # SB1c D6
             (item._paper_pen_width, item._paper_pen_color,
              item._paper_scale) = entry.get("block_paper", (None, None, None))
             item.update()

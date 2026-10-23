@@ -1583,7 +1583,7 @@ class SnapEngine:
                                     _pose.map(QPointF(el.x, el.y)), None))
         # Text primitives snap by their frame box (S6), mapped through the
         # full pose (definition-local boxes: mirror / scale apply, DD2).
-        _full = inst.full_pose_transform()
+        _full = inst.display_pose_transform()
         for box in (defn.text_snap_points() if defn is not None else []):
             pts.extend(self._box_snaps([_full.map(p) for p in box]))
         return pts
