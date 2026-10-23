@@ -385,6 +385,7 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         _delete_path(old)
 
     # (c) Write the .fpdb (the file IS the listing -- no index).
+    definition.base_version = definition.version   # saved at = untouched (D7)
     rec = definition.to_dict()
     rec[COLOUR_TOKENS_MARK] = 1       # HF1 (D-A20): file is token-migrated
     if bundled:

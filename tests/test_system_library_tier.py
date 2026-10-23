@@ -222,6 +222,20 @@ def test_g6_edited_older_copy_reads_modified(model_space):
     assert bl.source_status(proj) == "modified"
 
 
+def test_g6_saving_an_edited_copy_stamps_it_untouched(model_space):
+    """Saving the edited project copy to the library makes it the library
+    version: base_version follows, the file carries it, status reads library."""
+    lib = _defn(name="Tag")
+    model_space.load_blocks_from_files([bl.save_to_library(lib)])
+    proj = model_space._block_definitions[lib.id]
+    proj.set_primitives(list(proj.primitives))    # edited -> version 2
+    assert bl.source_status(proj) == "modified"
+    path = bl.save_to_library(proj)
+    assert proj.base_version == proj.version == 2
+    assert bl.load_block_file(path).base_version == 2
+    assert bl.source_status(proj) == "library"
+
+
 def test_g6_replace_on_load_stamps_the_new_copy(model_space):
     lib = _defn(name="Tag")
     model_space.load_blocks_from_files([bl.save_to_library(lib)])
