@@ -32,7 +32,8 @@ from .constants import (CRISP_AXIS_TOL as _AXIS_TOL, CRISP_CLOSE_TOL as _RING_TO
                         Z_UNDERLAY, UNDERLAY_LINE_WIDTH_PX)
 from .dxf_import_worker import DxfImportWorker
 from .underlay import Underlay
-from .underlay_freeze import _UnderlayPathItem
+from .underlay_freeze import (_UnderlayPathItem, _UnderlayPixmapItem,
+                              _UnderlayGroup, _UnderlayPlaceholderRect)
 from .colour_tokens import resolve_colour
 from . import crisp_stroke as _cs
 
@@ -562,7 +563,10 @@ class UnderlayController:
         self._scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         for item in items:
             self._scene.addItem(item)
-        group = self._scene.createItemGroup(items)
+        group = _UnderlayGroup()         # paper-safe selection (D11)
+        self._scene.addItem(group)
+        for item in items:
+            group.addToGroup(item)
         group.setZValue(Z_UNDERLAY)
         self._scene.setItemIndexMethod(old_method)
 
@@ -731,7 +735,7 @@ class UnderlayController:
             self._scene._show_status("Failed to render PDF page")
             return
 
-        item = QGraphicsPixmapItem(pixmap)
+        item = _UnderlayPixmapItem(pixmap)
         item.setZValue(Z_UNDERLAY)
         item.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
@@ -898,7 +902,7 @@ class UnderlayController:
 
     def _create_underlay_placeholder(self, data: Underlay) -> QGraphicsItem:
         """Create a placeholder rect for a missing underlay file."""
-        rect = QGraphicsRectItem(0, 0, 200, 150)
+        rect = _UnderlayPlaceholderRect(0, 0, 200, 150)
         pen = QPen(QColor("#ff0000"), 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         rect.setPen(pen)

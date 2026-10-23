@@ -138,6 +138,41 @@ def _water_supply(s):
     s.addItem(w)
     return w
 
+# Underlays go through the controller's own construction paths (D11).
+def _underlay_pixmap(s):
+    import tempfile
+    from pathlib import Path
+    import fitz
+    pdf = Path(tempfile.mkdtemp()) / "u.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)
+    page.draw_rect(fitz.Rect(0, 0, 200, 200), color=(0, 0, 0), fill=(0, 0, 0))
+    doc.save(str(pdf))
+    doc.close()
+    s.import_pdf(str(pdf), dpi=72, page=0, import_mode="raster")
+    return s.underlays[-1][1]
+
+def _underlay_group(s):
+    from firepro3d.underlay import Underlay
+    rec = Underlay(type="dxf", path="x.dxf")
+    geoms = [{"kind": "line", "x1": -800, "y1": 0, "x2": 800, "y2": 0,
+              "layer": "A"},
+             {"kind": "line", "x1": 0, "y1": -800, "x2": 0, "y2": 800,
+              "layer": "A"}]
+    group, _layers = s._build_batched_underlay_group(geoms, rec)
+    # The builder returns an unflagged group; every caller (import_dxf,
+    # _import_pdf_vectors, place, cache load) then sets these two flags.
+    group.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+                   | QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+    return group
+
+def _underlay_placeholder(s):
+    from firepro3d.underlay import Underlay
+    rec = Underlay(type="dxf", path="missing.dxf")
+    rec.x, rec.y = -100.0, -75.0
+    return s._underlay_ctl._create_underlay_placeholder(rec)
+
+
 def _g2d(cls_name, *args, **kw):
     def make(s):
         import firepro3d.geometry_2d as g
@@ -152,6 +187,8 @@ _KINDS = {
     "room": _room, "floor_slab": _slab, "wall_opening": _opening,
     "detail_marker": _detail, "hydraulic_badge": _badge,
     "filled_region": _region, "water_supply": _water_supply,
+    "underlay_pixmap": _underlay_pixmap, "underlay_group": _underlay_group,
+    "underlay_placeholder": _underlay_placeholder,
     "line": _g2d("LineItem", QPointF(-800, 0), QPointF(800, 0)),
     "rectangle": _g2d("RectangleItem", QPointF(-600, -400), QPointF(600, 400)),
     "circle": _g2d("CircleItem", QPointF(0, 0), 500.0),

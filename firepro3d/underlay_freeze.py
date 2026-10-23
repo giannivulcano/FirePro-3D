@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, Qt, QTimer
 from PyQt6.QtGui import QBrush, QPainter, QPen, QPixmap, QTransform
-from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsPixmapItem
+from PyQt6.QtWidgets import (QGraphicsItemGroup, QGraphicsPathItem,
+                             QGraphicsPixmapItem, QGraphicsRectItem, QStyle)
 
 from .colour_tokens import is_token, resolve_colour, resolve_pen_brush
 
@@ -28,6 +29,37 @@ from .constants import (
     UNDERLAY_FREEZE_SETTLE_MS,
 )
 from .crisp_stroke import SplitCache, stroke_cached
+from .paper_display import paper_pass_active
+
+
+class _UnderlayPixmapItem(QGraphicsPixmapItem):
+    """Raster underlay: Qt's default selection outline never plots on a sheet
+    (wall polish D11)."""
+
+    def paint(self, painter, option, widget=None):
+        if paper_pass_active():
+            option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+
+
+class _UnderlayGroup(QGraphicsItemGroup):
+    """Vector underlay group: its own selection outline never plots on a sheet
+    (wall polish D11)."""
+
+    def paint(self, painter, option, widget=None):
+        if paper_pass_active():
+            option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+
+
+class _UnderlayPlaceholderRect(QGraphicsRectItem):
+    """Missing-underlay placeholder: selection outline never plots on a sheet
+    (wall polish D11)."""
+
+    def paint(self, painter, option, widget=None):
+        if paper_pass_active():
+            option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
 
 
 class _UnderlayPathItem(QGraphicsPathItem):
