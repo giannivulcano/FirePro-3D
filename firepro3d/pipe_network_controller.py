@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPen, QColor, QFont
 
 from .cad_math import CAD_Math
+from . import marks
 from .node import Node
 from .pipe import Pipe
 from .display_manager import apply_category_defaults
@@ -152,7 +153,7 @@ class PipeNetworkController:
         _set_svg_tint(fitting.symbol, color, fill)
         fitting.symbol.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
 
-    def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True):
+    def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True, mint=True):
         pipe = Pipe(n1, n2)
         # Apply template first so non-level properties are copied
         if template:
@@ -163,6 +164,8 @@ class PipeNetworkController:
         self._scene.sprinkler_system.add_pipe(pipe)
         self._scene.addItem(pipe)
         apply_category_defaults(pipe)
+        if mint:
+            marks.mint(self._scene, pipe)    # after the template copy, so a copy never keeps the source Mark
         pipe.update_label()   # re-run now that pipe.scene() is valid
         pipe.update_geometry()
         # Ensure visibility — level filtering may not have run yet
@@ -250,8 +253,12 @@ class PipeNetworkController:
             for key in ("Diameter", "Schedule", "C-Factor",
                         "Material", "Colour", "Phase", "Line Type"):
                 seg._properties[key]["value"] = pipe._properties[key]["value"]
+            if na is node_a:
+                seg._properties["Mark"]["value"] = pipe._properties["Mark"]["value"]
             self._scene.sprinkler_system.add_pipe(seg)
             self._scene.addItem(seg)
+            if na is not node_a:
+                marks.mint(self._scene, seg)          # n2-side half mints (R1)
             seg.set_pipe_display()
 
         self.delete_pipe(pipe)
@@ -276,7 +283,7 @@ class PipeNetworkController:
         node_b = pipe.node2
         # Use _propagate_ceiling=False — pipe attributes can be stale.
         # Copy ceiling from the authoritative source (endpoint nodes).
-        self.add_pipe(node_a, new_node, pipe, _propagate_ceiling=False)
+        self.add_pipe(node_a, new_node, pipe, _propagate_ceiling=False, mint=False)   # n1 half keeps the Mark (R1)
         self.add_pipe(new_node, node_b, pipe, _propagate_ceiling=False)
         self.delete_pipe(pipe)
         # Set new_node's ceiling from node_a (authoritative endpoint)

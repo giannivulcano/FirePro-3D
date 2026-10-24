@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QBrush, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsEllipseItem, QGraphicsRectItem
 
+from . import marks
 from .node import Node
 from .pipe import Pipe
 from .water_supply import WaterSupply
@@ -38,7 +39,7 @@ class SprinklerWorkflowController:
 
     # ── Sprinkler CRUD ─────────────────────────────────────────────────────────
 
-    def add_sprinkler(self, n, template=None):
+    def add_sprinkler(self, n, template=None, mint=True):
         if n.has_sprinkler():
             return
         n.add_sprinkler()
@@ -47,6 +48,8 @@ class SprinklerWorkflowController:
         if template:
             sprinkler.set_properties(template)
         apply_category_defaults(sprinkler)
+        if mint:
+            marks.mint(self._scene, sprinkler)
         sprinkler.setVisible(True)
         sprinkler.update()
         if n.has_fitting():

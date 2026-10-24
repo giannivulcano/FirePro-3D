@@ -232,7 +232,7 @@ def deserialize_node(scene, entry):
                 template.set_property(key, value["value"])
             else:
                 template.set_property(key, value)
-        scene.add_sprinkler(node, template)
+        scene.add_sprinkler(node, template, mint=False)
         node.sprinkler._display_overrides = entry.get(
             "sprinkler_display_overrides", {})
 
@@ -272,7 +272,7 @@ def deserialize_pipe(scene, entry, id_to_node):
     n2 = id_to_node.get(entry["node2_id"])
     if not (n1 and n2):
         return None
-    pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False)
+    pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False, mint=False)
     pipe.level = entry.get("level", DEFAULT_LEVEL)
     for key, value in entry.get("properties", {}).items():
         pipe.set_property(key, value)

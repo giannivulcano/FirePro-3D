@@ -30,6 +30,7 @@ from .colour_tokens import preview_colour
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsRectItem
 
 from .constants import AUTO_JOIN_TOLERANCE, TEE_TOLERANCE
+from . import marks
 from .display_manager import apply_category_defaults
 from .wall import WallSegment, compute_wall_quad
 from .geometry_2d import (rect_side_ghost, rect_signed_depth,
@@ -144,6 +145,7 @@ class WallPlacementController:
             self._scene.addItem(wall)
             self._scene._walls.append(wall)
             apply_category_defaults(wall)
+            marks.mint(self._scene, wall)
             # Auto-join: snap endpoints to nearby walls
             self._auto_join_wall(wall)
             wall.setSelected(True)
@@ -526,6 +528,7 @@ class WallPlacementController:
             self._scene.addItem(wall)
             self._scene._walls.append(wall)
             apply_category_defaults(wall)
+            marks.mint(self._scene, wall)
             walls_created.append(wall)
         for wall in walls_created:
             self._auto_join_wall(wall)

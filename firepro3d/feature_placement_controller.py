@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsItem
 
+from . import marks
 from .constants import OPENING_ALIGNMENTS
 from .wall_opening import WallOpening
 from .feature import DEFAULT_FEATURE_FOR_TYPE
@@ -93,6 +94,7 @@ class FeaturePlacementController:
         op._reposition()
         wall.openings.append(op)
         self._scene.addItem(op)
+        marks.mint(self._scene, op)
         self._scene.push_undo_state()
         self._scene.instructionChanged.emit("Click on a wall to place an opening")
         # Single-placement: return to Select with the new opening selected.

@@ -12,6 +12,7 @@ from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QImage, QPolygonF,
                           QTransform)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
+from . import marks
 from .node import Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
@@ -3223,9 +3224,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _apply_fitting_dm_colors(fitting):
         return PipeNetworkController._apply_fitting_dm_colors(fitting)
 
-    def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True):
+    def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True, mint=True):
         return self._pipe_ctl.add_pipe(n1, n2, template=template,
-                                       _propagate_ceiling=_propagate_ceiling)
+                                       _propagate_ceiling=_propagate_ceiling, mint=mint)
 
     def _validate_4th_branch(self, node, new_pt: QPointF) -> str | None:
         return self._pipe_ctl._validate_4th_branch(node, new_pt)
@@ -3272,8 +3273,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def delete_pipe(self, pipe):
         return self._pipe_ctl.delete_pipe(pipe)
 
-    def add_sprinkler(self, n, template=None):
-        return self._spr_ctl.add_sprinkler(n, template=template)
+    def add_sprinkler(self, n, template=None, mint=True):
+        return self._spr_ctl.add_sprinkler(n, template=template, mint=mint)
 
     def remove_sprinkler(self, n):
         return self._spr_ctl.remove_sprinkler(n)
@@ -6747,6 +6748,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         self.addItem(room)
         self._rooms.append(room)
+        marks.mint(self, room)
         apply_category_defaults(room)
         self.clearSelection()
         room.setSelected(True)
@@ -6784,6 +6786,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             room.name = f"Room {len(self._rooms) + 1}"
             self.addItem(room)
             self._rooms.append(room)
+            marks.mint(self, room)
             self._room_manual_active = room
             self.update_preview_node(snapped)
             self.instructionChanged.emit("Pick next point (click near first or Enter to close)")

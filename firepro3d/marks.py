@@ -239,3 +239,31 @@ def patterns(scene) -> dict:
     out = dict(DEFAULT_PATTERNS)
     out.update(getattr(scene, "mark_patterns", None) or {})
     return out
+
+
+def level_number_of(scene, item) -> Optional[int]:
+    """``Level.number`` of the level *item* sits on, or None (no level / unassigned)."""
+    lm = getattr(scene, "_level_manager", None)
+    name = item_level_name(item)
+    if lm is None or not name:
+        return None
+    lvl = lm.get(name)
+    num = getattr(lvl, "number", 0) if lvl is not None else 0
+    return num or None
+
+
+def mint(scene, item) -> str:
+    """Give a newly created *item* the next Mark of its category (spec A1 / M7).
+
+    Called explicitly at each creation site; never on load, undo, move or edit.
+    Returns the Mark written ("" for a blank pattern or a non-Mark item).
+    """
+    cat = category_of(item)
+    if cat not in MARK_CATEGORIES or scene is None:
+        return ""
+    pattern = patterns(scene).get(cat, "")
+    level_number = level_number_of(scene, item)
+    existing = [get_mark(i) for i in items_of_category(scene, cat) if i is not item]
+    mark = format_mark(pattern, next_number(pattern, level_number, existing), level_number)
+    set_mark(item, mark)
+    return mark
