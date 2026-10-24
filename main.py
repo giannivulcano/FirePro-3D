@@ -1662,7 +1662,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _btn = g_set.add_large_button(
             "Project Settings", _I("settings_project_icon.svg"),
             self._open_project_settings)
-        _btn.setToolTip("Settings for the current project (Project Info / Units)")
+        _btn.setToolTip("Settings for the current project (Project Info / Units / Marks)")
 
         # Edit group retired (chrome revamp): Undo/Redo migrated to the header
         # rail (window-wide Ctrl+Z/Ctrl+Y shortcuts back them).

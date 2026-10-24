@@ -11,11 +11,12 @@ import logging
 from typing import Callable
 
 from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QPushButton, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QPushButton, QSpinBox, QStackedWidget, QStyledItemDelegate, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from firepro3d.constants import (
@@ -1663,3 +1664,108 @@ class ProjectInfoPane(SettingsPane):
         if not self._snapshot:
             return
         self._populate_table_from_dict(self._snapshot)
+
+
+class _PatternDelegate(QStyledItemDelegate):
+    """Pattern-column editor that reports every keystroke (textEdited) to the pane."""
+
+    def __init__(self, pane):
+        super().__init__(pane._table)
+        self._pane = pane
+
+    def createEditor(self, parent, option, index):
+        from PyQt6.QtGui import QFont
+        from firepro3d.theme import FONT_VALUE
+        editor = super().createEditor(parent, option, index)
+        editor.setFont(QFont(FONT_VALUE))
+        row = index.row()
+        editor.textEdited.connect(lambda text, r=row: self._pane._preview_row(r, text))
+        return editor
+
+
+class MarksPane(SettingsPane):
+    """Per-category Mark patterns (element-parameters.md Marks, A3).
+
+    Edits stage in the table; apply() writes ``scene.mark_patterns``.
+    A pattern edit never rewrites existing Marks (M4).
+    """
+
+    def __init__(self, scene=None, parent=None):
+        super().__init__("Marks", parent)
+        self._scene = scene
+        self._snapshot: dict = {}
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
+        from firepro3d import marks
+        from firepro3d.theme import FONT_VALUE, detect
+        mono = QFont(FONT_VALUE)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 10, 10, 10)
+        self._table = QTableWidget(len(marks.MARK_CATEGORIES), 3)
+        self._table.setHorizontalHeaderLabels(["Category", "Pattern", "Next"])
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self._table.setColumnWidth(0, 110)
+        self._table.setColumnWidth(1, 200)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(30)
+        self._table.setItemDelegateForColumn(1, _PatternDelegate(self))
+        muted = detect().muted
+        for row, cat in enumerate(marks.MARK_CATEGORIES):
+            c = QTableWidgetItem(cat)
+            c.setFlags(c.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            p = QTableWidgetItem("")
+            p.setFont(mono)
+            n = QTableWidgetItem("")
+            n.setFlags(n.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            n.setFont(mono)
+            n.setForeground(QColor(muted))
+            self._table.setItem(row, 0, c)
+            self._table.setItem(row, 1, p)
+            self._table.setItem(row, 2, n)
+        self._table.itemChanged.connect(self._on_item_changed)
+        outer.addWidget(self._table)
+        for text in ("{n} number   {n:02} zero-padded   {level} the element's Level Number",
+                     "Next = what the next new element of that category will receive "
+                     "(highest existing + 1). Click a Pattern cell to edit."):
+            hint = QLabel(text)
+            hint.setProperty("role", "muted")
+            hint.setWordWrap(True)
+            outer.addWidget(hint)
+        outer.addStretch()
+
+    def _category(self, row: int) -> str:
+        return self._table.item(row, 0).text()
+
+    def _preview_row(self, row: int, text: str) -> None:
+        from firepro3d import marks
+        from firepro3d.theme import detect
+        nxt = marks.preview_next(self._scene, self._category(row), text)
+        item = self._table.item(row, 2)
+        item.setText(nxt)
+        t = detect()
+        item.setForeground(QColor(t.warn if nxt == "(blank)" else t.muted))
+
+    def _on_item_changed(self, item) -> None:
+        if item.column() == 1:
+            self._preview_row(item.row(), item.text())
+
+    def load(self) -> None:
+        from firepro3d import marks
+        pats = marks.patterns(self._scene)
+        self._snapshot = dict(getattr(self._scene, "mark_patterns", {}) or {})
+        for row in range(self._table.rowCount()):
+            self._table.item(row, 1).setText(pats.get(self._category(row), ""))
+
+    def apply(self) -> None:
+        pats = {self._category(r): self._table.item(r, 1).text()
+                for r in range(self._table.rowCount())}
+        self._scene.mark_patterns = pats
+
+    def revert(self) -> None:
+        self._scene.mark_patterns = dict(self._snapshot)

@@ -909,6 +909,8 @@ QLabel[state="warn"] {{
     color: {t.warn}; background: {t.warn_soft};
     border-radius: 6px; padding: 6px 8px;
 }}
+/* cell editors inset inside the row (Marks pane; mockup surface 1) */
+QTableWidget QLineEdit {{ margin: 3px; }}
 /* table rows read as separated cards */
 QTableWidget::item, QTableView::item {{
     border-bottom: 1px solid {t.border_subtle};

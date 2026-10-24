@@ -284,3 +284,16 @@ def mint(scene, item) -> str:
     mark = format_mark(pattern, next_number(pattern, level_number, existing), level_number)
     set_mark(item, mark)
     return mark
+
+
+def preview_next(scene, category: str, pattern: str) -> str:
+    """What the next *category* element would get under *pattern* (Marks pane Next).
+
+    ``{level}`` resolves to the active level's number; a blank result shows ``(blank)``.
+    """
+    lm = getattr(scene, "_level_manager", None)
+    lvl = lm.get(getattr(scene, "active_level", "")) if lm is not None else None
+    level_number = (getattr(lvl, "number", 0) or None) if lvl is not None else None
+    existing = [get_mark(i) for i in items_of_category(scene, category)]
+    out = format_mark(pattern, next_number(pattern, level_number, existing), level_number)
+    return out or "(blank)"

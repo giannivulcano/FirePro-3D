@@ -1,4 +1,4 @@
-"""Project (per-.fpd) settings dialog — Project Info / Units & Precision.
+"""Project (per-.fpd) settings dialog — Project Info / Units & Precision / Marks.
 
 See docs/specs/settings-dialog.md §4.2.
 """
@@ -9,12 +9,12 @@ from typing import Callable
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QWidget
 
 from firepro3d.house_dialog import HouseDialog
-from firepro3d.settings.panes import ProjectInfoPane, UnitsPane
+from firepro3d.settings.panes import MarksPane, ProjectInfoPane, UnitsPane
 from firepro3d.ui_kit import SideTabs
 
 
 class ProjectSettingsDialog(HouseDialog):
-    """Per-project settings dialog with Project Info and Units & Precision panes.
+    """Per-project settings dialog with Project Info, Units & Precision and Marks panes.
 
     Uses HouseDialog chrome + SideTabs rail + QStackedWidget body.
     """
@@ -22,6 +22,7 @@ class ProjectSettingsDialog(HouseDialog):
     _TABS = [
         ("project_info", "Project Info"),
         ("units",        "Units & Precision"),
+        ("marks",        "Marks"),
     ]
 
     def __init__(
@@ -43,6 +44,7 @@ class ProjectSettingsDialog(HouseDialog):
             "units": UnitsPane(
                 scale_manager=scene.scale_manager, on_changed=on_changed
             ),
+            "marks": MarksPane(scene=scene),
         }
 
         body = QWidget()
