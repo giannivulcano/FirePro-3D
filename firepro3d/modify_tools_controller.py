@@ -20,6 +20,7 @@ from PyQt6.QtGui import QPainterPath, QTransform
 from .cad_math import CAD_Math
 from .constants import ARRAY_GHOST_FULL_MAX
 from .constraint_dims import point_map_like
+from .design_area import DesignArea
 from .gridline import GridlineItem
 from .handle_snap import HandleSnapSession
 from .scale_manager import ScaleManager
@@ -1457,12 +1458,25 @@ class ModifyToolsController:
 
         Array copies through ``paste_items``; records it has no branch for
         are left out so the ghost, the dim and the "(k skipped)" count match
-        what is created.
+        what is created. A design area is rebound by its sprinklers' nodes,
+        so it counts only with every one of them also copyable.
         """
         s = self._scene
-        return [it for it in self._transformable(items)
-                if all(s._paste_accepts(r)
-                       for r in s._clipboard_item_dicts([it]) or [{}])]
+        return self._with_design_area_members(
+            [it for it in self._transformable(items)
+             if all(s._paste_accepts(r)
+                    for r in s._clipboard_item_dicts([it]) or [{}])])
+
+    @staticmethod
+    def _with_design_area_members(targets) -> list:
+        """*targets* minus every design area whose sprinkler nodes are not all
+        in *targets* too (paste_items would skip it: nothing to rebind to)."""
+        present = {id(it) for it in targets}
+        return [it for it in targets
+                if not isinstance(it, DesignArea)
+                or (it.sprinklers
+                    and all(sp.node is not None and id(sp.node) in present
+                            for sp in it.sprinklers))]
 
     def _array_targets(self, items) -> list:
         """What the current variant arrays (and ghosts).
@@ -1475,8 +1489,9 @@ class ModifyToolsController:
         from .node import Node
         copyable = self._array_copyable(items)
         if self._scene._array_variant == "polar":
-            return [it for it in self._rotatable(copyable)
-                    if not isinstance(it, Node)]
+            return self._with_design_area_members(
+                [it for it in self._rotatable(copyable)
+                 if not isinstance(it, Node)])
         return copyable
 
     def _array_refusal(self, targets) -> "str | None":

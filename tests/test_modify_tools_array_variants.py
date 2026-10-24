@@ -711,3 +711,77 @@ def test_status_readout_shows_an_active_angle_lock(qapp):
         assert "(locked)" not in msgs[-1]
     finally:
         close_view(view, scene)
+
+
+def _design_area(scene, xs):
+    from firepro3d.design_area import DesignArea
+    nodes = [scene.add_node(float(x), 0.0) for x in xs]
+    for n in nodes:
+        scene.add_sprinkler(n)
+    da = DesignArea([n.sprinkler for n in nodes])
+    da.level = scene.active_level
+    scene.addItem(da)
+    scene.design_areas.append(da)
+    return da, nodes
+
+
+def test_lone_design_area_is_not_arrayable(qapp):
+    """F2: a design area whose sprinklers are not selected too can't be created
+    by the paste, so Array refuses it up front (not a ghost + 'Nothing arrayed')."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        da, nodes = _design_area(scene, (0, 3000))
+        scene.push_undo_state()
+        scene.clearSelection(); da.setSelected(True)
+        assert scene._modify_ctl._array_copyable([da]) == []
+        assert not scene._modify_ctl.start("array")                      # [RED]
+        assert msgs[-1] == scene._modify_ctl.ARRAY_NOTHING_COPYABLE
+    finally:
+        close_view(view, scene)
+
+
+def test_polar_design_area_with_its_nodes_is_skipped_and_counted(qapp):
+    """F2: Polar drops Nodes, so a design area selected with its sprinklers has
+    nothing to rebind to -- it is not ghosted and shows in '(k skipped)'."""
+    from firepro3d.gridline import GridlineItem
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        msgs = []
+        scene._show_status = lambda m, timeout=5000: msgs.append(m)
+        da, nodes = _design_area(scene, (300, 600))
+        gl = GridlineItem(QPointF(100, -50), QPointF(100, 50), label="P1")
+        scene._register_gridline(gl)
+        scene.push_undo_state()
+        scene.clearSelection()
+        for it in (da, gl, *nodes):
+            it.setSelected(True)
+        assert scene._modify_ctl.start("array")
+        _polar(view)
+        assert scene._modify_ctl._array_targets([da, gl, *nodes]) == [gl]  # [RED]
+        click(view, QPointF(0, 0))
+        _type(scene, Count="3", Total="360")
+        assert len(scene.design_areas) == 1
+        assert msgs[-1].endswith("(3 skipped)")
+    finally:
+        close_view(view, scene)
+
+
+def test_linear_array_copies_design_area_with_its_sprinklers(qapp):
+    """F2: Linear Array of a design area plus its sprinkler nodes creates a
+    design area per copy."""
+    view, scene = make_view(role="plan", scale=1.0)
+    try:
+        da, nodes = _design_area(scene, (0, 600))
+        scene.push_undo_state()
+        scene.clearSelection()
+        for it in (da, *nodes):
+            it.setSelected(True)
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _type(scene, Angle="0", Spacing="3000", Count="3")
+        assert len(scene.design_areas) == 3                              # [RED]
+        assert all(len(d.sprinklers) == 2 for d in scene.design_areas)
+    finally:
+        close_view(view, scene)

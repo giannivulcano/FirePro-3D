@@ -8969,9 +8969,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "sprinkler_xy": [[s.node.pos().x(), s.node.pos().y()]
                                      for s in item.sprinklers if s.node is not None],
                     "properties": {k: v["value"] for k, v in item._properties.items()},
+                    # badge layout (not is_active: a copy never becomes the active area)
+                    "badge_offset": (list(item.badge_offset())
+                                     if item._badge_user_moved else None),
+                    "badge_angle": (item.badge._angle if getattr(item, "badge", None)
+                                    is not None else 0.0),
                 })
             elif hasattr(item, "to_dict"):
-                data.append(item.to_dict())
+                rec = item.to_dict()
+                if isinstance(item, FloorSlab):
+                    # to_dict has no own-level key; a paste retargets refs naming it
+                    rec["source_level"] = getattr(item, "level", None)
+                data.append(rec)
         return data
 
     def copy_selected_items(self):
@@ -8987,6 +8996,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         n = self._modify_ctl.write_clipboard(items, rect.center())
         self._show_status(f"Copied {n} item(s)" if n is not None
                           else self._modify_ctl.CLIPBOARD_UNAVAILABLE)
+
+    def _retarget_level_refs(self, item, source_level, *attrs):
+        """Point *item*'s level refs that name *source_level* at ``active_level``.
+
+        Duplicate Level pastes with ``active_level`` swapped to the target, so a
+        copy's own-level refs must follow it; refs to other levels (a wall's Top
+        Level, a room's Ceiling Level) are kept. No-op when the source is the
+        active level or unknown.
+
+        Args:
+            item: The just-built wall / room / floor slab.
+            source_level: The level the record was on (its own-level key).
+            *attrs: Names of the item's level-ref attributes to compare.
+        """
+        if not source_level or source_level == self.active_level:
+            return
+        for attr in attrs:
+            if getattr(item, attr, None) == source_level:
+                setattr(item, attr, self.active_level)
 
     def _paste_accepts(self, obj: dict) -> bool:
         """Whether :meth:`paste_items` has a branch for record *obj*.
@@ -9159,6 +9187,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             elif obj_type == "wall":
                 wall = WallSegment.from_dict(obj)
+                self._retarget_level_refs(
+                    wall, obj.get("base_level", obj.get("level")),
+                    "_base_level", "_top_level")
                 wall.level = self.active_level
                 wall.translate(offset.x(), offset.y())
                 self.addItem(wall)
@@ -9174,6 +9205,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 new_items.append(wall)
             elif obj_type == "room":
                 room = Room.from_dict(obj)
+                self._retarget_level_refs(room, obj.get("level"), "_ceiling_level")
                 room.level = self.active_level
                 room._scale_manager_ref = self.scale_manager
                 room.translate(offset.x(), offset.y())
@@ -9182,14 +9214,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 marks.mint(self, room)
                 new_items.append(room)
             elif obj_type == "floor_slab":
-                slab = FloorSlab.from_dict(obj)     # keeps its level refs (pure z-range)
+                slab = FloorSlab.from_dict(obj)     # pure z-range: refs naming the source retarget
+                self._retarget_level_refs(slab, obj.get("source_level"),
+                                          "_top_level", "_bottom_level")
                 slab.translate(offset.x(), offset.y())
                 self.addItem(slab)
                 self._floor_slabs.append(slab)
                 new_items.append(slab)
             elif obj_type == "roof":
                 roof = RoofItem.from_dict(obj)
-                roof.level = self.active_level
+                roof.level = self.active_level      # its only level ref (eave level)
                 roof._scale_manager_ref = self.scale_manager
                 roof.translate(offset.x(), offset.y())
                 self.addItem(roof)
@@ -9227,6 +9261,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "sprinkler_node_ids": list(id_to_node),
                     "properties": rec.get("properties", {}),
                     "level": self.active_level,
+                    "badge_offset": rec.get("badge_offset"),
+                    "badge_angle": rec.get("badge_angle"),
                 }, id_to_node)
                 da.compute_area(self.scale_manager)
                 new_items.append(da)
