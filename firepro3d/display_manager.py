@@ -1731,7 +1731,9 @@ class DisplayManager(QDialog):
             section_sel = Selector()
             section_sel.setShowIcon(True)           # swatch + name (user ruling 2026-10-23)
             section_sel.setIconSize(QSize(40, 20))
-            self._fill_section_selector(section_sel, section_type)
+            # Filled by the build's final _refresh_section_selectors (one icon
+            # set for every row; a later category may still add a type).
+            section_sel.setProperty("_section_tid", section_type)
             self._tree.setItemWidget(tree_item, _COL_SECTION, section_sel)
 
         # ── Scale spinbox ────────────────────────────────────────────
@@ -1880,17 +1882,26 @@ class DisplayManager(QDialog):
 
     # ── Section cell: Fill Type selector (HF5) ─────────────────────────
 
-    def _fill_section_selector(self, sel: Selector, type_id) -> None:
+    def _type_icons(self, table) -> dict:
+        """One ``{type id: QIcon}`` for *table* -- built once per refresh and
+        shared by every section selector (HF5 VC9 I1: the swatch render is the
+        cost, never rebuilt per row)."""
+        reg = self._scene.block_registry
+        return {t.id: _fill_type_icon(t.layers, reg) for t in table.all()}
+
+    def _fill_section_selector(self, sel: Selector, type_id, icons=None) -> None:
         """(Re)fill *sel* with the project's Fill Types (name + look swatch) and
         select *type_id*; an id the table lacks gets a "? <id8>" entry so the
-        row shows it (never silently another type). No signals fire."""
+        row shows it (never silently another type). No signals fire. *icons* is
+        a ``_type_icons`` map shared across selectors (built here when None)."""
         table = self._section_table()
+        if icons is None:
+            icons = self._type_icons(table)
         sel.blockSignals(True)
         try:
             sel.clear()
             for t in table.all():
-                sel.addItem(_fill_type_icon(t.layers, self._scene.block_registry),
-                            t.name, t.id)
+                sel.addItem(icons[t.id], t.name, t.id)
             cur = table.get(type_id) if type_id else None
             if cur is not None:
                 sel.setCurrentIndex(sel.findData(cur.id))
@@ -1926,10 +1937,12 @@ class DisplayManager(QDialog):
     def _refresh_section_selectors(self) -> None:
         """Re-list the Fill Types in every section selector (the table changed:
         add / rename / restyle / delete), keeping each row's selection by id."""
+        icons = self._type_icons(self._section_table())
         for data in (*self._cat_data.values(), *self._inst_data.values()):
             sel = data["widgets"].get("section_sel")
             if sel is not None:
-                self._fill_section_selector(sel, sel.currentData())
+                tid = sel.currentData() if sel.count() else sel.property("_section_tid")
+                self._fill_section_selector(sel, tid, icons)
 
     def _on_instance_section_picked(self, item_ref, name: str) -> None:
         """An instance row picked a Fill Type by name: store its id as the
@@ -2033,6 +2046,7 @@ class DisplayManager(QDialog):
 
     def _reset_model_tab(self):
         """Reset all Model tab categories and instances to factory defaults."""
+        icons = self._type_icons(self._section_table())
         self._suppress = True
         try:
             for cat_def in _CATEGORIES:
@@ -2044,7 +2058,7 @@ class DisplayManager(QDialog):
                     self._update_fill_btn(cw["fill_btn"], cat_def["fill"])
                 factory_tid = self._factory_section_type(cat_def)
                 if factory_tid is not None:
-                    self._fill_section_selector(cw["section_sel"], factory_tid)
+                    self._fill_section_selector(cw["section_sel"], factory_tid, icons)
                 cw["scale"].setValue(cat_def["scale"])
                 cw["opacity"].setValue(cat_def["opacity"])
                 if _category_has_font(key) and cat_def["font"] is not None:
@@ -2061,7 +2075,7 @@ class DisplayManager(QDialog):
                         if _category_has_fill(key) and cat_def["fill"]:
                             self._update_fill_btn(iw["fill_btn"], cat_def["fill"])
                         if factory_tid is not None:
-                            self._fill_section_selector(iw["section_sel"], factory_tid)
+                            self._fill_section_selector(iw["section_sel"], factory_tid, icons)
                         iw["scale"].setValue(cat_def["scale"])
                         iw["opacity"].setValue(cat_def["opacity"])
                         if _category_has_font(key) and cat_def["font"] is not None:
@@ -2202,7 +2216,15 @@ class DisplayManager(QDialog):
             sel = widgets.get("section_sel")
             t = self._section_table().by_name(value) if sel is not None else None
             if t is not None:
-                self._fill_section_selector(sel, t.id)
+                at = sel.findData(t.id)
+                if at >= 0:             # listed already: just move the selection
+                    sel.blockSignals(True)
+                    try:
+                        sel.setCurrentIndex(at)
+                    finally:
+                        sel.blockSignals(False)
+                else:
+                    self._fill_section_selector(sel, t.id)
         elif prop == "scale":
             widgets["scale"].setValue(value)
         elif prop == "opacity":
