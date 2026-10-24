@@ -1,7 +1,7 @@
 ---
-status: proposal
-last-verified: 2026-10-23
-verified-commit: 1f158ae8
+status: shipped
+last-verified: 2026-10-24
+verified-commit: 63a86f02
 applies-to:
   - firepro3d/wall.py
   - firepro3d/wall_outline.py
@@ -9,6 +9,23 @@ applies-to:
   - firepro3d/snap_engine.py
   - firepro3d/halo.py
   - firepro3d/paper_display.py
+  - firepro3d/constants.py                # Z_CATEGORY_BY_CLASS, ELEV_Z_SNAPPABLE_CLASSES, WALL_OUTLINE_*
+  - firepro3d/level_manager.py            # reads Z_CATEGORY_BY_CLASS
+  - firepro3d/model_space.py              # clear order; _refresh_all_scales invalidation
+  - firepro3d/section_scene.py            # selection guard on paper
+  - firepro3d/underlay_freeze.py          # underlay paint subclasses
+  - firepro3d/underlay_controller.py
+  - firepro3d/water_supply.py
+  - firepro3d/hydraulic_node_badge.py
+  - firepro3d/geometry_2d.py              # shows_selection call sites (D11)
+  - firepro3d/detail_view.py
+  - firepro3d/filled_region.py
+  - firepro3d/floor_slab.py
+  - firepro3d/node.py
+  - firepro3d/pipe.py
+  - firepro3d/roof.py
+  - firepro3d/room.py
+  - firepro3d/wall_opening.py
 source-tasks:
   - "todo_open.md: Wall polish (2026-10-23 user batch) -- joints seam lines, HALO alignment offset, footprint snap"
   - "todo_open.md: Extend the 3-wall full-miter pie join to N-way junctions"
@@ -128,6 +145,46 @@ D11 **Selection never plots.** `paper_display.shows_selection(item)` =
 at every selection-paint site: wall, pipe, roof, room, floor slab, wall opening,
 node, detail view, hydraulic node badge, geometry_2d selected-state guides and
 highlights, filled region. Precedent: gridline `not self._paper_render`.
+
+## As-built deviations (ratified)
+
+Where the code that shipped differs from D1-D11 above, the code governs. Contracts
+now live in `wall-room-floor-system.md` (s5-s6), `snapping-engine.md` (note 14),
+`selection-mode.md` (s4.2) and `paper-space.md` (s6.2).
+
+- **D6/D8 cluster union:** `cluster_union` retries operand orders and takes the first
+  result that still contains every input's interior point and spans the inputs'
+  bounds (Qt's `united()` dropped a whole body in one order when bodies shared
+  collinear edges). User-ratified; the D8 segment-interval clipping fallback was
+  not built.
+- **D6 tee stub:** each wall carries a second polygon, `union_body`, whose coped tee end
+  runs to the host's true centerline so `united()` merges the stub with the host
+  (G0 probe); it is the cluster-union operand only, never the fill. Where the stub
+  overhangs the host's end, `_clip_tee_extension` cuts the extension back so the
+  overhanging end edge stays a stroked boundary.
+- **D9 HALO:** no `halo_trace_path` hook for walls; `path()` is set to the outline body,
+  so the generic path-item HALO branch, `shape()` and the bounds follow it.
+- **D5 N-way pie:** each arm's slice runs to a hub (centroid of the junction corners,
+  one wedge vertex per pie end), not to the junction point.
+- **Edge Cases, per-pair fallback:** a pair whose corner reaches the miter clamp drops both
+  of its arms to Butt while the remaining arms stay mitred.
+- **Placement Pass 2:** `wall_placement_controller.py` Pass 2 logic is unchanged apart
+  from calling `invalidate_geometry()`, but the helper it uses,
+  `nearest_centerline_point`, lost its 5% end margin in smoke round S1, so
+  placement tees also accept the host's whole span.
+- **D11 scope:** beyond the listed sites, the underlay paint subclasses
+  (`_UnderlayPixmapItem`, `_UnderlayGroup`, `_UnderlayPlaceholderRect`, with
+  `UnderlayController` creating them), the section-scene items and `WaterSupply`
+  clear Qt's default selection outline on paper.
+- **Smoke fix round S1:** (a) `ELEV_Z_SNAPPABLE_CLASSES` exempts elevation-ordered building
+  classes from the snap engine's z > 150 overlay rule, with `Z_CATEGORY_BY_CLASS`
+  moved to `constants.py` as the one class-to-z-band map; (b) tee reach is the
+  host's whole span, with a `_mutual_tee` guard so two ends lying on each other's
+  faces at an L do not tee; (c) the body fill is drawn with antialiasing off so
+  a miter shows no lighter seam.
+- **Room detection (AC5):** aligning room detection's tee rule with the walls' was
+  tried and reverted; it keeps its own rule, filed as a room bug. Room polygons
+  are unchanged by this branch.
 
 ## Acceptance Criteria
 

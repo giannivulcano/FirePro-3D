@@ -84,7 +84,7 @@ error-prone across the many tool modes.
 
 ## Wall Segment Complexity — open
 
-**Problem:** `wall.py` holds a single large entity class. WallSegment handles 2D rendering (double-line, fill modes, section hatching), 3D mesh generation, joinery, opening management, thickness calculations with scale-dependent display, and multiple alignment modes.
+**Problem:** `wall.py` holds a single large entity class (pure outline/junction geometry moved out to `wall_outline.py` in the 2026-10-24 wall polish — see `specs/wall-room-floor-system.md` §6.1). WallSegment handles 2D rendering (double-line, fill modes, section hatching), 3D mesh generation, joinery, opening management, thickness calculations with scale-dependent display, and multiple alignment modes.
 
 **Why it matters:** Adding a new wall feature (e.g., curved walls, multi-layer walls — both open tasks) requires understanding the entire class.
 

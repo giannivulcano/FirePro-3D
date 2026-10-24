@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-23  # SB1c Account: s5.3 annotative-sizing pointer only; prior 2026-10-22  # gridline-hosted blocks Account: s5.3 pattern-2 pointer only; prior paper section/plan parity audit: Elevation-colours bullet only (stale canvas-latched open gap dropped); prior 2026-10-21 section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
-verified-commit: 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
+last-verified: 2026-10-24  # wall polish Account: s7.3 pointer only (class->category map moved to constants.Z_CATEGORY_BY_CLASS; no value changed); prior 2026-10-23  # SB1c Account: s5.3 annotative-sizing pointer only; prior 2026-10-22  # gridline-hosted blocks Account: s5.3 pattern-2 pointer only; prior paper section/plan parity audit: Elevation-colours bullet only (stale canvas-latched open gap dropped); prior 2026-10-21 section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
+verified-commit: 63a86f02   # wall polish (pointer only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
@@ -340,7 +340,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 - `Z_UNDERLAY = -79` — underlays, DXF/PDF imports (initial value; overridden by elevation-based z-ordering at runtime)
 - `Z_ROOF = -75` — roof items
 
-**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * Z_ELEV_SCALE + category_offset` (`Z_ELEV_SCALE = 1/100`). Category offsets (the `Z_CAT_*` constants in `constants.py`) determine draw order within the same elevation:
+**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * Z_ELEV_SCALE + category_offset` (`Z_ELEV_SCALE = 1/100`). Category offsets (the `Z_CAT_*` constants in `constants.py`; the class-name → category map `Z_CATEGORY_BY_CLASS` lives there too) determine draw order within the same elevation:
 
 | Category | Offset | Items |
 |---|---|---|

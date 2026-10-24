@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -168,6 +168,12 @@ Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at p
 - **Known gap: hiding a paper row leaves some items on the sheet.** The opening void rect and the
   floor mask are untagged, so hiding their paper row does not hide them. Tracked in `todo_open.md`,
   "A hidden paper row leaves section opening voids and floor masks on the sheet".
+- **Selection never plots.** The section scene's selection outlines (colour-source mixin, elevation
+  gridlines, level datums) are guarded on paper; contract owned by `paper-space.md` §6.2 (Rule A).
+- **Known limit: the section view's mitered wall quad follows plan visibility.** Sections read
+  `wall.mitered_quad()` (`section_scene.py`), which joins only against walls visible in the plan
+  scene (`wall-room-floor-system.md` §5.2), so a wall on a hidden level is not mitred into a
+  projected section wall. Filed as a follow-up; not addressed by wall polish.
 
 ### 5.1 Sheet plot colours (600)
 

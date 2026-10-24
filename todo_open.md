@@ -70,6 +70,9 @@
     - (9) `ui-design-system.md` "One universal picker" says every property accepts `token:*` and `""`, but a shape pattern layer's colour never takes `""` (NO_LAYER means off). Word the invariant per mode.
     - (10) `ribbon-bar.md` describes the generic `_build_graphic_override_group` (Stroke Colour / Fill Colour / Clear, override dict) next to the geo2d group, and the two are easy to conflate. Name each group's host tab.
     - (11) `hatch-and-fill.md` still labels D-A1–D-A27 "as-proposed until that doc is approved", though the concept doc was approved long ago. Re-label them ratified (P5: check each was ratified at a human gate first).
+  - +1 occurrence 2026-10-24 (wall polish Account report-only hits, pre-existing, not fixed):
+    - (12) `docs/architecture/entities.md` (~185) lists wall alignment as "Center, Interior, or Exterior"; the code's modes are Center / Left / Right (`wall-room-floor-system.md` §4 owns them) — replace with a link.
+    - (13) `underlay-workflow.md` (~413) says underlay groups are "not selectable", but the PDF pixmap item sets `ItemIsSelectable` and underlays are selected in normal use — re-derive selectability per underlay item class and reword.
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
 
