@@ -413,7 +413,8 @@ def host_key_items(category: str, current: str) -> list[tuple]:
     """Combo entries ``(text, key, selectable, warn)``.
 
     A blank entry, then per tier a disabled header and ``Label (Key)`` items;
-    a stored key the category lacks is kept as a warn entry.
+    a stored key the category lacks is kept as a warn entry; with no known
+    category (none or unknown) a stored key is kept as a plain entry.
     """
     out = [("", "", True, False)]
     specs = PARAMS.get(category, {})
@@ -422,6 +423,8 @@ def host_key_items(category: str, current: str) -> list[tuple]:
         if group:
             out.append((name, None, False, False))
             out += [(f"{s.label} ({s.key})", s.key, True, False) for s in group]
-    if current and current not in specs:
+    if current and category not in PARAMS:
+        out.append((current, current, True, False))   # no key table to judge it by
+    elif current and current not in specs:
         out.append((unknown_label(current, "key"), current, True, True))
     return out

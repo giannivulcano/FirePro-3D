@@ -73,6 +73,7 @@ def test_no_category_disables_host_key(qapp):
     dlg = AttributesEditorDialog(w)
     box = _box(dlg, 0)
     assert not box.isEnabled()
+    assert box.currentText() == "Width"                      # plain: no key table, no warning
     assert dlg.row_record(0)["host_key"] == "Width"          # kept
 
 
