@@ -1,0 +1,640 @@
+{
+  "version": 11,
+  "project_info": {},
+  "scale": {
+    "pixels_per_mm": 1.0,
+    "calibrated": false,
+    "display_unit": "mm",
+    "drawing_scale": 100.0,
+    "precision": 3
+  },
+  "display_settings": {
+    "Pipe": {
+      "color": "#4488ff",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true,
+      "font": 12
+    },
+    "Sprinkler": {
+      "color": "#ff4444",
+      "fill": "#000000",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Fitting": {
+      "color": "#44cc44",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Water Supply": {
+      "color": "#00cccc",
+      "fill": "#2b2b2e",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Node": {
+      "color": "#888888",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Hydraulic Badge": {
+      "color": "#ffffff",
+      "fill": "#2b2b2b",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Design Area": {
+      "color": "#dc1e1e",
+      "fill": "#ffc800",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Wall": {
+      "color": "#666666",
+      "fill": "#999999",
+      "section": "#666666",
+      "section_pattern": "diagonal",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Door": {
+      "color": "#888888",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Window": {
+      "color": "#888888",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Opening": {
+      "color": "#888888",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Roof": {
+      "color": "#8B4513",
+      "fill": "#D2B48C",
+      "section": "#8B4513",
+      "section_pattern": "diagonal",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Room": {
+      "color": "#4488cc",
+      "fill": "#4488cc",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true,
+      "font": 12
+    },
+    "Floor": {
+      "color": "#8888cc",
+      "fill": "#8888cc",
+      "section": "#666666",
+      "section_pattern": "diagonal",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Grid Line": {
+      "color": "#4488cc",
+      "fill": "#1a1a2e",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Level Datum": {
+      "color": "#4488cc",
+      "fill": "#1a1a2e",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true,
+      "font": 10
+    },
+    "Elevation Marker": {
+      "color": "#4488cc",
+      "fill": "#1a1a2e",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true,
+      "font": 10
+    },
+    "Detail Marker": {
+      "color": "#4488cc",
+      "fill": "#1a1a2e",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true,
+      "font": 10
+    },
+    "2D Geometry": {
+      "color": "token:auto",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Reference Geometry": {
+      "color": "#888888",
+      "section_scale": 1.0,
+      "scale": 1.0,
+      "opacity": 100,
+      "visible": true
+    },
+    "Blocks": {
+      "line_weight": "Thinnest"
+    }
+  },
+  "paper_display": {
+    "color_mode": "bw",
+    "categories": {
+      "Pipe": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Sprinkler": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Fitting": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Water Supply": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Node": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Hydraulic Badge": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Wall": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": "#000000",
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true
+      },
+      "Door": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Window": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Opening": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Roof": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": "#000000",
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Room": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Floor": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": "#000000",
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Grid Line": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinner",
+        "opacity": 100,
+        "visible": true
+      },
+      "Level Datum": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Elevation Marker": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Detail Marker": {
+        "color": "#000000",
+        "fill": "#ffffff",
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Construction": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Hatch": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      },
+      "Blocks": {
+        "color": "#000000",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thinnest",
+        "opacity": 100,
+        "visible": true
+      }
+    },
+    "line_weights": [
+      {
+        "name": "Thinnest",
+        "width_mm": 0.18
+      },
+      {
+        "name": "Thinner",
+        "width_mm": 0.25
+      },
+      {
+        "name": "Thin",
+        "width_mm": 0.35
+      },
+      {
+        "name": "Thick",
+        "width_mm": 0.5
+      },
+      {
+        "name": "Thickest",
+        "width_mm": 0.7
+      }
+    ],
+    "line_weight_aliases": {}
+  },
+  "levels": [],
+  "plan_views": [],
+  "active_level": "Level 1",
+  "nodes": [],
+  "pipes": [],
+  "annotations": [],
+  "underlays": [],
+  "water_supply": null,
+  "design_areas": [],
+  "gridlines": [],
+  "walls": [
+    {
+      "type": "wall",
+      "pt1": [
+        0.0,
+        -2000.0
+      ],
+      "pt2": [
+        4000.0,
+        -2000.0
+      ],
+      "thickness_mm": 152.39999999999998,
+      "color": "#cccccc",
+      "fill_mode": "None",
+      "alignment": "Center",
+      "base_level": "Level 1",
+      "top_level": "Level 2",
+      "height_mm": 3048.0,
+      "base_offset_mm": 0.0,
+      "top_offset_mm": 0.0,
+      "level": "Level 1",
+      "name": "",
+      "join_mode_pt1": "Auto",
+      "join_mode_pt2": "Auto",
+      "openings": []
+    },
+    {
+      "type": "wall",
+      "pt1": [
+        0.0,
+        -1000.0
+      ],
+      "pt2": [
+        4000.0,
+        -1000.0
+      ],
+      "thickness_mm": 152.39999999999998,
+      "color": "#cccccc",
+      "fill_mode": "None",
+      "alignment": "Center",
+      "base_level": "Level 1",
+      "top_level": "Level 2",
+      "height_mm": 3048.0,
+      "base_offset_mm": 0.0,
+      "top_offset_mm": 0.0,
+      "level": "Level 1",
+      "name": "",
+      "join_mode_pt1": "Auto",
+      "join_mode_pt2": "Auto",
+      "openings": []
+    }
+  ],
+  "floor_slabs": [
+    {
+      "type": "floor_slab",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          4000.0,
+          0.0
+        ],
+        [
+          4000.0,
+          1500.0
+        ],
+        [
+          0.0,
+          1500.0
+        ]
+      ],
+      "color": "#8888cc",
+      "name": "",
+      "top_mode": "level",
+      "top_level": "Level 1",
+      "top_offset_mm": 0.0,
+      "top_abs_z_mm": 0.0,
+      "bottom_mode": "thickness",
+      "bottom_level": "Level 1",
+      "bottom_offset_mm": 0.0,
+      "bottom_abs_z_mm": 0.0,
+      "thickness_mm": 152.4
+    }
+  ],
+  "roofs": [],
+  "rooms": [],
+  "block_definitions": {
+    "2fadd72e0f4c4ba0bb64138c37bb9aa2": {
+      "schema": 1,
+      "id": "2fadd72e0f4c4ba0bb64138c37bb9aa2",
+      "version": 1,
+      "name": "Slab Block",
+      "library": "Mine",
+      "series": "S",
+      "scale_mode": "real_size",
+      "origin": [
+        0.0,
+        0.0
+      ],
+      "attributes": [],
+      "host_category": "",
+      "primitives": [
+        {
+          "type": "draw_filled_region",
+          "loops": [
+            [
+              {
+                "type": "draw_line",
+                "pt1": [
+                  -500.0,
+                  -500.0
+                ],
+                "pt2": [
+                  500.0,
+                  -500.0
+                ],
+                "uid": "5d676f48e8534263ad7324901275caf4",
+                "style": {
+                  "linetype": "continuous",
+                  "weight": "by_linetype",
+                  "start": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "finish": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "colour": "token:auto"
+                }
+              },
+              {
+                "type": "draw_line",
+                "pt1": [
+                  500.0,
+                  -500.0
+                ],
+                "pt2": [
+                  500.0,
+                  500.0
+                ],
+                "uid": "7812394d80704b559ad2aa27cba33537",
+                "style": {
+                  "linetype": "continuous",
+                  "weight": "by_linetype",
+                  "start": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "finish": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "colour": "token:auto"
+                }
+              },
+              {
+                "type": "draw_line",
+                "pt1": [
+                  500.0,
+                  500.0
+                ],
+                "pt2": [
+                  -500.0,
+                  500.0
+                ],
+                "uid": "81058793e8904959aa3679ac168cdcce",
+                "style": {
+                  "linetype": "continuous",
+                  "weight": "by_linetype",
+                  "start": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "finish": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "colour": "token:auto"
+                }
+              },
+              {
+                "type": "draw_line",
+                "pt1": [
+                  -500.0,
+                  500.0
+                ],
+                "pt2": [
+                  -500.0,
+                  -500.0
+                ],
+                "uid": "891071778cca4b30a651bca37df973f6",
+                "style": {
+                  "linetype": "continuous",
+                  "weight": "by_linetype",
+                  "start": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "finish": {
+                    "end": "by_linetype",
+                    "visible": true
+                  },
+                  "colour": "token:auto"
+                }
+              }
+            ]
+          ],
+          "outline": false,
+          "uid": "a3da419f371445e6bd22c18ab203b75c",
+          "style": {
+            "linetype": "continuous",
+            "weight": "by_linetype",
+            "start": {
+              "end": "by_linetype",
+              "visible": true
+            },
+            "finish": {
+              "end": "by_linetype",
+              "visible": true
+            },
+            "colour": "token:auto"
+          },
+          "fill": {
+            "background": {
+              "color": "#ff0000",
+              "opacity": 1.0
+            },
+            "pattern": {
+              "ref": "builtin-hatch-diagonal",
+              "color": "#0000ff",
+              "opacity": 1.0,
+              "scale": 1.0
+            }
+          }
+        }
+      ],
+      "render_mode": "default",
+      "constraints": [],
+      "tile": null,
+      "repeat": null
+    }
+  },
+  "blocks": [
+    {
+      "type": "block_instance",
+      "block_id": "2fadd72e0f4c4ba0bb64138c37bb9aa2",
+      "pos": [
+        2000.0,
+        3000.0
+      ],
+      "rotation": 0.0,
+      "level": "Level 1",
+      "attributes": {},
+      "uid": "d04c7f0b8ad6464a89a7c49a19ff6c9e"
+    }
+  ],
+  "detail_views": [],
+  "sections": [],
+  "sheets": [],
+  "titleblock_template": null
+}
