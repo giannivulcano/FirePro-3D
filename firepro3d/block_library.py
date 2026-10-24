@@ -14,6 +14,7 @@ docs/specs/block-system.md.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -334,6 +335,17 @@ def read_bundled_weight_model_px(path: str) -> dict:
         return {}
 
 
+def read_bundled_fill_types(path: str) -> list:
+    """The ``fill_types`` rows of a ``.fpdb`` ([] when absent/unreadable)."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            rows = json.load(fh).get("fill_types")
+        return list(rows) if isinstance(rows, list) else []
+    except Exception:
+        _log.debug("unreadable bundled fill types in %s", path, exc_info=True)
+        return []
+
+
 def save_to_library(definition: BlockDefinition, root: str | None = None,
                     *, overwrite: bool = False, bundled: dict | None = None) -> str:
     """Write *definition* to the tree; returns the path. No index is written
@@ -354,6 +366,8 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
         bundled: ``{id: to_dict}`` of the definitions *definition* nests
             (``BlockRegistry.bundle_for``). Non-empty → the file is written as
             schema 2 with a ``bundled`` map (D11); empty/None → schema 1.
+            A file whose definitions use project Fill Types also carries
+            their ``fill_types`` rows and is schema 3 (HF5 D-A15).
 
     Writes an optional ``weights`` map of the named line weights the definition
     and its bundle use (linetypes.md LT1-4); absent when none are used. Their
@@ -397,7 +411,12 @@ def save_to_library(definition: BlockDefinition, root: str | None = None,
     rec[COLOUR_TOKENS_MARK] = 1       # HF1 (D-A20): file is token-migrated
     if bundled:
         rec["schema"] = 2
-        rec["bundled"] = dict(bundled)
+        rec["bundled"] = copy.deepcopy(dict(bundled))
+    from . import fill_types as _ft           # HF5: types used by the closure
+    type_rows = _ft.bundle_fill_type_rows([rec, *(rec.get("bundled") or {}).values()])
+    if type_rows:
+        rec["fill_types"] = type_rows
+        rec["schema"] = 3
     from .paper_display import project_line_weights
     used = used_weight_names([rec, *(bundled or {}).values()])
     table = {d.name: d for d in project_line_weights()}
@@ -613,6 +632,7 @@ def load_block(library: str, series: str, filename: str,
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         migrate_fpdb_dict(data)
+        _ft_ready(data)
         return BlockDefinition.from_dict(data)
     except Exception as exc:
         _log.warning("Unreadable block .fpdb %s: %s", path, exc)
@@ -630,6 +650,7 @@ def load_block_file(path: str) -> BlockDefinition | None:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         migrate_fpdb_dict(data)
+        _ft_ready(data)
         return BlockDefinition.from_dict(data)
     except Exception as exc:
         _log.warning("Unreadable block .fpdb %s: %s", path, exc)
@@ -664,18 +685,30 @@ def load_failure_message(name: str, summary: dict, *, noun: str = "block") -> st
     return f"Could not load “{name}”: {why}."
 
 
-def load_block_file_with_bundle(path: str):
-    """Load a ``.fpdb`` plus the nested definitions it bundles.
+def _ft_ready(data: dict):
+    """Re-point a parsed ``.fpdb``'s typed region records at the project's
+    Fill Types before ``from_dict`` (HF5 D-A15); returns the types to add."""
+    from . import fill_types
+    return fill_types.prepare_file_records(data)
+
+
+def load_block_file_with_types(path: str):
+    """Load a ``.fpdb`` plus its bundled definitions and the Fill Types the
+    project lacks.
 
     Schema-1 files carry no bundle (empty list); schema-2 files carry a
     ``bundled`` ``{id: to_dict}`` map of every transitively nested
-    definition (D11).
+    definition (D11); schema-3 files also carry ``fill_types``. The typed
+    region records are already re-pointed at the project's types (a name hit
+    maps to the project type, project wins); the returned types are NOT yet
+    in the project table -- the caller adds them once the load is accepted.
 
     Args:
         path: The ``.fpdb`` file path.
 
     Returns:
-        ``(definition, [bundled definitions])``, or None if unreadable.
+        ``(definition, [bundled definitions], [FillType to add])``, or None
+        if unreadable.
     """
     if not os.path.isfile(path):
         return None
@@ -683,13 +716,30 @@ def load_block_file_with_bundle(path: str):
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         migrate_fpdb_dict(data)
+        pending = _ft_ready(data)
         defn = BlockDefinition.from_dict(data)
         bundled = [BlockDefinition.from_dict(v)
                    for v in (data.get("bundled") or {}).values()]
-        return defn, bundled
+        return defn, bundled, pending
     except Exception as exc:
         _log.warning("Unreadable block .fpdb %s: %s", path, exc)
         return None
+
+
+def load_block_file_with_bundle(path: str):
+    """Load a ``.fpdb`` plus the nested definitions it bundles.
+
+    As :func:`load_block_file_with_types` without the pending Fill Types
+    (preview / read-only callers: types the project lacks stay unresolved).
+
+    Args:
+        path: The ``.fpdb`` file path.
+
+    Returns:
+        ``(definition, [bundled definitions])``, or None if unreadable.
+    """
+    loaded = load_block_file_with_types(path)
+    return None if loaded is None else loaded[:2]
 
 
 def source_status(definition: BlockDefinition, root: str | None = None) -> str:

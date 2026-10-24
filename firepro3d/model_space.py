@@ -2261,10 +2261,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if found is None:
             return False
         path = found[3]["path"]
-        loaded = block_library.load_block_file_with_bundle(path)
+        loaded = block_library.load_block_file_with_types(path)
         if loaded is None:
             return False
-        lib_def, bundled = loaded
+        lib_def, bundled, pending_types = loaded     # HF5: records already re-pointed
         lib_def.base_version = lib_def.version       # reloaded at (SB1b D7)
         for b in bundled:
             b.base_version = b.version
@@ -2285,6 +2285,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False                 # schematics.md D-S3 (SV4): kind is frozen
         self._add_bundled(bundled, lib_def)              # project copy wins
         self._merge_bundled_weights(path)
+        self._merge_bundled_fill_types(pending_types)
         self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -2327,11 +2328,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                    for e in block_library.list_library(root)}
         changed = False
         for path in paths:
-            loaded = block_library.load_block_file_with_bundle(path)
+            loaded = block_library.load_block_file_with_types(path)
             if loaded is None:
                 summary["failed"].append(path)
                 continue
-            defn, bundled = loaded
+            defn, bundled, pending_types = loaded    # HF5: records already re-pointed
             defn.base_version = defn.version       # loaded at (SB1b D7)
             for b in bundled:
                 b.base_version = b.version
@@ -2354,6 +2355,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         f"{defn.name} ({block_library.KIND_REASON})")
                     continue
                 self._merge_bundled_weights(path)
+                self._merge_bundled_fill_types(pending_types)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 summary["ids"][path] = defn.id
                 defn.source_path = path
@@ -2375,6 +2377,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 summary["refused"].append(defn.name)
                 continue
             self._merge_bundled_weights(path)
+            self._merge_bundled_fill_types(pending_types)
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
             defn.source_path = path          # the file a later Save may re-file
@@ -2456,6 +2459,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # this merge just added must pick up its real width.
             for record, _group in list(self.underlays):
                 self.repen_underlay(record)
+
+    def _merge_bundled_fill_types(self, types) -> None:
+        """Add a library file's Fill Types the project lacks (D-A15; the table
+        is outside undo, but a merge that added types dirties the project)."""
+        from . import fill_types
+        if not types:
+            return
+        table = fill_types.project_table()
+        for t in types:
+            table.add(t)
+        fill_types.notify_changed()
+        self._dirty = True            # types travel with the project
+        self.sceneModified.emit()
 
     def _add_bundled(self, bundled, defn) -> bool:
         """Add the file's bundled deps the project lacks (project copy wins).

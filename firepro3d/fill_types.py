@@ -457,3 +457,72 @@ def region_pattern_users(block_id: str, scene) -> int:
                 continue                      # inherited from the type: its clause counts it
             n += 1
     return n
+
+
+# -- .fpdb bundling (HF5 T10, D-A15) -----------------------------------------
+def plan_bundled_merge(rows, table: FillTypeTable | None = None):
+    """``(id_map, to_add)`` for a library file's types: a name hit maps to the
+    project type (project wins, D-A15); a new name is added, with a fresh id
+    when its id is already taken. Nothing is written to the table."""
+    table = table if table is not None else project_table()
+    id_map: dict[str, str] = {}
+    to_add: list[FillType] = []
+    pending: dict[str, FillType] = {}
+    for row in rows if isinstance(rows, list) else ():
+        t = FillType.from_payload(row)
+        if t is None or t.id in id_map:
+            continue
+        key = t.name.casefold()
+        hit = table.by_name(t.name) or pending.get(key)
+        if hit is not None:
+            id_map[t.id] = hit.id
+            continue
+        taken = table.get(t.id) is not None or any(p.id == t.id for p in to_add)
+        nt = FillType(new_id() if taken else t.id, t.name, t.layers)
+        to_add.append(nt)
+        pending[key] = nt
+        id_map[t.id] = nt.id
+    return id_map, to_add
+
+
+def remap_fill_types(defs, id_map: dict) -> None:
+    """Point typed region records in *defs* (definitions or raw ``to_dict``
+    records) at their merged ids, in place."""
+    for d in defs:
+        prims = d.get("primitives") if isinstance(d, dict) else d.primitives
+        for p in prims if isinstance(prims, list) else ():
+            tid = p.get("fill_type") if isinstance(p, dict) else None
+            if isinstance(tid, str) and tid in id_map:
+                p["fill_type"] = id_map[tid]
+
+
+def prepare_file_records(data: dict):
+    """Ready a parsed ``.fpdb`` dict for ``BlockDefinition.from_dict`` (in place).
+
+    Plans the file's bundled types against the project table, re-points the
+    typed records of the file and of every bundled definition to the merged
+    ids, then canonicalises any id the file carried no row for (alias-aware).
+    Returns the types the project lacks (the caller adds them once the load
+    is accepted; a refused load drops them).
+    """
+    id_map, to_add = plan_bundled_merge(data.get("fill_types"))
+    recs = [data, *(v for v in (data.get("bundled") or {}).values()
+                    if isinstance(v, dict))]
+    remap_fill_types(recs, id_map)
+    for r in recs:
+        canonicalise_records(r.get("primitives"))
+    return to_add
+
+
+def bundle_fill_type_rows(records) -> list[dict]:
+    """Payload rows of the project types the records use (alias-aware), and
+    the records' ``fill_type`` ids canonicalised in place to match the rows."""
+    used: dict[str, FillType] = {}
+    for rec in records:
+        canonicalise_records(rec.get("primitives"))
+        for p in rec.get("primitives", []) or []:
+            tid = p.get("fill_type") if isinstance(p, dict) else None
+            t = project_table().get(tid) if isinstance(tid, str) and tid else None
+            if t is not None:
+                used[t.id] = t
+    return [used[i].to_payload() for i in sorted(used)]
