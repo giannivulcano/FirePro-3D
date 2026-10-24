@@ -45,6 +45,7 @@ from .wall import WallSegment
 from .block_instance import BlockInstance
 from .render_op import STROKE
 from .capability_frame import CAPABILITY_FRAME_TAG
+from .constants import ELEV_Z_SNAPPABLE_CLASSES
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -540,8 +541,9 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
 
     Returns:
         False for a hidden item, a child of a non-underlay parent (gridline
-        bubbles/labels, sprinkler & fitting symbols, ...), an item above
-        z 150, the fixed white (0,0) origin cross, or a pipe when
+        bubbles/labels, sprinkler & fitting symbols, ...), an overlay item
+        above z 150 (elevation-ordered building classes, ELEV_Z_SNAPPABLE_CLASSES,
+        are exempt: tall levels push their z past 150), the fixed white (0,0) origin cross, or a pipe when
         *skip_pipes*; True otherwise.
     """
     if not item.isVisible():
@@ -549,7 +551,8 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     parent = item.parentItem()
     if parent is not None and not _is_underlay_group(parent):
         return False
-    if item.zValue() > 150:
+    if (item.zValue() > 150
+            and type(item).__name__ not in ELEV_Z_SNAPPABLE_CLASSES):
         return False
     if QGraphicsItem.data(item, 0) in _NON_TARGET_TAGS:
         return False

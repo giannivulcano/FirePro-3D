@@ -53,6 +53,30 @@ Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
 Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
 
+# Model classes (by ``type(item).__name__``) whose z is elevation-based
+# (level_manager.apply_to_scene), category offset per class.
+Z_CATEGORY_BY_CLASS = {
+    "FloorSlab":      Z_CAT_FLOOR,
+    "RoofItem":       Z_CAT_ROOF,
+    "Room":           Z_CAT_ROOM,
+    "WallSegment":    Z_CAT_WALL,
+    "WallOpening":    Z_CAT_OPENING,   # redesigned first-class opening
+    "DoorOpening":    Z_CAT_OPENING,   # legacy aliases (= WallOpening)
+    "WindowOpening":  Z_CAT_OPENING,
+    "Pipe":           Z_CAT_PIPE,
+    "Node":           Z_CAT_NODE,
+    # Placed 2D block instance: above all building geometry.
+    "BlockInstance":  Z_CAT_CONSTRUCTION,
+}
+# Building classes whose elevation-based z may exceed 150 (tall levels) and
+# which must still be snap targets, so the snap engine's z > 150 overlay rule
+# skips them.  Pipe / Node / BlockInstance are deliberately NOT here: their
+# preview ghosts are the same classes parked at the overlay z (200).
+ELEV_Z_SNAPPABLE_CLASSES = frozenset({
+    "FloorSlab", "RoofItem", "Room", "WallSegment",
+    "WallOpening", "DoorOpening", "WindowOpening",
+})
+
 # ── Default gridline geometry ────────────────────────────────────────────────
 DEFAULT_GRIDLINE_SPACING_MM = 7315.2   # 288 in / 24 ft
 DEFAULT_GRIDLINE_LENGTH_MM  = 21945.6  # 864 in / 72 ft
