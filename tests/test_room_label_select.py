@@ -17,10 +17,8 @@ def _room(sc, with_label=True):
     r = Room(boundary=boundary)
     if with_label:
         r.name = "R1"
-        r._tag = "R1"
     else:
         r.name = ""
-        r._tag = ""
     sc.addItem(r)
     sc._rooms.append(r)
     r._update_label()

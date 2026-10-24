@@ -213,7 +213,7 @@ class ModelBrowser(QWidget):
                 label = room.name if room.name else "Room"
                 item = QTreeWidgetItem(rooms_root, [label])
                 item.setData(0, _ROLE_ENTITY, id(room))
-                item.setToolTip(0, f"Level: {room.level}  Tag: {getattr(room, '_tag', '')}")
+                item.setToolTip(0, f"Level: {room.level}  Mark: {getattr(room, '_mark', '')}")
                 self._style_hidden(item, room)
 
             # -- Blocks --

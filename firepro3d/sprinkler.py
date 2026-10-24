@@ -29,6 +29,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         self.init_displayable()
         self._display_scale: float = 1.0
         self._properties = {
+            "Mark":            {"type": "string", "value": ""},
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
             "Model":           {"type": "enum",   "value": "",           "options": []},
             "Orientation":     {"type": "enum",   "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall", "Concealed"]},

@@ -93,7 +93,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
         # Identity
         self.name: str = ""
-        self._tag: str = ""
+        self._mark: str = ""
         self._show_label: bool = True
         self._ceiling_level: str = "Level 2"
         self._ceiling_offset: float = 0.0   # mm offset from ceiling level
@@ -161,7 +161,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         Only shown when the label is visible — this is a label-only grip,
         not a room-polygon grip.
         """
-        text = self._tag or self.name or ""
+        text = self.name or ""
         if not self._show_label or not text:
             return []
         if self._label_bg is not None and not self._label_bg.rect().isEmpty():
@@ -220,7 +220,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
     def _update_label(self):
         """Position the room tag label at the polygon centroid with background."""
-        text = self._tag or self.name or ""
+        text = self.name or ""
         self._label.setVisible(self._show_label and bool(text))
         if self._label_bg is not None:
             self._label_bg.setVisible(self._show_label and bool(text))
@@ -485,7 +485,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Room Info":         {"type": "header"},
             "Type":              {"type": "label",     "value": "Room"},
             "Room Name":         {"type": "string",    "value": self.name},
-            "Room Tag":          {"type": "string",    "value": self._tag},
+            "Mark":              {"type": "string",    "value": self._mark},
             "Show Label":        {"type": "enum",      "value": "True" if self._show_label else "False",
                                   "options": ["True", "False"]},
             # No "Fill Color" row — the Display Manager owns room
@@ -534,8 +534,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         if key == "Room Name":
             self.name = str(value)
             self._update_label()
-        elif key == "Room Tag":
-            self._tag = str(value)
+        elif key == "Mark":
+            self._mark = str(value)
             self._update_label()
         elif key == "Show Label":
             self._show_label = (str(value) == "True")
@@ -595,7 +595,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "boundary":         [[p.x(), p.y()] for p in self._boundary],
             "color":            self._color.name(),
             "name":             self.name,
-            "tag":              self._tag,
+            "mark":             self._mark,
             "show_label":       self._show_label,
             "level":            self.level,
             "ceiling_level":    self._ceiling_level,
@@ -614,7 +614,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         pts = [QPointF(p[0], p[1]) for p in data.get("boundary", [])]
         room = cls(boundary=pts, color=data.get("color", "#4488cc"))
         room.name = data.get("name", "")
-        room._tag = data.get("tag", "")
+        room._mark = data.get("mark", data.get("tag", ""))
         room._show_label = data.get("show_label", True)
         room.level = data.get("level", DEFAULT_LEVEL)
         room._ceiling_level = data.get("ceiling_level", "Level 2")

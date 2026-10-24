@@ -209,8 +209,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self.openings: list[WallOpening] = []
 
         self.name: str = ""
+        self._mark: str = ""          # SB2b instance Mark (element-parameters.md Marks)
 
-        self.setZValue(-50)                         # behind pipes, above underlays
+        self.setZValue(-50)                        # behind pipes, above underlays
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
         # One cached outline per wall (wall polish D2/D3)
@@ -724,6 +725,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "Type":         {"type": "label",     "value": "Wall"},
             "Name":         {"type": "string",    "value": self.name},
+            "Mark":         {"type": "string",    "value": self._mark},
             "Colour":       {"type": "color",     "value": self._colour},
             "Thickness":    {"type": "dimension", "value": self._fmt(self._thickness_mm),
                              "value_mm": self._thickness_mm},
@@ -816,6 +818,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
+        elif key == "Mark":
+            self._mark = str(value)
         elif key == "Colour":
             self._colour = normalize_colour(value, _DEFAULT_COLOUR)
             self.update()
@@ -887,6 +891,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "top_offset_mm":  self._top_offset_mm,
             "level":         self.level,
             "name":          self.name,
+            "mark":          self._mark,
             "join_mode_pt1": self._join_mode_pt1,
             "join_mode_pt2": self._join_mode_pt2,
             "openings":      openings_data,
@@ -936,6 +941,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             wall._top_offset_mm = 0.0
         wall.level = data.get("level", DEFAULT_LEVEL)
         wall.name = data.get("name", "")
+        wall._mark = data.get("mark", "")
         # Per-endpoint join modes (backward compat: old "join_mode" applies to both)
         legacy = data.get("join_mode", "Auto")
         wall._join_mode_pt1 = data.get("join_mode_pt1", legacy)

@@ -87,6 +87,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         super().__init__()
         # Properties
         self._properties = {
+            "Mark":        {"type": "string", "value": ""},
             "Diameter":    {"type": "enum",   "value": "1\"Ø",            "options": ["¾\"Ø", "1\"Ø", "1-¼\"Ø", "1-½\"Ø", "2\"Ø", "2-½\"Ø", "3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"]},
             "Schedule":    {"type": "enum",   "value": "Sch 40",         "options": ["Sch 10", "Sch 40", "Sch 80", "Sch 40S", "Sch 10S"]},
             "C-Factor":    {"type": "string", "value": "120", "readonly": True},

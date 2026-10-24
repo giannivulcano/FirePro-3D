@@ -155,7 +155,7 @@ def _hr_get(item, field: str, key):
 
 
 def _none(_item):
-    return None                  # Mark / Level.Number until SB2b (E4)
+    return None                  # Level.Number until SB2b Task 8 (E4)
 
 
 def _room_named(item, name, level=None):
@@ -266,23 +266,23 @@ def _level_keys(level_of=None):
 
 
 _OPENING_KEYS = [
-    _P("Mark", "text", 1, _none),
+    _P("Mark", "text", 1, lambda o: o._mark),
     _P("Family", "text", 1, lambda o: _feature(o).family),
     _P("Type", "text", 1, lambda o: _feature(o).type_name),
     _P("Width", "length", 1, lambda o: o.width_mm),
     _P("Height", "length", 1, lambda o: o.height_mm),
     _P("Sill", "length", 1, lambda o: o.sill_mm),
-    _P("Wall.Mark", "text", 4, _none),
+    _P("Wall.Mark", "text", 4, lambda o: o._wall._mark if o._wall is not None else None),
     _P("Wall.Name", "text", 4, lambda o: o.wall.name),
     _P("Room.Name", "text", 4, lambda o: _opening_room_attr(o, "name")),
-    _P("Room.Mark", "text", 4, lambda o: _opening_room_attr(o, "_tag")),
+    _P("Room.Mark", "text", 4, lambda o: _opening_room_attr(o, "_mark")),
     *_level_keys(),
 ]
 
 _TABLE = {
     "Room": [
         _P("Name", "text", 1, lambda r: r.name),
-        _P("Mark", "text", 1, lambda r: r._tag),               # E4: today's Room Tag
+        _P("Mark", "text", 1, lambda r: r._mark),              # E4 / SB2b: the Room Mark
         _P("HazardClass", "text", 1, lambda r: r._hazard_class, "Hazard class"),
         _P("Occupancy", "text", 1, lambda r: r._occupancy),
         _P("SystemType", "text", 1, lambda r: r._system_type, "System type"),
@@ -294,7 +294,7 @@ _TABLE = {
         *_level_keys(),
     ],
     "Pipe": [
-        _P("Mark", "text", 1, _none),
+        _P("Mark", "text", 1, lambda p: p._properties["Mark"]["value"]),
         _P("Diameter", "diameter", 1, lambda p: _prop(p, "Diameter")),
         _P("Schedule", "text", 1, lambda p: _prop(p, "Schedule")),
         _P("Material", "text", 1, lambda p: _prop(p, "Material")),
@@ -308,7 +308,7 @@ _TABLE = {
         *_level_keys(_pipe_level),
     ],
     "Sprinkler": [
-        _P("Mark", "text", 1, _none),
+        _P("Mark", "text", 1, lambda s: s._properties["Mark"]["value"]),
         _P("Manufacturer", "text", 1, lambda s: _prop(s, "Manufacturer")),
         _P("Model", "text", 1, lambda s: _prop(s, "Model")),
         _P("Orientation", "text", 1, lambda s: _prop(s, "Orientation")),
@@ -323,12 +323,12 @@ _TABLE = {
         _P("Flow", "flow", 3, _spr_flow),
         _P("NodeNumber", "text", 3, lambda s: _hr_get(s, "node_labels", s.node), "Node number"),
         _P("Room.Name", "text", 4, lambda s: getattr(s.node, "_room_name", "")),
-        _P("Room.Mark", "text", 4, lambda s: _spr_room(s, "_tag")),
+        _P("Room.Mark", "text", 4, lambda s: _spr_room(s, "_mark")),
         *_level_keys(lambda s: _level_name(s, getattr(s.node, "level", None))),
     ],
     "Wall": [
         _P("Name", "text", 1, lambda w: w.name),
-        _P("Mark", "text", 1, _none),
+        _P("Mark", "text", 1, lambda w: w._mark),
         _P("Thickness", "length", 1, lambda w: w.thickness_mm),
         _P("Length", "length", 2, lambda w: w.centerline_length() / _ppm(w)),
         _P("Height", "length", 2, lambda w: w._computed_height_mm()),

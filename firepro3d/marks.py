@@ -172,3 +172,63 @@ def gridline_labels(verticals: dict, horizontals: dict) -> dict:
     for i, k in enumerate(sorted(horizontals, key=lambda k: -horizontals[k])):
         out[k] = letter_label(i)
     return out
+
+
+# ---------------------------------------------------------------- scene adapters
+
+def category_of(item) -> Optional[str]:
+    """Element category (element_params E1) -- re-exported for callers here."""
+    from .element_params import category_of as _cat
+    return _cat(item)
+
+
+def get_mark(item) -> str:
+    """The Mark stored on *item* ("" when none). Gridline: its Label (Q3)."""
+    from .gridline import GridlineItem
+    if isinstance(item, GridlineItem):
+        return item.grid_label
+    props = getattr(item, "_properties", None)
+    if isinstance(props, dict) and "Mark" in props:
+        return str(props["Mark"]["value"] or "")
+    return str(getattr(item, "_mark", "") or "")
+
+
+def set_mark(item, value: str) -> None:
+    """Write *item*'s Mark field directly (no undo, no refresh)."""
+    from .gridline import GridlineItem
+    if isinstance(item, GridlineItem):
+        item.grid_label = value
+        return
+    props = getattr(item, "_properties", None)
+    if isinstance(props, dict) and "Mark" in props:
+        props["Mark"]["value"] = value
+        return
+    item._mark = value
+    if hasattr(item, "_update_label"):
+        item._update_label()
+
+
+def item_level_name(item) -> Optional[str]:
+    """Level name an element sits on (a sprinkler's is its node's)."""
+    node = getattr(item, "node", None)
+    if node is not None and not hasattr(item, "level"):
+        return getattr(node, "level", None)
+    return getattr(item, "level", None)
+
+
+def items_of_category(scene, category: str) -> list:
+    """Every live element of *category* in *scene*, in a stable order."""
+    if category == "Wall":
+        return list(scene._walls)
+    if category in ("Door", "Window", "Opening"):
+        return [op for w in scene._walls for op in w.openings
+                if category_of(op) == category]
+    if category == "Room":
+        return list(scene._rooms)
+    if category == "Pipe":
+        return list(scene.sprinkler_system.pipes)
+    if category == "Sprinkler":
+        return [n.sprinkler for n in scene.sprinkler_system.nodes if n.has_sprinkler()]
+    if category == "Gridline":
+        return list(scene._gridlines)
+    return []

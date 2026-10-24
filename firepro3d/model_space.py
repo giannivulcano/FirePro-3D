@@ -6741,8 +6741,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if active_idx >= 0 and active_idx + 1 < len(levels):
                 room._ceiling_level = levels[active_idx + 1].name
         room.name = f"Room {len(self._rooms) + 1}"
-        room._tag = room.name
-        room._update_label()  # rebuild label now that name/tag are set
+        room._update_label()  # rebuild label now that the name is set
 
         self.addItem(room)
         self._rooms.append(room)
@@ -6781,7 +6780,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if active_idx >= 0 and active_idx + 1 < len(levels):
                     room._ceiling_level = levels[active_idx + 1].name
             room.name = f"Room {len(self._rooms) + 1}"
-            room._tag = room.name
             self.addItem(room)
             self._rooms.append(room)
             self._room_manual_active = room

@@ -57,7 +57,7 @@ def _room(ms, ppm=1.0, name="Office"):
     r = Room([QPointF(0, 0), QPointF(4000 * s, 0), QPointF(4000 * s, 3000 * s),
               QPointF(0, 3000 * s)])
     r.name = name
-    r._tag = "R1"
+    r._mark = "R1"
     r._ceiling_offset = 0.0
     ms.addItem(r)
     ms._rooms.append(r)
@@ -250,7 +250,7 @@ def test_sprinkler_room_prefers_same_level(qapp, make_model_space):
     ms = make_model_space()
     ms._level_manager = LevelManager()
     r1, r2 = _room(ms, name="Office"), _room(ms, name="Office")
-    r1._tag, r2._tag = "L1", "L2"
+    r1._mark, r2._mark = "L1", "L2"
     r1.level, r2.level = "Level 1", "Level 2"
     n = Node(0, 0)
     ms.addItem(n)

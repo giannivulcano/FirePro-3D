@@ -768,7 +768,7 @@ class TestWallProperties:
     def test_get_properties_keys(self, horiz_wall):
         props = horiz_wall.get_properties()
         expected_keys = {
-            "Type", "Name", "Colour", "Thickness", "Fill Mode",
+            "Type", "Name", "Mark", "Colour", "Thickness", "Fill Mode",
             "Alignment", "Base Level", "Base Offset", "Top Level",
             "Top Offset", "Height", "Join Start", "Join End",
         }
@@ -863,7 +863,7 @@ class TestRoomTranslate:
 class TestRoomSerialization:
     def test_round_trip(self, square_room):
         square_room.name = "Office"
-        square_room._tag = "R-101"
+        square_room._mark = "R-101"
         square_room._hazard_class = "Ordinary Hazard Group 1"
         square_room._compartment_type = "Corridor"
         square_room._ceiling_type = "Combustible obstructed - exposed members >= 3ft (910 mm) O/C"
@@ -874,12 +874,12 @@ class TestRoomSerialization:
         assert d["type"] == "room"
         assert len(d["boundary"]) == 4
         assert d["name"] == "Office"
-        assert d["tag"] == "R-101"
+        assert d["mark"] == "R-101" and "tag" not in d
         assert d["hazard_class"] == "Ordinary Hazard Group 1"
 
         restored = Room.from_dict(d)
         assert restored.name == "Office"
-        assert restored._tag == "R-101"
+        assert restored._mark == "R-101"
         assert restored._hazard_class == "Ordinary Hazard Group 1"
         assert restored._compartment_type == "Corridor"
         assert restored._ceiling_type == "Combustible obstructed - exposed members >= 3ft (910 mm) O/C"
@@ -915,7 +915,7 @@ class TestRoomProperties:
             # Section headers
             "Room Info", "Geometry", "Protection Criteria",
             # Room Info section
-            "Type", "Room Name", "Room Tag", "Show Label",
+            "Type", "Room Name", "Mark", "Show Label",
             # Geometry section
             "Area", "Perimeter", "Floor Level", "Ceiling Level",
             "Ceiling Offset", "Ceiling Height", "Volume",
@@ -939,9 +939,9 @@ class TestRoomProperties:
         square_room.set_property("Room Name", "Server Room")
         assert square_room.name == "Server Room"
 
-    def test_set_room_tag(self, square_room):
-        square_room.set_property("Room Tag", "SR-1")
-        assert square_room._tag == "SR-1"
+    def test_set_room_mark(self, square_room):
+        square_room.set_property("Mark", "SR-1")
+        assert square_room._mark == "SR-1"
 
     def test_max_coverage_by_hazard(self, square_room):
         square_room._hazard_class = "Light Hazard"

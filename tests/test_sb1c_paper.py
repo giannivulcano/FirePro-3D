@@ -151,7 +151,7 @@ def test_g_room_stale_label_height_ignored(qapp):
     scene = QGraphicsScene()
     room = Room(boundary=[QPointF(0, 0), QPointF(6000, 0),
                           QPointF(6000, 4000), QPointF(0, 4000)], color="#4488cc")
-    room._tag = "R101"
+    room.name = "R101"   # label = Name (SB2b M6)
     room._show_label = True
     scene.addItem(room)
     if hasattr(room, "_update_label"):

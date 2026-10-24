@@ -152,7 +152,7 @@ class SprinklerWorkflowController:
             self.add_sprinkler(node, temp_spr)
             count += 1
 
-        room_name = room.name or room._tag or "room"
+        room_name = room.name or room._mark or "room"
         self._scene._show_status(f"Placed {count} sprinkler(s) in {room_name}.")
 
     # ── Design-area picks lifecycle ────────────────────────────────────────────

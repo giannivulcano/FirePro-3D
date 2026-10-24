@@ -143,6 +143,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         # Mirror flags
         self.mirror_hinge: bool = False    # flip leaf/hinge side (along-wall)
         self.mirror_facing: bool = False   # flip front/back face (cross-wall)
+        self._mark: str = ""               # SB2b instance Mark
 
         # ── Qt item setup ─────────────────────────────────────────────────────
         self.setZValue(Z_CAT_OPENING)
@@ -606,6 +607,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             "mirror_hinge":    self.mirror_hinge,
             "mirror_facing":   self.mirror_facing,
             "level":           self.level,
+            "mark":            self._mark,
         }
 
     @classmethod
@@ -646,6 +648,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         obj.mirror_hinge = bool(data.get("mirror_hinge", False))
         obj.mirror_facing = bool(data.get("mirror_facing", False))
         obj.level = data.get("level", DEFAULT_LEVEL)
+        obj._mark = data.get("mark", "")
 
         if wall is not None:
             obj._reposition()
@@ -686,6 +689,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
                                 if cur is not None else self._type.title()}
             if cur is not None:
                 props["Type"] = {"type": "label", "value": cur.type_name}
+            props["Mark"] = {"type": "string", "value": self._mark}
         props["Width"] = {"type": "dimension", "value_mm": self._width_mm}
         props["Height"] = {"type": "dimension", "value_mm": self._height_mm}
         props["Sill Height"] = {"type": "dimension", "value_mm": self._sill_mm}
@@ -927,6 +931,9 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             value: New value — mm float for dimension keys, str for enum/level_ref,
                    bool for bool keys.  Unknown keys are silently ignored.
         """
+        if key == "Mark":
+            self._mark = str(value)
+            return
         if key == "Feature":
             # value is a display_name (or an id) from the panel enum → resolve
             # to a feature id and switch (resets dims to that feature's defaults).
