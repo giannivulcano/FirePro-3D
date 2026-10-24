@@ -2536,10 +2536,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         switches to the user's duplicate). Holders: placed block instances
         (+ definition backrefs), nested instance primitives and fill-pattern
         refs inside other definitions (``set_primitives``), 2D items' fill
-        pattern layer, per-item Display overrides ``section_pattern`` and the
-        pattern ref of every Fill Type (HF5; the project-wide table is outside
-        undo, like line weights); the Display Manager is re-applied so the
-        derived section cache follows.
+        pattern layer and the pattern ref of every Fill Type (HF5; the
+        project-wide table is outside undo, like line weights). Fill Type
+        re-points are outside undo (HF5 ruling 2026-10-23); Ctrl+Z restores
+        instances only.
         Not touched: Display category defaults (app-wide QSettings, a
         project-local switch must not rewrite other projects), linetype / end
         refs (none ship in System yet) and schematic viewports (never System,
@@ -2614,7 +2614,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if table_hits:
             count += table_hits
             fill_types.notify_changed()
-        # H3 + H5: scene items' fill pattern layer / Display section override.
+        # H3: scene items' fill pattern layer.
         for item in self.items():
             fl = getattr(item, "fill_layers", None)
             if (fl is not None and getattr(fl, "pattern", None) is not None
@@ -2623,16 +2623,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     fl, pattern=_replace(fl.pattern, ref=new_id))
                 item.update()
                 count += 1
-            ov = getattr(item, "_display_overrides", None)
-            if (isinstance(ov, dict)
-                    and canonical_ref(ov.get("section_pattern")) == old_c):
-                ov["section_pattern"] = new_id
-                count += 1
         if count == 0:
             return 0
-        # H7: re-derive the item section-pattern caches from the overrides.
-        from .display_manager import apply_saved_display_settings
-        apply_saved_display_settings(self)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
         return count

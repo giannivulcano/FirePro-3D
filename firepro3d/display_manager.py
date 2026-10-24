@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen,
                          QIcon, QPixmap)
-from PyQt6.QtCore import Qt, QSettings, QByteArray, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, QByteArray, QSize, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
 import json
@@ -1708,6 +1708,8 @@ class DisplayManager(QDialog):
         section_sel = None
         if has_section:
             section_sel = Selector()
+            section_sel.setShowIcon(True)           # swatch + name (user ruling 2026-10-23)
+            section_sel.setIconSize(QSize(40, 20))
             self._fill_section_selector(section_sel, section_type)
             self._tree.setItemWidget(tree_item, _COL_SECTION, section_sel)
 

@@ -874,6 +874,7 @@ class Selector(QComboBox):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
+        self._show_icon = False      # opt-in: swatch left of the text (HF5 section cell)
         # Size lives in the widget's OWN QSS: setFont() loses to the app QSS
         # ``QWidget { font-size }`` (13 px everywhere outside the property
         # panel's field rule — ui-design-system.md).
@@ -884,6 +885,13 @@ class Selector(QComboBox):
             f" border: 1px solid {t.accent}; outline: none;"
             f" selection-background-color: {t.accent};"
             f" selection-color: {t.accent_ink}; }}")
+
+    def setShowIcon(self, on: bool) -> None:
+        """Opt in to painting the current item's icon (a swatch) left of its
+        text in the closed state. Off by default: every other Selector paints
+        exactly as before."""
+        self._show_icon = bool(on)
+        self.update()
 
     def paintEvent(self, event):
         t = _detect()
@@ -897,6 +905,13 @@ class Selector(QComboBox):
         p.drawLine(QPointF(divx, r.top() + 3), QPointF(divx, r.bottom() - 3))
         p.setPen(QColor(t.ink))
         tr = QRectF(r.left() + 6, r.top(), divx - r.left() - 10, r.height())
+        icon = self.itemIcon(self.currentIndex()) if self._show_icon else None
+        if icon is not None and not icon.isNull():
+            ih = r.height() - 6          # the divider's 3 px inset, top and bottom
+            pm = icon.pixmap(self.iconSize())
+            iw = pm.width() * ih / max(pm.height(), 1)
+            p.drawPixmap(QRectF(tr.left(), r.top() + 3, iw, ih), pm, QRectF(pm.rect()))
+            tr.setLeft(tr.left() + iw + 6)
         txt = self.fontMetrics().elidedText(
             self.currentText(), Qt.TextElideMode.ElideRight, int(tr.width()))
         p.drawText(tr, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), txt)

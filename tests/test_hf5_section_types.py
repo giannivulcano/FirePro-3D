@@ -276,3 +276,60 @@ def test_cancel_removes_the_preview_written_type_keys(qapp, model_space):
         dlg.close()
     assert not s.contains("display/Wall/section_type")
     assert not s.contains("display/Wall/section_look")
+
+
+# -- review fixes: alpha scales, token / No Fill bodies, app-wide patterns ---------
+
+def test_transparent_element_colour_draws_no_hatch(qapp, model_space, shipped_hatches):
+    """A per-item colour override of '' (No Fill) makes By element transparent:
+    the cut keeps its body but draws no hatch (the old hatch drew nothing)."""
+    ms = model_space
+    shipped_hatches(ms)
+    w = _wall(ms)
+    w._display_overrides["fill"] = ""
+    w._display_overrides["color"] = ""
+    _apply_wall_category(ms)
+    px = _render(ms, w)
+    assert {c.name() for c in px} == {"#666666"}
+
+
+def test_wall_token_body_renders_the_resolved_token(qapp, model_space, shipped_hatches):
+    from firepro3d.colour_tokens import resolve_colour
+    from firepro3d.constants import TOKEN_ACCENT
+    ms = model_space
+    shipped_hatches(ms)
+    QSettings("GV", "FirePro3D").setValue("display/Wall/section", TOKEN_ACCENT)
+    w = _wall(ms)
+    w._display_overrides["fill"] = ""
+    _apply_wall_category(ms)
+    assert _body(_render(ms, w)) == resolve_colour(TOKEN_ACCENT).name()
+
+
+def test_wall_no_fill_body_renders_no_body(qapp, model_space, shipped_hatches):
+    ms = model_space
+    shipped_hatches(ms)
+    QSettings("GV", "FirePro3D").setValue("display/Wall/section", "")
+    w = _wall(ms)
+    w._display_overrides["fill"] = ""
+    w._display_overrides["color"] = "#aa0000"
+    _apply_wall_category(ms)
+    px = _render(ms, w)
+    assert _body(px) == "#ffffff"
+    assert len([c for c in px if _near(c, (170, 0, 0), 60)]) > 10      # hatch still draws
+
+
+def test_app_wide_category_pattern_loads_for_a_scene_with_no_walls(qapp):
+    """D-A39: the app-wide Wall section look names a Hatch-folder pattern; a new
+    scene (no wall, table not yet fed by a DM apply) still loads it."""
+    from firepro3d import app_data
+    from firepro3d import hatch_patterns as hp
+    from firepro3d.model_space import Model_Space
+    from tests.test_hatch_blocks_only import _put_shipped_into
+    _put_shipped_into(app_data.hatch_patterns_dir())
+    s = QSettings("GV", "FirePro3D")
+    s.setValue("display/Wall/section_type", "Brick Cut")
+    s.setValue("display/Wall/section_look", json.dumps({"pattern": {"ref": hp.BUILTIN_BRICK}}))
+    sc = Model_Space()
+    assert hp.BUILTIN_BRICK in hp.project_pattern_refs(sc)
+    hp.ensure_project_patterns(sc)
+    assert hp.BUILTIN_BRICK in sc._block_definitions

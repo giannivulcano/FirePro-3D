@@ -150,3 +150,40 @@ def test_set_as_default_writes_type_and_look_and_no_legacy_default_keys(qapp, mo
     assert json.loads(s.value("display/Wall/default_section_look"))["pattern"]["ref"]
     assert not s.contains("display/Wall/default_section")
     assert not s.contains("display/Wall/section")
+
+
+def _grab(widget, w=200):
+    from PyQt6.QtGui import QImage
+    widget.resize(w, widget.height())
+    return widget.grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
+
+
+def test_closed_section_cell_shows_the_swatch_left_of_the_name(qapp, model_space):
+    ft.project_table().ensure_named("Swatchy", FillLayers(BackgroundLayer("#00ff00", 1.0)))
+    d = _dm(model_space)
+    try:
+        sel = d._cat_data["Wall"]["widgets"]["section_sel"]
+        sel.setCurrentText("Swatchy")
+        img = _grab(sel)
+        y = img.height() // 2
+        assert img.pixelColor(14, y).name() == "#00ff00"        # inside the swatch
+        assert img.pixelColor(img.width() - 40, y).name() != "#00ff00"
+        assert sel.height() == Selector().height()             # row height unchanged
+    finally:
+        d.close()
+
+
+def test_a_plain_selector_ignores_item_icons(qapp):
+    """The swatch is opt-in: every other Selector paints identically with or
+    without an item icon."""
+    import hashlib
+    from PyQt6.QtGui import QIcon, QPixmap, QColor
+
+    def digest(with_icon):
+        s = Selector()
+        pm = QPixmap(40, 20)
+        pm.fill(QColor("#00ff00"))
+        s.addItem(QIcon(pm) if with_icon else QIcon(), "Same")
+        img = _grab(s)
+        return hashlib.sha256(bytes(img.constBits().asarray(img.sizeInBytes()))).hexdigest()
+    assert digest(True) == digest(False)

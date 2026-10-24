@@ -53,7 +53,7 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
     from . import fill_types
     from .colour_tokens import resolve_colour, section_fill_colour
     from .constants import TOKEN_ELEMENT
-    from .fill_layers import FillLayers, PatternLayer, alpha
+    from .fill_layers import FillLayers, PatternLayer
     from .hatch_patterns import DEFAULT_TILE_REF
     from .hatch_render import paint_fill
     if clip_path.isEmpty():
@@ -69,14 +69,14 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
         bg = section_fill_colour(paper_bg, item)
     elif layers.background is not None:
         bg = resolve_colour(layers.background.color, item=item)
-        bg.setAlpha(alpha(layers.background.opacity))
+        bg.setAlpha(round(bg.alpha() * layers.background.opacity))
     p = layers.pattern
     if p is not None:
         if p.color == TOKEN_ELEMENT:
             pat = QColor(element_colour) if element_colour is not None else QColor(_SECTION_HATCH_COLOR)
         else:
             pat = resolve_colour(p.color, item=item)
-        pat.setAlpha(alpha(p.opacity))
+        pat.setAlpha(round(pat.alpha() * p.opacity))
     paint_fill(painter, clip_path, scene=scene, background=bg,
                tile_ref=p.ref if p is not None else None,
                colour=pat if pat is not None else _SECTION_HATCH_COLOR,
