@@ -3991,14 +3991,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             wall.invalidate_geometry()
 
     def _refresh_all_labels(self):
-        """Refresh display text on all pipes and dimension annotations."""
+        """Refresh display text on all pipes, dimension annotations and
+        host-bound block instances (element-parameters.md: unit change)."""
         for pipe in self.sprinkler_system.pipes:
             pipe.update_label()
         for dim in self.annotations.dimensions:
             dim.update_label()
+        for inst in self._block_instances:
+            if inst.element_host is not None:
+                inst.refresh_bound()
         # Selection dimension readouts format at paint time; a units/precision
         # change touches no item, so force the repaint (selection-mode §15).
         self.readouts.refresh()
+
+    def instances_bound_to(self, item) -> list:
+        """The placed block instances whose ``element_host`` is *item*."""
+        return [i for i in self._block_instances
+                if getattr(i, "element_host", None) is item]
 
     def set_display_unit(self, unit):
         """Change the display unit and refresh all labels."""

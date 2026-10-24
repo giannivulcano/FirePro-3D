@@ -32,8 +32,8 @@ Tags and intrinsic labels (SB3–SB6) must read element data without parsing the
 - `host_values(item) -> dict[key, HostValue]` for the item's category; `HostValue(raw, kind)` exposes `text` (the kind formatter's string in project units) and `number` (the same quantity as a bare float in display units, or `None` for text kinds).
 - **Formatting** goes by kind through `ScaleManager` (Rule A: the kinds, spellings and imperial-only status of pressure / flow / velocity are owned by `units-and-formatting.md`). SB2a adds `format_area_mm2`, `format_volume_mm3`, `format_pressure`, `format_flow`, `format_velocity` (+ `*_value` numeric twins); Room's `_fmt_area` / `_fmt_volume` move onto them (no copy). `format_length` and `format_angle` are reused.
 - **Attribute resolution** (schema owned by `block-system.md`, SB1a): `block_attributes.format_value` gains one branch — given a `HostValue`, a `text` attribute prints `.text`, a `number` attribute prints `.number` at the attribute's `precision`; prefix / suffix wrap either; `None` → placeholder. The SB1a override rule is unchanged (a present instance value wins, printed as typed).
-- **Host seam** on `BlockInstance`: `host` (code-set only in SB2a — D-a; not serialized); `host_values()` returns `element_params.host_values(host)` when a live host is set (`host.scene() is not None`), else `None`. `refresh_bound()` re-resolves the bound strings and, only when they change, calls `prepareGeometryChange()` + `update()` (closes the SB1a "host-value change re-shapes without prepareGeometryChange" follow-up for this path).
-- **Refresh triggers:** `Model_Space._refresh_all_labels` (the unit / precision change path, called by `main.py` after Project Settings) calls `refresh_bound()` on every instance with a host; the property-panel commit for an element calls it on that element's bound instances via `scene.instances_bound_to(item)`. Grip / move edits of a host are not wired in SB2a (SB3).
+- **Host seam** on `BlockInstance`: `element_host` (code-set only in SB2a — D-a; not serialized; distinct from the gridline-hosting `host` record); `host_values()` returns `element_params.host_values(element_host)` when a live host is set (`element_params.is_live`, which reaches a sprinkler's scene through its node), else `None`. `refresh_bound()` re-resolves the bound strings and, only when they change, calls `prepareGeometryChange()` + `update()` (closes the SB1a "host-value change re-shapes without prepareGeometryChange" follow-up for this path).
+- **Refresh triggers:** `Model_Space._refresh_all_labels` (the unit / precision change path, called by `main.py` after Project Settings) calls `refresh_bound()` on every instance with an `element_host`; the property-panel commit for an element calls it on that element's bound instances via `scene.instances_bound_to(item)`. Grip / move edits of a host are not wired in SB2a (SB3).
 
 ## Design Decisions
 
@@ -61,7 +61,7 @@ Tiers: T1 stored, T2 geometry, T3 hydraulic, T4 related. `[label]` given where i
 | Door / Window / Opening | Mark, Family, Type (Feature type name, `FeatureDef.type_name`), Width, Height, Sill (mm) | — | — | Wall.Mark, Wall.Name, Room.Name, Room.Mark, Level.Name, Level.Number |
 | Pipe | Mark, Diameter (nominal, the existing `Ø 1"` / `Ø 25 mm` display strings), Schedule, Material, CFactor [C-factor] | Length (true 3D, mm), InnerDiameter [Inner diameter] (in) | Flow (gpm), Velocity (ft/s), FrictionLoss [Friction loss] (psi) | Level.Name, Level.Number |
 | Sprinkler | Mark, Manufacturer, Model, Orientation, KFactor [K-factor], Temperature, MinPressure [Min pressure] (psi), CoverageArea [Coverage area] (sq ft) | Elevation (node z, mm) | Pressure (psi at its node), Flow (K√P, gpm), NodeNumber [Node number] (solver label) | Room.Name, Room.Mark (via the node's room link), Level.Name, Level.Number |
-| Gridline | Mark (= Label) | Length (mm), Angle (°) | — | — (no level) |
+| Gridline | Mark (= Label) | Length (mm), Angle (0–360°) | — | — (no level) |
 
 ### Block Editor pickers (design §3)
 
@@ -84,8 +84,8 @@ Tiers: T1 stored, T2 geometry, T3 hydraulic, T4 related. `[label]` given where i
 
 ## Verification Checklist
 
-- **G1** real Room, Wall, Door, Pipe (+ nodes), Sprinkler, Gridline through real constructors on a scene: every key's raw value against a hand-derived one (a 4 m × 3 m room → Area 12e6 mm²; door Width 915 mm), a calibrated scene (ppm 2), and a unit switch (imperial ↔ m) changing `HostValue.text`.
-- **G-B1** a block bound to `Door` with `@[W]`→`Width`, `@[R]`→`Room.Name`, `.host` = a real door in a real room: painted bound text = the formatted values; a width edit committed through the property panel (`property_manager` dispatch) updates the text and `boundingRect`; a unit switch + `_refresh_all_labels` reflows it.
+- **G1** real Room, Wall, Door, Pipe (+ nodes), Sprinkler, Gridline through real constructors on a scene: every key's raw value against a hand-derived one (a 4 m × 3 m room → Area 12e6 mm²; door Width 914 mm), a calibrated scene (ppm 2), and a unit switch (imperial ↔ m) changing `HostValue.text`.
+- **G-B1** a block bound to `Door` with `@[W]`→`Width`, `@[R]`→`Room.Name`, `.element_host` = a real door in a real room: painted bound text = the formatted values; a width edit committed through the property panel (`property_manager` dispatch) updates the text and `boundingRect`; a unit switch + `_refresh_all_labels` reflows it.
 - **G-B2** each category's host-key items = its `PARAMS` keys in tier groups; a loaded block with `KFactor` on `Door` and a category `Foo` keeps both through OK, shows the warn entries, and loads.
 - Unit: `category_of` over every category and an unrelated item.
 - Smoke: Block Editor Host category row + host-key dropdowns.

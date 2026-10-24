@@ -77,7 +77,7 @@ class HostValue:
         if k == "pipe_id":
             return sm.format_pipe_id(v)
         if k == "angle":
-            return ScaleManager.format_angle(v)
+            return ScaleManager.format_bearing(v)
         if k == "number":
             return ScaleManager.format_factor(v)
         if k == "diameter":
@@ -104,7 +104,9 @@ class HostValue:
             return sm.area_sqft_value(v)
         if k == "pipe_id":
             return sm.pipe_id_value(v)
-        return v                 # pressure / flow / velocity / angle / number
+        if k == "angle":         # bearing, 0..360 (gridline ruling)
+            return v % 360.0 if math.isfinite(v) else None
+        return v                 # pressure / flow / velocity / number
 
 
 def _diameter_text(key: str, sm: ScaleManager) -> str:

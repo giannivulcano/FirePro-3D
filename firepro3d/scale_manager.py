@@ -321,7 +321,35 @@ class ScaleManager:
         Returns:
             The formatted angle, e.g. ``"-16.4°"``.
         """
-        a = ScaleManager.normalize_angle(deg)
+        return ScaleManager._format_degrees(ScaleManager.normalize_angle(deg))
+
+    @staticmethod
+    def format_bearing(deg: float) -> str:
+        """Format *deg* as a bearing in [0, 360) with the ° glyph.
+
+        Same rounding and trimming as :meth:`format_angle`, but the angle is
+        wrapped to 0..360 instead of (-180, 180]: a line drawn straight down
+        reads ``"270°"``. A value that rounds to 360.00 prints ``"0°"``.
+
+        Args:
+            deg: Angle in degrees.
+
+        Returns:
+            The formatted bearing, e.g. ``"270°"``.
+        """
+        text = ScaleManager._format_degrees(float(deg) % 360.0)
+        return "0°" if text == "360°" else text
+
+    @staticmethod
+    def _format_degrees(a: float) -> str:
+        """Round *a* to 2 decimals, trim zeros and append the ° glyph.
+
+        Args:
+            a: Angle in degrees, already folded into its display range.
+
+        Returns:
+            The formatted angle; non-finite input gives ``"0°"``.
+        """
         if not math.isfinite(a):
             return "0°"
         # Round half away from zero on the decimal literal the user sees:

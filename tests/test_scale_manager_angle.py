@@ -30,6 +30,17 @@ class TestFormat:
         assert ScaleManager.format_angle(deg) == expected
 
 
+class TestBearing:
+
+    @pytest.mark.parametrize("deg,expected", [
+        (0.0, "0°"), (45.0, "45°"), (270.0, "270°"), (-90.0, "270°"),
+        (359.999, "0°"),             # rounds to 360.00 -> 0
+        (360.0, "0°"), (float("nan"), "0°"),
+    ])
+    def test_formats(self, deg, expected):
+        assert ScaleManager.format_bearing(deg) == expected
+
+
 class TestParse:
 
     @pytest.mark.parametrize("text,expected", [

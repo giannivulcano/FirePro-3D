@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .element_params import HostValue
 from .titleblock_template import TOKEN_RE, resolve_text
 
 ATTR_TYPES = ("text", "number")
@@ -59,8 +60,20 @@ def format_value(rec: dict, raw) -> str:
 
     ``None`` / ``""`` -> ``placeholder``. ``type: number`` -> plain decimal
     with ``precision`` digits; a non-numeric value -> ``placeholder``.
-    The prefix / suffix wrap a real value, never the placeholder.
+    The prefix / suffix wrap a real value, never the placeholder. A host
+    value (element-parameters.md E8) prints its unit-formatted ``text`` for
+    a text attribute and its display-unit ``number`` for a number attribute.
     """
+    if isinstance(raw, HostValue):
+        if raw.raw is None:
+            return rec.get("placeholder", "?")
+        if rec.get("type") == "number":
+            if raw.number is None:
+                return rec.get("placeholder", "?")
+            body = f"{raw.number:.{int(rec.get('precision', 0))}f}"
+        else:
+            body = raw.text
+        return f"{rec.get('prefix', '')}{body}{rec.get('suffix', '')}"
     if raw is None or raw == "":
         return rec.get("placeholder", "?")
     if rec.get("type") == "number":

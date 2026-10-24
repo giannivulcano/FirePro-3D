@@ -127,6 +127,11 @@ class BlockInstance(QGraphicsObject):
         # instance; else the host record, single source of truth -- the plan
         # pose is derived from it (C3 amendment: gridline-scoped).
         self.host: Optional[dict] = None
+        # Element host (element-parameters.md, SB2a D-a): the element whose
+        # keyed values feed host-sourced attributes. Code-set only (SB3 / SB6
+        # set it), never serialized (ledger D3). Distinct from ``host`` above.
+        self.element_host = None
+        self._bound_values: Optional[dict] = None   # last refresh_bound() strings
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
         # Placement Weight / Linetype override (linetypes.md WM2): As
@@ -179,10 +184,30 @@ class BlockInstance(QGraphicsObject):
         return self._resolver(self.block_id)
 
     def host_values(self) -> Optional[dict]:
-        """The host-value provider seam (SB1a A2): ``{host_key: raw}`` or
-        None (no host -> placeholders). SB2 / SB3 override on host-aware
-        subclasses; a test stub returns a dict."""
-        return None
+        """The host-value provider seam (SB1a A2): ``{host_key: HostValue}``
+        from the live ``element_host``, or None (no host / deleted host ->
+        placeholders)."""
+        from . import element_params
+        h = self.element_host
+        if h is None or not element_params.is_live(h):
+            return None
+        return element_params.host_values(h)
+
+    def refresh_bound(self) -> None:
+        """Re-resolve the bound strings; when they changed, re-shape
+        (``prepareGeometryChange``) and repaint. Called after a host edit or
+        a units change (element-parameters.md refresh triggers)."""
+        d = self.definition()
+        if d is None:
+            return
+        from .block_attributes import resolve_values
+        values = resolve_values(d.effective_attributes(), self.attributes,
+                                self.host_values())
+        if values == self._bound_values:
+            return
+        self._bound_values = values
+        self.prepareGeometryChange()
+        self.update()
 
     def set_attributes(self, values: dict) -> None:
         """Replace the instance's attribute values / host overrides (A4 / D4:

@@ -817,6 +817,13 @@ class PropertyManager(QWidget):
         finally:
             if stack is not None and hasattr(stack, "endMacro"):
                 stack.endMacro()
+        # Host-bound blocks re-shape after an element edit (element-parameters.md).
+        from .element_params import scene_of
+        for t in self._targets:
+            sc = scene_of(t)
+            for inst in (sc.instances_bound_to(t)
+                         if hasattr(sc, "instances_bound_to") else ()):
+                inst.refresh_bound()
         # A panel edit may change geometry outside the selection manipulator;
         # re-fit its frame (one call per distinct scene).
         refit = {}
