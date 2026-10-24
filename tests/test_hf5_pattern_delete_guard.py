@@ -97,3 +97,68 @@ def test_legacy_name_ref_counts_through_the_canonical_alias(qapp):
     ms = Model_Space()
     _typed(ms, "diagonal")
     assert ft.pattern_users(LEGACY_ALIAS["diagonal"]) == ["Concrete"]
+
+
+def _region(ms, ref=None, type_id=None, override_ref=None):
+    from firepro3d.filled_region import FilledRegionItem
+    a, b, c, e = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
+    r = FilledRegionItem.from_pieces([[LineItem(a, b), LineItem(b, c), LineItem(c, e), LineItem(e, a)]])
+    if type_id:
+        r.set_fill_type(type_id)
+    if ref:
+        r.fill_layers = FillLayers(None, PatternLayer(ref, "#000000", 1.0, 1.0))
+    ms.addItem(r)
+    return r
+
+
+def test_loose_region_pattern_blocks_the_delete(qapp):
+    """F2 (ruling 2026-10-24): a Filled Region tiling the block counts, typed or not."""
+    ms = Model_Space()
+    d = _tile()
+    ms.register_block_definition(d)
+    r = _region(ms, d.id)
+    assert ms.delete_block_definition(d.id) is False
+    assert ms.block_users_message(d.id) == (
+        f"\u201cZig\u201d is used by 1 Filled Region {_DASH} change their pattern first.")
+    r.fill_layers = FillLayers(BackgroundLayer("#000000", 1.0))     # pattern switched off
+    assert ms.block_users_message(d.id) is None
+    assert ms.delete_block_definition(d.id) is True
+
+
+def test_region_clause_joins_types_and_is_not_double_counted(qapp):
+    ms = Model_Space()
+    d = _tile()
+    ms.register_block_definition(d)
+    t = _typed(ms, d.id)
+    _region(ms, type_id=t.id)                           # inherits the type's pattern: type clause only
+    assert ms.block_users_message(d.id) == (
+        f"\u201cZig\u201d is used by Fill Types: Concrete {_DASH} change their pattern first.")
+    other = ft.project_table().add(ft.FillType(ft.new_id(), "Plain", FillLayers(BackgroundLayer("#000000", 1.0))))
+    r = _region(ms, type_id=other.id)
+    r.fill_layers = FillLayers(None, PatternLayer(d.id, "#000000", 1.0, 1.0))   # typed + own override
+    assert ms.block_users_message(d.id) == (
+        f"\u201cZig\u201d is used by Fill Types: Concrete, and by 1 Filled Region"
+        f" {_DASH} change their pattern first.")
+
+
+def test_block_manager_delete_shows_the_region_clause(qapp, monkeypatch):
+    import firepro3d.themed_message as tm
+    from firepro3d.block_manager import BlockManagerDialog
+    ms = Model_Space()
+    d = _tile()
+    ms.register_block_definition(d)
+    _region(ms, d.id)
+    shown = []
+    monkeypatch.setattr(tm, "themed_info", lambda *args, **k: shown.append(args))
+
+    class _MW:
+        settings = None
+    dlg = BlockManagerDialog(ms, _MW(), apply_stylesheet=False)
+    try:
+        row = dlg.model.row_for_id(d.id)
+        dlg.view.setCurrentIndex(dlg.proxy.mapFromSource(dlg.model.index(row, 0)))
+        dlg._delete()
+        assert d.id in ms._block_definitions
+        assert shown and "1 Filled Region" in shown[-1][2]
+    finally:
+        dlg.close()

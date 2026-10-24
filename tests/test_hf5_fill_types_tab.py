@@ -371,14 +371,14 @@ def test_a_type_renamed_in_the_tab_follows_its_category(qapp, model_space):
 
 def test_cancel_drops_a_previewed_pending_type(qapp, model_space):
     wall = _wall(model_space)
+    wall_type = wall._display_section_type                       # pre-dialog state
     d, tab = _open(model_space)
-    wall_type = ft.project_table().by_name("Wall Section").id
     tab.add_type()
     tab.set_name("Concrete")
     d._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Concrete")
     d.reject()
     assert ft.project_table().by_name("Concrete") is None
-    assert wall._display_section_type == wall_type               # never a vanished id
+    assert wall._display_section_type == wall_type               # the section snapshot, never a vanished id
     assert dm._read_category_from_settings("Wall")["section_type"] == "Wall Section"
 
 
@@ -533,3 +533,61 @@ def test_the_handler_is_not_reentrant(qapp, mw_fn):
     mw_fn._live_scenes = spy
     ft.notify_changed()
     assert depth == [1]
+
+
+# -- Group D review fixes ------------------------------------------------------
+
+def _digest(ms, wall):
+    import hashlib
+    from tests.test_hf5_section_types import _render
+    return hashlib.sha256(",".join(c.name() for c in _render(ms, wall)).encode()).hexdigest()
+
+
+@pytest.mark.parametrize("pending", [False, True], ids=["existing-type", "pending-type"])
+def test_cancel_after_an_instance_pick_restores_the_wall(qapp, model_space, pending):
+    """F1: walls / floors are outside the DM item snapshot; a previewed instance
+    pick must not survive Cancel (no dangling id, same rendered cut)."""
+    ft.project_table().ensure_named("Green", FillLayers(BackgroundLayer("#00aa00", 1.0)))
+    wall = _wall(model_space)
+    wall._is_section_cut = True
+    pre = _digest(model_space, wall)                 # first paint may apply the display look
+    before = (wall._display_section_type, dict(wall._display_overrides))
+    d, tab = _open(model_space)
+    if pending:
+        tab.add_type()
+        tab.set_name("Concrete")
+        tab.set_background(True, "#ff0000", 1.0)
+    name = "Concrete" if pending else "Green"
+    d._inst_data[id(wall)]["widgets"]["section_sel"].setCurrentText(name)
+    assert "section_type" in wall._display_overrides
+    d.reject()
+    assert (wall._display_section_type, dict(wall._display_overrides)) == before
+    assert _digest(model_space, wall) == pre
+
+
+def test_cancel_restores_a_floor_too(qapp, model_space):
+    from firepro3d.floor_slab import FloorSlab
+    ft.project_table().ensure_named("Green", FillLayers(BackgroundLayer("#00aa00", 1.0)))
+    slab = FloorSlab([QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)])
+    model_space._floor_slabs.append(slab)
+    model_space.addItem(slab)
+    before = (slab._display_section_type, dict(slab._display_overrides))
+    d, _tab = _open(model_space)
+    d._inst_data[id(slab)]["widgets"]["section_sel"].setCurrentText("Green")
+    d.reject()
+    assert (slab._display_section_type, dict(slab._display_overrides)) == before
+
+
+def test_reset_all_and_set_as_default_are_disabled_on_the_fill_types_tab(qapp, model_space):
+    """F3: the table is per project, so neither button applies there."""
+    d, tab = _open(model_space)
+    try:
+        assert d._reset_btn.isEnabled() and d._default_btn.isEnabled()
+        d._tabs.setCurrentWidget(tab)
+        assert not d._reset_btn.isEnabled() and not d._default_btn.isEnabled()
+        assert "per-project" in d._reset_btn.toolTip() and "per-project" in d._default_btn.toolTip()
+        d._tabs.setCurrentIndex(0)
+        assert d._reset_btn.isEnabled() and d._default_btn.isEnabled()
+        assert "per-project" not in d._default_btn.toolTip()
+    finally:
+        d.close()

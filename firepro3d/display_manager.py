@@ -514,6 +514,10 @@ def _missing_type_label(type_id: str) -> str:
     return f"? {str(type_id)[:8]}"
 
 
+# Cut-item state the live preview writes (walls, floors): restored on Cancel.
+_CUT_ATTRS = ("_display_section_type", "_display_color", "_display_fill_color",
+              "_display_scale", "_fill_mode")
+
 _NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor"}
 
 
@@ -1064,6 +1068,15 @@ class DisplayManager(QDialog):
             }
             self._snapshot[id(item)] = entry
 
+        # Cut items (walls, floors) are not in _iter_all_items: snapshot their
+        # section-type state so a previewed pick never survives Cancel (HF5).
+        self._section_snapshot = [
+            (it, {a: getattr(it, a) for a in _CUT_ATTRS if hasattr(it, a)},
+             dict(it._display_overrides), it.isVisible(), it.opacity())
+            for it in self._scene.items()
+            if hasattr(it, "_display_section_type")
+            and isinstance(getattr(it, "_display_overrides", None), dict)]
+
         # Also snapshot Fitting wrappers (not QGraphicsItems themselves)
         for node in self._scene.sprinkler_system.nodes:
             f = node.fitting
@@ -1169,6 +1182,14 @@ class DisplayManager(QDialog):
                               snap.get("display_fill_color"))
                 item._display_scale = snap.get("display_scale", 1.0)
                 item._centre_on_offset()
+
+        for it, attrs, overrides, vis, opa in getattr(self, "_section_snapshot", ()):
+            for a, v in attrs.items():
+                setattr(it, a, v)
+            it._display_overrides = dict(overrides)
+            it.setVisible(vis)
+            it.setOpacity(opa)
+            it.update()
 
         # Restore fittings
         for node in self._scene.sprinkler_system.nodes:
@@ -1467,6 +1488,10 @@ class DisplayManager(QDialog):
             "Save current settings as defaults for new projects")
         default_btn.clicked.connect(self._set_as_default)
         bbox.addButton(default_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        self._reset_btn, self._default_btn = reset_btn, default_btn
+        self._reset_tip, self._default_tip = reset_btn.toolTip(), default_btn.toolTip()
+        self._tabs.currentChanged.connect(self._sync_tab_buttons)
+        self._sync_tab_buttons()
 
         outer.addWidget(bbox)
 
@@ -1985,6 +2010,16 @@ class DisplayManager(QDialog):
         finally:
             self._suppress = False
         self._apply_preview()
+
+    def _sync_tab_buttons(self, _idx=None) -> None:
+        """Reset All / Set as Default do not apply to the Fill Types tab (the
+        table is per project, not an app-wide default): disable them there."""
+        on_ft = self._tabs.currentWidget() is self._ft_tab
+        tip = "Fill Types are per-project: there is no default to reset or save."
+        for btn, own in ((self._reset_btn, self._reset_tip),
+                         (self._default_btn, self._default_tip)):
+            btn.setEnabled(not on_ft)
+            btn.setToolTip(tip if on_ft else own)
 
     def _reset_all(self):
         """Reset active tab to factory defaults."""
@@ -3034,9 +3069,6 @@ class DisplayManager(QDialog):
         self._restore_snapshot()
         if self._ft_tab.dirty:          # HF5: drop the tab's edits + any previewed pending type
             fill_types.set_project_table(self._ft_table_snapshot.copy())
-            # Cut items previewed a type that is gone now (the snapshot restore
-            # above already put the section QSettings back): re-resolve them.
-            apply_saved_display_settings(self._scene)
         # Weights first: un-renaming rewrites paper categories, so the
         # categories snapshot below must land after it and win (LT1-3).
         # Only when the table was edited: a no-op Cancel must not dirty.

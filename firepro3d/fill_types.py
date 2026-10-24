@@ -432,3 +432,28 @@ def pattern_users(block_id: str) -> list[str]:
                    if t.layers.pattern is not None
                    and canonical_ref(t.layers.pattern.ref) == want),
                   key=str.casefold)
+
+
+def region_pattern_users(block_id: str, scene) -> int:
+    """Filled Regions (plan + open Block Editors) that tile *block_id* through
+    their own custom / override pattern layer (D-A15). A typed region that only
+    inherits the type's pattern is the Fill Type clause's, not counted here.
+    """
+    from .filled_region import FilledRegionItem
+    from .hatch_patterns import canonical_ref
+    want = canonical_ref(block_id)
+    scenes = [s for _label, s in scene._user_scenes()] if hasattr(scene, "_user_scenes") else [scene]
+    n = 0
+    for sc in scenes:
+        for it in sc.items():
+            if not isinstance(it, FilledRegionItem):
+                continue
+            pat = it.fill_layers.pattern
+            if pat is None or canonical_ref(pat.ref) != want:
+                continue
+            t = project_table().get(it.fill_type) if it.fill_type else None
+            tp = t.layers.pattern if t is not None else None
+            if tp is not None and canonical_ref(tp.ref) == want:
+                continue                      # inherited from the type: its clause counts it
+            n += 1
+    return n

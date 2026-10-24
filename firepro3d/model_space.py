@@ -1973,8 +1973,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._live_end_users(block_id):
             return False                      # LT5 Q13: a live line's end
         from . import fill_types
-        if fill_types.pattern_users(block_id):
-            return False                      # HF5 D-A15: a Fill Type tiles it
+        if fill_types.pattern_users(block_id) or fill_types.region_pattern_users(block_id, self):
+            return False                      # HF5 D-A15: a Fill Type / loose region tiles it
         if block_id not in self._block_definitions:
             return False
         del self._block_definitions[block_id]
@@ -2132,7 +2132,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         live_end = self._live_end_users(block_id) if d is not None else 0
         from . import fill_types
         types = fill_types.pattern_users(block_id) if d is not None else []
-        if not users and not ctx and not live_end and not types:
+        n_reg = fill_types.region_pattern_users(block_id, self) if d is not None else 0
+        if not users and not ctx and not live_end and not types and not n_reg:
             return None
         msg = self._end_users_message(d, users, live_end)
         if msg is not None:
@@ -2142,9 +2143,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if msg is not None:
                 return msg
         lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
-        ft = f"by Fill Types: {', '.join(types)}" if types else ""    # HF5 D-A15
+        ft = ", and ".join(c for c in (                              # HF5 D-A15
+            f"by Fill Types: {', '.join(types)}" if types else "",
+            f"by {n_reg} Filled Region{'s' if n_reg != 1 else ''}" if n_reg else "") if c)
         if not users:
-            if not types:
+            if not ft:
                 return (f"“{d.name}” is used {lines}"
                         " — change their linetype first.")
             if not ctx:
@@ -2153,7 +2156,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     " — change their linetype and pattern first.")
         names = sorted(self.get_block_definition(u).name for u in users)
         both = "".join(f", and {c}" for c in (lines, ft) if c)
-        change = (" and ".join(w for w, on in (("linetype", ctx), ("pattern", types)) if on))
+        change = (" and ".join(w for w, on in (("linetype", ctx), ("pattern", ft)) if on))
         fix = (f" — explode or remove it there, and change their {change} first."
                if change else " — explode or remove it there first.")
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
