@@ -25,24 +25,30 @@ def test_cut_wall_rect_uses_section_colour_and_pattern(qapp, section_scene_for):
     w = _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))
     sec.rebuild()
     (item,) = _cut_items(sec, w)
-    assert item._section_src == "#aa0000" and item._pattern == "crosshatch"
+    # HF5 R4: the legacy QSettings cell converts to a Fill Type (body = the old
+    # section colour, pattern By element at the old scale).
+    from firepro3d import fill_types
+    from firepro3d.constants import TOKEN_ELEMENT
+    lay = fill_types.project_table().get(item._section_type).layers
+    assert lay.background.color == "#aa0000"
+    assert lay.pattern.ref == "crosshatch" and lay.pattern.color == TOKEN_ELEMENT
+    assert lay.pattern.scale == 2.0
     assert item.resolved_pen_brush()[0].color().name() == "#004400"
     # Geometry: width = the chord of the cut through the mitered quad = wall thickness.
     assert item.rect().width() == pytest.approx(2.0 * w.half_thickness_scene(), abs=1e-6)
     assert item.rect().height() == pytest.approx(w._height_mm, abs=1e-6)
-    # It paints the hatch: a QPainter pass on the item calls draw_section_hatch.
+    # It paints the hatch: a QPainter pass on the item calls draw_section_type.
     from unittest.mock import patch
     from PyQt6.QtGui import QImage, QPainter
     from PyQt6.QtWidgets import QStyleOptionGraphicsItem
     img = QImage(64, 64, QImage.Format.Format_ARGB32); img.fill(0)
     p = QPainter(img)
-    with patch("firepro3d.section_scene.draw_section_hatch") as hatch:
+    with patch("firepro3d.section_scene.draw_section_type") as hatch:
         item.paint(p, QStyleOptionGraphicsItem(), None)
     p.end()
     assert hatch.call_count == 1
-    assert hatch.call_args.kwargs["pattern"] == "crosshatch"
-    assert hatch.call_args.kwargs["section_fill"].name() == "#aa0000"
-    assert hatch.call_args.kwargs["hatch_scale"] == 2.0     # DM Section Scale column
+    assert hatch.call_args.args[4] == item._section_type     # the Fill Type id
+    assert hatch.call_args.args[5].name() == "#004400"       # By element = the cut's pen colour
 
 
 def test_cut_hatch_is_drawn_against_the_section_scene(qapp, section_scene_for):
@@ -59,7 +65,7 @@ def test_cut_hatch_is_drawn_against_the_section_scene(qapp, section_scene_for):
     sec._hatch_paper_scale = 0.02
     img = QImage(64, 64, QImage.Format.Format_ARGB32); img.fill(0)
     p = QPainter(img)
-    with patch("firepro3d.section_scene.draw_section_hatch") as hatch:
+    with patch("firepro3d.section_scene.draw_section_type") as hatch:
         item.paint(p, QStyleOptionGraphicsItem(), None)
     p.end()
     assert hatch.call_args.args[2] is sec

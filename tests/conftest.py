@@ -172,6 +172,17 @@ def _reset_project_line_weights():
 
 
 @pytest.fixture(autouse=True)
+def _reset_fill_types():
+    """HF5: the project fill-type store is module global -- no leaks between tests."""
+    from firepro3d import fill_types as _ft
+    _ft._TABLE = None
+    _ft._BUS = None
+    yield
+    _ft._TABLE = None
+    _ft._BUS = None
+
+
+@pytest.fixture(autouse=True)
 def _reset_current_stroke_style():
     """Reset the WM1 current Linetype/Weight store (stroke_style module
     global, linetypes.md WM-10) so one test's current can't leak."""

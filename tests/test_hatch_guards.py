@@ -2,9 +2,6 @@
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath
 
-import os
-
-from firepro3d import app_data
 from firepro3d import hatch_patterns as hp
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.fill_layers import FillLayers, PatternLayer
@@ -187,56 +184,6 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
     finally:
         pd.save_paper_categories(pd.factory_paper_categories())
         dlg.close()
-
-
-def _zig_registry():
-    from PyQt6.QtCore import QPointF
-    from firepro3d.geometry_2d import LineItem
-    sc = Model_Space()
-    d = BlockDefinition.new(
-        name="Zig", library="L", series="S", origin=(0.0, 0.0),
-        primitives=[LineItem(QPointF(0, 0), QPointF(5, -5)).to_dict()],
-        tile={"w": 5.0, "h": 5.0, "row_shift": 0.0, "size": "model"})
-    sc.register_block_definition(d)
-    return sc.block_registry, d.id
-
-
-def _put_shipped_into(folder):
-    """Copy the shipped patterns into *folder* -- a stand-in for a user Hatch
-    patterns folder that holds them (SB1b retired the D-A39 seeding)."""
-    import shutil
-    os.makedirs(str(folder), exist_ok=True)
-    for _bid, src in hp.shipped_pattern_files():
-        shutil.copyfile(src, os.path.join(str(folder), os.path.basename(src)))
-
-
-def test_section_dialog_keeps_unknown_stored_ref(qapp):
-    """An unresolvable stored ref survives OK, colour-only edit or untouched (I1)."""
-    from firepro3d.display_manager import SectionPatternDialog
-    _put_shipped_into(app_data.hatch_patterns_dir())   # the folder holds the patterns
-    dlg = SectionPatternDialog("#666666", "deleted-project-tile-uuid", 1.0,
-                               registry=None)
-    assert dlg.get_result()[1] == "deleted-project-tile-uuid"
-    dlg._cur_color = "#123456"
-    assert dlg.get_result() == ("#123456", "deleted-project-tile-uuid", 1.0)
-    # An explicit pick still wins.
-    dlg._combo.setCurrentIndex(dlg._combo.findData(hp.BUILTIN_BRICK))
-    assert dlg.get_result()[1] == hp.BUILTIN_BRICK
-
-
-def test_section_dialog_lists_project_tiles_only_with_registry(qapp):
-    """Instance dialogs (registry) list + return a project id; category ones do not (I2b)."""
-    from firepro3d.display_manager import SectionPatternDialog
-    _put_shipped_into(app_data.hatch_patterns_dir())   # the folder holds the patterns
-    reg, tid = _zig_registry()
-    dlg = SectionPatternDialog("#666666", "diagonal", 1.0, registry=reg)
-    labels = [dlg._combo.itemText(i) for i in range(dlg._combo.count())]
-    assert "Zig" in labels
-    assert dlg.get_result()[1] == hp.BUILTIN_DIAGONAL      # legacy name -> id
-    dlg._combo.setCurrentIndex(labels.index("Zig"))
-    assert dlg.get_result()[1] == tid
-    cat = SectionPatternDialog("#666666", "diagonal", 1.0, registry=None)
-    assert "Zig" not in [cat._combo.itemText(i) for i in range(cat._combo.count())]
 
 
 def _vp_render_spacing(paper_scale, load_patterns):

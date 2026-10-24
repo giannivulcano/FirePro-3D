@@ -252,31 +252,31 @@ def test_opening_an_old_file_loads_its_legacy_pattern(mw, tmp_path):
 
 # ── wiring: DM category change, sheets, folder setting change ───────────────
 
-def _picked(dm, ref):
-    class _Picked:                       # the user picks *ref* and presses OK
-        def __init__(self, *a, **k):
-            pass
-
-        def exec(self):
-            return dm.QDialog.DialogCode.Accepted
-
-        def get_result(self):
-            return "#666666", ref, 1.0
-    return _Picked
+def _brick_cut_type():
+    """A project Fill Type whose pattern is the shipped brick (HF5: the section
+    cell picks a type; the type holds the pattern)."""
+    from firepro3d import fill_types
+    from firepro3d.constants import TOKEN_ELEMENT
+    return fill_types.project_table().ensure_named(
+        "Brick Cut", FillLayers(pattern=PatternLayer(hp.BUILTIN_BRICK, TOKEN_ELEMENT)))
 
 
-def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp, monkeypatch):
+def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp):
     from firepro3d import display_manager as dm
     _put_shipped_into(app_data.hatch_patterns_dir())
+    _brick_cut_type()
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
-    monkeypatch.setattr(dm, "SectionPatternDialog", _picked(dm, hp.BUILTIN_BRICK))
     try:
-        dlg._pick_section("Wall", is_category=True)
+        assert hp.BUILTIN_BRICK not in sc._block_definitions    # absent before the pick (M4)
+        dlg._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Brick Cut")
         assert hp.BUILTIN_BRICK not in sc._block_definitions    # not before OK
         dlg.accept()
-        assert QSettings("GV", "FirePro3D").value(
-            "display/Wall/section_pattern") == hp.BUILTIN_BRICK
+        import json
+        s = QSettings("GV", "FirePro3D")
+        assert s.value("display/Wall/section_type") == "Brick Cut"
+        look = json.loads(s.value("display/Wall/section_look"))
+        assert look["pattern"]["ref"] == hp.BUILTIN_BRICK     # HF5 R7: the type's look
         assert hp.resolve_tile(hp.BUILTIN_BRICK, sc.block_registry) is not None
         assert not sc.can_undo()
         assert hp.BUILTIN_BRICK in sc._undo_stack[0]["block_definitions"]
@@ -284,14 +284,14 @@ def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp, monkeypatch):
         dlg.close()
 
 
-def test_dm_category_pattern_cancel_loads_nothing(qapp, monkeypatch):
+def test_dm_category_pattern_cancel_loads_nothing(qapp):
     from firepro3d import display_manager as dm
     _put_shipped_into(app_data.hatch_patterns_dir())
+    _brick_cut_type()
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
-    monkeypatch.setattr(dm, "SectionPatternDialog", _picked(dm, hp.BUILTIN_BRICK))
     try:
-        dlg._pick_section("Wall", is_category=True)
+        dlg._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Brick Cut")
         dlg.reject()
         assert hp.BUILTIN_BRICK not in sc._block_definitions
     finally:

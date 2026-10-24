@@ -1972,6 +1972,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False
         if self._live_end_users(block_id):
             return False                      # LT5 Q13: a live line's end
+        from . import fill_types
+        if fill_types.pattern_users(block_id) or fill_types.region_pattern_users(block_id, self):
+            return False                      # HF5 D-A15: a Fill Type / loose region tiles it
         if block_id not in self._block_definitions:
             return False
         del self._block_definitions[block_id]
@@ -2127,7 +2130,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Any kind: a block reloaded as a non-end keeps its live / stored
         # end users (delete refuses them -- the message must say why).
         live_end = self._live_end_users(block_id) if d is not None else 0
-        if not users and not ctx and not live_end:
+        from . import fill_types
+        types = fill_types.pattern_users(block_id) if d is not None else []
+        n_reg = fill_types.region_pattern_users(block_id, self) if d is not None else 0
+        if not users and not ctx and not live_end and not types and not n_reg:
             return None
         msg = self._end_users_message(d, users, live_end)
         if msg is not None:
@@ -2137,13 +2143,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if msg is not None:
                 return msg
         lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
+        ft = ", and ".join(c for c in (                              # HF5 D-A15
+            f"by Fill Types: {', '.join(types)}" if types else "",
+            f"by {n_reg} Filled Region{'s' if n_reg != 1 else ''}" if n_reg else "") if c)
         if not users:
-            return (f"“{d.name}” is used {lines}"
-                    " — change their linetype first.")
+            if not ft:
+                return (f"“{d.name}” is used {lines}"
+                        " — change their linetype first.")
+            if not ctx:
+                return f"“{d.name}” is used {ft} — change their pattern first."
+            return (f"“{d.name}” is used {lines}, and {ft}"
+                    " — change their linetype and pattern first.")
         names = sorted(self.get_block_definition(u).name for u in users)
-        both = f", and {lines}" if ctx else ""
-        fix = (" — explode or remove it there, and change their linetype first."
-               if ctx else " — explode or remove it there first.")
+        both = "".join(f", and {c}" for c in (lines, ft) if c)
+        change = (" and ".join(w for w, on in (("linetype", ctx), ("pattern", ft)) if on))
+        fix = (f" — explode or remove it there, and change their {change} first."
+               if change else " — explode or remove it there first.")
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
 
     def _linetype_users_message(self, d, users) -> str | None:
@@ -2246,10 +2261,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if found is None:
             return False
         path = found[3]["path"]
-        loaded = block_library.load_block_file_with_bundle(path)
+        loaded = block_library.load_block_file_with_types(path)
         if loaded is None:
             return False
-        lib_def, bundled = loaded
+        lib_def, bundled, pending_types = loaded     # HF5: records already re-pointed
         lib_def.base_version = lib_def.version       # reloaded at (SB1b D7)
         for b in bundled:
             b.base_version = b.version
@@ -2270,6 +2285,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False                 # schematics.md D-S3 (SV4): kind is frozen
         self._add_bundled(bundled, lib_def)              # project copy wins
         self._merge_bundled_weights(path)
+        self._merge_bundled_fill_types(pending_types)
         self._swap_block_definition(block_id, lib_def)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
@@ -2311,61 +2327,70 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         on_disk = {os.path.normcase(os.path.abspath(e["path"])): e
                    for e in block_library.list_library(root)}
         changed = False
-        for path in paths:
-            loaded = block_library.load_block_file_with_bundle(path)
-            if loaded is None:
-                summary["failed"].append(path)
-                continue
-            defn, bundled = loaded
-            defn.base_version = defn.version       # loaded at (SB1b D7)
-            for b in bundled:
-                b.base_version = b.version
-            entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
-            if entry is not None:
-                defn.library, defn.series = entry["library"], entry["series"]
-                defn.name = entry["name"]
-                if entry["duplicate"]:
-                    defn.id = uuid.uuid4().hex
-            if self._load_would_cycle(bundled, defn):
-                summary["refused"].append(
-                    f"{defn.name} ({block_library.LOOP_REASON})")
-                continue
-            existing = self._block_definitions.get(defn.id)
-            if existing is not None:
-                if existing.kind != defn.kind:
-                    # schematics.md D-S3 (SV4): a same-id file of the other
-                    # kind is refused whole -- not even its bundled deps land.
+        types_added = False          # announce once for the batch (Group E review Minor 2)
+        try:
+            for path in paths:
+                loaded = block_library.load_block_file_with_types(path)
+                if loaded is None:
+                    summary["failed"].append(path)
+                    continue
+                defn, bundled, pending_types = loaded    # HF5: records already re-pointed
+                defn.base_version = defn.version       # loaded at (SB1b D7)
+                for b in bundled:
+                    b.base_version = b.version
+                entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
+                if entry is not None:
+                    defn.library, defn.series = entry["library"], entry["series"]
+                    defn.name = entry["name"]
+                    if entry["duplicate"]:
+                        defn.id = uuid.uuid4().hex
+                if self._load_would_cycle(bundled, defn):
                     summary["refused"].append(
-                        f"{defn.name} ({block_library.KIND_REASON})")
+                        f"{defn.name} ({block_library.LOOP_REASON})")
+                    continue
+                existing = self._block_definitions.get(defn.id)
+                if existing is not None:
+                    if existing.kind != defn.kind:
+                        # schematics.md D-S3 (SV4): a same-id file of the other
+                        # kind is refused whole -- not even its bundled deps land.
+                        summary["refused"].append(
+                            f"{defn.name} ({block_library.KIND_REASON})")
+                        continue
+                    self._merge_bundled_weights(path)
+                    types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
+                    changed |= self._add_bundled(bundled, defn)  # before the swap repaints
+                    summary["ids"][path] = defn.id
+                    defn.source_path = path
+                    if existing.version == defn.version:
+                        if existing.source_path is None:
+                            existing.source_path = path
+                        summary["skipped"].append(defn.name)
+                    else:
+                        self._swap_block_definition(defn.id, defn)
+                        summary["replaced"].append(defn.name)
+                        changed = True
+                    continue
+                # id not present: refuse a (library, series, name) clash — the
+                # refused file adds nothing, not even its bundled deps
+                clash = any(
+                    (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
+                    for o in self._block_definitions.values())
+                if clash:
+                    summary["refused"].append(defn.name)
                     continue
                 self._merge_bundled_weights(path)
-                changed |= self._add_bundled(bundled, defn)  # before the swap repaints
+                types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
+                self._add_bundled(bundled, defn)
+                self._block_registry.add(defn)
+                defn.source_path = path          # the file a later Save may re-file
+                summary["loaded"].append(defn.name)
                 summary["ids"][path] = defn.id
-                defn.source_path = path
-                if existing.version == defn.version:
-                    if existing.source_path is None:
-                        existing.source_path = path
-                    summary["skipped"].append(defn.name)
-                else:
-                    self._swap_block_definition(defn.id, defn)
-                    summary["replaced"].append(defn.name)
-                    changed = True
-                continue
-            # id not present: refuse a (library, series, name) clash — the
-            # refused file adds nothing, not even its bundled deps
-            clash = any(
-                (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
-                for o in self._block_definitions.values())
-            if clash:
-                summary["refused"].append(defn.name)
-                continue
-            self._merge_bundled_weights(path)
-            self._add_bundled(bundled, defn)
-            self._block_registry.add(defn)
-            defn.source_path = path          # the file a later Save may re-file
-            summary["loaded"].append(defn.name)
-            summary["ids"][path] = defn.id
-            changed = True
+                changed = True
+        finally:
+            # HF5 VC9 m1: announce once for the batch even when a later file raises
+            # after an earlier one merged types (the table already changed).
+            if types_added:
+                self._announce_fill_types_added()
         summary["missing"] = sorted(self._block_registry.missing_nested())
         if changed:
             # One step -- coalesced into a multi-target panel commit's step
@@ -2441,6 +2466,37 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # this merge just added must pick up its real width.
             for record, _group in list(self.underlays):
                 self.repen_underlay(record)
+
+    def _merge_bundled_fill_types(self, types, notify: bool = True) -> bool:
+        """Add a library file's Fill Types the project lacks (D-A15; the table
+        is outside undo, but a merge that added types dirties the project).
+
+        Args:
+            types: The file's pending types (``prepare_file_records``).
+            notify: False defers the bus notify / dirty / ``sceneModified`` to
+                the caller (a multi-file load announces once, via
+                :meth:`_announce_fill_types_added`, since every notify
+                repaints every live scene).
+
+        Returns:
+            True when a type was added.
+        """
+        from . import fill_types
+        if not types:
+            return False
+        table = fill_types.project_table()
+        for t in types:
+            table.add(t)
+        if notify:
+            self._announce_fill_types_added()
+        return True
+
+    def _announce_fill_types_added(self) -> None:
+        """One bus notify + dirty + ``sceneModified`` for a merge that added types."""
+        from . import fill_types
+        fill_types.notify_changed()
+        self._dirty = True            # types travel with the project
+        self.sceneModified.emit()
 
     def _add_bundled(self, bundled, defn) -> bool:
         """Add the file's bundled deps the project lacks (project copy wins).
@@ -2536,8 +2592,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         switches to the user's duplicate). Holders: placed block instances
         (+ definition backrefs), nested instance primitives and fill-pattern
         refs inside other definitions (``set_primitives``), 2D items' fill
-        pattern layer, and per-item Display overrides ``section_pattern``; the
-        Display Manager is re-applied so the derived section cache follows.
+        pattern layer and the pattern ref of every Fill Type (HF5; the
+        project-wide table is outside undo, like line weights). Fill Type
+        re-points are outside undo (HF5 ruling 2026-10-23); Ctrl+Z restores
+        instances only.
         Not touched: Display category defaults (app-wide QSettings, a
         project-local switch must not rewrite other projects), linetype / end
         refs (none ship in System yet) and schematic viewports (never System,
@@ -2583,7 +2641,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     p["block_id"] = new_id
                     changed += 1
                 fill = p.get("fill")
-                if isinstance(fill, dict):
+                if p.get("fill_type") and isinstance(fill, dict):
+                    # HF5: a typed record's fill is sparse overrides -- patch the ref in place.
+                    pov = fill.get("pattern")
+                    if isinstance(pov, dict) and canonical_ref(pov.get("ref")) == old_c:
+                        pov["ref"] = new_id
+                        changed += 1
+                elif isinstance(fill, dict):
                     layers = from_record(fill)
                     if layers.pattern is not None and layers.pattern.ref == old_c:
                         p["fill"] = to_record(_replace(
@@ -2593,7 +2657,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 d.set_primitives(prims)
                 self._block_registry.invalidate(d.id, already=d._instances)
                 count += changed
-        # H3 + H5: scene items' fill pattern layer / Display section override.
+        # HF5: Fill Types whose pattern is old_id (before H3, so typed items resolve
+        # to the new ref and are skipped there). Outside undo.
+        from . import fill_types
+        table = fill_types.project_table()
+        table_hits = 0
+        for t in table.all():
+            if t.layers.pattern is not None and t.layers.pattern.ref == old_c:
+                table.replace(_replace(t, layers=_replace(
+                    t.layers, pattern=_replace(t.layers.pattern, ref=new_id))))
+                table_hits += 1
+        if table_hits:
+            count += table_hits
+            fill_types.notify_changed()
+        # H3: scene items' fill pattern layer.
         for item in self.items():
             fl = getattr(item, "fill_layers", None)
             if (fl is not None and getattr(fl, "pattern", None) is not None
@@ -2602,16 +2679,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     fl, pattern=_replace(fl.pattern, ref=new_id))
                 item.update()
                 count += 1
-            ov = getattr(item, "_display_overrides", None)
-            if (isinstance(ov, dict)
-                    and canonical_ref(ov.get("section_pattern")) == old_c):
-                ov["section_pattern"] = new_id
-                count += 1
         if count == 0:
             return 0
-        # H7: re-derive the item section-pattern caches from the overrides.
-        from .display_manager import apply_saved_display_settings
-        apply_saved_display_settings(self)
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
         return count

@@ -2,10 +2,14 @@
 
 One undo step: after the retarget every holder reads the NEW id, one undo
 restores OLD (and the baseline-registered NEW definition stays), redo re-applies.
-Holder rows follow the plan's T1 table (H1-H5); H7 (the derived section cache)
-is checked on its own. The Display category defaults (H6, app-wide QSettings)
-are checked as NOT rewritten.
+Holder rows follow the plan's T1 table (H1-H4); the former H5 / H7 rows (a
+per-item ``section_pattern`` override and its derived cache) are retired by
+HF5 R4: a section cut's pattern lives in its Fill Type, checked on its own.
+The Display category defaults (H6, app-wide QSettings) are checked as NOT
+rewritten.
 """
+import json
+
 import pytest
 from PyQt6.QtCore import QPointF
 
@@ -92,21 +96,11 @@ def _holder_fill_prim(ms, shipped_hatches):                     # H4
         ms._block_definitions[host.id].primitives[0])
 
 
-def _holder_display_override(ms, shipped_hatches):              # H5 (floor)
-    old, new = _tile_pair(ms, shipped_hatches)
-    slab = FloorSlab(points=SQ)
-    ms.addItem(slab)
-    ms._floor_slabs.append(slab)
-    slab._display_overrides["section_pattern"] = old
-    return old, new, lambda: ms._floor_slabs[0]._display_overrides["section_pattern"]
-
-
 _ROWS = [
     pytest.param(_holder_instance, True, id="H1"),
     pytest.param(_holder_nested, True, id="H2"),
     pytest.param(_holder_fill_item, True, id="H3"),
     pytest.param(_holder_fill_prim, True, id="H4"),
-    pytest.param(_holder_display_override, True, id="H5"),
 ]
 
 
@@ -127,20 +121,27 @@ def test_g8_retarget_and_undo(qapp, shipped_hatches, make, undoable):
     assert read() == new
 
 
-def test_g8_wall_override_retargets_but_undo_gap_is_preexisting(qapp, shipped_hatches):
-    """H5 for kinds whose override Model_Space undo never restored (P4 probe
-    at 55dc0e26: walls, roofs, rooms and 2D geometry lose _display_overrides
-    on undo; FloorSlab and network items keep them). The retarget itself
-    still covers them."""
+def test_g8_section_type_pattern_follows_the_retarget(qapp, shipped_hatches):
+    """H5 (HF5 R4): a cut's section pattern lives in its Fill Type -- walls and
+    floors name the type by id -- so the retarget re-points the type's pattern.
+    The table is outside undo (like line weights), the item keeps its id."""
+    from firepro3d import fill_types as ft
     ms = Model_Space()
     old, new = _tile_pair(ms, shipped_hatches)
+    t = ft.project_table().ensure_named("Cut", FillLayers(None, PatternLayer(old)))
     w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
     ms.addItem(w)
     ms._walls.append(w)
-    w._display_overrides["section_pattern"] = old
+    w._display_overrides["section_type"] = t.id
+    slab = FloorSlab(points=SQ)
+    ms.addItem(slab)
+    ms._floor_slabs.append(slab)
+    slab._display_overrides["section_type"] = t.id
     ms.push_undo_state()
     assert ms.retarget_block_refs(old, new) >= 1
-    assert ms._walls[0]._display_overrides["section_pattern"] == new
+    assert ft.project_table().get(t.id).layers.pattern.ref == new
+    assert w._display_overrides["section_type"] == t.id
+    assert ms._floor_slabs[0]._display_overrides["section_type"] == t.id
 
 
 def test_g8_every_holder_in_one_call_is_one_undo_step(qapp, shipped_hatches):
@@ -150,10 +151,6 @@ def test_g8_every_holder_in_one_call_is_one_undo_step(qapp, shipped_hatches):
     ms.addItem(r)
     ms._draw_rects.append(r)
     r.fill_layers = FillLayers(pattern=PatternLayer(old))
-    slab = FloorSlab(points=SQ)
-    ms.addItem(slab)
-    ms._floor_slabs.append(slab)
-    slab._display_overrides["section_pattern"] = old
     host_prim = RectangleItem(QPointF(0, 0), QPointF(5, 5))
     host_prim.fill_layers = FillLayers(pattern=PatternLayer(old))
     host = ms.commit_block_definition(
@@ -161,26 +158,11 @@ def test_g8_every_holder_in_one_call_is_one_undo_step(qapp, shipped_hatches):
         primitives=[host_prim.to_dict()], origin=(0.0, 0.0), place_instance=False)
     ms.push_undo_state()
     steps = len(ms._undo_stack)
-    assert ms.retarget_block_refs(old, new) == 3
+    assert ms.retarget_block_refs(old, new) == 2
     assert len(ms._undo_stack) == steps + 1
     ms.undo()
     assert ms._draw_rects[0].fill_layers.pattern.ref == old
-    assert ms._floor_slabs[0]._display_overrides["section_pattern"] == old
     assert _ref_of_prim_fill(ms._block_definitions[host.id].primitives[0]) == old
-
-
-def test_g8_display_cache_follows_override(qapp, shipped_hatches):
-    """H7: the derived item cache is re-derived from the retargeted override."""
-    ms = Model_Space()
-    old, new = _tile_pair(ms, shipped_hatches)
-    slab = FloorSlab(points=SQ)
-    ms.addItem(slab)
-    ms._floor_slabs.append(slab)
-    slab._display_overrides["section_pattern"] = old
-    slab._display_section_pattern = old
-    ms.push_undo_state()
-    ms.retarget_block_refs(old, new)
-    assert ms._floor_slabs[0]._display_section_pattern == new
 
 
 def test_g8_category_defaults_are_not_rewritten(qapp, shipped_hatches):
@@ -189,14 +171,15 @@ def test_g8_category_defaults_are_not_rewritten(qapp, shipped_hatches):
     ms = Model_Space()
     old, new = _tile_pair(ms, shipped_hatches)
     s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Floor/default_section_pattern", old)
-    slab = FloorSlab(points=SQ)
-    ms.addItem(slab)
-    ms._floor_slabs.append(slab)
-    slab._display_overrides["section_pattern"] = old
+    look = json.dumps({"pattern": {"ref": old}})
+    s.setValue("display/Floor/default_section_look", look)
+    r = RectangleItem(QPointF(0, 0), QPointF(200, 100))
+    ms.addItem(r)
+    ms._draw_rects.append(r)
+    r.fill_layers = FillLayers(pattern=PatternLayer(old))
     ms.push_undo_state()
-    ms.retarget_block_refs(old, new)
-    assert s.value("display/Floor/default_section_pattern") == old
+    assert ms.retarget_block_refs(old, new) >= 1
+    assert s.value("display/Floor/default_section_look") == look
 
 
 def test_g8_unknown_or_same_id_is_a_noop(qapp, shipped_hatches):

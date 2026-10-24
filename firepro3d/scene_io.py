@@ -115,6 +115,8 @@ class SceneIOMixin:
         display_settings_data = get_display_settings_for_save()
         from .paper_display import get_paper_display_for_save
         paper_display_data = get_paper_display_for_save()
+        from . import fill_types
+        fill_types_data = fill_types.project_table().to_payload()
 
         # --- Assemble and write ---
         payload = {
@@ -123,6 +125,7 @@ class SceneIOMixin:
             "scale":               self.scale_manager.to_dict(),
             "display_settings":    display_settings_data,
             "paper_display":       paper_display_data,
+            "fill_types":          fill_types_data,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
                                     if self._plan_view_manager else []),
@@ -207,6 +210,10 @@ class SceneIOMixin:
         # re-applies the same values afterwards.
         from .paper_display import apply_project_weights
         apply_project_weights(self._loaded_paper_display)
+        # HF5 R9: the fill-type table loads at the same point -- block compile
+        # and region parse below resolve typed fills against THIS file's types.
+        from . import fill_types
+        fill_types.load_project_fill_types(payload.get("fill_types"))
 
         # --- Scale ---
         if "scale" in payload:
@@ -419,6 +426,8 @@ class SceneIOMixin:
 
         # --- Blocks: definitions first (registry), then instances ---
         for bid, ddict in payload.get("block_definitions", {}).items():
+            # HF5: a name-duplicate type's id re-points to the kept one (persisted on next save).
+            fill_types.canonicalise_records(ddict.get("primitives"))
             self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
         from .block_instance import BlockInstance
         orphan_hosts = 0

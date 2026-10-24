@@ -14,9 +14,10 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QBrush, QPainterPath, QPainterPathStroker, QPen
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle
 
-from .constants import TOKEN_AUTO, Z_FILLED_REGION
+from . import fill_types
+from .constants import FILL_TYPE_CUSTOM_LABEL, TOKEN_AUTO, Z_FILLED_REGION
 from .displayable_item import DisplayableItemMixin
-from .fill_layers import BackgroundLayer, FillLayers
+from .fill_layers import EMPTY, BackgroundLayer, FillLayers
 from .geometry_2d import Geometry2DMixin, _manip_wraps, _scene_hit_width
 from .paper_display import shows_selection
 
@@ -116,6 +117,67 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
             cached = self._stroke_pieces_cache = tuple(out)
         return cached
 
+    # -- HF5 fill type (R2/R3): typed = type look + sparse overrides --------
+    _fill_type: str | None = None
+    _fill_overrides: dict = {}      # never mutated in place (reassigned)
+    _own_fill = None                # set via the fill_layers setter (custom regions)
+
+    @property
+    def fill_layers(self):
+        """The fill that paints: the resolved type (+ overrides) or the region's own."""
+        if self._fill_type:
+            return fill_types.resolve(self._fill_type, self._fill_overrides)[0]
+        return self._own_fill if self._own_fill is not None else EMPTY
+
+    @fill_layers.setter
+    def fill_layers(self, layers):
+        if self._fill_type:
+            t = fill_types.project_table().get(self._fill_type)
+            if t is not None:
+                self._fill_overrides = fill_types.diff_overrides(t.layers, layers)
+            else:
+                # Missing type: keep prior overrides of layers the edit leaves alone,
+                # so they survive until the type returns.
+                cur = fill_types.resolve(self._fill_type, self._fill_overrides)[0]
+                vs_fallback = fill_types.diff_overrides(fill_types.FALLBACK_LAYERS, layers)
+                ov = dict(self._fill_overrides)
+                for k in ("background", "pattern"):
+                    if getattr(cur, k) != getattr(layers, k):      # only the layer the edit changed
+                        if k in vs_fallback:
+                            ov[k] = vs_fallback[k]
+                        else:
+                            ov.pop(k, None)
+                self._fill_overrides = ov
+        else:
+            self._own_fill = layers
+
+    @property
+    def fill_type(self) -> str | None:
+        """The Fill Type id, or None for (Custom)."""
+        return self._fill_type
+
+    @property
+    def fill_type_missing(self) -> bool:
+        """True when typed but the id resolves to no type (fallback look)."""
+        return bool(self._fill_type) and fill_types.project_table().get(self._fill_type) is None
+
+    def set_fill_type(self, type_id: str | None) -> None:
+        """Pick a type (overrides cleared) or None = (Custom) with the resolved look copied."""
+        if type_id:
+            self._fill_type, self._fill_overrides = type_id, {}
+        else:
+            look = self.fill_layers
+            self._fill_type, self._fill_overrides = None, {}
+            self._own_fill = look
+        self.update()
+
+    def reset_fill_layer(self, layer: str) -> None:
+        """Drop the overrides of one layer ('background' | 'pattern')."""
+        ov = dict(self._fill_overrides)
+        ov.pop(layer, None)
+        self._fill_overrides = ov
+        self.update()
+
     # -- fill protocol (UP1 / halo) ----------------------------------------
     def is_closed(self) -> bool:
         return True
@@ -179,7 +241,14 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         d = {"type": TYPE_KEY,
              "loops": [[_piece_record(p) for p in loop] for loop in self._loops],
              "outline": bool(self.outline)}
-        return self._geom2d_to_dict(d)
+        d = self._geom2d_to_dict(d)
+        if self._fill_type:
+            d["fill_type"] = self._fill_type
+            if self._fill_overrides:
+                d["fill"] = dict(self._fill_overrides)
+            else:
+                d.pop("fill", None)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "FilledRegionItem":
@@ -187,6 +256,14 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
                   data.get("lineweight", 1.0))
         obj.outline = bool(data.get("outline", False))
         obj._geom2d_from_dict(data)
+        tid = data.get("fill_type")
+        if isinstance(tid, str) and tid:
+            ov = data.get("fill") if isinstance(data.get("fill"), dict) else {}
+            obj._own_fill = None
+            obj._fill_type = fill_types.canonical_id(tid)     # name-duplicate -> kept id
+            obj._fill_overrides = {k: v for k, v in ov.items()
+                                   if k in ("background", "pattern")
+                                   and (v is None or isinstance(v, dict))}
         return obj
 
     # -- panel -------------------------------------------------------------
@@ -194,8 +271,49 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         props = {"Type": {"type": "label", "value": "Filled Region"},
                  "Loops": {"type": "label", "value": str(len(self._loops))},
                  "Outline": {"type": "toggle", "value": bool(self.outline)}}
-        props.update(self._geom2d_properties())
+        table = fill_types.project_table()
+        names = [t.name for t in table.all()]
+        if not self._fill_type:
+            value = FILL_TYPE_CUSTOM_LABEL
+        elif self.fill_type_missing:
+            value = fill_types.missing_type_label(self._fill_type)
+            names.append(value)
+        else:
+            value = table.get(self._fill_type).name
+        props["Fill Type"] = {"type": "enum", "options": [FILL_TYPE_CUSTOM_LABEL, *names],
+                              "value": value,
+                              "tooltip": "Named fill style from the project's Fill Types "
+                                         "(Display Manager). (Custom) = this region's own fill."}
+        geom = self._geom2d_properties()
+        if not self._fill_type:
+            props.update(geom)
+            return props
+        # R3: each overridden layer gets a "Reset ... to type" row right after its fill row.
+        after = {"Fill": ("background", "Fill"), "Fill Pattern": ("pattern", "Pattern")}
+        for key, row in geom.items():
+            props[key] = row
+            hit = after.get(key)
+            if hit is not None and hit[0] in self._fill_overrides:
+                layer, label = hit
+                ov = self._fill_overrides[layer]
+                fields = ", ".join(sorted(ov)) if isinstance(ov, dict) else "layer off"
+                props[f"Reset {label} to type"] = {
+                    "type": "button", "value": "Reset to type",
+                    "tooltip": "Overridden: " + fields,
+                    "callback": lambda l=layer: self._dim_edit(
+                        lambda _v: self.reset_fill_layer(l), None)}
         return props
+
+    def _pick_fill_type_by_label(self, label) -> None:
+        """Panel Fill Type pick: (Custom) -> None, else by name (unknown / '? <id8>' = no-op)."""
+        if label == FILL_TYPE_CUSTOM_LABEL:
+            tid = None
+        else:
+            hit = fill_types.project_table().by_name(label)
+            if hit is None:             # also the '? <id8>' missing marker: not a pick
+                return
+            tid = hit.id
+        self._dim_edit(self.set_fill_type, tid)
 
     def _set_outline(self, on: bool) -> None:
         if on == self.outline:
@@ -205,6 +323,9 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         self.update()
 
     def set_property(self, key: str, value):
+        if key == "Fill Type":
+            self._pick_fill_type_by_label(value)
+            return
         if key == "Outline":
             self._dim_edit(lambda v: self._set_outline(bool(v)), value)
             return

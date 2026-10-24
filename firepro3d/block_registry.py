@@ -10,7 +10,8 @@ docs/superpowers/specs/2026-09-29-nested-blocks-design.md (D3).
 
 from __future__ import annotations
 
-from .fill_layers import pattern_ref
+from . import fill_types
+from .fill_layers import pattern_ref, to_record
 from .stroke_style import (BY_BLOCK, BY_LINETYPE, ENDS, is_end_ref,
                            is_linetype_ref, override_refs)
 
@@ -51,7 +52,7 @@ def prim_refs(primitives) -> set[str]:
             out |= override_refs(p.get("overrides"))[1]      # WM2 H4
         if p.get("reference"):
             continue                              # RG15: hidden refs
-        ref = pattern_ref(p.get("fill"))
+        ref = pattern_ref(to_record(fill_types.record_fill_layers(p)))   # HF5: follows a type
         if ref:
             out.add(ref)
         st = p.get("style")
@@ -63,6 +64,12 @@ def prim_refs(primitives) -> set[str]:
                 if isinstance(e, dict) and is_end_ref(e.get("end")):
                     out.add(e["end"])
     return out
+
+
+def fill_type_refs(primitives) -> set[str]:
+    """Fill Type ids the records use (HF5 bundling, delete guard)."""
+    return {p["fill_type"] for p in primitives
+            if isinstance(p, dict) and isinstance(p.get("fill_type"), str) and p["fill_type"]}
 
 
 def linetype_users_in(scene, block_id: str) -> list:

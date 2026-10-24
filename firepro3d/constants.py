@@ -373,6 +373,12 @@ TOKEN_PREFIX = "token:"
 TOKEN_AUTO = "token:auto"        # theme ink on canvas, black on paper / B&W
 TOKEN_ACCENT = "token:accent"    # theme accent on canvas, light accent on paper
 TOKEN_BG = "token:bg"            # theme canvas bg on canvas, white on paper (internal; 600)
+TOKEN_ELEMENT = "token:element"  # HF5 R8: the drawing element's line colour (fill-type pattern colour only)
+FILL_TYPE_FALLBACK_NAME = "Solid Grey 20%"   # HF5: missing-type look (D-A14) + seed row
+FILL_TYPE_FALLBACK_COLOR = "#808080"
+FILL_TYPE_FALLBACK_OPACITY = 0.20
+FILL_TYPE_SOLID_BLACK = "Solid Black"
+FILL_TYPE_CUSTOM_LABEL = "(Custom)"           # region panel: no type, own fill (R2)
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 
 # Filled Region chain closure (hatch-and-fill.md D-A6): two curve ends weld
