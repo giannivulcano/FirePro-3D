@@ -6447,9 +6447,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if lsq < 1e-12:
                     continue
                 t = ((nc.x() - ax) * dx + (nc.y() - ay) * dy) / lsq
-                # Whole span, as WallSegment's tee rule; end nodes are
-                # excluded above (wall polish S1).
-                if 0.0 < t < 1.0:
+                if 0.05 < t < 0.95:
                     wall_nodes.append(ni)
             wall_nodes.append(n2)
 

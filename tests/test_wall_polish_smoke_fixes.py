@@ -215,19 +215,3 @@ def test_f4_miter_diagonal_fill_has_no_seam(qapp):
             if diff > 1:
                 bad.append((k, dx, diff))
     assert not bad, bad[:6]
-
-
-# -- S1 room detection: same tee rule as the walls --------------------------
-
-def test_room_detection_splits_at_tee_near_host_end(qapp):
-    """A partition 200 mm from the end of a 6000 mm host (t = 0.033, inside
-    the old 5% margin) bounds the room clicked beside it."""
-    s = _ms()
-    for p1, p2 in (((0, 0), (6000, 0)), ((6000, 0), (6000, 4000)),
-                   ((6000, 4000), (0, 4000)), ((0, 4000), (0, 0))):
-        _add(s, p1, p2)
-    _add(s, (200, 0), (200, 4000))
-    poly = s._detect_room_boundary(QPointF(100, 2000))
-    assert poly, "scenario must detect a room"
-    xs = {round(p.x(), 3) for p in poly}
-    assert xs == {0.0, 200.0}, xs

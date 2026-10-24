@@ -1645,15 +1645,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             return None
         t = ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / len_sq
 
-        # Same tee rule as nearest_centerline_point: anywhere on the span
-        # except a point coincident with an end (a corner) (wall polish S1).
-        eps = 1e-9
-        if not (-eps <= t <= 1.0 + eps):
+        # Must be in the mid-section (not near endpoints)
+        margin = 0.05
+        if t < margin or t > 1.0 - margin:
             return None
-        if (math.hypot(pos.x() - ax, pos.y() - ay) <= MITER_TOL
-                or math.hypot(pos.x() - bx, pos.y() - by) <= MITER_TOL):
-            return None
-        t = min(1.0, max(0.0, t))
 
         # Perpendicular distance to centerline
         proj_x = ax + t * dx
