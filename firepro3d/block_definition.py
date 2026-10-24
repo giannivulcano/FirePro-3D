@@ -12,7 +12,7 @@ import math
 import uuid
 from collections import OrderedDict
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
 
 from .block_attributes import BoundPrim, has_fields, normalise_attr
@@ -140,6 +140,38 @@ def _local_path(item) -> QPainterPath:
     elif isinstance(item, QGraphicsPathItem):
         path = QPainterPath(item.path())
     return path
+
+
+_BORDER_STYLES = {"dashed": Qt.PenStyle.DashLine, "dotted": Qt.PenStyle.DotLine,
+                  "dashdot": Qt.PenStyle.DashDotLine}
+
+
+def text_box_ops(item, t: QTransform) -> tuple[list, list]:
+    """``(under, over)`` ops for a text's box: the fill (drawn under the
+    glyphs) and the border stroke (over them), in the text's own frame --
+    rotation baked like ``render_outline_path``, then pos, then *t*. The
+    border keeps its named weight, line type and corner, in the text colour,
+    so the placement Weight / Colour override reaches it (linetypes WM-12).
+    """
+    d = item.data
+    m = item._rotation_transform()
+
+    def _mapped(path):
+        return t.map(item.mapToParent(m.map(path)))
+
+    under, over = [], []
+    if d.fill_color:
+        from .fill_layers import alpha
+        box = QPainterPath()
+        box.addRect(item._box_rect_local())
+        under.append(RenderOp(FILL, _mapped(box), colour=d.fill_color,
+                              alpha=alpha(max(0.0, min(1.0, d.fill_opacity / 100.0)))))
+    if d.border:
+        pen = QPen()
+        pen.setStyle(_BORDER_STYLES.get(d.border_line_type, Qt.PenStyle.SolidLine))
+        over.append(RenderOp(STROKE, _mapped(item._frame_path()), pen=pen,
+                             weight=d.border_weight, colour=d.color))
+    return under, over
 
 
 def _fill_ops(item, prim: dict, ox: float, oy: float) -> list:
@@ -680,9 +712,12 @@ class BlockDefinition:
                                            QTransform.fromTranslate(-ox, -oy)))
                     continue
                 c = item.grip_points()[8]               # box centre (MOVE_GRIP_INDEX)
+                under, over = text_box_ops(item, QTransform.fromTranslate(-ox, -oy))
+                ops.extend(under)
                 ops.append(RenderOp(TEXT, path, colour=item.data.color,
                                     text_frame=(c.x() - ox, c.y() - oy,
                                                 float(item._angle))))
+                ops.extend(over)
                 continue
             ops.extend(_fill_ops(item, prim, ox, oy))      # fill draws under the stroke
             if isinstance(item, FilledRegionItem) and not item.outline:

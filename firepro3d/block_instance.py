@@ -236,10 +236,12 @@ class BlockInstance(QGraphicsObject):
 
     def _bound_ops(self) -> list:
         """The per-instance bound text ops (design S2): one TEXT op per
-        ``BoundPrim``, text resolved through ``resolve_values``, glyphs built
+        ``BoundPrim`` (its box fill before and border after, ``text_box_ops``),
+        text resolved through ``resolve_values``, glyphs built
         by ``TextItem`` + ``_local_path``, mapped through the prim's
-        definition-local transform then this pose's S.M. Memoised on (bound
-        prim list identity, resolved strings, mirror, scale); the upright
+        definition-local transform then this pose's S.M., the placement
+        override applied to the borders. Memoised on (bound prim list
+        identity, resolved strings, mirror, scale, override); the upright
         turn (A5) is applied at paint by ``_text_path`` via ``readable``."""
         d = self.definition()
         if d is None:
@@ -253,11 +255,11 @@ class BlockInstance(QGraphicsObject):
         strings = tuple(resolve_fields(str(b.prim.get("text", "")), values)[0]
                         for b in bps)
         vs = self._variant_scale()
-        key = (strings, self._pose_mirrored, float(f"{vs:.9g}"))
+        key = (strings, self._pose_mirrored, float(f"{vs:.9g}"), self._ov_args)
         c = self._bound_cache
         if c is not None and c[0] is bps and c[1] == key:
             return c[2]
-        from .block_definition import _local_path
+        from .block_definition import _local_path, text_box_ops
         from .text_item import TextItem
         sm = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored, vs)
         out = []
@@ -270,7 +272,14 @@ class BlockInstance(QGraphicsObject):
             op = RenderOp(TEXT, path, colour=item.data.color,
                           text_frame=(centre.x(), centre.y(), float(item._angle)),
                           readable=bool(rec.get("keep_upright", False)))
-            out.append(op.mapped(b.transform * sm))
+            t = b.transform * sm
+            under, over = text_box_ops(item, QTransform())
+            out += [o.mapped(t) for o in under]
+            out.append(op.mapped(t))
+            # A nested record's override reaches its child's border (WM-6).
+            out += apply_overrides([o.mapped(t) for o in over], *b.override_args)
+        if self._ov_args is not None:
+            out = apply_overrides(out, *self._ov_args)    # box borders (WM-12)
         self._bound_cache = (bps, key, out)
         self._bound_builds += 1
         return out

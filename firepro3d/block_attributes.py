@@ -182,8 +182,8 @@ class BoundPrim:
             pose -- the origin shift for a direct child, composed with the
             nested record poses for a nested one (a ``QTransform``; typed
             loosely to keep this module Qt-free).
-        override_args: The WM2 ``override_args`` tuple in force (unused by
-            text today; carried for parity with ``_nested_ops``).
+        override_args: The WM2 ``override_args`` tuple in force -- applied to
+            the text box's border (linetypes WM-12), as ``_nested_ops`` does.
     """
     prim: dict
     transform: object
