@@ -515,3 +515,7 @@ END_PREVIEW_PX_PER_MM = 4.0        # LT5 panel swatch: Fixed end mm -> swatch px
 # cubic within ~0.004 mm. Qt caps a single cubic at ~512 segments, so a very
 # long single cubic deviates more: ≈0.045 mm on a 20 m cubic (still < 0.1 mm).
 LINETYPE_CURVE_FLATTEN_SCALE = 64.0
+
+# -- Element parameters (element-parameters.md E6) ---------------------------
+# How far past a wall face a door / window / opening looks for its room (mm).
+ELEMENT_ROOM_PROBE_MM = 50.0

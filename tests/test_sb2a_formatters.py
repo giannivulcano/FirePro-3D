@@ -48,6 +48,7 @@ def test_hydraulic_and_pipe_id_strings():
         assert sm.format_velocity(5.56) == "5.6 ft/s"
     assert imp.format_pipe_id(1.049) == '1.049"'
     assert met.format_pipe_id(1.049) == "26.6 mm"          # 1.049 * 25.4 = 26.64
+    assert _sm(DisplayUnit.METRIC_M).format_pipe_id(1.049) == "26.6 mm"
 
 
 def test_room_panel_area_volume_go_through_scale_manager(qapp, make_model_space, monkeypatch):
