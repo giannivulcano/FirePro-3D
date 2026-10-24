@@ -174,3 +174,46 @@ def test_same_level_paste_keeps_level_refs(qapp, shown_model_view):
     scene._walls.append(w)
     _copy_paste(scene, [w])
     assert (scene._walls[1]._base_level, scene._walls[1]._top_level) == ("Level 1", "Level 2")
+
+
+def _slab_on(scene, level):
+    slab = FloorSlab(list(SQ))
+    slab._top_level = slab._bottom_level = level      # what the floor tool sets
+    scene.addItem(slab)
+    scene._floor_slabs.append(slab)
+    return slab
+
+
+def test_slab_on_level_2_pasted_on_level_3_retargets(qapp, shown_model_view):
+    """Review I1: a slab's own level is its Top Level, not its unset ``level``."""
+    view, scene = shown_model_view
+    lm = scene._level_manager
+    lm.add_level("Level 2", 3000.0)
+    lm.add_level("Level 3", 6000.0)
+    slab = _slab_on(scene, "Level 2")
+    scene.active_level = "Level 2"
+    scene.clearSelection()
+    slab.setSelected(True)
+    scene.copy_selected_items()
+    scene.active_level = "Level 3"
+    scene.paste_items(QPointF(0, 0))
+    cs = scene._floor_slabs[1]
+    assert (cs._top_level, cs._bottom_level) == ("Level 3", "Level 3")
+    assert (slab._top_level, slab._bottom_level) == ("Level 2", "Level 2")
+
+
+def test_duplicate_level_2_copies_only_its_slab(qapp, shown_model_view):
+    """Duplicate Level picks slabs by Top Level (a Level 1 slab is not copied).
+
+    Design areas on Duplicate Level wait on the filed node-level bug: copied
+    nodes keep the source z, reuse the originals, and the area is skipped.
+    """
+    view, scene = shown_model_view
+    lm = scene._level_manager
+    lm.add_level("Level 2", 3000.0)
+    new = lm.add_level("Level 4", 3000.0).name
+    _slab_on(scene, "Level 1")
+    _slab_on(scene, "Level 2")
+    scene.duplicate_level_entities("Level 2", new)
+    tops = sorted(s._top_level for s in scene._floor_slabs)
+    assert tops == sorted(["Level 1", "Level 2", new])

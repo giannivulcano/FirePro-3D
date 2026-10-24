@@ -8468,11 +8468,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._draw_ellipses, self._draw_splines, self._draw_polygons,
                     self._filled_regions, self._gridlines,
-                    self._walls, self._floor_slabs, self._roofs,
+                    self._walls, self._roofs,
                     self._rooms, self.design_areas]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:
                     result.append(item)
+        # A slab's own level is its Top Level (its ``level`` attr is never set).
+        result.extend(s for s in self._floor_slabs if s._top_level == level_name)
         ann = getattr(self, "annotations", None)
         if ann:
             for dim in getattr(ann, "dimensions", []):
@@ -8979,8 +8981,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif hasattr(item, "to_dict"):
                 rec = item.to_dict()
                 if isinstance(item, FloorSlab):
+                    # A slab's own level is its Top Level (placement sets Top =
+                    # Bottom = active level; its ``level`` attr is never set).
                     # to_dict has no own-level key; a paste retargets refs naming it
-                    rec["source_level"] = getattr(item, "level", None)
+                    rec["source_level"] = item._top_level
                 data.append(rec)
         return data
 
