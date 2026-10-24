@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d import display_manager as dm
@@ -54,12 +54,18 @@ def _selectors(d):
 @pytest.mark.parametrize("n_walls,n_types", [(300, 8), (20, 40)])
 def test_tab_edit_refreshes_pickers_within_bar(qapp, model_space, n_walls, n_types):
     _scene(model_space, n_walls, n_types)
+    # Drain Qt's queued item polish (wall visibility -> outline rejoin) so rep0
+    # times the edit, not scene setup (HF5 VC9 first-edit debug).
+    QApplication.processEvents()
     d, tab, open_s = _open(model_space)
     try:
+        d.show()                                          # real env: pickers visible
+        QApplication.processEvents()
         sels = _selectors(d)
         assert len(sels) >= n_walls                       # every wall row has a picker
         assert all(s.count() >= n_types for s in sels)
         tab.select_name("T0")
+        QApplication.processEvents()
         samples = []
         for k in range(_REPS):
             col = "#%02x0000" % (40 + k * 20)
@@ -75,30 +81,52 @@ def test_tab_edit_refreshes_pickers_within_bar(qapp, model_space, n_walls, n_typ
             f.write(f"scene={n_walls}w x {n_types}t median_ms={med:.1f} "
                     f"dm_open_s={open_s:.3f} bar_ms={_BAR_MS}\n")
         assert med <= _BAR_MS, f"median {med:.1f} ms > {_BAR_MS} ms ({samples})"
+        assert samples[0] <= _BAR_MS, f"first edit {samples[0]:.1f} ms > {_BAR_MS} ms"
     finally:
         d.reject()
 
 
 def test_one_icon_build_per_type_per_refresh(qapp, model_space, monkeypatch):
+    """Cold refresh renders each distinct look once; a warm one renders none and keeps
+    every entry; a tab edit of one type re-renders that type only and every
+    picker shows its new look."""
     _scene(model_space, 12, 6)
     d, tab, _ = _open(model_space)
     try:
-        assert len(_selectors(d)) >= 12
-        from firepro3d import fill_types_tab
+        sels = _selectors(d)
+        assert len(sels) >= 12
         calls = []
-        real = fill_types_tab.look_pixmap
+        real = dm._fill_type_icon
 
         def counting(*a, **k):
             calls.append(1)
             return real(*a, **k)
 
-        monkeypatch.setattr(fill_types_tab, "look_pixmap", counting)
+        monkeypatch.setattr(dm, "_fill_type_icon", counting)
+        d.__dict__.pop("_icon_memo", None)
         d._refresh_section_selectors()
         n_types = len(d._section_table().all())
-        assert len(calls) == n_types, (len(calls), n_types)
-        # every picker still lists every type with its swatch
-        for s in _selectors(d):
+        n_looks = len({t.layers for t in d._section_table().all()})
+        assert 1 < n_looks < n_types                      # some types share a look
+        assert len(calls) == n_looks, (len(calls), n_looks)
+        calls.clear()
+        d._refresh_section_selectors()
+        assert calls == []                                # warm: nothing re-rendered
+        for s in sels:                                    # every picker lists every type
             assert s.count() >= n_types
-            assert not s.itemIcon(0).isNull()
+            assert all(not s.itemIcon(i).isNull() for i in range(n_types))
+        mark = Qt.ItemDataRole.UserRole + 7               # survives only an in-place update
+        for s in sels:
+            s.setItemData(0, "kept", mark)
+        tab.select_name("T0")
+        tab.set_background(True, "#ff0000", 1.0)          # the real edit path
+        QApplication.processEvents()
+        assert len(calls) == 1, len(calls)                # only T0 re-rendered
+        assert all(s.itemData(0, mark) == "kept" for s in sels)   # restyle: no rebuild
+        tid = d._section_table().by_name("T0").id
+        for s in sels:
+            img = s.itemIcon(s.findData(tid)).pixmap(40, 20).toImage()
+            px = [img.pixelColor(x, y) for x in range(2, 38, 4) for y in (3, 10, 16)]
+            assert any(c.red() > 200 and c.green() < 60 and c.blue() < 60 for c in px)
     finally:
         d.reject()

@@ -1880,9 +1880,18 @@ class DisplayManager(QDialog):
     def _type_icons(self, table) -> dict:
         """One ``{type id: QIcon}`` for *table* -- built once per refresh and
         shared by every section selector (HF5 VC9 I1: the swatch render is the
-        cost, never rebuilt per row)."""
+        cost, never rebuilt per row). Swatches are memoised by look, so a tab
+        edit re-renders only the edited type; the table bus clears the memo
+        (a retarget can change a pattern block behind an unchanged look)."""
         reg = self._scene.block_registry
-        return {t.id: _fill_type_icon(t.layers, reg) for t in table.all()}
+        memo = self.__dict__.setdefault("_icon_memo", {})
+        out = {}
+        for t in table.all():
+            icon = memo.get(t.layers)
+            if icon is None:
+                icon = memo[t.layers] = _fill_type_icon(t.layers, reg)
+            out[t.id] = icon
+        return out
 
     def _fill_section_selector(self, sel: Selector, type_id, icons=None) -> None:
         """(Re)fill *sel* with the project's Fill Types (name + look swatch) and
@@ -1892,16 +1901,27 @@ class DisplayManager(QDialog):
         table = self._section_table()
         if icons is None:
             icons = self._type_icons(table)
+        types = table.all()
+        cur = table.get(type_id) if type_id else None
+        missing = type_id if cur is None and type_id else None
+        listed = (tuple((t.id, t.name) for t in types), missing)
         sel.blockSignals(True)
         try:
-            sel.clear()
-            for t in table.all():
-                sel.addItem(icons[t.id], t.name, t.id)
-            cur = table.get(type_id) if type_id else None
+            if getattr(sel, "_ft_listed", None) == listed:
+                # Same entries (a restyle): swap only the changed swatches.
+                for i, t in enumerate(types):
+                    if sel.itemIcon(i).cacheKey() != icons[t.id].cacheKey():
+                        sel.setItemIcon(i, icons[t.id])
+            else:
+                sel.clear()
+                for t in types:
+                    sel.addItem(icons[t.id], t.name, t.id)
+                if missing:
+                    sel.addItem(fill_types.missing_type_label(missing), missing)
+                sel._ft_listed = listed
             if cur is not None:
                 sel.setCurrentIndex(sel.findData(cur.id))
-            elif type_id:
-                sel.addItem(fill_types.missing_type_label(type_id), type_id)
+            elif missing:
                 sel.setCurrentIndex(sel.count() - 1)
         finally:
             sel.blockSignals(False)
@@ -1919,6 +1939,7 @@ class DisplayManager(QDialog):
         re-applies a preview."""
         from PyQt6 import sip
         if not sip.isdeleted(self):
+            self.__dict__.pop("_icon_memo", None)
             self._refresh_section_selectors()
 
     def done(self, result):
