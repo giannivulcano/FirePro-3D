@@ -71,6 +71,24 @@ def test_add_rename_restyle_apply_on_ok_only(qapp, model_space):
     assert model_space._dirty                                    # outside undo, dirties
 
 
+def test_tab_ok_is_outside_undo(qapp, model_space):
+    """VC9 M5 (AC1 undo half): OK on a tab edit pushes no undo state, and an Undo
+    afterwards leaves the table (and the unrelated earlier state) alone."""
+    model_space.push_undo_state()                    # something a later Undo could step back to
+    model_space.push_undo_state()
+    assert model_space.can_undo()
+    pos, depth = model_space._undo_pos, len(model_space._undo_stack)
+    d, tab = _open(model_space)
+    tab.add_type()
+    assert tab.set_name("Concrete")
+    tab.set_background(True, "#00ff00", 1.0)
+    d.accept()
+    assert (model_space._undo_pos, len(model_space._undo_stack)) == (pos, depth)
+    model_space.undo()
+    got = ft.project_table().by_name("Concrete")
+    assert got is not None and got.layers.background.color == "#00ff00"
+
+
 def test_cancel_discards(qapp, model_space):
     d, tab = _open(model_space)
     tab.add_type()

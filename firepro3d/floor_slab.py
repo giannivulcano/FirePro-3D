@@ -528,6 +528,12 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._top_offset_mm = data.get("level_offset_mm", 0.0)
             slab._bottom_mode = "thickness"
         slab._display_overrides = dict(data.get("display_overrides", {}))
+        sec = slab._display_overrides.get("section_type")
+        if isinstance(sec, str) and sec:
+            # HF5 VC9 M2: a name-duplicate type's alias id re-points to the kept id
+            # (the table loads before items), so the override survives save / open.
+            from . import fill_types
+            slab._display_overrides["section_type"] = fill_types.canonical_id(sec)
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────

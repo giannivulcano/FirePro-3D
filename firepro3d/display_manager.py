@@ -509,11 +509,6 @@ def _fill_type_icon(layers, registry=None) -> QIcon:
     return QIcon(look_pixmap(layers, registry, 40, 20))
 
 
-def _missing_type_label(type_id: str) -> str:
-    """Selector text of a section type the table does not hold ("? <id8>")."""
-    return f"? {str(type_id)[:8]}"
-
-
 # Cut-item state the live preview writes (walls, floors): restored on Cancel.
 _CUT_ATTRS = ("_display_section_type", "_display_color", "_display_fill_color",
               "_display_scale", "_fill_mode")
@@ -1906,7 +1901,7 @@ class DisplayManager(QDialog):
             if cur is not None:
                 sel.setCurrentIndex(sel.findData(cur.id))
             elif type_id:
-                sel.addItem(_missing_type_label(type_id), type_id)
+                sel.addItem(fill_types.missing_type_label(type_id), type_id)
                 sel.setCurrentIndex(sel.count() - 1)
         finally:
             sel.blockSignals(False)
@@ -3171,6 +3166,10 @@ def apply_default_display_settings(scene):
         # Also save as current settings so Display Manager shows them
         _write_category_to_settings(key, vals, settings)
 
+        if _category_has_section(key):
+            # HF5 VC9 M1: the category's section type lands in the (just reset)
+            # project table even when the new project has no wall / floor yet.
+            fill_types.category_section_type(key, vals)
         _apply_to_scene_items(scene, key, vals, respect_overrides=False)
     _apply_model_blocks_weight(None, settings, prefer_default=True)
 

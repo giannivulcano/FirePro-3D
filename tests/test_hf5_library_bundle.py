@@ -1,5 +1,6 @@
 """HF5 Task 10 -- .fpdb bundles Fill Types (schema 3); load merges by name, project wins (G7)."""
 import json
+import pytest
 
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
@@ -316,3 +317,41 @@ def test_multi_file_load_announces_added_types_once(qapp):
     ft.fill_type_bus().changed.connect(lambda: hits.append(1))
     assert fresh.reload_block_definition(_read(p1)["id"]) is True
     assert len(hits) == 1
+
+
+def test_stripped_question_name_meets_a_project_type_project_wins(qapp):
+    """VC9 m2: a bundled row "? deadbeef" is stripped to "deadbeef"; a project type
+    already named "deadbeef" wins (no second row, the region follows the project)."""
+    path = _saved(RED, "cid", "Concrete")
+    _rename_rows(path, {"cid": "? deadbeef"})
+    _table(ft.FillType("proj", "deadbeef", BLUE))
+    fresh = Model_Space()
+    fresh.load_blocks_from_files([path])
+    assert [t.name for t in ft.project_table().all()] == ["deadbeef"]
+    loaded = fresh.get_block_definition(_read(path)["id"])
+    assert loaded.primitives[0]["fill_type"] == "proj"
+    assert _placed_pixel(fresh, loaded.id) == (0, 0, 255)           # the project's blue
+
+
+def test_batch_load_announces_merged_types_even_when_a_later_file_raises(qapp, monkeypatch):
+    """VC9 m1: file 1 merges types, file 2 raises mid-batch: the table changed, so
+    the one announce still fires (try/finally), not skipped by the exception."""
+    _table(ft.FillType("a", "Alpha", RED))
+    p1 = block_library.save_to_library(_host("a", "Host A"))
+    p2 = block_library.save_to_library(_host("a", "Host B"))
+    ft.reset_project_table()
+    real = block_library.load_block_file_with_types
+
+    def flaky(path):
+        if path == p2:
+            raise RuntimeError("boom")
+        return real(path)
+
+    monkeypatch.setattr(block_library, "load_block_file_with_types", flaky)
+    fresh = Model_Space()
+    bus = []
+    ft.fill_type_bus().changed.connect(lambda: bus.append(1))
+    with pytest.raises(RuntimeError):
+        fresh.load_blocks_from_files([p1, p2])
+    assert ft.project_table().by_name("Alpha") is not None
+    assert bus == [1]

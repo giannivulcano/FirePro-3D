@@ -369,12 +369,21 @@ def convert_item_section_override(key: str, ov: dict,
 
 
 # -- users / delete guards (HF5 R5, AC8) ------------------------------------
+MISSING_TYPE_PREFIX = "? "
+
+
+def missing_type_label(type_id) -> str:
+    """The picker text of a type id the table does not hold ("? <id8>") -- the one
+    place that spells it (region panel + Display Manager selectors)."""
+    return f"{MISSING_TYPE_PREFIX}{str(type_id)[:8]}"
+
+
 def reserved_name(name) -> bool:
     """True for a name the region panel's Fill Type picker would shadow or mis-pick:
     blank, "(Custom)" or a "? "-prefixed label (Group B carry-in)."""
     s = str(name).strip()
     return (not s or s.casefold() == FILL_TYPE_CUSTOM_LABEL.casefold()
-            or s.startswith("? "))
+            or s.startswith(MISSING_TYPE_PREFIX))
 
 
 def import_name(name: str) -> str:
@@ -386,8 +395,8 @@ def import_name(name: str) -> str:
     is stripped; a name that is still reserved gets " (imported)" appended.
     """
     s = str(name).strip()
-    while s.startswith("? "):
-        s = s[2:].lstrip()
+    while s.startswith(MISSING_TYPE_PREFIX):
+        s = s[len(MISSING_TYPE_PREFIX):].lstrip()
     if reserved_name(s):
         s = f"{s or 'Fill Type'} (imported)"
     return s

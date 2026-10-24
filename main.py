@@ -761,12 +761,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         pass  # level indicator removed
         self._place_default_gridlines()
         self.section_manager.seed_cardinals()
+        # HF5 R9: startup = the seed set -- BEFORE the display defaults, which add
+        # the category section types (Wall Section / Floor Section) to the table.
+        fill_types.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
         from firepro3d.paper_display import reset_project_line_weights
         reset_project_line_weights()
-        fill_types.reset_project_table()    # HF5 R9: startup = the seed set
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # Render the linked default title block on the startup sheet (Task A);
@@ -4367,12 +4369,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._refresh_section_browser()
 
         # Apply saved display defaults to the new project
+        # HF5 R9: a new project = the seed set -- BEFORE the display defaults, which
+        # add the category section types (Wall Section / Floor Section) to the table.
+        fill_types.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
         from firepro3d.paper_display import reset_project_line_weights
         reset_project_line_weights()
-        fill_types.reset_project_table()    # HF5 R9: a new project = the seed set
         from firepro3d.settings import template as _settings_template
         _settings_template.apply_template_settings(self.scene)
         # _clear_scene + template replaced/set the units — re-seed open editors.

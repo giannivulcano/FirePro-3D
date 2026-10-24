@@ -2328,66 +2328,70 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                    for e in block_library.list_library(root)}
         changed = False
         types_added = False          # announce once for the batch (Group E review Minor 2)
-        for path in paths:
-            loaded = block_library.load_block_file_with_types(path)
-            if loaded is None:
-                summary["failed"].append(path)
-                continue
-            defn, bundled, pending_types = loaded    # HF5: records already re-pointed
-            defn.base_version = defn.version       # loaded at (SB1b D7)
-            for b in bundled:
-                b.base_version = b.version
-            entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
-            if entry is not None:
-                defn.library, defn.series = entry["library"], entry["series"]
-                defn.name = entry["name"]
-                if entry["duplicate"]:
-                    defn.id = uuid.uuid4().hex
-            if self._load_would_cycle(bundled, defn):
-                summary["refused"].append(
-                    f"{defn.name} ({block_library.LOOP_REASON})")
-                continue
-            existing = self._block_definitions.get(defn.id)
-            if existing is not None:
-                if existing.kind != defn.kind:
-                    # schematics.md D-S3 (SV4): a same-id file of the other
-                    # kind is refused whole -- not even its bundled deps land.
+        try:
+            for path in paths:
+                loaded = block_library.load_block_file_with_types(path)
+                if loaded is None:
+                    summary["failed"].append(path)
+                    continue
+                defn, bundled, pending_types = loaded    # HF5: records already re-pointed
+                defn.base_version = defn.version       # loaded at (SB1b D7)
+                for b in bundled:
+                    b.base_version = b.version
+                entry = on_disk.get(os.path.normcase(os.path.abspath(path)))
+                if entry is not None:
+                    defn.library, defn.series = entry["library"], entry["series"]
+                    defn.name = entry["name"]
+                    if entry["duplicate"]:
+                        defn.id = uuid.uuid4().hex
+                if self._load_would_cycle(bundled, defn):
                     summary["refused"].append(
-                        f"{defn.name} ({block_library.KIND_REASON})")
+                        f"{defn.name} ({block_library.LOOP_REASON})")
+                    continue
+                existing = self._block_definitions.get(defn.id)
+                if existing is not None:
+                    if existing.kind != defn.kind:
+                        # schematics.md D-S3 (SV4): a same-id file of the other
+                        # kind is refused whole -- not even its bundled deps land.
+                        summary["refused"].append(
+                            f"{defn.name} ({block_library.KIND_REASON})")
+                        continue
+                    self._merge_bundled_weights(path)
+                    types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
+                    changed |= self._add_bundled(bundled, defn)  # before the swap repaints
+                    summary["ids"][path] = defn.id
+                    defn.source_path = path
+                    if existing.version == defn.version:
+                        if existing.source_path is None:
+                            existing.source_path = path
+                        summary["skipped"].append(defn.name)
+                    else:
+                        self._swap_block_definition(defn.id, defn)
+                        summary["replaced"].append(defn.name)
+                        changed = True
+                    continue
+                # id not present: refuse a (library, series, name) clash — the
+                # refused file adds nothing, not even its bundled deps
+                clash = any(
+                    (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
+                    for o in self._block_definitions.values())
+                if clash:
+                    summary["refused"].append(defn.name)
                     continue
                 self._merge_bundled_weights(path)
                 types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
-                changed |= self._add_bundled(bundled, defn)  # before the swap repaints
+                self._add_bundled(bundled, defn)
+                self._block_registry.add(defn)
+                defn.source_path = path          # the file a later Save may re-file
+                summary["loaded"].append(defn.name)
                 summary["ids"][path] = defn.id
-                defn.source_path = path
-                if existing.version == defn.version:
-                    if existing.source_path is None:
-                        existing.source_path = path
-                    summary["skipped"].append(defn.name)
-                else:
-                    self._swap_block_definition(defn.id, defn)
-                    summary["replaced"].append(defn.name)
-                    changed = True
-                continue
-            # id not present: refuse a (library, series, name) clash — the
-            # refused file adds nothing, not even its bundled deps
-            clash = any(
-                (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
-                for o in self._block_definitions.values())
-            if clash:
-                summary["refused"].append(defn.name)
-                continue
-            self._merge_bundled_weights(path)
-            types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
-            self._add_bundled(bundled, defn)
-            self._block_registry.add(defn)
-            defn.source_path = path          # the file a later Save may re-file
-            summary["loaded"].append(defn.name)
-            summary["ids"][path] = defn.id
-            changed = True
+                changed = True
+        finally:
+            # HF5 VC9 m1: announce once for the batch even when a later file raises
+            # after an earlier one merged types (the table already changed).
+            if types_added:
+                self._announce_fill_types_added()
         summary["missing"] = sorted(self._block_registry.missing_nested())
-        if types_added:
-            self._announce_fill_types_added()
         if changed:
             # One step -- coalesced into a multi-target panel commit's step
             # when inside ``deferred_undo_push`` (a folder pick applied to N

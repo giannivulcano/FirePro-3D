@@ -72,7 +72,9 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
         bg.setAlpha(round(bg.alpha() * layers.background.opacity))
     p = layers.pattern
     if p is not None:
-        if p.color == TOKEN_ELEMENT:
+        # VC9 M3: a B&W / custom-colour paper pass (paper_bg set) forces the hatch
+        # to the element's remapped line colour whatever the type's pattern colour.
+        if p.color == TOKEN_ELEMENT or paper_bg is not None:
             pat = QColor(element_colour) if element_colour is not None else QColor(_SECTION_HATCH_COLOR)
         else:
             pat = resolve_colour(p.color, item=item)

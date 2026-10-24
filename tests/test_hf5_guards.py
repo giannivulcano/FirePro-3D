@@ -207,6 +207,9 @@ def test_legacy_open_is_digest_identical(mw, tmp_path):
     per-item line colour keeps a red hatch through By element (R8)."""
     canvas, bw, colour = _digests(mw, tmp_path)
     assert (canvas, bw, colour) == (_BASE_CANVAS, _BASE_PAPER_BW, _BASE_PAPER_COLOUR)
+    # The digest equality is not vacuous: the red-line wall's hatch really drew red.
+    _w1, w2 = sorted(mw.scene._walls, key=lambda w: w.sceneBoundingRect().center().y())
+    assert _count_red(_canvas_img(mw.scene), _body(w2)) > 20
 
 
 # -- G6: restyle through the real tab (AC2, AC5) -------------------------------
@@ -305,7 +308,6 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     dlg = mw._make_display_manager("model")
     tab = _tab(dlg)
     assert tab.select_name("Wall Section")
-    cur = tab.current_type()
     tab.set_background(True, "#ffaa00", 1.0)
     assert tab.select_name("Concrete")
     tab.set_background(True, "#0000ff", 1.0)
@@ -318,7 +320,6 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     assert _share(after, _body(w2), "#ffaa00") > 0.8
     assert _count_red(after, _body(w2)) > 20        # R8: hatch still red
     assert _count_red(after, _body(w1)) == 0        # un-overridden wall: no red
-    assert cur.name == "Wall Section"
 
 
 # -- AC9: a deleted type draws the fallback ------------------------------------
@@ -352,20 +353,98 @@ def test_missing_type_cut_draws_fallback(mw):
     assert want == [230] * 3
 
 
+# -- VC9 M6 (AC6): the file's own table beats QSettings through the real open path --
+
+def test_open_file_category_type_takes_the_projects_look_not_qsettings(mw, tmp_path):
+    """A file whose display_settings names "Wall Section" and whose table holds that
+    type (green body) opens through ``_load_project`` -> ``_apply_loaded_file``: the
+    cut wall draws the project's green, not the look QSettings (red) or the file's
+    stale ``section_look`` (blue) carries (R7: the project type wins by name)."""
+    import json
+    from PyQt6.QtCore import QSettings
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["fill_types"] = [{"id": "proj-ws", "name": "Wall Section",
+                              "background": {"color": "#00aa00", "opacity": 1.0}}]
+    wall_ds = payload["display_settings"]["Wall"]
+    for legacy in ("section", "section_pattern", "section_scale"):
+        wall_ds.pop(legacy, None)
+    wall_ds["section_type"] = "Wall Section"
+    wall_ds["section_look"] = {"background": {"color": "#0000ff", "opacity": 1.0}}
+    path = tmp_path / "ac6.fpd"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    qs = QSettings("GV", "FirePro3D")                    # conftest-isolated store
+    qs.setValue("display/Wall/section_type", "Wall Section")
+    qs.setValue("display/Wall/section_look",
+                json.dumps({"background": {"color": "#ff0000", "opacity": 1.0}}))
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    w1, _w2, _slab = _open_fixture(mw, path)
+    w1._display_fill_color = ""                          # no element body: only the cut shows
+    mw.scene.update()
+    img = _canvas_img(mw.scene)
+    assert _share(img, _body(w1), "#00aa00") > 0.8
+    assert _share(img, _body(w1), "#ff0000") == 0 and _share(img, _body(w1), "#0000ff") == 0
+
+
+# -- VC9 M3: a B&W / custom paper pass forces the cut hatch to the element colour --
+
+def _paper_has_red(pdf) -> tuple[bool, int]:
+    """(any stroke / fill in the viewport is red, drawings in the viewport)."""
+    lo_x, hi_x = (_VP_X + 0.5) / _PT, (_VP_X + _VP_W - 0.5) / _PT
+    lo_y, hi_y = (_VP_Y + 0.5) / _PT, (_VP_Y + _VP_W - 0.5) / _PT
+    doc = fitz.open(str(pdf))
+    try:
+        n = 0
+        red = False
+        for d in doc[0].get_drawings():
+            r = d["rect"]
+            if not (lo_x < r.x0 and r.x1 < hi_x and lo_y < r.y0 and r.y1 < hi_y):
+                continue
+            n += 1
+            for col in (d.get("color"), d.get("fill")):
+                if col and len(col) == 3 and col[0] > 0.8 and col[1] < 0.3 and col[2] < 0.3:
+                    red = True
+        return red, n
+    finally:
+        doc.close()
+
+
+def test_bw_paper_cut_hatch_is_element_colour_not_the_types_literal_red(mw, tmp_path):
+    """A cut wall whose Fill Type draws a literal red pattern plots red in full
+    colour, but through the B&W paper pass the hatch takes the element's remapped
+    (black) line colour -- never the type's red (ruling 2026-10-24)."""
+    from firepro3d import fill_types as ft
+    w1, _w2, _slab = _open_fixture(mw)
+    red = ft.project_table().add(ft.FillType(ft.new_id(), "Red Hatch", FillLayers(
+        None, PatternLayer(hp.BUILTIN_DIAGONAL, "#ff0000", 1.0, 1.0))))
+    w1._display_section_type = red.id
+    w1._display_fill_color = ""
+    for it in mw.scene.items():                    # only the typed wall plots (the
+        if it.parentItem() is None and it is not w1:   # fixture's red region would
+            it.setVisible(False)                       # otherwise colour the page)
+    mw.scene.update()
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    colour_red, colour_n = _paper_has_red(_paper_pdf(mw.scene, tmp_path, "c.pdf"))
+    assert colour_red and colour_n > 3                   # control: the scene can plot red
+    save_paper_color_mode(PaperColorMode.BW)
+    bw_red, bw_n = _paper_has_red(_paper_pdf(mw.scene, tmp_path, "b.pdf"))
+    assert bw_n > 3 and not bw_red
+
+
 # -- R8: By element follows the element's line colour --------------------------
 
-def test_by_element_follows_category_colour_and_item_override(mw):
+def test_by_element_follows_category_colour_and_item_override(mw, monkeypatch):
     """A converted section type colours its hatch By element: changing the Wall
     category colour recolours the un-overridden wall's hatch; the wall with a
     red per-item line colour keeps red (AC5)."""
-    from PyQt6.QtCore import QSettings
-    from firepro3d import display_manager as dm
+    from firepro3d import colour_picker
     save_paper_color_mode(PaperColorMode.FULL_COLOR)
     w1, w2, _slab = _open_fixture(mw)
     w2._display_overrides["color"] = "#ff0000"
-    vals = dm._read_category_from_settings("Wall", QSettings("GV", "FirePro3D"))
-    vals = {**vals, "color": "#00cc00"}
-    dm._apply_to_scene_items(mw.scene, "Wall", vals, respect_overrides=True)
+    # The real Display Manager path: pick the Wall category colour, then OK.
+    monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: "#00cc00")
+    dlg = mw._make_display_manager("model")
+    dlg._pick_category_prop("Wall", "color")
+    dlg.accept()
     mw.scene.update()
     img = _canvas_img(mw.scene)
 

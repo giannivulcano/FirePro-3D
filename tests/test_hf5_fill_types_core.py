@@ -133,3 +133,16 @@ def test_resolve_with_an_empty_explicit_table_does_not_fall_back_to_the_project_
     ft.set_project_table(ft.FillTypeTable([ft.FillType("x", "X", CONCRETE)]))
     assert ft.resolve("x", {}, ft.FillTypeTable())[1] is True
     assert ft.resolve("x", {})[1] is False
+
+
+def test_missing_type_label_is_one_spelling_for_panel_and_selectors(qapp):
+    """VC9 M7: the region panel and the DM selector spell a missing type alike."""
+    from firepro3d.filled_region import FilledRegionItem
+    from firepro3d.geometry_2d import LineItem
+    from PyQt6.QtCore import QPointF
+    assert ft.missing_type_label("deadbeef-1234") == "? deadbeef"
+    a, b, c = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100)
+    r = FilledRegionItem.from_pieces([[LineItem(a, b), LineItem(b, c), LineItem(c, a)]])
+    r._fill_type = "deadbeef-1234"
+    assert r.get_properties()["Fill Type"]["value"] == ft.missing_type_label("deadbeef-1234")
+    assert ft.reserved_name(ft.missing_type_label("x"))

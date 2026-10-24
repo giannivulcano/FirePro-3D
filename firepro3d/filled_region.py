@@ -276,7 +276,7 @@ class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem)
         if not self._fill_type:
             value = FILL_TYPE_CUSTOM_LABEL
         elif self.fill_type_missing:
-            value = f"? {self._fill_type[:8]}"
+            value = fill_types.missing_type_label(self._fill_type)
             names.append(value)
         else:
             value = table.get(self._fill_type).name
