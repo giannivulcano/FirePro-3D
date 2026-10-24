@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
+last-verified: 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -15,6 +15,8 @@ source-tasks:
 ---
 
 # Model Space Containment & Authoring Contract — Design Spec
+
+> **Proposed change (2026-10-24, unbuilt):** `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` -- C7 rewording (constraint / modify tools may act on wall centerlines + gridlines in plan) and a C8 exception (plan wall / gridline constraints persist); C1 unchanged. Until its build slices ship, the as-built text below stands.
 
 > **Status: proposal (unbuilt).** This document is the top-level *leash* for a
 > milestone-scale rework. It records the containment invariants agreed in the
