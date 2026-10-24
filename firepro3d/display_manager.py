@@ -1882,7 +1882,9 @@ class DisplayManager(QDialog):
         shared by every section selector (HF5 VC9 I1: the swatch render is the
         cost, never rebuilt per row). Swatches are memoised by look, so a tab
         edit re-renders only the edited type; the table bus clears the memo
-        (a retarget can change a pattern block behind an unchanged look)."""
+        (a retarget can change a pattern block behind an unchanged look). The
+        memo assumes the pattern blocks, pattern files and theme stay put while
+        the (modal) dialog is open; looks no longer in *table* are dropped."""
         reg = self._scene.block_registry
         memo = self.__dict__.setdefault("_icon_memo", {})
         out = {}
@@ -1891,6 +1893,9 @@ class DisplayManager(QDialog):
             if icon is None:
                 icon = memo[t.layers] = _fill_type_icon(t.layers, reg)
             out[t.id] = icon
+        live = {t.layers for t in table.all()}
+        for look in [k for k in memo if k not in live]:
+            del memo[look]
         return out
 
     def _fill_section_selector(self, sel: Selector, type_id, icons=None) -> None:

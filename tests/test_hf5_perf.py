@@ -130,3 +130,26 @@ def test_one_icon_build_per_type_per_refresh(qapp, model_space, monkeypatch):
             assert any(c.red() > 200 and c.green() < 60 and c.blue() < 60 for c in px)
     finally:
         d.reject()
+
+
+def test_rename_rebuilds_pickers_and_memo_keeps_live_looks(qapp, model_space):
+    """A rename keeps the id but changes the entry text, so every picker is
+    rebuilt (never an in-place icon swap); looks edited away leave the memo."""
+    _scene(model_space, 6, 4)
+    d, tab, _ = _open(model_space)
+    try:
+        sels = _selectors(d)
+        tab.select_name("T0")
+        tid = d._section_table().by_name("T0").id
+        for k in range(4):                                # four transient looks
+            tab.set_background(True, "#%02x0000" % (60 + k * 40), 1.0)
+        QApplication.processEvents()
+        assert set(d._icon_memo) == {t.layers for t in d._section_table().all()}
+        order = [t.id for t in d._section_table().all()]
+        assert tab.set_name("T0 Renamed")                 # keeps its sorted place
+        QApplication.processEvents()
+        assert [t.id for t in d._section_table().all()] == order
+        for s in sels:
+            assert s.itemText(s.findData(tid)) == "T0 Renamed"
+    finally:
+        d.reject()
