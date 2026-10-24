@@ -1972,6 +1972,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return False
         if self._live_end_users(block_id):
             return False                      # LT5 Q13: a live line's end
+        from . import fill_types
+        if fill_types.pattern_users(block_id):
+            return False                      # HF5 D-A15: a Fill Type tiles it
         if block_id not in self._block_definitions:
             return False
         del self._block_definitions[block_id]
@@ -2127,7 +2130,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Any kind: a block reloaded as a non-end keeps its live / stored
         # end users (delete refuses them -- the message must say why).
         live_end = self._live_end_users(block_id) if d is not None else 0
-        if not users and not ctx and not live_end:
+        from . import fill_types
+        types = fill_types.pattern_users(block_id) if d is not None else []
+        if not users and not ctx and not live_end and not types:
             return None
         msg = self._end_users_message(d, users, live_end)
         if msg is not None:
@@ -2137,13 +2142,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if msg is not None:
                 return msg
         lines = ("by lines " + " and ".join("in " + c for c in ctx)) if ctx else ""
+        ft = f"by Fill Types: {', '.join(types)}" if types else ""    # HF5 D-A15
         if not users:
-            return (f"“{d.name}” is used {lines}"
-                    " — change their linetype first.")
+            if not types:
+                return (f"“{d.name}” is used {lines}"
+                        " — change their linetype first.")
+            if not ctx:
+                return f"“{d.name}” is used {ft} — change their pattern first."
+            return (f"“{d.name}” is used {lines}, and {ft}"
+                    " — change their linetype and pattern first.")
         names = sorted(self.get_block_definition(u).name for u in users)
-        both = f", and {lines}" if ctx else ""
-        fix = (" — explode or remove it there, and change their linetype first."
-               if ctx else " — explode or remove it there first.")
+        both = "".join(f", and {c}" for c in (lines, ft) if c)
+        change = (" and ".join(w for w, on in (("linetype", ctx), ("pattern", types)) if on))
+        fix = (f" — explode or remove it there, and change their {change} first."
+               if change else " — explode or remove it there first.")
         return f"“{d.name}” is used inside: {', '.join(names)}{both}{fix}"
 
     def _linetype_users_message(self, d, users) -> str | None:
