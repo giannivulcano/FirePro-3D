@@ -499,6 +499,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # with the window) + explicit disconnect in closeEvent: the bus is
         # process-wide and outlives every window.
         th.theme_bus().changed.connect(self._on_theme_bus_changed)
+        # HF5: a Fill Type table change (OK in the tab, retarget, bundled merge)
+        # recompiles typed block definitions and repaints every cut. Same
+        # bound-method + closeEvent-disconnect rule: the bus is process-wide.
+        self._ft_changed_busy = False
+        fill_types.fill_type_bus().changed.connect(self._on_fill_types_changed)
         # Bound methods, never ``self`` lambdas: the parentless PaperScene can
         # outlive this window, and ~QUndoStack emits indexChanged on destruction;
         # PyQt auto-disconnects bound-method slots when the receiver dies, a
@@ -2442,6 +2447,30 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if ss is not None:
             scenes.extend(ss.scenes)
         return scenes
+
+    def _on_fill_types_changed(self) -> None:
+        """HF5: the Fill Type table changed -- typed regions inside block
+        definitions recompile (their compiled ops bake the resolved look) and
+        every live scene repaints (regions, wall / floor cuts and section views
+        resolve their type at paint, so a repaint is enough there). Never
+        rebuilds a section view: ``SectionScene._category_section_type`` can add
+        types from a rebuild, and a rebuild here would loop."""
+        from PyQt6 import sip
+        if sip.isdeleted(self) or self._ft_changed_busy:
+            return
+        self._ft_changed_busy = True
+        try:
+            from firepro3d.block_registry import fill_type_refs
+            reg = self.scene._block_registry
+            for d in list(self.scene._block_definitions.values()):
+                if fill_type_refs(d.primitives):
+                    reg.invalidate(d.id)
+            for sc in self._live_scenes():
+                sc.update()  # HF5: repaint
+                for v in sc.views():
+                    v.viewport().update()  # HF5: repaint
+        finally:
+            self._ft_changed_busy = False
 
     def _on_theme_bus_changed(self) -> None:
         """Repaint every token consumer after a theme switch (HF1)."""
@@ -5967,6 +5996,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             th.theme_bus().changed.disconnect(self._on_theme_bus_changed)
         except (TypeError, RuntimeError):
             pass                                # already disconnected
+        try:
+            fill_types.fill_type_bus().changed.disconnect(self._on_fill_types_changed)
+        except (TypeError, RuntimeError):
+            pass
         self.schematic_scenes.dispose_all()
         # Child widgets don't receive closeEvent; release the 3D view's VTK
         # render window explicitly so its GL context doesn't leak past teardown.

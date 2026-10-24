@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QTabWidget,
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen,
-                         QIcon, QPixmap)
+                         QIcon)
 from PyQt6.QtCore import Qt, QSettings, QByteArray, QSize, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -30,9 +30,9 @@ from . import theme as th
 from . import colour_picker
 from . import fill_types
 from .ui_kit import Selector
-from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO, TOKEN_ELEMENT
+from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO
 from .colour_tokens import is_token, resolve_colour, token_label
-from .fill_layers import alpha as fill_alpha, to_record
+from .fill_layers import to_record
 
 
 # ---------------------------------------------------------------------------
@@ -505,21 +505,8 @@ def _fill_type_icon(layers, registry=None) -> QIcon:
     """40x20 swatch of a Fill Type's look for the section selector: body behind
     the pattern; By element (R8) previews in Automatic (the element's colour is
     only known at paint)."""
-    from .hatch_render import pattern_preview
-    bg = layers.background
-    ground = None
-    if bg is not None:
-        ground = resolve_colour(bg.color)
-        ground.setAlpha(fill_alpha(bg.opacity))
-    pat = layers.pattern
-    if pat is None:
-        pix = QPixmap(40, 20)
-        pix.fill(ground if ground is not None else QColor(0, 0, 0, 0))
-    else:
-        col = resolve_colour(TOKEN_AUTO if pat.color == TOKEN_ELEMENT else pat.color)
-        col.setAlpha(fill_alpha(pat.opacity))
-        pix = pattern_preview(pat.ref, col, 40, 20, registry, background=ground)
-    return QIcon(pix)
+    from .fill_types_tab import look_pixmap
+    return QIcon(look_pixmap(layers, registry, 40, 20))
 
 
 def _missing_type_label(type_id: str) -> str:
@@ -1041,7 +1028,6 @@ class DisplayManager(QDialog):
         self._inst_data: dict[int, dict] = {}
 
         self._take_snapshot()
-
         # Paper-space settings snapshot for cancel-revert
         from .paper_display import load_paper_categories, load_paper_color_mode
         self._paper_settings_snapshot = {
@@ -1448,6 +1434,16 @@ class DisplayManager(QDialog):
         self._tabs.insertTab(1, self._paper_tab, "Paper Space")
         self._lw_tab = self._build_line_weights_tab()
         self._tabs.addTab(self._lw_tab, "Line Weights")
+        # HF5 R5: the Fill Types tab edits a working copy; OK installs it.
+        from .fill_types_tab import FillTypesTab
+        # Cancel puts the live table back if the tab was edited (a pending type
+        # picked in a section cell is previewed into it). Taken after the tree
+        # build, which converts legacy section cells into types.
+        self._ft_table_snapshot = fill_types.project_table().copy()
+        self._ft_tab = FillTypesTab(self._scene, parent=self)
+        self._ft_tab.edited.connect(self._refresh_section_selectors)
+        self._tabs.addTab(self._ft_tab, "Fill Types")
+        fill_types.fill_type_bus().changed.connect(self._on_fill_type_bus)
 
         if self._active_context == "paper":
             self._tabs.setCurrentIndex(1)  # Paper Space tab
@@ -1863,7 +1859,7 @@ class DisplayManager(QDialog):
         """(Re)fill *sel* with the project's Fill Types (name + look swatch) and
         select *type_id*; an id the table lacks gets a "? <id8>" entry so the
         row shows it (never silently another type). No signals fire."""
-        table = fill_types.project_table()
+        table = self._section_table()
         sel.blockSignals(True)
         try:
             sel.clear()
@@ -1879,6 +1875,29 @@ class DisplayManager(QDialog):
         finally:
             sel.blockSignals(False)
 
+    def _section_table(self):
+        """The table the section selectors list: the Fill Types tab's working
+        copy once it is edited (so a type added / renamed there is pickable
+        before OK), else the project's."""
+        tab = getattr(self, "_ft_tab", None)
+        return tab.table() if tab is not None and tab.dirty else fill_types.project_table()
+
+    def _on_fill_type_bus(self) -> None:
+        """The project table changed (OK, a restyle, a retarget): re-list the
+        section selectors. Selector refills block their signals, so this never
+        re-applies a preview."""
+        from PyQt6 import sip
+        if not sip.isdeleted(self):
+            self._refresh_section_selectors()
+
+    def done(self, result):
+        """Stop listening to the table bus once the dialog closes."""
+        try:
+            fill_types.fill_type_bus().changed.disconnect(self._on_fill_type_bus)
+        except (TypeError, RuntimeError):
+            pass
+        super().done(result)
+
     def _refresh_section_selectors(self) -> None:
         """Re-list the Fill Types in every section selector (the table changed:
         add / rename / restyle / delete), keeping each row's selection by id."""
@@ -1890,8 +1909,12 @@ class DisplayManager(QDialog):
     def _on_instance_section_picked(self, item_ref, name: str) -> None:
         """An instance row picked a Fill Type by name: store its id as the
         item's override (R7: per-item overrides store the id)."""
-        t = fill_types.project_table().by_name(name)
+        t = self._section_table().by_name(name)
         if t is not None:
+            live = fill_types.project_table()
+            if live.get(t.id) is None and live.by_name(t.name) is None:
+                live.add(t)             # a pending type: same id, so OK keeps the override
+                fill_types.notify_changed()
             self._on_instance_changed(item_ref, "section_type", t.id)
 
     # Legacy aliases so existing internal calls still work
@@ -2142,7 +2165,7 @@ class DisplayManager(QDialog):
                 self._update_fill_btn(widgets["fill_btn"], value)
         elif prop == "section_type":
             sel = widgets.get("section_sel")
-            t = fill_types.project_table().by_name(value) if sel is not None else None
+            t = self._section_table().by_name(value) if sel is not None else None
             if t is not None:
                 self._fill_section_selector(sel, t.id)
         elif prop == "scale":
@@ -2169,7 +2192,7 @@ class DisplayManager(QDialog):
         if _category_has_section(key):
             # The picked Fill Type's name + its current look (R7: QSettings and
             # the project payload store both; the project's type wins by name).
-            t = fill_types.project_table().get(w["section_sel"].currentData())
+            t = self._section_table().get(w["section_sel"].currentData())
             result["section_type"] = t.name if t is not None else _CATEGORY_MAP[key]["section_type"]
             result["section_look"] = to_record(t.layers) if t is not None else None
         else:
@@ -2974,6 +2997,14 @@ class DisplayManager(QDialog):
 
     def accept(self):
         """Persist category settings to QSettings and keep scene state."""
+        if self._ft_tab.dirty:
+            # HF5 R5: install the Fill Types working copy first (outside undo,
+            # dirties the project like a line-weight edit) so the category
+            # write below stores a type renamed in the tab by its new name.
+            fill_types.set_project_table(self._ft_tab.table().copy())
+            self._scene._dirty = True
+            self._scene.sceneModified.emit()
+            self._apply_preview()       # re-resolve every section cell against it
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
             # One writer (HF5): the shared helper stores the section type + look.
@@ -3001,6 +3032,11 @@ class DisplayManager(QDialog):
     def reject(self):
         """Cancel — revert all changes."""
         self._restore_snapshot()
+        if self._ft_tab.dirty:          # HF5: drop the tab's edits + any previewed pending type
+            fill_types.set_project_table(self._ft_table_snapshot.copy())
+            # Cut items previewed a type that is gone now (the snapshot restore
+            # above already put the section QSettings back): re-resolve them.
+            apply_saved_display_settings(self._scene)
         # Weights first: un-renaming rewrites paper categories, so the
         # categories snapshot below must land after it and win (LT1-3).
         # Only when the table was edited: a no-op Cancel must not dirty.

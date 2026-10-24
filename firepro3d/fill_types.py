@@ -12,7 +12,8 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from .constants import (FILL_TYPE_FALLBACK_COLOR, FILL_TYPE_FALLBACK_NAME,
+from .constants import (FILL_TYPE_CUSTOM_LABEL, FILL_TYPE_FALLBACK_COLOR,
+                        FILL_TYPE_FALLBACK_NAME,
                         FILL_TYPE_FALLBACK_OPACITY, FILL_TYPE_SOLID_BLACK,
                         TOKEN_ELEMENT)
 from .fill_layers import BackgroundLayer, FillLayers, PatternLayer, from_record, to_record
@@ -365,3 +366,69 @@ def convert_item_section_override(key: str, ov: dict,
     ov["section_type"] = t.id
     if len(table.all()) != before:
         notify_changed()
+
+
+# -- users / delete guards (HF5 R5, AC8) ------------------------------------
+def reserved_name(name) -> bool:
+    """True for a name the region panel's Fill Type picker would shadow or mis-pick:
+    blank, "(Custom)" or a "? "-prefixed label (Group B carry-in)."""
+    s = str(name).strip()
+    return (not s or s.casefold() == FILL_TYPE_CUSTOM_LABEL.casefold()
+            or s.startswith("? "))
+
+
+def type_users(type_id: str, scene) -> list[str]:
+    """Who uses a type (D-A15 "used by N"): typed region primitives in block
+    definitions, Filled Regions in the plan and open Block Editors, Display
+    Manager categories (by name) and per-item section overrides.
+
+    Ids are compared through :func:`canonical_id`, so a record that kept a
+    load-time duplicate's id still counts for the type that absorbed it.
+
+    Args:
+        type_id: The type's id.
+        scene: The project ``Model_Space``.
+
+    Returns:
+        Human-readable user labels; empty when the type is unused.
+    """
+    from .block_registry import fill_type_refs
+    t = project_table().get(type_id)
+    canon = t.id if t is not None else type_id
+    out: list[str] = []
+    for d in getattr(scene, "_block_definitions", {}).values():
+        if any(canonical_id(r) == canon for r in fill_type_refs(d.primitives)):
+            out.append(f"block {d.name}")
+    if t is not None:
+        from .display_manager import _CATEGORIES, _read_category_from_settings
+        for c in _CATEGORIES:
+            name = _read_category_from_settings(c["key"]).get("section_type")
+            if name and str(name).casefold() == t.name.casefold():
+                out.append(f"{c['key']} sections")
+    scenes = [s for _label, s in scene._user_scenes()] if hasattr(scene, "_user_scenes") else [scene]
+    n_regions = n_items = 0
+    for sc in scenes:
+        for it in sc.items():
+            ft_id = getattr(it, "fill_type", None)
+            if isinstance(ft_id, str) and ft_id and canonical_id(ft_id) == canon:
+                n_regions += 1
+            ov = getattr(it, "_display_overrides", None)
+            if isinstance(ov, dict) and isinstance(ov.get("section_type"), str) \
+                    and canonical_id(ov["section_type"]) == canon:
+                n_items += 1
+    if n_regions:
+        out.append(f"{n_regions} region(s)")
+    if n_items:
+        out.append(f"{n_items} element section override(s)")
+    return out
+
+
+def pattern_users(block_id: str) -> list[str]:
+    """Sorted names of the project types whose pattern layer tiles *block_id*
+    (D-A15: a pattern block a Fill Type uses cannot be deleted)."""
+    from .hatch_patterns import canonical_ref
+    want = canonical_ref(block_id)
+    return sorted((t.name for t in project_table().all()
+                   if t.layers.pattern is not None
+                   and canonical_ref(t.layers.pattern.ref) == want),
+                  key=str.casefold)

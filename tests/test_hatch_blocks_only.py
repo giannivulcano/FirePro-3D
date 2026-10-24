@@ -268,6 +268,7 @@ def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp):
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
     try:
+        assert hp.BUILTIN_BRICK not in sc._block_definitions    # absent before the pick (M4)
         dlg._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Brick Cut")
         assert hp.BUILTIN_BRICK not in sc._block_definitions    # not before OK
         dlg.accept()
