@@ -81,7 +81,11 @@ def test_room_wall_door_gridline_raw_values(qapp, make_model_space, ppm):
     ms._level_manager = LevelManager()      # make_model_space has none; seeds Level 1/2/3
     ms._level_manager.get("Level 2").elevation = 3000.0   # default 3048.0 (level_manager.py:256)
     room = _room(ms, ppm)
+    room._hazard_class, room._occupancy = "Ordinary Hazard Group 1", "Retail"
+    room._system_type, room._ceiling_type = "Dry", "Obstructed"
     hv = ep.host_values(room)
+    assert (hv["HazardClass"].raw, hv["Occupancy"].raw) == ("Ordinary Hazard Group 1", "Retail")
+    assert (hv["SystemType"].raw, hv["CeilingType"].raw) == ("Dry", "Obstructed")
     assert hv["Name"].raw == "Office" and hv["Mark"].raw == "R1"
     assert hv["Area"].raw == pytest.approx(12e6)            # 4 m x 3 m
     assert hv["Perimeter"].raw == pytest.approx(14000.0)
@@ -99,7 +103,11 @@ def test_room_wall_door_gridline_raw_values(qapp, make_model_space, ppm):
     assert dv["Room.Name"].raw == "Office"                   # facing side (+normal) is in the room
     assert dv["Room.Mark"].raw == "R1"
     assert dv["Mark"].raw is None
+    assert dv["Sill"].raw == pytest.approx(0.0)              # feature.py:56 door_914 sill 0
+    assert dv["Type"].raw == "914 × 2032"               # feature.py:56 type_name
     wv = ep.host_values(w)
+    assert wv["Name"].raw == "W-North" and wv["Level.Name"].raw == "Level 1"
+    assert wv["Height"].raw == pytest.approx(3000.0)         # Level 1 (0) -> Level 2 (3000), wall.py:186-190
     assert wv["Length"].raw == pytest.approx(4000.0)
     assert wv["Thickness"].raw == pytest.approx(200.0)
     g = GridlineItem(QPointF(0, 0), QPointF(0, 6000 * ppm), "A")
@@ -146,17 +154,23 @@ def _hr(**kw):
     return HydraulicResult(**base)
 
 
-def test_pipe_and_sprinkler_values(qapp, make_model_space):
+@pytest.mark.parametrize("ppm", [1.0, 2.0])
+def test_pipe_and_sprinkler_values(qapp, make_model_space, ppm):
     ms = make_model_space()
-    room = _room(ms)
-    a, b = Node(0, 0), Node(3000, 0)
+    ms.scale_manager.set_pixels_per_mm(ppm)
+    ms._level_manager = LevelManager()
+    room = _room(ms, ppm)
+    a, b = Node(0, 0), Node(3000 * ppm, 0)                   # scene px; z stays mm
     for n in (a, b):
         ms.addItem(n)
     a.z_pos, b.z_pos = 0.0, 4000.0
     p = Pipe(a, b)
     ms.addItem(p)
+    p.level = b.level = "Level 1"
     pv = ep.host_values(p)
-    assert pv["Length"].raw == pytest.approx(5000.0)         # 3-4-5, true 3D
+    assert pv["Length"].raw == pytest.approx(5000.0)         # 3-4-5, true 3D, calibrated
+    assert pv["Schedule"].raw == "Sch 40" and pv["Material"].raw == "Galvanized Steel"  # pipe.py:91,93
+    assert pv["Level.Name"].raw == "Level 1"
     assert pv["Diameter"].raw == '1"Ø'
     assert pv["InnerDiameter"].raw == pytest.approx(1.049)   # Sch 40 1"
     assert pv["CFactor"].raw == pytest.approx(120.0)
@@ -176,6 +190,13 @@ def test_pipe_and_sprinkler_values(qapp, make_model_space):
     assert sv["Elevation"].raw == pytest.approx(4000.0)
     assert sv["Room.Name"].raw == "Office" and sv["Room.Mark"].raw == "R1"
     assert sv["CoverageArea"].raw == pytest.approx(130.0)
+    # class defaults, sprinkler.py:28-40 (Model defaults to "" -> None, so set it)
+    assert sv["Manufacturer"].raw == "Tyco" and sv["Orientation"].raw == "Upright"
+    assert sv["Temperature"].raw == "155°F" and sv["MinPressure"].raw == pytest.approx(7.0)
+    assert sv["Model"].raw is None
+    spr._properties["Model"]["value"] = "TY-FRB"
+    assert ep.host_values(spr)["Model"].raw == "TY-FRB"
+    assert sv["Level.Name"].raw == "Level 1"
     pv = ep.host_values(p)
     assert pv["Flow"].raw == pytest.approx(22.4)
     assert pv["FrictionLoss"].raw == pytest.approx(1.25)
@@ -209,6 +230,104 @@ def test_category_of_every_class_and_unrelated(qapp, make_model_space):
     assert ep.category_of(n) is None                         # bare node: not a category (Q2)
     assert ep.category_of(object()) is None
     assert ep.host_values(object()) == {}
+
+
+def test_unknown_level_gives_none_ceiling_and_volume(qapp, make_model_space):
+    ms = make_model_space()
+    ms._level_manager = LevelManager()
+    room = _room(ms)
+    assert ep.host_values(room)["CeilingHeight"].raw is not None
+    room.level = "Nope"                                      # Room._ceiling_height_mm would say 0.0
+    hv = ep.host_values(room)
+    assert hv["CeilingHeight"].raw is None and hv["Volume"].raw is None
+    room.level = "Level 1"
+    room._ceiling_level = "Nope"
+    hv = ep.host_values(room)
+    assert hv["CeilingHeight"].raw is None and hv["Volume"].raw is None
+
+
+def test_sprinkler_room_prefers_same_level(qapp, make_model_space):
+    ms = make_model_space()
+    ms._level_manager = LevelManager()
+    r1, r2 = _room(ms, name="Office"), _room(ms, name="Office")
+    r1._tag, r2._tag = "L1", "L2"
+    r1.level, r2.level = "Level 1", "Level 2"
+    n = Node(0, 0)
+    ms.addItem(n)
+    n.add_sprinkler()
+    n._room_name = "Office"
+    n.level = "Level 2"
+    assert ep.host_values(n.sprinkler)["Room.Mark"].raw == "L2"
+    n.level = "Level 1"
+    assert ep.host_values(n.sprinkler)["Room.Mark"].raw == "L1"
+    n.level = "Level 3"                                      # no same-level room: first by name
+    assert ep.host_values(n.sprinkler)["Room.Mark"].raw == "L1"
+
+
+def test_paramspec_rejects_unknown_kind_and_number_is_safe():
+    with pytest.raises(ValueError):
+        ep.ParamSpec("X", "X", "bogus", 1, lambda i: None)
+    assert ep.HostValue("abc", "length").number is None      # never raises from paint
+    assert ep.HostValue("abc", "text").text == "abc"
+
+
+def _sm(unit):
+    from firepro3d.scale_manager import ScaleManager
+    sm = ScaleManager()
+    sm.display_unit = unit
+    sm.precision = 3
+    return sm
+
+
+_I, _M = DisplayUnit.IMPERIAL, DisplayUnit.METRIC_M
+_D = '1"Ø'
+# (kind, raw, {unit: (text, number)}) -- strings from units-and-formatting.md s3 / T1 tests;
+# diameter strings from pipe.py:38-48 maps; length from the ' " feet-inches format (24 in = 2' 0").
+_DISPATCH = [
+    ("text", "abc", {_I: ("abc", None), _M: ("abc", None)}),
+    ("number", 120.0, {_I: ("120", 120.0), _M: ("120", 120.0)}),
+    ("number", 5.6, {_I: ("5.6", 5.6), _M: ("5.6", 5.6)}),
+    ("length", 609.6, {_I: ("2' 0\"", 24.0), _M: ("0.610 m", 0.6096)}),
+    ("area", 12e6, {_I: ("129.2 sq ft", 12e6 / 304.8 ** 2), _M: ("12.00 m²", 12.0)}),
+    ("volume", 3.24e10, {_I: ("1144 cu ft", 3.24e10 / 304.8 ** 3), _M: ("32.4 m³", 32.4)}),
+    ("area_sqft", 130.0, {_I: ("130 sq ft", 130.0), _M: ("12.1 m²", 130.0 * 0.09290304)}),
+    ("pressure", 16.04, {_I: ("16.0 psi", 16.04), _M: ("16.0 psi", 16.04)}),
+    ("flow", 22.4, {_I: ("22 gpm", 22.4), _M: ("22 gpm", 22.4)}),
+    ("velocity", 5.56, {_I: ("5.6 ft/s", 5.56), _M: ("5.6 ft/s", 5.56)}),
+    ("pipe_id", 1.049, {_I: ('1.049"', 1.049), _M: ("26.6 mm", 1.049 * 25.4)}),
+    # format_angle normalises to [-180, 180) (scale_manager.py:300-305), so 270 prints -90
+    ("angle", 270.0, {_I: ("-90°", 270.0), _M: ("-90°", 270.0)}),
+    ("angle", 45.0, {_I: ("45°", 45.0), _M: ("45°", 45.0)}),
+    ("diameter", _D, {_I: ('Ø 1"', None), _M: ("Ø 25 mm", None)}),
+    ("diameter", "weird", {_I: ("weird", None), _M: ("weird", None)}),
+]
+
+
+def test_dispatch_covers_every_kind():
+    assert {k for k, _r, _e in _DISPATCH} == set(ep.KINDS)
+
+
+@pytest.mark.parametrize("unit", [_I, _M])
+@pytest.mark.parametrize("kind,raw,expect", _DISPATCH,
+                         ids=[f"{k}-{r}" for k, r, _e in _DISPATCH])
+def test_host_value_kind_dispatch(kind, raw, expect, unit):
+    hv = ep.HostValue(raw, kind, _sm(unit))
+    text, number = expect[unit]
+    assert hv.text == text
+    if number is None:
+        assert hv.number is None
+    else:
+        assert hv.number == pytest.approx(number)
+    assert ep.HostValue(None, kind, _sm(unit)).text is None
+    assert ep.HostValue(None, kind, _sm(unit)).number is None
+
+
+def test_host_value_without_scale_manager_uses_default():
+    from firepro3d.scale_manager import ScaleManager
+    d = ScaleManager()
+    hv = ep.HostValue(12e6, "area")
+    assert hv.text == d.format_area_mm2(12e6)
+    assert hv.number == pytest.approx(d.area_mm2_value(12e6))
 
 
 def test_getter_failure_yields_none(qapp, make_model_space):

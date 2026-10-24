@@ -36,6 +36,11 @@ class ParamSpec:
     tier: int
     getter: Callable
 
+    def __post_init__(self):
+        # Definition-time check: HostValue.text runs from paint and must not raise.
+        if self.kind not in KINDS:
+            raise ValueError(f"unknown ParamSpec kind {self.kind!r} for {self.key!r}")
+
 
 @dataclass(frozen=True)
 class HostValue:
@@ -53,6 +58,8 @@ class HostValue:
         if self.raw is None:
             return None
         sm, v, k = self._sm(), self.raw, self.kind
+        if k == "text":
+            return str(v)
         if k == "length":
             return sm.format_length(v)
         if k == "area":
@@ -82,7 +89,11 @@ class HostValue:
         """The same quantity as a bare float in display units (None: text)."""
         if self.raw is None or self.kind in ("text", "diameter"):
             return None
-        sm, v, k = self._sm(), float(self.raw), self.kind
+        try:
+            v = float(self.raw)
+        except (TypeError, ValueError):
+            return None
+        sm, k = self._sm(), self.kind
         if k == "length":
             return sm.length_value(v)
         if k == "area":
@@ -145,11 +156,18 @@ def _none(_item):
     return None                  # Mark / Level.Number until SB2b (E4)
 
 
-def _room_named(item, name):
-    for r in getattr(scene_of(item), "_rooms", ()):
-        if name and r.name == name:
-            return r
-    return None
+def _room_named(item, name, level=None):
+    """The room called *name*; when *level* is given and a same-named room is on
+    it, that one wins (auto-populate tags a node with room.name and room.level),
+    else the first room with the name."""
+    if not name:
+        return None
+    named = [r for r in getattr(scene_of(item), "_rooms", ()) if r.name == name]
+    if level:
+        for r in named:
+            if getattr(r, "level", None) == level:
+                return r
+    return named[0] if named else None
 
 
 # -- Room ---------------------------------------------------------------------
@@ -159,7 +177,9 @@ def _room_area(r):
 
 
 def _room_ceiling(r):
-    if getattr(scene_of(r), "_level_manager", None) is None:
+    lm = getattr(scene_of(r), "_level_manager", None)
+    # _ceiling_height_mm() returns 0.0 for an unknown level; the spec wants None
+    if lm is None or lm.get(r.level) is None or lm.get(r._ceiling_level) is None:
         return None
     return r._ceiling_height_mm()
 
@@ -184,6 +204,8 @@ def _opening_room(op):
         return None
     c = op.center_on_wall()
     nx, ny = w.normal()
+    # half_thickness_scene() already equals half_mm * ppm (the drawing scale
+    # cancels in paper_to_scene), so the probe reaches (half_mm + PROBE_MM) * ppm.
     reach = w.half_thickness_scene() + ELEMENT_ROOM_PROBE_MM * _ppm(op)
     first = -1.0 if op.mirror_facing else 1.0
     for sign in (first, -first):
@@ -226,7 +248,7 @@ def _spr_flow(s):
 
 
 def _spr_room(s, attr):
-    r = _room_named(s, getattr(s.node, "_room_name", ""))
+    r = _room_named(s, getattr(s.node, "_room_name", ""), getattr(s.node, "level", None))
     return getattr(r, attr) if r is not None else None
 
 
