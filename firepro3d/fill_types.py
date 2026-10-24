@@ -377,6 +377,22 @@ def reserved_name(name) -> bool:
             or s.startswith("? "))
 
 
+def import_name(name: str) -> str:
+    """A reserved bundled-type name made safe to add (Group E review Minor 1).
+
+    A ``.fpdb`` row named "(Custom)" or "? ..." would shadow / mis-pick in the
+    region panel. It is renamed, never skipped: regions already point at its id,
+    so dropping it would leave them on the missing-type fallback. A "? " prefix
+    is stripped; a name that is still reserved gets " (imported)" appended.
+    """
+    s = str(name).strip()
+    while s.startswith("? "):
+        s = s[2:].lstrip()
+    if reserved_name(s):
+        s = f"{s or 'Fill Type'} (imported)"
+    return s
+
+
 def type_users(type_id: str, scene) -> list[str]:
     """Who uses a type (D-A15 "used by N"): typed region primitives in block
     definitions, Filled Regions in the plan and open Block Editors, Display
@@ -472,13 +488,14 @@ def plan_bundled_merge(rows, table: FillTypeTable | None = None):
         t = FillType.from_payload(row)
         if t is None or t.id in id_map:
             continue
-        key = t.name.casefold()
-        hit = table.by_name(t.name) or pending.get(key)
+        name = import_name(t.name)              # reserved names renamed, never added as is
+        key = name.casefold()
+        hit = table.by_name(name) or pending.get(key)
         if hit is not None:
             id_map[t.id] = hit.id
             continue
         taken = table.get(t.id) is not None or any(p.id == t.id for p in to_add)
-        nt = FillType(new_id() if taken else t.id, t.name, t.layers)
+        nt = FillType(new_id() if taken else t.id, name, t.layers)
         to_add.append(nt)
         pending[key] = nt
         id_map[t.id] = nt.id

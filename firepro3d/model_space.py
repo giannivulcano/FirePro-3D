@@ -2327,6 +2327,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         on_disk = {os.path.normcase(os.path.abspath(e["path"])): e
                    for e in block_library.list_library(root)}
         changed = False
+        types_added = False          # announce once for the batch (Group E review Minor 2)
         for path in paths:
             loaded = block_library.load_block_file_with_types(path)
             if loaded is None:
@@ -2355,7 +2356,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         f"{defn.name} ({block_library.KIND_REASON})")
                     continue
                 self._merge_bundled_weights(path)
-                self._merge_bundled_fill_types(pending_types)
+                types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
                 changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                 summary["ids"][path] = defn.id
                 defn.source_path = path
@@ -2377,7 +2378,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 summary["refused"].append(defn.name)
                 continue
             self._merge_bundled_weights(path)
-            self._merge_bundled_fill_types(pending_types)
+            types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
             self._add_bundled(bundled, defn)
             self._block_registry.add(defn)
             defn.source_path = path          # the file a later Save may re-file
@@ -2385,6 +2386,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             summary["ids"][path] = defn.id
             changed = True
         summary["missing"] = sorted(self._block_registry.missing_nested())
+        if types_added:
+            self._announce_fill_types_added()
         if changed:
             # One step -- coalesced into a multi-target panel commit's step
             # when inside ``deferred_undo_push`` (a folder pick applied to N
@@ -2460,15 +2463,33 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             for record, _group in list(self.underlays):
                 self.repen_underlay(record)
 
-    def _merge_bundled_fill_types(self, types) -> None:
+    def _merge_bundled_fill_types(self, types, notify: bool = True) -> bool:
         """Add a library file's Fill Types the project lacks (D-A15; the table
-        is outside undo, but a merge that added types dirties the project)."""
+        is outside undo, but a merge that added types dirties the project).
+
+        Args:
+            types: The file's pending types (``prepare_file_records``).
+            notify: False defers the bus notify / dirty / ``sceneModified`` to
+                the caller (a multi-file load announces once, via
+                :meth:`_announce_fill_types_added`, since every notify
+                repaints every live scene).
+
+        Returns:
+            True when a type was added.
+        """
         from . import fill_types
         if not types:
-            return
+            return False
         table = fill_types.project_table()
         for t in types:
             table.add(t)
+        if notify:
+            self._announce_fill_types_added()
+        return True
+
+    def _announce_fill_types_added(self) -> None:
+        """One bus notify + dirty + ``sceneModified`` for a merge that added types."""
+        from . import fill_types
         fill_types.notify_changed()
         self._dirty = True            # types travel with the project
         self.sceneModified.emit()

@@ -236,3 +236,83 @@ def test_manager_save_path_writes_types(qapp, tmp_path):
         assert data["schema"] == 3 and [r["name"] for r in data["fill_types"]] == ["Concrete"]
     finally:
         dlg.close()
+
+
+def _rename_rows(path, mapping):
+    """Hand-edit a saved .fpdb: rename its bundled Fill Type rows (id -> name)."""
+    data = _read(path)
+    for row in data["fill_types"]:
+        row["name"] = mapping[row["id"]]
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+
+
+def test_reserved_bundled_names_are_renamed_not_added_as_is(qapp):
+    """Group E review Minor 1: a bundled row named "(Custom)" or "? ..." would
+    shadow / mis-pick in the region panel. It is renamed (never skipped: the
+    regions already point at its id) through the real .fpdb load path."""
+    for n, (bad, want) in enumerate((("(Custom)", "(Custom) (imported)"),
+                                     ("? deadbeef", "deadbeef"),
+                                     ("? (custom)", "(custom) (imported)"))):
+        _table(ft.FillType("cid", "Concrete", RED))
+        path = block_library.save_to_library(_host("cid", f"Host{n}"))
+        _rename_rows(path, {"cid": bad})
+        ft.reset_project_table()
+        fresh = Model_Space()
+        assert fresh.load_blocks_from_files([path])["loaded"] == [f"Host{n}"]
+        names = [t.name for t in ft.project_table().all()]
+        assert want in names and not any(ft.reserved_name(n) for n in names)
+        t = ft.project_table().by_name(want)
+        loaded = fresh.get_block_definition(_read(path)["id"])
+        assert loaded.primitives[0]["fill_type"] == t.id        # regions keep their type
+        assert t.layers == RED                                   # and its look
+        assert _placed_pixel(fresh, loaded.id) == (255, 0, 0)    # not the grey fallback
+
+
+def test_reserved_name_renamed_type_follows_project_wins(qapp):
+    """The renamed name still merges by name: a project type of that name wins."""
+    path = _saved(RED, "cid", "Concrete")
+    _rename_rows(path, {"cid": "(Custom)"})
+    _table(ft.FillType("proj", "(Custom) (imported)", BLUE))
+    fresh = Model_Space()
+    fresh.load_blocks_from_files([path])
+    assert [t.name for t in ft.project_table().all()] == ["(Custom) (imported)"]   # no second row
+    loaded = fresh.get_block_definition(_read(path)["id"])
+    assert loaded.primitives[0]["fill_type"] == "proj"
+
+
+def test_multi_file_load_announces_added_types_once(qapp):
+    """Group E review Minor 2: every bus notify repaints every live scene, so a
+    batch load of N type-bearing files notifies (and emits sceneModified) once.
+    The sceneModified baseline is the same two files loaded with the types
+    already in the project (nothing merges; the load's own emits remain)."""
+    _table(ft.FillType("a", "Alpha", RED), ft.FillType("b", "Beta", BLUE))
+    p1 = block_library.save_to_library(_host("a", "Host A"))
+    p2 = block_library.save_to_library(_host("b", "Host B"))
+
+    def load(reset):
+        if reset:
+            ft.reset_project_table()
+        else:
+            _table(ft.FillType("a", "Alpha", RED), ft.FillType("b", "Beta", BLUE))
+        fresh = Model_Space()
+        bus, modified = [], []
+        ft.fill_type_bus().changed.connect(lambda: bus.append(1))
+        fresh.sceneModified.connect(lambda: modified.append(1))
+        fresh._dirty = False
+        summary = fresh.load_blocks_from_files([p1, p2])
+        assert summary["loaded"] == ["Host A", "Host B"]
+        return fresh, len(bus), len(modified)
+
+    _fresh, bus0, base_modified = load(reset=False)
+    assert bus0 == 0                                  # nothing merged, nothing announced
+    fresh, bus, modified = load(reset=True)
+    assert {"Alpha", "Beta"} <= {t.name for t in ft.project_table().all()}
+    assert bus == 1 and modified == base_modified + 1
+    assert fresh._dirty is True
+    # the single-file reload path still announces its own merge
+    ft.reset_project_table()
+    hits = []
+    ft.fill_type_bus().changed.connect(lambda: hits.append(1))
+    assert fresh.reload_block_definition(_read(p1)["id"]) is True
+    assert len(hits) == 1
