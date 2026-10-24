@@ -137,8 +137,10 @@ def _box_inset(ed):
                 return i
         return -1
     mx, my = w // 2, h // 2
-    return (run([(i, my) for i in range(w)]), run([(mx, i) for i in range(h)]),
-            run([(w - 1 - i, my) for i in range(w)]), run([(mx, h - 1 - i) for i in range(h)]))
+    dpr = img.devicePixelRatio() or 1.0     # grab() is device pixels; report logical px
+    edges = (run([(i, my) for i in range(w)]), run([(mx, i) for i in range(h)]),
+             run([(w - 1 - i, my) for i in range(w)]), run([(mx, h - 1 - i) for i in range(h)]))
+    return tuple(round(e / dpr) if e > 0 else e for e in edges)
 
 
 def _open_editor(pane, row):
