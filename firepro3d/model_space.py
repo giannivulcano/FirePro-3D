@@ -8993,8 +8993,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         The one type gate of ``paste_items`` (it skips anything else), so a
         caller can tell up front what a paste would create — Array keeps
-        walls, rooms, floors, roofs and design areas out of its targets with
-        it (scene-tools P1 DD5 review I3).
+        anything else out of its targets with it (scene-tools P1 DD5 review
+        I3).
 
         Args:
             obj: A clipboard record (``_clipboard_item_dicts`` output).

@@ -1386,7 +1386,7 @@ class ModifyToolsController:
     ARRAY_POLAR_REFUSED = "Polar array needs Count ≥ 2 and 0° < Total ≤ 360°"
     ARRAY_POLAR_NOTHING = "Nothing to array — no selected item can rotate"
     ARRAY_NOTHING_COPYABLE = ("Nothing to array — the selection has nothing "
-                              "Array can copy (e.g. walls, rooms, floors, roofs)")
+                              "Array can copy")
 
     @staticmethod
     def _unit(deg: float) -> QPointF:
@@ -1455,9 +1455,9 @@ class ModifyToolsController:
     def _array_copyable(self, items) -> list:
         """The transformable *items* a paste can re-create (review I3).
 
-        Array copies through ``paste_items``, which has no branch for walls,
-        rooms, floors, roofs or design areas; those are left out so the
-        ghost, the dim and the "(k skipped)" count match what is created.
+        Array copies through ``paste_items``; records it has no branch for
+        are left out so the ghost, the dim and the "(k skipped)" count match
+        what is created.
         """
         s = self._scene
         return [it for it in self._transformable(items)
