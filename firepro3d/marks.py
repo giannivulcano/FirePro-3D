@@ -211,7 +211,7 @@ def set_mark(item, value: str) -> None:
 def item_level_name(item) -> Optional[str]:
     """Level name an element sits on (a sprinkler's is its node's)."""
     node = getattr(item, "node", None)
-    if node is not None and not hasattr(item, "level"):
+    if node is not None:                  # Sprinkler: the node is authoritative
         return getattr(node, "level", None)
     return getattr(item, "level", None)
 

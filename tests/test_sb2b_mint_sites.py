@@ -145,3 +145,21 @@ def test_old_file_pipes_stay_blank(qapp, shown_model_view, tmp_path):
     f.write_text(json.dumps(rec), encoding="utf-8")
     scene.load_from_file(str(f))
     assert _marks(scene, "Pipe") == [""]
+
+
+def test_sprinkler_level_is_its_nodes_level(qapp, shown_model_view, monkeypatch):
+    # Sprinkler.level (init_displayable) stays "Level 1"; the node is authoritative.
+    view, scene = shown_model_view
+    lm = scene._level_manager
+    lm.add_level("Level 2", 3000.0)
+    scene.active_level = "Level 2"
+    asked = []
+    real = marks.level_number_of
+    monkeypatch.setattr(marks, "level_number_of",
+                        lambda sc, it: (asked.append(marks.item_level_name(it)), real(sc, it))[1])
+    scene.set_mode("sprinkler", Sprinkler(None))
+    _click(view, QPointF(1000, 0))
+    sprs = marks.items_of_category(scene, "Sprinkler")
+    assert len(sprs) == 1 and sprs[0].node.level == "Level 2"
+    assert marks.item_level_name(sprs[0]) == "Level 2"
+    assert asked == ["Level 2"]         # mint resolved {level} on Level 2
