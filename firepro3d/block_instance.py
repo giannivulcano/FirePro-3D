@@ -197,10 +197,15 @@ class BlockInstance(QGraphicsObject):
 
     def host_values(self) -> Optional[dict]:
         """The host-value provider seam (SB1a A2): ``{host_key: HostValue}``
-        from the live ``element_host``, or None (no host / deleted host ->
+        from the live ``element_host``, or None (no host / deleted host /
+        a host outside the definition's known ``host_category`` (E9) ->
         placeholders)."""
         h = self.element_host
         if h is None or not element_params.is_live(h):
+            return None
+        d = self.definition()
+        cat = getattr(d, "host_category", "") if d is not None else ""
+        if cat not in element_params.PARAMS or element_params.category_of(h) != cat:
             return None
         return element_params.host_values(h)
 

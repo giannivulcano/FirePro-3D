@@ -1,4 +1,5 @@
 """SB2a G-B1 + AC3/AC4: a host-bound block resolves @[key] from a real door."""
+import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication
 
@@ -180,3 +181,18 @@ def test_gridline_angle_prints_as_bearing_end_to_end(qapp, make_model_space):
     inst.refresh_bound()
     assert g.angle_deg() == 270.0
     assert _painted_as(inst, ref_inst, {"A": "270" + chr(176), "B": "270"})
+
+
+@pytest.mark.parametrize("category", ["Foo", "Window", ""])
+def test_host_outside_definition_category_gives_placeholders(qapp, make_model_space, category):
+    """E9: an unknown category, or a host of another category, resolves to placeholders."""
+    ms = make_model_space()
+    op = _scene(ms)                                        # a real door
+    bound, ref = _defs(ms)
+    bound.host_category = category
+    inst = ms.place_block_instance(bound.id, (0.0, 0.0))
+    ref_inst = ms.place_block_instance(ref.id, (0.0, 0.0))
+    inst.element_host = op
+    inst.refresh_bound()
+    assert inst.host_values() is None
+    assert _painted_as(inst, ref_inst, {"W": "?", "R": "?", "N": "?"})
