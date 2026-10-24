@@ -1803,11 +1803,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def refresh_sample_preview(self) -> None:
         """Re-resolve every text item's display text from the authored
-        attributes' defaults (SB1a A6). Off-editor: no-op."""
+        attributes' defaults (SB1a A6). A blank default is no sample: its
+        token previews raw, so a field-only text never collapses to an
+        empty box. Off-editor: no-op."""
         if self.scene_role != "block_editor":
             return
         from .block_attributes import has_fields, resolve_fields
-        values = ({a["key"]: a["default"] for a in self.block_meta["attributes"]}
+        values = ({a["key"]: a["default"] for a in self.block_meta["attributes"]
+                   if a["default"] != ""}
                   if self.show_sample_values else {})
         for it in self.items():
             if not isinstance(it, TextItem):

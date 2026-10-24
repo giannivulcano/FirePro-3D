@@ -193,6 +193,29 @@ def test_sample_preview_toggle(qapp):
     assert t._data.text == "Room @[Mark]!" and t.toPlainText() == "Room A1!"
 
 
+def test_sample_preview_blank_default_keeps_token(qapp):
+    """An attribute with no sample default (a host attribute, typically)
+    previews as its raw token, so a field-only text never collapses to an
+    empty box; a set default still previews."""
+    from firepro3d.text_item import TextItem
+    project, w = _editor()
+    w.seed_from_dicts([_line(), _text("@[W]"), _text("Door @[W] @[M]", y=-10.0)])
+    sc = w.editor_scene
+    sc.set_block_meta({"attributes": [_attr("W", source="host", host_key="Width"),
+                                      _attr("M", default="D1")]})
+    by_raw = {it._data.text: it for it in sc.items() if isinstance(it, TextItem)}
+    assert by_raw["@[W]"].toPlainText() == "@[W]"
+    assert by_raw["Door @[W] @[M]"].toPlainText() == "Door @[W] D1"
+    t = by_raw["@[W]"]
+    t.begin_edit()
+    t.commit_edit()
+    assert t.scene() is sc and t.toPlainText() == "@[W]"   # box survives the edit
+    sc.set_block_meta({"attributes": [_attr("W", source="host", host_key="Width",
+                                            default="914"),
+                                      _attr("M", default="D1")]})
+    assert by_raw["@[W]"].toPlainText() == "914"
+
+
 def test_sample_preview_survives_undo_seed_and_commit(qapp):
     """Restored / re-seeded texts re-preview; the committed primitive keeps the
     authored token string, and the preview toggle is not an undo step."""
