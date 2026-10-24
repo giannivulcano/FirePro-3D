@@ -232,3 +232,10 @@ def items_of_category(scene, category: str) -> list:
     if category == "Gridline":
         return list(scene._gridlines)
     return []
+
+
+def patterns(scene) -> dict:
+    """The scene's per-category Mark patterns, defaults filled in."""
+    out = dict(DEFAULT_PATTERNS)
+    out.update(getattr(scene, "mark_patterns", None) or {})
+    return out

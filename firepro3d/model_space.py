@@ -456,6 +456,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling state now lives on self._pipe_ctl (controller)
         self._project_info: dict = {}            # project metadata (name, address, etc.)
+        from . import marks as _marks
+        self.mark_patterns: dict = dict(_marks.DEFAULT_PATTERNS)   # SB2b, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
         self._plan_view_manager = None                         # set by main.py

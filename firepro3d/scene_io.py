@@ -122,6 +122,7 @@ class SceneIOMixin:
         payload = {
             "version":             self.SAVE_VERSION,
             "project_info":        self._project_info,
+            "mark_patterns":       dict(self.mark_patterns),
             "scale":               self.scale_manager.to_dict(),
             "display_settings":    display_settings_data,
             "paper_display":       paper_display_data,
@@ -226,6 +227,9 @@ class SceneIOMixin:
         levels_data = payload.get("levels", [])
         if levels_data and self._level_manager:
             self._level_manager.from_list(levels_data)
+        from . import marks as _marks
+        self.mark_patterns = dict(_marks.DEFAULT_PATTERNS)
+        self.mark_patterns.update(payload.get("mark_patterns") or {})
         saved_active = payload.get("active_level", "")
         if saved_active and self._level_manager and self._level_manager.get(saved_active):
             self.active_level = saved_active
@@ -529,6 +533,8 @@ class SceneIOMixin:
 
         self._project_path = None
         self._project_info = {}
+        from . import marks as _marks
+        self.mark_patterns = dict(_marks.DEFAULT_PATTERNS)
         self._titleblock_template = None
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()

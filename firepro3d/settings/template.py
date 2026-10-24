@@ -199,6 +199,10 @@ def apply_template_settings(scene) -> None:
     info = data.get("project_info")
     if isinstance(info, dict):
         scene._project_info = dict(info)
+    mp = data.get("mark_patterns")
+    if isinstance(mp, dict) and mp:
+        from .. import marks as _marks
+        scene.mark_patterns = {**_marks.DEFAULT_PATTERNS, **mp}
     apply_template_titleblock(scene, data)
 
 
@@ -248,6 +252,7 @@ def save_current_as_default(scene) -> str:
     payload = _blank_template_payload()
     payload["scale"] = scene.scale_manager.to_dict()
     payload["project_info"] = dict(getattr(scene, "_project_info", {}) or {})
+    payload["mark_patterns"] = dict(getattr(scene, "mark_patterns", {}) or {})
     # Capture the current project's linked title-block by uuid (reference, not
     # embed): "Save as default" is how the user sets which library template new
     # projects inherit (Task A).
