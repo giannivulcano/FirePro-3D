@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+from .constants import MARK_ROW_TOLERANCE_MM
+
 MARK_CATEGORIES = ("Door", "Window", "Opening", "Wall", "Pipe", "Sprinkler", "Room")
 RENUMBER_CATEGORIES = MARK_CATEGORIES + ("Gridline",)
 
@@ -60,19 +62,24 @@ def _resolved_regex(pattern: str, level_number: Optional[int]) -> Optional[re.Pa
     return re.compile("".join(parts))
 
 
-def mark_number(pattern: str, level_number: Optional[int], mark: str) -> Optional[int]:
-    """The counter value *mark* carries under the resolved *pattern*, or None."""
-    rx = _resolved_regex(pattern, level_number)
+def _number_in(rx: Optional[re.Pattern], mark: str) -> Optional[int]:
+    """The counter *mark* carries under the prebuilt regex *rx*, or None."""
     if rx is None or not mark:
         return None
     m = rx.fullmatch(mark)
     return int(m.group("n")) if m else None
 
 
+def mark_number(pattern: str, level_number: Optional[int], mark: str) -> Optional[int]:
+    """The counter value *mark* carries under the resolved *pattern*, or None."""
+    return _number_in(_resolved_regex(pattern, level_number), mark)
+
+
 def next_number(pattern: str, level_number: Optional[int], existing: Iterable[str]) -> int:
     """Highest counter among *existing* Marks matching the resolved pattern, + 1 (Q5).
     Gaps are never refilled; 1 when nothing matches or the pattern has no counter."""
-    nums = [v for v in (mark_number(pattern, level_number, m) for m in existing) if v is not None]
+    rx = _resolved_regex(pattern, level_number)      # built once, not per Mark
+    nums = [v for v in (_number_in(rx, m) for m in existing) if v is not None]
     return max(nums) + 1 if nums else 1
 
 
@@ -118,7 +125,7 @@ class RenumberEntry:
 
 
 def renumber_entries(entries: list, pattern: str, *, restart_per_level: bool,
-                     keep_order: bool, tol: float = 600.0) -> dict:
+                     keep_order: bool, tol: float = MARK_ROW_TOLERANCE_MM) -> dict:
     """``{key: new_mark}`` for every in-scope entry (spec M12).
 
     Level by level (lowest first); inside a level reading order, or the
@@ -133,7 +140,8 @@ def renumber_entries(entries: list, pattern: str, *, restart_per_level: bool,
                     key=lambda t: t[0])
 
     def _floor(level_number):
-        nums = [mark_number(pattern, level_number, e.mark) for e in out_scope]
+        rx = _resolved_regex(pattern, level_number)
+        nums = [_number_in(rx, e.mark) for e in out_scope]
         nums = [v for v in nums if v is not None]
         return max(nums) if nums else 0
 
@@ -145,7 +153,8 @@ def renumber_entries(entries: list, pattern: str, *, restart_per_level: bool,
         pts = {e.key: e.point for e in group}
         ordered = reading_order(pts, tol)
         if keep_order:
-            num = {e.key: mark_number(pattern, level_number, e.mark) for e in group}
+            rx = _resolved_regex(pattern, level_number)
+            num = {e.key: _number_in(rx, e.mark) for e in group}
             parsed = sorted((k for k in ordered if num[k] is not None), key=lambda k: num[k])
             ordered = parsed + [k for k in ordered if num[k] is None]
         if restart_per_level:
@@ -234,6 +243,14 @@ def items_of_category(scene, category: str) -> list:
     return []
 
 
+def clean_patterns(raw) -> dict:
+    """*raw* (a loaded ``mark_patterns`` value) reduced to its str -> str entries
+    ({} when it is not a dict), so a corrupt file falls back to the defaults."""
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)}
+
+
 def patterns(scene) -> dict:
     """The scene's per-category Mark patterns, defaults filled in."""
     out = dict(DEFAULT_PATTERNS)
@@ -249,7 +266,7 @@ def level_number_of(scene, item) -> Optional[int]:
         return None
     lvl = lm.get(name)
     num = getattr(lvl, "number", 0) if lvl is not None else 0
-    return num or None
+    return num or None        # Level.number 0 = unassigned (plan reconciliation 6)
 
 
 def mint(scene, item) -> str:

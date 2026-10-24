@@ -211,7 +211,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self.name: str = ""
         self._mark: str = ""          # SB2b instance Mark (element-parameters.md Marks)
 
-        self.setZValue(-50)                        # behind pipes, above underlays
+        self.setZValue(-50)                         # behind pipes, above underlays
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
         # One cached outline per wall (wall polish D2/D3)

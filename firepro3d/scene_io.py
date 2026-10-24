@@ -229,7 +229,7 @@ class SceneIOMixin:
             self._level_manager.from_list(levels_data)
         from . import marks as _marks
         self.mark_patterns = dict(_marks.DEFAULT_PATTERNS)
-        self.mark_patterns.update(payload.get("mark_patterns") or {})
+        self.mark_patterns.update(_marks.clean_patterns(payload.get("mark_patterns")))
         saved_active = payload.get("active_level", "")
         if saved_active and self._level_manager and self._level_manager.get(saved_active):
             self.active_level = saved_active

@@ -163,3 +163,37 @@ def test_sprinkler_level_is_its_nodes_level(qapp, shown_model_view, monkeypatch)
     assert len(sprs) == 1 and sprs[0].node.level == "Level 2"
     assert marks.item_level_name(sprs[0]) == "Level 2"
     assert asked == ["Level 2"]         # mint resolved {level} on Level 2
+
+
+def test_vertical_pipe_split_keeps_node_a_mark_and_mints_other(qapp, shown_model_view):
+    # _split_vertical_pipe is reached through _find_or_split_vertical_at_z (the
+    # vertical-connection caller of the pipe tool); it hand-copies properties.
+    from firepro3d.node import Node
+    view, scene = shown_model_view
+    na, nb = Node(0, 0), Node(0, 0)
+    for n, z in ((na, 0.0), (nb, 3000.0)):
+        scene.addItem(n); scene.sprinkler_system.add_node(n); n.z_pos = z
+    pipe = scene.add_pipe(na, nb, _propagate_ceiling=False)
+    assert pipe._is_vertical() and marks.get_mark(pipe) == "P1"
+    mid = scene._pipe_ctl._find_or_split_vertical_at_z(
+        QPointF(0, 0), 1500.0, _pipe_template())
+    assert mid is not None
+    pipes = list(scene.sprinkler_system.pipes)
+    assert len(pipes) == 2 and pipe not in pipes
+    by_a = {(p.node1 is na or p.node2 is na): marks.get_mark(p) for p in pipes}
+    assert by_a == {True: "P1", False: "P2"}
+
+
+def test_room_auto_detect_tool_mints(qapp, shown_model_view):
+    view, scene = shown_model_view
+    pts = [(0, 0), (4000, 0), (4000, 3000), (0, 3000)]
+    for i in range(4):
+        (x1, y1), (x2, y2) = pts[i], pts[(i + 1) % 4]
+        w = WallSegment(QPointF(x1, y1), QPointF(x2, y2), thickness_mm=200.0)
+        w.level = scene.active_level
+        scene.addItem(w); scene._walls.append(w)
+    scene.set_mode("room")
+    _click(view, QPointF(2000, 1500))
+    assert len(scene._rooms) == 1
+    assert _marks(scene, "Room") == ["01"]      # {level} prints empty until Task 8
+    assert scene._rooms[0].name == "Room 1"

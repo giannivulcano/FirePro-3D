@@ -199,9 +199,9 @@ def apply_template_settings(scene) -> None:
     info = data.get("project_info")
     if isinstance(info, dict):
         scene._project_info = dict(info)
-    mp = data.get("mark_patterns")
-    if isinstance(mp, dict) and mp:
-        from .. import marks as _marks
+    from .. import marks as _marks
+    mp = _marks.clean_patterns(data.get("mark_patterns"))
+    if mp:
         scene.mark_patterns = {**_marks.DEFAULT_PATTERNS, **mp}
     apply_template_titleblock(scene, data)
 

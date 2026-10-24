@@ -135,3 +135,16 @@ def test_default_patterns_match_spec_m3():
         "Pipe": "P{n}", "Sprinkler": "S{n}", "Room": "{level}{n:02}",
     }
     assert marks.RENUMBER_CATEGORIES == marks.MARK_CATEGORIES + ("Gridline",)
+
+
+def test_two_counter_tokens_second_is_padding_only():
+    # Only the first counter token is the count; later ones repeat the same value.
+    assert marks.format_mark("{n}-{n:02}", 3, None) == "3-03"
+    assert marks.mark_number("{n}-{n:02}", None, "3-03") == 3
+    assert marks.next_number("{n}-{n:02}", None, ["3-03", "7-07"]) == 8
+
+
+@pytest.mark.parametrize("pattern", ["{n", "{level", "D{n", "{n:02"])
+def test_malformed_brace_is_literal(pattern):
+    assert marks.format_mark(pattern, 5, 2) == pattern     # not a token -> literal text
+    assert marks.next_number(pattern, 2, [pattern]) == 1   # no counter token
