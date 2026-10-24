@@ -105,7 +105,7 @@ class HostValue:
         if k == "pipe_id":
             return sm.pipe_id_value(v)
         if k == "angle":         # bearing, 0..360 (gridline ruling)
-            return v % 360.0 if math.isfinite(v) else None
+            return round(v, 2) % 360.0 if math.isfinite(v) else None
         return v                 # pressure / flow / velocity / number
 
 

@@ -4,7 +4,7 @@ last-verified: 2026-10-24
 verified-commit: a8fea641
 applies-to:
   - firepro3d/element_params.py        # new (SB2a): registry, ParamSpec, HostValue, category_of
-  - firepro3d/block_instance.py        # host + host_values() + refresh_bound() seam only (rest under block-system.md)
+  - firepro3d/block_instance.py        # element_host + host_values() + refresh_bound() seam only (rest under block-system.md)
   - firepro3d/block_attributes.py      # format_value HostValue branch only (schema under block-system.md)
   - firepro3d/block_attributes_editor.py  # host-key dropdown only
   - firepro3d/block_properties_info.py # Host category row only
@@ -30,7 +30,7 @@ Tags and intrinsic labels (SB3–SB6) must read element data without parsing the
 - `category_of(item) -> str | None`: an `isinstance` table; `WallOpening` (the one class behind the `DoorOpening` / `WindowOpening` aliases) splits by `_type` `door` / `window` / `blank` → Door / Window / Opening. Any other item → `None`. No candidate class subclasses another (1b probe), so table order is not load-bearing today; new subclasses go before their base.
 - Getters return a **raw value in canonical units** or `None`: lengths mm, area mm², volume mm³, pressure psi, flow gpm, velocity ft/s, pipe inner diameter in, angle degrees, text str. Scene-px quantities convert through the scene `ScaleManager.pixels_per_mm` (area by its square). A getter that raises or meets missing data (no scene, unknown level, no host wall, no result) yields `None`.
 - `host_values(item) -> dict[key, HostValue]` for the item's category; `HostValue(raw, kind)` exposes `text` (the kind formatter's string in project units) and `number` (the same quantity as a bare float in display units, or `None` for text kinds).
-- **Formatting** goes by kind through `ScaleManager` (Rule A: the kinds, spellings and imperial-only status of pressure / flow / velocity are owned by `units-and-formatting.md`). SB2a adds `format_area_mm2`, `format_volume_mm3`, `format_pressure`, `format_flow`, `format_velocity` (+ `*_value` numeric twins); Room's `_fmt_area` / `_fmt_volume` move onto them (no copy). `format_length` and `format_angle` are reused.
+- **Formatting** goes by kind through `ScaleManager` (Rule A: the kinds, spellings and imperial-only status of pressure / flow / velocity are owned by `units-and-formatting.md`). SB2a adds `format_area_mm2`, `format_volume_mm3`, `format_pressure`, `format_flow`, `format_velocity`, `format_bearing` (+ `*_value` numeric twins); Room's `_fmt_area` / `_fmt_volume` move onto them (no copy). `format_length` is reused; the `angle` kind prints through `ScaleManager.format_bearing` (0..360, so a straight-down gridline reads 270°) and its `.number` is the same wrapped value; other app angles keep `format_angle`.
 - **Attribute resolution** (schema owned by `block-system.md`, SB1a): `block_attributes.format_value` gains one branch — given a `HostValue`, a `text` attribute prints `.text`, a `number` attribute prints `.number` at the attribute's `precision`; prefix / suffix wrap either; `None` → placeholder. The SB1a override rule is unchanged (a present instance value wins, printed as typed).
 - **Host seam** on `BlockInstance`: `element_host` (code-set only in SB2a — D-a; not serialized; distinct from the gridline-hosting `host` record); `host_values()` returns `element_params.host_values(element_host)` when a live host is set (`element_params.is_live`, which reaches a sprinkler's scene through its node), else `None`. `refresh_bound()` re-resolves the bound strings and, only when they change, calls `prepareGeometryChange()` + `update()` (closes the SB1a "host-value change re-shapes without prepareGeometryChange" follow-up for this path).
 - **Refresh triggers:** `Model_Space._refresh_all_labels` (the unit / precision change path, called by `main.py` after Project Settings) calls `refresh_bound()` on every instance with an `element_host`; the property-panel commit for an element calls it on that element's bound instances via `scene.instances_bound_to(item)`. Grip / move edits of a host are not wired in SB2a (SB3).
@@ -79,7 +79,7 @@ Tiers: T1 stored, T2 geometry, T3 hydraulic, T4 related. `[label]` given where i
 ## Edge Cases & Error Handling
 
 - Getter failure or missing data → `None` → placeholder; one bad element never breaks paint.
-- Deleted host (`scene() is None`) → treated as no host → placeholders.
+- Deleted host (`element_params.is_live` false, which reaches a sprinkler's scene through its node) → treated as no host → placeholders.
 - Uncalibrated scene → `pixels_per_mm` default 1.0 (1 px = 1 mm), as everywhere else.
 
 ## Verification Checklist
@@ -95,6 +95,6 @@ Tiers: T1 stored, T2 geometry, T3 hydraulic, T4 related. `[label]` given where i
 | # | Divergence | Disposition |
 |---|---|---|
 | D1 | Room's own area / perimeter (`room.py` shoelace) treats scene px as mm, ignoring `pixels_per_mm`; the registry applies calibration | follow-up (pre-existing) |
-| D2 | Host-bound text does not refresh on grip / move edits of the host | SB3 wires real hosts |
+| D2 | Host-bound text does not refresh on grip / move edits of the host, nor on undo / redo of a host edit or deleting a host (none fires `refresh_bound`); the text and bounds re-resolve at the next paint or trigger | SB3 / SB6 wire the explicit triggers with real hosts |
 | D3 | `BlockInstance.host` is not serialized | SB3 / SB6 |
 | D4 | Pressure / flow / velocity have no metric variant | owned by `units-and-formatting.md` D2 |

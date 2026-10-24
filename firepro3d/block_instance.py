@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from . import annotative as _an
 from . import crisp_stroke as _cs
+from . import element_params
 from . import end_render as _er
 from . import hatch_render as _hr
 from . import linetype_render as _lr
@@ -130,7 +131,7 @@ class BlockInstance(QGraphicsObject):
         # Element host (element-parameters.md, SB2a D-a): the element whose
         # keyed values feed host-sourced attributes. Code-set only (SB3 / SB6
         # set it), never serialized (ledger D3). Distinct from ``host`` above.
-        self.element_host = None
+        self._element_host = None
         self._bound_values: Optional[dict] = None   # last refresh_bound() strings
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
@@ -183,11 +184,21 @@ class BlockInstance(QGraphicsObject):
     def definition(self) -> Optional[BlockDefinition]:
         return self._resolver(self.block_id)
 
+    @property
+    def element_host(self):
+        """The element feeding host-sourced attributes (code-set; see __init__)."""
+        return self._element_host
+
+    @element_host.setter
+    def element_host(self, host) -> None:
+        if host is not self._element_host:
+            self._bound_values = None     # force the next refresh_bound() to re-shape
+        self._element_host = host
+
     def host_values(self) -> Optional[dict]:
         """The host-value provider seam (SB1a A2): ``{host_key: HostValue}``
         from the live ``element_host``, or None (no host / deleted host ->
         placeholders)."""
-        from . import element_params
         h = self.element_host
         if h is None or not element_params.is_live(h):
             return None
@@ -214,6 +225,7 @@ class BlockInstance(QGraphicsObject):
         a host key's presence is its override); repaint. Undo is the
         caller's (the dialog's one ``deferred_undo_push``)."""
         self.prepareGeometryChange()
+        self._bound_values = None      # next refresh_bound() must re-shape
         self.attributes = dict(values)
         self.update()
 

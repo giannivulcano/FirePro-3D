@@ -79,6 +79,9 @@ def test_bound_door_tag_resolves_refreshes_and_reflows(qapp, make_model_space):
     ref_inst = ms.place_block_instance(ref.id, (0.0, 0.0))   # same pose: same local glyph boxes
     assert inst.host is None                                  # gridline record untouched
     assert _painted_as(inst, ref_inst, {"W": "?", "R": "?", "N": "?"})   # no host yet
+    # `calls` (prepareGeometryChange) is the gate for the refresh triggers: the
+    # painted glyphs re-resolve at paint time anyway, so glyph equality alone
+    # would pass without any trigger firing.
     calls = []
     real = inst.prepareGeometryChange
     inst.prepareGeometryChange = lambda: (calls.append(1), real())[1]
@@ -123,3 +126,57 @@ def test_refresh_bound_is_quiet_when_nothing_changed(qapp, make_model_space):
     inst.prepareGeometryChange = lambda: calls.append(1)
     inst.refresh_bound()
     assert calls == []
+
+
+def test_stale_bound_cache_is_reset_by_set_attributes_and_host_change(qapp, make_model_space):
+    ms = make_model_space()
+    op = _scene(ms)
+    bound, _ref = _defs(ms)
+    inst = ms.place_block_instance(bound.id, (0.0, 0.0))
+    inst.element_host = op
+    inst.refresh_bound()
+    calls = []
+    real = inst.prepareGeometryChange
+    inst.prepareGeometryChange = lambda: (calls.append(1), real())[1]
+    # an override then its removal: set_attributes re-shapes itself, but the
+    # cached strings must not claim "unchanged" for the next refresh
+    inst.set_attributes({"W": "X"})
+    inst.set_attributes({})
+    n = len(calls)
+    inst.refresh_bound()
+    assert len(calls) > n
+    # a different host with a different width reshapes on the next refresh
+    other = WallOpening(ms._walls[0], feature_id="door_914", offset_along=1000,
+                        width_mm=1200.0)
+    ms.addItem(other)
+    n = len(calls)
+    inst.element_host = other
+    inst.refresh_bound()
+    assert len(calls) > n
+
+
+def test_gridline_angle_prints_as_bearing_end_to_end(qapp, make_model_space):
+    from firepro3d.gridline import GridlineItem
+    ms = make_model_space()
+    g = GridlineItem(QPointF(0, 0), QPointF(0, 1000))     # drawn straight down
+    ms.addItem(g)
+    line = LineItem(QPointF(0, 0), QPointF(20, 0)).to_dict()
+    prims = [_text("@[A]"), _text("@[B]", y=-10.0)]
+    bound = BlockDefinition.new(name="GridTag", library="", series="", origin=(0.0, 0.0),
+                                primitives=[line] + prims)
+    bound.attributes = [
+        normalise_attr({"key": "A", "source": "host", "host_key": "Angle"}),
+        normalise_attr({"key": "B", "type": "number", "precision": 0,
+                        "source": "host", "host_key": "Angle"})]
+    bound.host_category = "Gridline"
+    ref = BlockDefinition.new(name="GridRef", library="", series="", origin=(0.0, 0.0),
+                              primitives=[line] + prims)
+    ref.attributes = [normalise_attr({"key": k}) for k in ("A", "B")]
+    for d in (bound, ref):
+        ms.register_block_definition(d)
+    inst = ms.place_block_instance(bound.id, (0.0, 0.0))
+    ref_inst = ms.place_block_instance(ref.id, (0.0, 0.0))
+    inst.element_host = g
+    inst.refresh_bound()
+    assert g.angle_deg() == 270.0
+    assert _painted_as(inst, ref_inst, {"A": "270" + chr(176), "B": "270"})

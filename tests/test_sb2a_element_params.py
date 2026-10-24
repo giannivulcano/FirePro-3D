@@ -298,6 +298,7 @@ _DISPATCH = [
     # angle kind prints a 0..360 bearing (ScaleManager.format_bearing): 270 stays 270
     ("angle", 270.0, {_I: ("270°", 270.0), _M: ("270°", 270.0)}),
     ("angle", -90.0, {_I: ("270°", 270.0), _M: ("270°", 270.0)}),
+    ("angle", 359.999, {_I: ("0°", 0.0), _M: ("0°", 0.0)}),   # .number agrees with the text
     ("angle", 45.0, {_I: ("45°", 45.0), _M: ("45°", 45.0)}),
     ("diameter", _D, {_I: ('Ø 1"', None), _M: ("Ø 25 mm", None)}),
     ("diameter", "weird", {_I: ("weird", None), _M: ("weird", None)}),
