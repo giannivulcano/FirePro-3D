@@ -21,6 +21,7 @@ from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QTransform, QPainterPath
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from .constants import DEFAULT_LEVEL, Z_WATER_SUPPLY
+from .paper_display import paper_pass_active
 from PyQt6.QtSvg import QSvgRenderer
 
 
@@ -82,6 +83,12 @@ class WaterSupply(QGraphicsSvgItem):
     def rescale(self, sm=None):
         """Called after scale calibration -- just re-centre."""
         self._centre_on_origin()
+
+    def paint(self, painter, option, widget=None):
+        # Qt's default selection outline must not plot (wall polish D11, L42).
+        if paper_pass_active():
+            option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
 
     def shape(self) -> QPainterPath:
         """Return full bounding rect as shape so clicking anywhere on the

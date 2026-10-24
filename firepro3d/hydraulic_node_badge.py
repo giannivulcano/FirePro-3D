@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QTransform, QFont
 
 from .constants import Z_OVERLAY
+from .paper_display import shows_selection
 
 _SVG_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -169,6 +170,9 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
     # Paint — overlay node number text on the SVG hexagon
 
     def paint(self, painter, option, widget=None):
+        # Suppress QGraphicsSvgItem's default selection rectangle BEFORE the
+        # SVG paints (it would otherwise plot on paper -- wall polish D11)
+        option.state &= ~QStyle.StateFlag.State_Selected
         # Draw SVG background
         super().paint(painter, option, widget)
 
@@ -182,16 +186,13 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._node_label)
 
         # Selection highlight
-        if self.isSelected():
+        if shows_selection(self):
             pen = QPen(QColor("cyan"), 2)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             r = max(rect.width(), rect.height()) / 2.0
             painter.drawEllipse(rect.center(), r, r)
-
-        # Suppress default selection rectangle
-        option.state &= ~QStyle.StateFlag.State_Selected
 
     def shape(self) -> QPainterPath:
         """Full bounding rect as clickable area."""

@@ -45,6 +45,7 @@ from .constants import (
 )
 from .feature import FEATURE_REGISTRY, FEATURE_LABEL, get_feature, nearest_feature_for, feature_label
 from .view_scale import scene_hit_width
+from .paper_display import shows_selection
 
 if TYPE_CHECKING:
     from .wall import WallSegment
@@ -523,7 +524,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         self._paint_symbol(painter)
-        if self.isSelected():
+        if shows_selection(self):
             pen = QPen(_SELECTION_COLOR, 2)
             pen.setCosmetic(True)
             painter.setPen(pen)

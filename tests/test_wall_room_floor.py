@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import pytest
 from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QPainterPath
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d.wall import (
@@ -355,6 +356,16 @@ def _dist_to_line(pt: QPointF, a: QPointF, b: QPointF) -> float:
     return abs((pt.x() - a.x()) * dy - (pt.y() - a.y()) * dx) / length
 
 
+def _path_area(path) -> float:
+    """Absolute polygon area of a QPainterPath (shoelace per fill polygon)."""
+    total = 0.0
+    for poly in path.toFillPolygons():
+        pts = [poly.at(i) for i in range(poly.count())]
+        total += abs(sum(a.x() * b.y() - b.x() * a.y()
+                         for a, b in zip(pts, pts[1:] + pts[:1]))) / 2.0
+    return total
+
+
 class TestThreeWallJunctionMiter:
     """Full miter cleanup at 3-wall junctions (2026-07-13 smoke test):
     two orthogonal walls + one diagonal sharing an endpoint must join as
@@ -394,9 +405,13 @@ class TestThreeWallJunctionMiter:
         assert p1r.y() == pytest.approx(-200, abs=0.5)    # on H top face
         assert _dist_to_line(p1r, *[QPointF(-117.1, -162.1),
                                     QPointF(1682.9, -1462.1)]) < 0.5
-        # junction wedge third corner: H bottom face ∩ V left face
+        # D7: the slice ends at the hub = centroid of the junction corners
+        # (this wall's two + the H/V corner at (-200, 0), H bottom face x V
+        # left face) -- no longer the far-face corner, so slices never overlap.
         assert len(w1) == 1
-        _pt_approx(w1[0], QPointF(-200, 0), abs_tol=0.5)
+        _pt_approx(w1[0], QPointF((p1l.x() + p1r.x() - 200.0) / 3.0,
+                                  (p1l.y() + p1r.y() + 0.0) / 3.0),
+                   abs_tol=0.5)
 
     def test_center_aligned_pie_corners(self, scene):
         h, v, d = self._junction(scene)
@@ -406,18 +421,25 @@ class TestThreeWallJunctionMiter:
         _pt_approx(p1l, QPointF(100, 51.13), abs_tol=0.1)   # on V right face
         _pt_approx(p1r, QPointF(-32.34, -100), abs_tol=0.1)  # on H top face
         assert len(w1) == 1
-        _pt_approx(w1[0], QPointF(-100, 100), abs_tol=0.1)
+        # hub = centroid of the corners (100, 51.13), (-32.34, -100), (-100, 100)
+        _pt_approx(w1[0], QPointF((100 - 32.34 - 100) / 3.0,
+                                  (51.13 - 100 + 100) / 3.0), abs_tol=0.1)
 
-    def test_all_three_walls_fill_junction_wedge(self, scene):
-        """Every wall's PATH must cover the junction wedge (no hatch
-        hole in the middle of the joint)."""
+    def test_pie_slices_tile_the_core(self, scene):
+        """D7: together the slices cover the junction core, and no two
+        slices overlap (so differing hatches never stack)."""
         walls = self._junction(scene)
         for w in walls:
             w._rebuild_path()
-        centroid = QPointF((-32.34 + 100 - 100) / 3, (-100 + 51.13 + 100) / 3)
+        union = QPainterPath()
         for w in walls:
-            assert w.path().contains(centroid), \
-                f"wall {w.pt1}-{w.pt2} misses the junction wedge"
+            union = union.united(w.path())
+        centroid = QPointF((-32.34 + 100 - 100) / 3, (-100 + 51.13 + 100) / 3)
+        assert union.contains(centroid)
+        for i in range(3):
+            for j in range(i + 1, 3):
+                overlap = walls[i].path().intersected(walls[j].path())
+                assert _path_area(overlap) < 1.0, (i, j)
 
     def test_explicit_butt_respected(self, scene):
         h, v, d = self._junction(scene)
@@ -429,9 +451,13 @@ class TestThreeWallJunctionMiter:
         assert s1 is False
         assert w1 == []
 
-    def test_four_way_cross_stays_butt(self, scene):
+    def test_four_way_cross_explicit_butt_stays_butt(self, scene):
+        """D5 retired the 4-way Auto Butt (see TestNWayJunction); explicit
+        Butt on every end still keeps pairwise Butt semantics."""
         h, v, d = self._junction(scene)
-        self._wall(scene, (0, 0), (2400, 600))     # 4th wall
+        e = self._wall(scene, (0, 0), (2400, 600))     # 4th wall
+        for w in (h, v, d, e):
+            w._join_mode_pt1 = w._join_mode_pt2 = "Butt"
         for w in (h, v, d):
             raw = w.quad_points()
             quad, s1, s2, w1, w2 = w._compute_mitered_quad()
@@ -457,7 +483,9 @@ class TestThreeWallJunctionMiter:
     def test_diagonal_into_split_straight_run(self, scene):
         """Straight run split into two segments + diagonal at the split:
         the diagonal must terminate on the run's near face (both corners
-        on y=-100), no wedge point (parallel far faces)."""
+        on y=-100); D7: its slice ends at the hub (parallel far faces
+        give the straight-through pair's face feet, so the hub sits
+        inside the run's body and the three slices tile the core)."""
         h1 = self._wall(scene, (-2400, 0), (0, 0))
         h2 = self._wall(scene, (0, 0), (2400, 0))
         d = self._wall(scene, (0, 0), (1800, -1300))
@@ -466,7 +494,8 @@ class TestThreeWallJunctionMiter:
         assert s1 is True
         assert p1l.y() == pytest.approx(-100, abs=0.1)
         assert p1r.y() == pytest.approx(-100, abs=0.1)
-        assert w1 == []
+        assert len(w1) == 1
+        assert -100 < w1[0].y() < 100
 
     def test_two_wall_solid_join_unchanged(self, scene):
         """Regression: plain L-joints keep the existing 2-wall Solid
@@ -480,6 +509,59 @@ class TestThreeWallJunctionMiter:
         # inner face retracts to V's far face, outer extends to the corner
         _pt_approx(p2l, QPointF(-100, 100), abs_tol=0.1)
         _pt_approx(p2r, QPointF(100, -100), abs_tol=0.1)
+
+
+class TestNWayJunction:
+    """L1078 / design D5: 4+ walls under Auto get the full pie."""
+
+    TH = 200.0
+
+    def _wall(self, scene, p1, p2):
+        w = WallSegment(QPointF(*p1), QPointF(*p2), thickness_mm=self.TH)
+        scene.addItem(w)
+        scene._walls.append(w)
+        return w
+
+    def test_four_way_pie_corners_and_hub(self, scene):
+        walls = [self._wall(scene, (0, 0), far) for far in
+                 ((2000, 0), (0, 2000), (-2000, 0), (0, -2000))]
+        for w in walls:
+            quad, s1, _s2, w1, _w2 = w._compute_mitered_quad()
+            assert s1 is True
+            for p in quad[:2]:          # p1l, p1r = the two core corners
+                assert abs(abs(p.x()) - 100) < 1e-6
+                assert abs(abs(p.y()) - 100) < 1e-6
+            assert len(w1) == 1
+            _pt_approx(w1[0], QPointF(0, 0), abs_tol=1e-6)
+
+
+class TestJoinVisibility:
+    """Design D4: only walls visible on the active view join."""
+
+    def test_hidden_partner_does_not_join(self, scene):
+        a = WallSegment(QPointF(0, 0), QPointF(1000, 0))
+        b = WallSegment(QPointF(1000, 0), QPointF(1000, 1000))
+        for w in (a, b):
+            scene.addItem(w)
+            scene._walls.append(w)
+        _quad, _s1, s2, _w1, _w2 = a._compute_mitered_quad()
+        assert s2 is True                      # positive control: joined
+        b.setVisible(False)
+        quad, _s1, s2, _w1, _w2 = a._compute_mitered_quad()
+        assert s2 is False
+        raw = a.quad_points()
+        _pt_approx(quad[2], raw[2])
+        _pt_approx(quad[3], raw[3])
+
+    def test_hidden_host_does_not_cope(self, scene):
+        host = WallSegment(QPointF(0, 0), QPointF(4000, 0))
+        stub = WallSegment(QPointF(2000, 0), QPointF(2600, 1500))
+        for w in (host, stub):
+            scene.addItem(w)
+            scene._walls.append(w)
+        assert stub._compute_mitered_quad()[1] is True   # coped
+        host.setVisible(False)
+        assert stub._compute_mitered_quad()[1] is False
 
 
 class TestTeeJoin:

@@ -102,6 +102,7 @@ def _scene_hit_width(item) -> float:
 # ── RoofItem ─────────────────────────────────────────────────────────────────
 
 from .displayable_item import DisplayableItemMixin
+from .paper_display import shows_selection
 
 
 _DEFAULT_COLOUR = "#d2b48c"
@@ -380,7 +381,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
                 painter.drawLine(p1, p2)
 
         # Selection highlight
-        if self.isSelected():
+        if shows_selection(self):
             sel_pen = QPen(_SELECTION_COLOR, 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)

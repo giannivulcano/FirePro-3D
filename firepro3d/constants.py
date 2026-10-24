@@ -53,6 +53,30 @@ Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
 Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
 
+# Model classes (by ``type(item).__name__``) whose z is elevation-based
+# (level_manager.apply_to_scene), category offset per class.
+Z_CATEGORY_BY_CLASS = {
+    "FloorSlab":      Z_CAT_FLOOR,
+    "RoofItem":       Z_CAT_ROOF,
+    "Room":           Z_CAT_ROOM,
+    "WallSegment":    Z_CAT_WALL,
+    "WallOpening":    Z_CAT_OPENING,   # redesigned first-class opening
+    "DoorOpening":    Z_CAT_OPENING,   # legacy aliases (= WallOpening)
+    "WindowOpening":  Z_CAT_OPENING,
+    "Pipe":           Z_CAT_PIPE,
+    "Node":           Z_CAT_NODE,
+    # Placed 2D block instance: above all building geometry.
+    "BlockInstance":  Z_CAT_CONSTRUCTION,
+}
+# Building classes whose elevation-based z may exceed 150 (tall levels) and
+# which must still be snap targets, so the snap engine's z > 150 overlay rule
+# skips them.  Pipe / Node / BlockInstance are deliberately NOT here: their
+# preview ghosts are the same classes parked at the overlay z (200).
+ELEV_Z_SNAPPABLE_CLASSES = frozenset({
+    "FloorSlab", "RoofItem", "Room", "WallSegment",
+    "WallOpening", "DoorOpening", "WindowOpening",
+})
+
 # ── Default gridline geometry ────────────────────────────────────────────────
 DEFAULT_GRIDLINE_SPACING_MM = 7315.2   # 288 in / 24 ft
 DEFAULT_GRIDLINE_LENGTH_MM  = 21945.6  # 864 in / 72 ft
@@ -247,6 +271,14 @@ NFPA_MAX_COVERAGE_SQFT: dict[str, float] = {
 # ── Wall join tolerances (mm) ────────────────────────────────────────────────
 MITER_TOL = 1.0               # max gap to treat endpoints as coincident for miter
 MAX_MITER_FACTOR = 4.0        # miter extension cap: half_thickness * this factor
+# Wall outline (wall polish D6).  Scene units are mm.  Union vertices are input
+# vertices or Qt edge intersections (double precision, error << 1e-6 mm at
+# building coordinates), so 1e-3 mm separates "on this edge" from "not" with
+# margin.  Junction endpoints may sit up to MITER_TOL apart, which can leave
+# union slivers up to that length: drop stroke pieces shorter than MITER_TOL
+# (every real wall edge is >= the 25.4 mm minimum thickness).
+WALL_OUTLINE_ON_EDGE_TOL = 1e-3
+WALL_OUTLINE_MIN_SEG = MITER_TOL
 AUTO_JOIN_TOLERANCE = 20.0    # snap radius for endpoint-to-endpoint wall joins
 TEE_TOLERANCE = 40.0          # snap radius for tee (mid-wall) joins
 

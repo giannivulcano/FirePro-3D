@@ -3549,13 +3549,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(gl)
             self._gridlines.clear()
 
-            for w in list(self._walls):
+            # Detach first: a wall's join pool is ``_walls``, so removing with
+            # every wall still listed rebuilds neighbours per removal (quadratic).
+            doomed_walls = list(self._walls)
+            self._walls.clear()
+            for w in doomed_walls:
                 for op in w.openings:
                     if op.scene() is self:
                         self.removeItem(op)
                 if w.scene() is self:
                     self.removeItem(w)
-            self._walls.clear()
 
             for fs in list(self._floor_slabs):
                 if fs.scene() is self:
@@ -3956,6 +3959,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             dim.rescale(sm)
         if self.water_supply_node is not None:
             self.water_supply_node.rescale(sm)
+        # Wall half-thickness is mm -> scene via the ScaleManager: rebuild
+        # every outline (path/shape/HALO) now rather than on the next paint
+        # (wall polish F9; a neighbour pass per wall is redundant but cheap).
+        for wall in list(self._walls):
+            wall.invalidate_geometry()
 
     def _refresh_all_labels(self):
         """Refresh display text on all pipes and dimension annotations."""

@@ -30,7 +30,7 @@ from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
                           PatternLayer, alpha as _fill_alpha)
 from . import end_render as _er
 from .linetype_render import badge_pad_px, printed_factor
-from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm
+from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm, shows_selection
 from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
                            canvas_weight_name, has_ends,
@@ -469,7 +469,7 @@ class Geometry2DMixin:
         if dashed:
             return True
         self._paint_base_stroke(painter, option, widget, pen)
-        if self.isSelected() and not _manip_wraps(self):
+        if shows_selection(self) and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
             if self.reference:
@@ -610,7 +610,7 @@ class Geometry2DMixin:
         miss = tuple(e.missing_id for e in ends if e.missing_id)
         dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
         hl = None
-        if self.isSelected() and not _manip_wraps(self):
+        if shows_selection(self) and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
         untrimmed = trims == _er.NO_TRIMS
@@ -752,7 +752,7 @@ class Geometry2DMixin:
                             factor=factor, anchor=anchor, fixed=fixed,
                             trims=trims):
             return False
-        if self.isSelected() and not _manip_wraps(self):
+        if shows_selection(self) and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
@@ -2068,7 +2068,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             self._paint_routed_stroke(painter, option, widget, rs,
                                       lambda p: p.drawRect(self.rect()),
                                       lt_frame=base_xf)
-            if self.isSelected():
+            if shows_selection(self):
                 # Corner-diagonal reference guides — shown whenever selected (a content
                 # aid, NOT the selection highlight). Canonical width-1 dashed style,
                 # matching EllipseItem's axis guides.
@@ -2420,7 +2420,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawEllipse(self.rect()))
-        if self.isSelected():
+        if shows_selection(self):
             # Radius guide + bounding box — shown whenever selected (a content aid,
             # NOT the selection highlight). Canonical width-1 dashed style.
             ref = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
@@ -2760,7 +2760,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
-        if self.isSelected():
+        if shows_selection(self):
             # Centre→start / centre→end reference radials — shown whenever
             # selected (a content aid, NOT the selection highlight). Canonical
             # width-1 dashed style, matching EllipseItem's axis guides.
@@ -3067,7 +3067,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
-        if self.isSelected():
+        if shows_selection(self):
             # Dashed circumradius reference circle — shown whenever selected
             # (manipulator-wrapped or not): a content aid, NOT the highlight.
             # Canonical reference-line style (width-1 dashed).
@@ -3334,7 +3334,7 @@ class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
-        if self.isSelected():
+        if shows_selection(self):
             # Dashed major + minor axis reference guides — shown whenever the
             # ellipse is selected (manipulator-wrapped or not): a content aid,
             # NOT the selection highlight. Canonical reference-line style
@@ -3773,7 +3773,7 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             self._paint_fill_layers(painter, self.sceneTransform())
         self._paint_routed_stroke(painter, option, widget, rs,
                                   lambda p: p.drawPath(self.path()))
-        if self.isSelected():
+        if shows_selection(self):
             # Dashed control-polygon reference guide (straight lines between the
             # control points) — shown whenever selected (manipulator or not):
             # a content aid, NOT the selection highlight. Canonical reference-

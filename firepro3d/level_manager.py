@@ -63,7 +63,7 @@ from .constants import (
     DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM,
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
-    Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE,
+    Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE, Z_CATEGORY_BY_CLASS,
 )
 @dataclass
 class Level:
@@ -610,20 +610,7 @@ class LevelManager:
         # Assign Qt Z-values based on actual elevation so that higher items
         # render on top of lower items.  Small category offsets preserve
         # draw order within the same elevation (slab < room < wall < pipe < node).
-        _Z_CATEGORY = {
-            "FloorSlab":      Z_CAT_FLOOR,
-            "RoofItem":       Z_CAT_ROOF,
-            "Room":           Z_CAT_ROOM,
-            "WallSegment":    Z_CAT_WALL,
-            "WallOpening":    Z_CAT_OPENING,   # redesigned first-class opening
-            "DoorOpening":    Z_CAT_OPENING,   # legacy aliases (= WallOpening)
-            "WindowOpening":  Z_CAT_OPENING,
-            "Pipe":           Z_CAT_PIPE,
-            "Node":           Z_CAT_NODE,
-            # Placed 2D block instance — heir of the loose-2D-geometry band,
-            # above all building geometry (primitives are now level-less, C3).
-            "BlockInstance":  Z_CAT_CONSTRUCTION,
-        }
+        _Z_CATEGORY = Z_CATEGORY_BY_CLASS
         # Items that always overlay on top regardless of elevation
         _Z_OVERLAY = {"DetailMarker": Z_GRIDLINE_BUBBLE,
                       "GridlineItem": Z_GRIDLINE_BUBBLE}

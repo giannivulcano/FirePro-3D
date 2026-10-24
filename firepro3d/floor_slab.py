@@ -74,6 +74,7 @@ def _scene_hit_width(item) -> float:
 # ── FloorSlab ────────────────────────────────────────────────────────────────
 
 from .displayable_item import DisplayableItemMixin
+from .paper_display import shows_selection
 
 
 class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
@@ -246,7 +247,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         elif len(self._points) == 2:
             painter.drawLine(self._points[0], self._points[1])
 
-        if self.isSelected():
+        if shows_selection(self):
             sel_pen = QPen(_SELECTION_COLOR, 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)

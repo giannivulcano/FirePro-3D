@@ -10,6 +10,7 @@ from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
 from .assets import asset_path
 from .view_scale import scene_hit_width
+from .paper_display import shows_selection
 
 class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     SNAP_TOLERANCE_DEG = 7.5  # snap if within this angle
@@ -691,7 +692,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             painter.drawEllipse(pt, half, half)
 
         # highlight if selected
-        if self.isSelected():
+        if shows_selection(self):
             if not clip_regions:
                 highlight_pen = QPen(colour, line_weight * 1.3)
                 highlight_pen.setCapStyle(cap_style)

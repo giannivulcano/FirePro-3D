@@ -1,9 +1,11 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
-verified-commit: dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
+verified-commit: 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
+  - firepro3d/wall_outline.py   # pure outline geometry (junction pie, cluster union, stroke pieces)
+  - firepro3d/wall_placement_controller.py   # auto-join + endpoint propagation (§4.5, §5.4)
   - firepro3d/room.py
   - firepro3d/floor_slab.py
   - firepro3d/wall_opening.py
@@ -18,6 +20,7 @@ applies-to:
 **Complexity:** Large
 **Status:** Current
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
+**Impl note (2026-10-24):** wall joinery (§5), the cached outline and paint (§6.1-§6.3) were rebuilt by the wall-polish branch; rationale and ratified as-built deviations: [`docs/superpowers/specs/2026-10-23-wall-polish-design.md`](../superpowers/specs/2026-10-23-wall-polish-design.md). Room detection (§8) is unchanged by that branch.
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
 **Impl note (2026-09-16):** wall/floor/roof/opening placement is now **single-placement** (returns to Select with the placed item selected after a completed placement) — via `Model_Space._end_placement_switch` gated on `_SINGLE_PLACEMENT_MODES` (see `2d-geometry.md §4`). Chain gestures (wall-polyline, floor-polygon) switch only when the chain completes (loop-close / Enter / close-near-first); a wall rectangle commits its 4 segments and selects them all.
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
@@ -204,11 +207,11 @@ Typed placement is handled by `_apply_wall_dynamic_input`; typed and mouse place
 | 0 | pt1 | Move endpoint, openings reposition; joined-endpoint propagation (see below) |
 | 1 | pt2 | Move endpoint, openings reposition; joined-endpoint propagation (see below) |
 | 2 | Midpoint | Translate whole wall, openings follow |
-| 3 | Far face midpoint | Drag perpendicular to wall to adjust thickness (min 25.4 mm / 1 inch). For Center alignment the grip sits on the positive-normal face; for Right alignment, the negative-normal face. |
+| 3 | Far face midpoint | Drag perpendicular to wall to adjust thickness (min 25.4 mm / 1 inch). For Center and Left alignment the grip sits on the positive-normal face; for Right alignment, the negative-normal face. |
 
-`apply_grip()` updates endpoints (indices 0–2) or thickness (index 3), calls `_rebuild_path()`, which repositions all owned openings (§7.3). The width grip projects the drag position onto the wall normal and converts back to mm via the current scene-to-mm ratio.
+`apply_grip()` updates endpoints (indices 0–2) or thickness (index 3), calls `invalidate_geometry()` (§6.1), which rebuilds the cached outline and repositions all owned openings (§7.3). The width grip projects the drag position onto the wall normal and converts back to mm via the current scene-to-mm ratio.
 
-**Joined-endpoint propagation (`_propagate_wall_endpoint`, model_space.py):** when an endpoint grip (index 0 or 1) is dragged, `Model_Space` finds every **other** `WallSegment` whose `_pt1` or `_pt2` is coincident with the pre-drag position (proximity, ~0.5 scene-unit epsilon) and applies the same move to it. This keeps polyline-drawn or snapped-together walls joined on edit. No stored connectivity; no serialization change. 2+ walls at a vertex all follow (T/X junctions). Openings on all moved walls re-anchor automatically (`_rebuild_path` runs on each).
+**Joined-endpoint propagation (`_propagate_wall_endpoint`, `wall_placement_controller.py`; `Model_Space` delegates to it):** when an endpoint grip (index 0 or 1) is dragged, the controller finds every **other** `WallSegment` whose `_pt1` or `_pt2` is coincident with the pre-drag position (proximity, ~0.5 scene-unit epsilon) and applies the same move to it. This keeps polyline-drawn or snapped-together walls joined on edit. No stored connectivity; no serialization change. 2+ walls at a vertex all follow (T/X junctions). Openings on all moved walls re-anchor automatically (`invalidate_geometry` runs on each).
 
 **Ctrl angle-snap during grip drag:** holding Ctrl while dragging a wall endpoint grip (index 0 or 1) snaps the dragged point to the angle increment **from the opposite endpoint** (`_constrain_angle`). Which grips of which items Ctrl-constrain, and against which anchor, is owned by [`selection-manipulator.md`](selection-manipulator.md) (`EndpointGripHandle`, `vertex_chain_grip_handles`).
 
@@ -226,34 +229,35 @@ Three modes, assignable per endpoint:
 
 ### 5.2 Auto Resolution
 
-Effective treatment per Auto endpoint (as-built 2026-07-13; the
+Effective treatment per Auto endpoint (as-built 2026-10-24; the
 `_resolve_join_mode(endpoint_idx, num_walls_at_point)` helper still
 returns Butt for anything ≠ 2 walls — the pie and tee treatments are
-separate branches in `_compute_mitered_quad` keyed on the raw `Auto`
-mode, so explicit per-endpoint Butt/Solid overrides keep their meaning):
+separate branches in `_join_ends` keyed on the raw `Auto`
+mode, so explicit per-endpoint Butt/Solid overrides keep their meaning).
+Joins consider only **visible** partners and hosts: the join pool is the walls
+in the same scene with `isVisible()` true (level visibility and sheet-viewport
+isolation both express themselves as visibility), so a wall on a hidden level
+never mitres or copes a visible one:
 
 | Walls at point | Treatment | Rationale |
 |----------------|-----------|-----------|
 | 1 (free end, no host) | Butt | Clean termination |
 | 1, endpoint mid-span on a host wall | **Tee cope** (§5.5) | End hugs the host's near face at any angle |
 | 2 (L-joint) | Solid | Continuous corner fill |
-| 3 (shared endpoint) | **Full-miter pie** (§5.5) | Seamless junction — a diagonal member's flat Butt end can't mate (2026-07-13 smoke test); falls back to Butt when the geometry degenerates |
-| 4+ (cross) | Butt | Near-always orthogonal; flat ends land flush |
+| 3+ (shared endpoint) | **N-way full-miter pie** (§5.5) | Seamless junction for any arm count — a diagonal member's flat Butt end can't mate; a pair whose corner exceeds the miter clamp falls back to Butt for both of its arms (§5.5) |
 
 ### 5.3 Connection Discovery
 
 Connections are **implicit** — discovered by proximity at render time. No persistent connectivity graph.
 
-**Algorithm** (`_compute_mitered_quad()`):
-1. For each endpoint, scan all walls in `scene._walls` for endpoints within `WALL_JOIN_TOLERANCE`.
+**Algorithm** (`_join_ends()`, run from `_rebuild_outline()`; `_compute_mitered_quad()` is a thin wrapper):
+1. For each endpoint, scan the visible join pool (`_join_pool`: visible walls of the same scene) for endpoints within `MITER_TOL`.
 2. Collect partner list: `[(wall, endpoint_index), ...]`.
-3. Dispatch per §5.2: raw-Auto with 2 partners → pie miter; raw-Auto with 0 partners → tee-cope host search; otherwise resolve the join mode and, if Solid, intersect this wall's quad edges with `partners[0]`'s quad edges (§5.5).
-4. Clamp all extensions to `4 × half_thickness_scene()` to prevent degenerate geometry (fallback: Butt).
-5. Set `solid_ptN` flag to suppress end-edge drawing; pie joins additionally emit end-wedge fill vertices.
+3. Dispatch per §5.2: raw-Auto with 2 or more partners → N-way pie miter; with 0 partners → tee-cope host search (`_tee_host`); otherwise resolve the join mode and, if Solid, intersect this wall's quad edges with `partners[0]`'s quad edges (§5.5).
+4. Clamp all extensions to `MAX_MITER_FACTOR × half_thickness_scene()` to prevent degenerate geometry (fallback: Butt).
+5. Record the per-end `solid` flag (suppresses the end edge); pie joins additionally emit the hub wedge vertex.
 
-**Constants** (to be moved to `constants.py`):
-- `WALL_JOIN_TOLERANCE`: 1.0 scene units (merge distance for endpoint matching)
-- `WALL_MAX_MITER_FACTOR`: 4.0 (multiplied by half_thickness for miter clamp)
+**Constants** (`constants.py` owns the values): `MITER_TOL` (endpoint-coincidence distance), `MAX_MITER_FACTOR` (miter clamp, times half thickness), `AUTO_JOIN_TOLERANCE` / `TEE_TOLERANCE` (placement snap radii, §5.4), `WALL_OUTLINE_ON_EDGE_TOL` / `WALL_OUTLINE_MIN_SEG` (outline stroke extraction, §6.2).
 
 **Performance note:** The current implementation scans all walls per endpoint (O(n) per wall, O(n²) per scene rebuild). For scenes with many walls, a spatial index should be used to limit the search. This is an implementation concern, not a behavioral change.
 
@@ -263,7 +267,7 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 
 **Pass 1 — Endpoint-to-endpoint:** For each of the new wall's endpoints, search existing walls for an endpoint within `tolerance` (20 scene units). Snap the new wall's endpoint to the existing endpoint. Rebuild the partner wall's path.
 
-**Pass 2 — Tee join (as-built 2026-07-13):** For unsnapped endpoints, snap to the host wall's **centerline** via `nearest_centerline_point()` (within `TEE_TOLERANCE` = 40 scene units; 5% parameter-t margin keeps it away from the host's endpoints). The picked point stays put — the drawn body is coped back to the host face at render time (§5.5). *Superseded behavior:* the endpoint used to snap to the nearest **face** (`nearest_face_point()`, retained for room detection), which made the picked point visibly jump off the centerline and left diagonal tees with gap triangles.
+**Pass 2 — Tee join (as-built 2026-07-13):** For unsnapped endpoints, snap to the host wall's **centerline** via `nearest_centerline_point()` (within `TEE_TOLERANCE`; the host's whole span qualifies — only a point within `MITER_TOL` of a host endpoint is a corner, not a tee; no end margin). The picked point stays put — the drawn body is coped back to the host face at render time (§5.5). *Superseded behavior:* the endpoint used to snap to the nearest **face** (`nearest_face_point()`, retained for room detection), which made the picked point visibly jump off the centerline and left diagonal tees with gap triangles.
 
 ### 5.5 Miter Geometry
 
@@ -273,36 +277,39 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 2. `_intersect_lines(my_left_edge, partner_left_edge)` → intersection point for left corner.
 3. Same for right corner.
 4. If both intersections exist and within clamp distance → replace endpoint corners.
-5. If Solid → set `solid_ptN = True` (suppresses end-edge line in `paint()`).
+5. If Solid → set the end's `solid` flag (the end edge is a joined edge, not a free cap).
 
-**3-wall full-miter pie** (`_pie_miter_corners`, as-built 2026-07-13):
+**N-way full-miter pie** (3 or more walls at one endpoint; `junction_pie` in `wall_outline.py`, driven by `WallSegment._pie_corners`):
 
-1. Compute each wall's outward unit vector from the junction; sort the two partners by signed angle from mine.
-2. My left/right face each miters (via `_intersect_lines`) with the **angularly adjacent** partner's *wedge-facing* face — the face whose offset points into the wedge shared with me (works for any alignment, since face lines come from `quad_points()`).
-3. The third junction corner — the partners' far-face intersection — is appended as an **end-wedge vertex** (`_end_wedge_pts1/2`, returned by `_compute_mitered_quad` and consumed by `_rebuild_path`/`paint`) so every wall's fill polygon covers the junction triangle; the triple overlap is invisible because hatch lines are scene-global. Omitted when the partners' far faces are parallel (diagonal into a split straight run — the end is then a straight edge on the run's near face).
-4. Both corners (and the wedge vertex) must fall within the `MAX_MITER_FACTOR` clamp, else the whole endpoint falls back to Butt (e.g. near-parallel members).
-5. End edges suppressed (`solid_ptN`); side-face lines terminate exactly at the pie corners. `snap_quad_points()` keeps returning the 4 corners only.
+1. Each wall end is an arm (`JunctionArm`: outward unit vector plus its two face lines, from `quad_points()` so any alignment works). All arms are sorted by angle around the junction.
+2. Arm i's counter-clockwise face meets arm i+1's clockwise face at one shared junction corner (line-line intersection). Where those two faces are parallel (a straight-through pair) each arm instead uses the foot of the junction on its own face.
+3. Each wall's slice runs to the **hub** — the centroid of the surviving junction corners — appended as that end's single **wedge vertex**, so the slices tile the junction core without overlap and each wall's body is its own slice.
+4. Per-pair fallback: a corner at or beyond the `MAX_MITER_FACTOR` clamp drops **both** arms of that pair (they stay Butt, flat ends); the other arms stay mitred and the hub is the centroid of the corners that survived. If no corner survives, or an arm is degenerate, the whole endpoint stays Butt.
+5. End edges suppressed (the per-end `solid` flag); side-face lines terminate exactly at the pie corners. `snap_quad_points()` / `mitered_quad()` keep returning the 4 corners only.
 
-**Tee cope** (`_tee_cope_corners`, as-built 2026-07-13):
+**Tee cope** (`_tee_host` finds the host, `_tee_cope_corners` copes; as-built 2026-10-24):
 
-1. Host = nearest wall whose centerline passes within `half_thickness + MITER_TOL` of my endpoint, mid-span. This band covers endpoints on the centerline (current tee snap) **and** legacy endpoints parked on the face by the pre-2026-07 snap — old files heal on reload.
+1. Host = nearest wall whose **true** centerline (`centerline_pt1/2`, alignment-correct) passes within `half_thickness + MITER_TOL` of my endpoint, anywhere on the host's whole span — only a point within `MITER_TOL` of a host end is a corner, not a tee. This band covers endpoints on the centerline (current tee snap) **and** legacy endpoints parked on the face by the pre-2026-07 snap — old files heal on reload. **Mutual-tee guard** (`_mutual_tee`): when a *free* end of the candidate host would tee into me at the same junction (two ends lying on each other's faces at an L), neither tees — they cannot cope to each other without leaving a notch.
 2. Near face = the host face on my body's side of the host centerline (sign test against my other endpoint; bail out when I run along the host).
 3. Both of my face lines intersect the near-face line → end corners hug the host face at any angle; end edge suppressed; same clamp/fallback as above.
+4. **Union body.** The coped stub's own `body` ends on the host's near face, but its cluster-union operand (`WallOutline.union_body`, used only for the §6.2 cluster union) runs its face lines on to the host's true centerline (`_tee_union_end`), so the stub overlaps the host with area and `united()` merges them. Where the stub is wider than what is left of the host span, the extension is clipped to the host body (`_clip_tee_extension`) so the overhanging end edge stays a stroked union boundary. The tee band is always measured from the true centerline, never the click line.
 
 ## 6. Wall Rendering
 
 ### 6.1 2D Path
 
-`_rebuild_path()` constructs a `QPainterPath` from the mitered quad (four corners, closed subpath). This path is set on the `QGraphicsPathItem` for Qt's scene management.
+`WallSegment.path()` **is** the cached outline body — the wall's own mitered polygon (quad corners plus any hub wedge vertices), closed. The cache is `WallSegment.outline()` → `WallOutline` (`wall_outline.py`): `body` (fill, hatch clip, HALO, hit area), `union_body` (cluster-union operand, §5.5), `quad`, per-end `solid` flags, `wedge`, `faces`, free-end `caps`, the true `centerline`, `neighbours`, and the lazily computed `stroke_segments` and visible `corners`. `path()`, `shape()` and the HALO therefore follow the alignment offset automatically.
+
+`invalidate_geometry()` rebuilds the wall's outline and those of every wall it joined before or joins after the change (and clears the neighbours' lazy strokes); the legacy name `_rebuild_path()` remains as an alias for duck-typed callers. It is triggered by the setters of alignment, thickness and both join modes, by `apply_grip` / `snap_endpoint_to`, by scene add/remove and visibility changes (`itemChange`), and by a scale-manager recalibration (`Model_Space._refresh_all_scales`); an outline whose own-input key no longer matches self-heals on the next read. Joins see only visible partners (§5.2).
 
 ### 6.2 Paint
 
 `paint()` renders in layers:
 
-1. **Fill** (if fill mode enabled): Semi-transparent polygon fill (alpha 80) using display fill color. *(HF1: the wall's Colour is the `_colour` string — `#hex`, `token:*` or `""` — resolved per paint on the surface it paints on via `colour_tokens`; `get_3d_mesh` resolves it at build, a `""` wall giving an opacity-0 mesh. Contract: [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).)*
+1. **Fill** (if fill mode enabled): Semi-transparent fill (alpha 80) of the wall's **own body** (differing fills of joined walls meet at the miter), using display fill color. The body fill is drawn with antialiasing off, so two translucent bodies sharing a miter edge show no lighter seam. *(HF1: the wall's Colour is the `_colour` string — `#hex`, `token:*` or `""` — resolved per paint on the surface it paints on via `colour_tokens`; `get_3d_mesh` resolves it at build, a `""` wall giving an opacity-0 mesh. Contract: [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md).)*
 2. **Section hatch** (if applicable): Overlaid when `_fill_mode` is Section/Hatch, OR when `_is_section_cut` is True. Uses shared `draw_section_hatch()` with clip path.
-3. **Outline** (`NoBrush`, drawn last): the left and right edges always (centerline-parallel); an end edge only if `solid_ptN` is `False` for that endpoint (with no solid joins the whole polygon is stroked in one call).
-4. **Selection highlight**: Red outline when selected.
+3. **Outline** (`NoBrush`, drawn last): only the **cluster-union boundary pieces that lie on this wall's own body edges** (`WallOutline.stroke_segments`), stroked with this wall's own pen — so no seam line is drawn inside a joined junction, and a free end's cap is stroked. The cluster union (`cluster_union`) merges this wall's and its neighbours' `union_body` polygons; Qt's path union is operand-order sensitive when bodies share collinear edges (an explicit-Butt end on a partner's face dropped a whole body in one order), so the union takes the first operand order whose result still contains every input's interior point and spans the inputs' bounds.
+4. **Selection highlight**: the same stroke pieces in the selection pen, drawn only when `shows_selection(self)` (never on paper, see [`paper-space.md`](paper-space.md)).
 
 **Paint order is load-bearing (AC1, 2026-10-22).** The fill is painted with `NoPen` and the outline last, because the section hatch body fills the whole polygon and would otherwise cover the inner half of an outline stroked before it (visible on paper, where the stroke is a true-mm weight). `FloorSlab.paint` follows the same order: opaque mask, fill (`NoPen`), section hatch, then the outline (`NoBrush`).
 
@@ -310,14 +317,14 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 
 ### 6.3 Hit-Testing
 
-`shape()` returns a stroked path using `QPainterPathStroker` at a scale-adaptive hit width (4–14 pixels). This provides a comfortable click target even for thin walls at high zoom.
+`shape()` returns `path()` (the outline body, §6.1) stroked with `QPainterPathStroker` at the larger of a scale-adaptive hit width and the wall's full thickness. This provides a comfortable click target even for thin walls at high zoom.
 
 ### 6.4 Section-Cut Hatching
 
 Walls participate in the unified section-cut protocol:
 
 1. `LevelManager` sets `_is_section_cut = True` when the view-range cut plane intersects the wall's Z-range.
-2. `paint()` calls `draw_section_hatch()` with the wall quad as clip path.
+2. `paint()` calls `draw_section_hatch()` with the wall's own body polygon as clip path.
 3. Section appearance (color, pattern, scale) is controlled by the display system's three-tier cascade (per-instance > category > factory default). *(HF1: a section/DM colour may be a `token:*`; a Display Manager fill of `""` (no fill) is distinct from `None` (inherit); room / floor / roof / design-area DM colours accept `""`; `colour_tokens.section_fill_colour` yields no body fill for unset / `""` — see [`hatch-and-fill.md`](hatch-and-fill.md).)*
 4. Wall fill mode `FILL_SECTION` forces hatch regardless of cut plane.
 
@@ -460,7 +467,7 @@ The opening's Level defaults to the **host wall's base level** but is **user-ass
 
 ### 7.12 Reposition Contract (unchanged from as-built)
 
-Any wall geometry change repositions all owned openings: `WallSegment._rebuild_path()` calls `_reposition()` on every opening (grip drag, translate, thickness/endpoint edits). Along-wall offset is re-clamped on every reposition.
+Any wall geometry change repositions all owned openings: `WallSegment.invalidate_geometry()` (alias `_rebuild_path()`) calls `_reposition()` on every opening (grip drag, translate, thickness/endpoint edits). Along-wall offset is re-clamped on every reposition.
 
 ### 7.13 Feature Browser, Manager & Model Browser
 
@@ -506,7 +513,7 @@ Rooms are created by clicking inside a closed wall loop. The boundary detection 
 **Step 1 — Collect nodes:**
 - Wall endpoints (pt1, pt2) from all walls visible on the active level.
 - Level filtering includes multi-level walls that span through the active level.
-- T-junction face points: for each wall endpoint, check if it lands on another wall's face (not at its endpoints). Uses `nearest_face_point()` with `TOL × 3` search radius and a 5% parameter margin to avoid false detection near endpoints.
+- T-junction face points: for each wall endpoint, check if it lands on another wall's face (not at its endpoints). Uses `nearest_face_point()` with `TOL × 3` search radius and a 5% parameter margin to avoid false detection near endpoints. This is room detection's **own** tee rule; it is deliberately not the wall tee rule of §5.5 (whole span, true centerline) — aligning them was tried by wall polish and reverted, and detection is unchanged by that branch.
 
 **Step 2 — Merge close points:**
 - Points within `TOL` (2.0 scene units) are merged into unique node indices.
@@ -915,7 +922,7 @@ All rows in this ledger are **resolved** as-built (re-verified 2026-07-14):
 | Alignment naming | `Left` / `Right` in use; legacy `Interior` / `Exterior` migrated on deserialize |
 | Join modes | Miter removed from the enum; serialized `"Miter"` maps to **`"Solid"`** on load (spec originally said Butt — Solid preserves corner geometry) |
 | Min thickness | Clamped to 1 mm on set (`set_property`) and on deserialize |
-| Opening reposition | `WallSegment._rebuild_path()` repositions owned openings |
+| Opening reposition | `WallSegment.invalidate_geometry()` repositions owned openings |
 | Offset clamping | `WallOpening._reposition()` clamps `_offset_along` to `[0, centerline_length]` |
 | Dead code (room.py unreachable returns) | Removed |
 | `MITER_TOL` | Named constant in `constants.py` (with `MAX_MITER_FACTOR`, `AUTO_JOIN_TOLERANCE`, `TEE_TOLERANCE`), imported by `wall.py` |
