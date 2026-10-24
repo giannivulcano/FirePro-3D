@@ -376,6 +376,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         u1l, u1r = u1 if u1 is not None else (p1l, p1r)
         u2l, u2r = u2 if u2 is not None else (p2l, p2r)
         union_body = QPolygonF([u1l, u2l, *w2, u2r, u1r, *w1])
+        for i in (0, 1):
+            if e["tee_union"][i] is not None:
+                union_body = self._clip_tee_extension(
+                    union_body, body, e["hosts"][i])
         caps = []
         if not e["partners"][0] and e["hosts"][0] is None:
             caps.append((QPointF(p1l), QPointF(p1r)))
@@ -1332,11 +1336,32 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                                   true_centerline=True)
             if proj is None:
                 continue
+            if self._mutual_tee(my_pt, other, walls):
+                continue
             d = math.hypot(my_pt.x() - proj.x(), my_pt.y() - proj.y())
             if d < host_dist:
                 host_dist = d
                 host = other
         return host
+
+    def _mutual_tee(self, my_pt: QPointF, other: "WallSegment",
+                    pool) -> bool:
+        """True when a FREE end of *other* (no endpoint partner in *pool*)
+        would tee into this wall at the same junction as *my_pt* (two ends
+        lying on each other's faces at an L).  Neither tees then: they
+        cannot cope to each other without leaving a notch (S1-F2)."""
+        band_self = self.half_thickness_scene() + MITER_TOL
+        reach = band_self + other.half_thickness_scene() + MITER_TOL
+        for ep in (other._pt1, other._pt2):
+            if math.hypot(ep.x() - my_pt.x(), ep.y() - my_pt.y()) > reach:
+                continue
+            if any(w is not other and w.endpoint_near(ep, MITER_TOL)
+                   is not None for w in pool):
+                continue            # that end is joined: it never tees
+            if self.nearest_centerline_point(ep, band_self,
+                                             true_centerline=True) is not None:
+                return True
+        return False
 
     def _tee_union_end(self, host: "WallSegment", quad):
         """Union-only end for a coped tee (G0): this wall's face lines run
@@ -1350,6 +1375,32 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if ul is None or ur is None:
             return None
         return ul, ur
+
+    @staticmethod
+    def _clip_tee_extension(union_body: QPolygonF, body: QPolygonF, host):
+        """Clip a coped tee's union-only extension to the host body (S1-F3).
+
+        The extension runs to the host centerline across the stub's full
+        width; where the stub is wider than what is left of the host span
+        the part past the host's end is cut off, so the stub's overhanging
+        end edge stays a union boundary (stroked, its corner visible).  The
+        host's raw quad is used (not its cached outline) so that mutually
+        teeing chains cannot recurse.  Falls back to *union_body* unless the
+        result is a single closed region.
+        """
+        def _path(poly: QPolygonF) -> QPainterPath:
+            p = QPainterPath()
+            p.addPolygon(poly)
+            p.closeSubpath()
+            return p
+
+        host_poly = QPolygonF(list(host.quad_points()))
+        allowed = _path(body).united(_path(host_poly))
+        clipped = _path(union_body).intersected(allowed).simplified()
+        polys = clipped.toSubpathPolygons()
+        if len(polys) != 1 or polys[0].count() < 4:
+            return union_body
+        return polys[0]
 
     def _compute_mitered_quad(
         self, extra=None,
@@ -1525,11 +1576,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                  true_centerline: bool = False
                                  ) -> QPointF | None:
         """Return the projection of *pos* onto this wall's centerline if
-        *pos* is near the mid-section (tee-join target).
+        *pos* projects within the wall's span (tee-join target).
 
-        Returns ``None`` if *pos* projects near an endpoint (5% margin,
-        matching ``nearest_face_point``) or lies farther than
-        *tolerance* from the centerline.
+        Returns ``None`` if *pos* projects outside the span, is coincident
+        with an endpoint (``MITER_TOL`` -- a corner, not a tee) or lies
+        farther than *tolerance* from the centerline.
 
         By default the line is the wall's click line (``_pt1``/``_pt2``,
         the placement snap target).  With *true_centerline* it is the
@@ -1547,9 +1598,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if len_sq < 1e-12:
             return None
         t = ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / len_sq
-        margin = 0.05
-        if t < margin or t > 1.0 - margin:
+        eps = 1e-9
+        if t < -eps or t > 1.0 + eps:
             return None
+        # A point coincident with a host end is a corner (endpoint partner),
+        # not a tee.  There is no relative end margin: a stub a few mm from
+        # the host's end still tees (wall polish S1-F2).
+        if (math.hypot(pos.x() - ax, pos.y() - ay) <= MITER_TOL
+                or math.hypot(pos.x() - bx, pos.y() - by) <= MITER_TOL):
+            return None
+        t = min(1.0, max(0.0, t))
         proj_x = ax + t * dx
         proj_y = ay + t * dy
         if math.hypot(pos.x() - proj_x, pos.y() - proj_y) > tolerance:

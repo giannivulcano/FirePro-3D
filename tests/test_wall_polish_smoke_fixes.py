@@ -80,3 +80,95 @@ def test_f1_find_ignores_overlay_line(qapp):
     s.addItem(it)
     r = SnapEngine().find(QPointF(3000, 3000), s, QTransform())
     assert r is None or r.source_item is not it
+
+
+# ── F2 / F3: tee reach, mutual-tee guard, overhanging stub ──────────────────
+
+import math  # noqa: E402
+
+from firepro3d.wall_outline import cluster_union  # noqa: E402
+
+
+def _on_seg(pt, a, b, tol=1e-3):
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    L = math.hypot(dx, dy)
+    if L == 0.0:
+        return False
+    t = ((pt.x() - a.x()) * dx + (pt.y() - a.y()) * dy) / L
+    d = abs((pt.x() - a.x()) * dy - (pt.y() - a.y()) * dx) / L
+    return d <= tol and -tol <= t <= L + tol
+
+
+def _stroked(wall, pt):
+    return any(_on_seg(pt, a, b) for a, b in wall.outline().stroke_segments)
+
+
+def _subpaths(walls):
+    path = cluster_union([w.outline_geometry().union_body for w in walls])
+    return len(path.toSubpathPolygons())
+
+
+def test_f2_stub_near_host_end_tees_into_host(qapp):
+    """Walls 42/41/45: stub on the host face at t~0.002 beside the host's L."""
+    s = _ms()
+    host = _add(s, (16381.47, 11363.77), (10836.15, 11363.77), align="Right")
+    l41 = _add(s, (16381.47, 9113.12), (16381.47, 11363.77), align="Right")
+    stub = _add(s, (16370.83, 17128.35), (16370.83, 11563.77), align="Right")
+    t = (16381.47 - 16370.83) / 5545.32
+    assert t < 0.05                                      # precondition
+    o = stub.outline()
+    assert o.solid[1] is True                            # coped to the host
+    assert len(o.caps) == 1                              # only the free pt1 cap
+    assert host in o.neighbours
+    assert not _stroked(host, QPointF(16270.83, 11563.77))   # face is split
+    assert _subpaths([host, l41, stub]) == 1
+
+
+def _walls_33_37(s):
+    w32 = _add(s, (21938.76, 16889.92), (21938.76, 11333.01), align="Right")
+    w33 = _add(s, (21938.76, 11333.01), (18884.84, 11333.01), align="Right")
+    w37 = _add(s, (18884.84, 11533.01), (18884.84, 9044.15), align="Left")
+    return w32, w33, w37
+
+
+def test_f2_mutual_tee_leaves_no_notch(qapp):
+    """Walls 33/37: each end lies on the other's face at their L.  Neither
+    tees; the bodies still cover the corner square."""
+    s = _ms()
+    w32, w33, w37 = _walls_33_37(s)
+    path = cluster_union([w.outline_geometry().union_body
+                          for w in (w32, w33, w37)])
+    cx, cy = 18984.84, 11433.01
+    for dx in (-95.0, 0.0, 95.0):
+        for dy in (-95.0, 0.0, 95.0):
+            assert path.contains(QPointF(cx + dx, cy + dy)), (dx, dy)
+    assert w33._join_ends()["hosts"][1] is None
+    assert w37._join_ends()["hosts"][0] is None
+
+
+def test_f3_overhanging_stub_end_is_stroked_and_cornered(qapp):
+    """Walls 44/45/47: a 505 mm stub wider than what is left of the host."""
+    s = _ms()
+    w44 = _add(s, (13812.74, 17128.35), (16370.83, 17128.35), align="Right")
+    w45 = _add(s, (16370.83, 17128.35), (16370.83, 11563.77), align="Right")
+    w47 = _add(s, (16162.0, 17064.96), (16162.0, 19401.93), th=505.0,
+               align="Right")
+    o = w47.outline()
+    assert o.solid[0] is True and w44 in o.neighbours       # coped tee
+    assert _stroked(w47, QPointF(16520.0, 17128.35))        # overhang edge
+    corner = QPointF(16667.0, 17128.35)
+    assert any(abs(c.x() - corner.x()) < 1e-3 and abs(c.y() - corner.y()) < 1e-3
+               for c in o.corners), o.corners
+    assert _subpaths([w44, w45, w47]) == 1
+
+
+def test_f2_placement_pass2_tees_near_host_end(qapp):
+    """The placement tee snap uses the same rule: a new wall ending 11 mm
+    from the host's end (t ~ 0.002) snaps onto the host centerline."""
+    s = _ms()
+    host = _add(s, (0, 0), (5545.0, 0), align="Center")
+    new = _add(s, (11.0, 2000.0), (11.0, 30.0), align="Center")
+    s._auto_join_wall(new)
+    assert new.pt2.x() == pytest.approx(11.0, abs=1e-6)
+    assert new.pt2.y() == pytest.approx(0.0, abs=1e-6)     # on the centerline
+    assert host in new.outline().neighbours
