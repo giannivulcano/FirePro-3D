@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Wall polish (2026-10-23 user batch)
+
+- [x] [type:design] Context-aware "Editor" tab + new "Build" tab; plan-view Editor edits feature primitive geometry [P1] [subject:UX] [done:2026-10-24]
+  - Details: user, 2026-10-23. Editor tab follows the active canvas: in a block canvas it works exactly as today's block editor; the block / definition / 2D-geometry groups move to a new "Build" tab (future home of feature-building buttons). In plan view the Editor exposes a feature's primitive geometry (e.g. the wall base line that defines length and position) so the block-editor constraints and the same scene tools apply to it. Own design run (reshapes ribbon + editor model). **Ratified requirement (wall-polish grill, 2026-10-23):** walls built with the rect tool must resize like a rect, not free endpoint drag -- delivered by auto-applying constraints at rect placement (perpendicular corners, coincident joined endpoints on the wall base lines, cf. `auto_constrain.py` AC1), so grips resize it as a rect and removing a constraint frees it; no separate rect-link concept. Today a rect commit makes 4 unlinked walls and a corner grip drags it into a quad (`wall_placement_controller.py` rect commit loop, `_propagate_wall_endpoint`). `main.py`, ribbon, `block_editor*.py`, `wall.py`, `wall_placement_controller.py`. ref: ribbon-bar spec, parametric-constraint-system.md.
+  - Findings: design/Large closed 2026-10-24 -- consolidating design `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` (commit 58769fc5; G1-G13 + B1-B6 ratified, ribbon mockup approved with Edit + Modify merged). Filed: Editor/Build slices 1-3 (ribbon; plan constraints on walls + gridlines; wall Auto Constrain -- delivers the rect-resizes-as-rect requirement), property-panel rows, wall modify hooks, extra constraint refs, consolidated-spec rewrites; 7 overlapping contextual-tab lines carry superseded pointers.
+
 ## Wall polish -- seamless junctions, alignment-true HALO, footprint snap, N-way pie, selection never plots -- 2026-10-24
 
 - [x] [type:bug] Wall joints draw seam lines across the junction -- walls should read as one continuous body [P1] [subject:CAD] [done:2026-10-24]

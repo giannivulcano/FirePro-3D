@@ -1,7 +1,7 @@
 ---
 status: proposal          # system build deferred (Phase B/C); F4 naming SETTLED + Phase-A code re-keyed 2026-09-21
-last-verified: 2026-10-04   # F4: tier-1 label keys the Display Manager (display_category)
-verified-commit: cbfe14f     # prior 7934ccf
+last-verified: 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-04   # F4: tier-1 label keys the Display Manager (display_category)
+verified-commit: 58769fc5   # Editor/Build design (pointer only); prior cbfe14f     # prior 7934ccf
 applies-to:
   - firepro3d/feature.py
   - firepro3d/wall_opening.py   # the first Feature (Opening); behavior today governed by wall-room-floor-system.md §7
@@ -12,6 +12,8 @@ source-tasks:
 ---
 
 # Feature System — Design Spec (forged on first touch)
+
+> **Proposed change (2026-10-24, unbuilt):** `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` -- built-in Features' defining geometry (wall centerlines) becomes constraint-editable in plan. Until its build slices ship, the as-built text below stands.
 
 > **Status: proposal.** This spec is **forged to close the SPEC-INDEX orphan**
 > during the 2026-09-16 containment-contract design. It records the *intended*
