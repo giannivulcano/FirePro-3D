@@ -8961,6 +8961,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "sprinkler": sprinkler,
                     "pipes": pipes,
                 })
+            elif isinstance(item, DesignArea):
+                # No to_dict: members are named by sprinkler-node position so a
+                # paste can rebind them to the sprinklers it created (G-P1).
+                data.append({
+                    "type": "design_area",
+                    "sprinkler_xy": [[s.node.pos().x(), s.node.pos().y()]
+                                     for s in item.sprinklers if s.node is not None],
+                    "properties": {k: v["value"] for k, v in item._properties.items()},
+                })
             elif hasattr(item, "to_dict"):
                 data.append(item.to_dict())
         return data
@@ -8991,12 +9000,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             obj: A clipboard record (``_clipboard_item_dicts`` output).
 
         Returns:
-            True for 2D geometry / text, node, block-instance and gridline
-            records.
+            True for 2D geometry / text, node, block-instance, gridline,
+            wall, room, floor-slab, roof and design-area records.
         """
         obj_type = obj.get("type", "")
         return (obj_type in self._GEOM_TYPE_REGISTRY
-                or obj_type in ("node", "block_instance")
+                or obj_type in ("node", "block_instance", "wall", "room",
+                                "floor_slab", "roof", "design_area")
                 # Gridline: to_dict() emits no "type" key.
                 or (not obj_type and "origin" in obj and "angle" in obj))
 
@@ -9032,6 +9042,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         uid_map = {}          # source uid -> new uid (constraint remap, §8)
         pattern_skipped = 0   # hatch D-A34 / LT3-2 / LT5: capability blocks never re-placed
         skip_reason = None    # footer text for the last skipped tile / repeat block
+        pasted_spr = {}       # (x, y) of a sprinkler node created here -> node (design areas)
+        da_records = []       # design-area records, resolved once every node exists
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -9099,6 +9111,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     # None when the node already carries a sprinkler.
                     if self.add_sprinkler(node1, template) is not None:
                         created = True
+                        pasted_spr[(round(new_x, 3), round(new_y, 3))] = node1
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
@@ -9144,6 +9157,47 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     new_items.append(inst)
                 # else: definition absent (cross-project paste) — skip silently
 
+            elif obj_type == "wall":
+                wall = WallSegment.from_dict(obj)
+                wall.level = self.active_level
+                wall.translate(offset.x(), offset.y())
+                self.addItem(wall)
+                self._walls.append(wall)
+                marks.mint(self, wall)
+                for op_data in obj.get("openings", []):
+                    op = WallOpening.from_dict(op_data, wall=wall)
+                    op.level = wall.level
+                    wall.openings.append(op)
+                    self.addItem(op)
+                    op._reposition()
+                    marks.mint(self, op)
+                new_items.append(wall)
+            elif obj_type == "room":
+                room = Room.from_dict(obj)
+                room.level = self.active_level
+                room._scale_manager_ref = self.scale_manager
+                room.translate(offset.x(), offset.y())
+                self.addItem(room)
+                self._rooms.append(room)
+                marks.mint(self, room)
+                new_items.append(room)
+            elif obj_type == "floor_slab":
+                slab = FloorSlab.from_dict(obj)     # keeps its level refs (pure z-range)
+                slab.translate(offset.x(), offset.y())
+                self.addItem(slab)
+                self._floor_slabs.append(slab)
+                new_items.append(slab)
+            elif obj_type == "roof":
+                roof = RoofItem.from_dict(obj)
+                roof.level = self.active_level
+                roof._scale_manager_ref = self.scale_manager
+                roof.translate(offset.x(), offset.y())
+                self.addItem(roof)
+                self._roofs.append(roof)
+                new_items.append(roof)
+            elif obj_type == "design_area":
+                da_records.append(obj)              # resolved after every node is pasted
+
             elif "origin" in obj and "angle" in obj and not obj_type:
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
                 gl = GridlineItem.from_dict(obj)
@@ -9159,11 +9213,32 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 apply_duplicate_warnings(self._gridlines)
                 new_items.append(gl)
 
+        da_skipped = 0
+        if da_records:
+            from .network_codec import deserialize_design_area
+            for rec in da_records:
+                keys = [(round(x + offset.x(), 3), round(y + offset.y(), 3))
+                        for x, y in rec.get("sprinkler_xy", [])]
+                if not keys or any(k not in pasted_spr for k in keys):
+                    da_skipped += 1
+                    continue
+                id_to_node = {i: pasted_spr[k] for i, k in enumerate(keys)}
+                da = deserialize_design_area(self, {
+                    "sprinkler_node_ids": list(id_to_node),
+                    "properties": rec.get("properties", {}),
+                    "level": self.active_level,
+                }, id_to_node)
+                da.compute_area(self.scale_manager)
+                new_items.append(da)
+
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
         if pattern_skipped:
             self._show_status(skip_reason)
+        elif da_skipped:
+            self._show_status(f"Pasted {len(data) - da_skipped} item(s); {da_skipped} design area(s) "
+                              f"skipped - their sprinklers were not copied")
         else:
             self._show_status(f"Pasted {len(data)} item(s)")
         return new_items

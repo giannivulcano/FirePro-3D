@@ -440,30 +440,26 @@ def _add_wall(scene, p1, p2):
     return w
 
 
-def test_wall_only_selection_refuses_array_up_front(qapp):
-    """Review I3: paste_items cannot re-create a wall, so a wall-only
-    selection is refused when Array starts (accurate reason), not at the
-    commit with "Nothing arrayed"."""
+def test_wall_only_selection_is_arrayable(qapp):
+    """SB2b G-P1 (todo L1410, R2): paste_items now re-creates walls, so a
+    wall-only selection is a valid Array target (the old up-front refusal,
+    scene-tools P1 DD5 review I3, is retired)."""
     view, scene = make_view(role="plan", scale=1.0)
     try:
-        msgs = []
-        scene._show_status = lambda m, timeout=5000: msgs.append(m)
         w = _add_wall(scene, (1000, 0), (2000, 0))
         scene.push_undo_state()
         scene.clearSelection(); w.setSelected(True)
-        p0 = scene._undo_pos
-        assert scene._modify_ctl.start("array") is False                # [RED]
-        assert scene.mode != "array"
-        assert msgs[-1] == scene._modify_ctl.ARRAY_NOTHING_COPYABLE
-        assert len(scene._walls) == 1 and scene._undo_pos == p0
+        assert scene._modify_ctl.start("array")                         # [RED]
+        assert scene.mode == "array"
+        assert scene._modify_ctl._array_copyable([w]) == [w]
     finally:
         close_view(view, scene)
 
 
-def test_polar_ghost_and_skip_count_leave_out_walls(qapp):
-    """Review I3: a wall in a mixed selection is neither ghosted nor counted
-    as arrayed — the ghost is exactly the commit and "(1 skipped)" is
-    honest."""
+def test_polar_ghost_and_count_include_walls(qapp):
+    """SB2b G-P1 (todo L1410, R2): a wall in a mixed selection is ghosted and
+    arrayed with the gridline -- the ghost is exactly the commit and nothing
+    is reported skipped (retires review I3's wall exclusion)."""
     from firepro3d.gridline import GridlineItem
     from firepro3d.transform_ghost import ghost_base_paths
     view, scene = make_view(role="plan", scale=1.0)
@@ -479,14 +475,12 @@ def test_polar_ghost_and_skip_count_leave_out_walls(qapp):
         assert scene._modify_ctl.start("array")
         _polar(view)
         click(view, QPointF(0, 0))
-        assert len(scene._move_ghost_base) == 1                          # [RED]
+        assert len(scene._move_ghost_base) == 2                          # [RED]
         move(view, QPointF(0, -1500))                                    # 90° CCW
-        ghost = _ghost_centres(scene._move_ghost)
         click(view, QPointF(0, -1500))
         new = [g for g in scene._gridlines if all(g is not b for b in before)]
-        assert len(new) == 3 and len(scene._walls) == 1
-        assert _ghost_centres(ghost_base_paths(new)) == ghost
-        assert msgs[-1].endswith("(1 skipped)")
+        assert len(new) == 3 and len(scene._walls) == 4
+        assert "skipped" not in msgs[-1]
     finally:
         close_view(view, scene)
 
