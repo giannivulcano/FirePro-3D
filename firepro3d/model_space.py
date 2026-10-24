@@ -8468,7 +8468,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._draw_ellipses, self._draw_splines, self._draw_polygons,
                     self._filled_regions, self._gridlines,
-                    self._walls, self._floor_slabs, self._roofs]:
+                    self._walls, self._floor_slabs, self._roofs,
+                    self._rooms, self.design_areas]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:
                     result.append(item)

@@ -149,7 +149,6 @@ def test_duplicate_level_retargets_source_level_refs(qapp, shown_model_view):
     scene._rooms.append(room)
 
     scene.duplicate_level_entities(src, new)
-    scene.copy_items_to_level([room], new)         # rooms are not in _items_on_level
     lm.get(new).elevation = 6000.0                 # what level_widget's elevation edit does
     lm.update_elevations(scene)
 
