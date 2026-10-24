@@ -385,3 +385,43 @@ def host_values(item) -> dict[str, HostValue]:
             raw = None
         out[key] = HostValue(raw, spec.kind, sm)
     return out
+
+
+# -- Block Editor pickers (design section 3; E9, E10) -----------------------------
+
+NONE_LABEL = "(none)"
+WARN_MARK = "\u26a0"
+
+
+def unknown_label(name: str, what: str) -> str:
+    """The warn entry for a value kept from a file (E9)."""
+    return f"{WARN_MARK} {name} \u2014 unknown {what}"
+
+
+def category_choice(current: str) -> tuple[list, str, list]:
+    """Options, current label and warn options for the Host category row."""
+    opts = [NONE_LABEL, *CATEGORIES]
+    if not current:
+        return opts, NONE_LABEL, []
+    if current in CATEGORIES:
+        return opts, current, []
+    bad = unknown_label(current, "category")
+    return opts + [bad], bad, [bad]
+
+
+def host_key_items(category: str, current: str) -> list[tuple]:
+    """Combo entries ``(text, key, selectable, warn)``.
+
+    A blank entry, then per tier a disabled header and ``Label (Key)`` items;
+    a stored key the category lacks is kept as a warn entry.
+    """
+    out = [("", "", True, False)]
+    specs = PARAMS.get(category, {})
+    for tier, name in TIER_NAMES.items():
+        group = [s for s in specs.values() if s.tier == tier]
+        if group:
+            out.append((name, None, False, False))
+            out += [(f"{s.label} ({s.key})", s.key, True, False) for s in group]
+    if current and current not in specs:
+        out.append((unknown_label(current, "key"), current, True, True))
+    return out

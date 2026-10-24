@@ -10,10 +10,13 @@ editor undo step.
 """
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QTableWidget,
                              QTableWidgetItem, QToolButton, QWidget)
 
 from .block_attributes import ATTR_SOURCES, ATTR_TYPES, references_of
+from . import theme as th
+from .element_params import PARAMS, host_key_items
 from .house_dialog import HouseDialog
 
 COLUMNS = ("key", "label", "type", "source", "host_key", "default",
@@ -63,11 +66,38 @@ class AttributesEditorDialog(HouseDialog):
                 box.addItems(list(ATTR_TYPES if col == "type" else ATTR_SOURCES))
                 box.setCurrentText(str(rec.get(col, box.itemText(0))))
                 self.table.setCellWidget(r, c, box)
+            elif col == "host_key":
+                self.table.setCellWidget(r, c, self._host_key_box(str(rec.get(col, ""))))
             else:
                 it = QTableWidgetItem(str(rec.get(col, "")))
                 if c == 0:
                     it.setData(_ORIG_ROLE, orig)
                 self.table.setItem(r, c, it)
+        src = self.table.cellWidget(r, COLUMNS.index("source"))
+        hk = self.table.cellWidget(r, COLUMNS.index("host_key"))
+        cat = self._scene.block_meta.get("host_category", "")
+
+        def _sync(_=None, src=src, hk=hk):
+            hk.setEnabled(src.currentText() == "host" and cat in PARAMS)
+
+        src.currentTextChanged.connect(_sync)
+        _sync()
+
+    def _host_key_box(self, current: str) -> QComboBox:
+        """The host-key dropdown of the block's host category (design section 3)."""
+        box = QComboBox()
+        cat = self._scene.block_meta.get("host_category", "")
+        wc = th.detect().color("warn")
+        for text, key, selectable, warn in host_key_items(cat, current):
+            box.addItem(text, key)
+            i = box.count() - 1
+            if not selectable:
+                box.model().item(i).setEnabled(False)
+            if warn:
+                box.setItemData(i, wc, Qt.ItemDataRole.ForegroundRole)
+        i = box.findData(current)
+        box.setCurrentIndex(i if i >= 0 else 0)
+        return box
 
     def add_row(self) -> None:
         self._append({"key": "", "placeholder": "?", "precision": "0"}, orig=None)
@@ -97,10 +127,12 @@ class AttributesEditorDialog(HouseDialog):
     def set_cell(self, row: int, col: str, value: str) -> None:
         c = COLUMNS.index(col)
         w = self.table.cellWidget(row, c)
-        if w is not None:
-            w.setCurrentText(value)
-        else:
+        if w is None:
             self.table.item(row, c).setText(value)
+        elif (i := w.findData(value)) >= 0:
+            w.setCurrentIndex(i)
+        else:
+            w.setCurrentText(value)
 
     def _orig(self, row: int):
         return self.table.item(row, 0).data(_ORIG_ROLE)
@@ -109,7 +141,12 @@ class AttributesEditorDialog(HouseDialog):
         out = {}
         for c, col in enumerate(COLUMNS):
             w = self.table.cellWidget(row, c)
-            out[col] = w.currentText() if w is not None else self.table.item(row, c).text()
+            if w is None:
+                out[col] = self.table.item(row, c).text()
+            elif w.currentData() is not None:
+                out[col] = w.currentData()
+            else:
+                out[col] = w.currentText()
         return out
 
     def message(self) -> str:

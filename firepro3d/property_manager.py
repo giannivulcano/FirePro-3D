@@ -420,6 +420,12 @@ class PropertyManager(QWidget):
             elif prop_type == "enum":
                 widget = Selector()
                 widget.addItems([str(o) for o in meta.get("options", [])])
+                warn = {str(o) for o in meta.get("warn_options", ())}
+                if warn:
+                    wc = th.detect().color("warn")
+                    for i in range(widget.count()):
+                        if widget.itemText(i) in warn:
+                            widget.setItemData(i, wc, Qt.ItemDataRole.ForegroundRole)
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)

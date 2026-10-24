@@ -7,6 +7,8 @@ selected entity only.
 """
 from __future__ import annotations
 
+from .element_params import NONE_LABEL, WARN_MARK, category_choice
+
 _SCALE_LABELS = {"real_size": "Real size", "annotative": "Annotative"}
 _SCALE_MODES = {v: k for k, v in _SCALE_LABELS.items()}
 
@@ -59,7 +61,9 @@ class BlockPropertiesInfo:
                 "type": "button", "value": "Edit attributes\u2026",
                 "callback": self._open_attributes_editor,
                 "enabled": self._editor is not None}
-            props["Host category"] = {"type": "string", "value": meta["host_category"]}
+            opts, cur, warn = category_choice(meta["host_category"])
+            props["Host category"] = {"type": "enum", "options": opts, "value": cur,
+                                      "warn_options": warn}
             props["Scale mode"] = {"type": "enum", "options": ["Real size", "Annotative"],
                                    "value": _SCALE_LABELS.get(meta["scale_mode"], "Real size")}
             if meta["scale_mode"] == "annotative" and self._screen_row_free():
@@ -87,8 +91,11 @@ class BlockPropertiesInfo:
     def set_property(self, key, value) -> None:
         """Block facts are read-only; the capability rows edit the capability."""
         if key == "Host category":
+            value = str(value)
+            if value.startswith(WARN_MARK):         # the kept unknown entry (E9)
+                return
             self._scene.set_block_meta({**self._scene.block_meta,
-                                        "host_category": str(value)})
+                                        "host_category": "" if value == NONE_LABEL else value})
             return
         if key == "Sample values":
             self._scene.set_show_sample_values(bool(value))    # view toggle, no undo

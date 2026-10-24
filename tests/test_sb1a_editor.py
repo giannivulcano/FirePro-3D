@@ -80,7 +80,7 @@ def test_block_view_rows(qapp):
     assert props["Attributes"]["type"] == "header"
     assert props["Count"]["value"] == "0"
     assert props["Edit attributes"]["type"] == "button"
-    assert props["Host category"] == {"type": "string", "value": ""}
+    assert props["Host category"]["type"] == "enum" and props["Host category"]["value"] == "(none)"
     assert props["Scale mode"]["type"] == "enum" and props["Scale mode"]["value"] == "Real size"
     info.set_property("Scale mode", "Annotative")
     info.set_property("Host category", "Rooms")
