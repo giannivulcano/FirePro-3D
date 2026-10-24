@@ -376,31 +376,18 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     # ── Formatting helpers ───────────────────────────────────────────────
 
     def _fmt_area(self, mm2: float) -> str:
-        """Format area in display units (sq ft or sq m)."""
+        """Format area for display (ScaleManager.format_area_mm2)."""
         sm = self._get_scale_manager()
         if sm is None:
             return f"{mm2:.0f} mm²"
-        from .scale_manager import DisplayUnit
-        if sm._display_unit == DisplayUnit.IMPERIAL:
-            sqft = mm2 / (304.8 ** 2)
-            return f"{sqft:.1f} sq ft"
-        elif sm._display_unit == DisplayUnit.METRIC_M:
-            sqm = mm2 / 1_000_000.0
-            return f"{sqm:.2f} m²"
-        return f"{mm2:.0f} mm²"
+        return sm.format_area_mm2(mm2)
 
     def _fmt_volume(self, mm3: float) -> str:
+        """Format a volume for display (ScaleManager.format_volume_mm3)."""
         sm = self._get_scale_manager()
         if sm is None:
             return f"{mm3:.0f} mm³"
-        from .scale_manager import DisplayUnit
-        if sm._display_unit == DisplayUnit.IMPERIAL:
-            cuft = mm3 / (304.8 ** 3)
-            return f"{cuft:.0f} cu ft"
-        elif sm._display_unit == DisplayUnit.METRIC_M:
-            cum = mm3 / 1e9
-            return f"{cum:.1f} m³"
-        return f"{mm3:.0f} mm³"
+        return sm.format_volume_mm3(mm3)
 
     # ── Geometry ──────────────────────────────────────────────────────────
 

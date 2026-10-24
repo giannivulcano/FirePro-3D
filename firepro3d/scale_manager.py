@@ -636,6 +636,83 @@ class ScaleManager:
             return f"{gpm_ft2:.2f} gpm/ft²"
         return f"{gpm_ft2 * _GPM_FT2_TO_MM_MIN:.2f} mm/min"
 
+    # -- Element-parameter kinds (element-parameters.md; spellings owned by
+    #    units-and-formatting.md section 3). Each *_value twin is the same
+    #    quantity as a bare float in the display unit the string prints.
+
+    def length_value(self, mm: float) -> float:
+        """*mm* in the display unit: inches (imperial), m or mm."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return mm / 25.4
+        if self._display_unit == DisplayUnit.METRIC_M:
+            return mm / 1000.0
+        return mm
+
+    def format_area_mm2(self, mm2: float) -> str:
+        """A geometry-derived area (mm²) in the display unit."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return f"{mm2 / (304.8 ** 2):.1f} sq ft"
+        if self._display_unit == DisplayUnit.METRIC_M:
+            return f"{mm2 / 1_000_000.0:.2f} m²"
+        return f"{mm2:.0f} mm²"
+
+    def area_mm2_value(self, mm2: float) -> float:
+        """Numeric twin of ``format_area_mm2``."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return mm2 / (304.8 ** 2)
+        if self._display_unit == DisplayUnit.METRIC_M:
+            return mm2 / 1_000_000.0
+        return mm2
+
+    def format_volume_mm3(self, mm3: float) -> str:
+        """A volume (mm³) in the display unit."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return f"{mm3 / (304.8 ** 3):.0f} cu ft"
+        if self._display_unit == DisplayUnit.METRIC_M:
+            return f"{mm3 / 1e9:.1f} m³"
+        return f"{mm3:.0f} mm³"
+
+    def volume_mm3_value(self, mm3: float) -> float:
+        """Numeric twin of ``format_volume_mm3``."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return mm3 / (304.8 ** 3)
+        if self._display_unit == DisplayUnit.METRIC_M:
+            return mm3 / 1e9
+        return mm3
+
+    def area_sqft_value(self, sqft: float) -> float:
+        """The numeric twin of ``format_area_sqft`` (sq ft or m²)."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return sqft
+        return sqft * _SQFT_TO_M2
+
+    @staticmethod
+    def format_pressure(psi: float) -> str:
+        """Pressure (psi; no metric variant -- units D2)."""
+        return f"{psi:.1f} psi"
+
+    @staticmethod
+    def format_flow(gpm: float) -> str:
+        """Flow (gpm; no metric variant -- units D2)."""
+        return f"{gpm:.0f} gpm"
+
+    @staticmethod
+    def format_velocity(fps: float) -> str:
+        """Velocity (ft/s; no metric variant -- units D2)."""
+        return f"{fps:.1f} ft/s"
+
+    def format_pipe_id(self, inches: float) -> str:
+        """A pipe inner diameter (stored in inches)."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return f'{inches:.3f}"'
+        return f"{inches * 25.4:.1f} mm"
+
+    def pipe_id_value(self, inches: float) -> float:
+        """Numeric twin of ``format_pipe_id``."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return inches
+        return inches * 25.4
+
     # -----------------------------------------------------------------
     # Serialisation
     # -----------------------------------------------------------------
