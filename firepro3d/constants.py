@@ -519,3 +519,7 @@ LINETYPE_CURVE_FLATTEN_SCALE = 64.0
 # -- Element parameters (element-parameters.md E6) ---------------------------
 # How far past a wall face a door / window / opening looks for its room (mm).
 ELEMENT_ROOM_PROBE_MM = 50.0
+
+# SB2b Marks: Renumber reading order -- elements whose sort point lies within
+# this distance (mm, vertically) of a row's first element share that row.
+MARK_ROW_TOLERANCE_MM = 600.0
