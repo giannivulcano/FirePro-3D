@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
+    QPainter,
 )
 
 if TYPE_CHECKING:
@@ -549,9 +550,15 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         # body fills the whole polygon, so an outline stroked before it loses
         # its inner half on paper (AC1, wall-room-floor-system s6.2).
         if fill_brush != Qt.BrushStyle.NoBrush:
+            # Antialiasing off for the body fill: two translucent bodies that
+            # share a miter edge would each blend at ~50% coverage along it
+            # and show a lighter seam (S1-F4).  Strokes keep the caller's hint.
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(fill_brush)
             painter.drawPolygon(fill_poly)
+            painter.restore()
 
         # Section hatching — shown when fill mode is Section/Hatch, OR when
         # the view-range cut plane intersects this wall.

@@ -172,3 +172,46 @@ def test_f2_placement_pass2_tees_near_host_end(qapp):
     assert new.pt2.x() == pytest.approx(11.0, abs=1e-6)
     assert new.pt2.y() == pytest.approx(0.0, abs=1e-6)     # on the centerline
     assert host in new.outline().neighbours
+
+
+# ── F4: no lighter seam along a miter in the translucent body fill ──────────
+
+def test_f4_miter_diagonal_fill_has_no_seam(qapp):
+    from PyQt6.QtCore import QRectF, Qt
+    from PyQt6.QtGui import QImage, QPainter
+    from firepro3d.wall import FILL_SOLID, ALIGN_CENTER
+
+    s = _ms()
+    a = _add(s, (0, 0), (3000, 0), align=ALIGN_CENTER)
+    b = _add(s, (0, 0), (0, 3000), align=ALIGN_CENTER)
+    for w in (a, b):
+        w._fill_mode = FILL_SOLID           # alpha-80 translucent fill
+        w._colour = "#2040c0"               # strong enough to show a seam
+    assert a.outline().solid[0] is True     # Auto miter, the shared diagonal
+    px = 0.25                               # px per mm
+    rect = QRectF(-500, -500, 4000, 4000)
+    img = QImage(int(rect.width() * px), int(rect.height() * px),
+                 QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    s.render(p, QRectF(0, 0, img.width(), img.height()), rect,
+             Qt.AspectRatioMode.IgnoreAspectRatio)
+    p.end()
+
+    def pix(x_mm, y_mm):
+        return img.pixelColor(int((x_mm - rect.x()) * px),
+                              int((y_mm - rect.y()) * px))
+
+    body = pix(1500, 0)
+    assert body.rgb() != 0xFFFFFFFF         # the fill really painted
+    bad = []
+    for k in range(-70, 71, 7):
+        c = pix(k, k)
+        for dx in (-4, 0, 4):               # pixels either side of the seam
+            c = pix(k + dx, k - dx)
+            diff = max(abs(c.red() - body.red()), abs(c.green() - body.green()),
+                       abs(c.blue() - body.blue()))
+            if diff > 1:
+                bad.append((k, dx, diff))
+    assert not bad, bad[:6]
