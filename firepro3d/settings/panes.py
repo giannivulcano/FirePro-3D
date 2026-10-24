@@ -1705,6 +1705,7 @@ class MarksPane(SettingsPane):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 10, 10, 10)
         self._table = QTableWidget(len(marks.MARK_CATEGORIES), 3)
+        self._table.setProperty("marksTable", "true")   # scopes the cell-editor inset QSS
         self._table.setHorizontalHeaderLabels(["Category", "Pattern", "Next"])
         hh = self._table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -1730,10 +1731,18 @@ class MarksPane(SettingsPane):
             self._table.setItem(row, 2, n)
         self._table.itemChanged.connect(self._on_item_changed)
         outer.addWidget(self._table)
-        for text in ("{n} number   {n:02} zero-padded   {level} the element's Level Number",
+        t = detect()
+        # Mockup `.hint code`: monospace, ink, raised background (QLabel rich text
+        # has no border-radius, so the 3px radius is approximated by padding).
+        def chip(tok: str) -> str:
+            return (f'<span style="font-family:{FONT_VALUE}; color:{t.ink}; '
+                    f'background-color:{t.raised};">&nbsp;{tok}&nbsp;</span>')
+        for text in (f"{chip('{n}')} number &nbsp; {chip('{n:02}')} zero-padded &nbsp; "
+                     f"{chip('{level}')} the element's Level Number",
                      "Next = what the next new element of that category will receive "
                      "(highest existing + 1). Click a Pattern cell to edit."):
             hint = QLabel(text)
+            hint.setTextFormat(Qt.TextFormat.RichText)
             hint.setProperty("role", "muted")
             hint.setWordWrap(True)
             outer.addWidget(hint)
@@ -1761,6 +1770,8 @@ class MarksPane(SettingsPane):
         self._snapshot = dict(getattr(self._scene, "mark_patterns", {}) or {})
         for row in range(self._table.rowCount()):
             self._table.item(row, 1).setText(pats.get(self._category(row), ""))
+            # itemChanged does not fire when the text is unchanged (blank pattern)
+            self._preview_row(row, self._table.item(row, 1).text())
 
     def apply(self) -> None:
         pats = {self._category(r): self._table.item(r, 1).text()

@@ -295,5 +295,7 @@ def preview_next(scene, category: str, pattern: str) -> str:
     lvl = lm.get(getattr(scene, "active_level", "")) if lm is not None else None
     level_number = (getattr(lvl, "number", 0) or None) if lvl is not None else None
     existing = [get_mark(i) for i in items_of_category(scene, category)]
+    if not (pattern or "").strip():              # mockup: a whitespace-only pattern is blank
+        return "(blank)"
     out = format_mark(pattern, next_number(pattern, level_number, existing), level_number)
     return out or "(blank)"
