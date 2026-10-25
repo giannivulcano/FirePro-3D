@@ -243,6 +243,36 @@ def items_of_category(scene, category: str) -> list:
     return []
 
 
+_PLURAL = {"Door": "doors", "Window": "windows", "Opening": "openings", "Wall": "walls",
+           "Pipe": "pipes", "Sprinkler": "sprinklers", "Room": "rooms", "Gridline": "gridlines"}
+
+
+def duplicate_info(scene, item) -> Optional[str]:
+    """Tooltip text when *item*'s non-blank Mark is shared in its category, else None (Q9/Q10)."""
+    cat = category_of(item)
+    mark = get_mark(item)
+    if not mark or cat is None or scene is None:
+        return None
+    count = sum(1 for i in items_of_category(scene, cat) if get_mark(i) == mark)
+    if count < 2:
+        return None
+    return f"{count} {_PLURAL.get(cat, cat.lower() + 's')} share Mark {mark}"
+
+
+def refresh_duplicates(scene) -> None:
+    """Re-run duplicate detection after a bulk Mark change: the gridline bubbles
+    (their own orange path) and a property-panel rebuild of the current selection.
+
+    Nothing is painted on the canvas for model elements, so paper / PDF stay clean.
+    """
+    from .gridline import apply_duplicate_warnings
+    apply_duplicate_warnings(list(scene._gridlines))
+    sig = getattr(scene, "requestPropertyUpdate", None)
+    if sig is not None:
+        sel = list(scene.selectedItems())
+        sig.emit(sel if sel else None)
+
+
 def clean_patterns(raw) -> dict:
     """*raw* (a loaded ``mark_patterns`` value) reduced to its str -> str entries
     ({} when it is not a dict), so a corrupt file falls back to the defaults."""

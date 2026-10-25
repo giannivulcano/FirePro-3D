@@ -588,6 +588,20 @@ class PropertyManager(QWidget):
                 widget.setToolTip(tip)
             lbl = QLabel(key)
             lbl.setToolTip(tip or "")
+            # SB2b M10 / M16: a Mark shared within its category flags the row
+            # (warn state + count tooltip); screen-only, never painted on the canvas.
+            if key == "Mark" and widget is not None and len(self._targets) == 1:
+                from . import marks
+                from .element_params import scene_of
+                dup = marks.duplicate_info(scene_of(self._targets[0]), self._targets[0])
+                state = "warn" if dup else ""
+                for w_ in (widget, lbl):
+                    w_.setProperty("state", state)
+                    w_.style().unpolish(w_)
+                    w_.style().polish(w_)
+                if dup:
+                    widget.setToolTip(dup)
+                    lbl.setToolTip(dup)
             suffix = meta.get("suffix")
             if suffix and widget is not None:
                 row_layout = QHBoxLayout()
@@ -778,6 +792,9 @@ class PropertyManager(QWidget):
         """
         if self._refreshing:
             return  # ignore signals fired during form rebuild
+        if key == "Mark" and not str(value).strip():
+            self._refuse_blank_mark()    # M16: a Mark is never cleared from the panel
+            return
         stack = None
         if len(self._targets) > 1:
             for t in self._targets:
@@ -820,6 +837,11 @@ class PropertyManager(QWidget):
                     # Cascade sprinkler property updates from database
                     if isinstance(t, Sprinkler) and key in ("Manufacturer", "Model", "Orientation"):
                         self._cascade_sprinkler_props(t)
+                if key == "Mark":
+                    for t in self._targets:
+                        sc = t.scene() if callable(getattr(t, "scene", None)) else None
+                        if sc is not None and hasattr(sc, "request_undo_push"):
+                            sc.request_undo_push()      # coalesced: one step per commit
         finally:
             if stack is not None and hasattr(stack, "endMacro"):
                 stack.endMacro()
@@ -852,6 +874,22 @@ class PropertyManager(QWidget):
         # Auto-refresh so dependent fields (e.g. elevation) update immediately
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
+
+    def _refuse_blank_mark(self) -> None:
+        """M16: a panel edit to a blank Mark is refused; the old value returns."""
+        from . import marks
+        from .element_params import scene_of
+        single = len(self._targets) == 1
+        old = marks.get_mark(self._targets[0]) if single else ""
+        edit = self._prop_widgets.get("Mark")
+        if edit is not None and single:        # a mixed multi-select keeps its "< mixed >" blank
+            edit.blockSignals(True)
+            edit.setText(old)
+            edit.blockSignals(False)
+        sc = scene_of(self._targets[0]) if self._targets else None
+        if sc is not None and hasattr(sc, "_show_status"):
+            sc._show_status(f"Mark can't be blank - restored to {old}" if single
+                            else "Mark can't be blank - unchanged", 4000)
 
     def _get_scale_manager(self):
         """Return the ScaleManager from the first target's scene, or fallback ref."""
