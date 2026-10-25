@@ -1664,6 +1664,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "Project Settings", _I("settings_project_icon.svg"),
             self._open_project_settings)
         _btn.setToolTip("Settings for the current project (Project Info / Units / Marks)")
+        _btn = g_set.add_large_button(
+            "Renumber", _I("renumber_icon.svg"), self._open_renumber)
+        _btn.setToolTip("Renumber element Marks for a category (Door, Window, ... Gridline)")
 
         # Edit group retired (chrome revamp): Undo/Redo migrated to the header
         # rail (window-wide Ctrl+Z/Ctrl+Y shortcuts back them).
@@ -2412,6 +2415,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             on_changed=self._on_project_settings_changed,
             parent=self,
         ).exec()
+
+    def _open_renumber(self) -> None:
+        """Open the Renumber dialog (SB2b); OK applies Marks as one undo step."""
+        from firepro3d.renumber_dialog import RenumberDialog
+        RenumberDialog(self.scene, parent=self).exec()
+        self.update_property_manager()
 
     def _apply_theme(self) -> None:
         """Re-apply the app + ribbon stylesheets for the current theme preference.

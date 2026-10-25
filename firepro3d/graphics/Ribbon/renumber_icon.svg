@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!--
+    renumber_icon.svg - document sheet with a # mark badge and a re-ordered list.
+    Two-token like settings_project_icon.svg: #1A1A1A = sheet outline + list rules, #004CFF = "#" glyph + list bullets.
+    viewBox 0 0 48 48; all geometry >=2 units from every edge.
+  -->
+  <rect x="10.5" y="4" width="27" height="40" rx="2.5"
+        fill="none" stroke="#1A1A1A" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- "#" glyph (accent) -->
+  <g stroke="#004CFF" stroke-width="2.6" stroke-linecap="round" fill="none">
+    <path d="M20 10.5 L18.2 21"/>
+    <path d="M27.8 10.5 L26 21"/>
+    <path d="M16.6 14.2 H29.4"/>
+    <path d="M16.2 17.6 H29"/>
+  </g>
+  <!-- three numbered rows: accent bullet + primary rule -->
+  <g fill="#004CFF">
+    <circle cx="17" cy="27" r="1.8"/>
+    <circle cx="17" cy="32.5" r="1.8"/>
+    <circle cx="17" cy="38" r="1.8"/>
+  </g>
+  <g stroke="#1A1A1A" stroke-width="2.2" stroke-linecap="round">
+    <path d="M22 27 H31"/>
+    <path d="M22 32.5 H29"/>
+    <path d="M22 38 H31"/>
+  </g>
+</svg>

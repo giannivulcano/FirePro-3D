@@ -352,3 +352,92 @@ def preview_next(scene, category: str, pattern: str) -> str:
         return "(blank)"
     out = format_mark(pattern, next_number(pattern, level_number, existing), level_number)
     return out or "(blank)"
+
+
+# ---------------------------------------------------------------- Renumber (scene side)
+
+def sort_point(item) -> tuple:
+    """Renumber sort point in scene coords (spec M12): wall / pipe midpoint,
+    opening centre, room centroid, sprinkler node."""
+    from .pipe import Pipe
+    from .room import Room
+    from .wall import WallSegment
+    from .wall_opening import WallOpening
+    if isinstance(item, WallOpening):
+        p = item.center_on_wall() if item.wall is not None else item.scenePos()
+        return (p.x(), p.y())
+    if isinstance(item, WallSegment):
+        a, b = item.pt1, item.pt2
+        return ((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+    if isinstance(item, Pipe):
+        a, b = item.node1.scenePos(), item.node2.scenePos()
+        return ((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+    if isinstance(item, Room):
+        pts = list(item._boundary)
+        if not pts:
+            p = item.scenePos()
+            return (p.x(), p.y())
+        return (sum(q.x() for q in pts) / len(pts), sum(q.y() for q in pts) / len(pts))
+    node = getattr(item, "node", None)          # Sprinkler
+    p = (node if node is not None else item).scenePos()
+    return (p.x(), p.y())
+
+
+def renumber_plan(scene, category: str, scope: str, level_name: Optional[str] = None, *,
+                  restart_per_level: bool, keep_order: bool) -> dict:
+    """``{item: new_mark}`` for the in-scope elements of *category* (no writes).
+
+    *scope*: ``"project"`` | ``"selected"`` | ``"level"`` (with *level_name*).
+    Gridlines carry no level, so a level scope renumbers all of them.
+    """
+    items = items_of_category(scene, category)
+    if scope == "selected":
+        sel = {id(i) for i in scene.selectedItems()}
+        in_scope = lambda i: id(i) in sel or id(getattr(i, "node", None)) in sel
+    elif scope == "level" and category != "Gridline":
+        in_scope = lambda i: item_level_name(i) == level_name
+    else:
+        in_scope = lambda i: True
+    if category == "Gridline":
+        vert, horiz = {}, {}
+        for g in items:
+            if not in_scope(g):
+                continue
+            a, b = g.grip_points()[0], g.grip_points()[1]
+            if abs(b.y() - a.y()) >= abs(b.x() - a.x()):
+                vert[g] = (a.x() + b.x()) / 2
+            else:
+                horiz[g] = (a.y() + b.y()) / 2
+        return gridline_labels(vert, horiz)
+    lm = getattr(scene, "_level_manager", None)
+    order = ({l.name: i for i, l in enumerate(sorted(lm.levels, key=lambda l: l.elevation))}
+             if lm is not None else {})
+    sm = getattr(scene, "scale_manager", None)
+    tol = sm.mm_to_scene(MARK_ROW_TOLERANCE_MM) if sm is not None else MARK_ROW_TOLERANCE_MM
+    entries = [RenumberEntry(key=i, level_order=order.get(item_level_name(i), 0),
+                             level_number=level_number_of(scene, i),
+                             point=sort_point(i), mark=get_mark(i), in_scope=in_scope(i))
+               for i in items]
+    return renumber_entries(entries, patterns(scene).get(category, ""),
+                            restart_per_level=restart_per_level,
+                            keep_order=keep_order, tol=tol)
+
+
+def apply_marks(scene, mapping: dict) -> bool:
+    """Write a Renumber result as ONE undo step, then refresh duplicates.
+
+    Only elements whose Mark changes are written; no change pushes nothing.
+    Returns True when anything changed.
+    """
+    changed = {i: m for i, m in mapping.items() if get_mark(i) != m}
+    if not changed:
+        return False
+    hold_duplicate_refresh(scene)
+    try:
+        for item, mark in changed.items():
+            set_mark(item, mark)
+        scene.push_undo_state()
+        request_duplicate_refresh(scene)
+    finally:
+        release_duplicate_refresh(scene)
+    return True
