@@ -177,6 +177,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     instructionDisplay = pyqtSignal(str)  # instructionChanged + " (Reference)" cue (RG8)
     instructionChanged = pyqtSignal(str)  # emits step-by-step instruction text
     sceneModified = pyqtSignal()          # emitted on every push_undo_state
+    levelsRestored = pyqtSignal()         # undo / redo replaced the level list (SB2b M15)
     radiationConfirm = pyqtSignal()       # Enter pressed during radiation selection
     radiationCancel = pyqtSignal()        # Escape pressed during radiation selection
     openViewRequested = pyqtSignal(str, str)  # (view_type, direction) — marker double-click
@@ -3396,6 +3397,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         extra = {}
         if sec_mgr is not None and hasattr(sec_mgr, "to_list"):
             extra["sections"] = sec_mgr.to_list()         # spec s8: markers join the snapshot
+        lm = self._level_manager
+        if lm is not None:                                # SB2b M15: Level-manager edits undo
+            extra["levels"] = lm.to_list()
+            extra["active_level"] = self.active_level
+            extra["underlay_levels"] = [list(rec.levels) for rec, _it in self.underlays]
+        if self._plan_view_manager is not None:
+            extra["plan_views"] = self._plan_view_manager.to_list()
         return {
             "nodes":              nodes_data,
             "pipes":              pipes_data,
@@ -3446,6 +3454,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._mirror_axis = None
             for v in self.views():
                 v.viewport().update()
+        levels_restored = False
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
@@ -3755,12 +3764,38 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             from .display_manager import apply_saved_display_settings
             apply_saved_display_settings(self)
 
+            # ── Level list, plan views, active level, underlay levels (SB2b M15) ──
+            lm = self._level_manager
+            if "levels" in state and lm is not None:
+                before = lm.to_list()
+                lm.from_list(state["levels"])
+                levels_restored = lm.to_list() != before
+            pvm = self._plan_view_manager
+            if "plan_views" in state and pvm is not None:
+                before_pv = pvm.to_list()
+                pvm.from_list(state["plan_views"])
+                levels_restored = levels_restored or pvm.to_list() != before_pv
+            # Only a level-list change moves the active level: switching the view
+            # is not an undo step, so an unrelated undo must not flip the tab.
+            if "active_level" in state and (
+                    levels_restored
+                    or (lm is not None and lm.get(self.active_level) is None)):
+                self.active_level = state["active_level"]
+            ul = state.get("underlay_levels")
+            if ul is not None and len(ul) == len(self.underlays):
+                for (rec, _it), names in zip(self.underlays, ul):
+                    rec.levels = list(names)
+            if levels_restored and lm is not None:
+                lm.update_elevations(self)
+
             # Re-apply level visibility
             if self._level_manager:
                 self._level_manager.apply_to_scene(self)
 
         finally:
             self._in_undo_restore = False
+        if levels_restored:
+            self.levelsRestored.emit()      # listeners see a settled scene
 
     def commit_text_edit(self) -> "str | None":  # shell → TextEditController
         """End any live inline text edit on this scene (idempotent).

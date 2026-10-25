@@ -385,6 +385,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.level_widget.levelsChanged.connect(self.update_property_manager)
         # (Level combo removed from ribbon — levels managed via Levels tab)
         self.level_widget.duplicateLevel.connect(self.scene.duplicate_level_entities)
+        self.scene.levelsRestored.connect(self._on_levels_restored)
 
         self.project_browser = ProjectBrowser(level_manager=self.scene._level_manager,
                                                      scale_manager=self.scene.scale_manager)
@@ -2611,6 +2612,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ── Draw tool helpers ─────────────────────────────────────────────────────
 
     # ── Level helpers ──────────────────────────────────────────────────────────
+
+    def _on_levels_restored(self):
+        """Undo / redo replaced the level list (SB2b M15): refresh every level view."""
+        self.level_widget.populate()
+        self.level_widget.levelsChanged.emit()
+        active = self.scene.active_level
+        cur = self.central_tabs.tabText(self.central_tabs.currentIndex())
+        if cur != f"Plan: {active}":             # only re-open when the view is elsewhere
+            self.level_widget.activeLevelChanged.emit(active)
 
     def _on_active_level_changed(self, name: str):
         """Handle active level change from widget — opens the plan tab."""

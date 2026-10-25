@@ -190,15 +190,20 @@ class LevelWidget(QWidget):
         active = getattr(self.scene, "active_level", DEFAULT_LEVEL) if self.scene else DEFAULT_LEVEL
         bold = QFont(); bold.setBold(True)
         normal = QFont()
-        for row in range(self.table.rowCount()):
-            name_it = self.table.item(row, _COL_NAME)
-            if name_it is None:
-                continue
-            is_active = name_it.text() == active
-            for col in (_COL_NAME, _COL_NUM, _COL_ELEV):
-                it = self.table.item(row, col)
-                if it:
-                    it.setFont(bold if is_active else normal)
+        was_building = self._building
+        self._building = True          # setFont fires itemChanged: not an edit
+        try:
+            for row in range(self.table.rowCount()):
+                name_it = self.table.item(row, _COL_NAME)
+                if name_it is None:
+                    continue
+                is_active = name_it.text() == active
+                for col in (_COL_NAME, _COL_NUM, _COL_ELEV):
+                    it = self.table.item(row, col)
+                    if it:
+                        it.setFont(bold if is_active else normal)
+        finally:
+            self._building = was_building
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -231,6 +236,7 @@ class LevelWidget(QWidget):
                     current = getattr(self.scene, "active_level", DEFAULT_LEVEL) if self.scene else DEFAULT_LEVEL
                     if current == old_name or current == new_name:
                         self.activeLevelChanged.emit(new_name)
+                    self._push_level_step()
 
         elif col == _COL_NUM:
             try:
@@ -243,6 +249,7 @@ class LevelWidget(QWidget):
             if new_num != lvl.number:
                 lvl.number = new_num
                 self.levelsChanged.emit()
+                self._push_level_step()
 
         elif col == _COL_ELEV:
             user_val = item.data(Qt.ItemDataRole.UserRole)
@@ -269,6 +276,7 @@ class LevelWidget(QWidget):
                         item.setText(self._fmt_elev(lvl.elevation))
                         self._building = False
                         return
+            changed = new_elev != lvl.elevation
             lvl.elevation = new_elev
             self._building = True
             item.setText(self._fmt_elev(new_elev))
@@ -277,6 +285,17 @@ class LevelWidget(QWidget):
             if self.scene:
                 self.manager.update_elevations(self.scene)
             self.levelsChanged.emit()
+            if changed:
+                self._push_level_step()
+
+    def _push_level_step(self) -> None:
+        """One undo step per Level-manager edit (SB2b M15).
+
+        Push-after-change: the snapshot holds the settled state.  ``populate``
+        never calls this (it is the undo restore's refresh).
+        """
+        if self.scene is not None and hasattr(self.scene, "push_undo_state"):
+            self.scene.push_undo_state()
 
     def _remap_underlay_views(self, old_name: str, new_name: str):
         """§16.7: propagate a level rename into underlay records.
@@ -327,6 +346,7 @@ class LevelWidget(QWidget):
         self._building = False
         self._refresh_active_combo()
         self.levelsChanged.emit()
+        self._push_level_step()
 
     def _delete_level(self):
         row = self.table.currentRow()
@@ -362,6 +382,7 @@ class LevelWidget(QWidget):
         if self.manager.get(current) is None:
             fallback_name = self.manager.levels[0].name if self.manager.levels else DEFAULT_LEVEL
             self.activeLevelChanged.emit(fallback_name)
+        self._push_level_step()          # after the active-level fallback has settled
 
     def _assign_selection(self):
         if self.scene is None:
@@ -371,6 +392,7 @@ class LevelWidget(QWidget):
             if hasattr(item, "level"):
                 item.level = active
         self.levelsChanged.emit()
+        self._push_level_step()
 
     def _duplicate_level(self):
         row = self.table.currentRow()
@@ -384,8 +406,17 @@ class LevelWidget(QWidget):
         self._building = True
         self._append_row(new_lvl)
         self._building = False
-        self.duplicateLevel.emit(source_lvl.name, new_lvl.name)
+        sc = self.scene
+        prev = getattr(sc, "_history_suspended", False) if sc is not None else False
+        if sc is not None:
+            sc._history_suspended = True          # copy_items_to_level pushes its own step
+        try:
+            self.duplicateLevel.emit(source_lvl.name, new_lvl.name)
+        finally:
+            if sc is not None:
+                sc._history_suspended = prev
         self.levelsChanged.emit()
+        self._push_level_step()                   # level + copies = one step
 
     def _on_table_context_menu(self, pos):
         row = self.table.rowAt(pos.y())
@@ -419,6 +450,13 @@ class LevelWidget(QWidget):
         items += getattr(self.scene, "_block_instances", [])
         items += getattr(self.scene, "_gridlines", [])
         items += getattr(self.scene, "_roofs", [])
+        # Walls (+ their openings), rooms and design areas carry a level too; without
+        # them a rename / delete orphaned their level and undo had nothing to restore.
+        for wall in getattr(self.scene, "_walls", []):
+            items.append(wall)
+            items += getattr(wall, "openings", [])
+        items += getattr(self.scene, "_rooms", [])
+        items += getattr(self.scene, "design_areas", [])
         ann = getattr(self.scene, "annotations", None)
         if ann:
             items += getattr(ann, "dimensions", [])
