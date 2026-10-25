@@ -523,3 +523,7 @@ ELEMENT_ROOM_PROBE_MM = 50.0
 # SB2b Marks: Renumber reading order -- elements whose sort point lies within
 # this distance (mm, vertically) of a row's first element share that row.
 MARK_ROW_TOLERANCE_MM = 600.0
+
+# Project Settings > Marks table: narrowest the stretch "Next" column may get (px),
+# so the fitted table never needs a horizontal scrollbar.
+MARKS_NEXT_COL_MIN_WIDTH_PX = 90

@@ -65,6 +65,9 @@ class ProjectSettingsDialog(HouseDialog):
         h.addWidget(self._rail)
         h.addWidget(self._stack, 1)
         self.set_body(body, margin=(0, 0, 0, 0))
+        # Now under the dialog QSS: size the Marks table to its content so the
+        # stack's (and dialog's) minimum / adjustSize() default fit it.
+        self._panes["marks"].fit_table()
 
         # extra_left is a QWidget (QPushButton subclasses QWidget) — accepted directly
         save_default = QPushButton("Save as default for new projects")
@@ -74,6 +77,11 @@ class ProjectSettingsDialog(HouseDialog):
             cancel=True,
             extra_left=save_default,
         )
+        # Per-project remembered size (fitted default when none is recorded).
+        rec = getattr(scene, "project_settings_size", None)
+        if rec:
+            self.resize(max(int(rec[0]), self.minimumSizeHint().width(), self.minimumWidth()),
+                        max(int(rec[1]), self.minimumSizeHint().height(), self.minimumHeight()))
 
     # ── public ───────────────────────────────────────────────────────────────
 
@@ -99,6 +107,13 @@ class ProjectSettingsDialog(HouseDialog):
         self._apply_all()
         from firepro3d.settings import template
         template.save_current_as_default(self._scene)
+
+    def done(self, result: int) -> None:  # type: ignore[override]
+        # OK, Cancel and the title-bar close all end here: record the size on the
+        # scene (rides the next save; no dirty flag, no undo step).
+        size = self.normalGeometry().size() if self.isMaximized() else self.size()
+        self._scene.project_settings_size = (size.width(), size.height())
+        super().done(result)
 
     def reject(self) -> None:  # type: ignore[override]
         for p in self._panes.values():

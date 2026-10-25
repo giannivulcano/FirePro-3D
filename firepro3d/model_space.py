@@ -459,6 +459,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Pipe-mode Tab cycling state now lives on self._pipe_ctl (controller)
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self.mark_patterns: dict = dict(marks.DEFAULT_PATTERNS)   # SB2b, per project
+        self.project_settings_size: tuple | None = None   # (w, h) of the Project Settings dialog, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
         self._plan_view_manager = None                         # set by main.py

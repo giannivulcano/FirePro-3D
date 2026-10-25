@@ -1748,6 +1748,28 @@ class MarksPane(SettingsPane):
             outer.addWidget(hint)
         outer.addStretch()
 
+    def fit_table(self) -> None:
+        """Give the table the minimum size that shows header + every row and all
+        three columns without scrollbars (measured, not guessed).
+
+        Call once the pane sits under the dialog stylesheet so the header height
+        is the styled one; showEvent re-runs it as a safety net.
+        """
+        from firepro3d.constants import MARKS_NEXT_COL_MIN_WIDTH_PX
+        t = self._table
+        t.ensurePolished()
+        hh = t.horizontalHeader()
+        hh.ensurePolished()
+        frame = 2 * t.frameWidth()
+        rows_h = sum(t.rowHeight(r) for r in range(t.rowCount()))
+        t.setMinimumHeight(hh.sizeHint().height() + rows_h + frame)
+        cols_w = t.columnWidth(0) + t.columnWidth(1) + MARKS_NEXT_COL_MIN_WIDTH_PX
+        t.setMinimumWidth(cols_w + frame)
+
+    def showEvent(self, event) -> None:
+        self.fit_table()
+        super().showEvent(event)
+
     def _category(self, row: int) -> str:
         return self._table.item(row, 0).text()
 
