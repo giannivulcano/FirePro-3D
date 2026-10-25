@@ -388,9 +388,13 @@ class LevelWidget(QWidget):
         if self.scene is None:
             return
         active = getattr(self.scene, "active_level", DEFAULT_LEVEL)
+        changed = False
         for item in self.scene.selectedItems():
-            if hasattr(item, "level"):
+            if hasattr(item, "level") and item.level != active:
                 item.level = active
+                changed = True
+        if not changed:
+            return
         self.levelsChanged.emit()
         self._push_level_step()
 

@@ -353,9 +353,11 @@ class LevelManager:
         # Ensure at least one level exists
         if not self._levels:
             self._levels = [Level(**vars(l)) for l in DEFAULT_LEVELS]
-        if self._levels and all(not l.number for l in self._levels):
+        # old file (no 'number' key at all): number by elevation order (M14);
+        # a user-set all-0 set carries the key and stays 0
+        if data and not any("number" in d for d in data):
             for i, l in enumerate(sorted(self._levels, key=lambda l: l.elevation)):
-                l.number = i + 1        # old file: number by elevation order (M14)
+                l.number = i + 1
 
     def reset(self):
         """Reset to default levels (used on new file)."""
