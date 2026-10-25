@@ -59,7 +59,6 @@ class WallPlacementController:
     # ── Line / polyline primitive ───────────────────────────────────────────
 
     def _move_wall(self, event, snapped):
-        sm = self._scene.scale_manager
         if self._scene._wall_anchor is None:
             self._scene.update_preview_node(snapped)
             if self._scene._wall_preview_rect is not None:
@@ -68,6 +67,16 @@ class WallPlacementController:
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._scene._constrain_angle(self._scene._wall_anchor, snapped)
+            self._preview_wall_line(tip)
+
+    def _preview_wall_line(self, tip) -> None:
+        """Redraw the line-primitive ghost: rubber band, length hint, thickness quad.
+
+        Shared by the mouse move and the HUD field-commit path
+        (``_preview_from_wall``).  A no-op until the anchor is armed.
+        """
+        sm = self._scene.scale_manager
+        if self._scene._wall_anchor is not None:
             self._scene.preview_pipe.setLine(
                 self._scene._wall_anchor.x(), self._scene._wall_anchor.y(),
                 tip.x(), tip.y()
@@ -374,28 +383,52 @@ class WallPlacementController:
             s.update_preview_node(snapped)
             return
         s.preview_node.hide()
+        if (s._wall_rect_side_pt is None and event is not None
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            snapped = s._constrain_angle(base, snapped)
+        self._preview_wall_rect(snapped)
+        s.publish_placement_state(base, snapped)
+
+    def _preview_wall_rect(self, point) -> None:
+        """Step-aware wall-rectangle ghost (mouse + HUD field-commit).
+
+        Side step: the side guide runs ``base → point``.  Depth step: the ghost
+        and the thickness overlay are fitted to the rect whose depth is
+        *point*'s signed distance from the fixed side.  A no-op until armed.
+        """
+        s = self._scene
+        base = s._wall_rect_anchor
+        if base is None:
+            return
         side = s._wall_rect_side_pt
         if side is None:
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                snapped = s._constrain_angle(base, snapped)
             if s._wall_rect_ref_line0 is not None:
-                a, b = rect_side_ghost(base, snapped, s._wall_rect_from_center)
+                a, b = rect_side_ghost(base, point, s._wall_rect_from_center)
                 s._wall_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
         else:
-            apply_rect_ghost(s._wall_rect_preview, base, side, snapped,
+            apply_rect_ghost(s._wall_rect_preview, base, side, point,
                              s._wall_rect_from_center)
             # The overlay tracks the same floorless shape as the ghost, so a
             # sub-0.5 mm depth collapses it onto the side (not a stale depth).
             ghost = _rect_solve(base, side,
-                                rect_signed_depth(base, side, snapped),
+                                rect_signed_depth(base, side, point),
                                 s._wall_rect_from_center, 0.0)
             if ghost is not None:
                 self._update_wall_rect_thickness_preview(
                     rotated_rect_corners(*ghost))
             elif s._wall_rect_thickness_preview is not None:
                 s._wall_rect_thickness_preview.hide()
-        s.publish_placement_state(base, snapped)
+
+    def _preview_from_wall(self, point) -> None:
+        """Redraw the wall ghost from a resolved point (HUD field-commit).
+
+        Routes by primitive, mirroring ``_press_wall_router`` /
+        ``_apply_wall_dynamic_input``.
+        """
+        if self._scene._wall_primitive == "rect":
+            self._preview_wall_rect(point)
+        else:
+            self._preview_wall_line(point)
 
     def _press_wall_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
         """3-click wall-rectangle placement, mirroring ``_press_draw_rectangle``.

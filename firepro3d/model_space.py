@@ -5471,6 +5471,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
         "draw_arc":        "_preview_from_arc",
+        "wall":            "_preview_from_wall",
+        "floor":           "_preview_from_floor",
     }
 
     def _preview_from_resolved(self, resolved) -> None:
@@ -5672,12 +5674,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             else:
                 self._geom_ctl.hide_close_ring()
             snapped = tip
-            self.preview_pipe.setLine(
-                last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
-            pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
-            pen.setCosmetic(True)
-            self.preview_pipe.setPen(pen)
-            self.preview_pipe.show()
+            self._preview_floor_polygon(snapped)
             # Publish the resolved cursor every frame so the passive HUD seeds
             # a live per-segment Length/Angle from ``last_pt`` (the anchor
             # ``get_placement_anchor`` returns for a floor polygon).  Mirrors
@@ -5686,6 +5683,51 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # readout.  ``_draw_dim_hint`` is the legacy painted string and is
             # dead under the HUD design (``publish_placement_state`` clears it).
             self.publish_placement_state(last_pt, snapped)
+
+    def _preview_from_wall(self, point) -> None:  # shell → WallPlacementController (HUD field-commit)
+        return self._wall_ctl._preview_from_wall(point)
+
+    def _preview_floor_polygon(self, tip) -> None:
+        """Redraw the floor-polygon rubber band from the last vertex to *tip*.
+
+        Shared by the mouse move and the HUD field-commit path.  A no-op until
+        the first vertex is placed.
+        """
+        if self._floor_active is None:
+            return
+        last_pt = self._floor_active.last_point()
+        self.preview_pipe.setLine(last_pt.x(), last_pt.y(), tip.x(), tip.y())
+        pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        self.preview_pipe.setPen(pen)
+        self.preview_pipe.show()
+
+    def _preview_floor_rect(self, point) -> None:
+        """Step-aware floor-rectangle ghost (mouse + HUD field-commit).
+
+        Side step: the side guide runs ``base → point``.  Depth step: the ghost
+        is fitted to the rect whose depth is *point*'s signed distance from the
+        fixed side.  A no-op until the base is armed.
+        """
+        from .geometry_2d import rect_side_ghost, apply_rect_ghost
+        base = self._floor_rect_anchor
+        if base is None:
+            return
+        side = self._floor_rect_side_pt
+        if side is None:
+            if self._floor_rect_ref_line0 is not None:
+                a, b = rect_side_ghost(base, point, self._floor_rect_from_center)
+                self._floor_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
+        else:
+            apply_rect_ghost(self._floor_rect_preview, base, side, point,
+                             self._floor_rect_from_center)
+
+    def _preview_from_floor(self, point) -> None:
+        """Redraw the floor ghost from a resolved point (HUD field-commit)."""
+        if self._floor_primitive == "rect":
+            self._preview_floor_rect(point)
+        else:
+            self._preview_floor_polygon(point)
 
     def _move_wall_rect(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C2)
         return self._wall_ctl._move_wall_rect(*args, **kwargs)
@@ -5698,24 +5740,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         rect via ``apply_rect_ghost``.  Mirrors ``_move_wall_rect`` (minus the
         wall-thickness overlay).
         """
-        from .geometry_2d import rect_side_ghost, apply_rect_ghost
         self.preview_pipe.hide()
         base = self._floor_rect_anchor
         if base is None:
             self.update_preview_node(snapped)
             return
         self.preview_node.hide()
-        side = self._floor_rect_side_pt
-        if side is None:
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                snapped = self._constrain_angle(base, snapped)
-            if self._floor_rect_ref_line0 is not None:
-                a, b = rect_side_ghost(base, snapped, self._floor_rect_from_center)
-                self._floor_rect_ref_line0.setLine(a.x(), a.y(), b.x(), b.y())
-        else:
-            apply_rect_ghost(self._floor_rect_preview, base, side, snapped,
-                             self._floor_rect_from_center)
+        if (self._floor_rect_side_pt is None and event is not None
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            snapped = self._constrain_angle(base, snapped)
+        self._preview_floor_rect(snapped)
         self.publish_placement_state(base, snapped)
 
     def _move_roof(self, event, snapped):
