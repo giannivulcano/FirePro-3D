@@ -27,6 +27,7 @@ from .constants import (
     GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
+from .marks import duplicate_groups, letter_label
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,11 +56,7 @@ def _next_v_label() -> str:
     global _next_letter_idx
     idx = _next_letter_idx
     _next_letter_idx += 1
-    # A–Z, then AA, AB, …
-    if idx < 26:
-        return chr(65 + idx)
-    else:
-        return chr(65 + (idx // 26) - 1) + chr(65 + (idx % 26))
+    return letter_label(idx)       # A-Z, AA, AB, ... (marks.letter_label)
 
 
 def auto_label(p1: QPointF, p2: QPointF) -> str:
@@ -83,17 +80,15 @@ def _label_to_letter_idx(label: str) -> int | None:
         label: A string label (e.g. "A", "Z", "AA", "AB").
 
     Returns:
-        Integer index, or None if the label is not purely alphabetic or
-        has more than two characters.
+        Integer index (inverse of ``letter_label``), or None if the label is
+        not purely A-Z letters.
     """
-    if not label.isalpha():
+    if not (label.isascii() and label.isalpha()):
         return None
-    label = label.upper()
-    if len(label) == 1:
-        return ord(label) - ord('A')
-    elif len(label) == 2:
-        return 26 + (ord(label[0]) - ord('A')) * 26 + (ord(label[1]) - ord('A'))
-    return None
+    n = 0
+    for ch in label.upper():
+        n = n * 26 + (ord(ch) - 64)
+    return n - 1
 
 
 def sync_grid_counters(gridlines: list) -> None:
@@ -135,9 +130,8 @@ def check_duplicate_labels(gridlines: list) -> set:
         Set of :class:`GridlineItem` instances that share a label with at
         least one other item in *gridlines*.
     """
-    from collections import Counter
-    label_counts = Counter(gl.grid_label for gl in gridlines)
-    return {gl for gl in gridlines if label_counts[gl.grid_label] > 1}
+    groups = duplicate_groups({gl: gl.grid_label for gl in gridlines})   # non-blank only
+    return {gl for keys in groups.values() for gl in keys}
 
 
 def apply_duplicate_warnings(gridlines: list) -> None:

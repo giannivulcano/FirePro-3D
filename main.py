@@ -2419,8 +2419,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _open_renumber(self) -> None:
         """Open the Renumber dialog (SB2b); OK applies Marks as one undo step."""
         from firepro3d.renumber_dialog import RenumberDialog
-        RenumberDialog(self.scene, parent=self).exec()
-        self.update_property_manager()
+        RenumberDialog(self.scene, parent=self).exec()    # apply_marks refreshes the panel itself
 
     def _apply_theme(self) -> None:
         """Re-apply the app + ribbon stylesheets for the current theme preference.

@@ -7,6 +7,7 @@ below it read and write the real element fields.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -166,10 +167,15 @@ def renumber_entries(entries: list, pattern: str, *, restart_per_level: bool,
 
 
 def letter_label(idx: int) -> str:
-    """0 -> A ... 25 -> Z, 26 -> AA (the gridline letter sequence)."""
-    if idx < 26:
-        return chr(65 + idx)
-    return chr(65 + (idx // 26) - 1) + chr(65 + (idx % 26))
+    """Bijective base-26: 0 -> A ... 25 -> Z, 26 -> AA, 701 -> ZZ, 702 -> AAA.
+
+    The one gridline letter sequence (``gridline`` reuses it)."""
+    out = ""
+    n = idx + 1
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        out = chr(65 + r) + out
+    return out
 
 
 def gridline_labels(verticals: dict, horizontals: dict) -> dict:
@@ -222,7 +228,10 @@ def item_level_name(item) -> Optional[str]:
     node = getattr(item, "node", None)
     if node is not None:                  # Sprinkler: the node is authoritative
         return getattr(node, "level", None)
-    return getattr(item, "level", None)
+    level = getattr(item, "level", None)
+    if not level:                         # Pipe with no level of its own: node1's
+        level = getattr(getattr(item, "node1", None), "level", None)
+    return level
 
 
 def items_of_category(scene, category: str) -> list:
@@ -266,11 +275,20 @@ def hold_duplicate_refresh(scene) -> None:
 
 
 def release_duplicate_refresh(scene) -> None:
-    """End a hold; the outermost release runs one refresh if any was requested."""
+    """End a hold; the outermost release runs one refresh if any was requested.
+
+    Callers release from a ``finally``: while an exception is propagating a
+    refresh failure is swallowed so it cannot mask the original error."""
     scene._dup_hold = max(0, getattr(scene, "_dup_hold", 1) - 1)
     if scene._dup_hold == 0 and getattr(scene, "_dup_pending", False):
         scene._dup_pending = False
-        refresh_duplicates(scene)
+        if sys.exc_info()[0] is not None:
+            try:
+                refresh_duplicates(scene)
+            except Exception:
+                pass
+        else:
+            refresh_duplicates(scene)
 
 
 def request_duplicate_refresh(scene) -> None:
@@ -388,13 +406,16 @@ def renumber_plan(scene, category: str, scope: str, level_name: Optional[str] = 
     """``{item: new_mark}`` for the in-scope elements of *category* (no writes).
 
     *scope*: ``"project"`` | ``"selected"`` | ``"level"`` (with *level_name*).
-    Gridlines carry no level, so a level scope renumbers all of them.
+    Gridlines carry no level and are numbered as one project-wide set, so any
+    scope renumbers all of them.
     """
     items = items_of_category(scene, category)
-    if scope == "selected":
+    if category == "Gridline":
+        in_scope = lambda i: True
+    elif scope == "selected":
         sel = {id(i) for i in scene.selectedItems()}
         in_scope = lambda i: id(i) in sel or id(getattr(i, "node", None)) in sel
-    elif scope == "level" and category != "Gridline":
+    elif scope == "level":
         in_scope = lambda i: item_level_name(i) == level_name
     else:
         in_scope = lambda i: True
@@ -414,7 +435,7 @@ def renumber_plan(scene, category: str, scope: str, level_name: Optional[str] = 
              if lm is not None else {})
     sm = getattr(scene, "scale_manager", None)
     tol = sm.mm_to_scene(MARK_ROW_TOLERANCE_MM) if sm is not None else MARK_ROW_TOLERANCE_MM
-    entries = [RenumberEntry(key=i, level_order=order.get(item_level_name(i), 0),
+    entries = [RenumberEntry(key=i, level_order=order.get(item_level_name(i), len(order)),
                              level_number=level_number_of(scene, i),
                              point=sort_point(i), mark=get_mark(i), in_scope=in_scope(i))
                for i in items]

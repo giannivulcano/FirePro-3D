@@ -5,6 +5,8 @@ applies the result as one undo step (``marks.apply_marks``).
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from PyQt6.QtCore import QRectF, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
@@ -218,6 +220,14 @@ class RenumberDialog(HouseDialog):
             self._keep.blockSignals(True)
             self._keep.setChecked(False)
             self._keep.blockSignals(False)
+        # Gridlines are numbered as one project-wide set: only Whole project applies
+        self._scope_group.blockSignals(True)
+        if grid:
+            self._r_project.setChecked(True)
+        self._scope_group.blockSignals(False)
+        self._r_selected.setEnabled(not grid)
+        self._r_level.setEnabled(not grid and self._level.count() > 0)
+        self._level.setEnabled(not grid and self._level.count() > 0)
         self._refresh()
 
     def set_scope(self, scope: str, level_name: str | None = None) -> None:
@@ -247,14 +257,18 @@ class RenumberDialog(HouseDialog):
 
     # -- internals ----------------------------------------------------------------
     def _scope(self):
+        if self._cat.currentText() == "Gridline":
+            return "project", None
         if self._r_selected.isChecked():
             return "selected", None
-        if self._r_level.isChecked():
+        if self._r_level.isChecked() and self._level.currentData() is not None:
             return "level", self._level.currentData()
         return "project", None
 
     def _on_level_picked(self, _index: int) -> None:
+        self._scope_group.blockSignals(True)         # one refresh below, not one per toggle
         self._r_level.setChecked(True)               # mockup: picking a level selects the scope
+        self._scope_group.blockSignals(False)
         self._refresh()
 
     def _blank_pattern(self) -> bool:
@@ -267,8 +281,8 @@ class RenumberDialog(HouseDialog):
         blank = self._blank_pattern()
         mapping = self.current_mapping()
         self._mapping = mapping
-        news = [m for m in mapping.values()]
-        dup = {m for m in news if m and news.count(m) > 1} if not grid else set()
+        counts = Counter(mapping.values())
+        dup = {m for m, c in counts.items() if m and c > 1} if not grid else set()
         self._table.setRowCount(len(mapping))
         self._table.setFixedHeight(min(_TABLE_MAX_H, 26 + max(1, len(mapping)) * _ROW_H + 2))
         self._rows = []

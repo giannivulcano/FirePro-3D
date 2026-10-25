@@ -157,10 +157,9 @@ def _hr_get(item, field: str, key):
 def _level_number_getter(level_of):
     """Getter for ``Level.Number``: the stored number of the level *level_of* names."""
     def get(item):
-        lm = getattr(scene_of(item), "_level_manager", None)
-        name = level_of(item)
-        lvl = lm.get(name) if (lm is not None and name) else None
-        return (lvl.number or None) if lvl is not None else None   # 0 = unassigned
+        # one resolver with the {level} mint token (marks.level_number_of)
+        from .marks import level_number_of
+        return level_number_of(scene_of(item), item)
     return get
 
 
