@@ -1,8 +1,8 @@
 """SB2b A3 / G-M4 -- Marks pane edits patterns; Next previews per keystroke; edits never rewrite Marks."""
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QLineEdit
+from PyQt6.QtGui import QColor, QMouseEvent
+from PyQt6.QtWidgets import QApplication, QLineEdit
 
 from firepro3d import marks
 from firepro3d.settings.panes import MarksPane
@@ -64,9 +64,16 @@ def test_apply_writes_patterns_and_never_rewrites_marks(qapp, shown_model_view):
     pane.apply()
     assert scene.mark_patterns["Door"] == "DR-{n:02}"
     assert [marks.get_mark(d) for d in marks.items_of_category(scene, "Door")] == ["D1", "D4"]
-    new = _door(scene, 5000, "")
-    marks.mint(scene, new)
-    assert marks.get_mark(new) == "DR-01"
+    scene.set_mode("opening", template="door_914")     # the real door tool, not marks.mint
+    vp = view.viewport()
+    p = view.mapFromScene(QPointF(5000, 0))
+    for et in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        QApplication.sendEvent(vp, QMouseEvent(
+            et, p.toPointF(), vp.mapToGlobal(p).toPointF(), Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    doors = marks.items_of_category(scene, "Door")
+    assert len(doors) == 3
+    assert marks.get_mark(doors[-1]) == "DR-01"
 
 
 def test_revert_restores_snapshot(qapp, shown_model_view):
