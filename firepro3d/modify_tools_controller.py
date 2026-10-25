@@ -1748,27 +1748,32 @@ class ModifyToolsController:
         # §8: constraints internal to the copied set ride every copy.
         cons = s.constraint_ctl.internal_records(copy_src)
         created = []
-        if v == "polar":
-            centre = QPointF(s._array_base)
-            step = self.polar_step(float(p["total_deg"]), int(p["count"]))
-            for k in range(1, int(p["count"])):
-                # D30: only constraints the k-th turn preserves ride the copy.
-                new = s.paste_items(QPointF(0, 0), data=records,
-                                    constraints=cons,
-                                    rotation_deg=k * step) or []
-                # Constraint seam (§8): each copy's turn is one edit.
-                with s.constraint_ctl.edit(new):
-                    for it in self._rotatable(new):
-                        it.manip_rotate(k * step, QPointF(centre))
-                for it in new:
-                    fitting = getattr(it, "fitting", None)
-                    if fitting is not None:
-                        fitting.update()
-                created += new
-        else:
-            for t in transforms:
-                created += s.paste_items(QPointF(t.dx(), t.dy()),
-                                         data=records, constraints=cons) or []
+        from . import marks as _marks
+        _marks.hold_duplicate_refresh(s)      # one refresh for the whole Array
+        try:
+            if v == "polar":
+                centre = QPointF(s._array_base)
+                step = self.polar_step(float(p["total_deg"]), int(p["count"]))
+                for k in range(1, int(p["count"])):
+                    # D30: only constraints the k-th turn preserves ride the copy.
+                    new = s.paste_items(QPointF(0, 0), data=records,
+                                        constraints=cons,
+                                        rotation_deg=k * step) or []
+                    # Constraint seam (§8): each copy's turn is one edit.
+                    with s.constraint_ctl.edit(new):
+                        for it in self._rotatable(new):
+                            it.manip_rotate(k * step, QPointF(centre))
+                    for it in new:
+                        fitting = getattr(it, "fitting", None)
+                        if fitting is not None:
+                            fitting.update()
+                    created += new
+            else:
+                for t in transforms:
+                    created += s.paste_items(QPointF(t.dx(), t.dy()),
+                                             data=records, constraints=cons) or []
+        finally:
+            _marks.release_duplicate_refresh(s)
         if created:
             s.push_undo_state()
         s._move_ghost = []

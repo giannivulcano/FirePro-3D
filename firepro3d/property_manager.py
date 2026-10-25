@@ -113,6 +113,11 @@ class PropertyManager(QWidget):
             QComboBox, QSpinBox, QLineEdit, QPlainTextEdit {{
                 background: {_field}; color: {_t.ink};
             }}
+            /* SB2b M10: a Mark shared within its category (dynamic property, so the
+               generic state="warn" card rule never matches); same sheet as the ink
+               rule above, so specificity decides */
+            QLineEdit[markDup="true"] {{ color: {_t.warn}; border: 1px solid {_t.warn}; }}
+            QLabel[markDup="true"] {{ color: {_t.warn}; }}
             QWidget#segmented QToolButton {{
                 background: {_field}; border: 1px solid {_t.border_subtle};
                 border-radius: 5px; color: {_t.muted};
@@ -575,6 +580,7 @@ class PropertyManager(QWidget):
                 if isinstance(widget, QLineEdit):
                     widget.setPlaceholderText("< mixed >")
                     widget.clear()
+                    widget.setModified(False)   # an untouched mixed field is not a user edit
                 elif isinstance(widget, QCheckBox):
                     widget.setTristate(True)
                     widget.setCheckState(Qt.CheckState.PartiallyChecked)
@@ -594,9 +600,9 @@ class PropertyManager(QWidget):
                 from . import marks
                 from .element_params import scene_of
                 dup = marks.duplicate_info(scene_of(self._targets[0]), self._targets[0])
-                state = "warn" if dup else ""
+                flag = "true" if dup else ""
                 for w_ in (widget, lbl):
-                    w_.setProperty("state", state)
+                    w_.setProperty("markDup", flag)
                     w_.style().unpolish(w_)
                     w_.style().polish(w_)
                 if dup:
@@ -793,6 +799,9 @@ class PropertyManager(QWidget):
         if self._refreshing:
             return  # ignore signals fired during form rebuild
         if key == "Mark" and not str(value).strip():
+            edit = self._prop_widgets.get("Mark")
+            if len(self._targets) > 1 and not (edit is not None and edit.isModified()):
+                return    # an untouched "< mixed >" field tabbed through is a no-op
             self._refuse_blank_mark()    # M16: a Mark is never cleared from the panel
             return
         stack = None
@@ -829,6 +838,9 @@ class PropertyManager(QWidget):
                     [u for u in self._targets
                      if callable(getattr(u, "scene", None)) and u.scene() is sc],
                     typed=True))         # D31: a typed panel value is exact
+        from . import marks as _marks
+        before = ({id(t): _marks.get_mark(t) for t in self._targets}
+                  if key == "Mark" else {})
         try:
             with defer:
                 for t in self._targets:
@@ -839,6 +851,8 @@ class PropertyManager(QWidget):
                         self._cascade_sprinkler_props(t)
                 if key == "Mark":
                     for t in self._targets:
+                        if _marks.get_mark(t) == before.get(id(t)):
+                            continue        # unchanged (focus-out on the same text): no step
                         sc = t.scene() if callable(getattr(t, "scene", None)) else None
                         if sc is not None and hasattr(sc, "request_undo_push"):
                             sc.request_undo_push()      # coalesced: one step per commit

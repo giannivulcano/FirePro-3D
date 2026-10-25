@@ -9282,6 +9282,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                               f"skipped - their sprinklers were not copied")
         else:
             self._show_status(f"Pasted {len(data)} item(s)")
+        from .marks import request_duplicate_refresh
+        request_duplicate_refresh(self)      # SB2b M10: duplicate state is derived; re-run after a bulk add
         return new_items
 
     def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)

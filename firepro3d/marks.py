@@ -259,6 +259,28 @@ def duplicate_info(scene, item) -> Optional[str]:
     return f"{count} {_PLURAL.get(cat, cat.lower() + 's')} share Mark {mark}"
 
 
+def hold_duplicate_refresh(scene) -> None:
+    """Defer :func:`request_duplicate_refresh` until the matching release (Array
+    pastes once per copy; the panel rebuild is synchronous)."""
+    scene._dup_hold = getattr(scene, "_dup_hold", 0) + 1
+
+
+def release_duplicate_refresh(scene) -> None:
+    """End a hold; the outermost release runs one refresh if any was requested."""
+    scene._dup_hold = max(0, getattr(scene, "_dup_hold", 1) - 1)
+    if scene._dup_hold == 0 and getattr(scene, "_dup_pending", False):
+        scene._dup_pending = False
+        refresh_duplicates(scene)
+
+
+def request_duplicate_refresh(scene) -> None:
+    """:func:`refresh_duplicates` now, or once at the end of the current hold."""
+    if getattr(scene, "_dup_hold", 0) > 0:
+        scene._dup_pending = True
+    else:
+        refresh_duplicates(scene)
+
+
 def refresh_duplicates(scene) -> None:
     """Re-run duplicate detection after a bulk Mark change: the gridline bubbles
     (their own orange path) and a property-panel rebuild of the current selection.
@@ -270,7 +292,8 @@ def refresh_duplicates(scene) -> None:
     sig = getattr(scene, "requestPropertyUpdate", None)
     if sig is not None:
         sel = list(scene.selectedItems())
-        sig.emit(sel if sel else None)
+        if sel:        # no selection: leave the panel alone (it may show a template)
+            sig.emit(sel)
 
 
 def clean_patterns(raw) -> dict:
