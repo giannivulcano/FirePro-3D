@@ -236,7 +236,8 @@ class SceneIOMixin:
         self.project_settings_size = (
             (int(_pss[0]), int(_pss[1]))
             if isinstance(_pss, (list, tuple)) and len(_pss) == 2
-            and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and 0 < v < 100000          # also rejects inf / nan
                     for v in _pss)
             else None)
         saved_active = payload.get("active_level", "")

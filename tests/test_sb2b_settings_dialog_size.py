@@ -2,6 +2,7 @@
 import json
 
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 
 from firepro3d import theme
@@ -61,7 +62,7 @@ def _state(scene):
     return (len(scene._undo_stack), scene._undo_pos)
 
 
-@pytest.mark.parametrize("path", ["cancel", "ok"])
+@pytest.mark.parametrize("path", ["cancel", "ok", "close", "esc"])
 def test_g_s2_close_records_size_without_dirty_or_undo(app_qss, shown_model_view, path):
     _, scene = shown_model_view
     fired = []
@@ -70,7 +71,11 @@ def test_g_s2_close_records_size_without_dirty_or_undo(app_qss, shown_model_view
     dlg = _dlg(scene)
     dlg.show(); QTest.qWaitForWindowExposed(dlg)
     dlg.resize(900, 700); QTest.qWait(30)
-    (dlg.reject if path == "cancel" else dlg._on_ok)()
+    if path == "esc":
+        QTest.keyClick(dlg, Qt.Key.Key_Escape)
+    else:
+        {"cancel": dlg.reject, "ok": dlg._on_ok, "close": dlg.close}[path]()
+    QTest.qWait(10)
     assert scene.project_settings_size == (900, 700)
     assert _state(scene) == before
     assert fired == []
@@ -139,3 +144,27 @@ def test_g_s1_marks_pane_min_width_shows_all_columns(app_qss):
     pane.show(); QTest.qWaitForWindowExposed(pane); QTest.qWait(30)
     assert t.viewport().width() >= need
     assert not t.horizontalScrollBar().isVisible()
+
+
+@pytest.mark.parametrize("bad", ["Infinity", "NaN", "-5", "1e9", "\"x\""])
+def test_g_s2_bad_recorded_size_loads_as_none(app_qss, shown_model_view, tmp_path, bad):
+    _, scene = shown_model_view
+    scene.project_settings_size = (900, 700)
+    f = tmp_path / "p.fpd"
+    scene.save_to_file(str(f))
+    txt = f.read_text(encoding="utf-8").replace(
+        '"project_settings_size": [\n    900,', '"project_settings_size": [\n    ' + bad + ',')
+    txt = txt.replace('"project_settings_size": [900,', '"project_settings_size": [' + bad + ',')
+    assert bad in txt
+    f.write_text(txt, encoding="utf-8")
+    scene._clear_scene()
+    scene.load_from_file(str(f))
+    assert scene.project_settings_size is None
+
+
+def test_g_s2_recorded_size_clamped_to_screen(app_qss, shown_model_view):
+    _, scene = shown_model_view
+    scene.project_settings_size = (50000, 50000)
+    d = _dlg(scene)
+    avail = d.screen().availableGeometry()
+    assert d.height() <= avail.height() and d.width() <= max(avail.width(), d.minimumWidth())

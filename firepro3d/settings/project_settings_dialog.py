@@ -80,8 +80,13 @@ class ProjectSettingsDialog(HouseDialog):
         # Per-project remembered size (fitted default when none is recorded).
         rec = getattr(scene, "project_settings_size", None)
         if rec:
-            self.resize(max(int(rec[0]), self.minimumSizeHint().width(), self.minimumWidth()),
-                        max(int(rec[1]), self.minimumSizeHint().height(), self.minimumHeight()))
+            w = max(int(rec[0]), self.minimumSizeHint().width(), self.minimumWidth())
+            h = max(int(rec[1]), self.minimumSizeHint().height(), self.minimumHeight())
+            scr = self.screen() or (parent.screen() if parent is not None else None)
+            if scr is not None:   # a size recorded on a bigger monitor fits this one
+                avail = scr.availableGeometry()
+                w, h = min(w, max(avail.width(), self.minimumWidth())), min(h, avail.height())
+            self.resize(w, h)
 
     # ── public ───────────────────────────────────────────────────────────────
 
