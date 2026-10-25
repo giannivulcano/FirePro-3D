@@ -76,6 +76,7 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | B4 | Architecture A: one ConstraintController with a per-scene capability (no parallel plan system) | Phase 3 ask |
 | B5 | Ribbon mockup approved, with Edit + Modify merged into one group titled **Edit** | Phase 3 mockup gate |
 | B6 | Design sections 1-4 below approved | Phase 3 asks |
+| S1 | Elevation / Section tabs are a seventh canvas kind `section`, behaving like paper / 3D (Build › Block live; the rest off, "Not available in this view") | slice-1 Phase 2 ask |
 
 ## Architecture & Constraints
 
@@ -94,16 +95,18 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
   existing builders' button sets; the button roster, order and shortcuts stay owned by
   `scene-tools.md` D1/D2 -- only the grouping changes.
 - **Canvas context.** `_set_block_editor_context(active: bool)` generalizes to
-  `_set_canvas_context(kind)`, `kind` in `plan | block | schematic | paper | 3d | detail`,
-  derived in `_on_tab_changed` (today's `isinstance(w, BlockEditorWidget)` branch;
-  schematic = a `BlockEditorWidget` of kind `"schematic"`). One table owns which groups
-  are live per kind:
+  `_set_canvas_context(kind)`, `kind` in
+  `plan | block | schematic | paper | 3d | detail | section`, derived in `_on_tab_changed`
+  (today's `isinstance(w, BlockEditorWidget)` branch; schematic = a `BlockEditorWidget` of
+  kind `"schematic"`; section = a `SectionView` -- every Elevation and Section tab, each on
+  its own `section_manager` scene, which today falls through `_on_tab_changed` as plan).
+  One table owns which groups are live per kind:
 
-  | Group | plan | detail | block | schematic | paper | 3d |
-  |---|---|---|---|---|---|---|
-  | Build › Block | live | live | live | live | live | live |
-  | Build › Definition, 2D Geometry | off (a) | off (a) | live | live (c) | off (b) | off (b) |
-  | Editor › Edit, Constrain, Inspect | live (d) | live (d) | live | live | off (b) | off (b) |
+  | Group | plan | detail | block | schematic | section | paper | 3d |
+  |---|---|---|---|---|---|---|---|
+  | Build › Block | live | live | live | live | live | live | live |
+  | Build › Definition, 2D Geometry | off (a) | off (a) | live | live (c) | off (b) | off (b) | off (b) |
+  | Editor › Edit, Constrain, Inspect | live (d) | live (d) | live | live | off (b) | off (b) | off (b) |
 
   (a) tooltip "Open or create a block to edit" (today's `_BE_NO_EDITOR_TIP`);
   (b) tooltip "Not available in this view"; (c) the schematic capability narrowing
@@ -111,6 +114,9 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
   second pass after the table; (d) Constrain + Inspect stay `off (a)` in plan/detail
   until slice 2 lands. Detail views show the model scene and are assumed to behave as
   plan -- **unverified: the slice-1 plan's first step probes the Detail canvas path.**
+  The `section` column was ratified at the slice-1 Phase 2 gate (S1, 2026-10-25): it
+  behaves like paper / 3D; Editor tools acting on a section scene are a follow-up
+  (`todo_open.md` "Constraint refs beyond walls + gridlines", +1 occurrence).
 - **Selection narrowing.** `_refresh_modify_buttons` runs against the *active* scene for
   every live kind (plan included), so a wall selection disables Scale / Flip / Mirror /
   Offset / Array (B2) and Explode stays Block-Editor-only (containment C3).
@@ -249,7 +255,7 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 
 ## Verification Checklist (tests -- VC3: real MainWindow / scene, each shown RED with the change reverted)
 
-- [ ] T1 roster + per-group enable state for each canvas kind (plan, detail, block, schematic, paper, 3d), tooltips included.
+- [ ] T1 roster + per-group enable state for each canvas kind (plan, detail, block, schematic, section, paper, 3d), tooltips included.
 - [ ] T2 selecting walls / pipes / 2D geometry inserts no tab and leaves the current tab unchanged.
 - [ ] T3 place a rect wall -> drag a corner grip -> the four walls stay a rectangle (angles measured from endpoints).
 - [ ] T4 Smart Dim a wall length -> drag its other end -> length held; Smart Dim an end-to-gridline offset -> move the gridline -> offset held.
@@ -271,7 +277,7 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 
 - Property-panel rows: Opening level / alignment / Flip Hinge / Flip Facing; per-instance Stroke / Fill override + Clear (P2, G7).
 - Wall hooks for Flip / Mirror / Scale / Array / Offset / Trim / Extend (B2).
-- Level refs in an elevation / section Editor (B1).
+- Level refs in an elevation / section Editor (B1); Editor tools on a section scene (S1).
 - Floor / roof / room / pipe constraint refs (G8).
 - Re-home or close the overlapping open lines (`todo_open.md` :31 Revit-style Modify tab, :917 / :926 architecture contextual tabs, :928 paper Viewport / Sheet Text tabs, :1160 Underlay contextual tab, :477 contextual-tab return after editor).
 - Per-spec full rewrites for the six consolidated specs (Rule A pointers land at Account).
