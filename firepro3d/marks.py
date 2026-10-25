@@ -278,7 +278,9 @@ def release_duplicate_refresh(scene) -> None:
     """End a hold; the outermost release runs one refresh if any was requested.
 
     Callers release from a ``finally``: while an exception is propagating a
-    refresh failure is swallowed so it cannot mask the original error."""
+    refresh failure is swallowed so it cannot mask the original error. Never
+    release from an ``except`` block on a normal path: ``sys.exc_info`` is set
+    there too, so a real refresh failure would be swallowed."""
     scene._dup_hold = max(0, getattr(scene, "_dup_hold", 1) - 1)
     if scene._dup_hold == 0 and getattr(scene, "_dup_pending", False):
         scene._dup_pending = False

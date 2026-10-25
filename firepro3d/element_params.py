@@ -154,8 +154,8 @@ def _hr_get(item, field: str, key):
     return getattr(hr, field).get(key) if hr is not None else None
 
 
-def _level_number_getter(level_of):
-    """Getter for ``Level.Number``: the stored number of the level *level_of* names."""
+def _level_number_getter():
+    """Getter for ``Level.Number``: the stored number of the item's level."""
     def get(item):
         # one resolver with the {level} mint token (marks.level_number_of)
         from .marks import level_number_of
@@ -268,7 +268,7 @@ def _P(key, kind, tier, getter, label=None):
 def _level_keys(level_of=None):
     level_of = level_of or (lambda i: _level_name(i))
     return [_P("Level.Name", "text", 4, level_of),
-            _P("Level.Number", "text", 4, _level_number_getter(level_of))]
+            _P("Level.Number", "text", 4, _level_number_getter())]
 
 
 _OPENING_KEYS = [

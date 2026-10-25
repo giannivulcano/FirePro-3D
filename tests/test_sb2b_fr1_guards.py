@@ -327,10 +327,12 @@ def test_populate_baseline(qapp, shown_model_view):
 def _assert_level_copy_marks(scene):
     """Wall + door copies mint the next Mark. Pipe / sprinkler copies are NOT created
     on a level copy (filed node-level bug: the pasted node keeps the source z and
-    reuses the original), so only the no-collision invariant holds for them."""
+    reuses the original), so only the no-collision invariant holds for them -- no
+    count is pinned, so fixing that bug leaves this guard green."""
     got = _all_marks(scene)
     assert got["Wall"] == ["WL1", "WL2"] and got["Door"] == ["D1", "D2"]
-    assert got["Pipe"] == ["P1"] and got["Sprinkler"] == ["S1"]
+    for cat, first in (("Pipe", "P1"), ("Sprinkler", "S1")):
+        assert first in got[cat] and len(set(got[cat])) == len(got[cat])
 
 
 def test_array_copies_mint_next_marks(qapp, shown_model_view):
