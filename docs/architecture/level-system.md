@@ -24,7 +24,7 @@ class Level:
     view_bottom:  float = -1000.0  # mm below elevation (default offset for new plan views)
 ```
 
-(The old `display_mode` field — Auto/Hidden/Faded/Visible — was removed; it is
+(`Level` also carries an editable `number`, the Level Number printed by element Marks; see [`element-parameters.md`](../specs/element-parameters.md) "Marks (SB2b)" for its rules. The old `display_mode` field — Auto/Hidden/Faded/Visible — was removed; it is
 ignored on load. Cross-level visibility is driven entirely by Z-range filtering.)
 
 Default levels shipped with every new document:

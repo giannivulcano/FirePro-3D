@@ -457,8 +457,10 @@ The through-run is identified by finding the collinear pair among existing pipes
 **Method:** `model_space.py:930`
 
 ```python
-add_pipe(n1, n2, template=None, _propagate_ceiling=True)
+add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
 ```
+
+`mint` (SB2b): after the display defaults, a pipe created with `mint=True` receives the next Pipe Mark (so a template copy never keeps the source Mark); file load and undo restore pass `mint=False`, and a pipe split keeps the original Mark on its first half. Rules owned by `element-parameters.md` "Marks (SB2b)".
 
 **This is the ONLY permitted way to create pipes.** No manual `Pipe()` + `addItem()` construction.
 

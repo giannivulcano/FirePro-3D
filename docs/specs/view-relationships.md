@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-24  # wall polish Account: s7.3 pointer only (class->category map moved to constants.Z_CATEGORY_BY_CLASS; no value changed); prior 2026-10-23  # SB1c Account: s5.3 annotative-sizing pointer only; prior 2026-10-22  # gridline-hosted blocks Account: s5.3 pattern-2 pointer only; prior paper section/plan parity audit: Elevation-colours bullet only (stale canvas-latched open gap dropped); prior 2026-10-21 section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
-verified-commit: 63a86f02   # wall polish (pointer only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
+last-verified: 2026-10-25  # SB2b Account: s3.3 Level.number pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: s7.3 pointer only (class->category map moved to constants.Z_CATEGORY_BY_CLASS; no value changed); prior 2026-10-23  # SB1c Account: s5.3 annotative-sizing pointer only; prior 2026-10-22  # gridline-hosted blocks Account: s5.3 pattern-2 pointer only; prior paper section/plan parity audit: Elevation-colours bullet only (stale canvas-latched open gap dropped); prior 2026-10-21 section-view Account: s4 section no longer 'planned', s6 markers; prior 2026-10-18 (HF1 pointer)
+verified-commit: ceacaab4   # SB2b Account (pointer only); prior 63a86f02   # wall polish (pointer only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a  # section-view merge; prior 084b43e0 (HF1 Account)
 related-contract: model-space-containment-contract.md   # LANDED: §3.1 authoring framing → compose-by-placement (C1); §3.3/§7.3 2D-geometry level rows → level scope on the Block instance, primitives level-less (C3). The levels/view-range/Z-model bulk stays current (own inline verification dates).
 applies-to:
   - firepro3d/level_manager.py
@@ -121,6 +121,8 @@ Conversion is **one-way**: world Z → render Z, computed by the plan renderer. 
 This table enumerates every property in the data model that contributes to an object's world Z. **It is the authoritative reference** for "where does this object live in 3D?" — if you add a Z-bearing property and don't update this table, the spec is out of date.
 
 > The 2D-geometry item models, placement workflows, closed-polyline model, and `RegularPolygonItem` are governed by `2d-geometry.md`; it links here for the Z-model (Rule A).
+
+> `Level.number` (the editable Level Number that Mark patterns print) carries no Z; it, its numbering rules and the undoable Level-manager edits are owned by `element-parameters.md` "Marks (SB2b)".
 
 | Object | Attribute | Type | Default | Meaning | Source |
 |---|---|---|---|---|---|

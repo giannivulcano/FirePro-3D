@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -212,7 +212,7 @@ Double-clicking a gridline body or bubble reliably selects the gridline (`model_
 **Flipped 2026-08-13** to match the default-seed convention (user preference):
 
 - **Vertical gridlines** (dy >= dx): Numbers — 1, 2, 3, …
-- **Horizontal gridlines** (dy < dx): Letters — A, B, C, …, Z, AA, AB, …, AZ, BA, …
+- **Horizontal gridlines** (dy < dx): Letters — A, B, C, …, Z, AA, AB, …, AZ, BA, …, ZZ, AAA, … (bijective base-26, `marks.letter_label`; the sequence is shared with Renumber's gridline lettering, owned by `element-parameters.md` "Marks (SB2b)")
 
 Classification uses the `dy >= dx` test on the p1→p2 delta. (This binary test still drives *labeling*; spacing pairing uses true-parallelism clustering — §5.4.)
 
@@ -231,7 +231,7 @@ On any event that could create a mismatch between counter state and scene state,
 Sync logic:
 1. Collect all existing labels, classify each as number or letter.
 2. For numbers: parse to int, set counter to max+1.
-3. For letters: convert to index (A=0, Z=25, AA=26, AB=27…), set counter to max+1.
+3. For letters: convert to index (A=0, Z=25, AA=26, AB=27…, any A–Z length; the inverse of `letter_label`), set counter to max+1.
 4. Non-parseable labels (user-entered custom text like "X-1") are ignored by sync.
 
 ### 6.4 Duplicate Detection
@@ -239,6 +239,7 @@ Sync logic:
 After any label change (Properties-panel relabel, auto-assign at placement, load, undo/redo) `apply_duplicate_warnings` scans for duplicates. Gridlines with duplicate labels display a visual warning:
 
 - Bubble border color changes to orange (`#ff8800`); the border **width is unchanged**
+- Detection is `check_duplicate_labels`, which routes through `marks.duplicate_groups` (exact match; a blank label is never a duplicate) — the same rule element Marks use (`element-parameters.md` "Marks (SB2b)")
 - Warning is informational only — does not block any operation
 - Clears automatically when the duplicate is resolved (rename or delete)
 

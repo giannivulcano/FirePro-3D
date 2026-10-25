@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -74,6 +74,19 @@ Two additive keys for gridline-hosted blocks (no `SAVE_VERSION` bump; record own
 load), and a `blocks` entry carries `"host"` only when hosted. Both serialization paths round-trip them.
 On project load a `blocks` record whose host gridline does not resolve (or is malformed) is **dropped**, and
 the load status appends " -- dropped N hosted block(s) whose gridline is missing".
+
+SB2b Marks adds these additive keys (no `SAVE_VERSION` bump; meaning owned by
+[`element-parameters.md`](element-parameters.md) "Marks (SB2b)", dialog size by
+[`settings-dialog.md`](settings-dialog.md) §4.2):
+top-level `mark_patterns` (category -> pattern; a load keeps only str -> str entries over the defaults, so a
+corrupt value falls back to them) and `project_settings_size` (`[w, h]` or null; a load accepts only two
+positive finite numbers below 100000, else None); each `levels` entry carries `number`; `walls`, nested
+wall openings and `rooms` carry `mark` (a room file with no `mark` reads the legacy `tag`; save writes
+`mark` only); a pipe's `properties` map and a node's `sprinkler` record carry `"Mark"`. A level list with no `number` key
+anywhere (an old file) is numbered by elevation on load.
+The undo snapshot carries the same Marks data through the same `to_dict` / codec paths, and now also the
+level list (`levels`), `plan_views`, `active_level` and per-underlay `underlay_levels`;
+network_codec's load and undo paths add pipes and sprinklers with `mint=False`, so neither re-mints a Mark.
 
 **Atomic write:** the existing file is copied to `<name>.bak` first; on write
 failure the backup is restored; on success the backup is removed.

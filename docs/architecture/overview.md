@@ -52,6 +52,7 @@ modeChanged = pyqtSignal(str)                     # status bar mode indicator
 instructionChanged = pyqtSignal(str)              # step-by-step tool instructions (raw text)
 instructionDisplay = pyqtSignal(str)              # decorated instruction for the footer
 sceneModified = pyqtSignal()                      # dirty flag / undo state
+levelsRestored = pyqtSignal()                     # undo / redo replaced the level list
 radiationConfirm = pyqtSignal()                   # Enter during radiation selection
 radiationCancel = pyqtSignal()                    # Escape during radiation selection
 openViewRequested = pyqtSignal(str, str)          # view marker double-click
