@@ -71,6 +71,7 @@ class Level:
     elevation:    float = 0.0       # mm, relative to project datum
     view_top:     float = 2000.0    # mm above elevation (default offset for new plan views)
     view_bottom:  float = -1000.0   # mm below elevation (default offset for new plan views)
+    number:       int   = 0         # SB2b Level Number (0 = unassigned); printed by {level}
 
     def to_dict(self) -> dict:
         return {
@@ -78,6 +79,7 @@ class Level:
             "elevation_mm": self.elevation,
             "view_top":     self.view_top,
             "view_bottom":  self.view_bottom,
+            "number":       self.number,
         }
 
     @classmethod
@@ -93,6 +95,7 @@ class Level:
             elevation    = elev,
             view_top     = d.get("view_top",     2000.0),
             view_bottom  = d.get("view_bottom",  -1000.0),
+            number       = int(d.get("number", 0) or 0),
         )
 
 
@@ -252,9 +255,9 @@ class PlanViewManager:
 
 # Defaults shipped with every new document
 DEFAULT_LEVELS: list[Level] = [
-    Level(DEFAULT_LEVEL, elevation=0.0),
-    Level("Level 2", elevation=3048.0),
-    Level("Level 3", elevation=6096.0),
+    Level(DEFAULT_LEVEL, elevation=0.0, number=1),
+    Level("Level 2", elevation=3048.0, number=2),
+    Level("Level 3", elevation=6096.0, number=3),
 ]
 
 
@@ -296,6 +299,7 @@ class LevelManager:
                 i += 1
             name = f"Level {i}"
         lvl = Level(name, elevation=elevation)
+        lvl.number = 1 + sum(1 for l in self._levels if l.elevation <= elevation)
         self._levels.append(lvl)
         return lvl
 
@@ -349,6 +353,9 @@ class LevelManager:
         # Ensure at least one level exists
         if not self._levels:
             self._levels = [Level(**vars(l)) for l in DEFAULT_LEVELS]
+        if self._levels and all(not l.number for l in self._levels):
+            for i, l in enumerate(sorted(self._levels, key=lambda l: l.elevation)):
+                l.number = i + 1        # old file: number by elevation order (M14)
 
     def reset(self):
         """Reset to default levels (used on new file)."""

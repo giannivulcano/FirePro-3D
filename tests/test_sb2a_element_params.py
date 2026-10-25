@@ -92,7 +92,7 @@ def test_room_wall_door_gridline_raw_values(qapp, make_model_space, ppm):
     assert hv["CeilingHeight"].raw == pytest.approx(3000.0)  # Level 2 - Level 1, offset 0
     assert hv["Volume"].raw == pytest.approx(3.6e10)
     assert hv["Level.Name"].raw == "Level 1"
-    assert hv["Level.Number"].raw is None                    # E4: SB2b
+    assert hv["Level.Number"].raw == 1                       # SB2b M14: Level 1 is number 1
     w, op = _door_scene(ms, ppm)
     assert ep.category_of(op) == "Door"
     dv = ep.host_values(op)

@@ -154,8 +154,14 @@ def _hr_get(item, field: str, key):
     return getattr(hr, field).get(key) if hr is not None else None
 
 
-def _none(_item):
-    return None                  # Level.Number until SB2b Task 8 (E4)
+def _level_number_getter(level_of):
+    """Getter for ``Level.Number``: the stored number of the level *level_of* names."""
+    def get(item):
+        lm = getattr(scene_of(item), "_level_manager", None)
+        name = level_of(item)
+        lvl = lm.get(name) if (lm is not None and name) else None
+        return (lvl.number or None) if lvl is not None else None   # 0 = unassigned
+    return get
 
 
 def _room_named(item, name, level=None):
@@ -261,8 +267,9 @@ def _P(key, kind, tier, getter, label=None):
 
 
 def _level_keys(level_of=None):
-    return [_P("Level.Name", "text", 4, level_of or (lambda i: _level_name(i))),
-            _P("Level.Number", "text", 4, _none)]
+    level_of = level_of or (lambda i: _level_name(i))
+    return [_P("Level.Name", "text", 4, level_of),
+            _P("Level.Number", "text", 4, _level_number_getter(level_of))]
 
 
 _OPENING_KEYS = [

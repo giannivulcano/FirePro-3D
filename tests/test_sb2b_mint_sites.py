@@ -66,10 +66,9 @@ def test_door_tool_mints(qapp, shown_model_view):
     assert _marks(scene, "Door") == ["D1", "D2"]
 
 
-@pytest.mark.skip(reason="needs Task 8 Level.number")
 def test_room_tool_mints_level_pattern(qapp, shown_model_view):
     view, scene = shown_model_view
-    scene._level_manager.levels[0].number = 1          # Task 8 field
+    assert scene._level_manager.get(scene.active_level).number == 1
     scene.set_mode("room_manual")
     for x, y in ((0, 0), (4000, 0), (4000, 3000), (0, 3000)):
         _click(view, QPointF(x, y))
@@ -78,9 +77,10 @@ def test_room_tool_mints_level_pattern(qapp, shown_model_view):
     assert scene._rooms[0].name == "Room 1"
 
 
-def test_room_manual_tool_mints_with_pattern_before_level_numbers(qapp, shown_model_view):
-    # Level.number lands in Task 8; until then {level} prints empty -> "01".
+def test_room_manual_tool_mints_unassigned_level_blank(qapp, shown_model_view):
+    # Level.number 0 = unassigned: {level} prints empty -> "01".
     view, scene = shown_model_view
+    scene._level_manager.get(scene.active_level).number = 0
     scene.set_mode("room_manual")
     for x, y in ((0, 0), (4000, 0), (4000, 3000), (0, 3000)):
         _click(view, QPointF(x, y))
@@ -147,22 +147,21 @@ def test_old_file_pipes_stay_blank(qapp, shown_model_view, tmp_path):
     assert _marks(scene, "Pipe") == [""]
 
 
-def test_sprinkler_level_is_its_nodes_level(qapp, shown_model_view, monkeypatch):
+def test_sprinkler_level_is_its_nodes_level(qapp, shown_model_view):
     # Sprinkler.level (init_displayable) stays "Level 1"; the node is authoritative.
     view, scene = shown_model_view
     lm = scene._level_manager
     lm.add_level("Level 2", 3000.0)
     scene.active_level = "Level 2"
-    asked = []
-    real = marks.level_number_of
-    monkeypatch.setattr(marks, "level_number_of",
-                        lambda sc, it: (asked.append(marks.item_level_name(it)), real(sc, it))[1])
+    scene.mark_patterns["Sprinkler"] = "S{level}-{n}"
+    lm.get("Level 1").number = 7
+    lm.get("Level 2").number = 9
     scene.set_mode("sprinkler", Sprinkler(None))
     _click(view, QPointF(1000, 0))
     sprs = marks.items_of_category(scene, "Sprinkler")
     assert len(sprs) == 1 and sprs[0].node.level == "Level 2"
     assert marks.item_level_name(sprs[0]) == "Level 2"
-    assert asked == ["Level 2"]         # mint resolved {level} on Level 2
+    assert marks.get_mark(sprs[0]) == "S9-1"      # {level} = the node's level (2), not Sprinkler.level
 
 
 def test_vertical_pipe_split_keeps_node_a_mark_and_mints_other(qapp, shown_model_view):
@@ -195,5 +194,5 @@ def test_room_auto_detect_tool_mints(qapp, shown_model_view):
     scene.set_mode("room")
     _click(view, QPointF(2000, 1500))
     assert len(scene._rooms) == 1
-    assert _marks(scene, "Room") == ["01"]      # {level} prints empty until Task 8
+    assert _marks(scene, "Room") == ["101"]     # {level} = Level 1's number
     assert scene._rooms[0].name == "Room 1"

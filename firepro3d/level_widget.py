@@ -29,7 +29,8 @@ from .level_manager import Level, LevelManager
 # ─────────────────────────────────────────────────────────────────────────────
 
 _COL_NAME    = 0
-_COL_ELEV    = 1
+_COL_NUM     = 1
+_COL_ELEV    = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,10 +126,12 @@ class LevelWidget(QWidget):
         layout.addLayout(toolbar)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Name", "Elevation"])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Name", "Number", "Elevation"])
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(
+            _COL_NUM, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_ELEV, QHeaderView.ResizeMode.ResizeToContents)
         self.table.verticalHeader().setDefaultSectionSize(24)
@@ -175,6 +178,8 @@ class LevelWidget(QWidget):
         name_it = QTableWidgetItem(lvl.name)
         name_it.setData(Qt.ItemDataRole.UserRole, lvl.name)
         self.table.setItem(row, _COL_NAME, name_it)
+        num_it = QTableWidgetItem(str(lvl.number))
+        self.table.setItem(row, _COL_NUM, num_it)
         elev_it = QTableWidgetItem(self._fmt_elev(lvl.elevation))
         elev_it.setData(Qt.ItemDataRole.UserRole, lvl.elevation)
         self.table.setItem(row, _COL_ELEV, elev_it)
@@ -190,7 +195,7 @@ class LevelWidget(QWidget):
             if name_it is None:
                 continue
             is_active = name_it.text() == active
-            for col in (_COL_NAME, _COL_ELEV):
+            for col in (_COL_NAME, _COL_NUM, _COL_ELEV):
                 it = self.table.item(row, col)
                 if it:
                     it.setFont(bold if is_active else normal)
@@ -226,6 +231,18 @@ class LevelWidget(QWidget):
                     current = getattr(self.scene, "active_level", DEFAULT_LEVEL) if self.scene else DEFAULT_LEVEL
                     if current == old_name or current == new_name:
                         self.activeLevelChanged.emit(new_name)
+
+        elif col == _COL_NUM:
+            try:
+                new_num = int(item.text().strip())
+            except ValueError:
+                self._building = True
+                item.setText(str(lvl.number))
+                self._building = False
+                return
+            if new_num != lvl.number:
+                lvl.number = new_num
+                self.levelsChanged.emit()
 
         elif col == _COL_ELEV:
             user_val = item.data(Qt.ItemDataRole.UserRole)
