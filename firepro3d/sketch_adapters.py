@@ -81,6 +81,35 @@ def _mid(a: PointExpr, b: PointExpr) -> PointExpr:
         return 0.5 * (pa + pb), dp
     return PointExpr(idx=idx, fn=fn)
 
+
+_ROT90 = np.array([[0.0, -1.0], [1.0, 0.0]])
+
+
+def _offset_point(off: int, end: int, s: float) -> PointExpr:
+    """Slice 2 (ruling W1): drawn-line end *end* (0 / 1) of a wall offset by
+    *s* along the drawn line's unit normal ``n = (-dy, dx) / L``
+    (``WallSegment.normal``). ``s == 0`` is the raw end itself (substitutable).
+    ``dn/dd = (R - n u^T) / L`` with ``u = d / L`` and R the +90 deg rotation."""
+    if s == 0.0:
+        return raw_point(off + 2 * end, off + 2 * end + 1)
+
+    def fn(v):
+        x1, y1, x2, y2 = (float(a) for a in v)
+        d = np.array([x2 - x1, y2 - y1])
+        L = math.hypot(d[0], d[1])
+        e = np.array([x1, y1]) if end == 0 else np.array([x2, y2])
+        dp = np.zeros((2, 4))
+        dp[:, 2 * end:2 * end + 2] = np.eye(2)
+        if L <= DEGEN_EPS:                    # no direction: the end itself
+            return e, dp
+        u = d / L
+        n = _ROT90 @ u
+        J = (_ROT90 - np.outer(n, u)) / L
+        dp[:, 0:2] -= s * J
+        dp[:, 2:4] += s * J
+        return e + s * n, dp
+    return PointExpr(idx=(off, off + 1, off + 2, off + 3), fn=fn)
+
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
 # Polyline (i -> v<i>), polygon (0 -> center, i -> v<i-1>, D33) and text /
 # block instance (move grip -> ins) are computed by their adapters'
@@ -228,6 +257,10 @@ class _Adapter:
         """What a built System's rows depend on besides values (D18 build cache)."""
         return (self.type_key, self.nvars(item))
 
+    def locked(self, item) -> bool:
+        """Slice 2 (ruling L1): a locked item is fixed in every solve."""
+        return False
+
 
 class _LineAdapter(_Adapter):
     """vars x1 y1 x2 y2; handles ``p1`` ``p2``, the derived midpoint ``mid``
@@ -261,6 +294,102 @@ class _LineAdapter(_Adapter):
         it._pt1 = QPointF(float(v[0]), float(v[1]))
         it._pt2 = QPointF(float(v[2]), float(v[3]))
         it.setLine(it._pt1.x(), it._pt1.y(), it._pt2.x(), it._pt2.y())
+
+
+class _WallAdapter(_LineAdapter):
+    """Slice 2 (ruling W1): vars = the drawn line x1 y1 x2 y2 (``_pt1`` /
+    ``_pt2``, the grips). Points ``p1`` ``p2`` ``mid`` (true centerline) and
+    the untrimmed body corners ``p1l`` ``p1r`` ``p2l`` ``p2r``; edges ``edge``
+    (centerline), ``face_l``, ``face_r``, ``end1``, ``end2``. Width is not a
+    variable (``half_thickness_scene`` is a constant of the build)."""
+
+    def __init__(self):
+        super().__init__("wall")
+
+    @staticmethod
+    def _offsets(it) -> tuple:
+        """(centerline, left face, right face) normal offsets, scene units."""
+        from .wall import ALIGN_LEFT, ALIGN_RIGHT
+        k = {ALIGN_LEFT: 1.0, ALIGN_RIGHT: -1.0}.get(it._alignment, 0.0)
+        ht = it.half_thickness_scene()
+        return k * ht, (1.0 + k) * ht, (k - 1.0) * ht
+
+    def points(self, it, off):
+        sc, sl, sr = self._offsets(it)
+        p1, p2 = _offset_point(off, 0, sc), _offset_point(off, 1, sc)
+        return {"p1": p1, "p2": p2, "mid": _mid(p1, p2),
+                "p1l": _offset_point(off, 0, sl), "p1r": _offset_point(off, 0, sr),
+                "p2l": _offset_point(off, 1, sl), "p2r": _offset_point(off, 1, sr)}
+
+    def edges(self, it, off):
+        p = self.points(it, off)
+        return {"edge": (p["p1"], p["p2"]), "face_l": (p["p1l"], p["p2l"]),
+                "face_r": (p["p1r"], p["p2r"]), "end1": (p["p1l"], p["p1r"]),
+                "end2": (p["p2l"], p["p2r"])}
+
+    def grip_handle(self, it, index):
+        return {0: "p1", 1: "p2"}.get(index)
+
+    def pin_vars(self, it, index):
+        """Grip 0 / 1 move ``_pt1`` / ``_pt2`` (raw vars, even when ``p1`` /
+        ``p2`` are derived); the move and width grips pin the whole wall."""
+        return {0: (0, 1), 1: (2, 3)}.get(index, (0, 1, 2, 3))
+
+    def struct_key(self, it):
+        return (self.type_key, 4, it._alignment, round(it.half_thickness_scene(), 9))
+
+    def write(self, it, v):
+        it._pt1 = QPointF(float(v[0]), float(v[1]))
+        it._pt2 = QPointF(float(v[2]), float(v[3]))
+        it.invalidate_geometry()       # outline, joins, openings (wall-room-floor s4.5/s6.1)
+
+
+class _GridlineAdapter(_LineAdapter):
+    """Slice 2: vars x1 y1 x2 y2 = origin + far end, derived from
+    ``_origin`` / ``_length`` / ``_angle_deg``; handles ``p1`` ``p2`` ``mid``
+    ``edge``. Write-back keeps the bubble standoffs; a locked gridline is
+    fixed (ruling L1). Hosted blocks (ruling H1): an origin slide along the
+    unchanged axis compensates ``along_mm`` (D6, as grip 0 does); a shift or
+    rotation lets them ride (``_rebuild_geometry`` -> D5 sync)."""
+
+    def __init__(self):
+        super().__init__("gridline")
+
+    def read(self, it):
+        far = it._far_point()
+        return [it._origin.x(), it._origin.y(), far.x(), far.y()]
+
+    def grip_handle(self, it, index):
+        return {0: "p1", 1: "p2"}.get(index)
+
+    def locked(self, it):
+        return bool(getattr(it, "_locked", False))
+
+    def struct_key(self, it):
+        return (self.type_key, 4, self.locked(it))
+
+    def collapses(self, it, old, new):
+        """D29 + the gridline's own 1-unit length floor (``set_length``)."""
+        ln = math.hypot(float(new[2]) - float(new[0]), float(new[3]) - float(new[1]))
+        return super().collapses(it, old, new) or ln < 1.0 - DEGEN_EPS
+
+    def write(self, it, v):
+        if it._locked:
+            return
+        ox, oy, fx, fy = (float(a) for a in v)
+        new = QPointF(ox, oy)
+        ang = math.degrees(math.atan2(-(fy - oy), fx - ox)) % 360.0
+        turn = abs((ang - it._angle_deg + 180.0) % 360.0 - 180.0)
+        if turn <= math.degrees(ANG_WRITE_TOL):
+            sc = it.scene()
+            shift = getattr(sc, "_shift_hosted_along", None) if sc is not None else None
+            if shift is not None:
+                shift(it, QPointF(it._origin), new)    # H1 / D6: axial part stays put
+        else:
+            it._angle_deg = ang
+        it._origin = new
+        it._length = max(1.0, math.hypot(fx - ox, fy - oy))
+        it._rebuild_geometry()
 
 
 def _rect_point_fn(su, sv):
@@ -905,7 +1034,9 @@ def _registry():
     from .geometry_2d import (_AXIS_MIN, ArcItem, CircleItem, EllipseItem, LineItem,
                               PolylineItem, RectangleItem,
                               RegularPolygonItem)
+    from .gridline import GridlineItem
     from .text_item import TextItem
+    from .wall import WallSegment
     return {
         LineItem: _LineAdapter("draw_line"),
         RectangleItem: _RectAdapter(),
@@ -919,6 +1050,8 @@ def _registry():
             {"_rx": _AXIS_MIN, "_ry": _AXIS_MIN}),
         TextItem: _TextBoxAdapter(),
         BlockInstance: _NestedAdapter("block_instance"),
+        WallSegment: _WallAdapter(),
+        GridlineItem: _GridlineAdapter(),
     }
 
 

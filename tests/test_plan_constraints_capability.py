@@ -153,9 +153,8 @@ def test_zero_constraint_plan_scene_scans_no_items(qapp, monkeypatch):
 
 def test_panel_rows_plan_gate(qapp):
     """A plan LineItem gets no section (also test_constraint_panel.py
-    test_plan_scene_items_get_no_section). A plan wall gets None TODAY: it has
-    no adapter yet, so ``can_ref`` is False. T3-4 flips the wall assertion
-    once the wall adapter exists (T3-4 updates this test)."""
+    test_plan_scene_items_get_no_section). A plan wall gets rows once the wall
+    adapter exists (slice 2 T3): ``can_ref`` is True for it."""
     from firepro3d.wall import WallSegment
     plan = Model_Space()
     try:
@@ -164,6 +163,6 @@ def test_panel_rows_plan_gate(qapp):
         w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
         plan.addItem(w)
         assert plan.constraint_ctl.panel_rows(ln) is None
-        assert plan.constraint_ctl.panel_rows(w) is None     # T3-4: not None
+        assert plan.constraint_ctl.panel_rows(w) is not None
     finally:
         plan.cleanup()

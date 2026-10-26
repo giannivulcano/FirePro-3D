@@ -46,6 +46,7 @@ _PARTICIPATING = ("_draw_lines", "_draw_rects", "_draw_circles",
 _TINT_TOKEN = {"free": "constraint_free", "defined": "ink", "conflict": "danger"}
 _log = logging.getLogger(__name__)
 CONFLICT_STATUS = "Over-constrained: the change was not applied"
+LOCK_CID = "__locked__"   # slice 2 L1: the cid of a locked item's fixes
 INVALID_STATUS = "Invalid constraint"
 REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
@@ -949,7 +950,8 @@ class ConstraintController:
                           "perpendicular", "equal", "tangent", "collinear"):
             return False
         sys_, _slots, _w = self._build_fresh([c])
-        if sys_.fixes or any(i != j for i, j, _cid in sys_.aliases):
+        if (any(cid != LOCK_CID for _i, _v, cid in sys_.fixes)      # L1: a lock is not the constraint
+                or any(i != j for i, j, _cid in sys_.aliases)):
             return False
         rng = np.random.default_rng(0)
         for _ in range(3):
@@ -1034,6 +1036,10 @@ class ConstraintController:
             if c.type in ("dim_angle", "dim_point_line", "symmetric", "fix", "tangent"):
                 kw["helper"] = c.helper
             BUILDERS[c.type](c.id, self._ends(c, slots), sys_, **kw)
+        for _u, (it, ad, off) in slots.items():     # ruling L1: locked = fixed
+            if ad.locked(it):
+                for i, val in enumerate(ad.read(it)):
+                    sys_.fixes.append((off + i, float(val), LOCK_CID))
         return sys_, slots, np.array(w, dtype=float)
 
     def _resolve(self, ref, slots):
@@ -3144,7 +3150,7 @@ class ConstraintController:
             sys_, slots, _w = self._build(cons)
             sys_.cid_rank = {c.id: k for k, c in enumerate(cons)}
             d = self._solver.diagnose(sys_)
-            redundant = frozenset(d.redundant)
+            redundant = frozenset(c for c in d.redundant if c != LOCK_CID)   # L1: never a record
             ordered = list(slots.items())
             dofs = d.dof_of_many([range(off, off + ad.nvars(it))
                                   for _u, (it, ad, off) in ordered])
