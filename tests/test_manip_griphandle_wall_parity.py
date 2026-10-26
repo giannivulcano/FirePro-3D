@@ -193,6 +193,7 @@ def test_endpoint_grip_apply_matches_legacy():
     sc = _StubScene(); m = _StubM(sc)
     h.on_press(m)
     h.on_drag(m, QPointF(480, 60), Qt.KeyboardModifier.NoModifier)
+    migrated._uid = legacy._uid                    # identity differs by construction (slice 2 wall uid)
     assert migrated.to_dict() == legacy.to_dict()
 
 
@@ -203,6 +204,7 @@ def test_width_grip_apply_matches_legacy_and_no_propagate():
     sc = _StubScene(); m = _StubM(sc)
     h.on_press(m)
     h.on_drag(m, QPointF(250, -120), Qt.KeyboardModifier.NoModifier)
+    migrated._uid = legacy._uid                    # identity differs by construction (slice 2 wall uid)
     assert migrated.to_dict() == legacy.to_dict()
     assert sc.prop_calls == []                     # width grip must NOT propagate
     assert sc.snap_calls == []                     # nor snapshot siblings

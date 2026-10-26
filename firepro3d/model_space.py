@@ -9263,6 +9263,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             elif obj_type == "wall":
                 wall = WallSegment.from_dict(obj)
+                wall._uid = uuid.uuid4().hex    # a pasted copy is a new wall (design s2)
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = wall._uid
                 self._retarget_level_refs(
                     wall, obj.get("base_level", obj.get("level")),
                     "_base_level", "_top_level")
@@ -9270,6 +9273,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 wall.translate(offset.x(), offset.y())
                 self.addItem(wall)
                 self._walls.append(wall)
+                apply_category_defaults(wall)
                 marks.mint(self, wall)
                 for op_data in obj.get("openings", []):
                     op = WallOpening.from_dict(op_data, wall=wall)
@@ -9312,6 +9316,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # Gridline — to_dict() emits no "type" key; detect by parametric keys.
                 gl = GridlineItem.from_dict(obj)
                 gl._uid = uuid.uuid4().hex  # a pasted copy is a new gridline (D3)
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = gl._uid   # constraint remap (design s2)
                 gl._origin = QPointF(
                     gl._origin.x() + offset.x(),
                     gl._origin.y() + offset.y(),

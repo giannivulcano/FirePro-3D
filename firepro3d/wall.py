@@ -11,6 +11,7 @@ Supports thickness presets, colour, fill mode, and wall openings.
 from __future__ import annotations
 
 import math
+import uuid
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
@@ -210,6 +211,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         self.name: str = ""
         self._mark: str = ""          # SB2b instance Mark (element-parameters.md Marks)
+        # Stable identity for constraint refs (editor-build slice 2, design s2
+        # "Wall uid"); a pasted copy re-mints it (Model_Space.paste_items).
+        self._uid: str = uuid.uuid4().hex
 
         self.setZValue(-50)                         # behind pipes, above underlays
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -892,6 +896,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "level":         self.level,
             "name":          self.name,
             "mark":          self._mark,
+            "uid":           self._uid,
             "join_mode_pt1": self._join_mode_pt1,
             "join_mode_pt2": self._join_mode_pt2,
             "openings":      openings_data,
@@ -942,6 +947,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         wall.level = data.get("level", DEFAULT_LEVEL)
         wall.name = data.get("name", "")
         wall._mark = data.get("mark", "")
+        if data.get("uid"):                     # legacy dicts keep the minted uid
+            wall._uid = str(data["uid"])
         # Per-endpoint join modes (backward compat: old "join_mode" applies to both)
         legacy = data.get("join_mode", "Auto")
         wall._join_mode_pt1 = data.get("join_mode_pt1", legacy)
