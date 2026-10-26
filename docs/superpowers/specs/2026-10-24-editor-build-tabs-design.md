@@ -80,6 +80,7 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | B6 | Design sections 1-4 below approved | Phase 3 asks |
 | S1 | Elevation / Section tabs are a seventh canvas kind `section`, behaving like paper / 3D (Build › Block live; the rest off, "Not available in this view") | slice-1 Phase 2 ask |
 | R1 | Two mode-button registries kept (`_mode_buttons` for plan tools, `_block_mode_buttons` for Build / Editor tools); `_sync_mode_buttons` gates `_block_mode_buttons` by "Edit is live for the current canvas kind". Deviation from section 1's "collapse to one if no shared key" | slice-1 Phase 4 ask (2026-10-25) |
+| H1 | A solve that moves a gridline treats its hosted blocks as a grip drag does: ride the frame on shift / rotate; origin slide along the axis compensates so they stay put (D6) | slice-2 Phase 2 ask (2026-10-26) |
 | R2 | **Array stays live on a wall selection** -- Array copies walls through the paste path (`paste_items` has a wall branch). B2 wrongly listed Array among the tools that refuse walls; in plan a wall selection greys Scale / Flip / Mirror / Offset only | slice-1 Phase 5 ask (2026-10-26) |
 
 ## Architecture & Constraints
@@ -177,11 +178,26 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 - **Gridline adapter:** variables `x1 y1 x2 y2` (origin, far end) derived from
   `_origin` / `_length` / `_angle_deg`; handles `p1`, `p2`, `mid`, edge `edge`; grip map
   0 -> `p1`, 1 -> `p2`, bubble grips 2/3 have no handle. Write-back converts back to
-  origin / length / angle; bubbles keep their standoff.
+  origin / length / angle; bubbles keep their standoff. **Hosted blocks (H1):** a solve
+  treats hosted blocks exactly as a grip drag does -- they ride the gridline frame when it
+  shifts or rotates, and when the origin slides along the axis the write-back calls
+  `_shift_hosted_along` so they stay put (D6).
+- **Participation.** The controller's `items()` walks `_PARTICIPATING` scene lists;
+  `ref_types` adds the plan scene's `_walls` / `_gridlines` and the plan scene lists only
+  those two (no 2D-geometry lists).
+- **Gate audit count (1b probe, 2026-10-26):** 41 controller-`enabled` reads, not ~30.
+  The constraint paint layer (`constraint_paint.paint` -> `_paint_axes`, called from
+  `Model_View.drawForeground`) draws the X/Y ground axes: that draw becomes a
+  Block-Editor role check, as do the reserved-ground pick candidates
+  (`PickState._candidates`).
 - **Wall uid.** `WallSegment` mints `_uid` (uuid4 hex) at construction; `to_dict` /
   `from_dict` carry `"uid"` (legacy dicts keep the minted one); Copy / Paste / Duplicate
   mint new uids at the same paste path that re-mints gridline and instance uids. Internal
-  constraints of a copied set are remapped as today (D30).
+  constraints of a copied set are remapped as today (D30). 1b probe: the gridline branch
+  of `paste_items` re-mints `_uid` but never writes `uid_map` (geometry and block branches
+  do), so the wall branch and the gridline branch both add their `uid_map` entry. The
+  wall branch also calls `apply_category_defaults` (slice 2 scope add; normal placement
+  already does).
 - **Persistence.** `scene_io` save writes the plan controller's records under a top-level
   `"constraints"` key; load restores them after every item exists. A record whose refs do
   not all resolve to a wall or gridline in the loaded scene is **dropped** and counted in
@@ -272,6 +288,9 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 - [ ] T6 a legacy `.fpd` loads with 0 constraints; dragging a joined end still moves touching ends.
 - [ ] T7 glyphs present on a selected constrained wall in the plan view; absent from a sheet viewport render and a PDF export (pixel digests, per the pixel-guard convention).
 - [ ] T8 Auto Constrain off -> wall placement adds no constraints.
+- [ ] T9 (slice 2, H1) a solve that slides a gridline's origin along its axis leaves a hosted block's scene position unchanged; a solve that shifts the gridline sideways moves the block with it.
+- [ ] T10 (slice 2) a pasted wall takes its Display Manager category defaults; a copied constrained gridline pair (and wall pair) keeps its internal constraint on the copies (D30).
+- [ ] T11 (slice 2) no origin cross / X-Y ground axes paint in the plan view and none is offered as a pick candidate.
 
 ## Edge Cases & Error Handling
 
