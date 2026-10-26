@@ -128,6 +128,11 @@ def _editor_only_buttons(w):
     return out
 
 
+# Groups a plan / detail canvas still can't use (Edit is live there, B2).
+PLAN_OFF = (("Build", "Definition"), ("Build", "2D Geometry"),
+            ("Editor", "Constrain"), ("Editor", "Inspect"))
+
+
 def _add_plan_pipe(w):
     pipe = w.scene.add_pipe(w.scene.add_node(0, -800), w.scene.add_node(1000, -800))
     return pipe
@@ -194,10 +199,16 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
 
 # ── G3: no editor current ────────────────────────────────────────────────────
 
-def _assert_no_editor_state(w):
-    for b in _editor_only_buttons(w):
-        assert not b.isEnabled(), b.text()
-        assert b.toolTip() == NO_EDITOR_TIP, (b.text(), b.toolTip())
+def _assert_plan_state(w):
+    """Plan canvas: Definition / 2D Geometry / Constrain / Inspect off with the
+    no-editor tooltip; Edit is live (real tooltips, enable state per
+    ``can_start``); the Block group is live."""
+    for page, title in PLAN_OFF:
+        for b in _buttons(_group(_page(w, page), title)).values():
+            assert not b.isEnabled(), b.text()
+            assert b.toolTip() == NO_EDITOR_TIP, (b.text(), b.toolTip())
+    for b in _buttons(_group(_page(w, EDITOR), "Edit")).values():
+        assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, b.text()
     for b in _buttons(_group(_page(w, BUILD), "Block")).values():
         assert b.isEnabled(), b.text()
         assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP
@@ -205,9 +216,11 @@ def _assert_no_editor_state(w):
 
 def test_no_editor_disables_editor_groups_with_tooltip(mw, qapp):
     _goto_page(mw, qapp)
-    _assert_no_editor_state(mw)
-    # The selection/clipboard-driven refresh must not re-enable them: give the
-    # PLAN scene a selection, then fire the clipboard + refresh triggers.
+    _assert_plan_state(mw)
+    # The selection/clipboard-driven refresh must not re-enable the editor-only
+    # groups: give the PLAN scene a selection, then fire the clipboard +
+    # refresh triggers. Edit is live in plan: its enable state is exactly the
+    # rule production uses (can_start per label, plus Delete).
     mw.block_editor_manager.open_new()          # connects the refresh once
     qapp.processEvents()
     mw.central_tabs.setCurrentIndex(_plan_index(mw))
@@ -220,7 +233,20 @@ def test_no_editor_disables_editor_groups_with_tooltip(mw, qapp):
         clip.setText("probe-block-editor-ribbon")
         qapp.processEvents()
         mw._refresh_modify_buttons()
-        _assert_no_editor_state(mw)
+        _assert_plan_state(mw)
+        ctl = mw.scene._modify_ctl
+        sel = mw.scene.selectedItems()
+        assert sel
+        expected = {label for label, tool in mw._TOOL_OF_LABEL.items()
+                    if ctl.can_start(tool, sel)} | {"Delete"}
+        # Copy is the plan-live probe (a lone pipe is not directly movable
+        # per _transformable); Move is covered by the wall tests in
+        # test_build_editor_tabs.py.
+        assert "Copy" in expected
+        btns = mw._be_modify_buttons
+        on = {label for label, b in btns.items() if b.isEnabled()}
+        assert on == expected, (on, expected)
+        assert not btns["Explode"].isEnabled()          # Block-Editor-only (C3)
     finally:
         clip.setText(prev)
         _remove_pipe(mw, pipe)
@@ -288,7 +314,7 @@ def test_entering_editor_switches_page_and_leaving_restores(mw, qapp):
     mw.central_tabs.setCurrentIndex(_plan_index(mw))
     qapp.processEvents()
     assert mw.ribbon._tab_bar.currentIndex() == 2
-    _assert_no_editor_state(mw)
+    _assert_plan_state(mw)
 
 
 # ── G5: Block group buttons drive the real handlers ──────────────────────────
@@ -351,32 +377,6 @@ def test_block_group_buttons(mw, qapp, monkeypatch):
         mw.scene.blockDefinitionsChanged.emit()
 
 
-# ── review Minor 1: a plan mode never lights a disabled page button ──────────
-
-def test_plan_mode_does_not_check_disabled_block_editor_button(mw, qapp):
-    move = mw._be_modify_buttons["Move"]
-    assert not move.isEnabled()
-    pipe = _add_plan_pipe(mw)
-    try:
-        pipe.setSelected(True)
-        mw.scene.set_mode("move")
-        qapp.processEvents()
-        assert mw.scene.mode == "move"
-        assert not move.isChecked()
-        assert not any(b.isChecked() for b in mw._block_mode_buttons.values())
-    finally:
-        mw.scene.set_mode("select")
-        _remove_pipe(mw, pipe)
-        qapp.processEvents()
-    # Inside an editor the same key still lights (parity with #217 sync).
-    ed = mw.block_editor_manager.open_new()
-    qapp.processEvents()
-    mw._sync_mode_buttons("move")
-    assert move.isChecked()
-    mw._sync_mode_buttons("select")
-    assert not move.isChecked()
-
-
 # ── HF2 Task 7: Pattern Tile toggle (hatch D-A32) ────────────────────────────
 
 def test_pattern_tile_button_toggles_and_follows_undo(mw, qapp):
@@ -403,7 +403,7 @@ def test_pattern_tile_button_toggles_and_follows_undo(mw, qapp):
 # ── review Minor 3b: closing the last editor onto an empty canvas ────────────
 # (Kept LAST: it closes every canvas tab; the finally re-opens the plan.)
 
-def test_closing_last_editor_to_empty_canvas_leaves_page_disabled(mw, qapp):
+def test_closing_last_editor_to_empty_canvas_leaves_editor_groups_off(mw, qapp):
     from firepro3d.block_editor import BlockEditorWidget
     mw.ribbon._tab_bar.setCurrentIndex(1)                 # Architecture
     qapp.processEvents()
@@ -426,7 +426,12 @@ def test_closing_last_editor_to_empty_canvas_leaves_page_disabled(mw, qapp):
         QApplication.clipboard().setText("probe-empty-canvas")
         qapp.processEvents()
         mw._refresh_modify_buttons()
-        _assert_no_editor_state(mw)
+        # The empty canvas is kind plan with view_available False: the editor
+        # groups are off with the no-editor tip and every Edit button is off
+        # (can_start) with its real tooltip.
+        _assert_plan_state(mw)
+        for b in mw._be_modify_buttons.values():
+            assert not b.isEnabled(), b.text()
     finally:
         mw._activate_plan_view("Level 1")
         qapp.processEvents()

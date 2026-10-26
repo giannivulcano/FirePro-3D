@@ -6,14 +6,14 @@ a second MainWindow (a known chunk-crash point when combined with other files).
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 
-from tests.test_block_editor_ribbon_tab import PAGE, _buttons, _group, _page, mw  # noqa: F401
+from tests.test_block_editor_ribbon_tab import BUILD, _buttons, _group, _page, mw  # noqa: F401
 
 
 def test_linetype_button_toggles_and_follows_panel_and_undo(mw, qapp):
     w = mw.block_editor_manager.open_new()
     qapp.processEvents()
     try:
-        btns = _buttons(_group(_page(mw, PAGE), "Definition"))
+        btns = _buttons(_group(_page(mw, BUILD), "Definition"))
         lt, tile = btns["Linetype"], btns["Pattern Tile"]
         assert lt.isCheckable() and "linetype" in lt.toolTip().lower()
         QTest.mouseClick(lt, Qt.MouseButton.LeftButton)
@@ -40,7 +40,7 @@ def _st(b):
 
 def test_linetype_button_follows_redo_tab_switch_and_close(mw, qapp):
     """G6 M4 / A9: redo, a two-editor tab switch and editor close."""
-    btns = _buttons(_group(_page(mw, PAGE), "Definition"))
+    btns = _buttons(_group(_page(mw, BUILD), "Definition"))
     lt, tile = btns["Linetype"], btns["Pattern Tile"]
     mgr = mw.block_editor_manager
     a = mgr.open_new()

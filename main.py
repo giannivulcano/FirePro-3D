@@ -1133,7 +1133,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         QTimer.singleShot(50, plan_view.fit_to_screen)
 
     def _on_tab_changed(self, index: int):
-        """Auto-switch active level when switching to a Plan or Detail tab."""
+        """Auto-switch active level when switching to a Plan or Detail tab.
+
+        Also applies the canvas-kind ribbon context (``_set_canvas_context``).
+        """
         self._commit_text_edits()
         # A section's armed block placement ends when its tab is left.
         prev = getattr(self, "_last_tab_widget", None)
@@ -1160,16 +1163,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if self.scene.get_placement_anchor() is not None \
                 or self.scene.is_input_mode():
             self.scene.set_mode("select")
-        from firepro3d.block_editor import BlockEditorWidget
         w = self.central_tabs.widget(index)
-        if isinstance(w, BlockEditorWidget):
-            self._show_block_editor_ribbon()
+        kind = self._canvas_kind_for(w, self.central_tabs.tabText(index))
+        if kind in self._EDITOR_KINDS:
+            self._show_build_ribbon(kind)
             self.update_property_manager()
             self._refresh_snap_align_indicators()
             return
-        # Leaving a Block Editor tab: grey the editor-only ribbon buttons and
-        # restore the ribbon tab that was current before entering.
-        self._hide_block_editor_ribbon()
+        # Any other canvas: apply its kind; leaving a Block Editor tab
+        # restores the ribbon tab that was current before entering (B3).
+        self._hide_build_ribbon(kind)
         self._refresh_snap_align_indicators()
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
@@ -1600,8 +1603,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._init_build_tab(_I)
         self._init_editor_tab(_I)
 
-        # No editor tab is current at startup: editor-only groups disabled.
-        self._set_block_editor_context(False)
+        # Startup canvas: apply its kind (design §1 table).
+        self._canvas_kind = "plan"
+        idx = self.central_tabs.currentIndex()
+        self._set_canvas_context(self._canvas_kind_for(
+            self.central_tabs.widget(idx), self.central_tabs.tabText(idx)))
 
     # ── Per-tab ribbon helpers ───────────────────────────────────────────────
 
@@ -2895,12 +2901,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from PyQt6 import sip
         block_reg = getattr(self, "_block_mode_buttons", {})
         registries = [self._mode_buttons, block_reg]
-        # The permanent Block Editor page's buttons are lit only while an
-        # editor tab is current: a same-key plan mode ("move", …) must not
-        # check a disabled editor-only button (_set_block_editor_context
-        # re-syncs on entry).
+        # The Editor page's buttons light only where Edit is live for the
+        # canvas kind (R1, 2026-10-25: two registries kept, #217): a plan
+        # tool lights the Editor's Move / Rotate ...; on paper / 3d / section
+        # nothing in block_reg lights. Its 2D Geometry and constrain_* keys
+        # never run on a plan scene (containment C7; model_space refuses
+        # constrain_* modes), so gating the registry as a whole is exact.
         live = [self._mode_buttons]
-        if getattr(self, "_block_ribbon_active", False):
+        if getattr(self, "_canvas_kind", "plan") in self._GROUP_LIVE_KINDS["edit"]:
             live.append(block_reg)
         # The mode's button(s) across the live registries (a shared mode has
         # one in each) stay checked.
@@ -3064,55 +3072,58 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 **self._add_modify_buttons(g, scene_getter, mode_registry,
                                            explode=explode)}
 
-    # Buttons that need a selection (scene-tools.md D1/D3 select-first).
+    # The select-first roster (scene-tools.md D1/D3). Enable state comes from
+    # ModifyToolsController.can_start (editor-build B2); tests read this tuple.
     _MODIFY_NEEDS_SELECTION = ("Copy", "Cut", "Duplicate", "Delete",
                                "Move", "Rotate", "Scale", "Flip", "Mirror", "Array")
 
     def _refresh_modify_buttons(self) -> None:
-        """Enable/disable the Block Editor Edit/Modify buttons (D1).
+        """Enable state of the Editor's Edit buttons and Build's Fill (D1, B2).
 
-        Selection-needing tools are disabled with an empty selection; Paste
-        is enabled only while the clipboard holds a FirePro3D payload
-        (``clipboard_payload()``, scene-tools.md D5).
-        Explode is enabled only while at least one block instance is
-        selected (nested-blocks D10).
-
-        With no Block Editor tab current the buttons stay disabled (the
-        permanent page's no-editor state, ``_set_block_editor_context``) —
-        this refresh also fires from the clipboard and editor-scene
-        selections while a plan tab is current.
+        Off unless Edit is live for the canvas kind (tooltips are owned by
+        :meth:`_set_canvas_context`). In a live kind each tool button
+        follows ``ModifyToolsController.can_start`` on the active scene's
+        selection (a wall selection greys Scale / Flip / Mirror / Offset;
+        Paste follows the clipboard; an empty canvas greys all);
+        Delete needs a selection; Explode needs a selected block instance or
+        filled region and is Block-Editor-only (containment C3). Fill is live
+        wherever 2D Geometry is (HF4 AC1). Fires from selection, clipboard
+        and scene signals of every connected scene, so it re-reads the kind.
         """
         from PyQt6 import sip
         from firepro3d.block_instance import BlockInstance
         from firepro3d.filled_region import FilledRegionItem
         buttons = getattr(self, "_be_modify_buttons", None) or {}
+        kind = getattr(self, "_canvas_kind", "plan")
         fb = getattr(self, "_be_fill_btn", None)
-        if not getattr(self, "_block_ribbon_active", False):
+        if fb is not None and not sip.isdeleted(fb):
+            fb.setEnabled(kind in self._GROUP_LIVE_KINDS["geometry"])
+        if kind not in self._GROUP_LIVE_KINDS["edit"]:
             for b in buttons.values():
                 if not sip.isdeleted(b):
                     b.setEnabled(False)
-            if fb is not None and not sip.isdeleted(fb):
-                fb.setEnabled(False)
             return
-        scene = self._active_scene()
         try:
+            scene = self._active_scene()
             selected = scene.selectedItems()
+            ctl = scene._modify_ctl
+            can_explode = kind in self._EDITOR_KINDS and any(
+                isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
+            for label, b in buttons.items():
+                if sip.isdeleted(b):
+                    continue
+                tool = self._TOOL_OF_LABEL.get(label)
+                if tool is not None:
+                    b.setEnabled(ctl.can_start(tool, selected))
+                elif label == "Delete":
+                    # needs a selection and a canvas (the empty canvas
+                    # refuses at the _delete_if_not_editing chokepoint)
+                    b.setEnabled(bool(selected) and getattr(
+                        scene, "view_available", True))
+                elif label == "Explode":
+                    b.setEnabled(can_explode)
         except RuntimeError:
-            return
-        has_sel = bool(selected)
-        can_explode_sel = any(isinstance(i, (BlockInstance, FilledRegionItem))
-                              for i in selected)
-        for label, b in buttons.items():
-            if sip.isdeleted(b):
-                continue
-            if label in self._MODIFY_NEEDS_SELECTION:
-                b.setEnabled(has_sel)
-            elif label == "Explode":
-                b.setEnabled(can_explode_sel)
-            elif label == "Paste":
-                b.setEnabled(scene.clipboard_payload() is not None)
-        if fb is not None and not sip.isdeleted(fb):
-            fb.setEnabled(True)      # HF4 AC1: no selection -> Pick point; candidates -> HF3
+            return                  # window or scene being torn down
         self._refresh_constrain_buttons()
 
     def _connect_modify_refresh(self, scene) -> None:
@@ -4432,6 +4443,29 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self.central_tabs.currentWidget()
         return w if isinstance(w, BlockEditorWidget) else None
 
+    def _canvas_kind_for(self, w, tab_text: str) -> str:
+        """The canvas kind of central-tab widget *w* (editor-build design §1).
+
+        ``block`` / ``schematic`` = a BlockEditorWidget of that kind;
+        ``section`` = every Elevation / Section tab (a SectionView on its own
+        scene, S1); ``paper``; ``3d``; ``detail`` = a ``Detail: `` tab (a
+        Model_View on the shared model scene); anything else, the empty
+        canvas included, is ``plan``.
+        """
+        from firepro3d.block_editor import BlockEditorWidget
+        from firepro3d.elevation_view import SectionView
+        if isinstance(w, BlockEditorWidget):
+            return "schematic" if w.kind == "schematic" else "block"
+        if isinstance(w, SectionView):
+            return "section"
+        if isinstance(w, PaperSpaceWidget):
+            return "paper"
+        if w is not None and w is getattr(self, "view_3d", None):
+            return "3d"
+        if tab_text.startswith("Detail: "):
+            return "detail"
+        return "plan"
+
     def _active_view(self):
         """The Model_View for the active tab: the editor's view for a Block
         Editor tab, else the plan view."""
@@ -4892,12 +4926,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Perpendicular / Equal / Tangent / Collinear:
         enabled with nothing selected (pick mode) or a valid selection; Delete Constraints: a selected constraint, or selected
         geometry that carries one. Show Constraints mirrors the editor's
-        D32 show-all override. No-op with no editor tab current (the page's
-        no-editor state, ``_set_block_editor_context``).
+        D32 show-all override. No-op where Constrain is not live for the
+        canvas kind (``_set_canvas_context``).
         """
         from PyQt6 import sip
         btns = getattr(self, "_be_constrain_buttons", None) or {}
-        if not btns or not getattr(self, "_block_ribbon_active", False):
+        if not btns or (getattr(self, "_canvas_kind", "plan")
+                        not in self._GROUP_LIVE_KINDS["constrain"]):
             return
         sc = self._active_scene()
         ctl = getattr(sc, "constraint_ctl", None)
@@ -4935,50 +4970,58 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool))
             ac_b.blockSignals(False)
 
-    def _set_block_editor_context(self, active: bool) -> None:
-        """Enable/disable the Block Editor tab's editor-only groups.
+    def _set_canvas_context(self, kind: str) -> None:
+        """Apply the canvas-kind table (``_GROUP_LIVE_KINDS``) to the ribbon.
 
-        *active* = a Block Editor tab is current. Inactive: every Definition /
-        2D Geometry / Edit / Modify button is disabled and tooltipped
-        ``_BE_NO_EDITOR_TIP`` (the Block group stays live). Active: real
-        tooltips back, buttons enabled, then Edit/Modify narrowed by
-        ``_refresh_modify_buttons`` against the editor scene's selection and
-        the kind-gated buttons (capabilities, Save as Template, Edit
-        Attributes) by ``_sync_capability_buttons``.
+        Every gated Build / Editor button is enabled with its real tooltip
+        where its group is live for *kind*, else disabled with the off
+        tooltip -- ``_BE_NO_EDITOR_TIP`` on plan / detail (open a block to
+        use it), ``_NOT_IN_VIEW_TIP`` on section / paper / 3d (design §1
+        (a)/(b)). The Block group is never gated. Then the selection-driven
+        narrowing (``_refresh_modify_buttons``, which also runs the
+        Constrain refresh), the mode-button sync and the schematic
+        capability pass (c) run on top.
         """
         from PyQt6 import sip
-        for b, tip, _g in getattr(self, "_canvas_gated", ()):
+        self._canvas_kind = kind
+        if not hasattr(self, "_canvas_gated"):
+            # A central-tab change before init_ribbon (tabs are added first):
+            # remember the kind; init_ribbon applies it once the pages exist.
+            return
+        off_tip = (self._BE_NO_EDITOR_TIP if kind in ("plan", "detail")
+                   else self._NOT_IN_VIEW_TIP)
+        for b, tip, group in getattr(self, "_canvas_gated", ()):
             if sip.isdeleted(b):
                 continue
-            b.setToolTip(tip if active else self._BE_NO_EDITOR_TIP)
-            b.setEnabled(active)
-        if active:
+            live = kind in self._GROUP_LIVE_KINDS[group]
+            b.setToolTip(tip if live else off_tip)
+            b.setEnabled(live)
+        if kind in self._GROUP_LIVE_KINDS["edit"]:
             self._connect_modify_refresh(self._active_scene())
-            self._refresh_modify_buttons()
-        # Re-sync the mode buttons for the (new) active scene: lights the
-        # editor's running tool on entry, clears the page's buttons on leave.
+        self._refresh_modify_buttons()
         self._sync_mode_buttons(getattr(self._active_scene(), "mode", None))
         self._sync_capability_buttons()
 
-    def _show_block_editor_ribbon(self):
-        """An editor tab became current: switch to the Block Editor page and
-        enable its editor-only groups."""
-        entering = not getattr(self, "_block_ribbon_active", False)
-        if entering:
-            pre = self.ribbon._tab_bar.currentIndex()
-            self._pre_build_tab = (
-                None if pre == self._build_page_index else pre)
-        self._block_ribbon_active = True
-        self.ribbon._tab_bar.setCurrentIndex(self._build_page_index)
-        self._set_block_editor_context(True)
+    def _show_build_ribbon(self, kind: str) -> None:
+        """A block / schematic canvas became current: make Build current (B3).
 
-    def _hide_block_editor_ribbon(self):
-        """Leaving an editor tab: disable the editor-only groups and, if the
-        ribbon is still on the Block Editor page, restore the prior tab."""
-        if not getattr(self, "_block_ribbon_active", False):
+        Entering from a non-editor canvas remembers the current ribbon tab
+        (unless it is Build) so leaving can restore it.
+        """
+        if getattr(self, "_canvas_kind", "plan") not in self._EDITOR_KINDS:
+            pre = self.ribbon._tab_bar.currentIndex()
+            self._pre_build_tab = None if pre == self._build_page_index else pre
+        self.ribbon._tab_bar.setCurrentIndex(self._build_page_index)
+        self._set_canvas_context(kind)
+
+    def _hide_build_ribbon(self, kind: str) -> None:
+        """A non-editor canvas became current: apply its kind; when leaving a
+        block / schematic canvas, restore the remembered tab only if Build is
+        still current (B3)."""
+        leaving = getattr(self, "_canvas_kind", "plan") in self._EDITOR_KINDS
+        self._set_canvas_context(kind)
+        if not leaving:
             return
-        self._block_ribbon_active = False
-        self._set_block_editor_context(False)
         pre = self._pre_build_tab
         self._pre_build_tab = None
         if (pre is not None
@@ -5226,7 +5269,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 btn.setChecked(cap is not None and cap[0] == kind)
             finally:
                 btn.blockSignals(blocked)
-            if w is not None:   # no editor: _set_block_editor_context owns it
+            if w is not None:   # no editor: _set_canvas_context owns it
                 btn.setEnabled(not schematic)
                 btn.setToolTip(SCHEMATIC_CAP_REASON if schematic
                                else tips.get(id(btn), btn.toolTip()))

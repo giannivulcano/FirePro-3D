@@ -23,7 +23,7 @@ from tests._mainwindow_helpers import dispose_main_window
 
 @pytest.fixture(scope="module")
 def _main_window_singleton(qapp, tmp_path_factory):
-    """Module-scoped MainWindow (module-scoped MainWindow singleton).
+    """Module-scoped MainWindow singleton.
 
     The autosave path is redirected to a temp dir so a real recovery file on
     this machine can't pop the modal "Recover Unsaved Work" dialog when a test
@@ -144,6 +144,12 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
             assert not btns[label].isEnabled(), label
         # Paste follows the clipboard payload (D5 / I1), refreshed on change.
         from PyQt6.QtWidgets import QApplication
+        # conftest swaps in a fresh FakeClipboard per test; the module-scoped
+        # window wired its clipboard refresh (now at startup, plan is a live
+        # Edit kind) to an earlier one -- a harness artifact, production has
+        # one clipboard. Rewire to this test's.
+        QApplication.clipboard().dataChanged.connect(
+            main_window._refresh_modify_buttons)
         # Windows delivers the clipboard's dataChanged asynchronously: poll.
         QApplication.clipboard().setText("")
         _wait_until(lambda: not btns["Paste"].isEnabled())

@@ -202,3 +202,182 @@ def test_build_and_editor_groups(mw, qapp):
     assert [t for t, _g in _groups(_page(mw, "Editor"))] == [
         "EDIT", "CONSTRAIN", "INSPECT"]
     assert _reading_order(_group(_page(mw, "Editor"), "Edit")) == EDIT_ORDER
+
+
+# ── T1b: per-group enable state for every canvas kind (AC1, design §1 table) ─
+
+NO_EDITOR_TIP = "Open or create a block to edit"
+NIV = "Not available in this view"
+KINDS = ("plan", "detail", "block", "schematic", "section", "paper", "3d")
+PAGE_OF = {"Block": "Build", "Definition": "Build", "2D Geometry": "Build",
+           "Edit": "Editor", "Constrain": "Editor", "Inspect": "Editor"}
+# group -> {kind: off tooltip}; a kind not listed = the group is live there.
+OFF = {
+    "Block": {},
+    "Definition": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
+                   "section": NIV, "paper": NIV, "3d": NIV},
+    "2D Geometry": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
+                    "section": NIV, "paper": NIV, "3d": NIV},
+    "Edit": {"section": NIV, "paper": NIV, "3d": NIV},
+    "Constrain": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
+                  "section": NIV, "paper": NIV, "3d": NIV},
+    "Inspect": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
+                "section": NIV, "paper": NIV, "3d": NIV},
+}
+# One button per live group that must be enabled (selection-independent).
+PROBE = {"Block": ("New", "Open", "Manager", "Insert"), "Definition": ("Save",),
+         "2D Geometry": ("Line", "Fill"), "Constrain": ("Smart Dimension",),
+         "Inspect": ("Show Constraints",)}
+# Edit buttons enabled with the canvas's probe selection (B2): a plan wall,
+# or a block-editor line; the clipboard holds no FirePro3D payload.  Array
+# stays live on a wall (user ruling 2026-10-26: it copies walls through the
+# paste path; ``can_start("array", [wall])`` is True).
+EDIT_ON = {
+    "plan": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array"},
+    "detail": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array"},
+    "block": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Scale",
+              "Flip", "Mirror", "Offset", "Array"},
+    "schematic": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate",
+                  "Scale", "Flip", "Mirror", "Offset", "Array"},
+}
+
+
+def _open_canvas(mw, qapp, kind):
+    """Make a *kind* canvas current; return the cleanup callable."""
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.geometry_2d import LineItem
+    QApplication.clipboard().setText("probe-not-a-payload")
+    items, undo = [], lambda: None
+    if kind in ("plan", "detail"):
+        items = list(_plan_wall(mw))
+        undo = lambda: _remove(mw, *items)
+        if kind == "detail":
+            mw.detail_manager.create_detail("T1 Detail", QRectF(0, 0, 1000, 1000),
+                                            "Level 1")
+            mw.detail_manager.open_detail("T1 Detail")
+
+            def undo():
+                _remove(mw, *items)
+                mw.detail_manager.close_detail("T1 Detail")
+    elif kind in ("block", "schematic"):
+        ed = (mw.block_editor_manager.open_new() if kind == "block"
+              else mw.block_editor_manager.open_new(kind="schematic"))
+        qapp.processEvents()
+        ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+        ed.editor_scene.addItem(ln)
+        ed.editor_scene._draw_lines.append(ln)
+        items = [ln]
+    elif kind == "section":
+        assert mw.section_manager.marker("north") is not None
+        mw.section_manager.open_section("north")
+        undo = lambda: mw.section_manager.close_section("north")
+    elif kind == "paper":
+        mw._activate_paper_sheet()
+    elif kind == "3d":
+        mw.view3d_tab.open()
+        undo = lambda: mw.view3d_tab.close(remember=False)
+    qapp.processEvents()
+    for it in items:
+        it.setSelected(True)
+    qapp.processEvents()
+    return undo
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_canvas_kind_table(mw, qapp, kind):
+    undo = _open_canvas(mw, qapp, kind)
+    try:
+        for group, offs in OFF.items():
+            page = _page(mw, PAGE_OF[group])
+            btns = _buttons(_group(page, group))
+            if kind in offs:
+                for label, b in btns.items():
+                    assert not b.isEnabled(), (kind, group, label)
+                    assert b.toolTip() == offs[kind], (kind, group, label, b.toolTip())
+                continue
+            for label, b in btns.items():
+                assert b.toolTip() not in (NO_EDITOR_TIP, NIV), (kind, group, label)
+            if group == "Edit":
+                on = {l for l, b in btns.items() if b.isEnabled()}
+                assert on == EDIT_ON[kind], (kind, on)
+            else:
+                for label in PROBE[group]:
+                    assert btns[label].isEnabled(), (kind, group, label)
+    finally:
+        undo()
+        qapp.processEvents()
+
+
+def test_schematic_narrowing_runs_after_the_table(mw, qapp):
+    """(c): a schematic keeps D-S14 narrowing on top of the live Definition group."""
+    _open_canvas(mw, qapp, "schematic")
+    d = _buttons(_group(_page(mw, "Build"), "Definition"))
+    for label in ("Pattern Tile", "Linetype", "End Type", "Edit Attributes"):
+        assert not d[label].isEnabled(), label
+    assert d["Save as Template"].isEnabled()
+
+
+# ── B3: entering a block/schematic canvas jumps to Build; restore rule ───────
+
+def test_entering_an_editor_makes_build_current_and_leaving_restores(mw, qapp):
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(ROSTER.index("Sprinkler Systems"))
+    qapp.processEvents()
+    mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    assert _titles(mw)[tb.currentIndex()] == "Build"
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    qapp.processEvents()
+    assert _titles(mw)[tb.currentIndex()] == "Sprinkler Systems"
+
+
+def test_leaving_keeps_a_tab_the_user_moved_to(mw, qapp):
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(ROSTER.index("Sprinkler Systems"))
+    mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    tb.setCurrentIndex(ROSTER.index("Editor"))           # user moves off Build
+    qapp.processEvents()
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    qapp.processEvents()
+    assert _titles(mw)[tb.currentIndex()] == "Editor"
+
+
+def test_plan_or_paper_tab_change_never_switches_the_ribbon(mw, qapp):
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(ROSTER.index("Draft"))
+    qapp.processEvents()
+    mw._activate_paper_sheet()
+    qapp.processEvents()
+    assert _titles(mw)[tb.currentIndex()] == "Draft"
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    qapp.processEvents()
+    assert _titles(mw)[tb.currentIndex()] == "Draft"
+
+
+# ── R1: Editor buttons light for the plan scene's running tool ───────────────
+
+def test_plan_move_lights_the_editor_move_button(mw, qapp):
+    wall = _plan_wall(mw)
+    move = mw._be_modify_buttons["Move"]
+    try:
+        wall[0].setSelected(True)
+        qapp.processEvents()
+        assert mw.scene._modify_ctl.start("move")
+        qapp.processEvents()
+        assert move.isChecked()
+        mw.scene.set_mode("select")
+        qapp.processEvents()
+        assert not move.isChecked()
+    finally:
+        mw.scene.set_mode("select")
+        _remove(mw, *wall)
+        qapp.processEvents()
+
+
+def test_off_canvas_never_lights_an_editor_button(mw, qapp):
+    mw._activate_paper_sheet()
+    qapp.processEvents()
+    mw._sync_mode_buttons("move")
+    assert not mw._be_modify_buttons["Move"].isChecked()

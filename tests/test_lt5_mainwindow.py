@@ -15,7 +15,7 @@ from firepro3d import app_data, block_library
 from firepro3d import stroke_style as ss
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from tests.lt5_support import v_end
-from tests.test_block_editor_ribbon_tab import PAGE, _buttons, _group, _page
+from tests.test_block_editor_ribbon_tab import BUILD, _buttons, _group, _page
 from tests.test_constraint_pick_ribbon import (  # noqa: F401
     _plan_index, mw, win_with_editor)
 
@@ -166,7 +166,7 @@ def test_e10_ribbon_end_type_button_toggles_and_follows_undo(mw, qapp):
     w = mw.block_editor_manager.open_new()
     qapp.processEvents()
     try:
-        btns = _buttons(_group(_page(mw, PAGE), "Definition"))
+        btns = _buttons(_group(_page(mw, BUILD), "Definition"))
         end, lt = btns["End Type"], btns["Linetype"]
         assert end.isCheckable() and "end type" in end.toolTip().lower()
         QTest.mouseClick(end, Qt.MouseButton.LeftButton)

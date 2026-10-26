@@ -248,13 +248,16 @@ def test_visible_3d_rebuilds_once_per_edit(mw):                            # gua
     assert len(rebuilds) == 1
 
 
-def test_ribbon_delete_is_refused_on_empty_canvas(mw):                     # guard 8 (I5)
+def test_delete_is_refused_on_empty_canvas(mw):                     # guard 8 (I5)
     win = mw
     _close_all(win)
     pipe = _selected_pipe(win)
     win.footer.set_instruction("")
     # The contextual Edit group (its Delete button) is retired (G4); Delete's
     # plan entry is the window-level Del shortcut -> the same chokepoint.
+    # The ribbon route is the Editor page's Edit button: it greys here
+    # instead of refusing.
+    assert not win._be_modify_buttons["Delete"].isEnabled()
     _shortcut(win, "Delete").activated.emit()
     assert pipe in win.scene.sprinkler_system.pipes
     assert win.footer.instruction.text() == NO_VIEW_HINT
@@ -276,6 +279,7 @@ def test_paste_and_offset_are_refused_on_empty_canvas(mw):          # guard 9 (I
     n_items = len(s.items())
     start_pos = s.node_start_pos
     win.footer.set_instruction("")
+    assert not win._be_modify_buttons["Paste"].isEnabled()   # greyed, not refused
     _shortcut(win, "Shift+V").activated.emit()
     assert s._paste_payload is None
     assert s.node_start_pos is start_pos
@@ -288,6 +292,7 @@ def test_paste_and_offset_are_refused_on_empty_canvas(mw):          # guard 9 (I
     win.footer.set_instruction("")
     # The plan ribbon has no Modify group (Block Editor page only) — Offset's
     # plan entry is the Shift+O window shortcut.
+    assert not win._be_modify_buttons["Offset"].isEnabled()  # greyed, not refused
     _shortcut(win, "Shift+O").activated.emit()
     assert s._offset_source is None
     assert s.mode in (None, "select")
