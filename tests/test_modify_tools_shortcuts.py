@@ -30,7 +30,7 @@ EXPECTED = {
 
 @pytest.fixture(scope="module")
 def _main_window_singleton(qapp, tmp_path_factory):
-    """Module-scoped MainWindow (same pattern as test_ribbon_contextual.py).
+    """Module-scoped MainWindow (module-scoped MainWindow singleton).
 
     The autosave path is redirected to a temp dir so a real recovery file on
     this machine can't pop the modal "Recover Unsaved Work" dialog when a test

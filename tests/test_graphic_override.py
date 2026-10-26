@@ -1,4 +1,4 @@
-"""Tests for the reusable 'Graphic Override' ribbon group + Floor contextual tab.
+"""Tests for the reusable 'Graphic Override' actions (the ribbon group was retired, G5).
 
 Verifies (Task 7 of the floor-workflow feature branch):
   1. The Stroke Colour override action writes ``_display_overrides["color"]`` on
@@ -28,7 +28,7 @@ from tests._mainwindow_helpers import dispose_main_window
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module-scoped MainWindow singleton (mirrors test_geo2d_contextual_tab.py)
+# Module-scoped MainWindow singleton
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
@@ -51,11 +51,6 @@ def main_window(_main_window_singleton):
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _titles(mw):
-    tb = mw.ribbon._tab_bar
-    return [tb.tabText(i) for i in range(tb.count())]
-
-
 def _make_slab(scene):
     """Add a FloorSlab (three-point closed boundary) to *scene* and register it
     in ``_floor_slabs`` so the Display-Manager apply path can find it.
@@ -71,40 +66,6 @@ def _make_slab(scene):
     return slab
 
 
-def _floor_page(mw):
-    """Return the RibbonPage for the Floor contextual tab (must be shown).
-
-    The contextual tab uses the ``Modify | <entity>`` title format (ribbon
-    spec D8 / 2026-09-16 redesign), so the floor tab reads ``Modify | Floor``.
-    """
-    tabs = _titles(mw)
-    assert "Modify | Floor" in tabs, (
-        f"Expected 'Modify | Floor' contextual tab; got {tabs}"
-    )
-    idx = tabs.index("Modify | Floor")
-    return mw.ribbon._stack.widget(idx)
-
-
-def _group_titles(page):
-    # Group labels render UPPERCASE + vertical after the chrome revamp (Task 3).
-    from firepro3d.ribbon_bar import RibbonGroup
-    from PyQt6.QtWidgets import QLabel
-    titles = []
-    for g in page.findChildren(RibbonGroup):
-        for lbl in g.findChildren(QLabel):
-            titles.append(lbl.text().upper())
-    return titles
-
-
-def _find_button(page, text):
-    """Find a ribbon button on *page* whose text matches *text*."""
-    from PyQt6.QtWidgets import QToolButton, QAbstractButton
-    for b in page.findChildren(QAbstractButton):
-        if b.text() == text:
-            return b
-    return None
-
-
 @pytest.fixture(autouse=True)
 def clean_scene(main_window, qapp):
     yield
@@ -116,23 +77,6 @@ def clean_scene(main_window, qapp):
             if item in main_window.scene._floor_slabs:
                 main_window.scene._floor_slabs.remove(item)
     qapp.processEvents()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Test: Floor contextual tab carries Edit + Graphic Override groups
-# ─────────────────────────────────────────────────────────────────────────────
-
-def test_floor_tab_has_edit_and_graphic_override_groups(main_window, qapp):
-    slab = _make_slab(main_window.scene)
-    slab.setSelected(True)
-    qapp.processEvents()
-
-    page = _floor_page(main_window)
-    titles = _group_titles(page)
-    assert "EDIT" in titles, f"Expected 'Edit' group; got {titles}"
-    assert "GRAPHIC OVERRIDE" in titles, (
-        f"Expected 'Graphic Override' group; got {titles}"
-    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

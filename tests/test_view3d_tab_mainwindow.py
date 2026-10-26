@@ -33,7 +33,7 @@ def mw(qapp, tmp_path, monkeypatch):
     QTest.qWait(300)
     yield w
     # A plan selection alive at close emits selectionChanged during the
-    # scene's destruction into _on_selection_changed_contextual (pre-existing,
+    # scene's destruction into the selectionChanged handlers (pre-existing,
     # filed separately) — clear it first so teardown can't abort the process.
     dispose_main_window(w)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
@@ -253,8 +253,9 @@ def test_ribbon_delete_is_refused_on_empty_canvas(mw):                     # gua
     _close_all(win)
     pipe = _selected_pipe(win)
     win.footer.set_instruction("")
-    for b in _ribbon_buttons(win, "Delete selected items (Del)"):
-        b.click()
+    # The contextual Edit group (its Delete button) is retired (G4); Delete's
+    # plan entry is the window-level Del shortcut -> the same chokepoint.
+    _shortcut(win, "Delete").activated.emit()
     assert pipe in win.scene.sprinkler_system.pipes
     assert win.footer.instruction.text() == NO_VIEW_HINT
 
@@ -268,15 +269,14 @@ def test_paste_and_offset_are_refused_on_empty_canvas(mw):          # guard 9 (I
         "OS clipboard refused the write (environment)"
     assert s.clipboard_payload() is not None
     _close_all(win)
-    # The contextual (pipe) tab's Edit group carries Paste while the pipe
-    # stays selected.
+    # The contextual Edit group (its Paste button) is retired (G4); Paste's
+    # plan entry is the window-level Shift+V shortcut.
     s.clearSelection(); pipe.setSelected(True)
     s._last_scene_pos = QPointF(50, 50)        # cursor was last over the canvas
     n_items = len(s.items())
     start_pos = s.node_start_pos
     win.footer.set_instruction("")
-    _ribbon_buttons(win, "Paste — ghost on the cursor, click to place "
-                         "(Shift+V / Ctrl+V)")[0].click()
+    _shortcut(win, "Shift+V").activated.emit()
     assert s._paste_payload is None
     assert s.node_start_pos is start_pos
     assert len(s.items()) == n_items, "no ghost items on an empty canvas"

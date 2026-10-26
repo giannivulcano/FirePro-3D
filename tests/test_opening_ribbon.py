@@ -127,18 +127,6 @@ def test_template_sill_edit_applies_to_placed_opening(qapp, main_window):
         "template sill did not reach the placed opening"
 
 
-def test_wall_opening_maps_to_opening_family(qapp, main_window):
-    """§7.15: _family_key_for must resolve WallOpening → 'opening' (contextual tab key)."""
-    from firepro3d.wall import WallSegment
-    from firepro3d.wall_opening import WallOpening
-    from PyQt6.QtCore import QPointF
-
-    mw = main_window
-    w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
-    op = WallOpening(wall=w, feature_id="door_914", offset_along=500.0)
-    assert mw._family_key_for(op) == "opening"
-
-
 def test_startup_panel_defaults(qapp, main_window):
     """Startup panel defaults are FIXED (not persisted from the previous
     session): Project Browser + Properties open, Hydraulic Report closed.
