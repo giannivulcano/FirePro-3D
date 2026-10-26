@@ -188,6 +188,15 @@ def test_t10_copy_keeps_internal_constraints_on_the_copies(qapp):
         sc.cleanup()
 
 
+def _resolves_live(sc, uid):
+    """The constraint's ref resolves to the live wall item; it is solvable."""
+    live = [w for w in sc._walls if w._uid == uid]
+    assert len(live) == 1
+    assert sc.constraint_ctl.item_by_uid()[uid] is live[0]
+    for c in sc.constraint_ctl.constraints:
+        assert not c.inert and not c.invalid
+
+
 def test_wall_uid_and_constraint_resolve_after_undo_and_redo(qapp):
     """The constraint outlives a snapshot restore (_restore_network): after
     undo and after redo its ref still names a live wall in sc._walls."""
@@ -207,9 +216,35 @@ def test_wall_uid_and_constraint_resolve_after_undo_and_redo(qapp):
         assert {r["uid"] for c in sc.constraint_ctl.constraints for r in c.refs} \
             <= {w._uid for w in sc._walls}
         assert sc._walls[0]._uid == w1._uid
+        _resolves_live(sc, w1._uid)
         sc.redo()
         assert len(sc._walls) == 2
         assert _records(sc) == want
         assert w1._uid in {w._uid for w in sc._walls}
+        _resolves_live(sc, w1._uid)
+    finally:
+        sc.cleanup()
+
+
+def test_malformed_constraint_records_drop_instead_of_crashing_the_load(
+        qapp, tmp_path, caplog):
+    good = {"id": "good", "type": "dim_distance", "value": 1500.0}
+    junk = [
+        {"id": "r5", "type": "dim_distance", "refs": 5},
+        {"id": "ul", "type": "dim_distance", "refs": [{"uid": ["x"], "h": "edge"}]},
+        "junk",
+    ]
+
+    def cons(w, g):
+        return [dict(good, refs=[{"uid": w, "h": "edge"}])] + junk
+    f = _payload_with(tmp_path, cons)
+    sc = Model_Space()
+    try:
+        with caplog.at_level(logging.INFO):
+            sc.load_from_file(str(f))
+        assert [c.id for c in sc.constraint_ctl.constraints] == ["good"]
+        assert sc.constraint_ctl.constraints[0].value == 1500.0
+        assert any("Clean-drop: discarded %d " % len(junk) in r.getMessage()
+                   for r in caplog.records)
     finally:
         sc.cleanup()

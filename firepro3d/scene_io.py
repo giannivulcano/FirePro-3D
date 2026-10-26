@@ -36,8 +36,11 @@ def _plan_record_resolves(rec, uids) -> bool:
     record *rec* names a loaded wall / gridline uid (no grounds, no loose
     geometry)."""
     refs = rec.get("refs") if isinstance(rec, dict) else None
-    return bool(refs) and all(isinstance(r, dict) and r.get("uid") in uids
-                              for r in refs)
+    if not isinstance(refs, list) or not refs:
+        return False
+    if not all(isinstance(r, dict) and isinstance(r.get("uid"), str) for r in refs):
+        return False
+    return all(r["uid"] in uids for r in refs)
 
 
 class SceneIOMixin:
@@ -501,7 +504,9 @@ class SceneIOMixin:
         # loads with none).
         _plan_uids = ({w._uid for w in self._walls}
                       | {g._uid for g in self._gridlines})
-        _cons_in = [r for r in payload.get("constraints", []) or []]
+        _cons_in = payload.get("constraints")
+        if not isinstance(_cons_in, list):
+            _cons_in = []
         _cons_kept = [r for r in _cons_in if _plan_record_resolves(r, _plan_uids)]
         self.constraint_ctl.load(_cons_kept)
         _cons_dropped = len(_cons_in) - len(_cons_kept)
