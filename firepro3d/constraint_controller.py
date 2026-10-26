@@ -1,7 +1,9 @@
 """Constraint controller — the Qt shell of the sketch solver.
 
-parametric-constraint-system.md §3, §8. Composed into every Model_Space;
-active only for ``scene_role == "block_editor"`` (D2). Every geometry edit in
+parametric-constraint-system.md §3, §8. Composed into every Model_Space.
+Active in the Block Editor (every adapter) and in the plan model scene, where
+it references walls and gridlines only (editor-build design s2:
+``block_editor`` / ``ref_types``). Every geometry edit in
 the editor routes through one of the seams below; with no constraints each
 seam is a no-op (the pre-constraint behaviour).
 
@@ -73,6 +75,17 @@ HONOUR_RATIO = 1.1
 # no adapter): a record that names one still resolves
 # for Save (§6.4) even though it can never be solved in v1.
 _PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines", "_filled_regions")
+
+# Editor/Build slice 2: the plan model scene's participating lists -- walls
+# and gridlines only (no 2D geometry in Model Space, containment C1/C7).
+_PLAN_PARTICIPATING = ("_walls", "_gridlines")
+
+
+def _plan_ref_types() -> tuple:
+    """The item types plan constraints may reference (design s2, B1/G8)."""
+    from .gridline import GridlineItem
+    from .wall import WallSegment
+    return (WallSegment, GridlineItem)
 
 
 @dataclass(frozen=True)
@@ -261,6 +274,8 @@ class PickState:
                 or self.ctype in ("parallel", "perpendicular", "collinear"))   # CS9 P1 / CS10 PP1 / CS14 C1
         for it in self.ctl.items():
             yield from item_handles(it, curvy=curvy)
+        if not self.ctl.block_editor:          # design s2: no origin / axes in plan
+            return
         yield "point", {"ref": "origin"}, QPointF(0.0, 0.0), None
         if axes:
             yield "axis", {"ref": "x_axis"}, None, None
@@ -481,8 +496,16 @@ class ConstraintController:
 
     def __init__(self, scene):
         self._scene = scene
-        self.enabled = getattr(scene, "scene_role", "plan") == "block_editor"
-        self.constraints: list[sm.Constraint] = []
+        role = getattr(scene, "scene_role", "plan")
+        # Editor/Build slice 2 (design s2): constraints are on in the Block
+        # Editor (every adapter, ref_types None) and in the plan model scene
+        # (walls + gridlines). ``block_editor`` answers "is this the Block
+        # Editor" (2D-drawing Auto Constrain, the origin / X-Y grounds).
+        self.block_editor = role == "block_editor"
+        self.enabled = self.block_editor or role == "plan"
+        self.ref_types = None if self.block_editor else _plan_ref_types()
+        self._changed_linked = False
+        self._constraints: list[sm.Constraint] = []
         self.selected_id: str | None = None
         self.hover_id: str | None = None
         # D32: glyphs show only for constraints touching a selected entity,
@@ -528,7 +551,28 @@ class ConstraintController:
         self._painted: dict = {}               # id(view) -> last glyph/glow QRect
         if self.enabled:
             scene.selectionChanged.connect(self._on_selection_changed)
-            scene.changed.connect(self._on_scene_changed)
+        self._sync_scene_link()
+
+    @property
+    def constraints(self) -> list:
+        return self._constraints
+
+    @constraints.setter
+    def constraints(self, value) -> None:
+        self._constraints = value
+        self._sync_scene_link()
+
+    def _sync_scene_link(self) -> None:
+        """Connect ``scene.changed`` (glyph repaint) -- always in the Block
+        Editor, in the plan scene only once a constraint exists: any ``changed``
+        receiver disables Qt's direct item->view update path, which a plan
+        scene without constraints must not pay for (I2)."""
+        if self._changed_linked or not self.enabled:
+            return
+        if not (self.block_editor or self._constraints):
+            return
+        self._scene.changed.connect(self._on_scene_changed)
+        self._changed_linked = True
 
     # ── canvas selection / repaint (D11, constraint_paint) ───────────────
     def select(self, cid) -> None:
@@ -635,12 +679,23 @@ class ConstraintController:
         self._end_session()
 
     # ── items ────────────────────────────────────────────────────────────
+    def _lists(self) -> tuple:
+        """The scene lists whose items may carry a constraint here."""
+        return _PARTICIPATING if self.block_editor else _PLAN_PARTICIPATING
+
+    def can_ref(self, it) -> bool:
+        """Whether *it* may be a constraint ref in this scene: it has an
+        adapter and (plan) is one of ``ref_types``."""
+        if adapter_for(it) is None:
+            return False
+        return self.ref_types is None or isinstance(it, self.ref_types)
+
     def items(self) -> list:
         """Every scene item that can carry a constraint (has an adapter)."""
         out = []
-        for attr in _PARTICIPATING:
+        for attr in self._lists():
             out.extend(getattr(self._scene, attr, ()))
-        return [it for it in out if adapter_for(it) is not None]
+        return [it for it in out if self.can_ref(it)]
 
     def item_by_uid(self) -> dict:
         """``uid -> item`` over :meth:`items`."""
@@ -1914,6 +1969,7 @@ class ConstraintController:
                               ctype, TRIVIAL_STATUS))
             return None
         self.constraints.append(c)
+        self._sync_scene_link()
         ok = self._rotate_first(c) or self._solve(focus=sm.ref_uids(c))
         if not ok:
             self.red.add(c.id)               # D38: the newcomer is the culprit
@@ -2890,7 +2946,7 @@ class ConstraintController:
             return self._symmetric_selection_refs(sel)
         if ctype == "fix":                                    # CS8 F2: each item whole
             if sel and all(getattr(s, "_uid", None) is not None
-                           and adapter_for(s) is not None for s in sel):
+                           and self.can_ref(s) for s in sel):
                 return [{"uid": s._uid, "h": sm.HANDLE_ITEM} for s in sel]
         return None
 
@@ -2963,6 +3019,9 @@ class ConstraintController:
         """
         if not self.enabled:
             return None
+        if (self.ref_types is not None
+                and not isinstance(target, (ConstraintAdapter,) + self.ref_types)):
+            return None                  # plan: only walls / gridlines carry a section
         if isinstance(target, ConstraintAdapter):
             c = target.c
             if c is None:
@@ -3130,7 +3189,7 @@ class ConstraintController:
     def primitive_uids(self) -> set:
         """Uids of EVERY editor primitive, adapter-backed or not (spline)."""
         out = set()
-        for attr in _PRIMITIVE_LISTS:
+        for attr in (_PRIMITIVE_LISTS if self.block_editor else _PLAN_PARTICIPATING):
             out.update(getattr(it, "_uid", None) for it in getattr(self._scene, attr, ()))
         out.discard(None)
         return out
@@ -3290,6 +3349,7 @@ class ConstraintController:
                         c.label = dg.with_offset(c.label, dg.signed_offset(
                             e[0], e[1], point_map(anchor)))
                 self.constraints.append(c)
+                self._sync_scene_link()
                 new.append(c)
         if point_map is not None and _is_reflection(point_map):
             for c in new:                      # D76 / D81: a mirrored copy keeps

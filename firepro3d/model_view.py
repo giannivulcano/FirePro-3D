@@ -311,7 +311,8 @@ class Model_View(QGraphicsView):
                 paint_halo_highlight(painter, self, halo, th.detect())
 
         # ── Constraint axes / glow / glyphs (parametric-constraint §10, D27) ─
-        # Viewport px, non-printing; block-editor scenes only (ctl.enabled).
+        # Viewport px, non-printing (scene.render never runs it); every
+        # constraint-capable scene (ctl.enabled).
         # Before the readouts so a dim label (which out-picks a glyph, §10)
         # also paints over it. A virtual override: an escaping exception
         # aborts PyQt6 — guard.
@@ -1384,7 +1385,7 @@ class Model_View(QGraphicsView):
                 return
         if (event.modifiers() == Qt.KeyboardModifier.NoModifier
                 and event.key() == Qt.Key.Key_D):
-            # CS4b D63: bare D = the Smart Dimension button, Block Editor only.
+            # CS4b D63: bare D = the Smart Dimension button (Block Editor + plan, slice 2).
             ctl = getattr(self.scene(), "constraint_ctl", None)
             fn = getattr(self.window(), "_be_constrain", None)
             if ctl is not None and ctl.enabled and callable(fn):

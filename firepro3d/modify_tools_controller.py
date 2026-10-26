@@ -574,7 +574,7 @@ class ModifyToolsController:
         s = self._scene
         ctl = getattr(s, "constraint_ctl", None)
         geom = getattr(s, "_geom_ctl", None)
-        if ctl is None or not ctl.enabled or geom is None or not geom._hv_on(event):
+        if ctl is None or not ctl.block_editor or geom is None or not geom._hv_on(event):
             return
         from . import auto_constrain as ac
         ctl.auto_join(ac.plan_offset(src, item))

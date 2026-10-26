@@ -207,13 +207,18 @@ def test_buttons_disabled_with_no_editor_tooltip_when_no_editor_current(
         assert b.toolTip() == NO_EDITOR_TIP, label
 
 
-def test_plan_scene_refuses_the_constraint_pick_mode(win_with_editor, qapp):
+def test_plan_scene_accepts_the_constraint_pick_mode(win_with_editor, qapp):
+    """Editor/Build slice 2: the plan scene is constraint-capable (walls +
+    gridlines), so the pick mode is no longer refused there."""
     win = win_with_editor
     win.central_tabs.setCurrentIndex(_plan_index(win))
     qapp.processEvents()
     win.scene.set_mode("constrain_horizontal")
-    assert win.scene.mode != "constrain_horizontal"
-    assert win.scene.constraint_ctl.pick is None
+    try:
+        assert win.scene.mode == "constrain_horizontal"
+        assert win.scene.constraint_ctl.pick is not None
+    finally:
+        win.scene.set_mode(None)
 
 
 # ── D21 selection-first ──────────────────────────────────────────────────────

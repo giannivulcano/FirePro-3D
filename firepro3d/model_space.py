@@ -1228,8 +1228,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         if (isinstance(mode, str) and mode.startswith("constrain_")
                 and not self.constraint_ctl.enabled):
-            # Constraint pick modes exist only in a Block Editor scene (D2);
-            # refused here, the shared entry every ribbon/shortcut path hits.
+            # Constraint pick modes need a constraint-capable scene (Block
+            # Editor or plan, editor-build design s2); refused at the shared
+            # entry every ribbon/shortcut path hits.
             return
         if (mode in ("move", "rotate", "scale")
                 and self.constraint_ctl.refuse_grounded(self.selectedItems())):

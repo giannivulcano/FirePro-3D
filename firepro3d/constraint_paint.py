@@ -505,7 +505,8 @@ def paint(painter: QPainter, view, ctl) -> None:
     try:
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        _paint_axes(painter, view, t)
+        if ctl.block_editor:                    # design s2: no X / Y axes in plan
+            _paint_axes(painter, view, t)
         # Target glow: selected first, hover on top (D11).
         for cid, tok in _glow_ids(ctl):
             path = _glow_path(view, ctl, [(cid, tok)], fr)

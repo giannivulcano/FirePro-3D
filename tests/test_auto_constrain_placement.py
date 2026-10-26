@@ -146,7 +146,10 @@ def test_inference_is_editor_only(vs, qapp):
     assert sc._geom_ctl._hv_on(None) is True                  # AC2: typed = the toggle
     pview, psc = make_view(role="plan", scale=1.0, mode=None)
     try:
-        assert psc.constraint_ctl.enabled is False
+        # editor-build slice 2: constraints are on in plan, but the Block-Editor
+        # ROLE (2D auto-constrain, grounds) is not
+        assert psc.constraint_ctl.enabled is True
+        assert psc.constraint_ctl.block_editor is False
         assert psc._geom_ctl._auto_infer(_press_event()) is False
         assert psc._geom_ctl._hv_on(None) is False            # AC2: editor only
     finally:

@@ -218,7 +218,7 @@ class GeometryDrawingController:
     def _toggle_on(self) -> bool:
         """AD1: the Auto Constrain toggle, Block Editor only (False elsewhere)."""
         ctl = getattr(self._scene, "constraint_ctl", None)
-        if ctl is None or not ctl.enabled:
+        if ctl is None or not ctl.block_editor:
             return False
         return QSettings("GV", "FirePro3D").value(
             AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
@@ -235,7 +235,7 @@ class GeometryDrawingController:
         Shift; a typed completion (*event* None) follows the toggle alone.
         Block Editor only."""
         ctl = getattr(self._scene, "constraint_ctl", None)
-        if ctl is None or not ctl.enabled:
+        if ctl is None or not ctl.block_editor:
             return False
         if event is None:
             return self._toggle_on()
@@ -259,7 +259,7 @@ class GeometryDrawingController:
         targets, self._shape_joins = self._shape_joins, []
         ctl = getattr(self._scene, "constraint_ctl", None)
         uid = getattr(item, "_uid", None)
-        if ctl is None or not ctl.enabled or uid is None:
+        if ctl is None or not ctl.block_editor or uid is None:
             return
         recs = []
         for rim, t in targets:
@@ -284,7 +284,7 @@ class GeometryDrawingController:
         joins first), before the commit's push."""
         ctl = getattr(self._scene, "constraint_ctl", None)
         uid = getattr(item, "_uid", None)
-        if ctl is None or not ctl.enabled or uid is None:
+        if ctl is None or not ctl.block_editor or uid is None:
             return
         recs = []
         for h, pt, t in (("p1", anchor, self._line_anchor_join), ("p2", tip, tip_join)):
@@ -887,7 +887,7 @@ class GeometryDrawingController:
         joins, self._pl_joins = self._pl_joins, []
         hvs, self._pl_hv = self._pl_hv, []
         ctl = getattr(self._scene, "constraint_ctl", None)
-        if ctl is None or not ctl.enabled:
+        if ctl is None or not ctl.block_editor:
             return
         swap = placed is not pl
         pl_uid, uid = getattr(pl, "_uid", None), getattr(placed, "_uid", None)

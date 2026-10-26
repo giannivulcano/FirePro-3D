@@ -35,10 +35,11 @@ def _rect(sc, a, b):
 
 # ── plan Step 1 ─────────────────────────────────────────────────────────────
 
-def test_disabled_in_the_plan_scene(qapp):
+def test_plan_scene_references_walls_and_gridlines_only(qapp):
     sc = Model_Space()
     ln = _line(sc, (0, 0), (10, 5))
-    assert not sc.constraint_ctl.enabled
+    # editor-build slice 2: constraints are on in plan, refs walls + gridlines only
+    assert sc.constraint_ctl.enabled and not sc.constraint_ctl.block_editor
     assert sc.constraint_ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}]) is None
 
 
