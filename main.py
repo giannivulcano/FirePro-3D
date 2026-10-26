@@ -4475,8 +4475,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return w.view
         return self.view
 
-    # The "no editor" tooltip every editor-only Block Editor button shows while
-    # no Block Editor tab is current (ribbon-bar.md §3.8).
+    # The off tooltip of the editor-only Build / Editor groups on a plan or
+    # detail canvas (editor-build design §1 (a); ribbon-bar.md §3.4).
     _BE_NO_EDITOR_TIP = "Open or create a block to edit"
     # Save as Template is live only on a Schematic tab (schematics.md D-S6, SV3).
     _BE_TEMPLATE_BLOCK_TIP = "Only a schematic can be saved as a template"

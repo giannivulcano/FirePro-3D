@@ -133,8 +133,9 @@ class ModifyToolsController:
             # nothing can move, so no mode and no empty undo step.
             return "Nothing to move"
         if tool == "array" and not self._array_copyable(sel):
-            # Review I3: paste_items can't re-create walls, rooms, floors,
-            # roofs or design areas -- refuse up front, not "Nothing arrayed".
+            # Review I3: nothing paste_items can re-create (unknown records,
+            # a design area without all its sprinklers) -- refuse up front,
+            # not "Nothing arrayed".
             return self.ARRAY_NOTHING_COPYABLE
         return None
 

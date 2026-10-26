@@ -345,7 +345,7 @@ Walls participate in the unified section-cut protocol:
 
 ### 7.1 Scope & Phasing
 
-- **Phase A (this deliverable):** the Opening element — Door / Window / Blank Opening — as a Hybrid first-class, wall-hosted element with the placement/orientation model, the wall cut, all three view representations, level binding, the property panel + "Openings" contextual ribbon tab, a read-only Feature Browser, and 3 seed door Features.
+- **Phase A (this deliverable):** the Opening element — Door / Window / Blank Opening — as a Hybrid first-class, wall-hosted element with the placement/orientation model, the wall cut, all three view representations, level binding, the property panel + "Openings" contextual ribbon tab (retired 2026-10-26, Editor/Build slice 1 -- its groups move to the property panel), a read-only Feature Browser, and 3 seed door Features.
 - **Phase B:** Feature **Manager** dialog (load Features into a project; template-project prepopulation).
 - **Phase C:** Feature **Editor v1** (author void+symbol Features by drawing 2D geometry).
 
@@ -361,7 +361,7 @@ A Feature definition bundles **representation artifacts** (plan schematic, eleva
 
 ### 7.3 Opening = Hybrid First-Class, Wall-Hosted
 
-An opening is a **first-class element** (own identity, selection, "Openings" contextual tab, property record) that is **hard-bound to exactly one host wall**: it cannot exist wall-less, does **not** re-host to another wall, and is **deleted with its host wall**. (Decision: *Hybrid* — first-class identity + wall lifecycle dependency; no floating/re-hosting openings in MVP.)
+An opening is a **first-class element** (own identity, selection, property record; its "Openings" contextual tab retired 2026-10-26) that is **hard-bound to exactly one host wall**: it cannot exist wall-less, does **not** re-host to another wall, and is **deleted with its host wall**. (Decision: *Hybrid* — first-class identity + wall lifecycle dependency; no floating/re-hosting openings in MVP.)
 
 ### 7.4 Data Model
 
@@ -489,7 +489,7 @@ Three door Features for test/troubleshooting: **813 mm (32″)** and **914 mm (3
 4. All three views: **plan** (open door + arc reflecting hinge/facing, window glazing, blank gap; wall cut), **elevation/section** (void + frame/sill), **3D** (hole + closed leaf/frame/pane).
 5. 3 seed doors selectable, parametric-scaled.
 6. Level default-from-wall-base but assignable; sill/head from level; fit warning.
-7. Feature Browser (Feature>Category>Type) + "Openings" contextual tab + property panel.
+7. Feature Browser (Feature>Category>Type) + property panel ("Openings" contextual tab retired 2026-10-26, Editor/Build slice 1; Placement / Orientation rows are the filed property-panel follow-up).
 8. Survives save/load **and** undo/redo.
 
 ### 7.16 Feature System — Forward-Looking Architecture (graduates to its own spec)

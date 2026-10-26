@@ -258,7 +258,9 @@ SEH bug #371).
 - **MainWindow-teardown selection emit** (found 2026-09-30, closable-3D-tab
   build; pre-existing — filed as a bug, not fixed). If a plan item is still
   selected when a real MainWindow `close()`s, the scene's destruction emits
-  `selectionChanged` into `MainWindow._on_selection_changed_contextual`, which
+  `selectionChanged` into a MainWindow selection handler (then
+  `_on_selection_changed_contextual`, retired 2026-10-26; since Editor/Build
+  slice 1 the plan scene drives `_refresh_modify_buttons`), which
   reads the half-destroyed scene → `RuntimeError` from a Qt slot → process exit
   127. The same race was first noted in the Stage-One chrome spike
   (`mainwindow-chrome-revamp.md`). **Fixture workaround:**
