@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed, unbuilt -- three feature slices filed (see Build slices)
-last-verified: 2026-10-24
-verified-commit: 6e41d69b
+status: partial -- slice 1 built 2026-10-26 (c23c1610); slices 2-3 open   # three feature slices (see Build slices)
+last-verified: 2026-10-26
+verified-commit: c23c1610
 applies-to:
   - main.py (init_ribbon, _init_build_tab / _init_editor_tab, canvas context, retired contextual-tab mechanism)
   - firepro3d/ribbon_bar.py
@@ -26,9 +26,11 @@ consolidates:   # Rule A -- each of these gets a one-line pointer at Account; fu
 
 # Editor + Build Tabs and Plan-View Constraints -- Design Spec
 
-> **Status: proposal.** Nothing here is built. This is the consolidating contract the
-> five governing specs above link to; it records the ratified decisions of the
-> 2026-10-24 grill (G1-G13), the Phase 3 deltas (B1-B6) and the approved ribbon mockup.
+> **Status: partial.** Slice 1 (the ribbon, section 1) is built and verified at `c23c1610`
+> (2026-10-26); slices 2-3 (plan constraints, Wall Auto Constrain) are unbuilt. This is the
+> consolidating contract the governing specs above link to; it records the ratified decisions
+> of the 2026-10-24 grill (G1-G13), the Phase 3 deltas (B1-B6), the approved ribbon mockup
+> and the slice-1 rulings (S1, R1, R2).
 
 ## Goal
 
@@ -71,12 +73,14 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | G12 | Plan glyphs / driving dims: on selection or while a Constrain/Inspect tool is active; never on sheets/PDF/print | Phase 2 ask |
 | G13 | Paper / 3D: Build + Editor groups disabled with a tooltip, Build's Block group live | Phase 2 ask |
 | B1 | Plan constraints reference walls + **gridlines only** -- levels are not drawn in plan; level refs are a follow-up for an elevation/section Editor | Phase 3 ask |
-| B2 | Editor Edit group live in plan; Move/Rotate act on walls (constraint-aware); Flip/Mirror/Scale/Offset/Array refuse walls as today -> wall-hook follow-up | Phase 3 ask |
+| B2 | Editor Edit group live in plan; Move/Rotate act on walls (constraint-aware); Flip/Mirror/Scale/Offset refuse walls as today -> wall-hook follow-up (Array is **not** in that set -- see R2) | Phase 3 ask; Array corrected by R2 |
 | B3 | Entering a block/schematic canvas jumps the ribbon to **Build**; leaving restores the prior tab only if Build is still current | Phase 3 ask |
 | B4 | Architecture A: one ConstraintController with a per-scene capability (no parallel plan system) | Phase 3 ask |
 | B5 | Ribbon mockup approved, with Edit + Modify merged into one group titled **Edit** | Phase 3 mockup gate |
 | B6 | Design sections 1-4 below approved | Phase 3 asks |
 | S1 | Elevation / Section tabs are a seventh canvas kind `section`, behaving like paper / 3D (Build › Block live; the rest off, "Not available in this view") | slice-1 Phase 2 ask |
+| R1 | Two mode-button registries kept (`_mode_buttons` for plan tools, `_block_mode_buttons` for Build / Editor tools); `_sync_mode_buttons` gates `_block_mode_buttons` by "Edit is live for the current canvas kind". Deviation from section 1's "collapse to one if no shared key" | slice-1 Phase 4 ask (2026-10-25) |
+| R2 | **Array stays live on a wall selection** -- Array copies walls through the paste path (`paste_items` has a wall branch). B2 wrongly listed Array among the tools that refuse walls; in plan a wall selection greys Scale / Flip / Mirror / Offset only | slice-1 Phase 5 ask (2026-10-26) |
 
 ## Architecture & Constraints
 
@@ -112,19 +116,24 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
   (b) tooltip "Not available in this view"; (c) the schematic capability narrowing
   (`schematics.md` D-S14: Pattern Tile / Linetype / End Type / Edit Attributes) runs as a
   second pass after the table; (d) Constrain + Inspect stay `off (a)` in plan/detail
-  until slice 2 lands. Detail views show the model scene and are assumed to behave as
-  plan -- **unverified: the slice-1 plan's first step probes the Detail canvas path.**
+  until slice 2 lands. A Detail tab is a `Model_View` on the shared model scene, so kind
+  `detail` behaves as plan (**resolved at slice 1**: `_canvas_kind_for` keys it off the
+  `Detail: ` tab text).
   The `section` column was ratified at the slice-1 Phase 2 gate (S1, 2026-10-25): it
   behaves like paper / 3D; Editor tools acting on a section scene are a follow-up
   (`todo_open.md` "Constraint refs beyond walls + gridlines", +1 occurrence).
 - **Selection narrowing.** `_refresh_modify_buttons` runs against the *active* scene for
-  every live kind (plan included), so a wall selection disables Scale / Flip / Mirror /
-  Offset / Array (B2) and Explode stays Block-Editor-only (containment C3).
-- **Mode-button registries.** Editor buttons light for whichever scene is active (plan
-  or block). Today's split `_mode_buttons` / `_block_mode_buttons` (#217) exists because
-  two pages shared mode keys; the slice-1 plan greps every registered key and collapses to
-  one registry only if no two live buttons share a key -- otherwise it keeps two and gates
-  each by canvas kind.
+  every live kind (plan included). Each Edit button's enable state is
+  `ModifyToolsController.can_start(tool, items)`, which shares `_refusal_hint` with
+  `start()` so the ribbon state and the click cannot drift; a wall selection disables
+  Scale / Flip / Mirror / Offset (B2) while **Array stays live** (R2), Delete needs a
+  selection and a live view, and Explode stays Block-Editor-only (containment C3).
+- **Mode-button registries (R1, as built).** Editor buttons light for whichever scene is
+  active (plan or block). The split `_mode_buttons` / `_block_mode_buttons` (#217) is
+  **kept**: `_sync_mode_buttons` treats `_block_mode_buttons` as live only where Edit is
+  live for the current canvas kind (`_GROUP_LIVE_KINDS["edit"]`), so the Editor's
+  Move / Rotate light from a plan mode and nothing in it lights on paper / 3D / section
+  (user ruling 2026-10-25; the design had allowed collapsing to one registry).
 - **Switch / restore (B3).** Today's `_show_block_editor_ribbon` / `_hide_block_editor_ribbon`
   retarget to the Build page: entering a block/schematic canvas remembers the current tab
   and makes Build current; leaving restores it only if Build is still current.
@@ -234,7 +243,7 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 
 Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 
-1. **Ribbon** -- Build + Editor tabs, merged Edit group, canvas-kind context table,
+1. **Ribbon** (built 2026-10-26, `c23c1610`) -- Build + Editor tabs, merged Edit group, canvas-kind context table,
    switch/restore to Build, contextual mechanism + coupled tests retired; Constrain /
    Inspect plan-disabled. Guards T1, T2.
 2. **Plan constraint foundation** -- capability + gate audit, wall uid, wall + gridline
@@ -245,9 +254,9 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 
 ## Acceptance Criteria
 
-- [ ] AC1 Ribbon roster `Manage|Architecture|Sprinkler Systems|Analyze|Draft|Build|Editor`; the Block Editor tab is gone; Build = Block / Definition / 2D Geometry, Editor = Edit (merged) / Constrain / Inspect; enable state per the canvas-kind table (T1).
-- [ ] AC2 No contextual tab is ever inserted; selection never changes the current tab (T2).
-- [ ] AC3 Entering a block/schematic canvas makes Build current; leaving restores the prior tab only if Build is still current.
+- [x] AC1 Ribbon roster `Manage|Architecture|Sprinkler Systems|Analyze|Draft|Build|Editor`; the Block Editor tab is gone; Build = Block / Definition / 2D Geometry, Editor = Edit (merged) / Constrain / Inspect; enable state per the canvas-kind table (T1).
+- [x] AC2 No contextual tab is ever inserted; selection never changes the current tab (T2).
+- [x] AC3 Entering a block/schematic canvas makes Build current; leaving restores the prior tab only if Build is still current.
 - [ ] AC4 Plan Constrain / Inspect act on wall centerlines + gridlines only; constraints persist in the `.fpd`, round-trip undo/redo, and never plot (T4, T5, T7).
 - [ ] AC5 Containment C7/C8 amended as in §4; C1 unchanged.
 - [ ] AC6 Wall placement auto-constrains per §3 under the toggle; a rect wall resizes as a rect; deleting a constraint frees it (T3, T8).
@@ -255,8 +264,8 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 
 ## Verification Checklist (tests -- VC3: real MainWindow / scene, each shown RED with the change reverted)
 
-- [ ] T1 roster + per-group enable state for each canvas kind (plan, detail, block, schematic, section, paper, 3d), tooltips included.
-- [ ] T2 selecting walls / pipes / 2D geometry inserts no tab and leaves the current tab unchanged.
+- [x] T1 roster + per-group enable state for each canvas kind (plan, detail, block, schematic, section, paper, 3d), tooltips included.
+- [x] T2 selecting walls / pipes / 2D geometry inserts no tab and leaves the current tab unchanged.
 - [ ] T3 place a rect wall -> drag a corner grip -> the four walls stay a rectangle (angles measured from endpoints).
 - [ ] T4 Smart Dim a wall length -> drag its other end -> length held; Smart Dim an end-to-gridline offset -> move the gridline -> offset held.
 - [ ] T5 save / reopen the `.fpd` and undo / redo round-trip plan constraints (record content compared, not count).
@@ -276,8 +285,9 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 ## Follow-ups (filed at 4f)
 
 - Property-panel rows: Opening level / alignment / Flip Hinge / Flip Facing; per-instance Stroke / Fill override + Clear (P2, G7).
-- Wall hooks for Flip / Mirror / Scale / Array / Offset / Trim / Extend (B2).
+- Wall hooks for Flip / Mirror / Scale / Offset / Trim / Extend (B2). Array is not needed: Array already copies walls (R2).
 - Level refs in an elevation / section Editor (B1); Editor tools on a section scene (S1).
 - Floor / roof / room / pipe constraint refs (G8).
-- Re-home or close the overlapping open lines (`todo_open.md` :31 Revit-style Modify tab, :917 / :926 architecture contextual tabs, :928 paper Viewport / Sheet Text tabs, :1160 Underlay contextual tab, :477 contextual-tab return after editor).
+- ~~Re-home or close the overlapping open lines~~ -- **done at the slice 1 Account (2026-10-26):** the superseded contextual-tab lines were closed; the Colour-UI cues, paper Viewport / Sheet Text and Underlay lines were re-worded to the property panel / paper context.
+- Paste path skips Display Manager category defaults (pasted / duplicated / arrayed walls) -> folded into slice 2 (user ruling 2026-10-26, slice 1 smoke).
 - Per-spec full rewrites for the six consolidated specs (Rule A pointers land at Account).
