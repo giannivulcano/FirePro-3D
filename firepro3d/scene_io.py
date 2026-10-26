@@ -31,6 +31,15 @@ from .network_codec import (
 log = logging.getLogger("FirePro3D")
 
 
+def _plan_record_resolves(rec, uids) -> bool:
+    """Editor/Build slice 2 (C8 exception): whether every ref of constraint
+    record *rec* names a loaded wall / gridline uid (no grounds, no loose
+    geometry)."""
+    refs = rec.get("refs") if isinstance(rec, dict) else None
+    return bool(refs) and all(isinstance(r, dict) and r.get("uid") in uids
+                              for r in refs)
+
+
 class SceneIOMixin:
     """Save / Load / Clear operations for the plan-view scene."""
 
@@ -63,8 +72,9 @@ class SceneIOMixin:
         # notes/dimensions, so annotations serialise to [].
         annotations_data = []
 
-        # (HatchItem retired 2026-08-22; legacy loose geometry / constraints /
-        #  standalone text no longer written under containment C8.)
+        # (HatchItem retired 2026-08-22; legacy loose geometry / standalone
+        #  text no longer written under containment C8; plan constraints on
+        #  walls + gridlines are -- editor-build slice 2.)
 
         # --- Underlays ---
         underlays_data = []
@@ -141,6 +151,7 @@ class SceneIOMixin:
             "design_areas":        design_areas_data,
             "gridlines":           gridlines_data,
             "walls":               walls_data,
+            "constraints":         self.constraint_ctl.to_records(),   # plan walls + gridlines (C8 exception)
             "floor_slabs":         floor_slabs_data,
             "roofs":               roofs_data,
             "rooms":               rooms_data,
@@ -483,8 +494,17 @@ class SceneIOMixin:
         # "hatches" recreated loose PolylineItems (forbidden loose geometry),
         # so the migration block is dropped — those entries clean-drop too.
 
-        # --- Constraints: model-scene constraints are forbidden (containment
-        # C8) — read-but-discard silently.  The restore block is dropped.
+        # --- Constraints (editor-build slice 2, containment C8 exception):
+        # records whose refs all resolve to a loaded wall / gridline are
+        # adopted and solved (ctl.load -- an unknown type stays inert, s6.4);
+        # every other record is dropped and counted below (G9: a legacy file
+        # loads with none).
+        _plan_uids = ({w._uid for w in self._walls}
+                      | {g._uid for g in self._gridlines})
+        _cons_in = [r for r in payload.get("constraints", []) or []]
+        _cons_kept = [r for r in _cons_in if _plan_record_resolves(r, _plan_uids)]
+        self.constraint_ctl.load(_cons_kept)
+        _cons_dropped = len(_cons_in) - len(_cons_kept)
 
         # --- Clean-drop log (containment C1/C8) ---
         # Report a single info line if any forbidden loose content was present.
@@ -496,7 +516,7 @@ class SceneIOMixin:
                     + len(payload.get("polygons", [])) + len(payload.get("texts", []))
                     + len(payload.get("hatches", []))
                     + sum(1 for a in payload.get("annotations", []) if a.get("type") in ("note", "dimension"))
-                    + len(payload.get("constraints", [])))
+                    + _cons_dropped)
         if _dropped:
             log.info("Clean-drop: discarded %d unsupported loose item(s) on load (containment C1/C8)", _dropped)
 
