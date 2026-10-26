@@ -113,6 +113,58 @@ class ModifyToolsController:
     def __init__(self, scene):
         self._scene = scene
 
+    def _refusal_hint(self, tool: str, sel) -> "str | None":
+        """The status ``start(tool)`` would post refusing *sel*, else None.
+
+        The select-first, capability and copyable refusals ``start`` makes
+        before entering a mode -- shared with :meth:`can_start` so the ribbon
+        state and the click can't drift (editor-build design §1, B2).
+        """
+        if tool in self._SELECT_FIRST and not sel:
+            return "Select items first"
+        # DD4: 2D drafting geometry and block instances carry manip_reflect /
+        # manip_scale_about (text, pipes, walls, gridlines... don't).
+        capable = {"flip": self._reflectable, "mirror": self._reflectable,
+                   "scale": self._scalable}.get(tool)
+        if capable is not None and not capable(sel):
+            return self.nothing_to_hint(tool)
+        if tool == "move" and not self._transformable(sel):
+            # Only anchored overlays (the Block Editor tile frame) selected:
+            # nothing can move, so no mode and no empty undo step.
+            return "Nothing to move"
+        if tool == "array" and not self._array_copyable(sel):
+            # Review I3: paste_items can't re-create walls, rooms, floors,
+            # roofs or design areas -- refuse up front, not "Nothing arrayed".
+            return self.ARRAY_NOTHING_COPYABLE
+        return None
+
+    def can_start(self, tool: str, items) -> bool:
+        """True when *tool* may start on *items* (the Edit buttons' enable state).
+
+        Posts no status and enters no mode. Paste follows the clipboard
+        payload; Offset is live with nothing selected (pick mode, D3) or
+        with an offsettable item selected; an empty canvas turns every tool
+        off. ``set_mode``'s grounded refusal (D17) is not modelled: the
+        click still refuses there.
+
+        Args:
+            tool: One of the ``_TOOL_MODE`` keys.
+            items: The candidate selection.
+
+        Returns:
+            Whether the tool's button should be enabled.
+        """
+        s = self._scene
+        if not getattr(s, "view_available", True):
+            return False
+        sel = list(items)
+        if tool == "paste":
+            payload = s.clipboard_payload()
+            return bool(payload and payload.get("items"))
+        if tool == "offset":
+            return not sel or any(self._offsettable(it) for it in sel)
+        return self._refusal_hint(tool, sel) is None
+
     def start(self, tool: str) -> bool:
         """Enter *tool* (scene-tools.md D3 select-first).
 
@@ -131,30 +183,15 @@ class ModifyToolsController:
             s.instructionChanged.emit(NO_VIEW_HINT)
             return False
         sel = list(s.selectedItems())
-        if tool in self._SELECT_FIRST and not sel:
-            s._show_status("Select items first", 3000)
+        hint = self._refusal_hint(tool, sel)
+        if hint is not None:
+            # DD4 / review I3: one refusal home, shared with can_start.
+            s._show_status(hint, 3000)
             return False
         if tool == "paste":
             return self.begin_paste()
         if tool == "offset":
             return self.begin_offset(sel)      # Task 12
-        capable = {"flip": self._reflectable, "mirror": self._reflectable,
-                   "scale": self._scalable}.get(tool)
-        if capable is not None and not capable(sel):
-            # DD4: 2D drafting geometry and block instances carry manip_reflect /
-            # manip_scale_about (text, pipes, walls, gridlines… don't).
-            s._show_status(self.nothing_to_hint(tool), 3000)
-            return False
-        if tool == "move" and not self._transformable(sel):
-            # Only anchored overlays (the Block Editor tile frame) selected:
-            # nothing can move, so no mode and no empty undo step.
-            s._show_status("Nothing to move", 3000)
-            return False
-        if tool == "array" and not self._array_copyable(sel):
-            # Review I3: paste_items can't re-create walls, rooms, floors,
-            # roofs or design areas — refuse up front, not "Nothing arrayed".
-            s._show_status(self.ARRAY_NOTHING_COPYABLE, 3000)
-            return False
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
