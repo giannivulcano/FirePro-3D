@@ -1252,6 +1252,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if self.scene.mode not in (None, "select"):
                 self.scene.set_mode("select")
         self.scene.view_available = count > 0
+        self._refresh_modify_buttons()   # Edit follows view_available (currentChanged(-1) runs first)
 
     def _refresh_empty_canvas_level(self, *_args) -> None:
         """Keep the placeholder's Plan button naming the level it opens (I5).
@@ -3106,24 +3107,24 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         try:
             scene = self._active_scene()
             selected = scene.selectedItems()
-            ctl = scene._modify_ctl
-            can_explode = kind in self._EDITOR_KINDS and any(
-                isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
-            for label, b in buttons.items():
-                if sip.isdeleted(b):
-                    continue
-                tool = self._TOOL_OF_LABEL.get(label)
-                if tool is not None:
-                    b.setEnabled(ctl.can_start(tool, selected))
-                elif label == "Delete":
-                    # needs a selection and a canvas (the empty canvas
-                    # refuses at the _delete_if_not_editing chokepoint)
-                    b.setEnabled(bool(selected) and getattr(
-                        scene, "view_available", True))
-                elif label == "Explode":
-                    b.setEnabled(can_explode)
         except RuntimeError:
             return                  # window or scene being torn down
+        ctl = scene._modify_ctl
+        can_explode = kind in self._EDITOR_KINDS and any(
+            isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
+        for label, b in buttons.items():
+            if sip.isdeleted(b):
+                continue
+            tool = self._TOOL_OF_LABEL.get(label)
+            if tool is not None:
+                b.setEnabled(ctl.can_start(tool, selected))
+            elif label == "Delete":
+                # needs a selection and a canvas (the empty canvas
+                # refuses at the _delete_if_not_editing chokepoint)
+                b.setEnabled(bool(selected) and getattr(
+                    scene, "view_available", True))
+            elif label == "Explode":
+                b.setEnabled(can_explode)
         self._refresh_constrain_buttons()
 
     def _connect_modify_refresh(self, scene) -> None:
@@ -4514,11 +4515,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # (button, real tooltip, _GROUP_LIVE_KINDS key) of every gated button.
         self._canvas_gated: list = []
 
-        def _gated(b, tip, group):
-            b.setToolTip(tip)
-            self._canvas_gated.append((b, tip, group))
-            return b
-
         # --- Block (entry verbs; always live) ---
         gb = page.add_group("Block")
         b = gb.add_large_button("New", _I("make_block_icon.svg"),
@@ -4536,43 +4532,43 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # --- Definition (editor-only) ---
         gd = page.add_group("Definition")
-        self._be_save_btn = _gated(
+        self._be_save_btn = self._gate(
             gd.add_small_button("Save", _I("make_block_icon.svg"), self._be_save),
             "Save Block (Ctrl+S) — update this block in the project (and its "
             "library copy, if any). First save asks for name/library.", "definition")
-        self._be_save_as_btn = _gated(
+        self._be_save_as_btn = self._gate(
             gd.add_small_button("Save As", _I("make_block_icon.svg"),
                                 self._be_save_as),
             "Save Block As (Ctrl+Shift+S) — save this geometry as a NEW block; "
             "the original is left unchanged", "definition")
-        self._be_template_btn = _gated(
+        self._be_template_btn = self._gate(
             gd.add_small_button("Save as Template", _I("make_block_icon.svg"),
                                 self._be_save_template),
             "Save as Template — save this schematic, then write it to the "
             "Schematics templates folder (schematics.md D-S6)", "definition")
-        self._be_import_btn = _gated(
+        self._be_import_btn = self._gate(
             gd.add_small_button("Import", _I("block_manager_icon.svg"),
                                 self._be_import),
             "Import DXF/DWG/PDF geometry into the editor", "definition")
         # SB1a: opens the Block Editor's Attributes editor (the panel's Block
         # view "Edit attributes..." button is the same verb); a schematic has
         # no attributes (schematics.md D-S14), see _sync_capability_buttons.
-        self._be_attr_btn = _gated(
+        self._be_attr_btn = self._gate(
             gd.add_small_button("Edit Attributes", _I("block_manager_icon.svg"),
                                 self._be_edit_attributes),
             "Edit Attributes — declare the block's attributes; text "
             "primitives reference them as @[key] fields", "definition")
-        self._be_tile_btn = _gated(
+        self._be_tile_btn = self._gate(
             gd.add_small_button("Pattern Tile", _I("pattern_tile_icon.svg"),
                                 self._be_toggle_tile, checkable=True),
             "Pattern tile — make this block a hatch pattern (repeats on a "
             "tile, fills regions, can't be placed as a symbol)", "definition")
-        self._be_linetype_btn = _gated(
+        self._be_linetype_btn = self._gate(
             gd.add_small_button("Linetype", _I("linetype_icon.svg"),
                                 self._be_toggle_linetype, checkable=True),
             "Linetype — make this block a linetype (repeats along lines, "
             "applied from a line's Linetype row, can't be placed as a symbol)", "definition")
-        self._be_end_btn = _gated(
+        self._be_end_btn = self._gate(
             gd.add_small_button("End Type", _I("end_type_icon.svg"),
                                 self._be_toggle_end, checkable=True),
             "End type: make this block an end type (arrow, cap, tick, bubble) "
@@ -4586,7 +4582,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             cb = lambda: self._active_scene().set_mode(mode)
             b = g.add_small_button(label, _I(icon), cb, checkable=True)
             self._block_mode_buttons[mode] = b
-            return _gated(b, tip, "geometry")
+            return self._gate(b, tip, "geometry")
 
         _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
         _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
@@ -4607,7 +4603,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
         # Fill (HF3 R8 / HF4 AC1): a button, not a mode -- with no boundary candidates selected it enters Pick point.
-        self._be_fill_btn = _gated(
+        self._be_fill_btn = self._gate(
             g.add_small_button("Fill", _I("fill_icon.svg"),
                                lambda: self._active_scene().fill_selected_items()),
             "Fill: select closed curves, or click with nothing selected to pick a point", "geometry")
@@ -4623,16 +4619,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._editor_page = page
         self._editor_page_index = self.ribbon._stack.indexOf(page)
 
-        def _gated(b, tip, group):
-            b.setToolTip(tip)
-            self._canvas_gated.append((b, tip, group))
-            return b
-
         # --- Edit (scene-tools.md D1/D2, merged group B5) ---
         self._be_modify_buttons = self.build_merged_edit_group(
             page, self._active_scene, self._block_mode_buttons, explode=True)
         for b in self._be_modify_buttons.values():
-            _gated(b, b.toolTip(), "edit")
+            self._gate(b, b.toolTip(), "edit")
 
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
@@ -4751,41 +4742,41 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
-        _gated(b_d, "Smart Dimension (D) — dimension an edge's length, "
+        self._gate(b_d, "Smart Dimension (D) — dimension an edge's length, "
                           "two points' distance, a circle's Ø, an arc's R or "
                           "sweep, a polygon's or ellipse's R, or the angle "
                           "between two edges / an edge and an axis", "constrain")
-        _gated(b_h, "Horizontal — make the selected line horizontal, "
+        self._gate(b_h, "Horizontal — make the selected line horizontal, "
                           "or pick 2 points / 1 edge", "constrain")
-        _gated(b_v, "Vertical — make the selected line vertical, "
+        self._gate(b_v, "Vertical — make the selected line vertical, "
                           "or pick 2 points / 1 edge", "constrain")
-        _gated(b_c, "Coincident — join two points, or put a point on an "
+        self._gate(b_c, "Coincident — join two points, or put a point on an "
                           "edge, circle/arc or the X/Y axis (pick both)", "constrain")
-        _gated(b_cc, "Concentric — give the two selected circles/arcs one "
+        self._gate(b_cc, "Concentric — give the two selected circles/arcs one "
                            "centre, or pick a circle/arc and a circle/arc or point", "constrain")
-        _gated(b_sy, "Symmetric — mirror two points, lines or circles/arcs "
+        self._gate(b_sy, "Symmetric — mirror two points, lines or circles/arcs "
                            "about an edge or the X/Y axis (select 2 + a reference "
                            "line, select 2 then pick the axis, or pick all three)", "constrain")
-        _gated(b_fx, "Fix — hold the selected items in place, or pick "
+        self._gate(b_fx, "Fix — hold the selected items in place, or pick "
                            "points / edges to fix them one at a time", "constrain")
-        _gated(b_pa, "Parallel — make the two selected lines parallel, "
+        self._gate(b_pa, "Parallel — make the two selected lines parallel, "
                            "or pick an edge and an edge or the X/Y axis", "constrain")
-        _gated(b_pp, "Perpendicular — make the two selected lines "
+        self._gate(b_pp, "Perpendicular — make the two selected lines "
                            "perpendicular, or pick an edge and an edge or the X/Y axis", "constrain")
-        _gated(b_eq, "Equal — make the selected lines the same length (or "
+        self._gate(b_eq, "Equal — make the selected lines the same length (or "
                            "circles/arcs the same radius), or pick two", "constrain")
-        _gated(b_tg, "Tangent — make the selected line and circle/arc (or "
+        self._gate(b_tg, "Tangent — make the selected line and circle/arc (or "
                            "two circles/arcs) touch, or pick two", "constrain")
-        _gated(b_co, "Collinear — put the two selected lines on one line, "
+        self._gate(b_co, "Collinear — put the two selected lines on one line, "
                            "or pick an edge and an edge or the X/Y axis", "constrain")
-        _gated(b_ac, "Auto Constrain — add Coincident / On-curve / "
+        self._gate(b_ac, "Auto Constrain — add Coincident / On-curve / "
                            "Perpendicular from the snaps you place with "
                            "(Shift inverts for one click)", "constrain")
-        _gated(b_status, "Constraint Status — tint geometry by state: blue "
+        self._gate(b_status, "Constraint Status — tint geometry by state: blue "
                                "under-defined, ink fully defined, red conflicting", "inspect")
-        _gated(b_show, "Show Constraints — show every constraint glyph "
+        self._gate(b_show, "Show Constraints — show every constraint glyph "
                              "(otherwise only the selected geometry's)", "inspect")
-        _gated(b_del, "Delete Constraints — delete the selected constraint, "
+        self._gate(b_del, "Delete Constraints — delete the selected constraint, "
                             "or every constraint on the selected geometry", "inspect")
 
     # ── Constrain / Inspect handlers (parametric-constraint-system.md D12/D21) ─
@@ -4970,6 +4961,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool))
             ac_b.blockSignals(False)
 
+    def _gate(self, b, tip, group):
+        """Register *b* as gated by canvas kind (*group*) with real tooltip *tip*."""
+        b.setToolTip(tip)
+        self._canvas_gated.append((b, tip, group))
+        return b
+
     def _set_canvas_context(self, kind: str) -> None:
         """Apply the canvas-kind table (``_GROUP_LIVE_KINDS``) to the ribbon.
 
@@ -4986,7 +4983,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._canvas_kind = kind
         if not hasattr(self, "_canvas_gated"):
             # A central-tab change before init_ribbon (tabs are added first):
-            # remember the kind; init_ribbon applies it once the pages exist.
+            # nothing to gate yet; init_ribbon sets _canvas_kind itself and
+            # reapplies the context once the pages exist.
             return
         off_tip = (self._BE_NO_EDITOR_TIP if kind in ("plan", "detail")
                    else self._NOT_IN_VIEW_TIP)
@@ -5402,6 +5400,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             th.theme_bus().changed.disconnect(self._on_theme_bus_changed)
         except (TypeError, RuntimeError):
             pass                                # already disconnected
+        try:
+            QApplication.clipboard().dataChanged.disconnect(
+                self._refresh_modify_buttons)
+        except (TypeError, RuntimeError):
+            pass
         try:
             fill_types.fill_type_bus().changed.disconnect(self._on_fill_types_changed)
         except (TypeError, RuntimeError):

@@ -263,6 +263,40 @@ def test_delete_is_refused_on_empty_canvas(mw):                     # guard 8 (I
     assert win.footer.instruction.text() == NO_VIEW_HINT
 
 
+def test_closing_last_canvas_with_a_selection_greys_the_edit_buttons(mw):  # S1 F1
+    win = mw
+    pipe = _selected_pipe(win)
+    assert pipe.isSelected()
+    assert win._be_modify_buttons["Delete"].isEnabled()
+    _close_all(win)                       # the selection is KEPT through the close
+    assert pipe.isSelected()
+    live = [lbl for lbl, b in win._be_modify_buttons.items() if b.isEnabled()]
+    assert not live, f"Edit buttons still enabled on the empty canvas: {live}"
+
+
+def test_closing_the_window_with_a_wall_selected_raises_nothing(mw):   # S1 F5
+    import sys
+    from PyQt6.QtWidgets import QApplication
+    win = mw
+    wall, _pipe = _wall_and_pipe(win)
+    win.scene.clearSelection()
+    wall.setSelected(True)
+    assert win.scene.selectedItems() == [wall]
+    errors = []
+    prev = sys.excepthook
+    sys.excepthook = lambda *a: errors.append(a)
+    try:
+        win._modified = False
+        win.close()                       # selection KEPT through teardown
+        win.deleteLater()
+        from PyQt6.QtCore import QEvent
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+        QApplication.processEvents()
+    finally:
+        sys.excepthook = prev
+    assert not errors, errors
+
+
 def test_paste_and_offset_are_refused_on_empty_canvas(mw):          # guard 9 (I5)
     from firepro3d.geometry_2d import LineItem
     win = mw
