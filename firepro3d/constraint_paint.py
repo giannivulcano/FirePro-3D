@@ -352,8 +352,8 @@ def _layout(view, cons, by, held) -> list:
 
 def glyph_layouts(view, ctl) -> list:
     """``[(cid, QRectF viewport px)]`` — one boxed glyph per VISIBLE
-    constraint (D27, D32). Empty when the controller is disabled (plan
-    scenes)."""
+    constraint (D27, D32). Empty when the controller is disabled (a scene
+    without constraint support) or holds no constraint."""
     if not ctl.enabled:
         return []
     return list(_frame(view, ctl).layouts)

@@ -105,3 +105,65 @@ def test_ground_axes_paint_only_in_the_block_editor(shown):
         assert _dist(on, muted) < _dist(gap, muted)
     else:
         assert on == gap, "an X-axis dash painted in the plan view"
+
+
+def _changed_receivers(sc) -> int:
+    return sc.receivers(sc.changed)
+
+
+def test_changed_link_follows_the_constraint_list(qapp):
+    """Plan pays no scene.changed receiver without a constraint (I2): 0 at
+    construction, 1 once one exists, 0 again once the list empties (via the
+    setter -- no wall / gridline adapter exists before T3-4, so the constraint
+    is landed through the ``constraints`` setter). The Block Editor links at
+    construction and never unlinks."""
+    from firepro3d.sketch_model import Constraint
+    plan = Model_Space()
+    be = Model_Space(scene_role="block_editor")
+    try:
+        assert _changed_receivers(plan) == 0
+        be_n = _changed_receivers(be)      # ctl link + the readout controller's
+        assert be_n >= 1
+        ctl = plan.constraint_ctl
+        ctl.constraints = [Constraint.new("horizontal", [{"uid": "x", "h": "edge"}])]
+        assert _changed_receivers(plan) == 1
+        ctl.constraints = []
+        QApplication.processEvents()
+        assert _changed_receivers(plan) == 0
+        be.constraint_ctl.constraints = []
+        assert _changed_receivers(be) == be_n
+        # re-linking works after an unlink
+        ctl.constraints = [Constraint.new("horizontal", [{"uid": "x", "h": "edge"}])]
+        assert _changed_receivers(plan) == 1
+    finally:
+        plan.cleanup()
+        be.cleanup()
+
+
+def test_zero_constraint_plan_scene_scans_no_items(qapp, monkeypatch):
+    plan = Model_Space()
+    try:
+        ctl = plan.constraint_ctl
+        monkeypatch.setattr(ctl, "items", lambda: pytest.fail("items() scanned"))
+        assert ctl.constrained_uids() == set()
+        assert ctl.touches([object()]) is False
+    finally:
+        plan.cleanup()
+
+
+def test_panel_rows_plan_gate(qapp):
+    """A plan LineItem gets no section (also test_constraint_panel.py
+    test_plan_scene_items_get_no_section). A plan wall gets None TODAY: it has
+    no adapter yet, so ``can_ref`` is False. T3-4 flips the wall assertion
+    once the wall adapter exists (T3-4 updates this test)."""
+    from firepro3d.wall import WallSegment
+    plan = Model_Space()
+    try:
+        ln = LineItem(QPointF(0, 0), QPointF(1, 0))
+        plan.addItem(ln)
+        w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
+        plan.addItem(w)
+        assert plan.constraint_ctl.panel_rows(ln) is None
+        assert plan.constraint_ctl.panel_rows(w) is None     # T3-4: not None
+    finally:
+        plan.cleanup()

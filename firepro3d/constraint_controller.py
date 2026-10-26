@@ -567,12 +567,27 @@ class ConstraintController:
         Editor, in the plan scene only once a constraint exists: any ``changed``
         receiver disables Qt's direct item->view update path, which a plan
         scene without constraints must not pay for (I2)."""
-        if self._changed_linked or not self.enabled:
+        if not self.enabled:
+            return
+        if self._changed_linked:
+            if not self.block_editor and not self._constraints:
+                self._on_scene_changed([])     # last stale glyph region repaints
+                self._unlink_scene()
             return
         if not (self.block_editor or self._constraints):
             return
         self._scene.changed.connect(self._on_scene_changed)
         self._changed_linked = True
+
+    def _unlink_scene(self) -> None:
+        """Plan only: drop the ``changed`` receiver once no constraint is left."""
+        if not self._changed_linked or self.block_editor:
+            return
+        self._changed_linked = False
+        try:
+            self._scene.changed.disconnect(self._on_scene_changed)
+        except (TypeError, RuntimeError):
+            pass
 
     # ── canvas selection / repaint (D11, constraint_paint) ───────────────
     def select(self, cid) -> None:
@@ -654,20 +669,23 @@ class ConstraintController:
         the ones paint and the hover pick reuse this frame (VC9 F3)."""
         self._scene_gen += 1
         try:
-            if sip.isdeleted(self._scene) or not self.constraints and not self._painted:
+            if sip.isdeleted(self._scene):
                 return
-            from .constraint_paint import dirty_rect
-            from PyQt6.QtCore import QRect
-            for v in self._scene.views():
-                if sip.isdeleted(v):
-                    continue
-                new = dirty_rect(v, self)
-                dirty = self._painted.get(id(v), QRect()).united(new)
-                self._painted[id(v)] = new
-                if not dirty.isEmpty():
-                    v.viewport().update(dirty)
+            if self.constraints or self._painted:
+                from .constraint_paint import dirty_rect
+                from PyQt6.QtCore import QRect
+                for v in self._scene.views():
+                    if sip.isdeleted(v):
+                        continue
+                    new = dirty_rect(v, self)
+                    dirty = self._painted.get(id(v), QRect()).united(new)
+                    self._painted[id(v)] = new
+                    if not dirty.isEmpty():
+                        v.viewport().update(dirty)
         except Exception:
             _log.exception("constraint glyph repaint failed")
+        if not self.block_editor and not self._constraints:
+            self._unlink_scene()      # plan: the last stale region just repainted
 
     def reset(self) -> None:
         """New / Open: drop every constraint and all transient state."""
@@ -736,6 +754,8 @@ class ConstraintController:
 
     def constrained_uids(self) -> set:
         """Uids referenced by any active constraint."""
+        if not self._constraints:
+            return set()
         return {u for c in self.active() for u in (_safe_ref_uids(c) or ())}
 
     def touches(self, items) -> bool:
@@ -3011,7 +3031,8 @@ class ConstraintController:
 
     def panel_rows(self, target) -> dict | None:
         """``ActionRowList`` kwargs for the panel's Constraints section, or
-        None when *target* has none (a non-editor scene / a gone constraint).
+        None when *target* has none (a scene without constraint support, a plan
+        item that is not a wall / gridline with an adapter, a gone constraint).
 
         *target* is a scene item (its constraints, D11) or a
         :class:`ConstraintAdapter` (that one constraint). Inert rows are
@@ -3020,8 +3041,9 @@ class ConstraintController:
         if not self.enabled:
             return None
         if (self.ref_types is not None
-                and not isinstance(target, (ConstraintAdapter,) + self.ref_types)):
-            return None                  # plan: only walls / gridlines carry a section
+                and not isinstance(target, ConstraintAdapter)
+                and not self.can_ref(target)):
+            return None                  # plan: only adapted walls / gridlines carry a section
         if isinstance(target, ConstraintAdapter):
             c = target.c
             if c is None:

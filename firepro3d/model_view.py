@@ -990,7 +990,8 @@ class Model_View(QGraphicsView):
 
     def _glyph_ctl(self, sc):
         """The scene's constraint controller when glyph picking applies:
-        a block-editor scene in select mode, outside a detail (clip) view."""
+        a constraint-capable scene (Block Editor or plan) in select mode,
+        outside a detail (clip) view."""
         ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
         if (ctl is None or not ctl.enabled or self._clip_rect is not None
                 or getattr(sc, "mode", None) not in (None, "select")):
