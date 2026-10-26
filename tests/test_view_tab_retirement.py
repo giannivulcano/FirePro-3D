@@ -34,10 +34,10 @@ def test_no_view_tab(win):
     tb = win.ribbon._tab_bar
     titles = [tb.tabText(i) for i in range(tb.count())]
     assert "View" not in titles
-    # Create was dissolved by the containment contract (C7); the Block Editor
-    # page is a permanent base tab, last (2026-09-30 ratified decision).
+    # Create was dissolved by the containment contract (C7); Build and Editor
+    # are permanent base tabs, last (editor-build design section 1).
     assert titles == ["Manage", "Architecture",
-                      "Sprinkler Systems", "Analyze", "Draft", "Block Editor"]
+                      "Sprinkler Systems", "Analyze", "Draft", "Build", "Editor"]
 
 
 def test_deleted_buttons_absent(win):

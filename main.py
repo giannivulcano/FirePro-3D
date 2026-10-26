@@ -1540,7 +1540,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def init_ribbon(self):
-        """Build the six base workflow ribbon tabs and wire every button.
+        """Build the seven base workflow ribbon tabs and wire every button.
 
         Tabs:
           1. Manage             — file I/O, import, preferences, undo/redo,
@@ -1550,15 +1550,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
           3. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
           4. Analyze            — thermal radiation
           5. Draft              — annotate, font, page, plot
-          6. Block Editor       — block entry (New / Open / Manager / Insert)
-                                  + the editor-only Definition / 2D Geometry /
-                                  Edit / Modify groups (live only while a
-                                  Block Editor tab is current)
+          6. Build              — Block (New / Open / Manager / Insert, always
+                                  live) + Definition / 2D Geometry (live on a
+                                  Block / Schematic canvas)
+          7. Editor             — Edit / Constrain / Inspect (Edit live on
+                                  plan / detail / block / schematic canvases)
 
         The permanent "Create" tab was dissolved by the containment contract
         (C7): the model is placement-only, so loose 2D-geometry authoring lives
         only in the Block-Editor and Paper contexts. Block *entry* commands
-        live in the Block Editor tab's Block group (always enabled).
+        live in the Build tab's Block group (always enabled).
 
         Must be called *after* all dock widgets are created.
         """
@@ -1596,7 +1597,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._init_sprinkler_systems_tab(_I, _btn, _mode_btn)
         self._init_analyze_tab(_I, _btn)
         self._init_draft_tab(_I, _btn, _mode_btn)
-        self._init_block_editor_tab(_I)
+        self._init_build_tab(_I)
+        self._init_editor_tab(_I)
 
         # No editor tab is current at startup: editor-only groups disabled.
         self._set_block_editor_context(False)
@@ -1735,8 +1737,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _mode_btn(g_datum, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip(
             "Draw gridlines on canvas (2-click) (G)")
 
-        # (The Block group moved to the permanent Block Editor tab's left edge —
-        # _init_block_editor_tab. Quick Block + Text Block stay retired (C7).)
+        # (The Block group moved to the permanent Build tab's left edge —
+        # _init_build_tab. Quick Block + Text Block stay retired (C7).)
 
         # --- Underlay (moved from Manage to Architecture; contract C7, shipped) ---
         g_ul = build_page.add_group("Underlay")
@@ -2985,7 +2987,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Returns:
             ``{label: button}`` for the five buttons.
         """
-        g = page.add_group("Edit")
+        return self._add_edit_buttons(page.add_group("Edit"), scene_getter,
+                                      mode_registry)
+
+    def _add_edit_buttons(self, g, scene_getter, mode_registry) -> dict:
+        """Copy, Cut, Paste, Duplicate, Delete into group *g* (scene-tools.md D1)."""
         spec = (
             ("Copy", "copy_icon.svg", "copy", "Copy — pick a base point (Shift+C / Ctrl+C)"),
             ("Cut", "cut_icon.svg", "cut", "Cut — pick a base point, then remove (Shift+X / Ctrl+X)"),
@@ -3017,7 +3023,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Returns:
             ``{label: button}`` for the seven buttons (eight with *explode*).
         """
-        g = page.add_group("Modify")
+        return self._add_modify_buttons(page.add_group("Modify"), scene_getter,
+                                        mode_registry, explode=explode)
+
+    def _add_modify_buttons(self, g, scene_getter, mode_registry, *,
+                            explode: bool = False) -> dict:
+        """Move ... Array (and Explode when *explode*) into group *g* (scene-tools.md D2)."""
         spec = (
             ("Move", "move_icon.svg", "move", "Move — base point, then destination (Shift+M)"),
             ("Rotate", "rotate_icon.svg", "rotate", "Rotate — pivot, start ray, end ray; type an angle (Shift+R)"),
@@ -3037,6 +3048,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             b.setToolTip("Explode — break the selected block into editable geometry")
             buttons["Explode"] = b
         return buttons
+
+    def build_merged_edit_group(self, page, scene_getter, mode_registry=None,
+                                *, explode: bool = False) -> dict:
+        """The Editor tab's one **Edit** group (editor-build design §1, B5).
+
+        Today's Edit buttons followed by today's Modify buttons in one group;
+        roster, order and shortcuts stay owned by scene-tools.md D1/D2.
+
+        Returns:
+            ``{label: button}`` for every button, Edit's first.
+        """
+        g = page.add_group("Edit")
+        return {**self._add_edit_buttons(g, scene_getter, mode_registry),
+                **self._add_modify_buttons(g, scene_getter, mode_registry,
+                                           explode=explode)}
 
     # Buttons that need a selection (scene-tools.md D1/D3 select-first).
     _MODIFY_NEEDS_SELECTION = ("Copy", "Cut", "Duplicate", "Delete",
@@ -4420,28 +4446,43 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # Save as Template is live only on a Schematic tab (schematics.md D-S6, SV3).
     _BE_TEMPLATE_BLOCK_TIP = "Only a schematic can be saved as a template"
     _BE_ATTR_SCHEMATIC_TIP = "Schematics have no attributes"
+    # Off-tooltip for groups a canvas can't use (editor-build design §1 (b)).
+    _NOT_IN_VIEW_TIP = "Not available in this view"
+    # Canvas kinds (design §1) and the one table of which group is live where.
+    _EDITOR_KINDS = frozenset({"block", "schematic"})
+    _GROUP_LIVE_KINDS = {
+        "definition": _EDITOR_KINDS,
+        "geometry": _EDITOR_KINDS,
+        "edit": frozenset({"plan", "detail", "block", "schematic"}),
+        # Slice 2 adds plan + detail (design §1 note (d)).
+        "constrain": _EDITOR_KINDS,
+        "inspect": _EDITOR_KINDS,
+    }
+    # Edit-group caption -> ModifyToolsController tool (can_start / start).
+    _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
+                      "Duplicate": "duplicate", "Move": "move",
+                      "Rotate": "rotate", "Scale": "scale", "Flip": "flip",
+                      "Mirror": "mirror", "Offset": "offset", "Array": "array"}
 
-    def _init_block_editor_tab(self, _I):
-        """Build Tab 6: Block Editor — permanent, built once (layout A).
+    def _init_build_tab(self, _I):
+        """Build Tab 6: **Build** -- Block, Definition, 2D Geometry (design §1).
 
-        Groups: **Block** (New / Open large, Manager / Insert small — always
-        enabled) · **Definition** · **2D Geometry** · **Edit** · **Modify**
-        (editor-only: enabled only while a Block Editor tab is current, see
-        :meth:`_set_block_editor_context`). Draw-mode buttons dispatch through
-        ``_active_scene()`` (the editor scene); their registry is
-        ``_block_mode_buttons`` (#217 — kept apart from ``_mode_buttons``).
+        Block (New / Open large, Manager / Insert small) is live on every
+        canvas; Definition and 2D Geometry follow ``_GROUP_LIVE_KINDS`` via
+        :meth:`_set_canvas_context`. Draw-mode buttons dispatch through
+        ``_active_scene()``; their registry is ``_block_mode_buttons`` (#217).
         """
-        page = self.ribbon.add_page("Block Editor")
-        self._be_page = page
-        self._be_page_index = self.ribbon._stack.indexOf(page)
-        # Restored on leaving an editor tab (None = stay on the page).
-        self._pre_block_editor_tab = None
-        # (button, real tooltip) of every editor-only button.
-        self._be_editor_only: list = []
+        page = self.ribbon.add_page("Build")
+        self._build_page = page
+        self._build_page_index = self.ribbon._stack.indexOf(page)
+        # Restored on leaving a block/schematic canvas (None = stay, B3).
+        self._pre_build_tab = None
+        # (button, real tooltip, _GROUP_LIVE_KINDS key) of every gated button.
+        self._canvas_gated: list = []
 
-        def _editor_only(b, tip):
+        def _gated(b, tip, group):
             b.setToolTip(tip)
-            self._be_editor_only.append((b, tip))
+            self._canvas_gated.append((b, tip, group))
             return b
 
         # --- Block (entry verbs; always live) ---
@@ -4461,48 +4502,48 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # --- Definition (editor-only) ---
         gd = page.add_group("Definition")
-        self._be_save_btn = _editor_only(
+        self._be_save_btn = _gated(
             gd.add_small_button("Save", _I("make_block_icon.svg"), self._be_save),
             "Save Block (Ctrl+S) — update this block in the project (and its "
-            "library copy, if any). First save asks for name/library.")
-        self._be_save_as_btn = _editor_only(
+            "library copy, if any). First save asks for name/library.", "definition")
+        self._be_save_as_btn = _gated(
             gd.add_small_button("Save As", _I("make_block_icon.svg"),
                                 self._be_save_as),
             "Save Block As (Ctrl+Shift+S) — save this geometry as a NEW block; "
-            "the original is left unchanged")
-        self._be_template_btn = _editor_only(
+            "the original is left unchanged", "definition")
+        self._be_template_btn = _gated(
             gd.add_small_button("Save as Template", _I("make_block_icon.svg"),
                                 self._be_save_template),
             "Save as Template — save this schematic, then write it to the "
-            "Schematics templates folder (schematics.md D-S6)")
-        self._be_import_btn = _editor_only(
+            "Schematics templates folder (schematics.md D-S6)", "definition")
+        self._be_import_btn = _gated(
             gd.add_small_button("Import", _I("block_manager_icon.svg"),
                                 self._be_import),
-            "Import DXF/DWG/PDF geometry into the editor")
+            "Import DXF/DWG/PDF geometry into the editor", "definition")
         # SB1a: opens the Block Editor's Attributes editor (the panel's Block
         # view "Edit attributes..." button is the same verb); a schematic has
         # no attributes (schematics.md D-S14), see _sync_capability_buttons.
-        self._be_attr_btn = _editor_only(
+        self._be_attr_btn = _gated(
             gd.add_small_button("Edit Attributes", _I("block_manager_icon.svg"),
                                 self._be_edit_attributes),
             "Edit Attributes — declare the block's attributes; text "
-            "primitives reference them as @[key] fields")
-        self._be_tile_btn = _editor_only(
+            "primitives reference them as @[key] fields", "definition")
+        self._be_tile_btn = _gated(
             gd.add_small_button("Pattern Tile", _I("pattern_tile_icon.svg"),
                                 self._be_toggle_tile, checkable=True),
             "Pattern tile — make this block a hatch pattern (repeats on a "
-            "tile, fills regions, can't be placed as a symbol)")
-        self._be_linetype_btn = _editor_only(
+            "tile, fills regions, can't be placed as a symbol)", "definition")
+        self._be_linetype_btn = _gated(
             gd.add_small_button("Linetype", _I("linetype_icon.svg"),
                                 self._be_toggle_linetype, checkable=True),
             "Linetype — make this block a linetype (repeats along lines, "
-            "applied from a line's Linetype row, can't be placed as a symbol)")
-        self._be_end_btn = _editor_only(
+            "applied from a line's Linetype row, can't be placed as a symbol)", "definition")
+        self._be_end_btn = _gated(
             gd.add_small_button("End Type", _I("end_type_icon.svg"),
                                 self._be_toggle_end, checkable=True),
             "End type: make this block an end type (arrow, cap, tick, bubble) "
             "drawn at the free ends of lines. Origin = attach point, "
-            "+X = outward.")
+            "+X = outward.", "definition")
 
         # --- 2D Geometry (editor-only) ---
         g = page.add_group("2D Geometry")
@@ -4511,7 +4552,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             cb = lambda: self._active_scene().set_mode(mode)
             b = g.add_small_button(label, _I(icon), cb, checkable=True)
             self._block_mode_buttons[mode] = b
-            return _editor_only(b, tip)
+            return _gated(b, tip, "geometry")
 
         _mode("Line", "line_icon.svg", "draw_line", "Draw a line (L)")
         _mode("Rectangle", "rectangle_icon.svg", "draw_rectangle",
@@ -4532,20 +4573,32 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
         # Fill (HF3 R8 / HF4 AC1): a button, not a mode -- with no boundary candidates selected it enters Pick point.
-        self._be_fill_btn = _editor_only(
+        self._be_fill_btn = _gated(
             g.add_small_button("Fill", _I("fill_icon.svg"),
                                lambda: self._active_scene().fill_selected_items()),
-            "Fill: select closed curves, or click with nothing selected to pick a point")
+            "Fill: select closed curves, or click with nothing selected to pick a point", "geometry")
 
-        # --- Edit + Modify (scene-tools.md D1; editor-only) ---
-        self._be_modify_buttons = {
-            **self.build_edit_group(page, self._active_scene,
-                                    self._block_mode_buttons),
-            **self.build_modify_group(page, self._active_scene,
-                                      self._block_mode_buttons, explode=True),
-        }
+    def _init_editor_tab(self, _I):
+        """Build Tab 7: **Editor** -- Edit, Constrain, Inspect (design §1).
+
+        Edit is one merged group (B5) live on plan / detail / block / schematic
+        canvases; Constrain and Inspect are live on block / schematic only
+        until slice 2 (note (d)). Liveness per ``_GROUP_LIVE_KINDS``.
+        """
+        page = self.ribbon.add_page("Editor")
+        self._editor_page = page
+        self._editor_page_index = self.ribbon._stack.indexOf(page)
+
+        def _gated(b, tip, group):
+            b.setToolTip(tip)
+            self._canvas_gated.append((b, tip, group))
+            return b
+
+        # --- Edit (scene-tools.md D1/D2, merged group B5) ---
+        self._be_modify_buttons = self.build_merged_edit_group(
+            page, self._active_scene, self._block_mode_buttons, explode=True)
         for b in self._be_modify_buttons.values():
-            _editor_only(b, b.toolTip())
+            _gated(b, b.toolTip(), "edit")
 
         # --- Constrain + Inspect (parametric-constraint-system.md D15/D21;
         # editor-only). No greyed placeholders: CS1 Horizontal, CS2 Vertical +
@@ -4664,42 +4717,42 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                       "Show Constraints": b_show,
                                       "Constraint Status": b_status,
                                       "Delete Constraints": b_del}
-        _editor_only(b_d, "Smart Dimension (D) — dimension an edge's length, "
+        _gated(b_d, "Smart Dimension (D) — dimension an edge's length, "
                           "two points' distance, a circle's Ø, an arc's R or "
                           "sweep, a polygon's or ellipse's R, or the angle "
-                          "between two edges / an edge and an axis")
-        _editor_only(b_h, "Horizontal — make the selected line horizontal, "
-                          "or pick 2 points / 1 edge")
-        _editor_only(b_v, "Vertical — make the selected line vertical, "
-                          "or pick 2 points / 1 edge")
-        _editor_only(b_c, "Coincident — join two points, or put a point on an "
-                          "edge, circle/arc or the X/Y axis (pick both)")
-        _editor_only(b_cc, "Concentric — give the two selected circles/arcs one "
-                           "centre, or pick a circle/arc and a circle/arc or point")
-        _editor_only(b_sy, "Symmetric — mirror two points, lines or circles/arcs "
+                          "between two edges / an edge and an axis", "constrain")
+        _gated(b_h, "Horizontal — make the selected line horizontal, "
+                          "or pick 2 points / 1 edge", "constrain")
+        _gated(b_v, "Vertical — make the selected line vertical, "
+                          "or pick 2 points / 1 edge", "constrain")
+        _gated(b_c, "Coincident — join two points, or put a point on an "
+                          "edge, circle/arc or the X/Y axis (pick both)", "constrain")
+        _gated(b_cc, "Concentric — give the two selected circles/arcs one "
+                           "centre, or pick a circle/arc and a circle/arc or point", "constrain")
+        _gated(b_sy, "Symmetric — mirror two points, lines or circles/arcs "
                            "about an edge or the X/Y axis (select 2 + a reference "
-                           "line, select 2 then pick the axis, or pick all three)")
-        _editor_only(b_fx, "Fix — hold the selected items in place, or pick "
-                           "points / edges to fix them one at a time")
-        _editor_only(b_pa, "Parallel — make the two selected lines parallel, "
-                           "or pick an edge and an edge or the X/Y axis")
-        _editor_only(b_pp, "Perpendicular — make the two selected lines "
-                           "perpendicular, or pick an edge and an edge or the X/Y axis")
-        _editor_only(b_eq, "Equal — make the selected lines the same length (or "
-                           "circles/arcs the same radius), or pick two")
-        _editor_only(b_tg, "Tangent — make the selected line and circle/arc (or "
-                           "two circles/arcs) touch, or pick two")
-        _editor_only(b_co, "Collinear — put the two selected lines on one line, "
-                           "or pick an edge and an edge or the X/Y axis")
-        _editor_only(b_ac, "Auto Constrain — add Coincident / On-curve / "
+                           "line, select 2 then pick the axis, or pick all three)", "constrain")
+        _gated(b_fx, "Fix — hold the selected items in place, or pick "
+                           "points / edges to fix them one at a time", "constrain")
+        _gated(b_pa, "Parallel — make the two selected lines parallel, "
+                           "or pick an edge and an edge or the X/Y axis", "constrain")
+        _gated(b_pp, "Perpendicular — make the two selected lines "
+                           "perpendicular, or pick an edge and an edge or the X/Y axis", "constrain")
+        _gated(b_eq, "Equal — make the selected lines the same length (or "
+                           "circles/arcs the same radius), or pick two", "constrain")
+        _gated(b_tg, "Tangent — make the selected line and circle/arc (or "
+                           "two circles/arcs) touch, or pick two", "constrain")
+        _gated(b_co, "Collinear — put the two selected lines on one line, "
+                           "or pick an edge and an edge or the X/Y axis", "constrain")
+        _gated(b_ac, "Auto Constrain — add Coincident / On-curve / "
                            "Perpendicular from the snaps you place with "
-                           "(Shift inverts for one click)")
-        _editor_only(b_status, "Constraint Status — tint geometry by state: blue "
-                               "under-defined, ink fully defined, red conflicting")
-        _editor_only(b_show, "Show Constraints — show every constraint glyph "
-                             "(otherwise only the selected geometry's)")
-        _editor_only(b_del, "Delete Constraints — delete the selected constraint, "
-                            "or every constraint on the selected geometry")
+                           "(Shift inverts for one click)", "constrain")
+        _gated(b_status, "Constraint Status — tint geometry by state: blue "
+                               "under-defined, ink fully defined, red conflicting", "inspect")
+        _gated(b_show, "Show Constraints — show every constraint glyph "
+                             "(otherwise only the selected geometry's)", "inspect")
+        _gated(b_del, "Delete Constraints — delete the selected constraint, "
+                            "or every constraint on the selected geometry", "inspect")
 
     # ── Constrain / Inspect handlers (parametric-constraint-system.md D12/D21) ─
     def _be_constrain(self, ctype: str, checked: bool = True) -> None:
@@ -4894,7 +4947,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         Attributes) by ``_sync_capability_buttons``.
         """
         from PyQt6 import sip
-        for b, tip in getattr(self, "_be_editor_only", ()):
+        for b, tip, _g in getattr(self, "_canvas_gated", ()):
             if sip.isdeleted(b):
                 continue
             b.setToolTip(tip if active else self._BE_NO_EDITOR_TIP)
@@ -4913,10 +4966,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         entering = not getattr(self, "_block_ribbon_active", False)
         if entering:
             pre = self.ribbon._tab_bar.currentIndex()
-            self._pre_block_editor_tab = (
-                None if pre == self._be_page_index else pre)
+            self._pre_build_tab = (
+                None if pre == self._build_page_index else pre)
         self._block_ribbon_active = True
-        self.ribbon._tab_bar.setCurrentIndex(self._be_page_index)
+        self.ribbon._tab_bar.setCurrentIndex(self._build_page_index)
         self._set_block_editor_context(True)
 
     def _hide_block_editor_ribbon(self):
@@ -4926,10 +4979,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         self._block_ribbon_active = False
         self._set_block_editor_context(False)
-        pre = self._pre_block_editor_tab
-        self._pre_block_editor_tab = None
+        pre = self._pre_build_tab
+        self._pre_build_tab = None
         if (pre is not None
-                and self.ribbon._tab_bar.currentIndex() == self._be_page_index):
+                and self.ribbon._tab_bar.currentIndex() == self._build_page_index):
             self.ribbon._tab_bar.setCurrentIndex(pre)
 
     def _open_block_from_picker(self):
@@ -5160,7 +5213,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self._active_editor_widget()
         cap = w.editor_scene.block_capability if w is not None else None
         schematic = w is not None and w.kind == "schematic"
-        tips = {id(b): tip for b, tip in getattr(self, "_be_editor_only", ())}
+        tips = {id(b): tip for b, tip, _g in getattr(self, "_canvas_gated", ())}
         for attr, kind in (("_be_tile_btn", "tile"), ("_be_linetype_btn", "repeat"),
                            ("_be_end_btn", "end")):
             btn = getattr(self, attr, None)

@@ -59,10 +59,10 @@ def test_settings_dialogs_rails(qapp, make_model_space):
 
 # The Create tab was dissolved by the containment contract (C7): the model is
 # placement-only, so loose 2D-geometry authoring moved to the Block-Editor /
-# Paper contexts. The Block Editor page is a permanent base tab, last after
-# Draft (2026-09-30 ratified decision), carrying the block entry commands.
+# Paper contexts. Build and Editor are permanent base tabs, last after Draft
+# (editor-build design section 1), Build carrying the block entry commands.
 EXPECTED_TABS = ["Manage", "Architecture",
-                 "Sprinkler Systems", "Analyze", "Draft", "Block Editor"]
+                 "Sprinkler Systems", "Analyze", "Draft", "Build", "Editor"]
 
 
 def test_base_tabs_roster_and_order(main_window):
@@ -110,14 +110,14 @@ def test_no_create_base_tab(main_window):
     assert "Create" not in [tb.tabText(i) for i in range(tb.count())]
 
 
-def test_block_editor_tab_has_block_group_and_architecture_does_not(main_window):
-    """Block *entry* commands live in the Block Editor tab's Block group
+def test_build_tab_has_block_group_and_architecture_does_not(main_window):
+    """Block *entry* commands live in the Build tab's Block group
     (New / Open / Manager / Insert); Architecture lost its Block group
     (2026-09-30 ratified decision — relocated from the C7 Architecture group)."""
     arch = _page_by_title(main_window, "Architecture")
     assert arch is not None
     assert not _has_group(arch, "Block")
-    be = _page_by_title(main_window, "Block Editor")
+    be = _page_by_title(main_window, "Build")
     assert be is not None
     assert _has_group(be, "Block")
     btns = _button_texts(be)
@@ -127,7 +127,7 @@ def test_block_editor_tab_has_block_group_and_architecture_does_not(main_window)
 def test_quick_and_text_block_buttons_retired(main_window):
     """C7: Quick Block + Text Block are retired everywhere on the base ribbon."""
     for title in ("Manage", "Architecture", "Sprinkler Systems", "Analyze", "Draft",
-                  "Block Editor"):
+                  "Build", "Editor"):
         page = _page_by_title(main_window, title)
         assert page is not None
         btns = _button_texts(page)

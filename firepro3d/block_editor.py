@@ -551,9 +551,9 @@ class BlockEditorWidget(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         # Editor verbs (Save / Save As / Import / Edit Attributes) live on the
-        # permanent "Block Editor" ribbon tab, enabled by MainWindow while this
+        # permanent "Build" ribbon tab, enabled by MainWindow while this
         # tab is current — not on a widget strip (see
-        # MainWindow._init_block_editor_tab).
+        # MainWindow._init_build_tab).
         lay.addWidget(self.view)
         self._dirty = False
         # Create Block from a plan selection (D24): the plan-scene point the

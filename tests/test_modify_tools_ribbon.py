@@ -1,4 +1,4 @@
-"""D1: Block Editor page carries Edit + Modify groups acting on the editor scene.
+"""D1: the Editor page carries the merged Edit group acting on the editor scene.
 
 Governing spec: docs/specs/scene-tools.md D1 (surface) / D3 (select-first).
 """
@@ -116,8 +116,8 @@ def _group_title(b):
 
 
 def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
-    """Real path: open the Block Editor; its page carries Edit + Modify; the
-    selection-needing buttons follow the editor scene's selection; clicking
+    """Real path: open the Block Editor; the Editor page's one Edit group
+    carries Edit + Modify; the selection-needing buttons follow the editor scene's selection; clicking
     Move with a selected line enters "move" on the EDITOR scene (not plan)."""
     from firepro3d.geometry_2d import LineItem
     main_window.scene.clearSelection()
@@ -131,7 +131,7 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         modify = {"Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"}
         assert set(btns) == edit | modify
         for label, b in btns.items():
-            assert _group_title(b) == ("EDIT" if label in edit else "MODIFY"), label
+            assert _group_title(b) == "EDIT", label            # B5: one merged group
             assert b.toolTip(), label
             assert not b.icon().isNull(), label
 

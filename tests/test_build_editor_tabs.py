@@ -169,3 +169,36 @@ def test_block_editor_selection_inserts_no_tab(mw, qapp, monkeypatch):
     ln.setSelected(True)
     qapp.processEvents()
     assert inserted == [] and _titles(mw) == before and tb.currentIndex() == cur
+
+
+# ── T1a: roster + groups (AC1, G3/B5) ────────────────────────────────────────
+
+ROSTER = ["Manage", "Architecture", "Sprinkler Systems", "Analyze", "Draft",
+          "Build", "Editor"]
+EDIT_ORDER = ["Copy", "Cut", "Paste", "Duplicate", "Delete", "Move", "Rotate",
+              "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"]
+
+
+def _reading_order(group):
+    """Button captions in on-screen reading order (column, then row)."""
+    btns = [b for b in group.findChildren(QToolButton) if b.isVisible()]
+    btns.sort(key=lambda b: (b.mapTo(group, b.rect().topLeft()).x() // 4,
+                             b.mapTo(group, b.rect().topLeft()).y()))
+    return [b.text() for b in btns]
+
+
+def test_roster_is_seven_tabs_and_block_editor_is_gone(mw, qapp):
+    assert _titles(mw) == ROSTER
+    assert _page(mw, "Block Editor") is None
+
+
+def test_build_and_editor_groups(mw, qapp):
+    mw.ribbon._tab_bar.setCurrentIndex(ROSTER.index("Build"))
+    qapp.processEvents()
+    assert [t for t, _g in _groups(_page(mw, "Build"))] == [
+        "BLOCK", "DEFINITION", "2D GEOMETRY"]
+    mw.ribbon._tab_bar.setCurrentIndex(ROSTER.index("Editor"))
+    qapp.processEvents()
+    assert [t for t, _g in _groups(_page(mw, "Editor"))] == [
+        "EDIT", "CONSTRAIN", "INSPECT"]
+    assert _reading_order(_group(_page(mw, "Editor"), "Edit")) == EDIT_ORDER

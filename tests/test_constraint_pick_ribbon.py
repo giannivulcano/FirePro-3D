@@ -20,7 +20,7 @@ from firepro3d.geometry_2d import CircleItem, LineItem
 from tests._mainwindow_helpers import dispose_main_window
 
 NO_EDITOR_TIP = "Open or create a block to edit"
-PAGE = "Block Editor"
+PAGE = "Editor"
 CONSTRAIN_LABELS = {"Smart Dimension", "Horizontal", "Vertical", "Coincident",
                     "Concentric", "Symmetric", "Fix", "Parallel", "Perpendicular", "Equal",
                     "Tangent", "Collinear", "Auto Constrain", "Show Constraints",
@@ -179,11 +179,10 @@ def _status(win):
 
 # ── D15: groups, roster, tooltips ────────────────────────────────────────────
 
-def test_constrain_and_inspect_groups_after_modify(win_with_editor):
+def test_constrain_and_inspect_groups_after_edit(win_with_editor):
     win = win_with_editor
     titles = [t for t, _g in _groups(_page(win))]
-    i = titles.index("MODIFY")
-    assert titles[i + 1:] == ["CONSTRAIN", "INSPECT"]
+    assert titles == ["EDIT", "CONSTRAIN", "INSPECT"]     # B5: Edit + Modify merged
     groups = dict(_groups(_page(win)))
     assert {b.text() for b in groups["CONSTRAIN"].findChildren(QToolButton)} \
         == {"Smart Dimension", "Horizontal", "Vertical",

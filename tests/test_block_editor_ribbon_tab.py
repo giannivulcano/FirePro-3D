@@ -1,10 +1,10 @@
-"""The permanent Block Editor ribbon tab (ribbon-bar.md §3.2/§3.8; block-system.md).
+"""The permanent Build + Editor ribbon tabs (ribbon-bar.md §3.2/§3.8; block-system.md).
 
-Real MainWindow, shown, under the LIVE app QSS + font. The Block Editor page is
-a base tab (last, after Draft) that exists with no editor open: its Block group
+Real MainWindow, shown, under the LIVE app QSS + font. Build and Editor are base
+tabs (last, after Draft) that exist with no editor open: Build's Block group
 (New / Open / Manager / Insert) is always live, the editor-only groups are
 disabled with a "no editor" tooltip until an editor tab is current; entering an
-editor tab switches the ribbon to the page and leaving restores the prior tab.
+editor tab makes Build current and leaving restores the prior tab.
 """
 from __future__ import annotations
 
@@ -17,9 +17,13 @@ from firepro3d import snap_engine
 from tests._mainwindow_helpers import dispose_main_window
 
 NO_EDITOR_TIP = "Open or create a block to edit"
-PAGE = "Block Editor"
-EDITOR_GROUPS = ("Definition", "2D Geometry", "Edit", "Modify",
-                 "Constrain", "Inspect")
+BUILD = "Build"
+EDITOR = "Editor"
+ROSTER = ["Manage", "Architecture", "Sprinkler Systems", "Analyze", "Draft",
+          BUILD, EDITOR]
+# (page, group) of every button gated by the canvas kind.
+GATED = ((BUILD, "Definition"), (BUILD, "2D Geometry"), (EDITOR, "Edit"),
+         (EDITOR, "Constrain"), (EDITOR, "Inspect"))
 
 
 @pytest.fixture(scope="module")
@@ -118,10 +122,9 @@ def _buttons(group):
 
 
 def _editor_only_buttons(w):
-    page = _page(w, PAGE)
     out = []
-    for title in EDITOR_GROUPS:
-        out.extend(_buttons(_group(page, title)).values())
+    for page, title in GATED:
+        out.extend(_buttons(_group(_page(w, page), title)).values())
     return out
 
 
@@ -141,17 +144,16 @@ def _remove_pipe(w, pipe):
 
 def _goto_page(w, qapp):
     tb = w.ribbon._tab_bar
-    tb.setCurrentIndex(_titles(w).index(PAGE))
+    tb.setCurrentIndex(_titles(w).index(BUILD))
     qapp.processEvents()
 
 
 # ── G1: roster ───────────────────────────────────────────────────────────────
 
-def test_block_editor_is_last_base_tab_and_architecture_lost_block_group(mw):
+def test_build_and_editor_are_the_last_base_tabs_and_architecture_lost_block_group(mw):
     assert not _editors(mw)
     titles = _titles(mw)
-    assert titles == ["Manage", "Architecture", "Sprinkler Systems", "Analyze",
-                      "Draft", PAGE]
+    assert titles == ROSTER
     arch = _page(mw, "Architecture")
     assert "BLOCK" not in [t for t, _g in _groups(arch)]
 
@@ -160,10 +162,12 @@ def test_block_editor_is_last_base_tab_and_architecture_lost_block_group(mw):
 
 def test_group_order_large_new_open_and_one_line_small_captions(mw):
     from firepro3d.ribbon_bar import RibbonButton, RibbonSmallButton
-    page = _page(mw, PAGE)
+    page = _page(mw, BUILD)
+    editor = _page(mw, EDITOR)
     assert [t for t, _g in _groups(page)] == [
-        "BLOCK", "DEFINITION", "2D GEOMETRY", "EDIT", "MODIFY",
-        "CONSTRAIN", "INSPECT"]                    # D15: after Modify
+        "BLOCK", "DEFINITION", "2D GEOMETRY"]
+    assert [t for t, _g in _groups(editor)] == [
+        "EDIT", "CONSTRAIN", "INSPECT"]            # B5: Edit + Modify merged
     block = _buttons(_group(page, "Block"))
     assert set(block) == {"New", "Open", "Manager", "Insert"}
     assert type(block["New"]) is RibbonButton
@@ -176,15 +180,16 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
                          "Linetype",           # linetypes LT4-11f
                          "End Type",           # LT5 Q12
                          "Save as Template"}   # schematics.md D-S6 (SV3)
-    smalls = page.findChildren(RibbonSmallButton)
-    larges = [b for b in page.findChildren(QToolButton)
+    both = page.findChildren(QToolButton) + editor.findChildren(QToolButton)
+    smalls = [b for b in both if isinstance(b, RibbonSmallButton)]
+    larges = [b for b in both
               if not isinstance(b, RibbonSmallButton)]
     # CS4 (parametric-constraint-system D15/§10): Constrain leads with a large
     # Smart Dimension button.
     assert sorted(b.text() for b in larges) == ["New", "Open", "Smart Dimension"]
     assert smalls and all("\n" not in b.text() for b in smalls), \
         [b.text() for b in smalls if "\n" in b.text()]
-    assert all(b.toolTip() for b in page.findChildren(QToolButton))
+    assert all(b.toolTip() for b in both)
 
 
 # ── G3: no editor current ────────────────────────────────────────────────────
@@ -193,7 +198,7 @@ def _assert_no_editor_state(w):
     for b in _editor_only_buttons(w):
         assert not b.isEnabled(), b.text()
         assert b.toolTip() == NO_EDITOR_TIP, (b.text(), b.toolTip())
-    for b in _buttons(_group(_page(w, PAGE), "Block")).values():
+    for b in _buttons(_group(_page(w, BUILD), "Block")).values():
         assert b.isEnabled(), b.text()
         assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP
 
@@ -233,7 +238,7 @@ def test_edit_attributes_opens_the_attributes_editor(mw, qapp, monkeypatch):
                         lambda self: opened.append(self._editor) or 0)
     w = mw.block_editor_manager.open_new()
     qapp.processEvents()
-    attr = _buttons(_group(_page(mw, PAGE), "Definition"))["Edit Attributes"]
+    attr = _buttons(_group(_page(mw, BUILD), "Definition"))["Edit Attributes"]
     assert attr.isEnabled()
     assert attr.toolTip() not in (NO_EDITOR_TIP, "Edit block attributes (coming soon)")
     QTest.mouseClick(attr, Qt.MouseButton.LeftButton)
@@ -242,7 +247,7 @@ def test_edit_attributes_opens_the_attributes_editor(mw, qapp, monkeypatch):
     # A schematic editor: disabled with the schematic tooltip, click inert.
     mw.block_editor_manager.open_new(kind="schematic")
     qapp.processEvents()
-    attr = _buttons(_group(_page(mw, PAGE), "Definition"))["Edit Attributes"]
+    attr = _buttons(_group(_page(mw, BUILD), "Definition"))["Edit Attributes"]
     assert not attr.isEnabled()
     assert attr.toolTip() == mw._BE_ATTR_SCHEMATIC_TIP
     QTest.mouseClick(attr, Qt.MouseButton.LeftButton)
@@ -257,9 +262,9 @@ def test_entering_editor_switches_page_and_leaving_restores(mw, qapp):
     qapp.processEvents()
     mw.block_editor_manager.open_new()
     qapp.processEvents()
-    assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == PAGE
-    assert mw.ribbon._stack.currentWidget() is _page(mw, PAGE)
-    page = _page(mw, PAGE)
+    assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == BUILD
+    assert mw.ribbon._stack.currentWidget() is _page(mw, BUILD)
+    page = _page(mw, BUILD)
     for title in ("Definition", "2D Geometry"):
         for label, b in _buttons(_group(page, title)).items():
             if label in ("Save as Template", "Fill"):
@@ -292,7 +297,7 @@ def test_block_group_buttons(mw, qapp, monkeypatch):
     from firepro3d.block_definition import BlockDefinition
     from firepro3d.block_editor import BlockEditorWidget
     _goto_page(mw, qapp)
-    btns = _buttons(_group(_page(mw, PAGE), "Block"))
+    btns = _buttons(_group(_page(mw, BUILD), "Block"))
 
     QTest.mouseClick(btns["New"], Qt.MouseButton.LeftButton)
     qapp.processEvents()
@@ -378,7 +383,7 @@ def test_pattern_tile_button_toggles_and_follows_undo(mw, qapp):
     w = mw.block_editor_manager.open_new()
     qapp.processEvents()
     try:
-        btn = _buttons(_group(_page(mw, PAGE), "Definition"))["Pattern Tile"]
+        btn = _buttons(_group(_page(mw, BUILD), "Definition"))["Pattern Tile"]
         assert btn.isEnabled() and btn.isCheckable() and not btn.isChecked()
         assert "pattern" in btn.toolTip().lower()
         QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
@@ -404,7 +409,7 @@ def test_closing_last_editor_to_empty_canvas_leaves_page_disabled(mw, qapp):
     qapp.processEvents()
     ed = mw.block_editor_manager.open_new()
     qapp.processEvents()
-    assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == PAGE
+    assert _titles(mw)[mw.ribbon._tab_bar.currentIndex()] == BUILD
     try:
         for i in range(mw.central_tabs.count() - 1, -1, -1):
             if not isinstance(mw.central_tabs.widget(i), BlockEditorWidget):
@@ -436,7 +441,7 @@ def test_fill_button_is_editor_only_always_enabled(mw, qapp):
     from firepro3d.geometry_2d import LineItem
     mw.block_editor_manager.open_new()
     qapp.processEvents()
-    fill = _buttons(_group(_page(mw, PAGE), "2D Geometry"))["Fill"]
+    fill = _buttons(_group(_page(mw, BUILD), "2D Geometry"))["Fill"]
     assert fill is mw._be_fill_btn and fill in _editor_only_buttons(mw)
     assert fill.toolTip() == "Fill: select closed curves, or click with nothing selected to pick a point"
     mw._refresh_modify_buttons()

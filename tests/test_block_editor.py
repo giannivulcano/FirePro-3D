@@ -238,7 +238,7 @@ def test_widget_save_empty_returns_none(qapp, monkeypatch):
 # ---------------------------------------------------------------------------
 
 # Editor verbs (Save / Save As / Import / Edit Attributes) live in the
-# contextual "Block Editor" ribbon (MainWindow-built, live-only), not on a widget
+# the Build tab (MainWindow-built, live-only), not on a widget
 # strip. The headless-testable Save core is exercised by the widget-save tests above.
 
 
