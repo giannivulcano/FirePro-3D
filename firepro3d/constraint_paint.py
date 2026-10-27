@@ -225,21 +225,35 @@ def _anchors(view, c, by, held=None) -> list:
 
 # ── D32 visibility + the per-frame cache (VC9 F3) ───────────────────────────
 
+def _refs_visible(c, by) -> bool:
+    """R-V1: every item *c* references (by uid) is visible; a uid with no
+    live item (ground ref, deleted item) does not hide it."""
+    from .constraint_controller import _safe_ref_uids
+    for uid in _safe_ref_uids(c) or ():
+        it = by.get(uid)
+        if it is not None and not it.isVisible():
+            return False
+    return True
+
+
 def visible_constraints(ctl, sel_uids) -> list:
     """D32: the constraints whose glyphs show.
 
     None during a pick session; every one under the Show Constraints
     override (``ctl.show_all``); else those touching a selected entity
-    (*sel_uids*) plus the selected constraint.
+    (*sel_uids*) plus the selected constraint.  Constraints with a hidden
+    referenced item never show (R-V1).
     """
     if not ctl.enabled or getattr(ctl, "pick", None) is not None:
         return []
     from .constraint_dims import is_dim          # a dim is its label, never a box (D51)
+    by = ctl.item_by_uid()
     if ctl.show_all:
-        return [c for c in ctl.constraints if not is_dim(c)]
+        return [c for c in ctl.constraints
+                if not is_dim(c) and _refs_visible(c, by)]
     from .constraint_controller import _safe_ref_uids
     return [c for c in ctl.constraints
-            if not is_dim(c)
+            if not is_dim(c) and _refs_visible(c, by)
             and (c.id == ctl.selected_id or (_safe_ref_uids(c) or set()) & sel_uids)]
 
 
@@ -253,10 +267,12 @@ def visible_dim_ids(ctl, sel_uids) -> set:
     """D82: ids of the dims drawn (and picked) in select mode -- one whose
     referenced item (by uid; ground refs are no item) or the dim itself is
     selected; every dim under Show Constraints (D32's override) or while the
-    Smart Dimension tool is live."""
+    Smart Dimension tool is live.  Dims with a hidden referenced item never
+    show (R-V1)."""
     from .constraint_controller import _safe_ref_uids
     from .constraint_dims import is_dim
-    dims = [c for c in ctl.constraints if is_dim(c)]
+    by = ctl.item_by_uid()
+    dims = [c for c in ctl.constraints if is_dim(c) and _refs_visible(c, by)]
     if ctl.show_all or dim_tool_live(ctl):
         return {c.id for c in dims}
     return {c.id for c in dims
