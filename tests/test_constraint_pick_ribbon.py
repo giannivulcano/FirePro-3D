@@ -196,15 +196,18 @@ def test_constrain_and_inspect_groups_after_edit(win_with_editor):
         assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP
 
 
-def test_buttons_disabled_with_no_editor_tooltip_when_no_editor_current(
+def test_buttons_live_with_real_tooltips_when_plan_current(
         win_with_editor, qapp):
+    """Editor/Build slice 2 retired 'off with the no-editor tip in plan':
+    the plan scene is constraint-capable (walls + gridlines)."""
     win = win_with_editor
     win.central_tabs.setCurrentIndex(_plan_index(win))
     qapp.processEvents()
     win._refresh_modify_buttons()            # a selection/clipboard refresh
     for label, b in win._be_constrain_buttons.items():
-        assert not b.isEnabled(), label
-        assert b.toolTip() == NO_EDITOR_TIP, label
+        assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, label
+    for label in ("Smart Dimension", "Horizontal", "Show Constraints"):
+        assert win._be_constrain_buttons[label].isEnabled(), label
 
 
 def test_plan_scene_accepts_the_constraint_pick_mode(win_with_editor, qapp):

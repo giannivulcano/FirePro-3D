@@ -4489,9 +4489,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "definition": _EDITOR_KINDS,
         "geometry": _EDITOR_KINDS,
         "edit": frozenset({"plan", "detail", "block", "schematic"}),
-        # Slice 2 adds plan + detail (design §1 note (d)).
-        "constrain": _EDITOR_KINDS,
-        "inspect": _EDITOR_KINDS,
+        # Slice 2: plan + detail too (design s1 note (d), s2).
+        "constrain": frozenset({"plan", "detail", "block", "schematic"}),
+        "inspect": frozenset({"plan", "detail", "block", "schematic"}),
     }
     # Edit-group caption -> ModifyToolsController tool (can_start / start).
     _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
@@ -4612,8 +4612,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Build Tab 7: **Editor** -- Edit, Constrain, Inspect (design §1).
 
         Edit is one merged group (B5) live on plan / detail / block / schematic
-        canvases; Constrain and Inspect are live on block / schematic only
-        until slice 2 (note (d)). Liveness per ``_GROUP_LIVE_KINDS``.
+        canvases; Constrain and Inspect are live on plan / detail (walls +
+        gridlines, slice 2) and block / schematic. Liveness per ``_GROUP_LIVE_KINDS``.
         """
         page = self.ribbon.add_page("Editor")
         self._editor_page = page

@@ -2937,8 +2937,10 @@ class ConstraintController:
             sel = self._scene.selectedItems()
         except RuntimeError:
             return None
+        # Slice 2: in plan the "lines" are walls (centerline) and gridlines.
+        line_types = (LineItem,) if self.block_editor else tuple(self.ref_types or ())
         if (ctype in ("horizontal", "vertical", "dim_distance")   # CS6 R3 / CS7 / CS8
-                and len(sel) == 1 and isinstance(sel[0], LineItem)
+                and len(sel) == 1 and isinstance(sel[0], line_types)
                 and getattr(sel[0], "_uid", None) is not None):
             return [{"uid": sel[0]._uid, "h": "edge"}]
         if (ctype == "dim_distance" and len(sel) == 1
@@ -2950,12 +2952,12 @@ class ConstraintController:
                         and getattr(s, "_uid", None) is not None for s in sel)):
             return [{"uid": s._uid, "h": "curve"} for s in sel]   # CS6 R3
         if (ctype in ("parallel", "perpendicular", "collinear") and len(sel) == 2   # CS9 P4 / CS10 PP4 / CS14 C3
-                and all(isinstance(s, LineItem) and getattr(s, "_uid", None) is not None
+                and all(isinstance(s, line_types) and getattr(s, "_uid", None) is not None
                         for s in sel)):
             return [{"uid": s._uid, "h": "edge"} for s in sel]
         if ctype == "equal" and len(sel) >= 2 and all(          # CS11 E3
                 getattr(s, "_uid", None) is not None for s in sel):
-            if all(isinstance(s, LineItem) for s in sel):
+            if all(isinstance(s, line_types) for s in sel):
                 return [{"uid": s._uid, "h": "edge"} for s in sel]
             if all(isinstance(s, (CircleItem, ArcItem)) for s in sel):
                 return [{"uid": s._uid, "h": "curve"} for s in sel]

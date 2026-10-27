@@ -219,10 +219,8 @@ OFF = {
     "2D Geometry": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
                     "section": NIV, "paper": NIV, "3d": NIV},
     "Edit": {"section": NIV, "paper": NIV, "3d": NIV},
-    "Constrain": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
-                  "section": NIV, "paper": NIV, "3d": NIV},
-    "Inspect": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
-                "section": NIV, "paper": NIV, "3d": NIV},
+    "Constrain": {"section": NIV, "paper": NIV, "3d": NIV},
+    "Inspect": {"section": NIV, "paper": NIV, "3d": NIV},
 }
 # One button per live group that must be enabled (selection-independent).
 PROBE = {"Block": ("New", "Open", "Manager", "Insert"), "Definition": ("Save",),

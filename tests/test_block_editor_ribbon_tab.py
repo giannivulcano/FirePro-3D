@@ -129,8 +129,7 @@ def _editor_only_buttons(w):
 
 
 # Groups a plan / detail canvas still can't use (Edit is live there, B2).
-PLAN_OFF = (("Build", "Definition"), ("Build", "2D Geometry"),
-            ("Editor", "Constrain"), ("Editor", "Inspect"))
+PLAN_OFF = (("Build", "Definition"), ("Build", "2D Geometry"))
 
 
 def _add_plan_pipe(w):
@@ -200,15 +199,16 @@ def test_group_order_large_new_open_and_one_line_small_captions(mw):
 # ── G3: no editor current ────────────────────────────────────────────────────
 
 def _assert_plan_state(w):
-    """Plan canvas: Definition / 2D Geometry / Constrain / Inspect off with the
-    no-editor tooltip; Edit is live (real tooltips, enable state per
-    ``can_start``); the Block group is live."""
+    """Plan canvas: Definition / 2D Geometry off with the no-editor tooltip;
+    Edit, Constrain and Inspect are live (real tooltips; Edit's enable state
+    per ``can_start``); the Block group is live."""
     for page, title in PLAN_OFF:
         for b in _buttons(_group(_page(w, page), title)).values():
             assert not b.isEnabled(), b.text()
             assert b.toolTip() == NO_EDITOR_TIP, (b.text(), b.toolTip())
-    for b in _buttons(_group(_page(w, EDITOR), "Edit")).values():
-        assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, b.text()
+    for title in ("Edit", "Constrain", "Inspect"):
+        for b in _buttons(_group(_page(w, EDITOR), title)).values():
+            assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, b.text()
     for b in _buttons(_group(_page(w, BUILD), "Block")).values():
         assert b.isEnabled(), b.text()
         assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP
