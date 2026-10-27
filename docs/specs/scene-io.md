@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -62,8 +62,7 @@ collections: `nodes`, `pipes`, `annotations` (dimensions + notes), `underlays`,
 [`hatch-and-fill.md`](hatch-and-fill.md) "HF3 build design"), `texts` (unified `TextItem`
 primitives, containment C5), `gridlines`, `walls`,
 `floor_slabs`, `roofs`, `rooms`, `block_definitions` (embedded by id),
-`blocks` (instances referencing definition ids), `constraints` (indexed against
-`_tools._all_geometry_items()`), `detail_views`, `sheets`, `titleblock_template`.
+`blocks` (instances referencing definition ids), `constraints` (plan-controller records on walls + gridlines, referenced by uid -- Editor/Build slice 2, design §2 Persistence; additive key, no `SAVE_VERSION` bump), `detail_views`, `sheets`, `titleblock_template`.
 
 Each `block_definitions` entry carries an additive `"kind"` key (written for schematics
 only, omitted for plain blocks) on both serialization paths (project file and undo
@@ -120,8 +119,8 @@ invariant**:
   `draw_splines`, `polygons`, `filled_regions` — HF3, dropped by the same rule), the top-level `texts` key (**standalone model
   text** — C1 retires it; block-content text lives in `block_definitions` and
   paper text in `sheets`, both of which survive), the `note` and `dimension`
-  entries in `annotations`, the `constraints` block, and any legacy hatch are
-  **not reconstructed**. A single `logging` line records dropped counts; there
+  entries in `annotations`, and any legacy hatch are
+  **not reconstructed**; the `constraints` block is adopted only for records whose refs all resolve to a loaded wall / gridline uid -- unresolvable or malformed records are dropped into the same clean-drop count (Editor/Build slice 2, design §2 Persistence). A single `logging` line records dropped counts; there
   is **no UI**.
 - **Save stops writing them**, so a load→save of a legacy file cleanly sheds the
   forbidden content.
@@ -144,7 +143,7 @@ invariant**:
       atomic-write behaviour holds.
 - [x] (C8) A legacy `.fpd` with loose geometry / model text / notes / dimensions /
       constraints / hatch loads with those discarded, no exceptions, counts
-      logged; a re-save omits them.
+      logged; a re-save omits them (plan wall / gridline constraints whose refs resolve are the slice-2 exception and are kept).
 - [x] (C8) Clean-drop is FILE-path only; the undo path retains loose-geometry/text
       capture for the Block-Editor scratchpad (§5) — plan scenes are empty via the
       gate so nothing is reintroduced.

@@ -1,7 +1,7 @@
 ---
-status: partial -- slice 1 built 2026-10-26 (c23c1610); slices 2-3 open   # three feature slices (see Build slices)
-last-verified: 2026-10-26
-verified-commit: c23c1610
+status: partial -- slices 1-2 built (c23c1610, db16090a); slice 3 open   # three feature slices (see Build slices)
+last-verified: 2026-10-27   # slice 2 Account; prior 2026-10-26
+verified-commit: db16090a   # slice 2 Account; prior c23c1610
 applies-to:
   - main.py (init_ribbon, _init_build_tab / _init_editor_tab, canvas context, retired contextual-tab mechanism)
   - firepro3d/ribbon_bar.py
@@ -27,7 +27,7 @@ consolidates:   # Rule A -- each of these gets a one-line pointer at Account; fu
 # Editor + Build Tabs and Plan-View Constraints -- Design Spec
 
 > **Status: partial.** Slice 1 (the ribbon, section 1) is built and verified at `c23c1610`
-> (2026-10-26); slices 2-3 (plan constraints, Wall Auto Constrain) are unbuilt. This is the
+> (2026-10-26); slice 2 (plan constraints) is built at `db16090a` (2026-10-27); slice 3 (Wall Auto Constrain, G14 selection jump) is unbuilt. This is the
 > consolidating contract the governing specs above link to; it records the ratified decisions
 > of the 2026-10-24 grill (G1-G13), the Phase 3 deltas (B1-B6), the approved ribbon mockup
 > and the slice-1 rulings (S1, R1, R2).
@@ -64,7 +64,7 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | G3 | Tab roster `...Draft | Build | Editor`; Build = Block + Definition + 2D Geometry; Editor = Edit + Constrain + Inspect | Phase 2 ask (+ B5) |
 | G4 | All contextual editor tabs retire (whole mechanism) | Phase 2 ask |
 | G5 | Type-specific contextual groups (Graphic Override; Opening Placement/Orientation) -> property panel only | Phase 2 ask |
-| G6 | Selection never switches the ribbon tab | Phase 2 ask |
+| G6 | Selection never switches the ribbon tab -- **reversed by G14** (2026-10-27) | Phase 2 ask |
 | G7 | Accept the panel gap: contextual tabs retire before panel parity; panel rows filed P2 | Phase 2 ask |
 | G8 | Plan refs: walls + datums; floors/roofs/rooms/pipes are follow-ups (levels narrowed by B1) | Phase 2 ask |
 | G9 | Legacy projects load unconstrained (no inference) | Phase 2 ask |
@@ -72,6 +72,7 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | G11 | Wall auto-constrain mirrors the Block Editor (joins -> Coincident / point-on-edge, H/V by exactness, rect -> Perpendicular + Coincident), under the global toggle | Phase 2 ask |
 | G12 | Plan glyphs / driving dims: on selection or while a Constrain/Inspect tool is active; never on sheets/PDF/print | Phase 2 ask |
 | G13 | Paper / 3D: Build + Editor groups disabled with a tooltip, Build's Block group live | Phase 2 ask |
+| G14 | Selection jumps the ribbon to Editor (reverses G6): any non-empty selection on a canvas where Editor is live (plan, detail, block, schematic) switches to Editor; clearing it restores the prior tab only if Editor is still current (B3 pattern); paper / 3D / section never jump. Built in slice 3 | slice-2 smoke ask (2026-10-27) |
 | B1 | Plan constraints reference walls + **gridlines only** -- levels are not drawn in plan; level refs are a follow-up for an elevation/section Editor | Phase 3 ask |
 | B2 | Editor Edit group live in plan; Move/Rotate act on walls (constraint-aware); Flip/Mirror/Scale/Offset refuse walls as today -> wall-hook follow-up (Array is **not** in that set -- see R2) | Phase 3 ask; Array corrected by R2 |
 | B3 | Entering a block/schematic canvas jumps the ribbon to **Build**; leaving restores the prior tab only if Build is still current | Phase 3 ask |
@@ -82,6 +83,9 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | R1 | Two mode-button registries kept (`_mode_buttons` for plan tools, `_block_mode_buttons` for Build / Editor tools); `_sync_mode_buttons` gates `_block_mode_buttons` by "Edit is live for the current canvas kind". Deviation from section 1's "collapse to one if no shared key" | slice-1 Phase 4 ask (2026-10-25) |
 | H1 | A solve that moves a gridline treats its hosted blocks as a grip drag does: ride the frame on shift / rotate; origin slide along the axis compensates so they stay put (D6) | slice-2 Phase 2 ask (2026-10-26) |
 | R2 | **Array stays live on a wall selection** -- Array copies walls through the paste path (`paste_items` has a wall branch). B2 wrongly listed Array among the tools that refuse walls; in plan a wall selection greys Scale / Flip / Mirror / Offset only | slice-1 Phase 5 ask (2026-10-26) |
+
+| W1 | Plan constraints reference any edge of the wall seen from plan: faces face_l / face_r, centerline, ends end1 / end2; points p1 p2 mid p1l p1r p2l p2r (untrimmed quad) | slice-2 Phase 4 ask (2026-10-26) |
+| L1 | A locked gridline acts as fixed: never moves; a solve that would move it is a conflict (hold-last-good) | slice-2 Phase 4 ask (2026-10-26) |
 
 ## Architecture & Constraints
 
@@ -174,14 +178,14 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
   (no handle). Write-back sets both endpoints, then `invalidate_geometry()` (rebuilds the
   cached outline / joins and re-anchors openings -- `wall-room-floor-system.md` §4.5/§6.1).
   A solve that shrinks a wall to zero length is a collapse (D29) and is refused. Width is
-  not a variable.
+  not a variable. Built per W1: the handle set is faces + centerline + ends (see the Ratified table), not the three handles listed here.
 - **Gridline adapter:** variables `x1 y1 x2 y2` (origin, far end) derived from
   `_origin` / `_length` / `_angle_deg`; handles `p1`, `p2`, `mid`, edge `edge`; grip map
   0 -> `p1`, 1 -> `p2`, bubble grips 2/3 have no handle. Write-back converts back to
   origin / length / angle; bubbles keep their standoff. **Hosted blocks (H1):** a solve
   treats hosted blocks exactly as a grip drag does -- they ride the gridline frame when it
   shifts or rotates, and when the origin slides along the axis the write-back calls
-  `_shift_hosted_along` so they stay put (D6).
+  `_shift_hosted_along` so they stay put (D6). Built per L1 (locked = fixed via LOCK fixes).
 - **Participation.** The controller's `items()` walks `_PARTICIPATING` scene lists;
   `ref_types` adds the plan scene's `_walls` / `_gridlines` and the plan scene lists only
   those two (no 2D-geometry lists).
@@ -262,7 +266,7 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 1. **Ribbon** (built 2026-10-26, `c23c1610`) -- Build + Editor tabs, merged Edit group, canvas-kind context table,
    switch/restore to Build, contextual mechanism + coupled tests retired; Constrain /
    Inspect plan-disabled. Guards T1, T2.
-2. **Plan constraint foundation** -- capability + gate audit, wall uid, wall + gridline
+2. **Plan constraint foundation** (built 2026-10-27, `db16090a`) -- capability + gate audit, wall uid, wall + gridline
    adapters, `.fpd` persistence + undo, plan glyphs + Smart Dim; Constrain / Inspect go
    live in plan. Guards T4, T5, T7, T6 (legacy loads with 0 constraints).
 3. **Wall Auto Constrain** -- placement records + proximity-follow skip. Guards T3, T6
@@ -271,10 +275,10 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 ## Acceptance Criteria
 
 - [x] AC1 Ribbon roster `Manage|Architecture|Sprinkler Systems|Analyze|Draft|Build|Editor`; the Block Editor tab is gone; Build = Block / Definition / 2D Geometry, Editor = Edit (merged) / Constrain / Inspect; enable state per the canvas-kind table (T1).
-- [x] AC2 No contextual tab is ever inserted; selection never changes the current tab (T2).
+- [x] AC2 No contextual tab is ever inserted; selection never changes the current tab (T2). -- superseded by G14 for slice 3 (T2 is rewritten there)
 - [x] AC3 Entering a block/schematic canvas makes Build current; leaving restores the prior tab only if Build is still current.
-- [ ] AC4 Plan Constrain / Inspect act on wall centerlines + gridlines only; constraints persist in the `.fpd`, round-trip undo/redo, and never plot (T4, T5, T7).
-- [ ] AC5 Containment C7/C8 amended as in §4; C1 unchanged.
+- [x] AC4 Plan Constrain / Inspect act on wall centerlines + gridlines only; constraints persist in the `.fpd`, round-trip undo/redo, and never plot (T4, T5, T7).
+- [x] AC5 Containment C7/C8 amended as in §4; C1 unchanged. (Rule A pointers landed at the slice 2 Account; full rewrites filed)
 - [ ] AC6 Wall placement auto-constrains per §3 under the toggle; a rect wall resizes as a rect; deleting a constraint frees it (T3, T8).
 - [ ] AC7 Legacy projects load with 0 constraints; unconstrained ends keep proximity follow (T6).
 
@@ -283,14 +287,14 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 - [x] T1 roster + per-group enable state for each canvas kind (plan, detail, block, schematic, section, paper, 3d), tooltips included.
 - [x] T2 selecting walls / pipes / 2D geometry inserts no tab and leaves the current tab unchanged.
 - [ ] T3 place a rect wall -> drag a corner grip -> the four walls stay a rectangle (angles measured from endpoints).
-- [ ] T4 Smart Dim a wall length -> drag its other end -> length held; Smart Dim an end-to-gridline offset -> move the gridline -> offset held.
-- [ ] T5 save / reopen the `.fpd` and undo / redo round-trip plan constraints (record content compared, not count).
-- [ ] T6 a legacy `.fpd` loads with 0 constraints; dragging a joined end still moves touching ends.
-- [ ] T7 glyphs present on a selected constrained wall in the plan view; absent from a sheet viewport render and a PDF export (pixel digests, per the pixel-guard convention).
+- [x] T4 Smart Dim a wall length -> drag its other end -> length held; Smart Dim an end-to-gridline offset -> move the gridline -> offset held.
+- [x] T5 save / reopen the `.fpd` and undo / redo round-trip plan constraints (record content compared, not count).
+- [ ] T6 a legacy `.fpd` loads with 0 constraints; dragging a joined end still moves touching ends. -- legacy-loads-with-0-constraints half built in slice 2 (test_plan_constraint_persistence.py); proximity-follow half is slice 3
+- [x] T7 glyphs present on a selected constrained wall in the plan view; absent from a sheet viewport render and a PDF export (pixel digests, per the pixel-guard convention).
 - [ ] T8 Auto Constrain off -> wall placement adds no constraints.
-- [ ] T9 (slice 2, H1) a solve that slides a gridline's origin along its axis leaves a hosted block's scene position unchanged; a solve that shifts the gridline sideways moves the block with it.
-- [ ] T10 (slice 2) a pasted wall takes its Display Manager category defaults; a copied constrained gridline pair (and wall pair) keeps its internal constraint on the copies (D30).
-- [ ] T11 (slice 2) no origin cross / X-Y ground axes paint in the plan view and none is offered as a pick candidate.
+- [x] T9 (slice 2, H1) a solve that slides a gridline's origin along its axis leaves a hosted block's scene position unchanged; a solve that shifts the gridline sideways moves the block with it.
+- [x] T10 (slice 2) a pasted wall takes its Display Manager category defaults; a copied constrained gridline pair (and wall pair) keeps its internal constraint on the copies (D30).
+- [x] T11 (slice 2) no origin cross / X-Y ground axes paint in the plan view and none is offered as a pick candidate.
 
 ## Edge Cases & Error Handling
 

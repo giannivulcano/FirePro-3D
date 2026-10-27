@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
+last-verified: 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -16,7 +16,9 @@ source-tasks:
 
 # Model Space Containment & Authoring Contract — Design Spec
 
-> **Proposed change (2026-10-24, unbuilt):** `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` -- C7 rewording (constraint / modify tools may act on wall centerlines + gridlines in plan) and a C8 exception (plan wall / gridline constraints persist); C1 unchanged. Until its build slices ship, the as-built text below stands.
+> **Slice 2 shipped the C8 exception (2026-10-27, Editor/Build slice 2):** plan constraints on walls + gridlines persist and load; the C7 rewording below is owned by the design §4 and is amended text, with slice 1/2 built and slice 3 (Wall Auto Constrain) open.
+>
+> **Proposed change (2026-10-24; C8 exception built in slice 2, rest per its build slices):** `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` -- C7 rewording (constraint / modify tools may act on wall centerlines + gridlines in plan) and a C8 exception (plan wall / gridline constraints persist); C1 unchanged. The text below states the pre-amendment wording; where it conflicts with design §4, §4 governs.
 
 > **Status: proposal (unbuilt).** This document is the top-level *leash* for a
 > milestone-scale rework. It records the containment invariants agreed in the
@@ -142,6 +144,8 @@ the unification target is governed by `reference-graphic-model.md`.
 
 ### C7 — Surface & ribbon topology
 
+> Amended wording owned by `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` §4: "No 2D drawing tools in Model Space. Constraint and Modify tools may act on the *defining geometry* of built-in Features (wall centerlines) and of datums (gridlines) in plan."
+
 - **The permanent "Create" tab is dissolved.** The authoring surface *is* the
   **Block Editor** context. The 2D-geometry tool set (the 9 primitives incl.
   Text) exists **only** in the **Block Editor** and **Paper Space** contexts —
@@ -168,6 +172,8 @@ the unification target is governed by `reference-graphic-model.md`.
   (`docs/mockups/ribbon-containment-contract.html`).
 
 ### C8 — Migration: clean drop
+
+> Exception owned by `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` §4 (built in Editor/Build slice 2, 2026-10-27): "plan constraints whose refs are all walls / gridlines persist in the `.fpd`; every other constraint record is still dropped." They are saved under the top-level `constraints` key; C1 is unchanged.
 
 On loading a pre-contract `.fpd`, loose 2D geometry and model-space text notes
 are **discarded** (with a warning/log). There is **no** migration machinery and
@@ -286,7 +292,7 @@ tasks**, not part of this design-only deliverable.
 | D3 | C3 level on the instance | ✅ **Landed 2026-09-18** (`feat/containment-c3`) — the 8 non-text primitives + `GeometryTemplate` + `TextItem` are definition-local/level-less (no `level`/`_level_offset_mm`/`z_range_mm`/`Z_CAT_CONSTRUCTION`); `BlockInstance` carries `level` + `_level_offset_mm` + `z_range_mm()`, is filtered by `LevelManager`, exposes Level/Offset/Rotation rows, and round-trips both serialization paths. Dead primitive-level readers deleted across level_manager/view_3d/elevation_scene/scene_tools/tool_geometry | ~~primitives level-less + level moved to the instance~~ |
 | D4 | C5 Text = 9th primitive, unified | ✅ **Landed** — one `TextItem` on `TextAnnotationData` replaces `NoteAnnotation` + `TextAnnotationItem`; compiles to outlined glyphs in `render_ops` | ~~Text primitive added + data model unified~~ |
 | D5 | C7 ribbon topology | ✅ **Landed 2026-09-18** (commit 8c887aa) — Create dissolved (5-tab roster); Architecture Block group; Underlay→Architecture; Quick/Text-Block retired; Text in the Block-Editor palette. *(2026-09-30: Block group relocated to the permanent Block Editor base tab — 6-tab roster; see C7 as-built note.)* | ~~ribbon rework lands~~ |
-| D6 | C8 clean drop | ✅ **Landed** — loose geometry + model text/dimension + constraints are read-but-discarded on the **`.fpd` file path** (`scene_io` save omits + load discards, one info log); legacy load blocks (incl. hatch migration) deleted. *(The undo path `_capture_network`/`_restore_network` deliberately retains these — it is the shared undo mechanism the Block-Editor `scene_role` depends on; clean-drop is a file-persistence boundary, not an undo boundary.)* | ~~legacy load paths deleted~~ |
+| D6 | C8 clean drop | ✅ **Landed** — loose geometry + model text/dimension + constraints (except plan wall / gridline constraints, kept since Editor/Build slice 2) are read-but-discarded on the **`.fpd` file path** (`scene_io` save omits + load discards, one info log); legacy load blocks (incl. hatch migration) deleted. *(The undo path `_capture_network`/`_restore_network` deliberately retains these — it is the shared undo mechanism the Block-Editor `scene_role` depends on; clean-drop is a file-persistence boundary, not an undo boundary.)* | ~~legacy load paths deleted~~ |
 
 ## Deferred work (filed as follow-up tasks)
 
