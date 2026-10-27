@@ -274,6 +274,8 @@ class PickState:
         axes = ((curvy and self.ctype not in ("equal", "tangent"))    # CS11 E1 / CS12 T1: no axis
                 or self.ctype in ("parallel", "perpendicular", "collinear"))   # CS9 P1 / CS10 PP1 / CS14 C1
         for it in self.ctl.items():
+            if not it.isVisible():             # a hidden level's wall is never pickable
+                continue
             yield from item_handles(it, curvy=curvy)
         if not self.ctl.block_editor:          # design s2: no origin / axes in plan
             return

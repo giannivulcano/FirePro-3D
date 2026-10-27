@@ -317,13 +317,22 @@ class Model_View(QGraphicsView):
         # also paints over it. A virtual override: an escaping exception
         # aborts PyQt6 — guard.
         ctl = getattr(scene, "constraint_ctl", None)
-        if not self._clip_rect and ctl is not None and ctl.enabled:
+        if ctl is not None and ctl.enabled:
+            # A detail (clip) view paints the layer too, clipped to the crop
+            # (the painter is still in scene coords here; the clip survives
+            # constraint_paint's resetTransform), so it never covers the mask.
+            if self._clip_rect is not None:
+                painter.save()
+                painter.setClipRect(self._clip_rect)
             try:
                 from . import constraint_paint
                 constraint_paint.paint(painter, self, ctl)
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception("constraint paint failed")
+            finally:
+                if self._clip_rect is not None:
+                    painter.restore()
 
         # ── Selection dimension readouts (selection-mode §15) ─────────────
         # Painted overlay records in viewport px, after HALO so a hovered
@@ -988,13 +997,17 @@ class Model_View(QGraphicsView):
         else:
             super().mousePressEvent(event)
 
-    def _glyph_ctl(self, sc):
+    def _glyph_ctl(self, sc, pos=None):
         """The scene's constraint controller when glyph picking applies:
-        a constraint-capable scene (Block Editor or plan) in select mode,
-        outside a detail (clip) view."""
+        a constraint-capable scene (Block Editor or plan) in select mode.
+        In a detail (clip) view a ``pos`` (viewport px) outside the crop
+        picks nothing."""
         ctl = getattr(sc, "constraint_ctl", None) if sc is not None else None
-        if (ctl is None or not ctl.enabled or self._clip_rect is not None
+        if (ctl is None or not ctl.enabled
                 or getattr(sc, "mode", None) not in (None, "select")):
+            return None
+        if (pos is not None and self._clip_rect is not None
+                and not self._clip_rect.contains(self.mapToScene(pos))):
             return None
         return ctl
 
@@ -1003,7 +1016,7 @@ class Model_View(QGraphicsView):
         (consumed → True). A miss clears the selected constraint and returns
         False so the press runs as before. Never raises (virtual override)."""
         try:
-            ctl = self._glyph_ctl(sc)
+            ctl = self._glyph_ctl(sc, event.pos())
             if ctl is None:
                 return False
             from . import constraint_paint
@@ -1024,7 +1037,7 @@ class Model_View(QGraphicsView):
         """Double-click a dim label: open its value HUD (CS4 D51). A Reference
         dim posts a hint instead. Never raises (virtual override)."""
         try:
-            ctl = self._glyph_ctl(sc)
+            ctl = self._glyph_ctl(sc, event.pos())
             if ctl is None:
                 return False
             from . import constraint_paint
@@ -1070,7 +1083,7 @@ class Model_View(QGraphicsView):
         """Update the hovered constraint glyph; True while over one (HALO is
         then cleared and skipped, like a readout label). Never raises."""
         try:
-            ctl = self._glyph_ctl(sc)
+            ctl = self._glyph_ctl(sc, event.pos())
             if ctl is None:
                 raw = getattr(sc, "constraint_ctl", None) if sc is not None else None
                 if raw is not None and raw.hover_id is not None:

@@ -10,7 +10,7 @@ import math
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt6.QtGui import QImage, QPainter
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
@@ -20,7 +20,7 @@ import firepro3d.paper_display as pd
 from firepro3d.gridline import GridlineItem
 from firepro3d.wall import WallSegment
 from tests.test_build_editor_tabs import _editors, _plan_index, mw  # noqa: F401
-from tests.test_constraint_e2e import _click, _drag
+from tests.test_constraint_e2e import _click, _drag, _send
 
 
 @pytest.fixture
@@ -221,3 +221,163 @@ def test_t7_glyphs_paint_in_plan_and_never_plot(mw, plan, qapp, tmp_path, paper_
     paper_on, pdf_on = _sheet_digests(mw, tmp_path / "on.pdf", paper_export, fitz)
     assert paper_on == paper_off, "a constraint glyph plots on the sheet"
     assert pdf_on == pdf_off, "a constraint glyph plots in the PDF"
+
+
+# -- VC9 M1: detail (clip) views paint and pick constraints inside the crop ---
+
+def _detail_view(sc, crop, qapp):
+    """A detail view exactly as detail_view.py builds one: a plain Model_View
+    of the plan scene with ``_clip_rect`` set to the marker's crop."""
+    from firepro3d.model_view import Model_View
+    view = Model_View(sc)
+    view._clip_rect = crop
+    view.resize(640, 480)
+    view.show()
+    qapp.processEvents()
+    view.resetTransform()
+    view.fitInView(QRectF(-1500, -2000, 6000, 4000),
+                   Qt.AspectRatioMode.KeepAspectRatio)
+    qapp.processEvents()
+    return view
+
+
+def _glyph_region_digest(view, rect, qapp):
+    view.viewport().repaint()
+    qapp.processEvents()
+    img = view.viewport().grab().toImage()
+    dpr = img.devicePixelRatio()
+    r = rect.toAlignedRect().adjusted(-3, -3, 3, 3)
+    return _digest(img.copy(int(r.x() * dpr), int(r.y() * dpr),
+                            int(r.width() * dpr), int(r.height() * dpr)))
+
+
+@pytest.fixture
+def detail_wall(mw, plan, qapp):
+    sc, _view = plan
+    w = _wall(sc, (0, 0), (3000, 0))
+    sc.clearSelection()
+    w.setSelected(True)
+    qapp.processEvents()
+    mw._be_constrain_buttons["Horizontal"].click()   # the real selection-first path
+    qapp.processEvents()
+    (c,) = sc.constraint_ctl.constraints_on(w)
+    sc.clearSelection()
+    sc.constraint_ctl.show_all = True            # glyphs visible without a selection
+    qapp.processEvents()
+    views = []
+    yield sc, w, c, views
+    sc.constraint_ctl.show_all = False
+    for v in views:
+        v.close()
+        v.deleteLater()
+    sc.constraint_ctl.clear_selected()
+    qapp.processEvents()
+
+
+def _glyph_vp(view, sc, c):
+    from firepro3d import constraint_paint as cp
+    (rect,) = [r for cid, r in cp.glyph_layouts(view, sc.constraint_ctl) if cid == c.id]
+    return rect
+
+
+def test_vc9_m1_detail_view_paints_the_glyph_inside_the_crop(detail_wall, qapp):
+    sc, w, c, views = detail_wall
+    crop = QRectF(-500.0, -1500.0, 4000.0, 3000.0)       # covers the wall + glyph
+    dv = _detail_view(sc, crop, qapp)
+    views.append(dv)
+    rect = _glyph_vp(dv, sc, c)
+    assert dv.viewport().rect().contains(rect.toAlignedRect())
+    assert crop.contains(dv.mapToScene(rect.center().toPoint())), "glyph not in the crop"
+    with_c = _glyph_region_digest(dv, rect, qapp)
+    saved = sc.constraint_ctl.constraints[:]
+    sc.constraint_ctl.constraints = []
+    qapp.processEvents()
+    without_c = _glyph_region_digest(dv, rect, qapp)
+    sc.constraint_ctl.constraints = saved
+    qapp.processEvents()
+    assert with_c != without_c, "detail view painted no constraint glyph in the crop"
+
+
+def test_vc9_m1_detail_view_does_not_paint_the_glyph_outside_the_crop(detail_wall, qapp):
+    sc, w, c, views = detail_wall
+    crop = QRectF(2000.0, 600.0, 1000.0, 800.0)          # excludes the glyph
+    dv = _detail_view(sc, crop, qapp)
+    views.append(dv)
+    rect = _glyph_vp(dv, sc, c)
+    assert not crop.contains(dv.mapToScene(rect.center().toPoint()))
+    with_c = _glyph_region_digest(dv, rect, qapp)
+    saved = sc.constraint_ctl.constraints[:]
+    sc.constraint_ctl.constraints = []
+    qapp.processEvents()
+    without_c = _glyph_region_digest(dv, rect, qapp)
+    sc.constraint_ctl.constraints = saved
+    qapp.processEvents()
+    assert with_c == without_c, "the constraint layer painted over the clip mask"
+
+
+def test_vc9_m1_detail_view_picks_the_glyph_inside_the_crop_only(detail_wall, qapp):
+    sc, w, c, views = detail_wall
+    ctl = sc.constraint_ctl
+    sc.set_mode("select")
+    inside = _detail_view(sc, QRectF(-500.0, -1500.0, 4000.0, 3000.0), qapp)
+    views.append(inside)
+    pt = _glyph_vp(inside, sc, c).center()
+    _send(inside, QEvent.Type.MouseMove, pt, Qt.MouseButton.NoButton,
+          Qt.MouseButton.NoButton)
+    assert ctl.hover_id == c.id, "glyph hover is blind in a detail view"
+    _click(inside, pt)
+    assert ctl.selected_id == c.id, "glyph click did not select in a detail view"
+    ctl.clear_selected()
+    ctl.hover_id = None
+    outside = _detail_view(sc, QRectF(2000.0, 600.0, 1000.0, 800.0), qapp)
+    views.append(outside)
+    pt2 = _glyph_vp(outside, sc, c).center()
+    _send(outside, QEvent.Type.MouseMove, pt2, Qt.MouseButton.NoButton,
+          Qt.MouseButton.NoButton)
+    assert ctl.hover_id is None
+    _click(outside, pt2)
+    assert ctl.selected_id is None, "a click outside the crop picked a glyph"
+
+
+# -- VC9 M2: a hidden level's wall is never a pick candidate but still moves ---
+
+def test_vc9_m2_hidden_level_wall_is_not_pickable_but_still_moves(mw, plan, qapp):
+    sc, view = plan
+    ctl = sc.constraint_ctl
+    hidden = _wall(sc, (0, 0), (3000, 0))         # drawn first: wins a distance tie
+    vis = _wall(sc, (0, 0), (3000, 0))
+    mw.level_mgr.add_level("Level 2", elevation=20000.0)
+    try:
+        _vc9_m2_body(mw, sc, view, ctl, hidden, vis, qapp)
+    finally:
+        mw.level_mgr.remove_level("Level 2")
+        mw._apply_plan_level("Level 1")
+
+
+def _vc9_m2_body(mw, sc, view, ctl, hidden, vis, qapp):
+    hidden._base_level = hidden._top_level = hidden.level = "Level 2"
+    mw._apply_plan_level("Level 1")               # the real level pass
+    qapp.processEvents()
+    assert not hidden.isVisible() and vis.isVisible(), "level pass did not hide Level 2"
+    assert ctl.add("coincident", [{"uid": hidden._uid, "h": "p2"},
+                                  {"uid": vis._uid, "h": "p2"}]) is not None
+    ctl.begin_pick("coincident")
+    pick = ctl.pick
+    refs = [ref for _k, ref, _a, _b in pick._candidates()]
+    assert all(r.get("uid") != hidden._uid for r in refs if "uid" in r), \
+        "hidden wall handles are pick candidates"
+    assert any(r.get("uid") == vis._uid for r in refs if "uid" in r)
+    got = pick.hover_at(view, QPointF(view.mapFromScene(QPointF(0, 0))))
+    assert got is not None and got["uid"] == vis._uid
+    ctl.cancel_pick() if hasattr(ctl, "cancel_pick") else None
+    sc.set_mode("select")
+    ctl.pick = None
+    # "still moves with its component": drag the visible wall's p2 grip.
+    sc.clearSelection()
+    vis.setSelected(True)
+    qapp.processEvents()
+    end = QPointF(vis._pt2)
+    _drag(view, end, QPointF(end.x() + 500, end.y() + 300))
+    assert (vis._pt2 - end).manhattanLength() > 100.0, "the grip did not move"
+    assert (hidden._pt2 - vis._pt2).manhattanLength() < 1e-3, \
+        "the hidden wall did not follow its coincident partner"
