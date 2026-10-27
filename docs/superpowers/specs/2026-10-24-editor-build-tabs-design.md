@@ -1,7 +1,7 @@
 ---
-status: partial -- slices 1-2 built (c23c1610, db16090a); slice 3 open   # three feature slices (see Build slices)
-last-verified: 2026-10-27   # slice 2 Account; prior 2026-10-26
-verified-commit: db16090a   # slice 2 Account; prior c23c1610
+status: current -- slices 1-3 built (c23c1610, db16090a, f44a4c2b)   # three feature slices (see Build slices)
+last-verified: 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
+verified-commit: f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
 applies-to:
   - main.py (init_ribbon, _init_build_tab / _init_editor_tab, canvas context, retired contextual-tab mechanism)
   - firepro3d/ribbon_bar.py
@@ -26,8 +26,8 @@ consolidates:   # Rule A -- each of these gets a one-line pointer at Account; fu
 
 # Editor + Build Tabs and Plan-View Constraints -- Design Spec
 
-> **Status: partial.** Slice 1 (the ribbon, section 1) is built and verified at `c23c1610`
-> (2026-10-26); slice 2 (plan constraints) is built at `db16090a` (2026-10-27); slice 3 (Wall Auto Constrain, G14 selection jump) is unbuilt. This is the
+> **Status: current.** Slice 1 (the ribbon, section 1) is built and verified at `c23c1610`
+> (2026-10-26); slice 2 (plan constraints) is built at `db16090a` (2026-10-27); slice 3 (Wall Auto Constrain, proximity-follow skip, G14 selection jump, R-V1 hidden-ref filter) is built at `f44a4c2b` (2026-10-27). Selection **does** switch the ribbon tab -- G14 reverses G6 (a non-empty selection on a canvas where Editor is live jumps to Editor; see the Ratified decisions). This is the
 > consolidating contract the governing specs above link to; it records the ratified decisions
 > of the 2026-10-24 grill (G1-G13), the Phase 3 deltas (B1-B6), the approved ribbon mockup
 > and the slice-1 rulings (S1, R1, R2).
@@ -53,7 +53,7 @@ perpendicular, this room a rectangle that stays a rectangle when I drag a corner
 Block Editor already has a full parametric sketch solver; plan walls have only
 proximity joins. Splitting the ribbon by *intent* (Build vs Editor) instead of by
 *canvas* (a Block Editor tab) lets the same Editor tools serve both the block canvas and
-the plan canvas, and removing contextual tabs ends the per-selection tab churn (G4, G6).
+the plan canvas, and removing contextual tabs ends the per-selection tab churn (G4; G6 was later reversed by G14).
 
 ## Ratified decisions (index)
 
@@ -68,11 +68,11 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | G7 | Accept the panel gap: contextual tabs retire before panel parity; panel rows filed P2 | Phase 2 ask |
 | G8 | Plan refs: walls + datums; floors/roofs/rooms/pipes are follow-ups (levels narrowed by B1) | Phase 2 ask |
 | G9 | Legacy projects load unconstrained (no inference) | Phase 2 ask |
-| G10 | Unconstrained ends keep proximity follow | Phase 2 ask |
-| G11 | Wall auto-constrain mirrors the Block Editor (joins -> Coincident / point-on-edge, H/V by exactness, rect -> Perpendicular + Coincident), under the global toggle | Phase 2 ask |
+| G10 | Unconstrained ends keep proximity follow. Built in slice 3 (T4): `_propagate_wall_endpoint` skips ends coincident-tied to the dragged wall by an enabled, non-red constraint -- the solver owns them. The skip is a **contract**: the end result is identical to solver + hold-last-good without it. Untied touching ends still follow by proximity | Phase 2 ask |
+| G11 | Wall auto-constrain mirrors the Block Editor (joins -> Coincident / point-on-edge, H/V by exactness, rect -> Perpendicular + Coincident), under the global toggle. Built in slice 3 (AC6; see §3 and PD1-PD4) | Phase 2 ask |
 | G12 | Plan glyphs / driving dims: on selection or while a Constrain/Inspect tool is active; never on sheets/PDF/print | Phase 2 ask |
 | G13 | Paper / 3D: Build + Editor groups disabled with a tooltip, Build's Block group live | Phase 2 ask |
-| G14 | Selection jumps the ribbon to Editor (reverses G6): any non-empty selection on a canvas where Editor is live (plan, detail, block, schematic) switches to Editor; clearing it restores the prior tab only if Editor is still current (B3 pattern); paper / 3D / section never jump. Built in slice 3 | slice-2 smoke ask (2026-10-27) |
+| G14 | Selection jumps the ribbon to Editor (reverses G6): any non-empty selection on a canvas where Editor is live (plan, detail, block, schematic) switches to Editor; clearing it restores the prior tab only if Editor is still current (B3 pattern); paper / 3D / section never jump. **ANY** selection jumps -- undo restore, paste, Ctrl+A, model browser, context menu; Delete clears, so it restores (user ruling 2026-10-27). **Built (slice 3).** Exceptions and edges: R-G14a, I1, F2 | slice-2 smoke ask (2026-10-27) |
 | B1 | Plan constraints reference walls + **gridlines only** -- levels are not drawn in plan; level refs are a follow-up for an elevation/section Editor | Phase 3 ask |
 | B2 | Editor Edit group live in plan; Move/Rotate act on walls (constraint-aware); Flip/Mirror/Scale/Offset refuse walls as today -> wall-hook follow-up (Array is **not** in that set -- see R2) | Phase 3 ask; Array corrected by R2 |
 | B3 | Entering a block/schematic canvas jumps the ribbon to **Build**; leaving restores the prior tab only if Build is still current | Phase 3 ask |
@@ -86,6 +86,17 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 
 | W1 | Plan constraints reference any edge of the wall seen from plan: faces face_l / face_r, centerline, ends end1 / end2; points p1 p2 mid p1l p1r p2l p2r (untrimmed quad) | slice-2 Phase 4 ask (2026-10-26) |
 | L1 | A locked gridline acts as fixed: never moves; a solve that would move it is a conflict (hold-last-good) | slice-2 Phase 4 ask (2026-10-26) |
+| PD1 | Placement records use the wall's **drawn-line** handles, not the true centerline: Center -> `p1` `p2` `edge`; Left -> `p1r` `p2r` `face_r`; Right -> `p1l` `p2l` `face_l` (`auto_constrain.wall_drawn_handles`). Adding a record never moves a Left / Right wall; no new handles (W1 unchanged) | slice-3 Phase 3 plan |
+| PD2 | Gate = toggle XOR Shift (D139), Shift read from the press event (line / polyline) or the keyboard modifiers captured at the click (rect). A **typed (HUD) completion follows the toggle alone** (modifiers `None`): the wall auto-join snap is geometric (happens whatever the gate) and the record only names it. Plan only -- never in a Block Editor scene | slice-3 Phase 3 plan; Fix round M4 |
+| PD3 | Tee join -> `point_on_curve [new drawn end, host drawn edge]` (the snap lands on the host's click line) | slice-3 Phase 3 plan |
+| PD4 | Rect commit: the four walls' own endpoint joins give the corner `coincident`s (duplicates drop as redundant in `auto_join`); then 3 `perpendicular` between consecutive drawn edges (a 4th is redundant). A rect adds no `horizontal` / `vertical` | slice-3 Phase 3 plan |
+| PD5 | "Tied end" for the G10 skip: an enabled, non-red `coincident` referencing the dragged wall and the other wall's end (any end handle of that end: `p1` / `p1l` / `p1r` is end 0, `p2` / `p2l` / `p2r` is end 1) | slice-3 Phase 3 plan; Fix round M3 |
+| PD6 | G14 placement marker: `Model_Space._end_placement_switch` (the funnel for every single-placement auto-select) sets `_auto_selected = frozenset(id(item))`; see R-G14a | slice-3 Phase 3 plan |
+| R-V1 | A constraint whose referenced items include a **hidden** one (hidden level) never paints its glyph or dim, never hovers, never picks, and its selection / hover glow is empty. A uid with no live item (ground ref, deleted item) does not hide it. Owned by `parametric-constraint-system.md` D32 | slice-3 Phase 1b ruling (2026-10-27) |
+| R-G14a | A placement's own auto-select never jumps the ribbon (`_auto_selected` marker; cleared by `set_mode` to any mode other than select / none, and by the next selection change). A selection change while the scene mode is not select (mid-chain polyline) never jumps | slice-3 Phase 1b ruling (2026-10-27) |
+| S3-S1 | Hidden walls (hidden level) are **not placement join targets at all** -- no snap, no record (`_auto_join_wall` skips `not isVisible()` in both passes). This changes pre-existing snap behaviour, intended. Grip-drag propagation and the drag snap-candidate list still scan hidden walls (noted, not ruled) | slice-3 VC9 seam review ruling (2026-10-27) |
+| I1 | A canvas switch drops the selection-jump memory. Leaving for paper / 3D / section, or leaving a block / schematic canvas, first restores the pre-jump tab (block: Build, then B3 returns to the original); plan <-> detail keeps Editor | slice-3 T5 review ruling (2026-10-27) |
+| F2 | ENTERING a block / schematic after a plan selection jump restores the pre-jump tab first, so B3 remembers the original tab and closing the block returns there, not to Editor | slice-3 FIX1 review ruling (2026-10-27) |
 
 ## Architecture & Constraints
 
@@ -142,7 +153,7 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 - **Switch / restore (B3).** Today's `_show_block_editor_ribbon` / `_hide_block_editor_ribbon`
   retarget to the Build page: entering a block/schematic canvas remembers the current tab
   and makes Build current; leaving restores it only if Build is still current.
-- **Contextual tabs retired (G4/G6).** Deleted: `_CONTEXTUAL_TABS`, `_contextual_registry`,
+- **Contextual tabs retired (G4; G6 reversed by G14).** Deleted: `_CONTEXTUAL_TABS`, `_contextual_registry`,
   `_init_contextual_tabs`, `_on_selection_changed_contextual` (and its
   `selectionChanged` connect), `_build_geo2d_context`, `_build_geo2d_graphic_override_group`,
   `_build_opening_context`, `_build_floor_context`, `_build_graphic_override_group`,
@@ -217,19 +228,27 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 
 ### 3. Wall Auto Constrain, proximity follow, glyphs (slices 2-3)
 
-- **Placement records (slice 3, G11).** `_auto_join_wall` produces records and sends them
-  through `ConstraintController.auto_join` inside the placement's own `push_undo_state`:
-  endpoint-to-endpoint join -> `coincident [new end, partner end]`; tee join ->
-  `point_on_curve [new end, host edge]`; line / polyline walls add `horizontal` /
-  `vertical` when the centerline is exactly H/V; a rectangle commit
-  (`_commit_wall_rect_rotated`) adds 4 `coincident` corners + 3 `perpendicular` corners
-  (a 4th would be redundant). Gated by the global Auto Constrain toggle XOR Shift (D139)
-  on the committing press. The geometric snap / join itself is unchanged.
+- **Placement records (slice 3, G11).** `_auto_join_wall` returns records (built by the
+  pure `auto_constrain` helpers `plan_wall_join` / `plan_wall_hv` / `plan_wall_rect`) and
+  `_ac_commit` sends them through `ConstraintController.auto_join` before the placement's
+  own `push_undo_state`: endpoint-to-endpoint join -> `coincident [new end, partner end]`;
+  tee join -> `point_on_curve [new end, host edge]` (handles per PD1: the drawn line);
+  line / polyline walls add `horizontal` / `vertical` when the drawn line is exactly H/V;
+  a rectangle commit (`_commit_wall_rect_rotated`) adds the corner `coincident`s from its
+  own joins + 3 `perpendicular` (PD4). Gate: toggle XOR Shift (D139) on the committing
+  press; a typed (HUD) completion follows the toggle alone (PD2). Plan scene only. Hidden
+  walls are not join targets (S3-S1). The geometric snap / join itself is otherwise unchanged.
 - **Proximity follow coexists (G10, slice 3).** On an endpoint drag the solver moves every
-  end tied to it by `coincident`; `_propagate_wall_endpoint` then skips those ends so
-  nothing moves twice. Touching ends with no Coincident still follow by proximity.
-  Joins stay proximity-resolved at render; coincident ends stay exactly coincident, so
-  miters hold.
+  end tied to it by an enabled, non-red `coincident` (PD5); `_propagate_wall_endpoint` then
+  skips those ends so nothing moves twice. Touching ends with no tie still follow by
+  proximity. Joins stay proximity-resolved at render; coincident ends stay exactly
+  coincident, so miters hold.
+- **Selection jump (slice 3, G14).** `MainWindow._on_selection_jump` (connected to every
+  scene's `selectionChanged`) makes Editor current on a non-empty selection of the active
+  scene when the canvas kind is in `_GROUP_LIVE_KINDS["edit"]` and the scene mode is
+  select / none; it remembers the prior tab in `_pre_editor_tab` and restores it on clear
+  only if Editor is still current. R-G14a placement auto-selects are ignored. `_on_tab_changed`
+  applies I1 / F2 before the Build show / hide so B3 chains on.
 - **Glyphs and dims (G12, slice 2).** `Model_View.drawForeground` paints plan constraints
   under D32 (selected walls' constraints + the selected constraint; Show Constraints =
   all; pick markers while a Constrain / Inspect tool is active). Sheets and PDF render
@@ -269,29 +288,30 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 2. **Plan constraint foundation** (built 2026-10-27, `db16090a`) -- capability + gate audit, wall uid, wall + gridline
    adapters, `.fpd` persistence + undo, plan glyphs + Smart Dim; Constrain / Inspect go
    live in plan. Guards T4, T5, T7, T6 (legacy loads with 0 constraints).
-3. **Wall Auto Constrain** -- placement records + proximity-follow skip. Guards T3, T6
+3. **Wall Auto Constrain** (built 2026-10-27, `f44a4c2b`) -- placement records + proximity-follow skip +
+   G14 selection jump + R-V1 hidden-ref filter. Guards T3, T6
    (proximity follow still moves touching ends), T8.
 
 ## Acceptance Criteria
 
 - [x] AC1 Ribbon roster `Manage|Architecture|Sprinkler Systems|Analyze|Draft|Build|Editor`; the Block Editor tab is gone; Build = Block / Definition / 2D Geometry, Editor = Edit (merged) / Constrain / Inspect; enable state per the canvas-kind table (T1).
-- [x] AC2 No contextual tab is ever inserted; selection never changes the current tab (T2). -- superseded by G14 for slice 3 (T2 is rewritten there)
+- [x] AC2 No contextual tab is ever inserted; a selection only ever switches between existing tabs (to Editor, per G14 -- which reverses G6's "never changes the tab"), and clearing it restores (T2).
 - [x] AC3 Entering a block/schematic canvas makes Build current; leaving restores the prior tab only if Build is still current.
 - [x] AC4 Plan Constrain / Inspect act on wall centerlines + gridlines only; constraints persist in the `.fpd`, round-trip undo/redo, and never plot (T4, T5, T7).
 - [x] AC5 Containment C7/C8 amended as in §4; C1 unchanged. (Rule A pointers landed at the slice 2 Account; full rewrites filed)
-- [ ] AC6 Wall placement auto-constrains per §3 under the toggle; a rect wall resizes as a rect; deleting a constraint frees it (T3, T8).
-- [ ] AC7 Legacy projects load with 0 constraints; unconstrained ends keep proximity follow (T6).
+- [x] AC6 Wall placement auto-constrains per §3 under the toggle; a rect wall resizes as a rect; deleting a constraint frees it (T3, T8).
+- [x] AC7 Legacy projects load with 0 constraints; unconstrained ends keep proximity follow (T6).
 
 ## Verification Checklist (tests -- VC3: real MainWindow / scene, each shown RED with the change reverted)
 
 - [x] T1 roster + per-group enable state for each canvas kind (plan, detail, block, schematic, section, paper, 3d), tooltips included.
-- [x] T2 selecting walls / pipes / 2D geometry inserts no tab and leaves the current tab unchanged.
-- [ ] T3 place a rect wall -> drag a corner grip -> the four walls stay a rectangle (angles measured from endpoints).
+- [x] T2 selecting walls / pipes / 2D geometry inserts no tab; a plan / detail / block / schematic selection makes Editor current and clearing it restores the prior tab (G14); the same selection on paper / 3D / section leaves the tab unchanged; a placement's auto-select does not jump (R-G14a).
+- [x] T3 place a rect wall -> drag a corner grip -> the four walls stay a rectangle (angles measured from endpoints).
 - [x] T4 Smart Dim a wall length -> drag its other end -> length held; Smart Dim an end-to-gridline offset -> move the gridline -> offset held.
 - [x] T5 save / reopen the `.fpd` and undo / redo round-trip plan constraints (record content compared, not count).
-- [ ] T6 a legacy `.fpd` loads with 0 constraints; dragging a joined end still moves touching ends. -- legacy-loads-with-0-constraints half built in slice 2 (test_plan_constraint_persistence.py); proximity-follow half is slice 3
+- [x] T6 a legacy `.fpd` loads with 0 constraints; dragging a joined end still moves touching ends. -- legacy-loads-with-0-constraints half built in slice 2 (test_plan_constraint_persistence.py); proximity-follow half built in slice 3 (untied touching ends follow; tied ends are left to the solver, G10)
 - [x] T7 glyphs present on a selected constrained wall in the plan view; absent from a sheet viewport render and a PDF export (pixel digests, per the pixel-guard convention).
-- [ ] T8 Auto Constrain off -> wall placement adds no constraints.
+- [x] T8 Auto Constrain off -> wall placement adds no constraints.
 - [x] T9 (slice 2, H1) a solve that slides a gridline's origin along its axis leaves a hosted block's scene position unchanged; a solve that shifts the gridline sideways moves the block with it.
 - [x] T10 (slice 2) a pasted wall takes its Display Manager category defaults; a copied constrained gridline pair (and wall pair) keeps its internal constraint on the copies (D30).
 - [x] T11 (slice 2) no origin cross / X-Y ground axes paint in the plan view and none is offered as a pick candidate.
@@ -299,7 +319,7 @@ Each is its own `[type:feature]` `/todo` run, in order (filed at 4f).
 ## Edge Cases & Error Handling
 
 - Over-constrained edit in plan -> the Block Editor's hold-last-good + status ("Over-constrained: the change was not applied").
-- A constrained wall on a hidden level still moves with its component; it cannot be picked.
+- A constrained wall on a hidden level still moves with its component; it cannot be picked, and its constraints' glyphs, dims and glow never paint, hover or pick (R-V1). Placement never joins to it (S3-S1).
 - Deleting a gridline cascade-deletes its constraints (one undo step).
 - Copying a constrained wall set into another project keeps only internal constraints (D30).
 - An opening on a solver-moved wall re-anchors via `invalidate_geometry()`.
