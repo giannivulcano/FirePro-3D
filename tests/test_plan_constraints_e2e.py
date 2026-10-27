@@ -112,6 +112,16 @@ def _digest(img) -> str:
     return hashlib.sha256(bytes(ptr)).hexdigest()
 
 
+def _settle(mw, qapp):
+    """Run the debounced sceneModified refresh now (main.py
+    ``_on_scene_modified`` -> 200 ms -> ``_refresh_all_views``), which
+    re-applies the level pass and sets the wall's ``_is_section_cut``.  A
+    digest taken before it fires is compared against one taken after it, and
+    the wall's section fill -- not a glyph -- makes them differ."""
+    mw._refresh_all_views()
+    qapp.processEvents()
+
+
 def _canvas(view, qapp):
     view.viewport().repaint()
     qapp.processEvents()
@@ -164,7 +174,8 @@ def test_t7_glyphs_paint_in_plan_and_never_plot(mw, plan, qapp, tmp_path, paper_
     w = _wall(sc, (0, 0), (3000, 0))
     sc.clearSelection()
     w.setSelected(True)
-    qapp.processEvents()
+    _settle(mw, qapp)
+    assert w._is_section_cut, "plan wall not section-cut after the level pass"
     canvas_off = _canvas(view, qapp)
     paper_off, pdf_off = _sheet_digests(mw, tmp_path / "off.pdf", paper_export, fitz)
     w.setVisible(False)
@@ -176,7 +187,8 @@ def test_t7_glyphs_paint_in_plan_and_never_plot(mw, plan, qapp, tmp_path, paper_
     assert c is not None
     sc.clearSelection()
     w.setSelected(True)                                 # D32: selected -> glyph
-    qapp.processEvents()
+    _settle(mw, qapp)
+    assert w._is_section_cut
     assert _canvas(view, qapp) != canvas_off, "no glyph painted in the plan view"
     paper_on, pdf_on = _sheet_digests(mw, tmp_path / "on.pdf", paper_export, fitz)
     assert paper_on == paper_off, "a constraint glyph plots on the sheet"
