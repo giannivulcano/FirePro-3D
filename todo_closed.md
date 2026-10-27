@@ -2,6 +2,14 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Wall Auto Constrain + G14 selection jump -- Editor/Build slice 3 -- 2026-10-27
+
+- [x] [type:feature] Editor/Build slice 3: wall placement Auto Constrain + proximity follow skips solver-tied ends [P1] [subject:CAD] [done:2026-10-27]
+  - Details: filed 2026-10-24 from the Editor/Build design (§3, Build slices 3; G10/G11). Depends on slice 2. `_auto_join_wall` records endpoint join -> `coincident`, tee join -> `point_on_curve` (host edge), line/polyline exact H/V, rect commit (`_commit_wall_rect_rotated`) -> 4 coincident + 3 perpendicular, via `ConstraintController.auto_join` inside the placement's undo push; gated by the Auto Constrain toggle XOR Shift (D139). `_propagate_wall_endpoint` skips ends the solver ties by Coincident; untied touching ends keep proximity follow. Delivers the wall-polish ratified "rect walls resize as a rect" requirement. Guards T3, T6 (proximity follow), T8. Coupled: `test_wall_placement_slice_parity.py`, `test_manip_griphandle_wall_parity.py`. `wall_placement_controller.py`, `auto_constrain.py`. ref: wall-room-floor-system.md §4.5/§5.4.
+  - Scope add (user ruling 2026-10-27, slice 2 smoke): **G14 reverses G6** -- any non-empty selection on a canvas where Editor is live (plan, detail, block, schematic) jumps the ribbon to Editor; clearing the selection restores the prior tab only if Editor is still current (B3's pattern); paper / 3D / section never jump. Rewrites guard T2 (`tests/test_build_editor_tabs.py`) and design AC2; `main.py` selection-changed path next to `_refresh_modify_buttons`. Also makes the Auto Constrain toggle meaningful in plan (slice 2 T6 review m3: the button is live in plan with no plan effect until this slice).
+- [x] [type:bug] Hidden-level wall constraint glyphs stay hover / pick-able in plan (glyph path has no visibility gate) [P3] [subject:CAD] [done:2026-10-27]
+  - Details: slice 2 VC9 fix review minor (2026-10-27). `250a5dfe` gated `PickState._candidates` and the marker walk on `isVisible()`; the glyph hover / select path (`Model_View._glyph_ctl` -> controller glyph hit test) still offers glyphs of walls on a hidden level. Guard: hide a level, hover its wall's glyph, assert no hover. `model_view.py`, `constraint_controller.py`.
+
 ## Plan constraints -- Editor/Build slice 2 (walls + gridlines as plan constraint refs) -- 2026-10-27
 
 - [x] [type:feature] Editor/Build slice 2: plan-view constraints on wall centerlines + gridlines (capability, adapters, wall uid, .fpd persistence) [P1] [subject:CAD] [done:2026-10-27]
