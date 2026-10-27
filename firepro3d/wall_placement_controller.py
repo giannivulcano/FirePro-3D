@@ -198,8 +198,8 @@ class WallPlacementController:
 
         # Pass 1: endpoint-to-endpoint (miter / corner join)
         for other in self._scene._walls:
-            if other is wall:
-                continue
+            if other is wall or not other.isVisible():
+                continue                # S1: a hidden wall is not a join target
             for my_idx in (0, 1):
                 if my_idx in snapped:
                     continue
@@ -220,8 +220,8 @@ class WallPlacementController:
         # WallSegment._tee_cope_corners).  The old face snap made the
         # picked point visibly "jump" off the centerline.
         for other in self._scene._walls:
-            if other is wall:
-                continue
+            if other is wall or not other.isVisible():
+                continue                # S1: a hidden wall is no tee target
             for my_idx in (0, 1):
                 if my_idx in snapped:
                     continue
@@ -293,10 +293,10 @@ class WallPlacementController:
         ctl = getattr(self._scene, "constraint_ctl", None)
         mu = getattr(moved, "_uid", None)
         out = set()
-        if ctl is None or mu is None:
+        if ctl is None or mu is None or not ctl.enabled:
             return out
         for c in ctl.constraints:
-            if c.type != "coincident" or not c.enabled:
+            if c.type != "coincident" or not c.enabled or c.id in ctl.red:
                 continue
             refs = [r for r in c.refs if isinstance(r, dict)]
             if mu not in {r.get("uid") for r in refs}:
@@ -528,7 +528,8 @@ class WallPlacementController:
                 snapped = s._constrain_angle(s._wall_rect_anchor, snapped)
             self._advance_wall_rect_to_depth_step(snapped)
         else:
-            self._commit_wall_rect_depth_at(snapped)
+            self._commit_wall_rect_depth_at(snapped,
+                                            QApplication.keyboardModifiers())
 
     def _advance_wall_rect_to_depth_step(self, side_pt) -> bool:
         """Fix the first side and enter the depth step.
@@ -558,10 +559,12 @@ class WallPlacementController:
         s.instructionChanged.emit("Pick depth (second side)")
         return True
 
-    def _commit_wall_rect_depth_at(self, cursor) -> bool:
+    def _commit_wall_rect_depth_at(self, cursor, modifiers=None) -> bool:
         """Fix the depth from *cursor* and commit the 4 walls.
 
         Shared by the mouse third click and the ``rect_depth*`` HUD applier.
+        *modifiers* are the click's keyboard modifiers for Auto Constrain; None
+        (the typed path) = the toggle alone (PD2).
 
         Returns:
             True when committed, False when refused (unarmed, or a FULL extent
@@ -579,9 +582,9 @@ class WallPlacementController:
             return False
         pt1, pt2, ang, piv = sol
         s._wall_rect_sized_pt1, s._wall_rect_sized_pt2, s._wall_rect_pivot = pt1, pt2, piv
-        return self._commit_wall_rect_rotated(ang)
+        return self._commit_wall_rect_rotated(ang, modifiers)
 
-    def _commit_wall_rect_rotated(self, angle_deg) -> bool:
+    def _commit_wall_rect_rotated(self, angle_deg, modifiers=None) -> bool:
         """Commit the sized wall rectangle rotated to ``angle_deg`` about its pivot.
 
         Uses ``rotated_rect_corners`` to compute the 4 scene-space corners, then
@@ -592,6 +595,8 @@ class WallPlacementController:
         Args:
             angle_deg: Y-up CCW degrees from +x (the same convention as the
                 2D-geo rect ``set_angle``).
+            modifiers: Click keyboard modifiers for Auto Constrain; None = a
+                typed completion (the toggle alone).
 
         Returns:
             True when 4 walls were committed; False when sizing state is missing.
@@ -629,8 +634,7 @@ class WallPlacementController:
         for wall in walls_created:
             recs += self._auto_join_wall(wall)
             wall.setSelected(True)
-        self._ac_commit(recs + ac.plan_wall_rect(walls_created),
-                        QApplication.keyboardModifiers())
+        self._ac_commit(recs + ac.plan_wall_rect(walls_created), modifiers)
         for v in self._scene.views():
             v.viewport().update()
         # Clean up preview + ref guides

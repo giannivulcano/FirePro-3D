@@ -196,6 +196,10 @@ def test_placement_auto_select_does_not_jump(mw, qapp):
     try:
         assert len(placed) == 1 and placed[0].isSelected(), "placement did not auto-select"
         assert tb.currentIndex() == 1, "the placement's auto-select jumped the ribbon"
+        assert sc._auto_selected == frozenset({id(placed[0])}), "marker not held in select"
+        sc.set_mode("wall")                                  # M8: a tool mode ends the marker
+        assert sc._auto_selected is None, "stale _auto_selected survived a tool mode"
+        sc.set_mode("select")
         sc.clearSelection()
         placed[0].setSelected(True)                          # now a user selection
         qapp.processEvents()
@@ -234,7 +238,107 @@ def test_selection_on_a_paper_canvas_never_jumps(mw, qapp):
         items[0].setSelected(True)                           # plan scene, paper current
         qapp.processEvents()
         assert tb.currentIndex() == 2
+        # M6 moved-companion: the same selection made on the plan canvas jumps.
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+        mw.scene.clearSelection()
+        items[0].setSelected(True)
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index, "plan selection did not jump"
     finally:
+        _remove(mw, *items)
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+
+
+@pytest.mark.parametrize("kind", ["paper", "3d", "section"])
+def test_selection_on_a_non_edit_canvas_never_jumps(mw, qapp, kind):
+    """M7: the kind gate holds on every canvas where Editor is not live."""
+    undo = _open_canvas(mw, qapp, kind)
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)
+    items = _plan_wall(mw)
+    try:
+        assert mw._canvas_kind == kind
+        items[0].setSelected(True)                           # plan scene, other canvas current
+        qapp.processEvents()
+        assert tb.currentIndex() == 2, f"selection jumped on a {kind} canvas"
+        undo()
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+        mw.scene.clearSelection()
+        items[0].setSelected(True)                           # moved-companion: plan jumps
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index
+    finally:
+        _remove(mw, *items)
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+
+
+# ── I1: leaving a canvas restores the pre-jump tab ───────────────────────────
+
+@pytest.mark.parametrize("leave", ["close", "switch"])
+def test_leaving_a_block_after_a_selection_jump_restores_the_original_tab(mw, qapp, leave):
+    from firepro3d.geometry_2d import LineItem
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)                                    # Sprinkler Systems
+    qapp.processEvents()
+    ed = mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    assert tb.currentIndex() == mw._build_page_index
+    ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+    ed.editor_scene.addItem(ln)
+    ed.editor_scene._draw_lines.append(ln)
+    ln.setSelected(True)
+    qapp.processEvents()
+    assert tb.currentIndex() == mw._editor_page_index, "selection did not jump"
+    if leave == "close":
+        mw.block_editor_manager.close(ed)
+    else:
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    qapp.processEvents()
+    assert tb.currentIndex() == 2, "left the block stuck on Editor"
+
+
+@pytest.mark.parametrize("kind", ["paper", "3d", "section"])
+def test_plan_selection_then_leaving_for_a_non_edit_canvas_restores_the_tab(mw, qapp, kind):
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)
+    items = _plan_wall(mw)
+    undo = lambda: None
+    try:
+        items[0].setSelected(True)
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index, "selection did not jump"
+        undo = _open_canvas(mw, qapp, kind)
+        assert mw._canvas_kind == kind
+        assert tb.currentIndex() == 2, f"leaving for {kind} kept Editor"
+    finally:
+        undo()
+        _remove(mw, *items)
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+
+
+def test_plan_selection_then_a_detail_tab_keeps_editor(mw, qapp):
+    from PyQt6.QtCore import QRectF
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)
+    items = _plan_wall(mw)
+    try:
+        items[0].setSelected(True)
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index
+        mw.detail_manager.create_detail("I1 Detail", QRectF(0, 0, 1000, 1000), "Level 1")
+        mw.detail_manager.open_detail("I1 Detail")
+        qapp.processEvents()
+        assert mw._canvas_kind == "detail"
+        assert tb.currentIndex() == mw._editor_page_index, "plan -> detail dropped Editor"
+    finally:
+        mw.detail_manager.close_detail("I1 Detail")
         _remove(mw, *items)
         mw.central_tabs.setCurrentIndex(_plan_index(mw))
         qapp.processEvents()

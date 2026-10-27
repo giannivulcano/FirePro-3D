@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, QSettings
+from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath
 from PyQt6.QtWidgets import (QGraphicsRectItem, QGraphicsEllipseItem,
                              QGraphicsLineItem, QGraphicsPathItem,
@@ -32,8 +32,7 @@ from .geometry_2d import (CircleItem, PolylineItem, RectangleItem,
                                     rect_side_ghost, rect_signed_depth,
                                     rect_from_side_and_depth, apply_rect_ghost)
 from . import auto_constrain as ac
-from .constants import (SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX,
-                        AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT)
+from .constants import (SELECTION_OUTLINE_COLOR, CLOSE_HIT_PX, CLOSE_RING_PX)
 from .colour_tokens import resolve_colour
 from .stroke_style import apply_current
 

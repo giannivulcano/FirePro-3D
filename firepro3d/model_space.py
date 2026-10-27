@@ -1290,6 +1290,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Any mode change ends a constraint pick session (D21); entering a
         # pick mode starts a fresh one below, after the initial instruction.
         self.constraint_ctl.cancel_pick()
+        if mode not in (None, "select"):
+            self._auto_selected = None       # M8: a tool mode ends the stale marker
         # RG6: every mode change ends the placement's reference state --
         # commit (_end_placement_switch), Esc, tool switch, scene reset
         # (set_mode(None)) all pass here; refused switches return above.

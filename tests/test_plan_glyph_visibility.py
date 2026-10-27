@@ -2,7 +2,7 @@
 item it references is visible (hidden level -> hidden glyph)."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPoint, QPointF
 
 from firepro3d import constraint_paint as cp
 from tests.test_build_editor_tabs import _editors, _plan_index, mw  # noqa: F401
@@ -82,9 +82,33 @@ def test_dim_on_hidden_wall_not_drawn_or_picked(mw, plan, qapp):
         ctl.show_all = True
         qapp.processEvents()
         assert d.id in cp.visible_dim_ids(ctl, set())          # shows while visible
+        c0 = view.mapFromScene(QPointF(1500, 0))
+        hits = [QPoint(c0.x() + dx, c0.y() + dy)               # where the dim really picks
+                for dx in range(-120, 121, 4) for dy in range(-90, 91, 3)
+                if cp.dim_at(view, ctl, QPoint(c0.x() + dx, c0.y() + dy)) == d.id]
+        assert hits, "positive control: the visible dim picks nowhere"
         _hide_level2(mw, qapp, hid)
         assert d.id not in cp.visible_dim_ids(ctl, set())
-        mid = view.mapFromScene(QPointF(1500, 0))
-        assert cp.dim_at(view, ctl, mid) != d.id
+        assert [h for h in hits if cp.dim_at(view, ctl, h) == d.id] == [], \
+            "hidden dim still picks at its drawn points"
     finally:
+        _cleanup(mw, ctl)
+
+
+def test_selected_constraint_glow_empty_when_item_hidden(mw, plan, qapp):
+    sc, view = plan
+    ctl = sc.constraint_ctl
+    hid = _wall(sc, (0, 0), (3000, 0))
+    try:
+        c = ctl.add("horizontal", [{"uid": hid._uid, "h": "edge"}])
+        ctl.selected_id = c.id                                 # selected while visible
+        ctl.show_all = True
+        qapp.processEvents()
+        assert not cp._glow_path(view, ctl, cp._glow_ids(ctl)).isEmpty(), \
+            "positive control: no glow while visible"
+        _hide_level2(mw, qapp, hid)
+        assert cp._glow_path(view, ctl, cp._glow_ids(ctl)).isEmpty(), \
+            "selected constraint glows on a hidden item"
+    finally:
+        ctl.selected_id = None
         _cleanup(mw, ctl)

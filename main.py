@@ -1137,7 +1137,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         Also applies the canvas-kind ribbon context (``_set_canvas_context``).
         """
-        self._pre_editor_tab = None   # G14: a canvas switch drops the selection-jump memory
+        # G14 / I1: a canvas switch drops the selection-jump memory, but first
+        # restores the pre-jump tab when leaving for a non-edit canvas (paper /
+        # 3D / section) or leaving a block / schematic canvas.  Plan <-> detail
+        # keeps Editor.  Done before the Build show / hide so B3 chains on.
+        pre_jump, self._pre_editor_tab = self._pre_editor_tab, None
+        if pre_jump is not None:
+            _w = self.central_tabs.widget(index)
+            _new = self._canvas_kind_for(_w, self.central_tabs.tabText(index))
+            _old = getattr(self, "_canvas_kind", "plan")
+            _tb = self.ribbon._tab_bar
+            if ((_new not in self._GROUP_LIVE_KINDS["edit"]
+                    or _old in self._EDITOR_KINDS)
+                    and _tb.currentIndex() == self._editor_page_index):
+                _tb.setCurrentIndex(pre_jump)
         self._commit_text_edits()
         # A section's armed block placement ends when its tab is left.
         prev = getattr(self, "_last_tab_widget", None)
@@ -4701,11 +4714,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._modify_icon("constraint_auto_constrain_icon.svg"),
             self._be_toggle_auto_constrain, checkable=True)
         # AC1 AD1: mirrors QSettings AUTO_CONSTRAIN_KEY (default ON); not a mode.
-        # A fresh QSettings, like the reader (GeometryDrawingController._auto_infer).
-        from firepro3d.constants import AUTO_CONSTRAIN_DEFAULT, AUTO_CONSTRAIN_KEY
+        from firepro3d import auto_constrain
         b_ac.blockSignals(True)
-        b_ac.setChecked(QSettings("GV", "FirePro3D").value(
-            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool))
+        b_ac.setChecked(auto_constrain.toggle_on())
         b_ac.blockSignals(False)
         gi = page.add_group("Inspect")
         b_show = gi.add_small_button(
@@ -4958,10 +4969,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             st.blockSignals(False)
         ac_b = btns.get("Auto Constrain")
         if ac_b is not None and not sip.isdeleted(ac_b):
-            from firepro3d.constants import AUTO_CONSTRAIN_DEFAULT, AUTO_CONSTRAIN_KEY
+            from firepro3d import auto_constrain
             ac_b.blockSignals(True)
-            ac_b.setChecked(QSettings("GV", "FirePro3D").value(
-                AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool))
+            ac_b.setChecked(auto_constrain.toggle_on())
             ac_b.blockSignals(False)
 
     def _gate(self, b, tip, group):

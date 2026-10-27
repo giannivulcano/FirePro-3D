@@ -311,3 +311,283 @@ def test_t6_proximity_never_moves_a_coincident_tied_end(mw, plan, qapp, toggle):
         assert (b._pt1 - new).manhattanLength() < 1e-6, "untied end did not follow"
     finally:
         _cleanup_walls(sc, walls)
+
+
+# ── Slice 3 fix round ───────────────────────────────────────────────────────
+
+from tests.test_plan_constraints_e2e import _wall  # noqa: E402
+from tests.test_plan_glyph_visibility import _cleanup as _drop_level2  # noqa: E402
+from tests.test_plan_glyph_visibility import _hide_level2  # noqa: E402
+
+
+def _place_line(sc, view, a, b, shift=False):
+    """One line wall through the real press path with cursor snap / ALIGN off
+    (so the join logic alone decides where the end lands)."""
+    n0 = len(sc._walls)
+    snap0, align0 = sc._snap_enabled, sc._align_enabled
+    sc._snap_enabled = sc._align_enabled = False
+    try:
+        sc.set_mode("wall")
+        _press(view, a, shift)
+        _press(view, b, shift)
+        sc.set_mode("select")
+    finally:
+        sc._snap_enabled, sc._align_enabled = snap0, align0
+    return sc._walls[n0:]
+
+
+@pytest.mark.parametrize("kind,start,click,joined", [
+    ("miter", (2000, 1500), (2010, 8), (2000, 0)),
+    ("tee", (1000, 1500), (1000, 12), None),          # None: onto the y=0 centerline
+])
+@pytest.mark.parametrize("hidden", [False, True])
+@pytest.mark.parametrize("toggle_v", [True, False])
+def test_s1_hidden_walls_are_not_join_targets(mw, plan, qapp, toggle, toggle_v,
+                                              hidden, kind, start, click, joined):
+    sc, view = plan
+    toggle(toggle_v)
+    host = _wall(sc, (0, 0), (2000, 0))
+    new = []
+    try:
+        if hidden:
+            _hide_level2(mw, qapp, host)
+            assert not host.isVisible()
+        else:
+            assert host.isVisible()
+        # The press lands on a whole viewport pixel: use that exact scene point.
+        exact = view.mapToScene(view.mapFromScene(QPointF(*click)))
+        gap = (abs(exact.y()) if joined is None
+               else math.hypot(exact.x() - joined[0], exact.y() - joined[1]))
+        assert 3.0 < gap < 19.0, gap                 # inside the join radius, off the target
+        new = _place_line(sc, view, QPointF(*start), exact)
+        assert len(new) == 1
+        end = new[0]._pt2
+        refs = [c for c in sc.constraint_ctl.constraints
+                if host._uid in _refs_uids(c) and new[0]._uid in _refs_uids(c)]
+        if hidden:
+            # the press rounds to whole mm, hence the 1.5 mm slack
+            assert (end - exact).manhattanLength() < 1.5, \
+                "a hidden wall pulled the end (snap)"
+            assert not refs, "a record references the hidden wall"
+        else:                                        # positive control: it joins
+            want = QPointF(exact.x(), 0.0) if joined is None else QPointF(*joined)
+            assert (end - want).manhattanLength() < 1.5, "visible wall did not snap"
+            assert abs(end.y() - want.y()) < 1e-6, "end is off the host line"
+            assert bool(refs) == toggle_v, refs
+    finally:
+        _cleanup_walls(sc, new + [host])
+        if hidden:
+            _drop_level2(mw, sc.constraint_ctl)
+
+
+# ── M3: the proximity skip honours a disabled controller / a red tie ─────────
+
+@pytest.mark.parametrize("mode", ["disabled", "red"])
+def test_m3_disabled_or_red_tie_does_not_skip(mw, plan, qapp, toggle, mode):
+    sc, view = plan
+    toggle(True)
+    walls = []
+    ctl = sc.constraint_ctl
+    try:
+        walls = _place_L(sc, view, sc._get_wall_template()._alignment)
+        a, b = walls
+        tie = [c for c in ctl.constraints if c.type == "coincident"
+               and _refs_uids(c) == {a._uid, b._uid}]
+        assert len(tie) == 1 and tie[0].enabled
+        old = QPointF(a._pt2)
+        new = QPointF(old.x() + 300, old.y() - 200)
+        b1 = QPointF(b._pt1)
+        sc._propagate_wall_endpoint(a, old, new)          # control: a live tie is skipped
+        assert (b._pt1 - b1).manhattanLength() < 1e-6, "proximity moved a live tied end"
+        try:
+            if mode == "disabled":
+                ctl.enabled = False
+            else:
+                ctl.red.add(tie[0].id)
+            sc._propagate_wall_endpoint(a, old, new)
+            assert (b._pt1 - new).manhattanLength() < 1e-6, \
+                f"a {mode} constraint still held the end back"
+        finally:
+            ctl.enabled = True
+            ctl.red.discard(tie[0].id)
+    finally:
+        _cleanup_walls(sc, walls)
+
+
+# ── M4: a typed rectangle completion is the toggle alone, never live Shift ───
+
+def _rect_to_depth_step(sc, view):
+    """Arm the corner-rect wall variant and fix the first side by two clicks."""
+    sc.set_mode("wall")
+    sc.cycle_placement_variant(+1)
+    sc.cycle_placement_variant(+1)
+    assert sc._wall_primitive == "rect"
+    _press(view, QPointF(0, 0))
+    _press(view, QPointF(2000, 0))
+    assert sc._wall_rect_side_pt is not None, "side step not fixed"
+
+
+def _reset_wall_variant(sc, prim0):
+    sc.set_mode("select")
+    sc.set_mode("wall")
+    for _ in range(6):                                   # the variant persists across tests
+        if sc._wall_primitive == prim0:
+            break
+        sc.cycle_placement_variant(+1)
+    sc.set_mode("select")
+
+
+@pytest.mark.parametrize("path", ["typed", "click"])
+def test_m4_rect_completion_modifier_source(mw, plan, qapp, toggle, monkeypatch, path):
+    """Typed: the toggle alone (live Shift ignored) -> records. Click: toggle XOR
+    the live Shift (the companion that proves Shift is read at all)."""
+    sc, view = plan
+    toggle(True)
+    sc.set_mode("wall")
+    prim0 = sc._wall_primitive
+    sc.set_mode("select")
+    monkeypatch.setattr(QApplication, "keyboardModifiers",
+                        staticmethod(lambda: Qt.KeyboardModifier.ShiftModifier))
+    n0 = len(sc._walls)
+    walls = []
+    try:
+        _rect_to_depth_step(sc, view)
+        if path == "typed":
+            assert sc._apply_wall_dynamic_input(QPointF(1000, 1500)) is True
+        else:
+            _press(view, QPointF(1000, 1500))
+        walls = sc._walls[n0:]
+        assert len(walls) == 4, "the rectangle was not committed"
+        uids = {w._uid for w in walls}
+        types = [c.type for c in sc.constraint_ctl.constraints if _refs_uids(c) & uids]
+        if path == "typed":
+            assert types.count("perpendicular") == 3 and types.count("coincident") == 4, types
+        else:
+            assert types == [], f"Shift-held click still recorded: {types}"
+    finally:
+        monkeypatch.undo()
+        _reset_wall_variant(sc, prim0)
+        _cleanup_walls(sc, walls)
+
+
+# ── M5: test gaps ────────────────────────────────────────────────────────────
+
+def _handle_of(w, which):
+    """Literal drawn handle name of end *which* (1/2) for the wall alignment."""
+    suffix = {ALIGN_LEFT: "r", ALIGN_RIGHT: "l"}.get(w._alignment, "")   # else centre
+    return f"p{which}{suffix}"
+
+
+def _edge_of(w):
+    return {ALIGN_LEFT: "face_r", ALIGN_RIGHT: "face_l"}.get(w._alignment, "edge")
+
+
+def _mine(sc, *walls):
+    uids = {w._uid for w in walls}
+    return [(c.type, [dict(r) for r in c.refs]) for c in sc.constraint_ctl.constraints
+            if _refs_uids(c) & uids]
+
+
+def test_m5_polyline_chain_and_loop_close_join_each_segment(mw, plan, qapp, toggle):
+    sc, view = plan
+    toggle(True)
+    sc.set_mode("wall")
+    prim0 = sc._wall_primitive
+    sc.cycle_placement_variant(+1)
+    assert sc._wall_primitive == "polyline"
+    n0 = len(sc._walls)
+    walls = []
+    try:
+        # A triangle: three clicks open a 2-wall chain, the 4th (on the start) closes it.
+        for p in (QPointF(0, 0), QPointF(2000, 0), QPointF(2000, 1500)):
+            _press(view, p)
+        a, b = sc._walls[n0:n0 + 2]
+        want_chain = ("coincident", [{"uid": b._uid, "h": _handle_of(b, 1)},
+                                     {"uid": a._uid, "h": _handle_of(a, 2)}])
+        assert want_chain in _mine(sc, a, b), _mine(sc, a, b)
+        _press(view, QPointF(0, 0))                       # back on the chain start: closes
+        walls = sc._walls[n0:]
+        assert len(walls) == 3
+        c = walls[2]
+        got = _mine(sc, c)
+        assert ("coincident", [{"uid": c._uid, "h": _handle_of(c, 1)},
+                               {"uid": b._uid, "h": _handle_of(b, 2)}]) in got, got
+        assert ("coincident", [{"uid": c._uid, "h": _handle_of(c, 2)},
+                               {"uid": a._uid, "h": _handle_of(a, 1)}]) in got, got
+    finally:
+        sc.set_mode("select")
+        _reset_wall_variant(sc, prim0)
+        _cleanup_walls(sc, sc._walls[n0:])
+
+
+@pytest.mark.parametrize("toggle_v", [True, False])
+def test_m5_typed_line_completion_follows_the_toggle(mw, plan, qapp, toggle, toggle_v):
+    sc, view = plan
+    toggle(toggle_v)
+    n0 = len(sc._walls)
+    walls = []
+    try:
+        sc.set_mode("wall")
+        assert sc._wall_primitive == "line"
+        _press(view, QPointF(0, 0))                       # anchor by click
+        assert sc._apply_wall_dynamic_input(QPointF(2000, 0)) is True   # typed end
+        walls = sc._walls[n0:]
+        assert len(walls) == 1
+        got = _mine(sc, walls[0])
+        want = ("horizontal", [{"uid": walls[0]._uid, "h": _edge_of(walls[0])}])
+        assert (want in got) == toggle_v, got
+    finally:
+        sc.set_mode("select")
+        _cleanup_walls(sc, walls)
+
+
+def test_m5_tee_join_records_point_on_curve_through_the_press_path(mw, plan, qapp, toggle):
+    sc, view = plan
+    toggle(True)
+    host = _wall(sc, (0, 0), (4000, 0))
+    host._uid = "m5host"
+    new = []
+    try:
+        new = _place_line(sc, view, QPointF(2000, 1500), QPointF(2000, 10))
+        assert len(new) == 1
+        w = new[0]
+        assert abs(w._pt2.y()) < 1e-6, "end did not tee onto the host centerline"
+        edge = _edge_of(host)
+        want = ("point_on_curve", [{"uid": w._uid, "h": _handle_of(w, 2)},
+                                  {"uid": host._uid, "h": edge}])
+        assert want in _mine(sc, w, host), _mine(sc, w, host)
+    finally:
+        _cleanup_walls(sc, new + [host])
+
+
+def test_m5_block_editor_wall_placement_adds_no_records(mw, plan, qapp, toggle):
+    """Walls CAN be placed in a Block Editor (probe: set_mode wall is accepted);
+    the plan scene records the join, the Block Editor scene must not."""
+    from PyQt6.QtCore import QRectF
+    sc, view = plan
+    toggle(True)
+    plan_walls = []
+    try:
+        plan_walls = _place_L(sc, view, sc._get_wall_template()._alignment)
+        assert _mine(sc, *plan_walls), "positive control: plan placement recorded nothing"
+    finally:
+        _cleanup_walls(sc, plan_walls)
+    ed = mw.block_editor_manager.open_new()
+    qapp.processEvents()
+    esc, eview = ed.editor_scene, ed.view
+    eview.resetTransform()
+    eview.fitInView(QRectF(-1500, -2000, 6000, 4000), Qt.AspectRatioMode.KeepAspectRatio)
+    qapp.processEvents()
+    n_c = len(esc.constraint_ctl.constraints)
+    n_w = len(esc._walls)
+    try:
+        for a, b in ((QPointF(0, 0), QPointF(2000, 0)), (QPointF(2000, 0), QPointF(2000, 1500))):
+            esc.set_mode("wall")
+            _press(eview, a)
+            _press(eview, b)
+        esc.set_mode("select")
+        assert len(esc._walls) == n_w + 2, "walls were not placed in the Block Editor"
+        assert len(esc.constraint_ctl.constraints) == n_c, "Block Editor wall placement recorded"
+    finally:
+        mw.block_editor_manager.close(ed)
+        qapp.processEvents()

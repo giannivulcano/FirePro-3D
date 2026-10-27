@@ -236,7 +236,7 @@ def _refs_visible(c, by) -> bool:
     return True
 
 
-def visible_constraints(ctl, sel_uids) -> list:
+def visible_constraints(ctl, sel_uids, by=None) -> list:
     """D32: the constraints whose glyphs show.
 
     None during a pick session; every one under the Show Constraints
@@ -247,7 +247,7 @@ def visible_constraints(ctl, sel_uids) -> list:
     if not ctl.enabled or getattr(ctl, "pick", None) is not None:
         return []
     from .constraint_dims import is_dim          # a dim is its label, never a box (D51)
-    by = ctl.item_by_uid()
+    by = by if by is not None else ctl.item_by_uid()
     if ctl.show_all:
         return [c for c in ctl.constraints
                 if not is_dim(c) and _refs_visible(c, by)]
@@ -263,7 +263,7 @@ def dim_tool_live(ctl) -> bool:
     return p is not None and getattr(p, "ctype", None) == "dim_distance"
 
 
-def visible_dim_ids(ctl, sel_uids) -> set:
+def visible_dim_ids(ctl, sel_uids, by=None) -> set:
     """D82: ids of the dims drawn (and picked) in select mode -- one whose
     referenced item (by uid; ground refs are no item) or the dim itself is
     selected; every dim under Show Constraints (D32's override) or while the
@@ -271,7 +271,7 @@ def visible_dim_ids(ctl, sel_uids) -> set:
     show (R-V1)."""
     from .constraint_controller import _safe_ref_uids
     from .constraint_dims import is_dim
-    by = ctl.item_by_uid()
+    by = by if by is not None else ctl.item_by_uid()
     dims = [c for c in ctl.constraints if is_dim(c) and _refs_visible(c, by)]
     if ctl.show_all or dim_tool_live(ctl):
         return {c.id for c in dims}
@@ -334,14 +334,14 @@ def _compute_layouts(view, ctl) -> _Frame:
     held = _held_fn(ctl)
     if not ctl.constraints:
         return _Frame(None, held, [])
-    cons = visible_constraints(ctl, _selected_uids(ctl))
+    by = ctl.item_by_uid()                     # S4: built once, shared below
+    cons = visible_constraints(ctl, _selected_uids(ctl), by)
     has_dims = any(is_dim(c) for c in ctl.constraints)
     if not cons and not has_dims:
         return _Frame(None, held, [])
-    by = ctl.item_by_uid()
     dims = []
     if has_dims:                               # D82: dims follow the selection
-        ids = visible_dim_ids(ctl, _selected_uids(ctl))
+        ids = visible_dim_ids(ctl, _selected_uids(ctl), by)
         dims = dim_entries(view, ctl, by, held, only=ids) if ids else []
     return _Frame(by, held, _layout(view, cons, by, held) if cons else [], dims)
 
@@ -456,6 +456,8 @@ def _glow_path(view, ctl, ids, fr=None) -> QPainterPath:
         if c is None:
             continue
         by = by if by is not None else ctl.item_by_uid()
+        if not _refs_visible(c, by):           # R-V1: no glow on a hidden item
+            continue
         path.addPath(_refs_path(view, c.refs, by, vp, o, held))
     return path
 
