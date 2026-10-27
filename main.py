@@ -1140,15 +1140,19 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # G14 / I1: a canvas switch drops the selection-jump memory, but first
         # restores the pre-jump tab when leaving for a non-edit canvas (paper /
         # 3D / section) or leaving a block / schematic canvas.  Plan <-> detail
-        # keeps Editor.  Done before the Build show / hide so B3 chains on.
-        pre_jump, self._pre_editor_tab = self._pre_editor_tab, None
+        # keeps Editor.  Entering a block / schematic restores too, so B3
+        # remembers the original tab.  Done before the Build show / hide so B3
+        # chains on.
+        pre_jump = getattr(self, "_pre_editor_tab", None)
+        self._pre_editor_tab = None
         if pre_jump is not None:
             _w = self.central_tabs.widget(index)
             _new = self._canvas_kind_for(_w, self.central_tabs.tabText(index))
             _old = getattr(self, "_canvas_kind", "plan")
             _tb = self.ribbon._tab_bar
             if ((_new not in self._GROUP_LIVE_KINDS["edit"]
-                    or _old in self._EDITOR_KINDS)
+                    or _old in self._EDITOR_KINDS
+                    or _new in self._EDITOR_KINDS)
                     and _tb.currentIndex() == self._editor_page_index):
                 _tb.setCurrentIndex(pre_jump)
         self._commit_text_edits()

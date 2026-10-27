@@ -344,6 +344,32 @@ def test_plan_selection_then_a_detail_tab_keeps_editor(mw, qapp):
         qapp.processEvents()
 
 
+def test_plan_selection_then_entering_a_block_returns_to_the_original_tab(mw, qapp):
+    """F2: entering a block after a plan jump hands B3 the original tab."""
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)                                    # Sprinkler Systems
+    items = _plan_wall(mw)
+    ed = None
+    try:
+        items[0].setSelected(True)
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index, "selection did not jump"
+        ed = mw.block_editor_manager.open_new()
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._build_page_index     # B3 entry
+        mw.block_editor_manager.close(ed)
+        ed = None
+        qapp.processEvents()
+        assert tb.currentIndex() == 2, "closing the block returned to Editor"
+    finally:
+        if ed is not None:
+            mw.block_editor_manager.close(ed)
+        _remove(mw, *items)
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+
+
 # ── T1a: roster + groups (AC1, G3/B5) ────────────────────────────────────────
 
 ROSTER = ["Manage", "Architecture", "Sprinkler Systems", "Analyze", "Draft",
