@@ -1137,6 +1137,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         Also applies the canvas-kind ribbon context (``_set_canvas_context``).
         """
+        self._pre_editor_tab = None   # G14: a canvas switch drops the selection-jump memory
         self._commit_text_edits()
         # A section's armed block placement ends when its tab is left.
         prev = getattr(self, "_last_tab_widget", None)
@@ -3140,6 +3141,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         seen.add(scene)
         scene.selectionChanged.connect(self._refresh_modify_buttons)
+        scene.selectionChanged.connect(self._on_selection_jump)
         # Constrain/Inspect enable state (D12): selection changes run through
         # _refresh_modify_buttons above; a constraint added/deleted (undo
         # push) or a glyph (de)selected refreshes it directly.
@@ -4512,6 +4514,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._build_page_index = self.ribbon._stack.indexOf(page)
         # Restored on leaving a block/schematic canvas (None = stay, B3).
         self._pre_build_tab = None
+        self._pre_editor_tab = None   # G14: tab before a selection jump
         # (button, real tooltip, _GROUP_LIVE_KINDS key) of every gated button.
         self._canvas_gated: list = []
 
@@ -5011,6 +5014,39 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._pre_build_tab = None if pre == self._build_page_index else pre
         self.ribbon._tab_bar.setCurrentIndex(self._build_page_index)
         self._set_canvas_context(kind)
+
+    def _on_selection_jump(self) -> None:
+        """G14 / R-G14a: a user selection on a canvas where Editor is live
+        makes Editor current; clearing it restores the remembered tab only
+        if Editor is still current (B3 pattern). A placement's auto-select
+        (``Model_Space._auto_selected``) and a selection change mid-placement
+        never jump; paper / 3D / section never jump."""
+        sc = self.sender()
+        if sc is None or sc is not self._active_scene():
+            return
+        if getattr(self, "_canvas_kind", "plan") not in self._GROUP_LIVE_KINDS["edit"]:
+            return
+        if getattr(sc, "mode", None) not in ("select", None):
+            return
+        try:
+            sel = sc.selectedItems()
+        except RuntimeError:                       # a dying scene
+            return
+        auto = getattr(sc, "_auto_selected", None)
+        sc._auto_selected = None
+        tb = self.ribbon._tab_bar
+        if sel:
+            if auto is not None and frozenset(map(id, sel)) == auto:
+                sc._auto_selected = auto           # still the placement's own pick
+                return
+            cur = tb.currentIndex()
+            if cur != self._editor_page_index:
+                self._pre_editor_tab = cur
+                tb.setCurrentIndex(self._editor_page_index)
+            return
+        pre, self._pre_editor_tab = self._pre_editor_tab, None
+        if pre is not None and tb.currentIndex() == self._editor_page_index:
+            tb.setCurrentIndex(pre)
 
     def _hide_build_ribbon(self, kind: str) -> None:
         """A non-editor canvas became current: apply its kind; when leaving a

@@ -6242,6 +6242,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return
         self.set_mode("select")          # select mode preserves selection (see set_mode)
         items = item if isinstance(item, (list, tuple, set)) else [item]
+        # R-G14a: the placement's own auto-select never jumps the ribbon.
+        self._auto_selected = frozenset(id(i) for i in items if i is not None)
         self.select_items(items)         # one selectionChanged -> manipulator rebake
 
     def mousePressEvent(self, event):

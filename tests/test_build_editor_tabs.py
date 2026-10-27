@@ -129,11 +129,12 @@ def _plan_pipe(w):
 # ── T2: selection never inserts or switches a ribbon tab (AC2, G4/G6) ────────
 
 @pytest.mark.parametrize("make", ["wall", "pipe"])
-def test_plan_selection_inserts_no_tab_and_keeps_the_current_tab(mw, qapp, monkeypatch, make):
+def test_plan_user_selection_jumps_to_editor_and_clear_restores(mw, qapp, monkeypatch, make):
     inserted = []
     real_insert = mw.ribbon.insert_page
     monkeypatch.setattr(mw.ribbon, "insert_page",
                         lambda *a, **k: inserted.append(a) or real_insert(*a, **k))
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
     tb = mw.ribbon._tab_bar
     tb.setCurrentIndex(2)                                   # Sprinkler Systems
     qapp.processEvents()
@@ -142,33 +143,101 @@ def test_plan_selection_inserts_no_tab_and_keeps_the_current_tab(mw, qapp, monke
     try:
         items[0].setSelected(True)
         qapp.processEvents()
-        assert inserted == []
-        assert _titles(mw) == before
-        assert tb.currentIndex() == 2
-        mw.scene.clearSelection()                            # deselect: still no move
+        assert inserted == [] and _titles(mw) == before
+        assert tb.currentIndex() == mw._editor_page_index, "selection did not jump to Editor"
+        mw.scene.clearSelection()
         qapp.processEvents()
-        assert _titles(mw) == before and tb.currentIndex() == 2
+        assert tb.currentIndex() == 2, "clearing did not restore the prior tab"
     finally:
         _remove(mw, *items)
         qapp.processEvents()
 
 
-def test_block_editor_selection_inserts_no_tab(mw, qapp, monkeypatch):
+def test_clear_keeps_a_tab_the_user_moved_to(mw, qapp):
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)
+    items = _plan_wall(mw)
+    try:
+        items[0].setSelected(True)
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index
+        tb.setCurrentIndex(1)                                # user moves on
+        mw.scene.clearSelection()
+        qapp.processEvents()
+        assert tb.currentIndex() == 1
+    finally:
+        _remove(mw, *items)
+        qapp.processEvents()
+
+
+def test_placement_auto_select_does_not_jump(mw, qapp):
+    from PyQt6.QtCore import QEvent, QRectF
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtWidgets import QApplication
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(1)                                    # Architecture
+    view, sc = mw.view, mw.scene
+    view.resetTransform()
+    view.fitInView(QRectF(-1500, -2000, 6000, 4000), Qt.AspectRatioMode.KeepAspectRatio)
+    qapp.processEvents()
+    n0 = len(sc._walls)
+    sc.set_mode("wall")
+    vp = view.viewport()
+    for pt in (QPointF(0, 3000), QPointF(2000, 3000)):
+        p = view.mapFromScene(pt)
+        for et in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+            QApplication.sendEvent(vp, QMouseEvent(et, QPointF(p), QPointF(vp.mapToGlobal(p)),
+                                   Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                                   Qt.KeyboardModifier.NoModifier))
+    qapp.processEvents()
+    placed = list(sc._walls[n0:])
+    try:
+        assert len(placed) == 1 and placed[0].isSelected(), "placement did not auto-select"
+        assert tb.currentIndex() == 1, "the placement's auto-select jumped the ribbon"
+        sc.clearSelection()
+        placed[0].setSelected(True)                          # now a user selection
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index
+    finally:
+        sc.set_mode("select")
+        _remove(mw, *placed)
+        qapp.processEvents()
+
+
+def test_block_editor_selection_jumps_to_editor_and_clear_returns_to_build(mw, qapp):
     from firepro3d.geometry_2d import LineItem
-    inserted = []
-    real_insert = mw.ribbon.insert_page
-    monkeypatch.setattr(mw.ribbon, "insert_page",
-                        lambda *a, **k: inserted.append(a) or real_insert(*a, **k))
     ed = mw.block_editor_manager.open_new()
     qapp.processEvents()
     tb = mw.ribbon._tab_bar
-    cur, before = tb.currentIndex(), _titles(mw)
+    assert tb.currentIndex() == mw._build_page_index         # B3 entry
     ln = LineItem(QPointF(0, 0), QPointF(100, 0))
     ed.editor_scene.addItem(ln)
     ed.editor_scene._draw_lines.append(ln)
     ln.setSelected(True)
     qapp.processEvents()
-    assert inserted == [] and _titles(mw) == before and tb.currentIndex() == cur
+    assert tb.currentIndex() == mw._editor_page_index
+    ed.editor_scene.clearSelection()
+    qapp.processEvents()
+    assert tb.currentIndex() == mw._build_page_index
+
+
+def test_selection_on_a_paper_canvas_never_jumps(mw, qapp):
+    mw._activate_paper_sheet()
+    qapp.processEvents()
+    assert mw._canvas_kind == "paper"
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)
+    items = _plan_wall(mw)
+    try:
+        items[0].setSelected(True)                           # plan scene, paper current
+        qapp.processEvents()
+        assert tb.currentIndex() == 2
+    finally:
+        _remove(mw, *items)
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
 
 
 # ── T1a: roster + groups (AC1, G3/B5) ────────────────────────────────────────
