@@ -220,8 +220,7 @@ class GeometryDrawingController:
         ctl = getattr(self._scene, "constraint_ctl", None)
         if ctl is None or not ctl.block_editor:
             return False
-        return QSettings("GV", "FirePro3D").value(
-            AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+        return ac.toggle_on()
 
     def _auto_infer(self, event) -> bool:
         """AD2: infer on this press = toggle XOR Shift; never on a synthetic

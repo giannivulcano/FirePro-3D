@@ -226,3 +226,67 @@ def rect_drawn_edge(it, base, side_pt, *, from_center: bool) -> str | None:
         if from_center or seg_dist(base, a, b) <= AUTO_CONSTRAIN_MATCH_TOL_MM:
             return ref["h"]
     return None
+
+
+# -- Slice 3 (G11): wall placement records, plan only --------------------------
+
+def toggle_on() -> bool:
+    """AD1: the global Auto Constrain toggle (QSettings)."""
+    from PyQt6.QtCore import QSettings
+    from .constants import AUTO_CONSTRAIN_DEFAULT, AUTO_CONSTRAIN_KEY
+    return QSettings("GV", "FirePro3D").value(
+        AUTO_CONSTRAIN_KEY, AUTO_CONSTRAIN_DEFAULT, type=bool)
+
+
+def infer_on(shift: bool) -> bool:
+    """D139: infer on this press = toggle XOR Shift."""
+    return toggle_on() != bool(shift)
+
+
+def wall_drawn_handles(wall) -> tuple:
+    """PD1: ``(end1, end2, edge)`` handle names on the wall's CLICK line
+    (``_pt1`` / ``_pt2``): Center -> centerline, Left -> right face,
+    Right -> left face (``_WallAdapter._offsets``)."""
+    from .wall import ALIGN_LEFT, ALIGN_RIGHT
+    a = getattr(wall, "_alignment", None)
+    if a == ALIGN_LEFT:
+        return ("p1r", "p2r", "face_r")
+    if a == ALIGN_RIGHT:
+        return ("p1l", "p2l", "face_l")
+    return ("p1", "p2", "edge")
+
+
+def plan_wall_join(wall, idx: int, other, other_idx: int | None = None) -> list:
+    """G11: end *idx* of new *wall* joined to *other* -- its end *other_idx*
+    (miter, ``coincident``) or, with None, its click line (tee,
+    ``point_on_curve``); ``[]`` without uids. Reuses :func:`plan_joins`."""
+    wu, ou = getattr(wall, "_uid", None), getattr(other, "_uid", None)
+    if wu is None or ou is None:
+        return []
+    oh = wall_drawn_handles(other)
+    if other_idx is None:
+        tgt = Target("edge", {"uid": ou, "h": oh[2]}, (0.0, 0.0))
+    else:
+        tgt = Target("point", {"uid": ou, "h": oh[other_idx]}, (0.0, 0.0))
+    return plan_joins(wu, wall_drawn_handles(wall)[idx], None, tgt)
+
+
+def plan_wall_hv(wall) -> list:
+    """G11: ``horizontal`` / ``vertical`` on the click line when exact."""
+    uid = getattr(wall, "_uid", None)
+    if uid is None:
+        return []
+    a, b = wall._pt1, wall._pt2
+    return plan_hv((a.x(), a.y()), (b.x(), b.y()),
+                   [{"uid": uid, "h": wall_drawn_handles(wall)[2]}])
+
+
+def plan_wall_rect(walls) -> list:
+    """PD4: ``perpendicular`` between consecutive rectangle sides (3; a 4th
+    is redundant)."""
+    out = []
+    for a, b in zip(walls, walls[1:]):
+        if getattr(a, "_uid", None) and getattr(b, "_uid", None):
+            out.append(("perpendicular", [{"uid": a._uid, "h": wall_drawn_handles(a)[2]},
+                                          {"uid": b._uid, "h": wall_drawn_handles(b)[2]}]))
+    return out
