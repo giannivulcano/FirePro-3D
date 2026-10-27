@@ -111,7 +111,7 @@ def test_t4_selection_first_horizontal_and_smart_dim_on_a_wall(mw, plan, qapp):
         "wall end grip is off the viewport -- the drag would miss it"
     _drag(view, end, QPointF(end.x() + 900, end.y() + 600))
     assert (w._pt2 - end).manhattanLength() > 100.0, "the end grip did not move"
-    assert _len(w) == pytest.approx(L, abs=1e-6)      # length held
+    assert _len(w) == pytest.approx(L, abs=1e-3)      # length held (Newton solve: 1e-3 mm)
     assert w._pt1.y() == pytest.approx(w._pt2.y(), abs=1e-6)   # still level
 
 
@@ -131,7 +131,7 @@ def test_t4_end_to_gridline_offset_holds_when_the_gridline_moves(mw, plan, qapp)
     # Body drag of the gridline 400 mm right (a point on the line, off its grips).
     _drag(view, QPointF(-1000, 700), QPointF(-600, 700))
     assert gl._origin.x() > -900.0        # the gridline moved right (snap may round it)
-    assert w._pt1.x() - gl._origin.x() == pytest.approx(1000.0, abs=1e-6)   # offset held
+    assert w._pt1.x() - gl._origin.x() == pytest.approx(1000.0, abs=1e-3)   # offset held (Newton solve)
 
 
 def _digest(img) -> str:

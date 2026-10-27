@@ -110,6 +110,7 @@ def _offset_point(off: int, end: int, s: float) -> PointExpr:
         return e + s * n, dp
     return PointExpr(idx=(off, off + 1, off + 2, off + 3), fn=fn)
 
+
 # §5.3 grip index -> handle name, keyed by to_dict() type (file-format).
 # Polyline (i -> v<i>), polygon (0 -> center, i -> v<i-1>, D33) and text /
 # block instance (move grip -> ins) are computed by their adapters'
@@ -374,7 +375,7 @@ class _GridlineAdapter(_LineAdapter):
         return super().collapses(it, old, new) or ln < 1.0 - DEGEN_EPS
 
     def write(self, it, v):
-        if it._locked:
+        if self.locked(it):
             return
         ox, oy, fx, fy = (float(a) for a in v)
         new = QPointF(ox, oy)

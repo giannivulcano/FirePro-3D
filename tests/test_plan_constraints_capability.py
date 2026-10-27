@@ -135,6 +135,12 @@ def test_changed_link_follows_the_constraint_list(qapp):
         # re-linking works after an unlink
         ctl.constraints = [Constraint.new("horizontal", [{"uid": "x", "h": "edge"}])]
         assert _changed_receivers(plan) == 1
+        # an in-place empty (no setter call) unlinks on the next changed
+        # emission -- the _on_scene_changed tail, not _sync_scene_link
+        del ctl.constraints[:]
+        assert _changed_receivers(plan) == 1
+        plan.changed.emit([])
+        assert _changed_receivers(plan) == 0
     finally:
         plan.cleanup()
         be.cleanup()

@@ -1036,7 +1036,13 @@ class ConstraintController:
             if c.type in ("dim_angle", "dim_point_line", "symmetric", "fix", "tangent"):
                 kw["helper"] = c.helper
             BUILDERS[c.type](c.id, self._ends(c, slots), sys_, **kw)
-        for _u, (it, ad, off) in slots.items():     # ruling L1: locked = fixed
+        # Ruling L1: locked = fixed. Appended after the builders so a
+        # contradiction between a lock and a real constraint is attributed to
+        # LOCK_CID (the later fix), which no consumer names: ``conflicts`` is
+        # only tested for emptiness (hold-last-good) and ``redundant`` drops
+        # LOCK_CID (to_records). Move this loop before the builders if a
+        # conflict ever has to name the constraint instead.
+        for _u, (it, ad, off) in slots.items():
             if ad.locked(it):
                 for i, val in enumerate(ad.read(it)):
                     sys_.fixes.append((off + i, float(val), LOCK_CID))

@@ -14,16 +14,14 @@ import numpy as np
 import pytest
 from PyQt6.QtCore import QPointF
 
-from firepro3d.model_space import Model_Space
 from firepro3d.sketch_adapters import adapter_for
 from firepro3d.wall import ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, WallSegment
 
 
 @pytest.fixture
-def plan(qapp):
-    sc = Model_Space()
+def plan(make_model_space):
+    sc = make_model_space()        # conftest cleans the scene up at teardown
     yield sc
-    sc.cleanup()
     gc.collect()      # finalise the scene (and its walls) now, not inside a later test
 
 
