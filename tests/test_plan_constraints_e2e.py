@@ -10,8 +10,9 @@ import math
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 import firepro3d.paper_display as pd
@@ -27,9 +28,16 @@ def plan(mw, qapp):
     mw.central_tabs.setCurrentIndex(_plan_index(mw))
     qapp.processEvents()
     sc, view = mw.scene, mw.view
+    # Fit every point the tests touch into the (~640 x 480 px) viewport:
+    # the gridline at x=-1000 (y +-1500), the wall 0..3000, the dim click at
+    # y=-800 and the end drag to (3900, 1000).  Posted events outside the
+    # viewport still reach the scene, but a grip pick off-screen misses.
     view.resetTransform()
-    view.centerOn(1500, 0)
+    view.fitInView(QRectF(-1500, -2000, 6000, 4000),
+                   Qt.AspectRatioMode.KeepAspectRatio)
     yield sc, view
+    if sc.readouts.is_editing():        # a failed test's open HUD must not
+        sc.readouts.cancel_edit()       # leave the canvas inert for the next
     sc.set_mode("select")
     sc.clearSelection()
     for w in list(sc._walls):
@@ -77,12 +85,32 @@ def test_t4_selection_first_horizontal_and_smart_dim_on_a_wall(mw, plan, qapp):
     _click(view, view.mapFromScene(QPointF(1500, w._pt1.y() - 800)))
     assert sorted(c.type for c in sc.constraint_ctl.constraints_on(w)) == [
         "dim_distance", "horizontal"]
+    # D50: the placement opens the value HUD and the canvas is inert until it
+    # closes (Model_Space.mousePressEvent is_input_mode gate) -- "type a
+    # length" (smoke seed), as tests/test_constraint_dims_e2e.py does.
+    assert sc.readouts.is_editing(), "no value HUD after the placement click"
+    (field,) = sc.readouts.hud.field_names()        # the one dim field
+    ed = sc.readouts.hud.editor(field)
+    ed.selectAll()
+    QTest.keyClicks(ed, "2800")
+    QTest.keyClick(ed, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert not sc.readouts.is_editing()
+    assert _len(w) == pytest.approx(2800.0, abs=1e-6)          # the typed length drives the wall
+    assert w._pt1.y() == pytest.approx(w._pt2.y(), abs=1e-6)   # still level
+    # (Which end moves on a typed length is not ruled for walls -- today the
+    # solve shortens about the midpoint, both ends by 100; smoke row.)
+    L = _len(w)
     sc.set_mode("select")
     sc.clearSelection()
     w.setSelected(True)                              # grips visible
     qapp.processEvents()
+    assert not sc.is_input_mode()
     end = QPointF(w._pt2)
+    assert view.viewport().rect().contains(view.mapFromScene(end)), \
+        "wall end grip is off the viewport -- the drag would miss it"
     _drag(view, end, QPointF(end.x() + 900, end.y() + 600))
+    assert (w._pt2 - end).manhattanLength() > 100.0, "the end grip did not move"
     assert _len(w) == pytest.approx(L, abs=1e-6)      # length held
     assert w._pt1.y() == pytest.approx(w._pt2.y(), abs=1e-6)   # still level
 
