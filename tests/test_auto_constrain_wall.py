@@ -193,12 +193,7 @@ def test_t3_rect_corner_drag_stays_a_rectangle(mw, plan, qapp, toggle):
         w0.setSelected(True)
         qapp.processEvents()
         corner = QPointF(w0._pt2)
-        snap0, align0 = sc._snap_enabled, sc._align_enabled
-        sc._snap_enabled = sc._align_enabled = False     # raw cursor: the stale partner
-        try:                                             # corner would otherwise pull it back
-            _drag(view, corner, QPointF(corner.x() + 400, corner.y() + 300))
-        finally:
-            sc._snap_enabled, sc._align_enabled = snap0, align0
+        _drag_raw(sc, view, corner, QPointF(corner.x() + 400, corner.y() + 300))
         assert (w0._pt2 - corner).manhattanLength() > 100.0, "the grip did not move"
         for i in range(4):                           # closed and right-angled
             a, b = walls[i], walls[(i + 1) % 4]
@@ -234,3 +229,85 @@ def test_placement_and_its_constraints_undo_as_one_step(mw, plan, qapp, toggle):
     qapp.processEvents()
     assert len(sc._walls) == n_w
     assert len(sc.constraint_ctl.constraints) == n_c
+
+
+def _drag_raw(sc, view, a, b):
+    """A real grip drag with cursor snap / ALIGN off: a stale coincident-partner
+    corner would otherwise pull the cursor back onto itself (the grip would not
+    move at all)."""
+    QApplication.processEvents()
+    refresh = getattr(view.window(), "_refresh_all_views", None)
+    if refresh is not None:
+        refresh()                                    # settle the debounced view refresh first
+    QApplication.processEvents()
+    assert not sc.is_input_mode(), "a placement HUD is open: the canvas is inert to the drag"
+    assert view.viewport().rect().contains(view.mapFromScene(a)), "grip is off the viewport"
+    snap0, align0 = sc._snap_enabled, sc._align_enabled
+    sc._snap_enabled = sc._align_enabled = False
+    try:
+        _drag(view, a, b)
+    finally:
+        sc._snap_enabled, sc._align_enabled = snap0, align0
+
+
+def test_t6_untied_touching_end_still_follows(mw, plan, qapp, toggle):
+    sc, view = plan
+    toggle(False)                                    # legacy-style: no records
+    walls = []
+    try:
+        walls = _place_L(sc, view, sc._get_wall_template()._alignment)
+        a, b = walls
+        sc.clearSelection()
+        a.setSelected(True)
+        qapp.processEvents()
+        end = QPointF(a._pt2)
+        _drag_raw(sc, view, end, QPointF(end.x() + 300, end.y() - 200))
+        assert (a._pt2 - end).manhattanLength() > 100.0, "the grip did not move"
+        assert (b._pt1 - a._pt2).manhattanLength() < 1e-3, "untied end did not follow"
+    finally:
+        _cleanup_walls(sc, walls)
+
+
+def test_t6_tied_end_follows_the_solver_in_a_real_drag(mw, plan, qapp, toggle):
+    """Regression guard (passes with and without the G10 skip): a placement-tied
+    end stays one coherent position with the dragged end."""
+    sc, view = plan
+    toggle(True)
+    walls = []
+    try:
+        walls = _place_L(sc, view, sc._get_wall_template()._alignment)
+        a, b = walls
+        sc.clearSelection()
+        a.setSelected(True)
+        qapp.processEvents()
+        end = QPointF(a._pt2)
+        _drag_raw(sc, view, end, QPointF(end.x() + 300, end.y() - 200))
+        assert (a._pt2 - end).manhattanLength() > 100.0, "the grip did not move"
+        assert (b._pt1 - a._pt2).manhattanLength() < 1e-3, "tie broken"
+    finally:
+        _cleanup_walls(sc, walls)
+
+
+def test_t6_proximity_never_moves_a_coincident_tied_end(mw, plan, qapp, toggle):
+    """G10 contract: _propagate_wall_endpoint skips an end held by an enabled
+    coincident (the solver owns it); with the tie gone the same call moves it."""
+    sc, view = plan
+    toggle(True)
+    walls = []
+    try:
+        walls = _place_L(sc, view, sc._get_wall_template()._alignment)
+        a, b = walls
+        ctl = sc.constraint_ctl
+        tie = [c for c in ctl.constraints if c.type == "coincident"
+               and _refs_uids(c) == {a._uid, b._uid}]
+        assert len(tie) == 1 and tie[0].enabled
+        old = QPointF(a._pt2)
+        new = QPointF(old.x() + 300, old.y() - 200)
+        b1 = QPointF(b._pt1)
+        sc._propagate_wall_endpoint(a, old, new)
+        assert (b._pt1 - b1).manhattanLength() < 1e-6, "proximity moved a tied end"
+        tie[0].enabled = False                       # positive control: untied -> follows
+        sc._propagate_wall_endpoint(a, old, new)
+        assert (b._pt1 - new).manhattanLength() < 1e-6, "untied end did not follow"
+    finally:
+        _cleanup_walls(sc, walls)

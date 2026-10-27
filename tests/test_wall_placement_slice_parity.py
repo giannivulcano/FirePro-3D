@@ -143,6 +143,18 @@ def test_wall_polyline_chain_live(shown_model_view):
 def test_wall_endpoint_propagation_live(shown_model_view):
     """Grip-drag propagation: moving a shared corner drags the OTHER wall's endpoint."""
     view, scene = shown_model_view
+    # G10: a coincident-tied end belongs to the solver; this test guards the
+    # untied proximity contract, so Auto Constrain (which would tie the walls) is off.
+    from PyQt6.QtCore import QSettings
+    from firepro3d.constants import AUTO_CONSTRAIN_KEY
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
+    try:
+        _body_propagation_live(view, scene)
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+
+
+def _body_propagation_live(view, scene):
     scene.set_mode("wall")
     scene.cycle_placement_variant(+1)      # line -> polyline
     n0 = len(scene._walls)

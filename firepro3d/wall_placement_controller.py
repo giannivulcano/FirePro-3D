@@ -268,16 +268,46 @@ class WallPlacementController:
             moved: The wall whose grip was directly dragged (excluded from scan).
             old_pt: The grip position before the drag move.
             new_pt: The grip position after the drag move.
+
+        Ends tied to *moved* by a Coincident are skipped -- the solver moves
+        them (G10).
         """
         eps = 0.5   # scene-unit anti-degeneracy tolerance (same family as snap)
+        tied = self._coincident_tied(moved)
         for w in self._scene._walls:
             if w is moved:
                 continue
             for idx in (0, 1):
+                if (getattr(w, "_uid", None), idx) in tied:
+                    continue                        # G10: the solver owns a tied end
                 gp = w.grip_points()[idx]
                 if (abs(gp.x() - old_pt.x()) <= eps
                         and abs(gp.y() - old_pt.y()) <= eps):
                     w.apply_grip(idx, QPointF(new_pt))
+
+    _END_HANDLES = ({"p1", "p1l", "p1r"}, {"p2", "p2l", "p2r"})
+
+    def _coincident_tied(self, moved) -> set:
+        """PD5: ``{(uid, end index)}`` of other walls' ends held to *moved* by
+        an enabled ``coincident`` (any handle at that end)."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        mu = getattr(moved, "_uid", None)
+        out = set()
+        if ctl is None or mu is None:
+            return out
+        for c in ctl.constraints:
+            if c.type != "coincident" or not c.enabled:
+                continue
+            refs = [r for r in c.refs if isinstance(r, dict)]
+            if mu not in {r.get("uid") for r in refs}:
+                continue
+            for r in refs:
+                if r.get("uid") == mu:
+                    continue
+                for idx, names in enumerate(self._END_HANDLES):
+                    if r.get("h") in names:
+                        out.add((r.get("uid"), idx))
+        return out
 
     def _snapshot_wall_endpoints(self, exclude):
         """Snapshot every OTHER wall's two endpoints, for an atomic Esc-restore
