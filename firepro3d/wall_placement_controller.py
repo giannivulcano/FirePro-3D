@@ -27,9 +27,10 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath
 
 from .colour_tokens import preview_colour
-from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsRectItem
+from PyQt6.QtWidgets import QApplication, QGraphicsPathItem, QGraphicsRectItem
 
 from .constants import AUTO_JOIN_TOLERANCE, TEE_TOLERANCE
+from . import auto_constrain as ac
 from . import marks
 from .display_manager import apply_category_defaults
 from .wall import WallSegment, compute_wall_quad
@@ -156,7 +157,8 @@ class WallPlacementController:
             apply_category_defaults(wall)
             marks.mint(self._scene, wall)
             # Auto-join: snap endpoints to nearby walls
-            self._auto_join_wall(wall)
+            recs = self._auto_join_wall(wall) + ac.plan_wall_hv(wall)
+            self._ac_commit(recs, None if event is None else event.modifiers())
             wall.setSelected(True)
             for v in self._scene.views(): v.viewport().update()
             self._scene.preview_pipe.hide()
@@ -184,10 +186,15 @@ class WallPlacementController:
     def _auto_join_wall(self, wall: WallSegment,
                         tolerance: float = AUTO_JOIN_TOLERANCE):
         """Snap wall endpoints to nearby existing wall endpoints (miter join)
-        and to mid-wall faces (tee join)."""
+        and to mid-wall faces (tee join).
+
+        Returns the G11 Auto Constrain records for the joins made (the caller
+        decides whether to add them).
+        """
 
         # Track which endpoints have already been snapped (0=pt1, 1=pt2)
         snapped = set()
+        records = []
 
         # Pass 1: endpoint-to-endpoint (miter / corner join)
         for other in self._scene._walls:
@@ -202,6 +209,7 @@ class WallPlacementController:
                     target = other.pt1 if hit == 0 else other.pt2
                     wall.snap_endpoint_to(my_idx, target)
                     snapped.add(my_idx)
+                    records += ac.plan_wall_join(wall, my_idx, other, hit)
                     # Rebuild connected wall so its miter updates too
                     other.invalidate_geometry()
                     other.update()
@@ -222,6 +230,30 @@ class WallPlacementController:
                 if cl_pt is not None:
                     wall.snap_endpoint_to(my_idx, cl_pt)
                     snapped.add(my_idx)
+                    records += ac.plan_wall_join(wall, my_idx, other)
+        return records
+
+    def _ac_ctl(self):
+        """The plan scene's ConstraintController when plan constraints are
+        live (never in a Block Editor scene), else None."""
+        ctl = getattr(self._scene, "constraint_ctl", None)
+        if ctl is None or not ctl.enabled or ctl.block_editor:
+            return None
+        return ctl
+
+    def _ac_commit(self, records, modifiers) -> None:
+        """G11 / PD2: add *records* through ``auto_join`` when Auto Constrain
+        XOR Shift is on (*modifiers* None = a typed completion: the toggle
+        alone). Runs before the placement's own ``push_undo_state``."""
+        ctl = self._ac_ctl()
+        if ctl is None or not records:
+            return
+        if modifiers is None:
+            on = ac.toggle_on()
+        else:
+            on = ac.infer_on(bool(modifiers & Qt.KeyboardModifier.ShiftModifier))
+        if on:
+            ctl.auto_join(records)
 
     # ── Grip-drag: propagate coincident endpoints ───────────────────────────
 
@@ -563,9 +595,12 @@ class WallPlacementController:
             apply_category_defaults(wall)
             marks.mint(self._scene, wall)
             walls_created.append(wall)
+        recs = []
         for wall in walls_created:
-            self._auto_join_wall(wall)
+            recs += self._auto_join_wall(wall)
             wall.setSelected(True)
+        self._ac_commit(recs + ac.plan_wall_rect(walls_created),
+                        QApplication.keyboardModifiers())
         for v in self._scene.views():
             v.viewport().update()
         # Clean up preview + ref guides
