@@ -255,7 +255,9 @@ def plan_demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
     """Demote from System: check the rules; writes nothing.
 
     Raises:
-        PromoteRefused: As :func:`_plan_workbench`, or another shipped block
+        PromoteRefused: Gate off, not shipped, unreadable (as
+            :func:`_plan_workbench`; another block at the target path is named
+            in ``overwrites``, not refused), or another shipped block
             references the id (demote that one first).
     """
     from .block_registry import referenced_ids
@@ -278,7 +280,8 @@ def plan_demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
 
 def demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
     """:func:`plan_demote`, then write the Workbench copy (when none owns the
-    id) and only then delete the shipped file; an emptied series folder goes
+    id; it replaces any other block at the target path) and only then delete
+    the shipped file; an emptied series folder goes
     too. Not an undo step; the open project keeps its embedded copy."""
     from . import hatch_patterns
     res = plan_demote(block_id, root)
