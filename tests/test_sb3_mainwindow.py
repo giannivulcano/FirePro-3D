@@ -42,14 +42,10 @@ def _undo_state(ms):
     return (len(ms._undo_stack), ms._undo_pos)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BLOCKED on a production bug outside G4's writer table: Model_Space._show_status "
-    "picks views()[0].window(); in the real MainWindow views()[0] is the vestigial "
-    "parentless startup Model_View (main.py:227), whose window() is itself and has no "
-    "statusBar, so every scene notice (incl. the SB3 Q6 one) is dropped. With "
-    "ms._show_status routed to mw.statusBar() this test passes. Remove this marker "
-    "when _show_status is fixed."))
 def test_ac5_load_notice_reaches_the_status_bar(mw, qapp, tmp_path):
+    """The Q6 notice reaches the MainWindow status bar through the real scene
+    (``Model_Space._show_status`` must skip the hidden startup ``Model_View``,
+    whose ``window()`` is itself: SB3 G4 fix, 2026-10-28)."""
     folder = tmp_path / "sys" / "Tags"
     folder.mkdir(parents=True)
     shutil.copy(system_blocks_path("Tags", "RoomTag.fpdb"), folder / "RoomTag.fpdb")

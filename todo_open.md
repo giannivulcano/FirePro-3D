@@ -333,6 +333,7 @@
   - Details: surfaced by the System Blocks concept (Q7) — no valve element exists anywhere (grep 0 hits). Likely an Architectural-style Feature/fitting on the pipe network with a Mark; needs its own design pass. Valve tags then come free via SB6.
 - [ ] [type:bug] `tests/test_system_library_tier.py::test_system_tier_lists_shipped_hatches` fails since Arrow shipped as a System end type [P4] [subject:Architecture]
   - Details: SB3 G3 keep-green, VC7-proved pre-existing 2026-10-28 (fails identically at 23512cb3 and at HEAD). The test pins the System tier listing to the hatch names only; be8135a7 shipped `firepro3d/system_blocks/Endtypes/Arrow.fpdb`, so the listing now opens with `Arrow`. Re-word the guard to the hatch subset (or per-series expectations); `Tags/RoomTag.fpdb` (SB3 Task 11) will join the listing too. `tests/test_system_library_tier.py`.
+  - +1 occurrence 2026-10-28 (SB3 G4 keep-green, VC7-proved at 23512cb3 and HEAD, 5 failed / 6 passed both): `tests/test_system_library_browser.py` `_system_leaf` helper takes the System row's `child(0)` as the Hatches series and raises `StopIteration` now that `Endtypes` sorts first — fails `test_g7_shown_browser_pins_system_with_padlock`, `test_g3_edit_block_on_system_leaf_requests_duplicate`, `test_g3_embedded_system_leaf_still_duplicates`, `test_g2_main_window_duplicate_opens_the_copy`, `test_g2_main_window_cancelled_duplicate_changes_nothing`. Same fix shape: find the series child by name.
 
 ## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
 

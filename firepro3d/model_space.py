@@ -976,12 +976,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # SCENE MANAGEMENT
 
     def _show_status(self, message: str, timeout: int = 5000):
-        """Show a message on the main window's status bar."""
-        views = self.views()
-        if views:
-            window = views[0].window()
-            if window and hasattr(window, 'statusBar'):
+        """Show a message on the main window's status bar.
+
+        The first registered view is the hidden startup ``Model_View`` (its
+        ``window()`` is itself, with no status bar), so the first view whose
+        window has one wins.
+        """
+        for view in self.views():
+            window = view.window()
+            if window is not None and hasattr(window, 'statusBar'):
                 window.statusBar().showMessage(message, timeout)
+                return
 
     def draw_origin(self):
         """Draw a small white cross at the origin — constant screen size, non-selectable."""
