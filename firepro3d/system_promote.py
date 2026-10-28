@@ -1,4 +1,5 @@
-"""Promote to System (block-system.md "System library tier", authoring path
+"""Promote to System, and its inverses Demote from System / Check out to
+Workbench (block-system.md "System library tier", authoring path
 2026-10-27 Q5/Q6, Phase 2 D1): copy a saved Workbench block into the shipped
 tier (``firepro3d/system_blocks/``) under a frozen id, bumping the version.
 
@@ -163,5 +164,130 @@ def promote(block_id: str, root: str | None = None, *,
         for p in (res.shipped_path, res.workbench_path, res.removed_path):
             if p:
                 capability_folder.forget(p)
+        block_library._notify_changed()
+    return res
+
+
+@dataclass(frozen=True)
+class WorkbenchCopy:
+    """What a demote / check out wrote (or, from a ``plan_*``, would write)."""
+    block_id: str
+    shipped_path: str
+    workbench_path: str
+    workbench_written: bool        # False = an existing Workbench copy is kept
+    app_refs: tuple = ()           # app-code names of the id (demote confirm)
+
+
+def _app_refs(block_id: str) -> tuple:
+    """App-code names that still point at *block_id* after a demote (they fall
+    back to none: the renderer draws the tone, D-A36)."""
+    from .hatch_patterns import DEFAULT_TILE_REF, LEGACY_ALIAS
+    out = []
+    if block_id == DEFAULT_TILE_REF:
+        out.append("App default hatch (walls / floors / roofs)")
+    out += [f"Legacy pattern name '{k}'" for k, v in LEGACY_ALIAS.items()
+            if v == block_id]
+    return tuple(out)
+
+
+def _plan_workbench(block_id: str, root: str | None, verb: str) -> WorkbenchCopy:
+    """Shared check: gate, shipped id, the Workbench target (frozen id kept)."""
+    if not block_library.dev_gate():
+        raise PromoteRefused(f"{verb} needs a source checkout of FirePro3D.")
+    shipped = block_library.shipped_index()
+    if block_id not in shipped:
+        raise PromoteRefused(f"Only a System block can use {verb}.")
+    spath = shipped[block_id]
+    meta = capability_folder.read_meta(spath)
+    if meta is None:
+        raise PromoteRefused(f"Could not read {spath}.")
+    found = block_library._find_by_id(block_id, root)
+    if (found is not None and found[3]["tier"] == "user"
+            and block_library._under_workbench(found[3]["path"], root)):
+        return WorkbenchCopy(block_id, spath, found[3]["path"], False)
+    rel = os.path.relpath(spath, block_library.system_root()).split(os.sep)
+    parts = [capability_folder.sanitize(s) for s in rel[:-1]]
+    target = os.path.join(block_library._root(root),
+                          block_library.WORKBENCH_LIBRARY, *parts,
+                          capability_folder.sanitize(meta["name"]) + ".fpdb")
+    if os.path.isfile(target):
+        raise PromoteRefused(
+            f"{target} already holds another block -- rename or move it first.")
+    return WorkbenchCopy(block_id, spath, target, True)
+
+
+def _write_workbench(res: WorkbenchCopy) -> None:
+    rec = _read(res.shipped_path)
+    rec["library"] = block_library.WORKBENCH_LIBRARY
+    block_library._atomic_write_json(res.workbench_path, rec)
+
+
+def plan_checkout(block_id: str, root: str | None = None) -> WorkbenchCopy:
+    """Check out to Workbench: check the rules; writes nothing.
+
+    Raises:
+        PromoteRefused: Gate off, not shipped, unreadable, the target path holds
+            another block, or a Workbench file already owns the id.
+    """
+    res = _plan_workbench(block_id, root, "Check out to Workbench")
+    if not res.workbench_written:
+        raise PromoteRefused(f"Already checked out: {res.workbench_path}")
+    return res
+
+
+def checkout(block_id: str, root: str | None = None) -> WorkbenchCopy:
+    """Copy a shipped block into the Workbench under the same id and version
+    (the shipped file stays); a later Promote ships it as ``v + 1``."""
+    res = plan_checkout(block_id, root)
+    try:
+        _write_workbench(res)
+    finally:
+        capability_folder.forget(res.workbench_path)
+        block_library._notify_changed()
+    return res
+
+
+def plan_demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
+    """Demote from System: check the rules; writes nothing.
+
+    Raises:
+        PromoteRefused: As :func:`_plan_workbench`, or another shipped block
+            references the id (demote that one first).
+    """
+    from .block_registry import referenced_ids
+    res = _plan_workbench(block_id, root, "Demote from System")
+    users = []
+    for other, path in block_library.shipped_index().items():
+        if other == block_id:
+            continue
+        d = block_library.load_block_file(path)
+        if d is not None and block_id in referenced_ids(d):
+            users.append(d.name or other)
+    if users:
+        raise PromoteRefused(
+            "These System blocks use it -- demote them first:\n"
+            + "\n".join(f"  {n}" for n in sorted(users)))
+    return WorkbenchCopy(res.block_id, res.shipped_path, res.workbench_path,
+                         res.workbench_written, _app_refs(block_id))
+
+
+def demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
+    """:func:`plan_demote`, then write the Workbench copy (when none owns the
+    id) and only then delete the shipped file; an emptied series folder goes
+    too. Not an undo step; the open project keeps its embedded copy."""
+    from . import hatch_patterns
+    res = plan_demote(block_id, root)
+    try:
+        if res.workbench_written:
+            _write_workbench(res)
+        block_library.delete_shipped(res.shipped_path)
+        folder = os.path.dirname(res.shipped_path)
+        if (not block_library._same_path(folder, block_library.system_root())
+                and os.path.isdir(folder) and not os.listdir(folder)):
+            os.rmdir(folder)                 # "no empty series folders"
+    finally:
+        for p in (res.shipped_path, res.workbench_path):
+            capability_folder.forget(p)
+        hatch_patterns._SHIPPED_CACHE.clear()
         block_library._notify_changed()
     return res
