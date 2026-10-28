@@ -151,6 +151,28 @@ def _under_system(path: str) -> bool:
     return p == base or p.startswith(base + os.sep)
 
 
+def _under_workbench(path: str, root: str | None) -> bool:
+    """True for a file inside ``<user root>/Workbench`` (authoring Q8)."""
+    base = os.path.normcase(os.path.abspath(
+        os.path.join(_root(root), WORKBENCH_LIBRARY)))
+    p = os.path.normcase(os.path.abspath(path))
+    return p.startswith(base + os.sep)
+
+
+def shipped_index() -> dict[str, str]:
+    """``{id: path}`` of every readable ``.fpdb`` in the System tier (first
+    file per id in walk order) -- the promote target lookup and the
+    conformance test's walk."""
+    out: dict[str, str] = {}
+    base = system_root()
+    if os.path.isdir(base):
+        for _dirs, path in _walk_fpdb(base):
+            meta = capability_folder.read_meta(path)
+            if meta is not None and meta["id"]:
+                out.setdefault(meta["id"], path)
+    return out
+
+
 def is_reserved_library(name: str) -> bool:
     """True for a user Library name the System tier reserves (any case)."""
     return (name or "").strip().casefold() == SYSTEM_LIBRARY.casefold()
@@ -537,7 +559,8 @@ def _iter_entries(root: str | None, *, system: bool = True):
 
     Walks the System tier first, then the user root (SB1b D1);
     ``meta['tier']`` is ``'system'`` or ``'user'``; a System file owns its id
-    over any user copy (D2)."""
+    over any user copy (D2). Under :func:`dev_gate` a file in the user
+    ``Workbench`` library owns its id first (authoring Q7)."""
     found = []
     for tier, base in _roots(root, system=system):
         if not os.path.isdir(base):
@@ -556,6 +579,10 @@ def _iter_entries(root: str | None, *, system: bool = True):
                 meta["library"], meta["series"], meta["name"])
             found.append((tier, library, series, name, consistent, path, meta))
     owner: dict = {}
+    if dev_gate():           # authoring Q7: the Workbench copy outranks System
+        for tier, *_x, path, meta in found:
+            if tier == "user" and _under_workbench(path, root):
+                owner.setdefault(meta["id"], path)
     for tier, *_x, path, meta in found:         # System owns its ids (D2)
         if tier == "system":
             owner.setdefault(meta["id"], path)
