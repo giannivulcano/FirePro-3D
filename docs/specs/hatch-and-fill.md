@@ -81,6 +81,9 @@ source-tasks: ["Concept: region Fill/Hatch tool + user-definable hatch patterns 
   the folder **outside the undo history**
   (`Model_Space.load_blocks_outside_history`), repeating for nested patterns.
   Called on project new and open (`main.py`) and on Display Manager OK.
+  After new / open, refs still unresolved (`missing_pattern_refs`, e.g. a
+  demoted System hatch) get one status-bar notice — see block-system.md
+  "Authoring path" (Demote from System).
 
 ## 2. As-built: renderer (`hatch_render.py`)
 
