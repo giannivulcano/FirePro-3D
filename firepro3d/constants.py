@@ -107,10 +107,9 @@ FIXED_LINETYPE_PX_PER_MM = 6.0
 # ET1: Fixed-size end types (On screen = Fixed size) share the LTS px-per-mm
 # mapping on model canvases (linetypes.md ET1 / LTS-3).
 FIXED_END_PX_PER_MM = FIXED_LINETYPE_PX_PER_MM
-# SB1c (D10): fixed ON-PAPER cap heights, mm. Room labels and gridline
-# bubbles plot at these through annotative.paper_scene_size until SB3 / SB4b
-# make them System blocks (the Display Manager rows retired, D12).
-ROOM_LABEL_PAPER_CAP_MM = 2.5
+# SB1c (D10): fixed ON-PAPER cap height, mm. Gridline bubbles plot at this
+# through annotative.paper_scene_size until SB4b makes them System blocks
+# (the Display Manager row retired, D12).
 GRIDLINE_BUBBLE_PAPER_CAP_MM = 3.0
 # ET1: per-end Scale on a line's end record (a plain multiplier, Q5 / Q10-b).
 END_SCALE_MIN = 0.1

@@ -22,7 +22,7 @@ from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
                         PAPER_LEGACY_PX_PER_MM, PAPER_LEGACY_SNAP_PX,
                         UNDERLAY_LINE_WIDTH_PX,
-                        GRIDLINE_BUBBLE_PAPER_CAP_MM, ROOM_LABEL_PAPER_CAP_MM)
+                        GRIDLINE_BUBBLE_PAPER_CAP_MM)
 
 _log = logging.getLogger(__name__)
 
@@ -872,35 +872,6 @@ def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
     item.update()
 
 
-def _apply_room_label_paper_height(room, cat, color_mode, paper_scale, entry):
-    """Size + colour the room tag label for paper (§9.9).
-
-    Size: the label font is stored in model (scene) units and rendered through
-    the viewport at ``paper_scale`` (paper mm per model mm), so a raw model size
-    plots at ``size × paper_scale`` — shrinking to sub-pixel at architectural
-    scales. Dividing the target paper height by ``paper_scale`` makes the label
-    render at a constant on-paper size regardless of viewport scale (the same
-    true-scale trick as gridline bubbles).
-
-    Colour: the model label colour comes from the *model* Display Manager "Room"
-    colour, which is light for readability on the dark canvas — invisible on
-    white paper (white-on-white). In B&W / custom modes force the paper "Room"
-    category colour (black by default) so the tag reads; full-colour keeps the
-    authored colour. Original size + colour are saved on *entry* and restored by
-    ``restore_model_display``.
-
-    The size is a fixed 2.5 mm on paper (``ROOM_LABEL_PAPER_CAP_MM``) through
-    the shared annotative conversion (SB1c D10).
-    """
-    from .annotative import paper_scene_size
-    entry["room_label_font_size"] = room._label_font_size
-    entry["room_label_font_color"] = room._label_font_color
-    room._label_font_size = paper_scene_size(ROOM_LABEL_PAPER_CAP_MM, paper_scale)
-    if color_mode != PaperColorMode.FULL_COLOR:
-        room._label_font_color = cat["color"]
-    room._update_label()
-
-
 def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     """Apply paper overrides to construction/draw geometry.
 
@@ -1312,6 +1283,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["block_paper"] = (item._paper_pen_width,
                                         item._paper_pen_color,
                                         item._paper_scale)
+            from .room import Room as _Room
+            if isinstance(item, _Room):
+                _tag = item._tag
+                entry["tag_paper"] = (_tag._paper_pen_width, _tag._paper_pen_color,
+                                      _tag._paper_scale)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -1358,12 +1334,14 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 if isinstance(item, _WallOpening):
                     from PyQt6.QtGui import QColor as _QColor
                     item._paper_gap_color = _QColor("#ffffff")
-                # Room tag label: size to a fixed ON-PAPER height (§9.9) so it
-                # plots readably at any viewport scale instead of shrinking.
+                # Room tag (SB3): the one annotative path -- the tag is a
+                # BoundLabelItem and takes _apply_block's hooks (SB1c D6);
+                # its opacity stays 1 (the Room row opacity is inherited
+                # from the parent). A hidden tag is skipped.
                 from .room import Room as _Room
-                if isinstance(item, _Room):
-                    _apply_room_label_paper_height(
-                        item, cat, color_mode, paper_scale, entry)
+                if isinstance(item, _Room) and item._tag.isVisible():
+                    _apply_block(item._tag, cat, color_mode, lw_mm, paper_scale)
+                    item._tag.setOpacity(1.0)
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
@@ -1611,12 +1589,15 @@ def restore_model_display(saved: list[dict]):
             if hasattr(item, "_paper_no_fill"):
                 del item._paper_no_fill
             item.__dict__.pop("_paper_pen_width", None)
-            # Restore the room label's model-unit font size + colour (§9.9).
-            if "room_label_font_size" in entry:
-                item._label_font_size = entry["room_label_font_size"]
-                if "room_label_font_color" in entry:
-                    item._label_font_color = entry["room_label_font_color"]
-                item._update_label()
+            # Restore the room tag's paper hooks (SB3).
+            if "tag_paper" in entry:
+                from .annotative import is_annotative as _is_annot
+                _tag = item._tag
+                if _is_annot(_tag.definition()):
+                    _tag.prepareGeometryChange()     # SB1c D6
+                (_tag._paper_pen_width, _tag._paper_pen_color,
+                 _tag._paper_scale) = entry["tag_paper"]
+                _tag.update()
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             # Restore WallOpening gap colour: prior value (None means unset →

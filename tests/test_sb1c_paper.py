@@ -145,24 +145,36 @@ def test_g_dm_stale_bubble_height_ignored(qapp):
 
 
 def test_g_room_stale_label_height_ignored(qapp):
+    """SB1c D12 / SB3: a stale stored Room label_height_mm is never read; the
+    room tag plots through the annotative _apply_block path (k = 1 / S)."""
     from firepro3d import paper_display as pd
+    from firepro3d.block_attributes import normalise_attr
+    from firepro3d.bound_label import PEN_MARGIN
     from firepro3d.room import Room
     QSettings("GV", "FirePro3D").setValue("paper/categories/Room/label_height_mm", 4.0)
-    scene = QGraphicsScene()
-    room = Room(boundary=[QPointF(0, 0), QPointF(6000, 0),
-                          QPointF(6000, 4000), QPointF(0, 4000)], color="#4488cc")
-    room.name = "R101"   # label = Name (SB2b M6)
+    assert "label_height_mm" not in pd.load_paper_categories()["Room"]
+    ms = Model_Space()
+    d = BlockDefinition.new(name="T", library="", series="", origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "@[Name]", "x": 0.0,
+                                         "y": 0.0, "height_mm": 3.0}])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    ms.register_block_definition(d)
+    ms.annotation_defaults["Room"] = d.id
+    room = Room(boundary=[QPointF(0, 0), QPointF(6000, 0), QPointF(6000, 4000), QPointF(0, 4000)])
+    room.name = "R101"
     room._show_label = True
-    scene.addItem(room)
-    if hasattr(room, "_update_label"):
-        room._update_label()
-    orig = room._label_font_size
-    saved = pd.apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000), paper_scale=0.01)
+    ms.addItem(room)
+    ms._rooms.append(room)
+    room._update_label()
+    h_model = room._tag.boundingRect().height() - 2 * PEN_MARGIN       # 3 mm x drawing scale 100
+    saved = pd.apply_paper_overrides(ms, QRectF(0, 0, 6000, 4000), paper_scale=0.02)
     try:
-        assert room._label_font_size == pytest.approx(2.5 / 0.01)
+        assert room._tag.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(h_model / 2.0, rel=1e-6)
     finally:
         pd.restore_model_display(saved)
-    assert room._label_font_size == pytest.approx(orig)       # canvas unchanged (D11)
+    assert room._tag.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(h_model, rel=1e-6)
 
 
 def test_g_dm_label_ht_column_gone(qapp):
