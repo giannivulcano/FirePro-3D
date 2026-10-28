@@ -117,8 +117,7 @@ def reprepare_annotative(scene) -> None:
     for room in getattr(scene, "_rooms", ()):     # SB3: room tags size by the drawing scale too
         tag = getattr(room, "_tag", None)
         if tag is not None:
-            tag.prepareGeometryChange()
-            tag.update()
+            tag.refresh()          # drops the cached rect (F4) as well as repainting
 
 
 def model_factor(item) -> float:

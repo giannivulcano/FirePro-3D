@@ -223,9 +223,11 @@ def test_units_and_scale_hooks_walk_the_room_tags(qapp):
     ms._refresh_all_labels()
     assert calls
     n = len(calls)
+    assert room._tag.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(h100, rel=1e-6)  # re-cached
     ms.scale_manager.drawing_scale = 200.0
     reprepare_annotative(ms)
     assert len(calls) > n
+    # the cached rect must have been dropped and RECOMPUTED at the new scale
     assert room._tag.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(2 * h100, rel=1e-6)
 
 
