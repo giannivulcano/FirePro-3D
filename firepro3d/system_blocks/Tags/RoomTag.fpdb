@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "id": "system-tags-roomtag",
+  "version": 1,
+  "name": "RoomTag",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [
+    {
+      "key": "Name",
+      "label": "Name",
+      "type": "text",
+      "source": "host",
+      "host_key": "Name",
+      "default": "Name",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "TBD"
+    }
+  ],
+  "host_category": "Room",
+  "primitives": [
+    {
+      "type": "text",
+      "text": "@[Name]",
+      "x": -6.946614595460389,
+      "y": -3.5,
+      "height_mm": 3.0,
+      "wrap_width_mm": 13.893229190920778,
+      "box_height_mm": 7.0,
+      "font_family": "Arial",
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 1.0,
+      "border": true,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "uid": "fba8355b1b844309a8fc585009ff0dc5"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "e9f8db9c1c5643f19dd5cf82dc1f6150",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "fba8355b1b844309a8fc585009ff0dc5",
+          "h": "center"
+        },
+        {
+          "ref": "y_axis"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {
+    "Thinner": 0.25
+  }
+}

@@ -16,7 +16,9 @@ ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room",)
 # when this field is present with a non-None raw value.
 LABEL_FIELD: dict[str, str] = {"Room": "Name"}
 
-# category -> frozen System block id. Filled by the SB3 plan's Task 11 from
-# the promoted ``firepro3d/system_blocks/Tags/RoomTag.fpdb`` (user step U3);
-# empty until then (a tag then draws the orphan placeholder, never vanishes).
-SYSTEM_DEFAULTS: dict[str, str] = {}
+# category -> frozen System block id (concept F4): the id of the promoted
+# ``firepro3d/system_blocks/Tags/RoomTag.fpdb`` (SB3 U2 / U3, 2026-10-28).
+# Never minted here; a re-promote keeps the id (system_promote Q5).
+SYSTEM_DEFAULTS: dict[str, str] = {
+    "Room": "system-tags-roomtag",
+}
