@@ -109,6 +109,31 @@ def set_system_root(path: str | None) -> None:
     _system_root_override[0] = path
 
 
+WORKBENCH_LIBRARY = "Workbench"   # the dev's editable System source (authoring Q2)
+
+_dev_gate_override: list = [None]   # tests force it (conftest: off)
+
+
+def _dev_gate_at(package_dir: str) -> bool:
+    """True when a ``.git`` (dir, or a worktree's file) sits beside *package_dir*."""
+    return os.path.exists(os.path.join(os.path.dirname(
+        os.path.abspath(package_dir)), ".git"))
+
+
+def dev_gate() -> bool:
+    """Source-checkout developer mode (authoring Q4): Workbench outranks
+    System on an id clash and Promote to System may write the shipped tier.
+    No env var, no setting -- an installed build has no ``.git``."""
+    if _dev_gate_override[0] is not None:
+        return _dev_gate_override[0]
+    return _dev_gate_at(os.path.dirname(os.path.abspath(__file__)))
+
+
+def set_dev_gate(on: bool | None) -> None:
+    """Force :func:`dev_gate` (None restores detection)."""
+    _dev_gate_override[0] = on
+
+
 def _root(root: str | None) -> str:
     return root if root is not None else block_library_dir()
 

@@ -260,6 +260,26 @@ def _isolate_system_library(_isolate_system_library_session, tmp_path_factory):
     block_library.set_system_root(prev)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _dev_gate_off_session():
+    """The repo is a source checkout, so detection says ON; module-scoped
+    fixtures (a shared MainWindow) are built as an installed build too."""
+    from firepro3d import block_library
+    block_library.set_dev_gate(False)
+    yield
+    block_library.set_dev_gate(None)
+
+
+@pytest.fixture(autouse=True)
+def _dev_gate_off(_dev_gate_off_session):
+    """Tests run as an installed build unless they call
+    ``set_dev_gate(True)`` themselves; reset to OFF after each test."""
+    from firepro3d import block_library
+    block_library.set_dev_gate(False)
+    yield
+    block_library.set_dev_gate(False)
+
+
 @pytest.fixture
 def real_system_library():
     """Opt in to the real shipped System tier; returns its root."""
