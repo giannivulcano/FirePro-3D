@@ -472,6 +472,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Pipe-mode Tab cycling state now lives on self._pipe_ctl (controller)
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self.mark_patterns: dict = dict(marks.DEFAULT_PATTERNS)   # SB2b, per project
+        # SB3: category -> block id (Project Settings > Annotation; cloned
+        # from the template, saved in the .fpd, never in undo).
+        self.annotation_defaults: dict[str, str] = {}
+        self._annot_memo: dict = {}      # category -> (mapped id, resolved id | None); Task 10
         self.project_settings_size: tuple | None = None   # (w, h) of the Project Settings dialog, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
@@ -1910,6 +1914,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def get_block_definition(self, block_id: str):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
         return self._block_registry.get(block_id)
+
+    def annotation_block(self, category: str):
+        """The ``BlockDefinition`` that draws *category*'s intrinsic label
+        (SB3 D-B): the mapped project block when it is eligible, else None.
+        The fallback chain (System tier -> library roots -> SYSTEM_DEFAULTS)
+        lands with the resolver's second half (plan Task 10)."""
+        from .bound_label import eligible_definition
+        from .system_blocks import SYSTEM_DEFAULTS
+        mapped = self.annotation_defaults.get(category) or SYSTEM_DEFAULTS.get(category, "")
+        if not mapped:
+            return None
+        d = self._block_registry.get(mapped)
+        if d is not None and eligible_definition(d, category):
+            return d
+        return None
 
     def instance_count(self, block_id: str) -> int:
         """Number of placed BlockInstances referencing *block_id*."""
