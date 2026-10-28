@@ -2725,6 +2725,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if isinstance(st, dict) and not getattr(item, "reference", False):
                 st2 = _retarget_style(st, old_id, new_id)
                 if st2 is not st:
+                    item.prepareGeometryChange()   # an end / linetype pads bounds
                     item.style = st2
                     sync = getattr(item, "_sync_stroke_pen", None)
                     if callable(sync):
