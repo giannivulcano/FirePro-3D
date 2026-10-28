@@ -176,6 +176,7 @@ class WorkbenchCopy:
     workbench_path: str
     workbench_written: bool        # False = an existing Workbench copy is kept
     app_refs: tuple = ()           # app-code names of the id (demote confirm)
+    overwrites: tuple = ()         # (name, id) of the other block at the target
 
 
 def _app_refs(block_id: str) -> tuple:
@@ -210,10 +211,12 @@ def _plan_workbench(block_id: str, root: str | None, verb: str) -> WorkbenchCopy
     target = os.path.join(block_library._root(root),
                           block_library.WORKBENCH_LIBRARY, *parts,
                           capability_folder.sanitize(meta["name"]) + ".fpdb")
-    if os.path.isfile(target):
-        raise PromoteRefused(
-            f"{target} already holds another block -- rename or move it first.")
-    return WorkbenchCopy(block_id, spath, target, True)
+    over = ()
+    if os.path.isfile(target):         # another block: overwritten (confirm warns)
+        om = capability_folder.read_meta(target) or {}
+        over = (om.get("name") or os.path.basename(target)[:-5],
+                om.get("id") or "unreadable")
+    return WorkbenchCopy(block_id, spath, target, True, overwrites=over)
 
 
 def _write_workbench(res: WorkbenchCopy) -> None:
@@ -226,8 +229,9 @@ def plan_checkout(block_id: str, root: str | None = None) -> WorkbenchCopy:
     """Check out to Workbench: check the rules; writes nothing.
 
     Raises:
-        PromoteRefused: Gate off, not shipped, unreadable, the target path holds
-            another block, or a Workbench file already owns the id.
+        PromoteRefused: Gate off, not shipped, unreadable, or a Workbench file
+            already owns the id. Another block at the target path is not a
+            refusal: it is named in ``overwrites`` and replaced.
     """
     res = _plan_workbench(block_id, root, "Check out to Workbench")
     if not res.workbench_written:
@@ -268,7 +272,8 @@ def plan_demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
             "These System blocks use it -- demote them first:\n"
             + "\n".join(f"  {n}" for n in sorted(users)))
     return WorkbenchCopy(res.block_id, res.shipped_path, res.workbench_path,
-                         res.workbench_written, _app_refs(block_id))
+                         res.workbench_written, _app_refs(block_id),
+                         res.overwrites)
 
 
 def demote(block_id: str, root: str | None = None) -> WorkbenchCopy:

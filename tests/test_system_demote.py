@@ -102,16 +102,29 @@ def test_demote_and_checkout_refusals_write_nothing(gate):
     for verb in (system_promote.demote, system_promote.checkout):
         with pytest.raises(system_promote.PromoteRefused, match="System block"):
             verb("uuid-not-shipped", root)
-    _fpdb(_wb(root, "Hatches", "Brick"), "uuid-other", library="Workbench")
-    for verb in (system_promote.demote, system_promote.checkout):
-        with pytest.raises(system_promote.PromoteRefused, match="another block"):
-            verb("system-hatches-brick", root)
     block_library.set_dev_gate(False)
     for verb in (system_promote.demote, system_promote.checkout):
         with pytest.raises(system_promote.PromoteRefused, match="source checkout"):
             verb("system-hatches-brick", root)
     assert os.path.exists(shipped)
-    assert _read(_wb(root, "Hatches", "Brick"))["id"] == "uuid-other"
+    assert not os.path.exists(os.path.join(root, "Workbench"))
+
+
+@pytest.mark.parametrize("verb", ["checkout", "demote"])
+def test_another_block_at_the_target_path_is_named_then_overwritten(gate, verb):
+    sysroot, root = gate
+    shipped = _fpdb(os.path.join(sysroot, "Hatches", "Brick.fpdb"), "system-hatches-brick",
+                    version=4)
+    other = _fpdb(_wb(root, "Hatches", "Brick"), "uuid-other", library="Workbench",
+                  name="Brick")
+    plan = getattr(system_promote, "plan_" + verb)("system-hatches-brick", root)
+    assert plan.workbench_written and plan.overwrites == ("Brick", "uuid-other")
+    assert _read(other)["id"] == "uuid-other"                     # plan writes nothing
+    getattr(system_promote, verb)("system-hatches-brick", root)
+    w = _read(other)
+    assert (w["id"], w["library"], w["version"]) == ("system-hatches-brick", "Workbench", 4)
+    assert os.path.exists(shipped) == (verb == "checkout")
+    assert block_library._find_by_id("uuid-other", root) is None
 
 
 def test_checkout_copies_and_keeps_shipped_then_refuses_twice(gate):

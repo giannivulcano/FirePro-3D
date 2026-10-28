@@ -5116,15 +5116,27 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             themed_info(self, "Check out to Workbench", str(exc))
             return
         msg = chr(10).join([f"Write {plan.workbench_path}",
+                            *self._overwrite_warning(plan),
                             f"Id: {block_id} (kept)",
                             "Edit it there, then Promote to System ships the next version."])
         if not themed_confirm(self, "Check out to Workbench", msg,
-                              ok_label="Check out", cancel_label="Cancel"):
+                              ok_label="Overwrite" if plan.overwrites else "Check out",
+                              cancel_label="Cancel"):
             return
         try:
             system_promote.checkout(block_id)
         except system_promote.PromoteRefused as exc:
             themed_info(self, "Check out to Workbench", str(exc))
+
+    @staticmethod
+    def _overwrite_warning(plan) -> list:
+        """Confirm lines naming the other Workbench block a check out / demote
+        replaces at its target path (none when the path is free)."""
+        if not plan.overwrites:
+            return []
+        name, other = plan.overwrites
+        return [f"!! Overwrites the Workbench block \"{name}\" (id {other}) -",
+                "   it leaves the library; projects that embed it keep their copy."]
 
     def _demote_block_from_browser(self, block_id: str, path: str):
         """Blocks browser Demote from System...: keep / write the Workbench
@@ -5147,6 +5159,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         lines = [f"Delete {plan.shipped_path}",
                  (f"Write {plan.workbench_path}" if plan.workbench_written
                   else f"Keep {plan.workbench_path}"),
+                 *self._overwrite_warning(plan),
                  f"Id: {block_id} (kept)"]
         uses = list(plan.app_refs)
         if (block_id in self.scene._block_definitions
@@ -5156,7 +5169,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lines.append("Still referenced by (falls back to none where not found):")
             lines += [f"  {u}" for u in uses]
         if not themed_confirm(self, "Demote from System", chr(10).join(lines),
-                              ok_label="Demote", cancel_label="Cancel"):
+                              ok_label="Overwrite" if plan.overwrites else "Demote",
+                              cancel_label="Cancel"):
             return
         try:
             system_promote.demote(block_id)
