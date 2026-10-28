@@ -361,6 +361,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         band = self.half_thickness_scene() + MITER_TOL
         guests = []
         for other in pool:
+            if sip.isdeleted(other):
+                continue
             for ep in (other._pt1, other._pt2):
                 if self.endpoint_near(ep, MITER_TOL) is not None:
                     continue
@@ -512,10 +514,19 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         """Scene add/remove and visibility (level switch, sheet viewport
         isolation) change who joins whom (design D3/D4)."""
         result = super().itemChange(change, value)
+        if sip.isdeleted(self):
+            return result
         if (change in (QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged,
                        QGraphicsItem.GraphicsItemChange.ItemVisibleHasChanged)
                 and getattr(self, "_outline_ready", False)):
-            self.invalidate_geometry()
+            try:
+                self.invalidate_geometry()
+            except RuntimeError as e:
+                # Hazard: a GC pass mid-rebuild on scene teardown can free this
+                # wrapper; PyQt aborts the process on an exception escaping a
+                # virtual. A dying wall has no geometry to maintain.
+                if not (sip.isdeleted(self) or "has been deleted" in str(e)):
+                    raise
         return result
 
     # ── Colour ───────────────────────────────────────────────────────────────
