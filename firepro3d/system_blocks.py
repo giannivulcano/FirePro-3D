@@ -11,6 +11,11 @@ from __future__ import annotations
 # Project Settings > Annotation row each).
 ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room",)
 
+# category -> the host field whose empty raw value means "nothing to show"
+# (SB3 F1, ratified): an unresolved tag draws the orphan placeholder only
+# when this field is present with a non-None raw value.
+LABEL_FIELD: dict[str, str] = {"Room": "Name"}
+
 # category -> frozen System block id. Filled by the SB3 plan's Task 11 from
 # the promoted ``firepro3d/system_blocks/Tags/RoomTag.fpdb`` (user step U3);
 # empty until then (a tag then draws the orphan placeholder, never vanishes).

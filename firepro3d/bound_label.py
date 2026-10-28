@@ -23,6 +23,7 @@ from . import element_params
 from .annotative import SCREEN_SCALE
 from .block_attributes import bound_text_ops
 from .render_op import paint_ops
+from .system_blocks import LABEL_FIELD
 
 _log = logging.getLogger(__name__)
 
@@ -54,14 +55,20 @@ class BoundLabelItem(QGraphicsItem):
     ``paper_display._apply_block`` during a viewport pass. Paints nothing when
     every host-bound field resolves to raw None (Q13); draws the orphan
     placeholder when the scene has a resolver that returned None (never
-    vanishes); draws nothing in a scene without a resolver.
+    vanishes) AND the host has a label to lose (``system_blocks.LABEL_FIELD``
+    present with a non-None raw value -- user-ratified SB3 F1: a nameless room
+    with no resolvable block shows nothing); draws nothing in a scene without
+    a resolver. The local bounds rect is cached (``_rect``) and dropped by
+    ``refresh()`` / the ``_paper_scale`` setter, so Qt's bounds queries during
+    scene teardown never re-resolve through the scene.
     """
 
     def __init__(self, host):
         super().__init__(host)
         self._category = element_params.category_of(host) or ""
+        self._rect = None             # cached local boundingRect (None = stale)
         # Paper hooks (paper_display._apply_block; None on the model canvas).
-        self._paper_scale = None
+        self._paper_scale_v = None
         self._paper_pen_width = None
         self._paper_pen_color = None
         # render_op.paint_ops item protocol.
@@ -72,6 +79,17 @@ class BoundLabelItem(QGraphicsItem):
         self._combined = None         # (static, bound, static + bound)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    @property
+    def _paper_scale(self):
+        return self._paper_scale_v
+
+    @_paper_scale.setter
+    def _paper_scale(self, v) -> None:
+        if v != self._paper_scale_v:     # the paper pass resizes the tag (SB1c D6)
+            self.prepareGeometryChange()
+            self._paper_scale_v = v
+            self._rect = None
 
     # -- data source / definition ------------------------------------------
     @property
@@ -109,7 +127,17 @@ class BoundLabelItem(QGraphicsItem):
     def _host_fields_empty(defn, hv) -> bool:
         keys = [a.get("host_key", "") for a in defn.effective_attributes()
                 if a.get("source") == "host"]
-        return bool(keys) and all(hv.get(k) is None or hv[k].raw is None for k in keys)
+        return bool(keys) and all(k in hv and hv[k].raw is None for k in keys)
+
+    def _orphan_visible(self) -> bool:
+        """Resolver present, block resolved nowhere, and the host has a label
+        to lose (F1)."""
+        d, present = self._resolve()
+        if not present or d is not None:
+            return False
+        hv = self.host_values()
+        f = LABEL_FIELD.get(self._category)
+        return hv is not None and f in hv and hv[f].raw is not None
 
     def _ops(self, k: float) -> list:
         d = self.definition()
@@ -132,7 +160,7 @@ class BoundLabelItem(QGraphicsItem):
 
     def paints(self) -> bool:
         """True when the tag has ink (a resolved block and a non-empty field)."""
-        return bool(self._ops(self._k()))
+        return bool(self._ops(self._k())) or self._orphan_visible()
 
     # -- geometry -------------------------------------------------------------
     def set_anchor(self, pt: QPointF) -> None:
@@ -142,19 +170,28 @@ class BoundLabelItem(QGraphicsItem):
         self.setPos(pt)
 
     def refresh(self) -> None:
-        """Re-shape + repaint (a host value, units or drawing-scale change)."""
+        """Re-shape + repaint (a host value, units, drawing-scale, mapping
+        change). Drops the cached bounds rect."""
         self.prepareGeometryChange()
+        self._rect = None
         self.update()
 
     def boundingRect(self) -> QRectF:
+        if self._rect is not None:
+            return self._rect
+        if self.scene() is None:
+            return QRectF()               # not cached: no scene to resolve through
+        self._rect = self._compute_rect()
+        return self._rect
+
+    def _compute_rect(self) -> QRectF:
         ops = self._ops(self._k())
         if ops:
             r = QRectF()
             for op in ops:
                 r = r.united(op.path.boundingRect())
         else:
-            d, present = self._resolve()
-            if not present or d is not None:
+            if not self._orphan_visible():
                 return QRectF()
             h = PLACEHOLDER_MM / 2.0
             r = QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM)
@@ -168,8 +205,7 @@ class BoundLabelItem(QGraphicsItem):
     def paint(self, painter, option, widget=None):
         ops = self._ops(self._k(painter))
         if not ops:
-            d, present = self._resolve()
-            if present and d is None:                 # orphan placeholder (G5: never vanishes)
+            if self._orphan_visible():                # orphan placeholder (G5: never vanishes)
                 h = PLACEHOLDER_MM / 2.0
                 pen = QPen(QColor(PLACEHOLDER_COLOUR))
                 pen.setCosmetic(True)

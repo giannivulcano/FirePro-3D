@@ -350,3 +350,69 @@ def test_ac8_dragging_the_tag_grip_through_the_view_writes_label_offset_and_undo
     assert scene.can_undo()
     scene.undo()
     assert scene._rooms[0]._label_offset == QPointF(0.0, 0.0)
+
+
+# -- G2 fix round (F1-F4) ---------------------------------------------------
+def _red_pixels(img):
+    """Count of pixels equal to the orphan placeholder colour (192, 57, 43)."""
+    return sum(1 for y in range(img.height()) for x in range(img.width())
+               if (img.pixel(x, y) & 0xFFFFFF) == 0xC0392B)
+
+
+def test_f1_orphan_placeholder_needs_a_label_to_lose(qapp):
+    ms = _scene()                                            # resolver present, nothing mapped
+    named = _add_room(ms, "Office")
+    assert named._tag.paints() and _red_pixels(_render(ms, RECT, 300, 300)) > 0
+    named.set_property("Room Name", "")                      # nameless: nothing to lose
+    assert not named._tag.paints() and named._tag.boundingRect().isNull()
+    assert _red_pixels(_render(ms, RECT, 300, 300)) == 0
+
+
+def test_f2_degenerate_room_hides_its_tag(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    r = Room(boundary=[])
+    r.name = "Ghost"
+    ms.addItem(r)
+    ms._rooms.append(r)
+    r._update_label()
+    assert not r._tag.isVisible()
+    before = _digest(_render(ms, RECT, 300, 300))
+    r._show_label = False
+    r._update_label()
+    assert _digest(_render(ms, RECT, 300, 300)) == before   # no ink either way
+
+
+def test_f3_unknown_host_key_draws_the_field_placeholder(qapp):
+    ms = _scene()
+    d = _tag_def(ms)
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "NoSuchKey"})]
+    room = _add_room(ms, "Office")
+    assert room._tag.paints()
+    shown = _digest(_render(ms, RECT, 300, 300))
+    room._show_label = False
+    room._update_label()
+    assert _digest(_render(ms, RECT, 300, 300)) != shown     # the "?" glyphs are ink
+
+
+def test_f4_bounds_are_cached_until_refresh_or_the_paper_scale_changes(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "Office")
+    tag = room._tag
+    r1 = tag.boundingRect()
+    calls = []
+    real = tag._compute_rect
+    tag._compute_rect = lambda: (calls.append(1), real())[1]
+    assert tag.boundingRect() == r1 and tag.shape().boundingRect() == r1 and not calls
+    tag.set_anchor(QPointF(5.0, 5.0))
+    assert tag.boundingRect() == r1 and not calls            # pos only
+    tag.refresh()
+    tag.boundingRect()
+    assert len(calls) == 1
+    tag._paper_scale = 0.02
+    tag.boundingRect()
+    assert len(calls) == 2
+    tag._paper_scale = None
+    assert tag.boundingRect() == r1 and len(calls) == 3
+    assert BoundLabelItem(room).boundingRect() is not None   # scene-attached child, no crash

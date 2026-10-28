@@ -189,10 +189,10 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         The tag pulls its text at paint (SB3: ``BoundLabelItem``), so a name
         change needs ``self._tag.refresh()``, not this.
         """
-        self._tag.setVisible(self._show_label)
         c = self._centroid()
+        self._tag.setVisible(self._show_label and c is not None)
         if c is None:
-            return
+            return          # degenerate room: tag hidden (design Edge Cases)
         self._tag.set_anchor(QPointF(c.x() + self._label_offset.x(),
                                      c.y() + self._label_offset.y()))
 
