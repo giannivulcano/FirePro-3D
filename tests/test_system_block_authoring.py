@@ -390,6 +390,7 @@ def test_id_changing_promote_retargets_the_project(model_space, gate):   # T6 C1
     root = gate[1]
     res = system_promote.promote(
         "uuid-c", root, project_def=model_space._block_definitions["uuid-c"])
+    assert res.new_id != "uuid-c"
     assert model_space.apply_promote(res, root)
     assert [i.block_id for i in model_space._block_instances] == [res.new_id]
     assert model_space._block_definitions[res.new_id].version == res.version

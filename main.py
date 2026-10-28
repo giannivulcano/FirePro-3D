@@ -5131,9 +5131,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             themed_info(self, "Promote to System", str(exc))
             return
         if not scene.apply_promote(res):
+            tail = (f" and still uses {res.old_id}." if res.new_id != res.old_id
+                    else "; its copy is still the old version.")
             themed_info(self, "Promote to System",
                         f"Promoted, but this project could not load {res.workbench_path}"
-                        f" and still uses {res.old_id}.")
+                        + tail)
 
     def _duplicate_block_from_browser(self, block_id: str, path: str):
         """Blocks browser Duplicate to library... / Edit Block on a System
