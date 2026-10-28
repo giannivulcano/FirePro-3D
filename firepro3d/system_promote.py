@@ -102,6 +102,12 @@ def plan_promote(block_id: str, root: str | None = None, *,
         if not block_library._same_path(shipped[block_id], target):
             removed = shipped[block_id]
     elif target_id:                                 # D1: adopt the shipped id
+        holder = block_library._find_by_id(target_id, root)
+        if (holder is not None and holder[3]["tier"] == "user"
+                and not block_library._same_path(holder[3]["path"], wb_path)):
+            raise PromoteRefused(
+                f"{os.path.basename(holder[3]['path'])} in the Workbench already "
+                f"holds the id of {os.path.basename(target)} -- promote that one.")
         new_id = target_id
     else:
         base = f"system-{_slug(series)}-{_slug(name)}"
@@ -113,8 +119,13 @@ def plan_promote(block_id: str, root: str | None = None, *,
     if new_id in shipped:
         sv = (capability_folder.read_meta(shipped[new_id]) or {}).get("version")
         shipped_version = sv if isinstance(sv, int) else None
-    version = (shipped_version + 1 if shipped_version is not None
-               else int(meta.get("version") or 1))
+    if shipped_version is not None:
+        version = shipped_version + 1
+    else:
+        try:
+            version = int(meta.get("version") or 1)
+        except (TypeError, ValueError):
+            raise PromoteRefused(f"{wb_path} has an unreadable version.") from None
     return PromoteResult(block_id, new_id, version, shipped_version, target,
                          wb_path, removed)
 
@@ -143,12 +154,14 @@ def promote(block_id: str, root: str | None = None, *,
     shipped = copy.deepcopy(rec)
     shipped["library"] = block_library.SYSTEM_LIBRARY
     rec["library"] = block_library.WORKBENCH_LIBRARY
-    block_library.write_shipped(res.shipped_path, shipped)
-    if res.removed_path:
-        block_library.delete_shipped(res.removed_path)
-    block_library._atomic_write_json(res.workbench_path, rec)
-    for p in (res.shipped_path, res.workbench_path, res.removed_path):
-        if p:
-            capability_folder.forget(p)
-    block_library._notify_changed()
+    try:
+        block_library.write_shipped(res.shipped_path, shipped)
+        block_library._atomic_write_json(res.workbench_path, rec)
+        if res.removed_path:                 # last: a failure leaves both ids
+            block_library.delete_shipped(res.removed_path)
+    finally:
+        for p in (res.shipped_path, res.workbench_path, res.removed_path):
+            if p:
+                capability_folder.forget(p)
+        block_library._notify_changed()
     return res

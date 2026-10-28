@@ -289,3 +289,14 @@ def test_retarget_follows_linetype_and_end_refs(qapp):          # D2
     assert line.style["start"]["end"] == e_new
     assert ms._block_definitions[host].primitives[0]["style"]["start"]["end"] == e_new
     assert ms._block_definitions[lt3].repeat["ends"] == {"start": e_new, "finish": e_new}
+
+
+def test_adopt_refused_when_another_workbench_file_holds_the_shipped_id(gate):
+    sysroot, root = gate
+    _fpdb(os.path.join(sysroot, "Hatches", "Concrete.fpdb"),
+          "builtin-hatch-concrete", library="System", version=1)
+    _fpdb(os.path.join(root, "Workbench", "Hatches", "Concrete.fpdb"), "uuid-c")
+    _fpdb(os.path.join(root, "Workbench", "Hatches", "Old Concrete.fpdb"),
+          "builtin-hatch-concrete")
+    with pytest.raises(system_promote.PromoteRefused, match="Old Concrete.fpdb"):
+        system_promote.promote("uuid-c", root)
