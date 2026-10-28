@@ -92,6 +92,23 @@ def test_g6_origin_tie_holds_1_when_its_spacing_is_edited(mw, qapp):
     g["2"]._locked = True
     sc.constraint_ctl.set_value(dim.id, dim.value + 500.0)
     assert abs(g["1"]._origin.x()) < 1e-3
+    assert abs(g["2"]._origin.x() - (x2 + 500.0)) < 1e-3     # locked: held too
+
+
+def test_g6_deleting_1_drops_its_origin_tie(mw, qapp):
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    try:
+        sc = _reseed(mw)
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+    g1 = next(gl for gl in sc._gridlines if gl.grid_label == "1")
+    sc.delete_items([g1])
+    ties = [c for c in sc.constraint_ctl.constraints
+            if any(r == {"ref": "origin"} for r in c.refs)]
+    # A's tie stays; nothing is left pointing at the origin alone.
+    assert len(ties) == 1 and all(len(c.refs) == 2 for c in ties)
+    assert all(g1._uid not in {r.get("uid") for r in c.refs}
+               for c in sc.constraint_ctl.constraints)
 
 
 def test_g6_seed_follows_the_toggle_off(mw, qapp):
