@@ -197,20 +197,15 @@ def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
         folder: Folder to scan; None = the configured Hatch patterns folder.
 
     Returns:
-        ``[(name, block_id, .fpdb path)]``: System rows first, each part
-        sorted by name; first id wins.
+        ``[(name, block_id, .fpdb path)]``: System rows first (the user
+        folder first under the dev gate), each part sorted by name; first id
+        wins.
     """
     if folder is None:
         from .app_data import hatch_patterns_dir
         folder = hatch_patterns_dir()
-    from .block_library import system_root
-    from .capability_folder import scan
-    out, seen = [], set()
-    for row in scan(system_root(), "tile") + scan(folder, "tile"):
-        if row[1] not in seen:                # System first; first id wins (D2)
-            seen.add(row[1])
-            out.append(row)
-    return out
+    from .capability_folder import scan_tiered
+    return scan_tiered(folder, "tile")    # System first; first id wins (D2, Q7)
 
 
 def _unique(name: str, used: set, tag: str) -> str:

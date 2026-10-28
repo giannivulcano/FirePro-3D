@@ -97,3 +97,41 @@ def test_dev_gate_detects_beside_the_package(tmp_path, monkeypatch):
         assert block_library.dev_gate() is True
     finally:
         block_library.set_dev_gate(False)
+
+
+def _cap(path, block_id, cap, **kw):
+    # read_meta flags a capability by a truthy record (capability_folder.FLAGS)
+    extra = {"repeat": {"pieces": []}} if cap == "repeat" else (
+        {"end": {"size": 1.0}} if cap == "end" else {"tile": {"width": 1.0}})
+    return _fpdb(path, block_id, **extra, **kw)
+
+
+def test_linetype_and_end_pickers_list_system(tmp_path, monkeypatch):
+    sysroot = tmp_path / "sys"
+    _cap(str(sysroot / "Linetypes" / "Dash.fpdb"), "system-linetypes-dash",
+         "repeat", library="System", series="Linetypes")
+    _cap(str(sysroot / "End Types" / "Arrow.fpdb"), "system-end-types-arrow",
+         "end", library="System", series="End Types")
+    block_library.set_system_root(str(sysroot))
+    monkeypatch.setattr("firepro3d.app_data.linetypes_dir", lambda: str(tmp_path / "u1"))
+    monkeypatch.setattr("firepro3d.app_data.end_types_dir", lambda: str(tmp_path / "u2"))
+    try:
+        from firepro3d import capabilities, linetype_choices
+        assert [r[1] for r in linetype_choices._folder_linetypes()] == ["system-linetypes-dash"]
+        assert [r[1] for r in capabilities._folder_ends()] == ["system-end-types-arrow"]
+    finally:
+        block_library.set_system_root(None)
+
+
+def test_scan_tiered_user_wins_only_under_gate(tmp_path):
+    from firepro3d.capability_folder import scan_tiered
+    sysroot, user = tmp_path / "sys", tmp_path / "wb"
+    s = _cap(str(sysroot / "Linetypes" / "Dash.fpdb"), "lt-dash", "repeat", library="System")
+    u = _cap(str(user / "Dash.fpdb"), "lt-dash", "repeat")
+    block_library.set_system_root(str(sysroot))
+    try:
+        assert [r[2] for r in scan_tiered(str(user), "repeat")] == [os.path.abspath(s)]
+        block_library.set_dev_gate(True)
+        assert [r[2] for r in scan_tiered(str(user), "repeat")] == [os.path.abspath(u)]
+    finally:
+        block_library.set_system_root(None)

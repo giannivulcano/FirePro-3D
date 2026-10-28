@@ -234,11 +234,11 @@ def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
 
 
 def _folder_ends() -> list:
-    """``[(name, block_id, path)]`` -- the ``end`` blocks of the End Types
-    folder (``capability_folder.scan``: folder + two levels, mtime cache)."""
+    """``[(name, block_id, path)]`` -- the System tier's and the End Types
+    folder's ``end`` blocks (``capability_folder.scan_tiered``)."""
     from .app_data import end_types_dir
-    from .capability_folder import scan
-    return scan(end_types_dir(), "end")
+    from .capability_folder import scan_tiered
+    return scan_tiered(end_types_dir(), "end")
 
 
 def end_choices(registry=None, exclude=()) -> list:

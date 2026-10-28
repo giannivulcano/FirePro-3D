@@ -162,3 +162,17 @@ def scan(folder: str, flag: str) -> list[tuple[str, str, str]]:
     out.sort(key=lambda x: x[0].lower())
     _SCAN_CACHE[(folder, flag)] = (stamp, out)
     return list(out)
+
+
+def scan_tiered(folder: str, capability: str) -> list:
+    """``scan`` over the System tier and the user *folder*, first id wins:
+    System first (SB1b D2), or the user folder first under the dev gate
+    (authoring Q7: the Workbench copy outranks the shipped one)."""
+    from .block_library import dev_gate, system_root
+    system, user = scan(system_root(), capability), scan(folder, capability)
+    out, seen = [], set()
+    for row in (user + system if dev_gate() else system + user):
+        if row[1] not in seen:
+            seen.add(row[1])
+            out.append(row)
+    return out
