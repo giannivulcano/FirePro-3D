@@ -333,8 +333,9 @@ def plan_gridline_join(gl, gridlines, constraints=()) -> tuple:
     gridline within ``GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG`` of parallel (a
     coincident one is skipped) gets ``parallel`` -- unless both are the same
     exact axis -- and a driving ``dim_point_line`` [gl mid, neighbour edge].
-    With a neighbour on both sides, every ``dim_point_line`` in
-    *constraints* between those two is named for removal (re-chain).
+    With a neighbour on both sides, every driving ``dim_point_line`` in
+    *constraints* between those two is named for removal (re-chain); a
+    reference dim is a measurement, not spacing, and stays.
 
     Returns:
         ``(records, remove_ids)``.
@@ -381,7 +382,8 @@ def plan_gridline_join(gl, gridlines, constraints=()) -> tuple:
     remove = []
     if below is not None and above is not None:
         pair = {below[1]._uid, above[1]._uid}
-        remove = [c.id for c in constraints if c.type == "dim_point_line"
+        remove = [c.id for c in constraints
+                  if c.type == "dim_point_line" and c.driving and isinstance(c.refs, list)
                   and {r.get("uid") for r in c.refs if isinstance(r, dict)} == pair]
     return recs, remove
 

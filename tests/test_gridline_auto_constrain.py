@@ -96,6 +96,63 @@ def test_planner_rechain_names_the_pair_dim(plan_sc):
     assert remove == [ab.id]
 
 
+def test_planner_rechain_keeps_a_reference_dim(plan_sc):
+    sc = plan_sc
+    _gl(sc, (0, -1500), (0, 1500), "A")
+    _gl(sc, (3000, -1500), (3000, 1500), "B")
+    ref = sc.constraint_ctl.add(
+        "dim_point_line", [{"uid": "B", "h": "mid"}, {"uid": "A", "h": "edge"}])
+    sc.constraint_ctl.set_driving(ref.id, False)
+    d = _gl(sc, (1000, -1500), (1000, 1500), "D")
+    _recs_, remove = ac.plan_gridline_join(d, sc._gridlines, sc.constraint_ctl.constraints)
+    assert remove == []
+
+
+def test_planner_one_side_never_removes(plan_sc):
+    sc = plan_sc
+    _gl(sc, (0, -1500), (0, 1500), "A")
+    _gl(sc, (3000, -1500), (3000, 1500), "B")
+    sc.constraint_ctl.add(
+        "dim_point_line", [{"uid": "B", "h": "mid"}, {"uid": "A", "h": "edge"}])
+    d = _gl(sc, (5000, -1500), (5000, 1500), "D")         # outside the pair
+    recs, remove = ac.plan_gridline_join(d, sc._gridlines, sc.constraint_ctl.constraints)
+    assert remove == []
+    assert [r for r in _canon(recs) if r[0] == "dim_point_line"] == _canon([
+        ("dim_point_line", [{"uid": "D", "h": "mid"}, {"uid": "B", "h": "edge"}])])
+
+
+def test_planner_reversed_direction_and_nearest_wins(plan_sc):
+    sc = plan_sc
+    _gl(sc, (3000, 1500), (3000, -1500), "FAR")           # drawn downward
+    _gl(sc, (2000, 1500), (2000, -1500), "NEAR")          # nearer, same side
+    d = _gl(sc, (0, -1500), (0, 1500), "D")
+    recs, _ = ac.plan_gridline_join(d, sc._gridlines, [])
+    assert _canon(recs) == _canon([
+        ("vertical", [{"uid": "D", "h": "edge"}]),
+        ("dim_point_line", [{"uid": "D", "h": "mid"}, {"uid": "NEAR", "h": "edge"}])])
+
+
+def test_planner_near_horizontal_straddles_zero_and_pi(plan_sc):
+    sc = plan_sc
+    _gl(sc, (-1500, 1000), (1500, 999), "UP")             # angle just under pi (mod pi)
+    d = _gl(sc, (-1500, 0), (1500, 1), "D")                # angle just over 0
+    recs, _ = ac.plan_gridline_join(d, sc._gridlines, [])
+    assert ("dim_point_line", (("D", "mid"), ("UP", "edge"))) in _canon(recs)
+
+
+def test_auto_join_restores_removed_when_nothing_kept(plan_sc):
+    sc = plan_sc
+    ctl = sc.constraint_ctl
+    _gl(sc, (0, -1500), (0, 1500), "A")
+    _gl(sc, (3000, -1500), (3000, 1500), "B")
+    ab = ctl.add("dim_point_line", [{"uid": "B", "h": "mid"}, {"uid": "A", "h": "edge"}])
+    before = [c.to_dict() for c in ctl.constraints]
+    kept = ctl.auto_join([("dim_point_line", [{"uid": "NOPE", "h": "mid"},
+                                              {"uid": "A", "h": "edge"}])], remove=[ab.id])
+    assert kept == []
+    assert [c.to_dict() for c in ctl.constraints] == before
+
+
 # -- Task 1: controller remove= + shared commit helper -------------------------
 
 def test_auto_join_remove_is_inside_the_callers_step(plan_sc):
@@ -126,3 +183,110 @@ def test_plan_commit_follows_toggle_xor_shift(plan_sc):
     assert ac.plan_commit(sc, recs, None) == []          # typed / non-press = toggle
     assert ac.plan_commit(sc, recs, Qt.KeyboardModifier.NoModifier) == []
     assert len(ac.plan_commit(sc, recs, shift)) == 2     # toggle off + Shift = on
+
+
+# -- Task 2: draw_gridline through real presses (plan view) ------------------
+
+from tests._snap_polish_helpers import click, close_view, make_view, move  # noqa: E402
+
+NO = Qt.KeyboardModifier.NoModifier
+SHIFT = Qt.KeyboardModifier.ShiftModifier
+
+
+@pytest.fixture
+def pv(qapp):
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    view, sc = make_view(role="plan", scale=1.0, mode=None)
+    sc.set_align_enabled(False)
+    sc.toggle_snap(False)              # posted clicks land exactly (no OSNAP pull)
+    yield view, sc
+    QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+    close_view(view, sc)
+
+
+def _place(view, sc, a, b, mods=NO):
+    sc.set_mode("draw_gridline")
+    assert sc.mode == "draw_gridline"
+    n0 = len(sc._gridlines)
+    move(view, QPointF(*a), mods); click(view, QPointF(*a), mods)
+    move(view, QPointF(*b), mods); click(view, QPointF(*b), mods)
+    assert len(sc._gridlines) == n0 + 1
+    return sc._gridlines[-1]
+
+
+def _dims(sc):
+    return [c for c in sc.constraint_ctl.constraints if c.type == "dim_point_line"]
+
+
+def _pair(c):
+    return frozenset(r.get("uid") for r in c.refs if isinstance(r, dict))
+
+
+def test_g1_exact_vertical_placement_gets_vertical(pv):
+    view, sc = pv
+    g = _place(view, sc, (0, -200), (0, 200))
+    assert _recs(sc) == _canon([("vertical", [{"uid": g._uid, "h": "edge"}])])
+
+
+def test_g1_near_miss_gets_nothing(pv):
+    view, sc = pv
+    _place(view, sc, (0, -200), (3, 200))
+    assert sc.constraint_ctl.constraints == []
+
+
+def test_g2_neighbour_dim_is_driving_and_moves_the_new_gridline(pv):
+    view, sc = pv
+    a = _place(view, sc, (-100, -200), (-100, 200))
+    b = _place(view, sc, (100, -200), (100, 200))
+    (dim,) = _dims(sc)
+    assert _pair(dim) == {a._uid, b._uid} and dim.driving
+    assert dim.refs[0]["uid"] == b._uid and dim.refs[0]["h"] == "mid"
+    assert abs(dim.value - 200.0) < 1e-6
+    assert sc.constraint_ctl.set_value(dim.id, 300.0)
+    assert abs(a._origin.x() - (-100.0)) < 1e-3          # the older line holds
+    assert abs(b._origin.x() - 200.0) < 1e-3             # the new line moved
+
+
+def test_g9_locked_neighbour_never_moves(pv):
+    view, sc = pv
+    a = _place(view, sc, (-100, -200), (-100, 200))
+    a._locked = True
+    b = _place(view, sc, (100, -200), (100, 200))
+    (dim,) = _dims(sc)
+    assert sc.constraint_ctl.set_value(dim.id, 250.0)
+    assert abs(a._origin.x() - (-100.0)) < 1e-6
+    assert abs(b._origin.x() - 150.0) < 1e-3
+
+
+def test_g3_insert_between_rechains_and_g5_undo_restores(pv):
+    view, sc = pv
+    a = _place(view, sc, (-200, -200), (-200, 200))
+    b = _place(view, sc, (200, -200), (200, 200))
+    before = [c.to_dict() for c in sc.constraint_ctl.constraints]
+    assert {_pair(c) for c in _dims(sc)} == {frozenset({a._uid, b._uid})}
+    d = _place(view, sc, (0, -200), (0, 200))
+    assert {_pair(c) for c in _dims(sc)} == {frozenset({a._uid, d._uid}),
+                                              frozenset({d._uid, b._uid})}
+    assert not sc.constraint_ctl.red
+    sc.undo(); QApplication.processEvents()
+    assert d._uid not in {g._uid for g in sc._gridlines}
+    assert [c.to_dict() for c in sc.constraint_ctl.constraints] == before
+
+
+@pytest.mark.parametrize("toggle,mods,expect", [
+    (True, SHIFT, False), (False, NO, False), (False, SHIFT, True)])
+def test_g4_toggle_xor_shift(pv, toggle, mods, expect):
+    view, sc = pv
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, toggle)
+    _place(view, sc, (0, -200), (0, 200), mods)
+    assert bool(sc.constraint_ctl.constraints) is expect
+
+
+@pytest.mark.parametrize("toggle", [True, False])
+def test_typed_completion_follows_the_toggle(pv, toggle):
+    view, sc = pv
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, toggle)
+    sc.set_mode("draw_gridline")
+    move(view, QPointF(0, -200)); click(view, QPointF(0, -200))
+    assert sc._commit_draw_line_at(QPointF(0, 200))      # the Dynamic Input commit
+    assert bool(sc.constraint_ctl.constraints) is toggle

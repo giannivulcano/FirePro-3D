@@ -345,9 +345,9 @@ class GeometryDrawingController:
                 tip = self._scene._constrain_angle(self._scene._draw_line_anchor, snapped)
             self._commit_draw_line_at(
                 tip, tip_join=None if _is_grid else self._capture(event),
-                hv=self._hv_on(event))
+                hv=self._hv_on(event), modifiers=event.modifiers())
 
-    def _commit_draw_line_at(self, tip, tip_join=None, hv=None):
+    def _commit_draw_line_at(self, tip, tip_join=None, hv=None, modifiers=None):
         """Commit the armed line-like placement, ending at ``tip``.
 
         This is the commit half of :meth:`_press_draw_line`, split out so that
@@ -368,6 +368,9 @@ class GeometryDrawingController:
                 for a typed tip (AD5).
             hv: AC2 -- H / V on (the finishing press's toggle XOR Shift);
                 None for a typed tip = the toggle alone (R1).
+            modifiers: the finishing press's modifiers -- a gridline's Auto
+                Constrain (toggle XOR Shift, D139); None for a typed tip =
+                the toggle alone.
 
         Returns:
             True when a line was committed, False when it was refused (no
@@ -391,6 +394,8 @@ class GeometryDrawingController:
             if hv is None:
                 hv = self._hv_on(None)                         # AC2 R1: typed = toggle
             self._join_line(item, anchor, tip, tip_join, hv)  # AC1 + AC2, before the push (AD10)
+        elif _is_grid:
+            ac.join_gridlines(self._scene, [item], modifiers)  # R1-R6, before the push (D147)
         self._line_anchor_join = None
         for v in self._scene.views(): v.viewport().update()
         self._scene._draw_line_anchor = None
