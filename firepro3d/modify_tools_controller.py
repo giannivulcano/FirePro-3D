@@ -1801,6 +1801,11 @@ class ModifyToolsController:
                     with s.constraint_ctl.edit(new):
                         for it in self._rotatable(new):
                             it.manip_rotate(k * step, QPointF(centre))
+                    # R8: a turned gridline joins at its final pose (paste_items
+                    # skips the join when given a rotation).
+                    from . import auto_constrain as _ac
+                    _ac.join_gridlines(
+                        s, [it for it in new if isinstance(it, GridlineItem)], None)
                     for it in new:
                         fitting = getattr(it, "fitting", None)
                         if fitting is not None:

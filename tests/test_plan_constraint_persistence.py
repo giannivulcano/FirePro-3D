@@ -8,8 +8,9 @@ import json
 import logging
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, QSettings
 
+from firepro3d.constants import AUTO_CONSTRAIN_KEY
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.wall import WallSegment
@@ -161,7 +162,10 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
 def test_t10_copy_keeps_internal_constraints_on_the_copies(qapp):
     """D30: the paste path (commit_duplicate / commit_paste feed paste_items
     with internal_records) re-creates a constrained wall pair's and gridline
-    pair's internal constraints on the copies' new uids."""
+    pair's internal constraints on the copies' new uids. Auto Constrain is
+    off: pasted gridlines' own joins (R8) are guarded in
+    test_gridline_auto_constrain.py."""
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
     sc = Model_Space()
     try:
         w1 = _wall(sc, (0, 0), (3000, 0))
@@ -185,6 +189,7 @@ def test_t10_copy_keeps_internal_constraints_on_the_copies(qapp):
         assert sorted(c.type for c in copied) == ["parallel", "perpendicular"]
         assert not any(c.inert for c in copied)
     finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
         sc.cleanup()
 
 

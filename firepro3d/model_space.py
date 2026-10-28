@@ -6083,6 +6083,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             cp.grid_label = auto_label(gp[0], gp[1])
             self._register_gridline(cp)      # addItem + apply_category_defaults + append
         apply_duplicate_warnings(self._gridlines)
+        from . import auto_constrain as _ac
+        _ac.join_gridlines(self, copies, None)   # R8: one at a time, before the push (D147)
         self.push_undo_state()
         self._end_gridline_replicate()
         return True
@@ -9436,6 +9438,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
+        # R8: pasted gridlines join like placements, after the copied internal
+        # records (a duplicate of one is redundant -> dropped, D146); every
+        # caller pushes its undo step after this returns. A turned copy (Polar
+        # Array) is not yet at its final pose: that caller joins after the turn.
+        if rotation_deg is None:
+            pasted_gls = [it for it in new_items if isinstance(it, GridlineItem)]
+            if pasted_gls:
+                from . import auto_constrain as _ac
+                _ac.join_gridlines(self, pasted_gls, None)
         if pattern_skipped:
             self._show_status(skip_reason)
         elif da_skipped:

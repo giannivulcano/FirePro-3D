@@ -290,3 +290,82 @@ def test_typed_completion_follows_the_toggle(pv, toggle):
     move(view, QPointF(0, -200)); click(view, QPointF(0, -200))
     assert sc._commit_draw_line_at(QPointF(0, 200))      # the Dynamic Input commit
     assert bool(sc.constraint_ctl.constraints) is toggle
+
+
+def test_auto_join_clears_selected_and_hover_on_a_removed_dim(plan_sc):
+    sc = plan_sc
+    ctl = sc.constraint_ctl
+    _gl(sc, (0, -1500), (0, 1500), "A")
+    _gl(sc, (3000, -1500), (3000, 1500), "B")
+    ab = ctl.add("dim_point_line", [{"uid": "B", "h": "mid"}, {"uid": "A", "h": "edge"}])
+    d = _gl(sc, (1000, -1500), (1000, 1500), "D")
+    ctl.selected_id = ctl.hover_id = ab.id
+    recs, remove = ac.plan_gridline_join(d, sc._gridlines, ctl.constraints)
+    assert ac.plan_commit(sc, recs, None, remove)
+    assert ctl.selected_id is None and ctl.hover_id is None
+
+
+# -- Task 3: copies + paste ---------------------------------------------------
+
+from PyQt6.QtTest import QTest  # noqa: E402
+
+
+def test_g7_array_copies_chain_in_order_one_undo_step(plan_sc):
+    sc = plan_sc
+    src = _gl(sc, (0, -1500), (0, 1500), "S")
+    sc.push_undo_state()
+    sc._start_gridline_replicate(src, "array")
+    sc._replicate_count = 3
+    assert sc._commit_gridline_replicate_at(500.0)
+    c1, c2, c3 = sc._gridlines[-3:]
+    pairs = {frozenset(r["uid"] for r in c.refs)
+             for c in sc.constraint_ctl.constraints if c.type == "dim_point_line"}
+    assert pairs == {frozenset({c1._uid, "S"}), frozenset({c2._uid, c1._uid}),
+                     frozenset({c3._uid, c2._uid})}
+    assert sum(c.type == "vertical" for c in sc.constraint_ctl.constraints) == 3
+    sc.undo(); QApplication.processEvents()
+    assert [g._uid for g in sc._gridlines] == ["S"]
+    assert sc.constraint_ctl.constraints == []
+
+
+def test_g7_offset_copy_gets_its_spacing_dim(plan_sc):
+    sc = plan_sc
+    _gl(sc, (0, -1500), (0, 1500), "S")
+    sc._start_gridline_replicate(sc._gridlines[-1], "offset")
+    assert sc._commit_gridline_replicate_at(-750.0)
+    cp = sc._gridlines[-1]
+    (dim,) = [c for c in sc.constraint_ctl.constraints if c.type == "dim_point_line"]
+    assert dim.refs[0]["uid"] == cp._uid and dim.refs[1]["uid"] == "S"
+    assert abs(dim.value - 750.0) < 1e-6
+
+
+def test_g7_paste_joins_like_a_placement(plan_sc):
+    sc = plan_sc
+    src = _gl(sc, (0, -1500), (0, 1500), "S")
+    new = sc.paste_items(QPointF(600, 0), data=[src.to_dict()])
+    (cp,) = [g for g in new if isinstance(g, GridlineItem)]
+    assert _recs(sc) == _canon([
+        ("vertical", [{"uid": cp._uid, "h": "edge"}]),
+        ("dim_point_line", [{"uid": cp._uid, "h": "mid"}, {"uid": "S", "h": "edge"}])])
+
+
+def test_g7_polar_copy_joins_at_its_turned_pose(pv):
+    """Polar Array turns each pasted copy after paste_items: the join must see
+    the final pose (x=-100), not the coincident pre-turn copy."""
+    view, sc = pv
+    src = _gl(sc, (100, -50), (100, 50), "S")
+    sc.push_undo_state()
+    sc.clearSelection(); src.setSelected(True)
+    assert sc._modify_ctl.start("array")
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Right)       # Linear -> 2D
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Right)       # 2D -> Polar
+    click(view, QPointF(0, 0))                              # centre
+    assert sc.begin_dynamic_input() is True
+    sc.dynamic_input.editor("Count").setText("2")
+    sc.dynamic_input.editor("Total").setText("360")
+    sc.dynamic_input._accept()
+    (cp,) = [g for g in sc._gridlines if g is not src]
+    assert abs(cp.grip_points()[0].x() + 100) < 1e-6        # turned 180 about 0,0
+    (dim,) = [c for c in sc.constraint_ctl.constraints if c.type == "dim_point_line"]
+    assert dim.refs[0]["uid"] == cp._uid and dim.refs[1]["uid"] == "S"
+    assert abs(dim.value - 200.0) < 1e-6
