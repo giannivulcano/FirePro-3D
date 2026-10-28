@@ -188,3 +188,70 @@ class BoundPrim:
     prim: dict
     transform: object
     override_args: tuple = (None, None)
+
+
+def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: bool,
+                   scale: float, ov_args, cache):
+    """The per-placement bound text ops of *defn* (SB1a design S2; lifted from
+    ``BlockInstance._bound_ops`` for the SB3 ``BoundLabelItem`` -- one
+    implementation).
+
+    One TEXT op per ``BoundPrim`` (its box fill before and border after,
+    ``text_box_ops``), text resolved through ``resolve_values`` from
+    *attributes* (instance values / host overrides) and *host_values*, glyphs
+    built by ``TextItem`` + ``_local_path``, mapped through the prim's
+    definition-local transform then the (mirror, scale) pose part, the
+    placement override *ov_args* applied to the borders (WM-12). The upright
+    turn (A5) is applied at paint via ``readable``.
+
+    Args:
+        defn: The ``BlockDefinition`` (None -> no ops).
+        attributes: The placement's attribute values / host overrides.
+        host_values: ``{host_key: HostValue}`` or None (placeholders).
+        mirrored: The pose mirror flag.
+        scale: The variant scale (pose scale x annotative k).
+        ov_args: ``stroke_style.override_args`` tuple or None.
+        cache: The caller's last ``(bound prim list, key, ops)`` triple or
+            None. Memoised on (prim list identity, resolved strings, mirror,
+            scale, override).
+
+    Returns:
+        ``(ops, cache)`` -- *cache* is the same object as the argument on a
+        hit, a new triple on a rebuild, None when the definition has no bound
+        prims.
+    """
+    if defn is None:
+        return [], None
+    bps = defn.bound_prims()
+    if not bps:
+        return [], None
+    values = resolve_values(defn.effective_attributes(), attributes, host_values)
+    strings = tuple(resolve_fields(str(b.prim.get("text", "")), values)[0] for b in bps)
+    key = (strings, bool(mirrored), float(f"{scale:.9g}"), ov_args)
+    if cache is not None and cache[0] is bps and cache[1] == key:
+        return cache[2], cache
+    from PyQt6.QtGui import QTransform
+    from .block_definition import _local_path, text_box_ops
+    from .block_pose import pose_matrix
+    from .render_op import TEXT, RenderOp, apply_overrides
+    from .text_item import TextItem
+    sm = pose_matrix(0.0, 0.0, 0.0, bool(mirrored), scale)
+    out = []
+    for b, s in zip(bps, strings):
+        rec = dict(b.prim)
+        rec["text"] = s
+        item = TextItem.from_dict(rec)
+        path = item.mapToParent(_local_path(item))
+        centre = item.grip_points()[8]
+        op = RenderOp(TEXT, path, colour=item.data.color,
+                      text_frame=(centre.x(), centre.y(), float(item._angle)),
+                      readable=bool(rec.get("keep_upright", False)))
+        t = b.transform * sm
+        under, over = text_box_ops(item, QTransform())
+        out += [o.mapped(t) for o in under]
+        out.append(op.mapped(t))
+        # A nested record's override reaches its child's border (WM-6).
+        out += apply_overrides([o.mapped(t) for o in over], *b.override_args)
+    if ov_args is not None:
+        out = apply_overrides(out, *ov_args)    # box borders (WM-12)
+    return out, (bps, key, out)
