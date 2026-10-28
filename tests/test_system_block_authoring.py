@@ -144,3 +144,103 @@ def test_gate_on_workbench_copy_file_does_not_steal_the_id(tiers):
     block_library.set_dev_gate(True)
     assert block_library._find_by_id("system-hatches-brick", root)[3]["path"] == wb
     assert block_library.is_copy(copy_, "system-hatches-brick", root)
+
+
+from firepro3d import system_promote  # noqa: E402
+
+
+@pytest.fixture
+def gate(tmp_path):
+    sysroot, root = tmp_path / "sys", tmp_path / "lib"
+    sysroot.mkdir()
+    block_library.set_system_root(str(sysroot))
+    block_library.set_dev_gate(True)
+    yield str(sysroot), str(root)
+    block_library.set_system_root(None)
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_first_promote_mints_slug_and_writes_both(gate):
+    sysroot, root = gate
+    wb = _fpdb(os.path.join(root, "Workbench", "Line Types", "Fire Main.fpdb"),
+               "uuid-1", series="Line Types", version=4)
+    res = system_promote.promote("uuid-1", root)
+    assert res.new_id == "system-line-types-fire-main" and res.version == 4
+    shipped = _read(res.shipped_path)
+    assert res.shipped_path == os.path.join(sysroot, "Line Types", "Fire Main.fpdb")
+    assert (shipped["id"], shipped["library"], shipped["version"]) == (
+        "system-line-types-fire-main", "System", 4)
+    w = _read(wb)
+    assert (w["id"], w["library"], w["version"]) == (
+        "system-line-types-fire-main", "Workbench", 4)
+
+
+def test_repromote_keeps_id_and_bumps_shipped_version(gate):
+    sysroot, root = gate
+    _fpdb(os.path.join(sysroot, "Hatches", "Brick.fpdb"), "system-hatches-brick",
+          library="System", version=2)
+    _fpdb(os.path.join(root, "Workbench", "Hatches", "Brick.fpdb"),
+          "system-hatches-brick", version=2)
+    res = system_promote.promote("system-hatches-brick", root)
+    assert (res.new_id, res.version) == ("system-hatches-brick", 3)
+    assert _read(res.shipped_path)["version"] == 3
+
+
+def test_repromote_after_rename_moves_the_shipped_file(gate):
+    sysroot, root = gate
+    old = _fpdb(os.path.join(sysroot, "Hatches", "Brick.fpdb"), "system-hatches-brick",
+                library="System", version=2)
+    _fpdb(os.path.join(root, "Workbench", "Hatches", "Red Brick.fpdb"),
+          "system-hatches-brick", version=2)
+    res = system_promote.promote("system-hatches-brick", root)
+    assert res.removed_path == old and not os.path.exists(old)
+    assert _read(os.path.join(sysroot, "Hatches", "Red Brick.fpdb"))["version"] == 3
+
+
+def test_filename_clash_adopts_shipped_id(gate):            # D1
+    sysroot, root = gate
+    _fpdb(os.path.join(sysroot, "Hatches", "Concrete.fpdb"),
+          "builtin-hatch-concrete", library="System", version=1)
+    wb = _fpdb(os.path.join(root, "Workbench", "Hatches", "Concrete.fpdb"),
+               "uuid-c", version=5)
+    res = system_promote.promote("uuid-c", root)
+    assert (res.old_id, res.new_id, res.version) == ("uuid-c", "builtin-hatch-concrete", 2)
+    assert _read(wb)["id"] == "builtin-hatch-concrete"
+    assert _read(res.shipped_path)["version"] == 2
+
+
+def test_refusals_write_nothing(gate):
+    sysroot, root = gate
+    _fpdb(os.path.join(root, "Styles", "Hatches", "Mine.fpdb"), "uuid-m", library="Styles")
+    with pytest.raises(system_promote.PromoteRefused, match="Workbench"):
+        system_promote.promote("uuid-m", root)
+    _fpdb(os.path.join(root, "Workbench", "Symbols", "Valve.fpdb"), "uuid-v",
+          series="Symbols",
+          primitives=[{"type": "block_instance", "block_id": "uuid-not-shipped"}])
+    with pytest.raises(system_promote.PromoteRefused, match="uuid-not-shipped"):
+        system_promote.promote("uuid-v", root)
+    block_library.set_dev_gate(False)
+    with pytest.raises(system_promote.PromoteRefused, match="source checkout"):
+        system_promote.promote("uuid-v", root)
+    assert os.listdir(sysroot) == []
+
+
+def test_unsaved_project_copy_refused(gate):
+    sysroot, root = gate
+    path = _fpdb(os.path.join(root, "Workbench", "Hatches", "Dots.fpdb"), "uuid-d", version=2)
+    defn = block_library.load_block_file(path)
+    defn.version = 3                                       # edited in the project, not saved
+    with pytest.raises(system_promote.PromoteRefused, match="Save the block"):
+        system_promote.promote("uuid-d", root, project_def=defn)
+    assert os.listdir(sysroot) == []
+
+
+def test_write_shipped_refused_without_gate(gate):
+    sysroot, root = gate
+    block_library.set_dev_gate(False)
+    with pytest.raises(block_library.SystemLibraryReadOnly):
+        block_library.write_shipped(os.path.join(sysroot, "X.fpdb"), {})

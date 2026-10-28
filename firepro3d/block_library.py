@@ -195,6 +195,30 @@ def _assert_writable(*, path: str | None = None, library: str = "") -> None:
             "Shipped blocks are read-only -- duplicate to customise")
 
 
+def _assert_shipped_writable(path: str) -> None:
+    if not dev_gate():
+        raise SystemLibraryReadOnly(
+            "Shipped blocks are read-only -- duplicate to customise")
+    if not _under_system(path):
+        raise ValueError(f"not a System-tier path: {path}")
+
+
+def write_shipped(path: str, data) -> None:
+    """Write a shipped ``.fpdb`` -- the one gated bypass of
+    :func:`_assert_writable` (authoring Q6: Promote to System only)."""
+    _assert_shipped_writable(path)
+    _atomic_write_json(path, data)
+
+
+def delete_shipped(path: str) -> None:
+    """Remove a shipped ``.fpdb`` a promote renamed (gated like
+    :func:`write_shipped`)."""
+    _assert_shipped_writable(path)
+    if os.path.isfile(path):          # not _delete_path: it refuses System
+        os.remove(path)
+    capability_folder.forget(path)
+
+
 def _plain_segment(raw: str) -> bool:
     """True when *raw* can name one folder / file as-is (no separators)."""
     return bool(raw) and raw not in (".", "..") and not any(
