@@ -3274,10 +3274,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             })
         n0 = len(self.scene._gridlines)
         self.scene.place_grid_lines({"gridlines": specs})
-        # R7: the seed opens auto-constrained (H/V + chained spacing dims);
+        # R7: the seed opens auto-constrained (H/V + chained spacing dims),
+        # and 1 / A carry the origin on their line (smoke ruling 2026-10-28);
         # both callers reset the undo stack afterwards.
         from firepro3d import auto_constrain as _ac
-        _ac.join_gridlines(self.scene, self.scene._gridlines[n0:], None)
+        seed = self.scene._gridlines[n0:]
+        _ac.join_gridlines(self.scene, seed, None)
+        _ac.plan_commit(self.scene, _ac.plan_origin_ties(seed), None)
 
     def toggle_coverage_overlay(self, checked: bool):
         """Show/hide translucent sprinkler coverage circles."""

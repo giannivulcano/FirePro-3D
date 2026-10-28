@@ -144,6 +144,8 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
              "refs": [{"uid": "0" * 32, "h": "edge"}]},
             {"id": "ground", "type": "coincident",              # origin ground: never in plan
              "refs": [{"uid": w, "h": "p1"}, {"ref": "origin"}]},
+            {"id": "tie", "type": "point_on_curve",             # the seed's origin tie only
+             "refs": [{"ref": "origin"}, {"uid": g, "h": "edge"}]},
         ]
     f = _payload_with(tmp_path, cons)
     sc = Model_Space()
@@ -151,7 +153,7 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
         with caplog.at_level(logging.INFO):
             sc.load_from_file(str(f))
         ids = [c.id for c in sc.constraint_ctl.constraints]
-        assert ids == ["keep", "future"]
+        assert ids == ["keep", "future", "tie"]
         future = sc.constraint_ctl.constraints[1]
         assert future.inert
         assert any("Clean-drop: discarded 2 " in r.getMessage() for r in caplog.records)

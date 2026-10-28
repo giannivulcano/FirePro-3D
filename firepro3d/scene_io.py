@@ -33,11 +33,17 @@ log = logging.getLogger("FirePro3D")
 
 def _plan_record_resolves(rec, uids) -> bool:
     """Editor/Build slice 2 (C8 exception): whether every ref of constraint
-    record *rec* names a loaded wall / gridline uid (no grounds, no loose
-    geometry)."""
+    record *rec* names a loaded wall / gridline uid (no loose geometry). The
+    one ground allowed is the seed's origin tie (smoke ruling 2026-10-28):
+    ``point_on_curve`` [origin, edge]; every other ground stays Block-Editor
+    only."""
     refs = rec.get("refs") if isinstance(rec, dict) else None
     if not isinstance(refs, list) or not refs:
         return False
+    if (rec.get("type") == "point_on_curve" and len(refs) == 2
+            and refs[0] == {"ref": "origin"}
+            and isinstance(refs[1], dict) and refs[1].get("h") == "edge"):
+        refs = refs[1:]
     if not all(isinstance(r, dict) and isinstance(r.get("uid"), str) for r in refs):
         return False
     return all(r["uid"] in uids for r in refs)

@@ -33,10 +33,17 @@ def test_g6_seed_has_hv_and_chained_spacing(mw, qapp, tmp_path):
     # The joined seed is the undo baseline: Ctrl+Z never exposes it un-joined.
     assert (len(sc._undo_stack), sc._undo_pos) == (1, 0)
     sc.undo()
-    assert len(sc._gridlines) == 6 and len(sc.constraint_ctl.constraints) == 10
+    assert len(sc._gridlines) == 6 and len(sc.constraint_ctl.constraints) == 12
     cons = sc.constraint_ctl.constraints
     assert Counter(c.type for c in cons) == {
-        "vertical": 3, "horizontal": 3, "dim_point_line": 4}
+        "vertical": 3, "horizontal": 3, "dim_point_line": 4,
+        "point_on_curve": 2}
+    # Smoke ruling (2026-10-28): 1 and A carry the origin on their line.
+    label_of = {g._uid: g.grid_label for g in sc._gridlines}
+    ties = {label_of[c.refs[1]["uid"]] for c in cons
+            if c.type == "point_on_curve" and c.refs[0] == {"ref": "origin"}
+            and c.refs[1]["h"] == "edge"}
+    assert ties == {"1", "A"}
     by_label = {g._uid: g.grid_label for g in sc._gridlines}
     pairs = {frozenset(by_label[r["uid"]] for r in c.refs)
              for c in cons if c.type == "dim_point_line"}
@@ -63,6 +70,28 @@ def test_g6_seed_has_hv_and_chained_spacing(mw, qapp, tmp_path):
             [c.to_dict() for c in cons]
     finally:
         b.cleanup()
+
+
+def test_g6_origin_tie_holds_1_when_its_spacing_is_edited(mw, qapp):
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    try:
+        sc = _reseed(mw)
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+    g = {gl.grid_label: gl for gl in sc._gridlines}
+    dim = next(c for c in sc.constraint_ctl.constraints
+               if c.type == "dim_point_line"
+               and {r["uid"] for r in c.refs} == {g["1"]._uid, g["2"]._uid})
+    x2 = g["2"]._origin.x()
+    assert sc.constraint_ctl.set_value(dim.id, dim.value + 500.0)
+    # 1 stays on the origin; 2 takes the whole change.
+    assert abs(g["1"]._origin.x()) < 1e-3
+    assert abs(g["2"]._origin.x() - (x2 + 500.0)) < 1e-3
+    # With 2 locked the tie is what holds 1: the edit cannot move 1 off x=0
+    # (untied, the solve would slide 1 to keep the new spacing).
+    g["2"]._locked = True
+    sc.constraint_ctl.set_value(dim.id, dim.value + 500.0)
+    assert abs(g["1"]._origin.x()) < 1e-3
 
 
 def test_g6_seed_follows_the_toggle_off(mw, qapp):

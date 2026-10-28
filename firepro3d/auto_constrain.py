@@ -388,6 +388,25 @@ def plan_gridline_join(gl, gridlines, constraints=()) -> tuple:
     return recs, remove
 
 
+def plan_origin_ties(gridlines) -> list:
+    """Smoke ruling (2026-10-28): a Coincident ``point_on_curve`` [origin,
+    gridline edge] for each of *gridlines* whose line passes through the
+    origin (within ``LIN_TOL``). The default seed's 1 and A; the plan's only
+    ground ref -- no origin cross or axes are offered or painted."""
+    recs = []
+    for gl in gridlines:
+        uid = getattr(gl, "_uid", None)
+        if uid is None or adapter_for(gl) is None:
+            continue
+        ox, oy, fx, fy = _gl_vars(gl)
+        ln = math.hypot(fx - ox, fy - oy)
+        if ln <= LIN_TOL or abs(ox * fy - oy * fx) / ln > LIN_TOL:
+            continue
+        recs.append(("point_on_curve", [{"ref": "origin"},
+                                        {"uid": uid, "h": "edge"}]))
+    return recs
+
+
 def join_gridlines(scene, new, modifiers) -> list:
     """R7 / R8: auto-join each gridline of *new* as if placed one at a time
     (later ones are not yet neighbours), inside the caller's undo step.
