@@ -9,8 +9,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QPainterPath, QPen, QTransform
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 
 STROKE = "stroke"
 FILL = "fill"
@@ -165,3 +165,205 @@ def apply_overrides(ops, weight=None, linetype=None):
         kw["linetype"] = linetype
     return [replace(op, **kw) if op.kind == STROKE and op.weight is not None
             else op for op in ops]
+
+
+class PoseXf:
+    """Per-paint world-transform toggle for block ops (MW-7; moved from
+    ``block_instance._PoseXf`` for the SB3 lift).
+
+    The posed transform (pose x item frame) is composed once per paint and
+    switched to / from with ``setWorldTransform`` -- no per-op painter
+    ``save`` / ``restore``. Crisp stroke ops draw under it; every other op
+    (fills, text, linetype expansions, paper strokes) calls ``unposed`` first.
+    """
+
+    __slots__ = ("_painter", "_base", "_pose", "_posed", "_on")
+
+    def __init__(self, painter, pose: QTransform):
+        self._painter = painter
+        self._base = painter.worldTransform()
+        self._pose = pose
+        self._posed = None
+        self._on = False
+
+    def posed(self) -> None:
+        """Switch the painter to the posed transform (composed once)."""
+        if not self._on:
+            if self._posed is None:
+                self._posed = self._pose * self._base
+            self._painter.setWorldTransform(self._posed)
+            self._on = True
+
+    def unposed(self) -> None:
+        """Switch the painter back to the item frame it had at paint start."""
+        if self._on:
+            self._painter.setWorldTransform(self._base)
+            self._on = False
+
+
+def text_path(op, pose_rot: float) -> QPainterPath:
+    """A TEXT op's glyph path, turned 180 deg about its box centre when a
+    mirror left it reading upside down under rotation *pose_rot* (DD6;
+    lifted from ``BlockInstance._text_path``)."""
+    from .block_pose import is_upright
+    fr = op.text_frame
+    if not op.readable or fr is None:
+        return op.path
+    if is_upright(fr[2] + pose_rot):
+        return op.path
+    t = QTransform()
+    t.translate(fr[0], fr[1])
+    t.rotate(180.0)
+    t.translate(-fr[0], -fr[1])
+    return t.map(op.path)
+
+
+def paper_op_width(item, weight) -> float:
+    """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5;
+    lifted from ``BlockInstance._paper_op_width``): a named weight plots at
+    its own mm divided by the viewport scale, everything else takes the
+    category weight ``item._paper_pen_width``."""
+    from . import paper_display as _pd
+    from .stroke_style import is_named_weight
+    if not is_named_weight(weight) or not item._paper_scale:
+        return item._paper_pen_width
+    return _pd.resolve_line_weight_mm(weight) / max(item._paper_scale, 1e-9)
+
+
+def stroke_op(item, painter, ops, i, op, pose, pen, xf=None, path=None) -> None:
+    """Stroke op *i* of *ops* with *pen* (MW-7 / H-MW-f; lifted from
+    ``BlockInstance._stroke_op``). Canvas (cosmetic) pens draw crisp through
+    ``item._crisp_ops`` (a per-item ``(ops list, {slot: SplitCache})``);
+    paper / non-cosmetic pens draw the exact pre-MW call. *path* (LT5)
+    replaces the op's own path with a split-cache slot of its own; an empty
+    one draws nothing. Leaves the posed transform on (the caller's rule)."""
+    from . import crisp_stroke as _cs
+    from . import paper_display as _pd
+    if path is None:
+        path, slot = op.path, i
+    else:
+        if path.isEmpty():
+            return
+        slot = -1 - i
+    if not pen.isCosmetic() or _pd.paper_pass_active():
+        if xf is not None:
+            xf.unposed()
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(pose.map(path))
+        return
+    c = item._crisp_ops
+    if c is None or c[0] is not ops:
+        c = item._crisp_ops = (ops, {})
+    cache = c[1].get(slot)
+    if cache is None:
+        cache = c[1][slot] = _cs.SplitCache()
+    own = xf is None
+    if own:
+        xf = PoseXf(painter, pose)
+    xf.posed()
+    try:
+        _cs.stroke(painter, path, pen, cache.get(path, painter.worldTransform()))
+    finally:
+        if own:
+            xf.unposed()
+
+
+def paint_fill_op(item, painter, pose, op) -> None:
+    """Fill / pattern op: boundary posed; pattern stamped in the pose's
+    rotation / mirror frame, never its scale (D-A11; lifted from
+    ``BlockInstance._paint_fill_op``)."""
+    from . import hatch_render as _hr
+    from .colour_tokens import resolve_colour
+    from .constants import FILL_LEGACY_COLOUR
+    col = resolve_colour(op.colour or FILL_LEGACY_COLOUR, item=item)
+    col.setAlpha(op.alpha)
+    if op.kind == FILL:
+        _hr.paint_fill(painter, pose.map(op.path), scene=item.scene(),
+                       background=col, to_scene=item.sceneTransform())
+    else:
+        st = item.sceneTransform()
+        origin = pose.map(op.origin if op.origin is not None else QPointF(0, 0))
+        _hr.paint_fill(painter, pose.map(op.path), scene=item.scene(),
+                       tile_ref=op.tile_ref, colour=col,
+                       origin=st.map(origin), scale=op.scale, to_scene=st,
+                       orient=pattern_orient(op.pattern_frame, pose, st))
+
+
+def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=None,
+              end_ops=frozenset(), ends=None) -> None:
+    """Paint *ops* of a block with no linetype refs (every stroke solid) --
+    the pre-LT3 loop lifted from ``BlockInstance._paint_plain_ops`` (SB3
+    D-A: one op painter for a placed instance and a ``BoundLabelItem``).
+
+    *item* supplies the per-item paint state: ``_paper_pen_width``,
+    ``_paper_pen_color``, ``_paper_scale`` (paper_display._apply_block hooks),
+    ``_is_ghost``, ``_crisp_ops``, ``_pose_rot``, ``scene()``,
+    ``sceneTransform()``. *override* is the display-manager pen colour,
+    *tint* the constraint tint (stroke ops only), *selected* paints the
+    theme accent on the canvas (never on paper). LT5: stroke ops in *end_ops*
+    are offered to *ends(i, op, pen, xf) -> bool* first (True = the callback
+    drew the op with its ends); with *ends* None or *end_ops* empty (every
+    legacy block, every label) none of that runs and the loop is the pre-LT5
+    one. The canvas width is reused while consecutive ops share a weight.
+    """
+    from . import theme as _theme
+    from .colour_tokens import paint_resolver
+    from .constants import TOKEN_AUTO
+    from .stroke_style import canvas_px
+    on_paper = item._paper_pen_width is not None
+    last_w, last_px = None, None
+    xf = PoseXf(painter, pose)    # posed world transform, toggled per op (MW-7)
+    rc = paint_resolver(item)     # each distinct colour once per paint (G12)
+    sel = (QColor(_theme.detect().accent)       # canvas selection (R5)
+           if selected and not on_paper else None)
+    paper_color = item._paper_pen_color
+    for i, op in enumerate(ops):
+        if op.kind in (FILL, PATTERN):
+            xf.unposed()
+            paint_fill_op(item, painter, pose, op)
+            continue
+        if op.kind == TEXT:
+            xf.unposed()
+            # Text op: the fill carries the colour, so selection/override
+            # tint applies to the BRUSH.
+            b = QBrush(rc(op.colour or TOKEN_AUTO))
+            if override is not None:
+                b.setColor(override)
+            # Selection is canvas feedback -- never plots (LT1-2).
+            if sel is not None:
+                b.setColor(sel)  # theme accent (R5)
+            if paper_color is not None:
+                b.setColor(paper_color)   # paper B&W/Custom (LT1-2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(b)
+        else:
+            # Copy -- the compiled op pen is shared by every instance.
+            p = QPen(op.pen)
+            if op.colour is not None:
+                p.setColor(rc(op.colour))
+            w = op.weight
+            if on_paper:
+                p.setCosmetic(False)          # true mm on paper (LT1-2)
+                p.setWidthF(paper_op_width(item, w))
+            else:
+                p.setCosmetic(True)           # canvas (LT2-4)
+                if w is not None:
+                    if w != last_w or last_px is None:
+                        last_w, last_px = w, canvas_px(w)
+                    p.setWidthF(last_px)
+            if override is not None:
+                p.setColor(override)
+            if tint is not None:
+                p.setColor(tint)              # pen COPY (MW-12)
+            if sel is not None:
+                p.setColor(sel)  # theme accent (R5)
+            if paper_color is not None:
+                p.setColor(paper_color)
+            if (ends is not None and end_ops and i in end_ops and not item._is_ghost
+                    and ends(i, op, p, xf)):
+                continue
+            stroke_op(item, painter, ops, i, op, pose, p, xf)
+            continue
+        painter.drawPath(pose.map(text_path(op, item._pose_rot)))
+    xf.unposed()

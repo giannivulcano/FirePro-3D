@@ -24,7 +24,6 @@ from PyQt6.QtGui import (QBrush, QPainterPath, QPainterPathStroker, QPen,
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from . import annotative as _an
-from . import crisp_stroke as _cs
 from . import element_params
 from . import end_render as _er
 from . import hatch_render as _hr
@@ -32,19 +31,21 @@ from . import linetype_render as _lr
 from . import paper_display as _pd
 from . import theme as _theme
 from .block_definition import BlockDefinition
-from .block_pose import (check_scale, is_upright, pose_matrix, reflect_pose,
+from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
-from .colour_tokens import paint_resolver, resolve_colour
-from .constants import (FILL_LEGACY_COLOUR, LINETYPE_WINDOW_MIN_PERIODS,
-                        TOKEN_AUTO)
+from .colour_tokens import paint_resolver
+from .constants import LINETYPE_WINDOW_MIN_PERIODS, TOKEN_AUTO
 from .geometry_2d import constraint_tint
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
-                        pattern_orient as _pattern_orient)
+                        PoseXf as _PoseXf,
+                        paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
+                        paper_op_width as _paper_op_width_fn,
+                        stroke_op as _stroke_op_fn, text_path as _text_path_fn)
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 from .stroke_style import (BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
                            canvas_px, has_ends, is_as_authored, is_end_ref,
-                           is_linetype_ref, is_named_weight, linetype_block,
+                           is_linetype_ref, linetype_block,
                            normalize_overrides, override_args, resolve_ends,
                            resolve_stroke)
 
@@ -72,39 +73,6 @@ def _record_scale(rec: dict) -> float:
             rec.get("uid"), raw)
         return 1.0
     return s
-
-
-class _PoseXf:
-    """Per-paint world-transform toggle for ``BlockInstance`` ops (MW-7).
-
-    The posed transform (pose x item frame) is composed once per paint and
-    switched to / from with ``setWorldTransform`` -- no per-op painter
-    ``save`` / ``restore``. Crisp stroke ops draw under it; every other op
-    (fills, text, linetype expansions, paper strokes) calls ``unposed`` first.
-    """
-
-    __slots__ = ("_painter", "_base", "_pose", "_posed", "_on")
-
-    def __init__(self, painter, pose: QTransform):
-        self._painter = painter
-        self._base = painter.worldTransform()
-        self._pose = pose
-        self._posed = None
-        self._on = False
-
-    def posed(self) -> None:
-        """Switch the painter to the posed transform (composed once)."""
-        if not self._on:
-            if self._posed is None:
-                self._posed = self._pose * self._base
-            self._painter.setWorldTransform(self._posed)
-            self._on = True
-
-    def unposed(self) -> None:
-        """Switch the painter back to the item frame it had at paint start."""
-        if self._on:
-            self._painter.setWorldTransform(self._base)
-            self._on = False
 
 
 class BlockInstance(QGraphicsObject):
@@ -477,18 +445,8 @@ class BlockInstance(QGraphicsObject):
         self.update()
 
     def _text_path(self, op) -> QPainterPath:
-        """A TEXT op's glyph path, turned 180 deg about its box centre when a
-        mirror left it reading upside down under this rotation (DD6)."""
-        fr = op.text_frame
-        if not op.readable or fr is None:
-            return op.path
-        if is_upright(fr[2] + self._pose_rot):
-            return op.path
-        t = QTransform()
-        t.translate(fr[0], fr[1])
-        t.rotate(180.0)
-        t.translate(-fr[0], -fr[1])
-        return t.map(op.path)
+        """``render_op.text_path`` under this placement's rotation (DD6)."""
+        return _text_path_fn(op, self._pose_rot)
 
     # ── Geometry (pose-baked) ────────────────────────────────────────────
     def _local_path(self) -> QPainterPath:
@@ -1045,142 +1003,50 @@ class BlockInstance(QGraphicsObject):
 
     def _paint_plain_ops(self, painter, pose, ops, override, selected,
                          tint=None, end_ops=frozenset()) -> tuple:
-        """Paint *ops* of a block with no linetype refs (every stroke solid).
-
-        The pre-LT3 loop: no linetype cascade, expansion memo or paper-pass
-        read. The canvas width is reused while consecutive ops share a
-        weight. LT5: stroke ops in *end_ops* (``_end_ref_ops``: an explicit
-        end id) resolve their ends -- the registry, printed factor and posed
-        device scale are read once per paint, lazily, only when such an op
-        is met -- and draw trimmed + their ends; with *end_ops* empty (every
-        legacy block) none of that is read and the loop is the pre-LT5 one.
+        """Paint *ops* of a block with no linetype refs -- the lifted
+        ``render_op.paint_ops`` loop with this instance's LT5 end branch
+        supplied as the ``ends`` callback (stroke ops in *end_ops* draw
+        trimmed + their ends; the registry, printed factor and posed device
+        scale are read once per paint, lazily, only when such an op is met).
 
         Returns:
             The missing end ids met, in op order (``()`` when none).
         """
-        on_paper = self._paper_pen_width is not None
-        last_w, last_px = None, None
-        xf = _PoseXf(painter, pose)   # posed world transform, toggled per op (MW-7)
-        rc = paint_resolver(self)     # each distinct colour once per paint (G12)
-        sel = (QColor(_theme.detect().accent)       # canvas selection (R5)
-               if selected and not on_paper else None)
         miss = []
-        ff = sf = reg = None          # LT5 / ET1 lazies (ff None = not read yet)
-        for i, op in enumerate(ops):
-            if op.kind in (FILL, PATTERN):
-                xf.unposed()
-                self._paint_fill_op(painter, pose, op)
-                continue
-            if op.kind == TEXT:
-                xf.unposed()
-                # Text op: the fill carries the colour, so selection/override
-                # tint applies to the BRUSH.
-                b = QBrush(rc(op.colour or TOKEN_AUTO))
-                if override is not None:
-                    b.setColor(override)
-                # Selection is canvas feedback -- never plots (LT1-2).
-                if sel is not None:
-                    b.setColor(sel)  # theme accent (R5)
-                if self._paper_pen_color is not None:
-                    b.setColor(self._paper_pen_color)   # paper B&W/Custom (LT1-2)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(b)
-            else:
-                # Copy — the compiled op pen is shared by every instance.
-                p = QPen(op.pen)
-                if op.colour is not None:
-                    p.setColor(rc(op.colour))
-                w = op.weight
-                if on_paper:
-                    p.setCosmetic(False)          # true mm on paper (LT1-2)
-                    p.setWidthF(self._paper_op_width(w))
-                else:
-                    p.setCosmetic(True)           # canvas (LT2-4)
-                    if w is not None:
-                        if w != last_w or last_px is None:
-                            last_w, last_px = w, canvas_px(w)
-                        p.setWidthF(last_px)
-                if override is not None:
-                    p.setColor(override)
-                if tint is not None:
-                    p.setColor(tint)              # pen COPY (MW-12)
-                if sel is not None:
-                    p.setColor(sel)  # theme accent (R5)
-                if self._paper_pen_color is not None:
-                    p.setColor(self._paper_pen_color)
-                if end_ops and i in end_ops and not self._is_ghost:
-                    if ff is None:
-                        sc = self.scene()
-                        reg = (getattr(sc, "block_registry", None)
+        lazy = {}                     # ff / sf / reg, read on the first end op
+
+        def ends(i, op, pen, xf):
+            if "ff" not in lazy:
+                sc = self.scene()
+                lazy["reg"] = (getattr(sc, "block_registry", None)
                                if sc is not None else None)
-                        a = self._lt_args()
-                        ff = _lr.printed_factor(**a)
-                        dev = self._posed_device_scale(painter, pose, xf)
-                        sf = self._paint_sf = _er.screen_factor(
-                            paper_scale=a["paper_scale"], role=a["role"],
-                            device_scale=dev)
-                    ends = self._op_ends(op, None, reg)
-                    if has_ends(ends):
-                        trims = _er.end_trims(ends, printed=ff, screen=sf)
-                        if _er.short_on_screen(op.pieces, ends, trims, sf):   # ET1 Q7
-                            trims = _er.NO_TRIMS
-                            ends = _er.badges_only(ends)
-                        self._stroke_op(painter, ops, i, op, pose, p, xf,
-                                        path=(None if trims == _er.NO_TRIMS else
-                                              self._trimmed_op_path(ops, i, op, trims)))
-                        self._draw_op_ends(painter, op, ends, p, xf, ff, sf, miss)
-                        continue
-                self._stroke_op(painter, ops, i, op, pose, p, xf)
-                continue
-            painter.drawPath(pose.map(self._text_path(op)))
-        xf.unposed()
+                a = self._lt_args()
+                lazy["ff"] = _lr.printed_factor(**a)
+                dev = self._posed_device_scale(painter, pose, xf)
+                lazy["sf"] = self._paint_sf = _er.screen_factor(
+                    paper_scale=a["paper_scale"], role=a["role"], device_scale=dev)
+            e = self._op_ends(op, None, lazy["reg"])
+            if not has_ends(e):
+                return False
+            trims = _er.end_trims(e, printed=lazy["ff"], screen=lazy["sf"])
+            if _er.short_on_screen(op.pieces, e, trims, lazy["sf"]):   # ET1 Q7
+                trims = _er.NO_TRIMS
+                e = _er.badges_only(e)
+            self._stroke_op(painter, ops, i, op, pose, pen, xf,
+                            path=(None if trims == _er.NO_TRIMS else
+                                  self._trimmed_op_path(ops, i, op, trims)))
+            self._draw_op_ends(painter, op, e, pen, xf, lazy["ff"], lazy["sf"], miss)
+            return True
+
+        _paint_ops(painter, ops, pose, self, override=override, selected=selected,
+                   tint=tint, end_ops=end_ops, ends=ends if end_ops else None)
         return tuple(dict.fromkeys(miss))
 
     def _stroke_op(self, painter, ops, i, op, pose, pen, xf=None,
                    path=None) -> None:
-        """Stroke op *i* of *ops* with *pen* (MW-7 / H-MW-f).
-
-        Canvas (cosmetic) pens draw crisp: the op's definition-local path
-        under the pose, its split cached per (ops list, op index, pose 2x2)
-        -- never per paint, never on zoom. Paper (non-cosmetic) pens and paper
-        passes keep the exact pre-MW call, gated before any split. *pen* is
-        the painter-local copy (MW-12 tints it). *xf* is the paint's
-        ``_PoseXf`` (None: a one-off posed transform for this op); the posed
-        transform is left on for the next stroke op -- the caller switches
-        back (``xf.unposed()``) before any other op and after its loop.
-        *path* (LT5) replaces the op's own path -- its stroke trimmed for
-        its ends -- with a split cache slot of its own; an empty one (over-
-        trimmed) draws nothing.
-        """
-        if path is None:
-            path, slot = op.path, i
-        else:
-            if path.isEmpty():
-                return
-            slot = -1 - i
-        if not pen.isCosmetic() or _pd.paper_pass_active():
-            if xf is not None:
-                xf.unposed()
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(pose.map(path))
-            return
-        c = self._crisp_ops
-        if c is None or c[0] is not ops:
-            c = self._crisp_ops = (ops, {})
-        cache = c[1].get(slot)
-        if cache is None:
-            cache = c[1][slot] = _cs.SplitCache()
-        own = xf is None
-        if own:
-            xf = _PoseXf(painter, pose)
-        xf.posed()
-        try:
-            _cs.stroke(painter, path, pen,
-                       cache.get(path, painter.worldTransform()))
-        finally:
-            if own:
-                xf.unposed()
+        """``render_op.stroke_op`` on this instance (crisp split cache
+        ``_crisp_ops``)."""
+        _stroke_op_fn(self, painter, ops, i, op, pose, pen, xf, path)
 
     @staticmethod
     def _posed_device_scale(painter, pose, xf) -> float:
@@ -1317,33 +1183,12 @@ class BlockInstance(QGraphicsObject):
         return _lr.length_factor(lt, device_scale=device_scale, **self._lt_args())
 
     def _paper_op_width(self, weight) -> float:
-        """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5).
-
-        By Linetype (and a legacy un-migrated By Block), a placement By
-        Category and unweighted ops take the category weight
-        (``_paper_pen_width``); a named weight plots at its own mm divided by
-        the viewport scale (the §9.9.1 pattern).
-        """
-        if not is_named_weight(weight) or not self._paper_scale:
-            return self._paper_pen_width
-        return _pd.resolve_line_weight_mm(weight) / max(self._paper_scale, 1e-9)
+        """``render_op.paper_op_width`` on this instance (LT2-5)."""
+        return _paper_op_width_fn(self, weight)
 
     def _paint_fill_op(self, painter, pose, op) -> None:
-        """Fill / pattern op: boundary posed; pattern stamped in the pose's
-        rotation / mirror frame, never its scale (D-A11 block-pose exception)."""
-        paint_fill = _hr.paint_fill              # module import (hot path)
-        col = resolve_colour(op.colour or FILL_LEGACY_COLOUR, item=self)
-        col.setAlpha(op.alpha)
-        if op.kind == FILL:
-            paint_fill(painter, pose.map(op.path), scene=self.scene(),
-                       background=col, to_scene=self.sceneTransform())
-        else:
-            st = self.sceneTransform()
-            origin = pose.map(op.origin if op.origin is not None else QPointF(0, 0))
-            paint_fill(painter, pose.map(op.path), scene=self.scene(),
-                       tile_ref=op.tile_ref, colour=col,
-                       origin=st.map(origin), scale=op.scale, to_scene=st,
-                       orient=_pattern_orient(op.pattern_frame, pose, st))
+        """``render_op.paint_fill_op`` on this instance (D-A11)."""
+        _paint_fill_op_fn(self, painter, pose, op)
 
     def _display_pen_color(self) -> Optional[QColor]:
         """Hook for display-manager 'Blocks' category colour + pre-highlight.
