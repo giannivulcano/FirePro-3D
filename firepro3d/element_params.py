@@ -374,15 +374,24 @@ def category_of(item) -> Optional[str]:
     return None
 
 
-def host_values(item) -> dict[str, HostValue]:
+def host_values(item, keys=None) -> dict[str, HostValue]:
     """``{key: HostValue}`` for *item*'s category ({} for a non-element).
-    A getter that raises or meets missing data yields ``raw=None``."""
+    A getter that raises or meets missing data yields ``raw=None``.
+
+    Args:
+        item: The host element.
+        keys: Optional collection of keys; only those getters run and only
+            those keys are returned (a hot paint path skips the rest). None
+            = every key of the category.
+    """
     cat = category_of(item)
     if cat is None:
         return {}
     sm = get_scale_manager(item)
     out = {}
     for key, spec in PARAMS[cat].items():
+        if keys is not None and key not in keys:
+            continue
         try:
             raw = spec.getter(item)
         except Exception:        # one bad element never breaks paint (spec Edge Cases)

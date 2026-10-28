@@ -418,3 +418,35 @@ def test_f4_bounds_are_cached_until_refresh_or_the_paper_scale_changes(qapp):
     tag._paper_scale = None
     assert tag.boundingRect() == r1 and len(calls) == 3
     assert BoundLabelItem(room).boundingRect() is not None   # scene-attached child, no crash
+
+
+def test_host_values_keys_filter_matches_the_full_call_field_by_field(qapp):
+    """G5 fix: the tag evaluates only the bound fields; the filtered values are
+    the full call's values and the full call's key set is unchanged."""
+    ms = _scene()
+    room = _add_room(ms, "Office")
+    full = host_values(room)
+    part = host_values(room, keys={"Name"})
+    assert list(part) == ["Name"] and part["Name"].raw == "Office"
+    for k, v in part.items():
+        assert (v.raw, v.kind, v.text) == (full[k].raw, full[k].kind, full[k].text)
+    assert set(host_values(room, keys=set())) == set()
+    assert {"Name", "Area", "Volume", "CeilingHeight"} <= set(full)
+    assert list(host_values(room, keys=None)) == list(full)
+
+
+def test_rename_through_set_property_redraws_and_empty_name_stops_painting(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "Office")
+    tag = room._tag
+    d1 = _digest(_render(ms, RECT, 300, 300))
+    room.set_property("Room Name", "Boardroom")
+    d2 = _digest(_render(ms, RECT, 300, 300))
+    assert d2 != d1 and tag.paints()
+    room.set_property("Room Name", "")
+    d3 = _digest(_render(ms, RECT, 300, 300))
+    assert not tag.paints() and tag.boundingRect().isNull()
+    assert d3 not in (d1, d2)
+    room.set_property("Room Name", "Office")
+    assert tag.paints() and _digest(_render(ms, RECT, 300, 300)) == d1

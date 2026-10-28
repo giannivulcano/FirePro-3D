@@ -32,14 +32,18 @@ def paper_scene_size(mm: float, paper_scale: float) -> float:
     return float(mm) / max(float(paper_scale), 1e-9)
 
 
-def frame_scaled(item) -> bool:
+def frame_scaled(item, defn=None) -> bool:
     """True when *item* sizes by a frame (painter) scale instead of the
-    variant: an annotative Fixed-size block on a plan canvas (D4)."""
-    if not is_annotative(item.definition()) or item._paper_scale:
+    variant: an annotative Fixed-size block on a plan canvas (D4). *defn*
+    is the caller's already-resolved ``item.definition()`` (default None =
+    resolve it here)."""
+    if defn is None:
+        defn = item.definition()
+    if not is_annotative(defn) or item._paper_scale:
         return False
     sc = item.scene()
     role = getattr(sc, "scene_role", None) if sc is not None else None
-    return (role == _PLAN_ROLE and screen_mode(item.definition()) == SCREEN_FIXED
+    return (role == _PLAN_ROLE and screen_mode(defn) == SCREEN_FIXED
             and _lr.screen_fixed_here(paper_scale=None, role=role))
 
 
@@ -69,7 +73,7 @@ def _drawing_scale(sc) -> float:
     return float(ds) if ds else 1.0
 
 
-def annotative_factor(item, painter=None) -> float:
+def annotative_factor(item, painter=None, defn=None) -> float:
     """Scene units per authored mm for BlockInstance *item* (design table).
 
     Real size, no scene, or any non-plan, non-section scene (the Block
@@ -82,7 +86,7 @@ def annotative_factor(item, painter=None) -> float:
     visible-view zoom (bounds; the zoom hook re-prepares). Otherwise (Scale
     with zoom) -> the project drawing scale.
     """
-    d = item.definition()
+    d = defn if defn is not None else item.definition()
     if not is_annotative(d):
         return 1.0
     if item._paper_scale:
@@ -92,7 +96,7 @@ def annotative_factor(item, painter=None) -> float:
         return _drawing_scale(sc)
     if sc is None or getattr(sc, "scene_role", None) != _PLAN_ROLE:
         return 1.0
-    if frame_scaled(item):
+    if frame_scaled(item, d):
         if painter is not None:
             from .hatch_render import _device_scale
             dev = _device_scale(painter)

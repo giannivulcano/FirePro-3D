@@ -147,18 +147,30 @@ class BoundLabelItem(QGraphicsItem):
     def definition(self):
         return self._resolve()[0]
 
-    def host_values(self):
+    def host_values(self, keys=None):
         """``{host_key: HostValue}`` from the live host, or None (dead host /
-        category mismatch -> placeholders, E9)."""
+        category mismatch -> placeholders, E9). *keys* limits the getters run
+        (``element_params.host_values``); None = all."""
         h = self.parentItem()
         if (h is None or not element_params.is_live(h)
                 or element_params.category_of(h) != self._category):
             return None
-        return element_params.host_values(h)
+        return element_params.host_values(h, keys)
+
+    def _state(self):
+        """``(definition or None, resolver present, host values or None)`` --
+        one resolve and one host-values build, the latter limited to the
+        fields the block binds plus the category's label field."""
+        d, present = self._resolve()
+        keys = {LABEL_FIELD.get(self._category)}
+        if d is not None:
+            keys.update(a.get("host_key", "") for a in d.effective_attributes()
+                        if a.get("source") == "host")
+        return d, present, self.host_values(keys)
 
     # -- ops ----------------------------------------------------------------
-    def _k(self, painter=None) -> float:
-        return _an.annotative_factor(self, painter)
+    def _k(self, painter=None, defn=None) -> float:
+        return _an.annotative_factor(self, painter, defn)
 
     @staticmethod
     def _host_fields_empty(defn, hv) -> bool:
@@ -166,21 +178,19 @@ class BoundLabelItem(QGraphicsItem):
                 if a.get("source") == "host"]
         return bool(keys) and all(k in hv and hv[k].raw is None for k in keys)
 
-    def _orphan_visible(self) -> bool:
+    def _orphan_visible(self, state=None) -> bool:
         """Resolver present, block resolved nowhere, and the host has a label
-        to lose (F1)."""
-        d, present = self._resolve()
+        to lose (F1). *state* = a ``_state()`` result (default: take one)."""
+        d, present, hv = state if state is not None else self._state()
         if not present or d is not None:
             return False
-        hv = self.host_values()
         f = LABEL_FIELD.get(self._category)
         return hv is not None and f in hv and hv[f].raw is not None
 
-    def _ops(self, k: float) -> list:
-        d = self.definition()
+    def _ops(self, k: float, state=None) -> list:
+        d, _present, hv = state if state is not None else self._state()
         if d is None:
             return []
-        hv = self.host_values()
         bound, self._bound_cache = bound_text_ops(d, {}, hv, False, k, None,
                                                   self._bound_cache)
         if hv is not None and self._host_fields_empty(d, hv):
@@ -197,7 +207,8 @@ class BoundLabelItem(QGraphicsItem):
 
     def paints(self) -> bool:
         """True when the tag has ink (a resolved block and a non-empty field)."""
-        return bool(self._ops(self._k())) or self._orphan_visible()
+        st = self._state()
+        return bool(self._ops(self._k(None, st[0]), st)) or self._orphan_visible(st)
 
     # -- geometry -------------------------------------------------------------
     def set_anchor(self, pt: QPointF) -> None:
@@ -222,13 +233,14 @@ class BoundLabelItem(QGraphicsItem):
         return self._rect
 
     def _compute_rect(self) -> QRectF:
-        ops = self._ops(self._k())
+        st = self._state()
+        ops = self._ops(self._k(None, st[0]), st)
         if ops:
             r = QRectF()
             for op in ops:
                 r = r.united(op.path.boundingRect())
         else:
-            if not self._orphan_visible():
+            if not self._orphan_visible(st):
                 return QRectF()
             h = PLACEHOLDER_MM / 2.0
             r = QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM)
@@ -240,9 +252,10 @@ class BoundLabelItem(QGraphicsItem):
         return p
 
     def paint(self, painter, option, widget=None):
-        ops = self._ops(self._k(painter))
+        st = self._state()
+        ops = self._ops(self._k(painter, st[0]), st)
         if not ops:
-            if self._orphan_visible():                # orphan placeholder (G5: never vanishes)
+            if self._orphan_visible(st):              # orphan placeholder (G5: never vanishes)
                 h = PLACEHOLDER_MM / 2.0
                 pen = QPen(QColor(PLACEHOLDER_COLOUR))
                 pen.setCosmetic(True)
