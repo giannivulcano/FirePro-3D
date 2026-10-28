@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from collections.abc import Collection
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QPointF, Qt
@@ -374,7 +375,7 @@ def category_of(item) -> Optional[str]:
     return None
 
 
-def host_values(item, keys=None) -> dict[str, HostValue]:
+def host_values(item, keys: Collection[str] | None = None) -> dict[str, HostValue]:
     """``{key: HostValue}`` for *item*'s category ({} for a non-element).
     A getter that raises or meets missing data yields ``raw=None``.
 

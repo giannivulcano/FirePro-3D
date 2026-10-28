@@ -66,7 +66,7 @@ def _record(shape, n, ms_best):
     out = os.environ.get("SB3_BENCH_OUT")
     if out:
         tree = os.path.dirname(os.path.dirname(os.path.abspath(firepro3d.__file__)))
-        with open(out, "a", encoding="ascii") as fh:
+        with open(out, "a", encoding="utf-8") as fh:
             fh.write(f"{shape},{n},{ms_best:.3f},{tree}\n")
 
 

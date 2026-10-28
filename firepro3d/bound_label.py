@@ -13,6 +13,7 @@ serialised (the host owns ``show_label`` / ``label_offset``), invisible to HALO
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
@@ -147,10 +148,11 @@ class BoundLabelItem(QGraphicsItem):
     def definition(self):
         return self._resolve()[0]
 
-    def host_values(self, keys=None):
+    def host_values(self, keys: Collection[str] | None = None):
         """``{host_key: HostValue}`` from the live host, or None (dead host /
         category mismatch -> placeholders, E9). *keys* limits the getters run
-        (``element_params.host_values``); None = all."""
+        (``element_params.host_values`` evaluates only those getters and returns only
+        those keys); None = every key of the category."""
         h = self.parentItem()
         if (h is None or not element_params.is_live(h)
                 or element_params.category_of(h) != self._category):

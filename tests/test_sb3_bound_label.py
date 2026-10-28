@@ -450,3 +450,30 @@ def test_rename_through_set_property_redraws_and_empty_name_stops_painting(qapp)
     assert d3 not in (d1, d2)
     room.set_property("Room Name", "Office")
     assert tag.paints() and _digest(_render(ms, RECT, 300, 300)) == d1
+
+
+def test_tag_binding_a_non_label_field_renders_its_value(qapp):
+    """The bound-attribute key path: a tag binding @[Area] (not the label
+    field) still gets that field evaluated, shows the host's formatted value
+    and redraws when the area changes."""
+    ms = _scene()
+    d = BlockDefinition.new(name="AreaTag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "@[Area]", "x": 0.0,
+                                         "y": 0.0, "height_mm": TAG_MM}])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Area", "source": "host", "host_key": "Area"})]
+    ms.register_block_definition(d)
+    ms.annotation_defaults["Room"] = d.id
+    room = _add_room(ms, "Office")
+    tag = room._tag
+    assert tag.paints()
+    want = host_values(room)["Area"].text
+    assert want and tag._bound_cache[1][0] == (want,)
+    d1 = _digest(_render(ms, RECT, 300, 300))
+    room._boundary = [QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)]
+    room._rebuild()
+    tag.refresh()
+    want2 = host_values(room)["Area"].text
+    assert want2 != want and tag.paints() and tag._bound_cache[1][0] == (want2,)
+    assert _digest(_render(ms, RECT, 300, 300)) != d1
