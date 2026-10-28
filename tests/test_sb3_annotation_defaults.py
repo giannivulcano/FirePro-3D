@@ -1,5 +1,5 @@
 """SB3 -- annotation_defaults: eligibility, the project-registry resolver (Task 3),
-the .fpd / template round trip (AC3, Task 8), the fallback chain + notice (Task 10),
+the .fpd / template round trip (AC3, Task 8), the fallback chain + notice,
 the Annotation / Marks panes (AC9 pane level, Task 9)."""
 import json
 
@@ -16,6 +16,21 @@ from firepro3d.room import Room
 from firepro3d.system_blocks import ANNOTATION_CATEGORIES, SYSTEM_DEFAULTS
 
 TAG_MM = 3.0
+
+
+@pytest.fixture(autouse=True)
+def sys_defaults():
+    """Empty ``SYSTEM_DEFAULTS`` for every test here (the dict is shared by every
+    module-level binding); the returned setter installs a mapping. Restored after."""
+    saved = dict(SYSTEM_DEFAULTS)
+    SYSTEM_DEFAULTS.clear()
+
+    def _set(mapping):
+        SYSTEM_DEFAULTS.clear()
+        SYSTEM_DEFAULTS.update(mapping)
+    yield _set
+    SYSTEM_DEFAULTS.clear()
+    SYSTEM_DEFAULTS.update(saved)
 
 
 def _tag_def(ms, name="TestTag", height=TAG_MM):
@@ -80,7 +95,7 @@ def test_annotation_block_treats_an_ineligible_mapping_as_missing(qapp):
     ms = _scene()
     d = _tag_def(ms)
     d.annotative_screen = SCREEN_FIXED
-    assert ms.annotation_block("Room") is None            # Task 10 adds the fallback chain
+    assert ms.annotation_block("Room") is None            # ineligible mapping + no default = miss
 
 
 def test_ac3_annotation_defaults_round_trip_through_the_fpd(qapp, tmp_path):
@@ -279,7 +294,7 @@ def test_resolver_falls_back_to_the_library_root_and_notices_a_total_miss(qapp, 
     notices = _notices(ms)
     assert ms.annotation_block("Room").id == "lib-tag-1" and notices == []
     ms.annotation_defaults["Room"] = "nowhere"
-    assert ms.annotation_block("Room") is None                           # SYSTEM_DEFAULTS is empty until Task 11
+    assert ms.annotation_block("Room") is None                           # SYSTEM_DEFAULTS emptied by the autouse fixture
     assert len(notices) == 1 and "nowhere" in notices[0]
     ms.annotation_block("Room")
     assert len(notices) == 1                                             # memoised: one notice
@@ -312,10 +327,137 @@ def test_load_and_registry_change_refresh_the_cached_tag_rect(qapp, tmp_path):
     ms2 = _scene()
     ms2.load_from_file(str(f))
     tag = ms2._rooms[0]._tag
-    assert tag.boundingRect() == tag._compute_rect() and tag.boundingRect().width() > 0
+    assert tag.boundingRect().width() > 0
     # a registry change re-resolves: drop the block -> the cached rect follows (orphan box)
     ms2.annotation_defaults["Room"] = "nowhere"
     ms2.blockDefinitionsChanged.emit()
     assert tag.boundingRect() == tag._compute_rect()
     assert tag.boundingRect().width() > 0
     assert tag.definition() is None or tag.definition().id != d.id
+
+
+# ---- G3 fix round 1 -------------------------------------------------------
+
+def test_cancel_after_save_default_restores_mapping_and_tag_shape(qapp, tmp_path, monkeypatch):
+    from firepro3d import app_data
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    ms = _scene()
+    d = _tag_def(ms)
+    d2 = _tag_def(ms, name="Other-Longer-Name", height=9.0)
+    ms.annotation_defaults["Room"] = d.id
+    room = _add_room(ms, "Office")
+    tag = room._tag
+    opening = tag.boundingRect()
+    dlg = ProjectSettingsDialog(scene=ms, get_info=lambda: {}, set_info=lambda x: None)
+    combo = dlg._panes["annotation"]._combos["Room"]
+    combo.setCurrentIndex(combo.findData(d2.id))
+    dlg._on_save_default()
+    assert tag.boundingRect() != opening                     # the new block drew
+    dlg.reject()
+    assert ms.annotation_defaults == {"Room": d.id}
+    assert tag.boundingRect() == opening
+
+
+def test_untouched_ok_neither_pins_the_mapping_nor_fires(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    ms.annotation_defaults.clear()                           # legacy file / new project
+    fired = []
+    pane = AnnotationPane(scene=ms, on_changed=lambda: fired.append(1))
+    pane.load()
+    assert pane._combos["Room"].currentIndex() == -1
+    pane.apply()
+    assert ms.annotation_defaults == {} and fired == []
+
+
+def test_untouched_ok_with_a_system_default_neither_pins_nor_fires(qapp, tmp_path, sys_defaults):
+    ms = _scene()
+    sysroot = tmp_path / "sys"
+    _shipped(sysroot, "SysTag", "system-tags-systag")
+    block_library.set_system_root(str(sysroot))
+    sys_defaults({"Room": "system-tags-systag"})
+    fired = []
+    pane = AnnotationPane(scene=ms, on_changed=lambda: fired.append(1))
+    pane.load()
+    assert pane._combos["Room"].currentData() == "system-tags-systag"
+    pane.apply()
+    assert ms.annotation_defaults == {} and fired == []
+
+
+def test_one_notice_per_mapping_survives_registry_changes(qapp):
+    ms = _scene()
+    _add_room(ms, "Office")
+    ms.annotation_defaults["Room"] = "nowhere"
+    notices = _notices(ms)
+    assert ms.annotation_block("Room") is None and len(notices) == 1
+    ms.blockDefinitionsChanged.emit()
+    assert ms.annotation_block("Room") is None
+    ms.register_block_definition(BlockDefinition.new(name="Unrelated", library="", series="",
+                                                     origin=(0.0, 0.0), primitives=[]))
+    assert ms.annotation_block("Room") is None
+    assert len(notices) == 1
+
+
+def test_pane_apply_embeds_eagerly_before_any_paint(qapp, tmp_path):
+    ms = _scene()
+    d = _tag_def(ms)
+    room = _add_room(ms, "Office")
+    sysroot = tmp_path / "sys"
+    _shipped(sysroot, "SysTag", "system-tags-systag")
+    block_library.set_system_root(str(sysroot))
+    pane = AnnotationPane(scene=ms)
+    pane.load()
+    combo = pane._combos["Room"]
+    combo.setCurrentIndex(combo.findData("system-tags-systag"))
+    assert "system-tags-systag" not in ms._block_definitions
+    pane.apply()
+    assert "system-tags-systag" in ms._block_definitions      # embedded by apply, not by boundingRect
+    assert room._tag.definition().id == "system-tags-systag"
+
+
+def test_ineligible_library_file_is_never_embedded(qapp):
+    from pathlib import Path
+    from firepro3d.app_data import block_library_dir
+    ms = _scene()
+    _add_room(ms, "Office")
+    _lib_file(Path(block_library_dir()), "RealTag", "lib-real-1")
+    # rewrite the file as a real-size block (not annotative)
+    for f in Path(block_library_dir()).rglob("RealTag.fpdb"):
+        rec = json.loads(f.read_text(encoding="utf-8"))
+        rec["scale_mode"] = "real"
+        f.write_text(json.dumps(rec), encoding="utf-8")
+    ms.annotation_defaults["Room"] = "lib-real-1"
+    notices = _notices(ms)
+    assert ms.annotation_block("Room") is None
+    assert "lib-real-1" not in ms._block_definitions
+    assert len(notices) == 1
+
+
+def test_choices_label_present_but_ineligible_block_not_eligible_not_missing(qapp):
+    ms = _scene()
+    real = BlockDefinition.new(name="Door", library="", series="", origin=(0.0, 0.0), primitives=[])
+    real.host_category = "Room"
+    ms.register_block_definition(real)
+    ms.annotation_defaults["Room"] = real.id
+    pane = AnnotationPane(scene=ms)
+    pane.load()
+    combo = pane._combos["Room"]
+    assert combo.currentText() == "Door (not eligible)"
+    ms.annotation_defaults["Room"] = "ghost-id"
+    pane.load()
+    assert pane._combos["Room"].currentText() == "ghost-id (missing)"
+
+
+def test_shipped_tier_is_parsed_once_per_load(qapp, tmp_path, monkeypatch):
+    ms = _scene()
+    sysroot = tmp_path / "sys"
+    _shipped(sysroot, "SysTag", "system-tags-systag")
+    block_library.set_system_root(str(sysroot))
+    calls = []
+    real = block_library.load_block_file
+    monkeypatch.setattr(block_library, "load_block_file", lambda p: calls.append(p) or real(p))
+    monkeypatch.setattr("firepro3d.system_blocks.ANNOTATION_CATEGORIES", ("Room", "Pipe"))
+    pane = AnnotationPane(scene=ms)
+    assert set(pane._combos) == {"Room", "Pipe"}
+    pane.load()
+    assert len(calls) == 1

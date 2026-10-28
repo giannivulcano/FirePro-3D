@@ -1850,39 +1850,53 @@ class AnnotationPane(SettingsPane):
         outer.addStretch()
 
     @staticmethod
-    def choices(scene, category: str) -> list[tuple[str, str]]:
+    def _shipped_defs() -> dict:
+        """``{id: BlockDefinition}`` for the System tier, parsed once per call."""
+        from firepro3d import block_library
+        out = {}
+        for bid, path in sorted(block_library.shipped_index().items(), key=lambda kv: kv[1]):
+            d = block_library.load_block_file(path)
+            if d is not None:
+                out[bid] = d
+        return out
+
+    @staticmethod
+    def choices(scene, category: str, shipped: dict | None = None) -> list[tuple[str, str]]:
         """``[(label, block id)]``: eligible project blocks, then eligible
-        System blocks the project has not embedded (file name order)."""
+        System blocks the project has not embedded (file name order).
+        *shipped* = ``_shipped_defs()`` when the caller lists several categories."""
         from firepro3d import block_library
         from firepro3d.bound_label import eligible_definition
+        if shipped is None:
+            shipped = AnnotationPane._shipped_defs()
         out: list[tuple[str, str]] = []
         for bid, d in scene._block_definitions.items():
             if eligible_definition(d, category):
                 tier = "System" if d.library == block_library.SYSTEM_LIBRARY else "Project"
                 out.append((f"{d.name} ({tier})", bid))
         seen = {bid for _label, bid in out}
-        for bid, path in sorted(block_library.shipped_index().items(), key=lambda kv: kv[1]):
-            if bid in seen:
-                continue
-            d = block_library.load_block_file(path)
-            if d is not None and eligible_definition(d, category):
+        for bid, d in shipped.items():
+            if bid not in seen and eligible_definition(d, category):
                 out.append((f"{d.name} (System)", bid))
         return out
 
     def load(self) -> None:
         from firepro3d.system_blocks import SYSTEM_DEFAULTS
         self._snapshot = dict(getattr(self._scene, "annotation_defaults", {}) or {})
+        shipped = self._shipped_defs()
         for cat, combo in self._combos.items():
             combo.blockSignals(True)
             combo.clear()
-            for label, bid in self.choices(self._scene, cat):
+            for label, bid in self.choices(self._scene, cat, shipped):
                 combo.addItem(label, bid)
             current = self._snapshot.get(cat) or SYSTEM_DEFAULTS.get(cat, "")
             idx = combo.findData(current) if current else -1
             if current and idx < 0:
-                combo.addItem(f"{current} (missing)", current)   # Q6: the mapping is kept
+                known = self._scene._block_definitions.get(current) or shipped.get(current)
+                tag = f"{known.name} (not eligible)" if known is not None else f"{current} (missing)"
+                combo.addItem(tag, current)                    # Q6: the mapping is kept
                 idx = combo.count() - 1
-            combo.setCurrentIndex(idx if idx >= 0 else (0 if combo.count() else -1))
+            combo.setCurrentIndex(idx)                         # -1 = nothing mapped, nothing staged
             combo.blockSignals(False)
 
     def staged(self) -> dict:
@@ -1893,17 +1907,27 @@ class AnnotationPane(SettingsPane):
                 out[cat] = bid
         return out
 
-    def apply(self) -> None:
-        new = self.staged()
-        if new == dict(getattr(self._scene, "annotation_defaults", {}) or {}):
-            return
-        self._scene.annotation_defaults = new
+    def _resync(self) -> None:
+        """After a mapping change: drop the memo, embed the mapped blocks now
+        (never inside a boundingRect()/paint()), then re-shape the tags."""
+        from firepro3d.system_blocks import ANNOTATION_CATEGORIES
         self._scene._annot_memo.clear()
-        for room in getattr(self._scene, "_rooms", ()):      # re-shape now (pull-on-paint)
-            room._tag.refresh()
+        for cat in ANNOTATION_CATEGORIES:
+            self._scene.annotation_block(cat)
+        self._scene.refresh_room_tags()
+
+    def apply(self) -> None:
+        from firepro3d.system_blocks import SYSTEM_DEFAULTS
+        cur = dict(getattr(self._scene, "annotation_defaults", {}) or {})
+        diff = {c: b for c, b in self.staged().items()
+                if b != (cur.get(c) or SYSTEM_DEFAULTS.get(c, ""))}   # vs the EFFECTIVE mapping
+        if not diff:
+            return
+        self._scene.annotation_defaults = {**cur, **diff}
+        self._resync()
         if self._on_changed is not None:
             self._on_changed()
 
     def revert(self) -> None:
         self._scene.annotation_defaults = dict(self._snapshot)
-        self._scene._annot_memo.clear()
+        self._resync()

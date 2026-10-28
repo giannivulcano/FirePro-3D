@@ -66,7 +66,8 @@ def resolve_annotation_block(scene, category: str, mapped: str):
         if d is None:
             found = block_library._find_by_id(bid, None)
             path = found[3]["path"] if found is not None else None
-            if path is not None:
+            cand = block_library.load_block_file(path) if path is not None else None
+            if cand is not None and eligible_definition(cand, category):   # never embed an ineligible file
                 scene.load_blocks_outside_history([path])
                 d = scene._block_definitions.get(bid)
         if d is not None and eligible_definition(d, category):
@@ -74,8 +75,9 @@ def resolve_annotation_block(scene, category: str, mapped: str):
                 return bid, None
             return bid, (f"{category} tag: block {mapped} is missing or not an annotative "
                          f"{category} tag - using the System default ({d.name})")
+    tail = ("" if mapped == default else " and no System default is available")
     return None, (f"{category} tag: block {mapped} is missing or not an annotative "
-                  f"{category} tag and no System default is available - drawing a placeholder")
+                  f"{category} tag{tail} - drawing a placeholder")
 
 
 class BoundLabelItem(QGraphicsItem):

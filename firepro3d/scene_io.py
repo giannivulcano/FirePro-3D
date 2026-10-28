@@ -491,6 +491,7 @@ class SceneIOMixin:
         self.annotation_defaults = ({str(k): v for k, v in _ad.items() if isinstance(v, str)}
                                     if isinstance(_ad, dict) else {})
         self._annot_memo.clear()
+        self._annot_notified.clear()      # a reload notices a broken mapping again
 
         # --- Design-area tiles (now that walls & rooms exist) ---
         for da in self.design_areas:
@@ -560,6 +561,7 @@ class SceneIOMixin:
         from .system_blocks import ANNOTATION_CATEGORIES
         for _cat in ANNOTATION_CATEGORIES:
             self.annotation_block(_cat)
+        self.refresh_room_tags()          # tags built before the mapping existed drop their cached rect
 
     # ------------------------------------------------------------------
     # CLEAR
@@ -584,6 +586,7 @@ class SceneIOMixin:
         self.mark_patterns = dict(_marks.DEFAULT_PATTERNS)
         self.annotation_defaults = {}
         self._annot_memo.clear()
+        self._annot_notified.clear()
         self.project_settings_size = None
         self._titleblock_template = None
         self.sprinkler_system = SprinklerSystem()

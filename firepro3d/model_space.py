@@ -479,7 +479,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.annotation_defaults: dict[str, str] = {}
         self._annot_memo: dict = {}      # category -> (mapped id, resolved id | None)
         self._annot_resolving = False    # True while annotation_block embeds a file
-        self.blockDefinitionsChanged.connect(self._on_block_definitions_changed)   # registry version = the memo's life
+        self._annot_notified: set = set()   # (category, mapped) pairs already noticed; survives memo clears
         self.project_settings_size: tuple | None = None   # (w, h) of the Project Settings dialog, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
@@ -586,6 +586,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._gridline_template: "GridlineItem | None" = None  # pre-placement property template
         self._roofs: list[RoofItem] = []
         self._rooms: list[Room] = []
+        # Registry version = the annotation memo's life. Connected here (not with
+        # the memo above) because the handler walks self._rooms.
+        self.blockDefinitionsChanged.connect(self._on_block_definitions_changed)
         self._room_manual_active: "Room | None" = None     # in-progress manual room boundary
         self._next_roof_num: int = 1
         self._roof_template: "RoofItem | None" = None         # pre-placement property template
@@ -1925,15 +1928,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         resolution needs ``refresh()``). Skipped while a resolve is embedding
         a file (that resolve writes the memo itself)."""
         self._annot_memo.clear()
-        if self._annot_resolving:
-            return
-        for room in list(getattr(self, "_rooms", ())):
-            tag = getattr(room, "_tag", None)
-            if tag is not None:
-                try:
-                    tag.refresh()
-                except RuntimeError:      # wrapper outliving its C++ item (teardown)
-                    pass
+        if not self._annot_resolving:
+            self.refresh_room_tags()
+
+    def refresh_room_tags(self) -> None:
+        """Re-shape every room tag (its bounds rect is cached: a mapping,
+        registry, units or scale change needs ``refresh()``)."""
+        for room in list(self._rooms):
+            try:
+                room._tag.refresh()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
 
     def annotation_block(self, category: str):
         """The ``BlockDefinition`` that draws *category*'s intrinsic label
@@ -1957,8 +1962,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             finally:
                 self._annot_resolving = False
             self._annot_memo[category] = (mapped, rid)
-            if notice:
-                logging.getLogger(__name__).warning(notice)
+            if notice and (category, mapped) not in self._annot_notified:
+                self._annot_notified.add((category, mapped))   # one notice per mapping, not per memo life
+                log.warning(notice)
                 self._show_status(notice, 10000)
         else:
             rid = memo[1]
@@ -4177,8 +4183,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for inst in self._block_instances:
             if inst.element_host is not None:
                 inst.refresh_bound()
-        for room in self._rooms:          # SB3: room tags pull at paint; re-shape now
-            room._tag.refresh()
+        self.refresh_room_tags()          # SB3: room tags pull at paint; re-shape now
         # Selection dimension readouts format at paint time; a units/precision
         # change touches no item, so force the repaint (selection-mode §15).
         self.readouts.refresh()
@@ -9141,7 +9146,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         try:
             item = cls.from_dict(d)
         except Exception:
-            logging.getLogger(__name__).warning(
+            log.warning(
                 "clipboard item failed from_dict: %r", d.get("type"))
             return None
         self.addItem(item)

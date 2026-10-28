@@ -209,6 +209,10 @@ def apply_template_settings(scene) -> None:
         scene.annotation_defaults = {**scene.annotation_defaults,
                                      **{str(k): v for k, v in ad.items() if isinstance(v, str)}}
         scene._annot_memo.clear()
+        from ..system_blocks import ANNOTATION_CATEGORIES
+        for cat in ANNOTATION_CATEGORIES:          # embed now, never inside a boundingRect()/paint()
+            scene.annotation_block(cat)
+        scene.refresh_room_tags()
     apply_template_titleblock(scene, data)
 
 
@@ -241,7 +245,9 @@ def apply_template_titleblock(scene, data: dict) -> None:
 
 
 def save_current_as_default(scene) -> str:
-    """Persist *scene*'s current scale + project_info + mark_patterns + annotation_defaults into the default template.
+    """Persist *scene*'s current settings into the default template.
+
+    Captured: scale, project_info, mark_patterns and annotation_defaults.
 
     Geometry is NEVER written — only ``scale_manager.to_dict()`` and
     ``_project_info`` are captured.  A fresh blank payload is built so that the
