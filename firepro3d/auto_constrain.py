@@ -389,21 +389,20 @@ def plan_gridline_join(gl, gridlines, constraints=()) -> tuple:
 
 
 def plan_origin_ties(gridlines) -> list:
-    """Smoke ruling (2026-10-28): a Coincident ``point_on_curve`` [origin,
-    gridline edge] for each of *gridlines* whose line passes through the
-    origin (within ``LIN_TOL``). The default seed's 1 and A; the plan's only
-    ground ref -- no origin cross or axes are offered or painted."""
+    """Smoke ruling (2026-10-28): a ``coincident`` [origin, gridline p1] for
+    each of *gridlines* whose start point sits on the origin (within
+    ``LIN_TOL``) -- the point, not the line, so 1 and A cannot slide along
+    their axis. The default seed's 1 and A; the plan's only ground ref -- no
+    origin cross or axes are offered or painted."""
     recs = []
     for gl in gridlines:
         uid = getattr(gl, "_uid", None)
         if uid is None or adapter_for(gl) is None:
             continue
-        ox, oy, fx, fy = _gl_vars(gl)
-        ln = math.hypot(fx - ox, fy - oy)
-        if ln <= LIN_TOL or abs(ox * fy - oy * fx) / ln > LIN_TOL:
+        ox, oy = _gl_vars(gl)[:2]
+        if math.hypot(ox, oy) > LIN_TOL:
             continue
-        recs.append(("point_on_curve", [{"ref": "origin"},
-                                        {"uid": uid, "h": "edge"}]))
+        recs.append(("coincident", [{"ref": "origin"}, {"uid": uid, "h": "p1"}]))
     return recs
 
 

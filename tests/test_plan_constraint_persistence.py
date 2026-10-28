@@ -144,10 +144,10 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
              "refs": [{"uid": "0" * 32, "h": "edge"}]},
             {"id": "ground", "type": "coincident",              # origin ground: never in plan
              "refs": [{"uid": w, "h": "p1"}, {"ref": "origin"}]},
-            {"id": "tie", "type": "point_on_curve",             # the seed's origin tie only
-             "refs": [{"ref": "origin"}, {"uid": g, "h": "edge"}]},
-            {"id": "tie_p1", "type": "point_on_curve",          # origin tie on a point: drops
+            {"id": "tie", "type": "coincident",                 # the seed's origin tie only
              "refs": [{"ref": "origin"}, {"uid": g, "h": "p1"}]},
+            {"id": "tie_edge", "type": "point_on_curve",        # origin on a line: drops
+             "refs": [{"ref": "origin"}, {"uid": g, "h": "edge"}]},
         ]
     f = _payload_with(tmp_path, cons)
     sc = Model_Space()

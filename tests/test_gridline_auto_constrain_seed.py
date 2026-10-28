@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections import Counter
 
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QPointF, QRectF, QSettings, Qt
 
 from firepro3d.constants import AUTO_CONSTRAIN_KEY
 from firepro3d.model_space import Model_Space
-from tests.test_build_editor_tabs import mw  # noqa: F401
+from tests.test_build_editor_tabs import _plan_index, mw  # noqa: F401
+from tests.test_constraint_e2e import _drag
 
 
 def _reseed(mw):
@@ -37,12 +38,12 @@ def test_g6_seed_has_hv_and_chained_spacing(mw, qapp, tmp_path):
     cons = sc.constraint_ctl.constraints
     assert Counter(c.type for c in cons) == {
         "vertical": 3, "horizontal": 3, "dim_point_line": 4,
-        "point_on_curve": 2}
-    # Smoke ruling (2026-10-28): 1 and A carry the origin on their line.
+        "coincident": 2}
+    # Smoke ruling (2026-10-28): 1 and A start ON the origin (their p1).
     label_of = {g._uid: g.grid_label for g in sc._gridlines}
     ties = {label_of[c.refs[1]["uid"]] for c in cons
-            if c.type == "point_on_curve" and c.refs[0] == {"ref": "origin"}
-            and c.refs[1]["h"] == "edge"}
+            if c.type == "coincident" and c.refs[0] == {"ref": "origin"}
+            and c.refs[1]["h"] == "p1"}
     assert ties == {"1", "A"}
     by_label = {g._uid: g.grid_label for g in sc._gridlines}
     pairs = {frozenset(by_label[r["uid"]] for r in c.refs)
@@ -93,6 +94,41 @@ def test_g6_origin_tie_holds_1_when_its_spacing_is_edited(mw, qapp):
     sc.constraint_ctl.set_value(dim.id, dim.value + 500.0)
     assert abs(g["1"]._origin.x()) < 1e-3
     assert abs(g["2"]._origin.x() - (x2 + 500.0)) < 1e-3     # locked: held too
+
+
+def test_g6_dragging_1_along_its_axis_keeps_its_start_on_the_origin(mw, qapp):
+    """The smoke failure: with only the line tied, a body drag slid 1 up /
+    down. The start point is what is coincident, so it holds."""
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    try:
+        sc = _reseed(mw)
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    qapp.processEvents()
+    view = mw.view
+    g1 = next(gl for gl in sc._gridlines if gl.grid_label == "1")
+    far = g1.line().p2()
+    view.resetTransform()
+    view.fitInView(QRectF(-2000, far.y() - 2000, 12000, -far.y() + 4000),
+                   Qt.AspectRatioMode.KeepAspectRatio)
+    qapp.processEvents()
+    # A point on 1 between A and B, off every grip and crossing.
+    grab = QPointF(0.0, far.y() * 0.15)
+    end = QPointF(0.0, far.y() * 0.15 + 1500.0)       # 1500 mm along the axis
+    assert view.viewport().rect().contains(view.mapFromScene(grab))
+    sc.clearSelection()
+    g1.setSelected(True)
+    qapp.processEvents()
+    try:
+        _drag(view, grab, end)
+        qapp.processEvents()
+        assert abs(g1._origin.x()) < 1e-3 and abs(g1._origin.y()) < 1e-3
+    finally:
+        if sc.readouts.is_editing():
+            sc.readouts.cancel_edit()
+        sc.set_mode("select")
+        sc.clearSelection()
 
 
 def test_g6_deleting_1_drops_its_origin_tie(mw, qapp):

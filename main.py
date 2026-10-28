@@ -3275,7 +3275,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         n0 = len(self.scene._gridlines)
         self.scene.place_grid_lines({"gridlines": specs})
         # R7: the seed opens auto-constrained (H/V + chained spacing dims),
-        # and 1 / A carry the origin on their line (smoke ruling 2026-10-28);
+        # and 1 / A start on the origin -- point coincident (smoke ruling 2026-10-28);
         # both callers reset the undo stack afterwards.
         from firepro3d import auto_constrain as _ac
         seed = self.scene._gridlines[n0:]
