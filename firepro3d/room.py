@@ -16,13 +16,11 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import (
-    QGraphicsPolygonItem, QGraphicsTextItem, QGraphicsRectItem,
-    QGraphicsItem, QStyle,
-)
-from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QFont, QPainterPath, QPainter
+from PyQt6.QtWidgets import QGraphicsPolygonItem, QGraphicsItem, QStyle
+from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QPainterPath
 from PyQt6.QtCore import Qt, QPointF
 
+from .bound_label import BoundLabelItem
 from .colour_tokens import resolve_colour
 from .constants import DEFAULT_LEVEL, Z_OVERLAY
 
@@ -51,24 +49,6 @@ COMPARTMENT_TYPES = [
     "Room", "Corridor", "Stairwell", "Shaft",
     "Attic", "Concealed Space",
 ]
-
-# ── Room label background with rounded corners ─────────────────────────
-
-
-class _RoundedRectBgItem(QGraphicsRectItem):
-    """Label background: no fill, border with filleted (rounded) corners."""
-
-    _CORNER_RADIUS = 40.0  # scene units (mm) — adjust for visual fillet
-
-    def paint(self, painter: QPainter, option, widget=None):
-        r = self.rect()
-        if r.isEmpty():
-            return
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setPen(self.pen())
-        painter.setBrush(self.brush())
-        painter.drawRoundedRect(r, self._CORNER_RADIUS, self._CORNER_RADIUS)
-
 
 # ── Room class ──────────────────────────────────────────────────────────
 
@@ -113,14 +93,12 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         self._display_opacity: float = 100
         self._display_visible: bool = True
 
-        # Label in scene units (scales with zoom like pipe labels)
-        self._label_bg = None  # background rect, created in _update_label
-        self._label = QGraphicsTextItem(self)
-        self._label.setDefaultTextColor(QColor("#000000"))
-        self._label.setZValue(Z_OVERLAY)  # above everything including walls
-        self._label_font_color: str = "#000000"
-        self._label_font_size: float = 150.0  # mm in scene units
+        # Room tag (SB3; concept F5): a BoundLabelItem child draws the block
+        # mapped for "Room" at centroid + label_offset. The room owns
+        # show_label / label_offset; the item is never serialised.
         self._label_offset: QPointF = QPointF(0, 0)  # user drag offset from centroid
+        self._tag = BoundLabelItem(self)
+        self._tag.setZValue(Z_OVERLAY)  # above everything including walls
 
         # Rendering
         self.setZValue(-60)  # below walls (-50), above floors (-80)
@@ -155,44 +133,31 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
     # ── Grip protocol (drawn by Model_View like all other geometry) ────
 
-    def grip_points(self) -> list[QPointF]:
-        """Return a single grip at the label centre for dragging.
+    def _centroid(self) -> QPointF | None:
+        """Vertex mean of the boundary -- the tag anchor's base; None without one."""
+        if not self._boundary:
+            return None
+        n = len(self._boundary)
+        return QPointF(sum(p.x() for p in self._boundary) / n,
+                       sum(p.y() for p in self._boundary) / n)
 
-        Only shown when the label is visible — this is a label-only grip,
-        not a room-polygon grip.
+    def grip_points(self) -> list[QPointF]:
+        """One grip at the tag anchor (centroid + label_offset).
+
+        Label-only: shown while the label is visible and the room has a
+        name (the shipped tag binds the Name, SB3 Q1); never a polygon grip.
         """
-        text = self.name or ""
-        if not self._show_label or not text:
+        if not self._show_label or not (self.name or "") or not self._boundary:
             return []
-        if self._label_bg is not None and not self._label_bg.rect().isEmpty():
-            return [self._label_bg.rect().center()]
-        if self._boundary:
-            cx = sum(p.x() for p in self._boundary) / len(self._boundary)
-            cy = sum(p.y() for p in self._boundary) / len(self._boundary)
-            return [QPointF(cx, cy)]
-        return []
+        return [QPointF(self._tag.pos())]
 
     def apply_grip(self, index: int, pos: QPointF):
-        """Move the label so its centre lands at *pos*."""
-        if index != 0 or not self._boundary:
+        """Move the tag anchor to *pos*: writes ``label_offset`` (SB3 Q3)."""
+        c = self._centroid()
+        if index != 0 or c is None:
             return
-        cx = sum(p.x() for p in self._boundary) / len(self._boundary)
-        cy = sum(p.y() for p in self._boundary) / len(self._boundary)
-        br = self._label.boundingRect()
-        # pos is the desired centre of the label bg
-        lx = pos.x() - br.width() / 2
-        ly = pos.y() - br.height() / 2
-        self._label_offset = QPointF(
-            lx - (cx - br.width() / 2),
-            ly - (cy - br.height() / 2),
-        )
-        self._label.setPos(lx, ly)
-        if self._label_bg is not None:
-            pad = self._label_font_size * 0.2
-            self._label_bg.setRect(
-                lx - pad, ly - pad,
-                br.width() + 2 * pad, br.height() + 2 * pad,
-            )
+        self._label_offset = QPointF(pos.x() - c.x(), pos.y() - c.y())
+        self._update_label()
 
     def manip_handles(self):
         """U3: the single label-centre grip as a live-apply manipulator grip.
@@ -219,47 +184,17 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         self._update_label()
 
     def _update_label(self):
-        """Position the room tag label at the polygon centroid with background."""
-        text = self.name or ""
-        self._label.setVisible(self._show_label and bool(text))
-        if self._label_bg is not None:
-            self._label_bg.setVisible(self._show_label and bool(text))
-        if not text or not self._boundary:
+        """Anchor the tag at centroid + label_offset; show it with show_label.
+
+        The tag pulls its text at paint (SB3: ``BoundLabelItem``), so a name
+        change needs ``self._tag.refresh()``, not this.
+        """
+        self._tag.setVisible(self._show_label)
+        c = self._centroid()
+        if c is None:
             return
-
-        fc = resolve_colour(self._label_font_color, item=self).name()
-        fs = self._label_font_size
-        html = (f"<div style='text-align:center; font-size:{fs:.0f}px; "
-                f"font-family:Segoe UI; font-weight:bold; "
-                f"color:{fc};'>{text}</div>")
-        self._label.setHtml(html)
-        self._label.setTextWidth(-1)
-        ideal = self._label.document().idealWidth()
-        self._label.setTextWidth(ideal)
-
-        cx = sum(p.x() for p in self._boundary) / len(self._boundary)
-        cy = sum(p.y() for p in self._boundary) / len(self._boundary)
-        br = self._label.boundingRect()
-        lx = cx - br.width() / 2 + self._label_offset.x()
-        ly = cy - br.height() / 2 + self._label_offset.y()
-        self._label.setPos(lx, ly)
-
-        # Background box — no fill, border with rounded corners
-        pad = fs * 0.2
-        if self._label_bg is None:
-            self._label_bg = _RoundedRectBgItem(self)
-            self._label_bg.setZValue(Z_OVERLAY - 1)
-        dc = self._display_color            # None = unset; "" = No stroke
-        border_color = resolve_colour(self._color.name() if dc is None else dc,
-                                      item=self)
-        pen = QPen(border_color, 2)
-        pen.setCosmetic(True)
-        self._label_bg.setPen(pen)
-        self._label_bg.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self._label_bg.setRect(
-            lx - pad, ly - pad,
-            br.width() + 2 * pad, br.height() + 2 * pad
-        )
+        self._tag.set_anchor(QPointF(c.x() + self._label_offset.x(),
+                                     c.y() + self._label_offset.y()))
 
     @property
     def boundary(self) -> list[QPointF]:
@@ -402,16 +337,6 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         br = super().boundingRect()
         return br.united(self.childrenBoundingRect())
 
-    def label_scene_rect(self):
-        """The label-background rect in scene coords, or None if no visible label."""
-        bg = self._label_bg
-        if bg is None or not bg.isVisible():
-            return None
-        lbl = self._label
-        if lbl is None or not lbl.isVisible() or not (lbl.toPlainText() or "").strip():
-            return None
-        return bg.mapToScene(bg.rect()).boundingRect()
-
     # NOTE: shape() intentionally NOT overridden. A previous version
     # returned only the room-tag label area so that clicking inside the
     # polygon would fall through to walls/floors — but Qt used that
@@ -533,10 +458,10 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     def set_property(self, key: str, value):
         if key == "Room Name":
             self.name = str(value)
-            self._update_label()
+            self._tag.refresh()       # pull-on-paint; the ops cache keys on the resolved strings
         elif key == "Mark":
             self._mark = str(value)
-            self._update_label()
+            self._tag.refresh()
         elif key == "Show Label":
             self._show_label = (str(value) == "True")
             self._update_label()

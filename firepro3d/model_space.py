@@ -4143,6 +4143,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for inst in self._block_instances:
             if inst.element_host is not None:
                 inst.refresh_bound()
+        for room in self._rooms:          # SB3: room tags pull at paint; re-shape now
+            room._tag.refresh()
         # Selection dimension readouts format at paint time; a units/precision
         # change touches no item, so force the repaint (selection-mode §15).
         self.readouts.refresh()
@@ -5208,9 +5210,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return item
 
     def _halo_candidate_ok(self, item, scene_arg):
-        """HaloSelectionMixin candidate-filter hook (C1): a labelled Room is a
-        candidate only via its label rect; a label-less Room falls back to its
-        full polygon (shape() untouched). Everything else is accepted.
+        """HaloSelectionMixin candidate-filter hook: a Room is a candidate by
+        its polygon bbox (SB3 Q13); everything else is accepted.
 
         ``scene_arg`` is a QPointF (aperture hover, halo_candidates_at) or a
         QRectF (rubber-band, rubber_band_hits); dispatch to _halo_room_hit
@@ -5226,12 +5227,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self.mode in (None, "select")
 
     def _halo_room_hit(self, room, arg, is_rect):
-        """Room click target: label rect if labelled, else full polygon.
+        """Room click / rubber-band target: the polygon's scene bbox (SB3 Q13
+        retired the C1 label-rect restriction; HALO preselection disambiguates).
 
         arg is a QPointF (is_rect False) or QRectF (is_rect True).
         """
-        lr = room.label_scene_rect()
-        target = lr if lr is not None else room.mapToScene(room.shape()).boundingRect()
+        target = room.mapToScene(room.shape()).boundingRect()
         return target.intersects(arg) if is_rect else target.contains(arg)
 
     def _halo_is_underlay(self, item):

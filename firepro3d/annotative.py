@@ -114,6 +114,11 @@ def reprepare_annotative(scene) -> None:
         if is_annotative(inst.definition()):
             inst.prepareGeometryChange()
             inst.update()
+    for room in getattr(scene, "_rooms", ()):     # SB3: room tags size by the drawing scale too
+        tag = getattr(room, "_tag", None)
+        if tag is not None:
+            tag.prepareGeometryChange()
+            tag.update()
 
 
 def model_factor(item) -> float:

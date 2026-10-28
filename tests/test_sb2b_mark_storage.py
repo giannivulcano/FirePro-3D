@@ -106,8 +106,21 @@ def test_set_property_mark_writes_each_category(qapp):
 
 
 def test_room_label_shows_name_not_mark(qapp):
+    """SB2b M6 / SB3 Q1: the room tag's bound field is the Name; the Mark stays
+    a separate key the tag does not read."""
+    from firepro3d.block_attributes import bound_text_ops, normalise_attr
+    from firepro3d.block_definition import BlockDefinition
     ms = _scene()
     w, op, room, pipe, spr = _populate(ms)
     room.name = "Lobby"
-    room._update_label()
-    assert room._label.toPlainText() == "Lobby"
+    d = BlockDefinition.new(name="T", library="", series="", origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "@[Name]", "x": 0.0,
+                                         "y": 0.0, "height_mm": 3.0}])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    ms.register_block_definition(d)
+    ms.annotation_defaults["Room"] = d.id
+    assert room._tag.paints()
+    _ops, cache = bound_text_ops(d, {}, host_values(room), False, 1.0, None, None)
+    assert cache[1][0] == ("Lobby",) and marks.get_mark(room) == "104"
