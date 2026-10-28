@@ -1,0 +1,188 @@
+{
+  "schema": 1,
+  "id": "system-endtypes-arrow",
+  "version": 15,
+  "name": "Arrow",
+  "library": "System",
+  "series": "Endtypes",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "polyline",
+      "points": [
+        [
+          -2.8011237773739595e-10,
+          0.0
+        ],
+        [
+          -3.0,
+          -0.5000000000005009
+        ],
+        [
+          -3.0,
+          0.5000000000005009
+        ]
+      ],
+      "closed": true,
+      "uid": "a1d998a5a2d3424e9876d20aeb471ce7",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "type": "solid",
+        "pattern": "builtin-hatch-diagonal",
+        "color": "#ffffff",
+        "opacity": 1.0
+      }
+    },
+    {
+      "type": "reference_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        -3.0,
+        0.0
+      ],
+      "color": "#888888",
+      "lineweight": 1.0,
+      "printed": false,
+      "uid": "bd10dbbc856f437b8e82121fbc9ba5ed"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "574446ae287a499588572c1d4c689401",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "a1d998a5a2d3424e9876d20aeb471ce7",
+          "h": "s1"
+        }
+      ],
+      "value": 1.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "63ef1ce1f7d2464c939529f9f15709d1",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "a1d998a5a2d3424e9876d20aeb471ce7",
+          "h": "s1"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "9a712553780e45d79725b07dc1b37ec7",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "bd10dbbc856f437b8e82121fbc9ba5ed",
+          "h": "p2"
+        },
+        {
+          "uid": "a1d998a5a2d3424e9876d20aeb471ce7",
+          "h": "s1"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "e4191ff53e844058ac58fc8b95f4bdff",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "bd10dbbc856f437b8e82121fbc9ba5ed",
+          "h": "p1"
+        },
+        {
+          "uid": "a1d998a5a2d3424e9876d20aeb471ce7",
+          "h": "v0"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "89a5ede43930437b999b71df1ae3c37d",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "bd10dbbc856f437b8e82121fbc9ba5ed",
+          "h": "p1"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "2c93ac32f9a041c694139d798f30d7b9",
+      "type": "horizontal",
+      "refs": [
+        {
+          "uid": "bd10dbbc856f437b8e82121fbc9ba5ed",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "bca48d98b98246fd98d2d00f3a9ab64a",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "bd10dbbc856f437b8e82121fbc9ba5ed",
+          "h": "edge"
+        }
+      ],
+      "value": 3.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "end": {
+    "trim": -0.0,
+    "model_scale": 30.0
+  },
+  "base_version": 15
+}
