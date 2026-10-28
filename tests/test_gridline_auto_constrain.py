@@ -438,7 +438,10 @@ from PyQt6.QtWidgets import QLineEdit  # noqa: E402
 
 
 def _blue_pixels(view) -> int:
-    """Count #0066cc pixels (the retired readout colour) in the viewport."""
+    """Count #0066cc pixels (the retired readout colour) in the viewport.
+
+    #0066cc is used nowhere else in firepro3d; a new feature painting it near
+    a selected gridline would trip this guard -- pick another colour."""
     img = view.viewport().grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
     ptr = img.constBits()
     ptr.setsize(img.sizeInBytes())
