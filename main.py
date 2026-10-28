@@ -5130,9 +5130,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         except system_promote.PromoteRefused as exc:
             themed_info(self, "Promote to System", str(exc))
             return
-        if res.new_id != res.old_id and res.old_id in scene._block_definitions:
-            scene.load_blocks_from_files([res.workbench_path])
-            scene.retarget_block_refs(res.old_id, res.new_id)
+        if not scene.apply_promote(res):
+            themed_info(self, "Promote to System",
+                        f"Promoted, but this project could not load {res.workbench_path}"
+                        f" and still uses {res.old_id}.")
 
     def _duplicate_block_from_browser(self, block_id: str, path: str):
         """Blocks browser Duplicate to library... / Edit Block on a System

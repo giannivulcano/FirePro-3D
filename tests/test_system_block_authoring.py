@@ -373,3 +373,48 @@ def test_refile_prefill_is_workbench_for_a_workbench_file(monkeypatch, tmp_path)
     d.source_path = os.path.join(root, "Styles", "Hatches", "X.fpdb")
     block_editor.run_refile_dialog(None, d, None, root=root)
     assert [i[1] for i in seen] == ["Workbench", "Styles"]
+
+
+def _promoted_project(model_space, gate, block_id, *, version=5):
+    sysroot, root = gate
+    wb = _fpdb(os.path.join(root, "Workbench", "Hatches", "Concrete.fpdb"),
+               block_id, version=version)
+    model_space.load_blocks_from_files([wb], root)
+    model_space.place_block_instance(block_id, (0.0, 0.0))
+    model_space.push_undo_state()          # placement's own step (the tool pushes it)
+    return sysroot, root
+
+
+def test_id_changing_promote_retargets_the_project(model_space, gate):   # T6 C1
+    _promoted_project(model_space, gate, "uuid-c")
+    root = gate[1]
+    res = system_promote.promote(
+        "uuid-c", root, project_def=model_space._block_definitions["uuid-c"])
+    assert model_space.apply_promote(res, root)
+    assert [i.block_id for i in model_space._block_instances] == [res.new_id]
+    assert model_space._block_definitions[res.new_id].version == res.version
+
+
+def test_id_changing_promote_is_one_undo_step(model_space, gate):        # T6 I1
+    _promoted_project(model_space, gate, "uuid-c")
+    root = gate[1]
+    res = system_promote.promote(
+        "uuid-c", root, project_def=model_space._block_definitions["uuid-c"])
+    model_space.apply_promote(res, root)
+    model_space.undo()
+    assert [i.block_id for i in model_space._block_instances] == ["uuid-c"]
+    assert res.new_id not in model_space._block_definitions
+
+
+def test_same_id_repromote_refreshes_the_project_copy(model_space, gate):  # T6 M1
+    sysroot, root = _promoted_project(model_space, gate, "system-hatches-concrete",
+                                      version=2)
+    _fpdb(os.path.join(sysroot, "Hatches", "Concrete.fpdb"),
+          "system-hatches-concrete", library="System", version=2)
+    defs = model_space._block_definitions
+    res = system_promote.promote("system-hatches-concrete", root,
+                                 project_def=defs["system-hatches-concrete"])
+    assert model_space.apply_promote(res, root)
+    assert defs["system-hatches-concrete"].version == res.version == 3
+    system_promote.plan_promote("system-hatches-concrete", root,
+                                project_def=defs["system-hatches-concrete"])

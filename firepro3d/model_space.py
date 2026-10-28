@@ -2314,7 +2314,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.blockDefinitionsChanged.emit()
         return True
 
-    def load_blocks_from_files(self, paths, root: str | None = None) -> dict:
+    def load_blocks_from_files(self, paths, root: str | None = None, *,
+                               replacing: str | None = None) -> dict:
         """Embed block definitions from a list of `.fpdb` file paths.
 
         Per-file collision rules vs the project registry:
@@ -2341,6 +2342,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         (folder + filename win, 2026-10-10); a copied file whose id another
         file owns (``duplicate``) gets a fresh id -- its own block. The file
         itself is never rewritten here.
+
+        *replacing* names the project id the caller is about to retarget
+        away from (Promote to System, authoring T6): that definition is
+        exempt from the (library, series, name) clash.
         """
         import os
         import uuid
@@ -2397,7 +2402,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 # refused file adds nothing, not even its bundled deps
                 clash = any(
                     (o.library, o.series, o.name) == (defn.library, defn.series, defn.name)
-                    for o in self._block_definitions.values())
+                    for o in self._block_definitions.values() if o.id != replacing)
                 if clash:
                     summary["refused"].append(defn.name)
                     continue
@@ -2739,9 +2744,36 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 count += 1
         if count == 0:
             return 0
-        self.push_undo_state()
+        self.request_undo_push()
         self.blockDefinitionsChanged.emit()
         return count
+
+    def apply_promote(self, res, root: str | None = None) -> bool:
+        """Bring the open project in line after a Promote to System
+        (authoring Q6, T6 review C1/I1/M1).
+
+        An id-changing promote (first promote / D1 adopt) loads the
+        rewritten Workbench file and re-points every holder of the old id,
+        as ONE undo step. A same-id re-promote reloads the project copy so
+        it is not left at the old version.
+
+        Args:
+            res: The ``system_promote.PromoteResult``.
+            root: User block-library root (None = configured).
+
+        Returns:
+            False when the project held the old id but did not end on the
+            promoted definition; True otherwise (nothing to do included).
+        """
+        if res.old_id not in self._block_definitions:
+            return True
+        with self.deferred_undo_push():
+            self.load_blocks_from_files([res.workbench_path], root,
+                                        replacing=res.old_id)
+            if res.new_id != res.old_id:
+                self.retarget_block_refs(res.old_id, res.new_id)
+        d = self._block_definitions.get(res.new_id)
+        return d is not None and d.version == res.version
 
     def place_block_instance(self, block_id: str, pos, rotation: float = 0.0,
                              level: str | None = None, uid: str | None = None,
