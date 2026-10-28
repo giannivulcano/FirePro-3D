@@ -369,3 +369,50 @@ def test_g7_polar_copy_joins_at_its_turned_pose(pv):
     (dim,) = [c for c in sc.constraint_ctl.constraints if c.type == "dim_point_line"]
     assert dim.refs[0]["uid"] == cp._uid and dim.refs[1]["uid"] == "S"
     assert abs(dim.value - 200.0) < 1e-6
+
+
+def test_g7_multi_paste_drops_redundant_copied_records(plan_sc):
+    """Copied internal records land first; the join's duplicates of them are
+    redundant and dropped (D146), never red."""
+    sc = plan_sc
+    a = _gl(sc, (0, -1500), (0, 1500), "A")
+    b = _gl(sc, (1000, -1500), (1000, 1500), "B")
+    ac.join_gridlines(sc, [a, b], None)
+    src = [a, b]
+    new = sc.paste_items(QPointF(5000, 0), data=[g.to_dict() for g in src],
+                         constraints=sc.constraint_ctl.internal_records(src))
+    ca, cb = [g for g in new if isinstance(g, GridlineItem)]
+    assert not sc.constraint_ctl.red
+    mine = [c for c in sc.constraint_ctl.constraints
+            if {r["uid"] for r in c.refs} & {ca._uid, cb._uid}]
+    # Copied: ca / cb vertical + the cb-ca dim. Joined one at a time: ca
+    # (x=5000) adds a dim to B (x=1000); its vertical and cb's whole join
+    # repeat copied records -> redundant, dropped.
+    pairs = sorted(sorted(r["uid"] for r in c.refs)
+                   for c in mine if c.type == "dim_point_line")
+    assert sum(c.type == "vertical" for c in mine) == 2
+    assert pairs == sorted([sorted([ca._uid, cb._uid]), sorted([ca._uid, "B"])])
+    assert len(mine) == 4
+
+
+def test_g7_block_editor_paste_never_joins(qapp):
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        src = _gl(sc, (0, -1500), (0, 1500), "S")
+        new = sc.paste_items(QPointF(600, 0), data=[src.to_dict()])
+        assert [g for g in new if isinstance(g, GridlineItem)]    # pasted, so the rule is reached
+        assert sc.constraint_ctl.constraints == []
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+        close_view(view, sc)
+
+
+def test_level_duplication_copies_no_gridlines(plan_sc):
+    """Gridlines carry no level: Duplicate Level never copies (or joins) them."""
+    sc = plan_sc
+    _gl(sc, (0, -1500), (0, 1500), "A")
+    _gl(sc, (1000, -1500), (1000, 1500), "B")
+    sc.duplicate_level_entities(sc.active_level, "Level 2")
+    assert [g._uid for g in sc._gridlines] == ["A", "B"]
+    assert sc.constraint_ctl.constraints == []
