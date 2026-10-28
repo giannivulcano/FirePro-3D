@@ -448,6 +448,7 @@ DIM_TERMINATOR_KEY = "dimension/terminator"   # D61: QSettings -- End Types end 
 AUTO_CONSTRAIN_KEY = "constraint/auto_constrain"   # AC1 AD1: QSettings bool
 AUTO_CONSTRAIN_DEFAULT = True     # AC1 AD1: Auto Constrain is on until the user turns it off
 AUTO_CONSTRAIN_MATCH_TOL_MM = 1e-3  # AC1 AD4/AD6: snap point == handle / committed vertex (scene mm)
+GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG = 0.5  # Gridline Auto Constrain R1: a near-parallel spacing neighbour (the retired readouts' cluster bar)
 DIM_TERMINATOR_DEFAULT = "Arrow"
 DIM_LEADER_SHOULDER_PX = 18.0     # CS5 D74: a radial leader runs this far past the curve
 DIM_EXT_DASH = (4.0, 3.0)         # CS5 D75: dashed muted extension to an angle arc

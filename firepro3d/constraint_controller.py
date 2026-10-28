@@ -2138,9 +2138,10 @@ class ConstraintController:
                 self._status(REDUNDANT_STATUS)   # D42 (review M2)
         return out
 
-    def auto_join(self, records) -> list:
+    def auto_join(self, records, remove=()) -> list:
         """AC1 AD9: add Auto Constrain joins clean-only, inside the caller's
-        undo step.
+        undo step. *remove* (Gridline Auto Constrain R2 re-chain) names
+        constraint ids deleted first, in the same step.
 
         Each ``(ctype, refs)`` goes through :meth:`add` uncommitted with the
         status muted; a refused record is skipped, a red one (the solve held
@@ -2152,11 +2153,20 @@ class ConstraintController:
         Returns:
             The kept constraints.
         """
-        if not self.enabled or not records:
+        if not self.enabled or not (records or remove):
             return []
         kept = []
+        removed = False
         self._mute += 1
         try:
+            if remove:
+                ids = set(remove)
+                n = len(self.constraints)
+                self.constraints = [k for k in self.constraints if k.id not in ids]
+                self.red -= ids
+                if self.selected_id in ids:
+                    self.selected_id = None
+                removed = len(self.constraints) != n
             for ctype, refs in records:
                 n0 = len(self.constraints)
                 # Never let a join break the placement: any raise drops this
@@ -2183,7 +2193,7 @@ class ConstraintController:
                     _log.exception("Auto Constrain: red re-check failed")
         finally:
             self._mute -= 1
-        if kept:
+        if kept or removed:
             self._commit_gen += 1
             try:
                 self._repaint()
