@@ -580,9 +580,15 @@ def _iter_entries(root: str | None, *, system: bool = True):
             found.append((tier, library, series, name, consistent, path, meta))
     owner: dict = {}
     if dev_gate():           # authoring Q7: the Workbench copy outranks System
-        for tier, *_x, path, meta in found:
-            if tier == "user" and _under_workbench(path, root):
+        wb = [f for f in found if f[0] == "user" and _under_workbench(f[5], root)]
+        for *_x, consistent, path, meta in wb:   # same preference as below
+            if consistent:
                 owner.setdefault(meta["id"], path)
+        for *_x, path, meta in wb:
+            if capability_folder.owns_name(path, meta):
+                owner.setdefault(meta["id"], path)
+        for *_x, path, meta in wb:
+            owner.setdefault(meta["id"], path)
     for tier, *_x, path, meta in found:         # System owns its ids (D2)
         if tier == "system":
             owner.setdefault(meta["id"], path)

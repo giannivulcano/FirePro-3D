@@ -541,10 +541,14 @@ class BlocksBrowser(QWidget):
         if top.text(0) != block_library.SYSTEM_LIBRARY:
             return False
         # The shipped leaf keeps its read-only verbs when the dev gate hands
-        # its id to the Workbench copy (authoring Q7).
+        # its id to the Workbench copy (authoring Q7); an embedded copy in the
+        # System row (no path) stays System by its row.
         path = item.data(0, _ROLE_PATH) or ""
-        return ((bool(path) and block_library._under_system(path))
-                or block_library.is_system_block(block_id, self._lib_root))
+        if path:
+            return (block_library._under_system(path)
+                    or block_library.is_system_block(block_id, self._lib_root))
+        return block_library.dev_gate() or block_library.is_system_block(
+            block_id, self._lib_root)
 
     def _duplicate_item(self, item: QTreeWidgetItem) -> None:
         """Ask the owner to Duplicate this leaf to the user library (D9)."""

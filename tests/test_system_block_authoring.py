@@ -135,3 +135,12 @@ def test_scan_tiered_user_wins_only_under_gate(tmp_path):
         assert [r[2] for r in scan_tiered(str(user), "repeat")] == [os.path.abspath(u)]
     finally:
         block_library.set_system_root(None)
+
+
+def test_gate_on_workbench_copy_file_does_not_steal_the_id(tiers):
+    root, shipped, wb = tiers
+    copy_ = _fpdb(os.path.join(root, "Workbench", "Hatches", "Brick - Copy.fpdb"),
+                  "system-hatches-brick", name="Brick")    # sorts before Brick.fpdb
+    block_library.set_dev_gate(True)
+    assert block_library._find_by_id("system-hatches-brick", root)[3]["path"] == wb
+    assert block_library.is_copy(copy_, "system-hatches-brick", root)
