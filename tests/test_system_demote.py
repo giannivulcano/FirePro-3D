@@ -141,3 +141,50 @@ def test_missing_pattern_refs_names_only_unresolved(model_space, monkeypatch, ga
     missing = hatch_patterns.missing_pattern_refs(model_space)
     assert "missing-pattern-x" in missing
     assert hatch_patterns.BUILTIN_DIAGONAL not in missing     # still loaded, not missing
+
+
+def _leaf(browser, block_id, top_text):
+    from firepro3d.blocks_browser import _ROLE_ID
+
+    def walk(it):
+        if it.data(0, _ROLE_ID) == block_id:
+            return it
+        for i in range(it.childCount()):
+            r = walk(it.child(i))
+            if r is not None:
+                return r
+    t = browser._tree
+    for i in range(t.topLevelItemCount()):
+        if t.topLevelItem(i).text(0) == top_text:
+            return walk(t.topLevelItem(i))
+
+
+def _sys_browser(model_space, gate):
+    from firepro3d.blocks_browser import BlocksBrowser
+    sysroot, root = gate
+    shipped = _fpdb(os.path.join(sysroot, "Hatches", "Brick.fpdb"), "system-hatches-brick",
+                    tile={"width": 1.0})
+    return BlocksBrowser(model_space, root=root), shipped
+
+
+def test_system_leaf_offers_checkout_and_demote_under_gate(model_space, qapp, gate):
+    b, shipped = _sys_browser(model_space, gate)
+    got = []
+    b.checkoutRequested.connect(lambda i, p: got.append(("checkout", i, p)))
+    b.demoteRequested.connect(lambda i, p: got.append(("demote", i, p)))
+    leaf = _leaf(b, "system-hatches-brick", block_library.SYSTEM_LIBRARY)
+    acts = {a.text(): a for a in b._build_context_menu(leaf).actions()}
+    acts["Check out to Workbench..."].trigger()
+    acts["Demote from System..."].trigger()
+    assert got == [("checkout", "system-hatches-brick", shipped),
+                   ("demote", "system-hatches-brick", shipped)]
+
+
+def test_no_checkout_or_demote_without_gate(model_space, qapp, gate):
+    b, _shipped = _sys_browser(model_space, gate)
+    block_library.set_dev_gate(False)
+    leaf = _leaf(b, "system-hatches-brick", block_library.SYSTEM_LIBRARY)
+    texts = [a.text() for a in b._build_context_menu(leaf).actions()]
+    assert "Duplicate to library..." in texts
+    assert "Check out to Workbench..." not in texts
+    assert "Demote from System..." not in texts

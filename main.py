@@ -508,6 +508,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.blocks_browser.editRequested.connect(self._edit_block_from_browser)
         self.blocks_browser.duplicateRequested.connect(self._duplicate_block_from_browser)
         self.blocks_browser.promoteRequested.connect(self._promote_block_from_browser)
+        self.blocks_browser.checkoutRequested.connect(self._checkout_block_from_browser)
+        self.blocks_browser.demoteRequested.connect(self._demote_block_from_browser)
         # Refuse (e.g. a cycle) BEFORE an italic leaf is loaded — like a drag.
         self.blocks_browser.activation_guard = self._block_activation_refusal
 
@@ -5096,6 +5098,70 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Blocks browser right-click Edit Block: open the definition's editor tab."""
         self._commit_text_edits()
         self.block_editor_manager.edit_definition(block_id)
+
+    def _checkout_block_from_browser(self, block_id: str, path: str):
+        """Blocks browser Check out to Workbench...: copy the shipped block
+        into the Workbench under the same id (the shipped file stays).
+
+        Args:
+            block_id: The System block's id.
+            path: Its shipped ``.fpdb`` (unused; found by id).
+        """
+        self._commit_text_edits()
+        from firepro3d import system_promote
+        from firepro3d.themed_message import themed_confirm, themed_info
+        try:
+            plan = system_promote.plan_checkout(block_id)
+        except system_promote.PromoteRefused as exc:
+            themed_info(self, "Check out to Workbench", str(exc))
+            return
+        msg = chr(10).join([f"Write {plan.workbench_path}",
+                            f"Id: {block_id} (kept)",
+                            "Edit it there, then Promote to System ships the next version."])
+        if not themed_confirm(self, "Check out to Workbench", msg,
+                              ok_label="Check out", cancel_label="Cancel"):
+            return
+        try:
+            system_promote.checkout(block_id)
+        except system_promote.PromoteRefused as exc:
+            themed_info(self, "Check out to Workbench", str(exc))
+
+    def _demote_block_from_browser(self, block_id: str, path: str):
+        """Blocks browser Demote from System...: keep / write the Workbench
+        copy, then delete the shipped file. Not an undo step; the open
+        project keeps its embedded copy.
+
+        Args:
+            block_id: The System block's id.
+            path: Its shipped ``.fpdb`` (unused; found by id).
+        """
+        self._commit_text_edits()
+        from firepro3d import system_promote
+        from firepro3d.hatch_patterns import project_pattern_refs
+        from firepro3d.themed_message import themed_confirm, themed_info
+        try:
+            plan = system_promote.plan_demote(block_id)
+        except system_promote.PromoteRefused as exc:
+            themed_info(self, "Demote from System", str(exc))
+            return
+        lines = [f"Delete {plan.shipped_path}",
+                 (f"Write {plan.workbench_path}" if plan.workbench_written
+                  else f"Keep {plan.workbench_path}"),
+                 f"Id: {block_id} (kept)"]
+        uses = list(plan.app_refs)
+        if (block_id in self.scene._block_definitions
+                or block_id in project_pattern_refs(self.scene)):
+            uses.append("This project (keeps its embedded copy)")
+        if uses:
+            lines.append("Still referenced by (falls back to none where not found):")
+            lines += [f"  {u}" for u in uses]
+        if not themed_confirm(self, "Demote from System", chr(10).join(lines),
+                              ok_label="Demote", cancel_label="Cancel"):
+            return
+        try:
+            system_promote.demote(block_id)
+        except system_promote.PromoteRefused as exc:
+            themed_info(self, "Demote from System", str(exc))
 
     def _warn_missing_patterns(self):
         """Status-bar notice for referenced patterns that resolve to nothing

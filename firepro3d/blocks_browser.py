@@ -315,6 +315,8 @@ class BlocksBrowser(QWidget):
     editRequested = pyqtSignal(str)       # block id (project definition)
     duplicateRequested = pyqtSignal(str, str)   # block id, .fpdb path ("" = project copy)
     promoteRequested = pyqtSignal(str, str)     # block id, .fpdb path ("" = project copy)
+    checkoutRequested = pyqtSignal(str, str)    # block id, shipped .fpdb path ("" = project copy)
+    demoteRequested = pyqtSignal(str, str)      # block id, shipped .fpdb path ("" = project copy)
 
     def __init__(self, scene, parent: QWidget | None = None, *,
                  root: str | None = None) -> None:
@@ -502,8 +504,10 @@ class BlocksBrowser(QWidget):
     # ── context menu ──────────────────────────────────────────────────────
 
     def _build_context_menu(self, item: QTreeWidgetItem | None) -> QMenu | None:
-        """Right-click menu for a block leaf (``Edit Block``; ``Promote to
-        System...`` on a Workbench leaf under the dev gate); None for folders.
+        """Right-click menu for a block leaf (``Edit Block``; ``Check out to
+        Workbench...`` / ``Demote from System...`` on a System leaf and
+        ``Promote to System...`` on a Workbench leaf under the dev gate); None
+        for folders.
 
         Args:
             item: The tree item under the cursor (None = empty space).
@@ -530,6 +534,19 @@ class BlocksBrowser(QWidget):
             dup.setToolTip(dtip)
             dup.setStatusTip(dtip)
             dup.triggered.connect(lambda _=False, it=item: self._duplicate_item(it))
+            if block_library.dev_gate():
+                for text, vtip, sig in (
+                        ("Check out to Workbench...",
+                         "Copy this shipped block into the Workbench library to edit it (same id)",
+                         self.checkoutRequested),
+                        ("Demote from System...",
+                         "Remove this block from firepro3d/system_blocks (a Workbench copy is kept)",
+                         self.demoteRequested)):
+                    va = menu.addAction(text)
+                    va.setToolTip(vtip)
+                    va.setStatusTip(vtip)
+                    va.triggered.connect(lambda _=False, it=item, s=sig: s.emit(
+                        it.data(0, _ROLE_ID), it.data(0, _ROLE_PATH) or ""))
         if block_library.dev_gate() and self._is_workbench_leaf(item):
             pro = menu.addAction("Promote to System...")
             ptip = "Copy this saved Workbench block into firepro3d/system_blocks"
