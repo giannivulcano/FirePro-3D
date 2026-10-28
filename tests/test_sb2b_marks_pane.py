@@ -37,7 +37,7 @@ def _row(pane, category):
 def test_dialog_has_marks_rail_row_third(qapp, shown_model_view):
     view, scene = shown_model_view
     dlg = ProjectSettingsDialog(scene=scene, get_info=lambda: {}, set_info=lambda d: None)
-    assert dlg.rail_keys() == ["project_info", "units", "marks"]
+    assert dlg.rail_keys() == ["project_info", "units", "marks", "annotation"]
 
 
 def test_next_previews_per_keystroke(qapp, shown_model_view):

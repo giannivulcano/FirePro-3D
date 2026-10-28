@@ -131,3 +131,102 @@ def test_ac3_template_saves_and_overlays_annotation_defaults(qapp, tmp_path, mon
     fresh = _scene()
     template.apply_template_settings(fresh)
     assert fresh.annotation_defaults == {"Room": d.id}
+
+
+from firepro3d import block_library
+from firepro3d.settings.panes import AnnotationPane, MarksPane
+from firepro3d.settings.project_settings_dialog import ProjectSettingsDialog
+
+
+def _shipped(sysroot, name, block_id, series="Tags", category="Room"):
+    """Write an eligible System-tier .fpdb (a .fpdb IS to_dict() JSON)."""
+    d = BlockDefinition.new(name=name, library="System", series=series, origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "@[Name]", "x": 0.0,
+                                         "y": 0.0, "height_mm": 3.0}])
+    d.scale_mode = "annotative"
+    d.host_category = category
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    d.id = block_id
+    folder = sysroot / series
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.fpdb"
+    path.write_text(json.dumps(d.to_dict()), encoding="utf-8")
+    return str(path)
+
+
+def test_ac9_annotation_pane_lists_eligible_project_and_system_blocks(qapp, tmp_path):
+    ms = _scene()
+    d = _tag_def(ms)                                           # eligible project block
+    real = BlockDefinition.new(name="Door", library="", series="", origin=(0.0, 0.0), primitives=[])
+    real.host_category = "Room"
+    ms.register_block_definition(real)                         # real size: not listed
+    pipe = BlockDefinition.new(name="PipeTag", library="", series="", origin=(0.0, 0.0),
+                               primitives=[{"type": "text", "text": "@[Mark]", "x": 0.0,
+                                            "y": 0.0, "height_mm": 3.0}])
+    pipe.scale_mode = "annotative"
+    pipe.host_category = "Pipe"
+    ms.register_block_definition(pipe)                         # other category: not listed
+    sysroot = tmp_path / "sys"
+    _shipped(sysroot, "SysTag", "system-tags-systag")
+    _shipped(sysroot, "PipeSys", "system-tags-pipesys", category="Pipe")
+    block_library.set_system_root(str(sysroot))                # conftest restores it
+    pane = AnnotationPane(scene=ms)
+    pane.load()
+    combo = pane._combos["Room"]
+    assert [combo.itemText(i) for i in range(combo.count())] == ["TestTag (Project)", "SysTag (System)"]
+    assert [combo.itemData(i) for i in range(combo.count())] == [d.id, "system-tags-systag"]
+    assert combo.currentData() == d.id
+
+
+def test_ac9_pane_apply_writes_the_mapping_and_calls_on_changed_only_on_a_change(qapp):
+    ms = _scene()
+    d = _tag_def(ms)
+    d2 = _tag_def(ms, name="Other")
+    ms.annotation_defaults["Room"] = d.id
+    room = _add_room(ms, "Office")
+    fired = []
+    pane = AnnotationPane(scene=ms, on_changed=lambda: fired.append(1))
+    pane.load()
+    pane.apply()
+    assert fired == [] and ms.annotation_defaults == {"Room": d.id}
+    combo = pane._combos["Room"]
+    combo.setCurrentIndex(combo.findData(d2.id))
+    pane.apply()
+    assert ms.annotation_defaults == {"Room": d2.id} and fired == [1]
+    assert ms.annotation_block("Room").id == d2.id and room._tag.definition().id == d2.id
+    pane.revert()
+    assert ms.annotation_defaults == {"Room": d.id}
+
+
+def test_ac9_marks_pane_apply_calls_on_changed_only_on_a_change(qapp):
+    ms = _scene()
+    fired = []
+    pane = MarksPane(scene=ms, on_changed=lambda: fired.append(1))
+    pane.load()
+    pane.apply()
+    assert fired == []
+    r = next(r for r in range(pane._table.rowCount()) if pane._table.item(r, 0).text() == "Door")
+    pane._table.item(r, 1).setText("DR-{n:02}")
+    pane.apply()
+    assert ms.mark_patterns["Door"] == "DR-{n:02}" and fired == [1]
+
+
+def test_dialog_rail_has_the_annotation_row_and_ok_applies_it(qapp):
+    ms = _scene()
+    d = _tag_def(ms)
+    d2 = _tag_def(ms, name="Other")
+    ms.annotation_defaults["Room"] = d.id
+    fired = []
+    dlg0 = ProjectSettingsDialog(scene=ms, get_info=lambda: {}, set_info=lambda x: None,
+                                 on_changed=lambda: fired.append(1))
+    dlg0._on_ok()                                              # baseline: UnitsPane always fires
+    base = len(fired)
+    assert ms.annotation_defaults == {"Room": d.id}
+    fired.clear()
+    dlg = ProjectSettingsDialog(scene=ms, get_info=lambda: {}, set_info=lambda x: None,
+                                on_changed=lambda: fired.append(1))
+    assert dlg.rail_keys() == ["project_info", "units", "marks", "annotation"]
+    combo = dlg._panes["annotation"]._combos["Room"]
+    combo.setCurrentIndex(combo.findData(d2.id))
+    dlg._on_ok()
+    assert ms.annotation_defaults == {"Room": d2.id} and len(fired) == base + 1

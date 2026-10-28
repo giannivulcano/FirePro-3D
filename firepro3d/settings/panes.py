@@ -1686,13 +1686,15 @@ class _PatternDelegate(QStyledItemDelegate):
 class MarksPane(SettingsPane):
     """Per-category Mark patterns (element-parameters.md Marks, A3).
 
-    Edits stage in the table; apply() writes ``scene.mark_patterns``.
-    A pattern edit never rewrites existing Marks (M4).
+    Edits stage in the table; apply() writes ``scene.mark_patterns`` and, on a
+    change, fires *on_changed* -- the main window's modified flag (SB3 Q5b);
+    no undo step. A pattern edit never rewrites existing Marks (M4).
     """
 
-    def __init__(self, scene=None, parent=None):
+    def __init__(self, scene=None, on_changed=None, parent=None):
         super().__init__("Marks", parent)
         self._scene = scene
+        self._on_changed = on_changed
         self._snapshot: dict = {}
         self._build_ui()
 
@@ -1798,7 +1800,110 @@ class MarksPane(SettingsPane):
     def apply(self) -> None:
         pats = {self._category(r): self._table.item(r, 1).text()
                 for r in range(self._table.rowCount())}
+        changed = pats != dict(getattr(self._scene, "mark_patterns", {}) or {})
         self._scene.mark_patterns = pats
+        if changed and self._on_changed is not None:
+            self._on_changed()
 
     def revert(self) -> None:
         self._scene.mark_patterns = dict(self._snapshot)
+
+
+class AnnotationPane(SettingsPane):
+    """Project Settings > Annotation (SB3 Q5a / Q5b): one row per
+    ``system_blocks.ANNOTATION_CATEGORIES`` mapping the category to the block
+    that draws its intrinsic label (``scene.annotation_defaults``).
+
+    Choices: the project's eligible blocks (``bound_label.eligible_definition``)
+    then the System tier's (``block_library.shipped_index``), labelled
+    "<name> (Project)" / "<name> (System)"; the System default reads
+    "RoomTag (System)". apply() writes the mapping and, on a change, fires
+    *on_changed* (the main window's modified flag); no undo step -- settings
+    are not undoable (D-D).
+    """
+
+    def __init__(self, scene=None, on_changed=None, parent=None):
+        super().__init__("Annotation", parent)
+        self._scene = scene
+        self._on_changed = on_changed
+        self._snapshot: dict = {}
+        self._combos: dict[str, QComboBox] = {}
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        from firepro3d.system_blocks import ANNOTATION_CATEGORIES
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 10, 10, 10)
+        form = QFormLayout()
+        for cat in ANNOTATION_CATEGORIES:
+            combo = QComboBox()
+            combo.setMinimumWidth(260)
+            self._combos[cat] = combo
+            form.addRow(f"{cat} tag", combo)
+        outer.addLayout(form)
+        hint = QLabel("The block that draws each category's label. System blocks ship with "
+                      "FirePro3D; project blocks are this project's annotative blocks with a "
+                      "matching Host category. Applies on OK (no undo step).")
+        hint.setProperty("role", "muted")
+        hint.setWordWrap(True)
+        outer.addWidget(hint)
+        outer.addStretch()
+
+    @staticmethod
+    def choices(scene, category: str) -> list[tuple[str, str]]:
+        """``[(label, block id)]``: eligible project blocks, then eligible
+        System blocks the project has not embedded (file name order)."""
+        from firepro3d import block_library
+        from firepro3d.bound_label import eligible_definition
+        out: list[tuple[str, str]] = []
+        for bid, d in scene._block_definitions.items():
+            if eligible_definition(d, category):
+                tier = "System" if d.library == block_library.SYSTEM_LIBRARY else "Project"
+                out.append((f"{d.name} ({tier})", bid))
+        seen = {bid for _label, bid in out}
+        for bid, path in sorted(block_library.shipped_index().items(), key=lambda kv: kv[1]):
+            if bid in seen:
+                continue
+            d = block_library.load_block_file(path)
+            if d is not None and eligible_definition(d, category):
+                out.append((f"{d.name} (System)", bid))
+        return out
+
+    def load(self) -> None:
+        from firepro3d.system_blocks import SYSTEM_DEFAULTS
+        self._snapshot = dict(getattr(self._scene, "annotation_defaults", {}) or {})
+        for cat, combo in self._combos.items():
+            combo.blockSignals(True)
+            combo.clear()
+            for label, bid in self.choices(self._scene, cat):
+                combo.addItem(label, bid)
+            current = self._snapshot.get(cat) or SYSTEM_DEFAULTS.get(cat, "")
+            idx = combo.findData(current) if current else -1
+            if current and idx < 0:
+                combo.addItem(f"{current} (missing)", current)   # Q6: the mapping is kept
+                idx = combo.count() - 1
+            combo.setCurrentIndex(idx if idx >= 0 else (0 if combo.count() else -1))
+            combo.blockSignals(False)
+
+    def staged(self) -> dict:
+        out = {}
+        for cat, combo in self._combos.items():
+            bid = combo.currentData()
+            if bid:
+                out[cat] = bid
+        return out
+
+    def apply(self) -> None:
+        new = self.staged()
+        if new == dict(getattr(self._scene, "annotation_defaults", {}) or {}):
+            return
+        self._scene.annotation_defaults = new
+        self._scene._annot_memo.clear()
+        for room in getattr(self._scene, "_rooms", ()):      # re-shape now (pull-on-paint)
+            room._tag.refresh()
+        if self._on_changed is not None:
+            self._on_changed()
+
+    def revert(self) -> None:
+        self._scene.annotation_defaults = dict(self._snapshot)
+        self._scene._annot_memo.clear()

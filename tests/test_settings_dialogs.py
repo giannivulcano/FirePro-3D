@@ -66,7 +66,7 @@ def test_project_settings_dialog_rail_and_save_default(
     dlg = ProjectSettingsDialog(
         scene=scene, get_info=lambda: {}, set_info=lambda d: None,
     )
-    assert dlg.rail_keys() == ["project_info", "units", "marks"]
+    assert dlg.rail_keys() == ["project_info", "units", "marks", "annotation"]
     # Drive the dialog widget so _apply_all() in _on_save_default() commits
     # the right value to the scene (not a direct scene mutation).
     units_pane = dlg._panes["units"]
