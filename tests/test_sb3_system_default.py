@@ -89,3 +89,34 @@ def test_annotation_pane_default_row_reads_roomtag_system(qapp, real_system_libr
     pane.load()
     combo = pane._combos["Room"]
     assert combo.currentText() == "RoomTag (System)" and combo.currentData() == FROZEN_ID
+
+
+def _temp_tier_with_roomtag(tmp_path):
+    """The real shipped RoomTag copied into a temp System root (conftest hands
+    every test an EMPTY tier; shipped_index() walks the root fresh)."""
+    folder = tmp_path / "sys" / "Tags"
+    folder.mkdir(parents=True)
+    shutil.copy(SHIPPED, folder / "RoomTag.fpdb")
+    block_library.set_system_root(str(tmp_path / "sys"))
+
+
+def test_ac5_missing_mapped_id_falls_back_to_the_shipped_roomtag_with_one_notice(qapp, tmp_path):
+    _temp_tier_with_roomtag(tmp_path)
+    ms = _scene()
+    room = _add_room(ms, "Office")
+    ms.annotation_defaults["Room"] = "missing-block-id"
+    notices = []
+    ms._show_status = lambda msg, timeout=5000: notices.append(msg)
+    n_undo = len(ms._undo_stack)
+    d = ms.annotation_block("Room")
+    assert d is not None and d.id == FROZEN_ID
+    assert FROZEN_ID in ms._block_definitions and len(ms._undo_stack) == n_undo   # embedded outside undo
+    assert ms.annotation_defaults["Room"] == "missing-block-id"                 # the mapping is kept (Q6)
+    assert len(notices) == 1 and "missing-block-id" in notices[0] and "RoomTag" in notices[0]
+    assert room._tag.paints()
+    on = _digest(_render(ms, RECT, 300, 300))
+    room._show_label = False
+    room._update_label()
+    assert _digest(_render(ms, RECT, 300, 300)) != on                           # the shipped tag inks the name
+    ms.annotation_block("Room")
+    assert len(notices) == 1                                                    # one notice
