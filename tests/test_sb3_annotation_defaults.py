@@ -81,3 +81,53 @@ def test_annotation_block_treats_an_ineligible_mapping_as_missing(qapp):
     d = _tag_def(ms)
     d.annotative_screen = SCREEN_FIXED
     assert ms.annotation_block("Room") is None            # Task 10 adds the fallback chain
+
+
+def test_ac3_annotation_defaults_round_trip_through_the_fpd(qapp, tmp_path):
+    ms = _scene()
+    d = _tag_def(ms)
+    _add_room(ms, "Office")
+    f = tmp_path / "a.fpd"
+    assert ms.save_to_file(str(f))
+    rec = json.loads(f.read_text(encoding="utf-8"))
+    assert rec["annotation_defaults"] == {"Room": d.id}
+    rec["annotation_defaults"]["Pipe"] = 7                     # a non-str value is dropped on load
+    f.write_text(json.dumps(rec), encoding="utf-8")
+    ms2 = _scene()
+    ms2.load_from_file(str(f))
+    assert ms2.annotation_defaults == {"Room": d.id}
+    assert ms2.annotation_block("Room").id == d.id
+    assert ms2._rooms[0]._tag.paints()
+
+
+def test_ac3_legacy_file_keeps_show_label_and_label_offset(qapp, tmp_path):
+    ms = _scene()
+    r = _add_room(ms, "Office")
+    r._show_label = False
+    r._label_offset = QPointF(120.0, -80.0)
+    r._update_label()
+    f = tmp_path / "legacy.fpd"
+    assert ms.save_to_file(str(f))
+    rec = json.loads(f.read_text(encoding="utf-8"))
+    del rec["annotation_defaults"]                             # a pre-SB3 file has no key, same version
+    f.write_text(json.dumps(rec), encoding="utf-8")
+    ms2 = _scene()
+    ms2.load_from_file(str(f))
+    assert ms2.annotation_defaults == {}
+    r2 = ms2._rooms[0]
+    assert r2._show_label is False and r2._label_offset == QPointF(120.0, -80.0)
+    assert r2._tag.pos() == QPointF(1000.0 + 120.0, 1000.0 - 80.0) and not r2._tag.isVisible()
+
+
+def test_ac3_template_saves_and_overlays_annotation_defaults(qapp, tmp_path, monkeypatch):
+    from firepro3d import app_data
+    from firepro3d.settings import template
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    ms = _scene()
+    d = _tag_def(ms)
+    path = template.save_current_as_default(ms)
+    with open(path, encoding="utf-8") as fh:
+        assert json.load(fh)["annotation_defaults"] == {"Room": d.id}
+    fresh = _scene()
+    template.apply_template_settings(fresh)
+    assert fresh.annotation_defaults == {"Room": d.id}

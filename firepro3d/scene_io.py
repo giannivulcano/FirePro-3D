@@ -136,6 +136,7 @@ class SceneIOMixin:
             "version":             self.SAVE_VERSION,
             "project_info":        self._project_info,
             "mark_patterns":       dict(self.mark_patterns),
+            "annotation_defaults": dict(self.annotation_defaults),   # SB3: category -> block id
             "project_settings_size": (list(self.project_settings_size)
                                       if self.project_settings_size else None),
             "scale":               self.scale_manager.to_dict(),
@@ -483,6 +484,14 @@ class SceneIOMixin:
                 "They are drawn as red placeholders. Load the missing blocks "
                 "from the library to fix them.")
 
+        # --- Annotation defaults (SB3): the mapping as written; the resolve
+        # (embedding + the one load notice, Q6) runs at the end of the load so
+        # its status message outlives "Loaded from ...".
+        _ad = payload.get("annotation_defaults")
+        self.annotation_defaults = ({str(k): v for k, v in _ad.items() if isinstance(v, str)}
+                                    if isinstance(_ad, dict) else {})
+        self._annot_memo.clear()
+
         # --- Design-area tiles (now that walls & rooms exist) ---
         for da in self.design_areas:
             da.compute_area(self.scale_manager)
@@ -548,6 +557,9 @@ class SceneIOMixin:
         if orphan_hosts:
             msg += f" -- dropped {orphan_hosts} hosted block(s) whose gridline is missing"
         self._show_status(msg)
+        from .system_blocks import ANNOTATION_CATEGORIES
+        for _cat in ANNOTATION_CATEGORIES:
+            self.annotation_block(_cat)
 
     # ------------------------------------------------------------------
     # CLEAR
@@ -570,6 +582,8 @@ class SceneIOMixin:
         self._project_info = {}
         from . import marks as _marks
         self.mark_patterns = dict(_marks.DEFAULT_PATTERNS)
+        self.annotation_defaults = {}
+        self._annot_memo.clear()
         self.project_settings_size = None
         self._titleblock_template = None
         self.sprinkler_system = SprinklerSystem()

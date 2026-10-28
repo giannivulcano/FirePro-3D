@@ -68,6 +68,7 @@ def _blank_template_payload(sm: ScaleManager | None = None) -> dict:
         # version, so edits to the linked template flow into future projects
         # (existing saved projects keep their embedded copy — DD-5). "" = none.
         "titleblock_template_uuid": "",
+        "annotation_defaults": {},   # SB3: category -> block id; new projects resolve it against the System tier
     }
     for key in _BLANK_GEOMETRY_KEYS:
         payload[key] = []
@@ -203,6 +204,11 @@ def apply_template_settings(scene) -> None:
     mp = _marks.clean_patterns(data.get("mark_patterns"))
     if mp:
         scene.mark_patterns = {**_marks.DEFAULT_PATTERNS, **mp}
+    ad = data.get("annotation_defaults")
+    if isinstance(ad, dict):                     # SB3 Q12: overlay, like mark_patterns
+        scene.annotation_defaults = {**scene.annotation_defaults,
+                                     **{str(k): v for k, v in ad.items() if isinstance(v, str)}}
+        scene._annot_memo.clear()
     apply_template_titleblock(scene, data)
 
 
@@ -235,7 +241,7 @@ def apply_template_titleblock(scene, data: dict) -> None:
 
 
 def save_current_as_default(scene) -> str:
-    """Persist *scene*'s current scale and project_info into the default template.
+    """Persist *scene*'s current scale + project_info + mark_patterns + annotation_defaults into the default template.
 
     Geometry is NEVER written — only ``scale_manager.to_dict()`` and
     ``_project_info`` are captured.  A fresh blank payload is built so that the
@@ -253,6 +259,7 @@ def save_current_as_default(scene) -> str:
     payload["scale"] = scene.scale_manager.to_dict()
     payload["project_info"] = dict(getattr(scene, "_project_info", {}) or {})
     payload["mark_patterns"] = dict(getattr(scene, "mark_patterns", {}) or {})
+    payload["annotation_defaults"] = dict(getattr(scene, "annotation_defaults", {}) or {})
     # Capture the current project's linked title-block by uuid (reference, not
     # embed): "Save as default" is how the user sets which library template new
     # projects inherit (Task A).
