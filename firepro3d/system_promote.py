@@ -199,7 +199,7 @@ def _plan_workbench(block_id: str, root: str | None, verb: str) -> WorkbenchCopy
         raise PromoteRefused(f"Only a System block can use {verb}.")
     spath = shipped[block_id]
     meta = capability_folder.read_meta(spath)
-    if meta is None:
+    if meta is None:            # defensive: shipped_index lists readable files only
         raise PromoteRefused(f"Could not read {spath}.")
     found = block_library._find_by_id(block_id, root)
     if (found is not None and found[3]["tier"] == "user"
@@ -282,6 +282,7 @@ def demote(block_id: str, root: str | None = None) -> WorkbenchCopy:
             _write_workbench(res)
         block_library.delete_shipped(res.shipped_path)
         folder = os.path.dirname(res.shipped_path)
+        block_library._drop_stale_index(folder)
         if (not block_library._same_path(folder, block_library.system_root())
                 and os.path.isdir(folder) and not os.listdir(folder)):
             os.rmdir(folder)                 # "no empty series folders"
