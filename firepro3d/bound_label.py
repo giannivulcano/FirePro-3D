@@ -43,6 +43,41 @@ def eligible_definition(defn, category: str) -> bool:
             and getattr(defn, "host_category", "") == category)
 
 
+def resolve_annotation_block(scene, category: str, mapped: str):
+    """The id of the block that draws *category*'s label when the project copy
+    of *mapped* is missing or ineligible (SB3 D-B / Q6 / G5), and the notice
+    to show (None when the mapped id itself resolved).
+
+    Chain: *mapped* then ``SYSTEM_DEFAULTS[category]``, each looked up in the
+    project registry, then the System tier + library roots
+    (``block_library._find_by_id``: System first) -- a file hit is embedded
+    into the project outside undo (``load_blocks_outside_history``, D-C) --
+    and accepted only when ``eligible_definition``. Nothing -> ``(None,
+    notice)``: the tag draws the orphan placeholder.
+
+    Returns:
+        ``(block id or None, notice text or None)``.
+    """
+    from . import block_library
+    from .system_blocks import SYSTEM_DEFAULTS
+    default = SYSTEM_DEFAULTS.get(category, "")
+    for bid in (b for b in dict.fromkeys((mapped, default)) if b):
+        d = scene._block_definitions.get(bid)
+        if d is None:
+            found = block_library._find_by_id(bid, None)
+            path = found[3]["path"] if found is not None else None
+            if path is not None:
+                scene.load_blocks_outside_history([path])
+                d = scene._block_definitions.get(bid)
+        if d is not None and eligible_definition(d, category):
+            if bid == mapped:
+                return bid, None
+            return bid, (f"{category} tag: block {mapped} is missing or not an annotative "
+                         f"{category} tag - using the System default ({d.name})")
+    return None, (f"{category} tag: block {mapped} is missing or not an annotative "
+                  f"{category} tag and no System default is available - drawing a placeholder")
+
+
 class BoundLabelItem(QGraphicsItem):
     """A host element's label drawn by the block mapped for its category.
 

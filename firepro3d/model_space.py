@@ -54,6 +54,8 @@ from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
+from .bound_label import eligible_definition, resolve_annotation_block
+from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
@@ -475,7 +477,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # SB3: category -> block id (Project Settings > Annotation; cloned
         # from the template, saved in the .fpd, never in undo).
         self.annotation_defaults: dict[str, str] = {}
-        self._annot_memo: dict = {}      # category -> (mapped id, resolved id | None); Task 10
+        self._annot_memo: dict = {}      # category -> (mapped id, resolved id | None)
+        self._annot_resolving = False    # True while annotation_block embeds a file
+        self.blockDefinitionsChanged.connect(self._on_block_definitions_changed)   # registry version = the memo's life
         self.project_settings_size: tuple | None = None   # (w, h) of the Project Settings dialog, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
@@ -1915,20 +1919,50 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
         return self._block_registry.get(block_id)
 
+    def _on_block_definitions_changed(self) -> None:
+        """Registry version = the annotation memo's life: drop the memo and
+        re-shape every room tag (their bounds rect is cached, so a changed
+        resolution needs ``refresh()``). Skipped while a resolve is embedding
+        a file (that resolve writes the memo itself)."""
+        self._annot_memo.clear()
+        if self._annot_resolving:
+            return
+        for room in list(getattr(self, "_rooms", ())):
+            tag = getattr(room, "_tag", None)
+            if tag is not None:
+                try:
+                    tag.refresh()
+                except RuntimeError:      # wrapper outliving its C++ item (teardown)
+                    pass
+
     def annotation_block(self, category: str):
         """The ``BlockDefinition`` that draws *category*'s intrinsic label
-        (SB3 D-B): the mapped project block when it is eligible, else None.
-        The fallback chain (System tier -> library roots -> SYSTEM_DEFAULTS)
-        lands with the resolver's second half (plan Task 10)."""
-        from .bound_label import eligible_definition
-        from .system_blocks import SYSTEM_DEFAULTS
+        (SB3 D-B): the mapped project block when eligible, else the resolver
+        chain (``bound_label.resolve_annotation_block``: System tier ->
+        library roots -> ``SYSTEM_DEFAULTS``), memoised per (category,
+        mapped id) and cleared on ``blockDefinitionsChanged``. A miss emits
+        one status-bar notice + log line (Q6); the mapping is kept.
+        """
         mapped = self.annotation_defaults.get(category) or SYSTEM_DEFAULTS.get(category, "")
         if not mapped:
             return None
-        d = self._block_registry.get(mapped)
+        d = self._block_definitions.get(mapped)
         if d is not None and eligible_definition(d, category):
-            return d
-        return None
+            return self._block_registry.get(mapped)
+        memo = self._annot_memo.get(category)
+        if memo is None or memo[0] != mapped:
+            self._annot_resolving = True
+            try:
+                rid, notice = resolve_annotation_block(self, category, mapped)
+            finally:
+                self._annot_resolving = False
+            self._annot_memo[category] = (mapped, rid)
+            if notice:
+                logging.getLogger(__name__).warning(notice)
+                self._show_status(notice, 10000)
+        else:
+            rid = memo[1]
+        return self._block_registry.get(rid) if rid else None
 
     def instance_count(self, block_id: str) -> int:
         """Number of placed BlockInstances referencing *block_id*."""

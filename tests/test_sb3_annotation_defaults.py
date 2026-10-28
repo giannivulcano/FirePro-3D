@@ -230,3 +230,92 @@ def test_dialog_rail_has_the_annotation_row_and_ok_applies_it(qapp):
     combo.setCurrentIndex(combo.findData(d2.id))
     dlg._on_ok()
     assert ms.annotation_defaults == {"Room": d2.id} and len(fired) == base + 1
+
+
+def _lib_file(root, name, block_id, library="Styles", series="Tags"):
+    """An eligible user-library .fpdb (folder = library / series)."""
+    d = BlockDefinition.new(name=name, library=library, series=series, origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "@[Name]", "x": 0.0,
+                                         "y": 0.0, "height_mm": 3.0}])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    d.id = block_id
+    folder = root / library / series
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.fpdb").write_text(json.dumps(d.to_dict()), encoding="utf-8")
+
+
+def _notices(ms):
+    out = []
+    ms._show_status = lambda msg, timeout=5000: out.append(msg)
+    return out
+
+
+def test_resolver_embeds_a_system_block_outside_undo_and_memoises(qapp, tmp_path):
+    ms = _scene()
+    _add_room(ms, "Office")
+    sysroot = tmp_path / "sys"
+    _shipped(sysroot, "SysTag", "system-tags-systag")
+    block_library.set_system_root(str(sysroot))
+    ms.annotation_defaults["Room"] = "system-tags-systag"
+    notices = _notices(ms)
+    n_undo = len(ms._undo_stack)
+    d = ms.annotation_block("Room")
+    assert d is not None and d.id == "system-tags-systag"
+    assert "system-tags-systag" in ms._block_definitions                 # embedded (D-C)
+    assert len(ms._undo_stack) == n_undo and notices == []               # outside undo; the mapped id drew
+    assert ms._rooms[0]._tag.paints()
+    assert ms.annotation_block("Room") is d                              # memo hit
+
+
+def test_resolver_falls_back_to_the_library_root_and_notices_a_total_miss(qapp, tmp_path):
+    from pathlib import Path
+    from firepro3d.app_data import block_library_dir
+    ms = _scene()
+    _add_room(ms, "Office")
+    _lib_file(Path(block_library_dir()), "LibTag", "lib-tag-1")        # the isolated user root
+    ms.annotation_defaults["Room"] = "lib-tag-1"
+    notices = _notices(ms)
+    assert ms.annotation_block("Room").id == "lib-tag-1" and notices == []
+    ms.annotation_defaults["Room"] = "nowhere"
+    assert ms.annotation_block("Room") is None                           # SYSTEM_DEFAULTS is empty until Task 11
+    assert len(notices) == 1 and "nowhere" in notices[0]
+    ms.annotation_block("Room")
+    assert len(notices) == 1                                             # memoised: one notice
+    assert ms.annotation_defaults["Room"] == "nowhere"                   # the mapping is kept (Q6)
+    assert ms._rooms[0]._tag.boundingRect().width() > 0                  # the orphan placeholder, never vanishes
+
+
+def test_load_resolves_the_mapping_once_and_the_notice_outlives_loaded_from(qapp, tmp_path):
+    ms = _scene()
+    _add_room(ms, "Office")
+    ms.annotation_defaults["Room"] = "nowhere"
+    f = tmp_path / "n.fpd"
+    assert ms.save_to_file(str(f))
+    ms2 = _scene()
+    notices = _notices(ms2)
+    ms2.load_from_file(str(f))
+    assert ms2.annotation_defaults == {"Room": "nowhere"}
+    tag_notes = [n for n in notices if "nowhere" in n]
+    assert len(tag_notes) == 1 and notices[-1] == tag_notes[0]          # last message on the bar
+    ms2.annotation_block("Room")
+    assert len([n for n in notices if "nowhere" in n]) == 1
+
+
+def test_load_and_registry_change_refresh_the_cached_tag_rect(qapp, tmp_path):
+    ms = _scene()
+    d = _tag_def(ms)
+    _add_room(ms, "Office")
+    f = tmp_path / "r.fpd"
+    assert ms.save_to_file(str(f))
+    ms2 = _scene()
+    ms2.load_from_file(str(f))
+    tag = ms2._rooms[0]._tag
+    assert tag.boundingRect() == tag._compute_rect() and tag.boundingRect().width() > 0
+    # a registry change re-resolves: drop the block -> the cached rect follows (orphan box)
+    ms2.annotation_defaults["Room"] = "nowhere"
+    ms2.blockDefinitionsChanged.emit()
+    assert tag.boundingRect() == tag._compute_rect()
+    assert tag.boundingRect().width() > 0
+    assert tag.definition() is None or tag.definition().id != d.id
