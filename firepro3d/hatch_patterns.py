@@ -383,6 +383,16 @@ def ensure_project_patterns(scene) -> list[str]:
     return loaded
 
 
+def missing_pattern_refs(scene) -> list[str]:
+    """Referenced pattern refs (:func:`project_pattern_refs`) the project holds
+    no definition for -- after :func:`ensure_project_patterns` these draw the
+    tone (D-A36). Sorted canonical refs."""
+    project = getattr(scene, "_block_registry_owner", None) or scene
+    store = getattr(project, "_block_definitions", None) or {}
+    return sorted({canonical_ref(r) for r in project_pattern_refs(project)}
+                  - set(store))
+
+
 def display_name(ref: str | None, registry=None, exclude=()) -> str:
     """Picker label for *ref* (falls back to the raw ref for an unknown one)."""
     ref = canonical_ref(ref)

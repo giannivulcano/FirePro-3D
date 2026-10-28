@@ -127,3 +127,17 @@ def test_checkout_copies_and_keeps_shipped_then_refuses_twice(gate):
     # round trip: the checked-out copy re-promotes under the same id as v5
     again = system_promote.promote("system-hatches-brick", root)
     assert (again.new_id, again.version) == ("system-hatches-brick", 5)
+
+
+def test_missing_pattern_refs_names_only_unresolved(model_space, monkeypatch, gate):
+    sysroot, _root = gate
+    _fpdb(os.path.join(sysroot, "Hatches", "Diagonal.fpdb"), hatch_patterns.BUILTIN_DIAGONAL,
+          tile={"width": 1.0})
+    hatch_patterns._SHIPPED_CACHE.clear()
+    hatch_patterns.ensure_project_patterns(model_space)
+    assert hatch_patterns.DEFAULT_TILE_REF not in hatch_patterns.missing_pattern_refs(model_space)
+    monkeypatch.setattr(hatch_patterns, "DEFAULT_TILE_REF", "missing-pattern-x")
+    hatch_patterns.ensure_project_patterns(model_space)
+    missing = hatch_patterns.missing_pattern_refs(model_space)
+    assert "missing-pattern-x" in missing
+    assert hatch_patterns.BUILTIN_DIAGONAL not in missing     # still loaded, not missing

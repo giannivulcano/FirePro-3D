@@ -758,6 +758,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # the wall/floor/roof default) loads from the folder into the baseline.
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
+        self._warn_missing_patterns()
 
         # Reset undo stack so the seeded template gridlines are the baseline
         # (index 0) and cannot be undone away. Without this, place_grid_lines
@@ -3503,6 +3504,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Hatch patterns folder as part of the undo baseline (no undo step).
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
+        self._warn_missing_patterns()
         # Section markers: scene_io (load_from_file) already restored/seeded them.
         self._refresh_section_browser()
         # Refresh detail views in project browser
@@ -3760,6 +3762,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Hatch D-A39: load the referenced patterns into the baseline.
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
+        self._warn_missing_patterns()
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []
@@ -5093,6 +5096,15 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Blocks browser right-click Edit Block: open the definition's editor tab."""
         self._commit_text_edits()
         self.block_editor_manager.edit_definition(block_id)
+
+    def _warn_missing_patterns(self):
+        """Status-bar notice for referenced patterns that resolve to nothing
+        (e.g. a demoted System hatch); they draw without a pattern."""
+        from firepro3d.hatch_patterns import missing_pattern_refs
+        missing = missing_pattern_refs(self.scene)
+        if missing:
+            self.statusBar().showMessage(
+                "Pattern not found - drawing without it: " + ", ".join(missing), 10000)
 
     def _promote_block_from_browser(self, block_id: str, path: str):
         """Blocks browser Promote to System... (authoring Q6): confirm with
