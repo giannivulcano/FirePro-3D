@@ -244,3 +244,48 @@ def test_write_shipped_refused_without_gate(gate):
     block_library.set_dev_gate(False)
     with pytest.raises(block_library.SystemLibraryReadOnly):
         block_library.write_shipped(os.path.join(sysroot, "X.fpdb"), {})
+
+
+def _committed(ms, name, *, repeat=None, end=None, prims=None):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    d = ms.commit_block_definition(
+        block_id=None, name=name, library="Lib", series="S",
+        primitives=prims or [LineItem(QPointF(0, 0), QPointF(10, 0)).to_dict()],
+        origin=(0.0, 0.0), place_instance=False)
+    if repeat is not None:
+        d.set_repeat(repeat)
+    if end is not None:
+        d.set_end(end)
+    return d.id
+
+
+def test_retarget_follows_linetype_and_end_refs(qapp):          # D2
+    from PyQt6.QtCore import QPointF
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    ms = Model_Space()
+    e_old = _committed(ms, "EndOld", end={"trim": 0.0})
+    e_new = _committed(ms, "EndNew", end={"trim": 0.0})
+    lt_old = _committed(ms, "LtOld", repeat={"length": 10.0})
+    lt_new = _committed(ms, "LtNew", repeat={"length": 10.0})
+    lt3 = _committed(ms, "Lt3", repeat={"length": 10.0,
+                                        "ends": {"start": e_old, "finish": e_old}})
+    sym = _committed(ms, "Sym")
+    styled = LineItem(QPointF(0, 0), QPointF(5, 0)).to_dict()
+    styled["style"] = {"linetype": lt_old, "start": {"end": e_old}}
+    host = _committed(ms, "Host", prims=[styled])
+    line = LineItem(QPointF(0, 0), QPointF(100, 0))
+    ms.addItem(line)
+    line.style = {**line.style, "linetype": lt_old,
+                  "start": {**line.style["start"], "end": e_old}}
+    inst = ms.place_block_instance(sym, (0.0, 0.0), overrides={"linetype": lt_old})
+    ms.push_undo_state()
+    assert ms.retarget_block_refs(lt_old, lt_new) >= 3
+    assert line.style["linetype"] == lt_new
+    assert inst.overrides["linetype"] == lt_new
+    assert ms._block_definitions[host].primitives[0]["style"]["linetype"] == lt_new
+    assert ms.retarget_block_refs(e_old, e_new) >= 3
+    assert line.style["start"]["end"] == e_new
+    assert ms._block_definitions[host].primitives[0]["style"]["start"]["end"] == e_new
+    assert ms._block_definitions[lt3].repeat["ends"] == {"start": e_new, "finish": e_new}

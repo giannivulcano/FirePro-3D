@@ -159,6 +159,19 @@ def _record_levels(params, active: str) -> list[str]:
     return chosen if chosen else [active]
 
 
+def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
+    """*st* with linetype / start / finish end refs *old_id* -> *new_id*;
+    the same object when nothing matched (callers test identity)."""
+    out = st
+    if st.get("linetype") == old_id:
+        out = {**out, "linetype": new_id}
+    for w in ("start", "finish"):
+        e = st.get(w)
+        if isinstance(e, dict) and e.get("end") == old_id:
+            out = {**out, w: {**e, "end": new_id}}
+    return out
+
+
 class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 11  # 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
@@ -2606,10 +2619,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         project-wide table is outside undo, like line weights). Fill Type
         re-points are outside undo (HF5 ruling 2026-10-23); Ctrl+Z restores
         instances only.
+        Also linetype and start / finish end refs on live items and inside
+        other definitions, placement Linetype overrides, and a linetype's
+        default ends (authoring D2).
         Not touched: Display category defaults (app-wide QSettings, a
-        project-local switch must not rewrite other projects), linetype / end
-        refs (none ship in System yet) and schematic viewports (never System,
-        D14).
+        project-local switch must not rewrite other projects) and schematic
+        viewports (never System, D14).
 
         Args:
             old_id: The block / pattern id to leave.
@@ -2663,10 +2678,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         p["fill"] = to_record(_replace(
                             layers, pattern=_replace(layers.pattern, ref=new_id)))
                         changed += 1
+                st = p.get("style")                 # D2: linetype / end refs
+                if isinstance(st, dict):
+                    st2 = _retarget_style(st, old_id, new_id)
+                    if st2 is not st:
+                        p["style"] = st2
+                        changed += 1
             if changed:
                 d.set_primitives(prims)
                 self._block_registry.invalidate(d.id, already=d._instances)
                 count += changed
+            # D2: a linetype's default ends (LT5 Q11).
+            rep = d.repeat if d.has_default_ends else None
+            if rep is not None and old_id in rep["ends"].values():
+                rep["ends"] = {k: (new_id if v == old_id else v)
+                               for k, v in rep["ends"].items()}
+                d.set_repeat(rep)
+                self._block_registry.invalidate(d.id, already=d._instances)
+                count += 1
         # HF5: Fill Types whose pattern is old_id (before H3, so typed items resolve
         # to the new ref and are skipped there). Outside undo.
         from . import fill_types
@@ -2688,6 +2717,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 item.fill_layers = _replace(
                     fl, pattern=_replace(fl.pattern, ref=new_id))
                 item.update()
+                count += 1
+        # D2 (authoring 2026-10-28): linetype / end refs on live items and
+        # placement Linetype overrides.
+        for item in self.items():
+            st = getattr(item, "style", None)
+            if isinstance(st, dict) and not getattr(item, "reference", False):
+                st2 = _retarget_style(st, old_id, new_id)
+                if st2 is not st:
+                    item.style = st2
+                    sync = getattr(item, "_sync_stroke_pen", None)
+                    if callable(sync):
+                        sync()
+                    item.update()
+                    count += 1
+        for inst in list(self._block_instances):
+            ov = getattr(inst, "overrides", None)
+            if isinstance(ov, dict) and ov.get("linetype") == old_id:
+                inst.set_overrides({**ov, "linetype": new_id})
                 count += 1
         if count == 0:
             return 0
