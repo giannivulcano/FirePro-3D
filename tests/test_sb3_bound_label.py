@@ -240,3 +240,113 @@ def test_grip_sits_on_the_tag_anchor_and_apply_grip_writes_label_offset(qapp):
     assert room.to_dict()["label_offset"] == [300.0, -200.0]
     room.set_property("Show Label", "False")
     assert room.grip_points() == [] and not room._tag.isVisible()
+
+
+from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
+                                     load_paper_categories, resolve_line_weight_mm,
+                                     restore_model_display, save_paper_color_mode)
+
+
+def test_paper_pass_routes_the_tag_through_apply_block_and_restores_it(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "R101", 0.0, 0.0, 6000.0, 4000.0)
+    tag = room._tag
+    save_paper_color_mode(PaperColorMode.BW)
+    h_model = tag.boundingRect().height() - 2 * PEN_MARGIN          # authored x drawing scale 100
+    lw = resolve_line_weight_mm(load_paper_categories()["Room"]["line_weight"])
+    saved = apply_paper_overrides(ms, QRectF(0, 0, 6000, 4000), paper_scale=0.02)
+    try:
+        assert tag._paper_scale == 0.02
+        assert tag._paper_pen_width == pytest.approx(lw / 0.02)
+        assert tag._paper_pen_color is not None                     # B&W forces the category colour
+        assert tag.opacity() == 1.0                                  # the Room row opacity is the parent's
+        assert tag.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(h_model / 2.0, rel=1e-6)  # k = 1/S = 50
+    finally:
+        restore_model_display(saved)
+    assert (tag._paper_scale, tag._paper_pen_width, tag._paper_pen_color) == (None, None, None)
+    assert tag.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(h_model, rel=1e-6)
+
+
+def test_hidden_tag_is_skipped_by_the_paper_pass(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "R101", 0.0, 0.0, 6000.0, 4000.0)
+    room.set_property("Show Label", "False")
+    saved = apply_paper_overrides(ms, QRectF(0, 0, 6000, 4000), paper_scale=0.02)
+    try:
+        assert room._tag._paper_scale is None
+    finally:
+        restore_model_display(saved)
+
+
+def _tag_ink(tag):
+    """Digest of the tag painted directly (paint_ops under paint_resolver)."""
+    from PyQt6.QtWidgets import QStyleOptionGraphicsItem
+    r = tag.boundingRect()
+    img = QImage(int(r.width()) + 1, int(r.height()) + 1, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    p = QPainter(img)
+    p.translate(-r.left(), -r.top())
+    tag.paint(p, QStyleOptionGraphicsItem(), None)
+    p.end()
+    return _digest(img)
+
+
+def test_q4_room_row_font_retired_and_the_row_colour_never_tints_the_tag(qapp):
+    from firepro3d.display_manager import _CATEGORY_MAP, _category_has_font, apply_display_to_item
+    assert _CATEGORY_MAP["Room"]["font"] is None and _category_has_font("Room") is False
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "Office")
+    before = _tag_ink(room._tag)
+    apply_display_to_item(room, "#ff0000", 1.0, 100, True, fill_color=None, font_size=36)
+    assert _tag_ink(room._tag) == before
+
+
+from PyQt6.QtCore import QEvent
+from PyQt6.QtGui import QMouseEvent
+
+
+def _post_mouse(view, etype, scene_pos, button=Qt.MouseButton.LeftButton, buttons=None,
+                modifiers=Qt.KeyboardModifier.NoModifier):
+    """Post a real QMouseEvent to the viewport (tests/test_manip_u2_parity.py idiom)."""
+    app = QApplication.instance()
+    vp = view.viewport()
+    p = view.mapFromScene(scene_pos)
+    if buttons is None:
+        buttons = (Qt.MouseButton.NoButton if etype == QEvent.Type.MouseButtonRelease
+                   else Qt.MouseButton.LeftButton)
+    ev = QMouseEvent(etype, p.toPointF(), vp.mapToGlobal(p).toPointF(), button, buttons, modifiers)
+    app.sendEvent(vp, ev)
+    app.processEvents()
+
+
+def test_ac8_dragging_the_tag_grip_through_the_view_writes_label_offset_and_undo_restores(qapp, shown_model_view):
+    view, scene = shown_model_view
+    _tag_def(scene)
+    room = _add_room(scene, "Office", -1000.0, -1000.0)        # centroid (0, 0), on the viewport
+    scene.push_undo_state()                                    # the pre-drag state undo returns to
+    scene.set_mode("select")
+    assert scene.mode in (None, "select") and not scene.is_input_mode() and scene.active_hud() is None
+    scene.clearSelection()
+    room.setSelected(True)
+    qapp.processEvents()
+    manip = scene._live_manip()
+    manip.rebake()
+    qapp.processEvents()
+    grip = QPointF(room.grip_points()[0])
+    assert view.viewport().rect().contains(view.mapFromScene(grip))   # on-viewport precondition
+    assert manip.hit_handle(grip)                                     # the press will land on the handle
+    end = QPointF(grip.x() + 300.0, grip.y() + 200.0)                 # 75 x 50 px at 0.25: past the drag threshold
+    _post_mouse(view, QEvent.Type.MouseButtonPress, grip)
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(grip.x() + 120.0, grip.y() + 80.0))
+    _post_mouse(view, QEvent.Type.MouseMove, end)
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, end)
+    moved = scene._rooms[0]
+    assert moved._label_offset.x() == pytest.approx(300.0, abs=4.0)    # 1 px at 0.25 = 4 mm
+    assert moved._label_offset.y() == pytest.approx(200.0, abs=4.0)
+    assert moved._tag.pos() == moved.grip_points()[0]
+    assert scene.can_undo()
+    scene.undo()
+    assert scene._rooms[0]._label_offset == QPointF(0.0, 0.0)
