@@ -149,14 +149,19 @@ def run_refile_dialog(project_scene, defn, parent, *, root: str | None = None,
                       ) -> dict | None:
     """Block Manager Save of a reserved-Library block with a user id (SB1b VC9
     I1): ask Name / Library / Series, prefilled with the block's name, Library
-    "Styles" and its current series. The block keeps its id; the caller applies
-    the values (``set_block_metadata``) and writes the user-library file.
+    "Styles" (``Workbench`` for a file in the Workbench library) and its
+    current series. The block keeps its id; the caller applies the values
+    (``set_block_metadata``) and writes the user-library file.
 
     Returns:
         The dialog ``values()`` dict, or None when cancelled.
     """
+    from . import block_library
+    src = getattr(defn, "source_path", None)
+    lib = (block_library.WORKBENCH_LIBRARY
+           if src and block_library._under_workbench(src, root) else "Styles")
     return _ask_library_target(project_scene, parent, root, "refile",
-                               (defn.name, "Styles", defn.series),
+                               (defn.name, lib, defn.series),
                                collision_id=defn.id)
 
 

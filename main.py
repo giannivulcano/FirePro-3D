@@ -507,6 +507,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.blocks_browser.blockActivated.connect(self._on_block_activated)
         self.blocks_browser.editRequested.connect(self._edit_block_from_browser)
         self.blocks_browser.duplicateRequested.connect(self._duplicate_block_from_browser)
+        self.blocks_browser.promoteRequested.connect(self._promote_block_from_browser)
         # Refuse (e.g. a cycle) BEFORE an italic leaf is loaded — like a drag.
         self.blocks_browser.activation_guard = self._block_activation_refusal
 
@@ -5092,6 +5093,46 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Blocks browser right-click Edit Block: open the definition's editor tab."""
         self._commit_text_edits()
         self.block_editor_manager.edit_definition(block_id)
+
+    def _promote_block_from_browser(self, block_id: str, path: str):
+        """Blocks browser Promote to System... (authoring Q6): confirm with
+        the target path and versions, promote, then re-point the open
+        project when the id changed (first promote / D1 adopt).
+
+        Args:
+            block_id: The Workbench block's id.
+            path: Its ``.fpdb`` ("" = a project copy; the file is found by id).
+        """
+        self._commit_text_edits()
+        from firepro3d import system_promote
+        from firepro3d.themed_message import themed_confirm, themed_info
+        scene = self.scene
+        kwargs = dict(project_def=scene._block_definitions.get(block_id),
+                      registry=scene.block_registry)
+        try:
+            plan = system_promote.plan_promote(block_id, None, **kwargs)
+        except system_promote.PromoteRefused as exc:
+            themed_info(self, "Promote to System", str(exc))
+            return
+        was = ("new" if plan.shipped_version is None
+               else f"v{plan.shipped_version}")
+        lines = [f"Write {plan.shipped_path}",
+                 f"System version: {was} -> v{plan.version}",
+                 f"Id: {plan.new_id}"]
+        if plan.new_id != plan.old_id:
+            lines.append("The Workbench block and this project move to that id.")
+        msg = chr(10).join(lines)
+        if not themed_confirm(self, "Promote to System", msg,
+                              ok_label="Promote", cancel_label="Cancel"):
+            return
+        try:
+            res = system_promote.promote(block_id, None, **kwargs)
+        except system_promote.PromoteRefused as exc:
+            themed_info(self, "Promote to System", str(exc))
+            return
+        if res.new_id != res.old_id and res.old_id in scene._block_definitions:
+            scene.load_blocks_from_files([res.workbench_path])
+            scene.retarget_block_refs(res.old_id, res.new_id)
 
     def _duplicate_block_from_browser(self, block_id: str, path: str):
         """Blocks browser Duplicate to library... / Edit Block on a System

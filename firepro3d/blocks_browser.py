@@ -314,6 +314,7 @@ class BlocksBrowser(QWidget):
     blockActivated = pyqtSignal(str)
     editRequested = pyqtSignal(str)       # block id (project definition)
     duplicateRequested = pyqtSignal(str, str)   # block id, .fpdb path ("" = project copy)
+    promoteRequested = pyqtSignal(str, str)     # block id, .fpdb path ("" = project copy)
 
     def __init__(self, scene, parent: QWidget | None = None, *,
                  root: str | None = None) -> None:
@@ -501,7 +502,8 @@ class BlocksBrowser(QWidget):
     # ── context menu ──────────────────────────────────────────────────────
 
     def _build_context_menu(self, item: QTreeWidgetItem | None) -> QMenu | None:
-        """Right-click menu for a block leaf (``Edit Block``); None for folders.
+        """Right-click menu for a block leaf (``Edit Block``; ``Promote to
+        System...`` on a Workbench leaf under the dev gate); None for folders.
 
         Args:
             item: The tree item under the cursor (None = empty space).
@@ -528,7 +530,25 @@ class BlocksBrowser(QWidget):
             dup.setToolTip(dtip)
             dup.setStatusTip(dtip)
             dup.triggered.connect(lambda _=False, it=item: self._duplicate_item(it))
+        if block_library.dev_gate() and self._is_workbench_leaf(item):
+            pro = menu.addAction("Promote to System...")
+            ptip = "Copy this saved Workbench block into firepro3d/system_blocks"
+            pro.setToolTip(ptip)
+            pro.setStatusTip(ptip)
+            pro.triggered.connect(lambda _=False, it=item: self.promoteRequested.emit(
+                it.data(0, _ROLE_ID), it.data(0, _ROLE_PATH) or ""))
         return menu
+
+    def _is_workbench_leaf(self, item: QTreeWidgetItem) -> bool:
+        """True for a leaf whose id the user ``Workbench`` library owns
+        (authoring Q8: recognised by the fixed Library name); never the
+        shipped leaf of that id."""
+        path = item.data(0, _ROLE_PATH) or ""
+        if path and block_library._under_system(path):
+            return False
+        found = block_library._find_by_id(item.data(0, _ROLE_ID), self._lib_root)
+        return (found is not None and found[3]["tier"] == "user"
+                and block_library._under_workbench(found[3]["path"], self._lib_root))
 
     def _is_system_leaf(self, item: QTreeWidgetItem) -> bool:
         """True for a block leaf the System tier owns (library-only or embedded)."""

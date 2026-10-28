@@ -300,3 +300,76 @@ def test_adopt_refused_when_another_workbench_file_holds_the_shipped_id(gate):
           "builtin-hatch-concrete")
     with pytest.raises(system_promote.PromoteRefused, match="Old Concrete.fpdb"):
         system_promote.promote("uuid-c", root)
+
+
+def _browser_leaf(browser, block_id, top_text=None):
+    from firepro3d.blocks_browser import _ROLE_ID
+
+    def walk(it):
+        if it.data(0, _ROLE_ID) == block_id:
+            return it
+        for i in range(it.childCount()):
+            r = walk(it.child(i))
+            if r is not None:
+                return r
+    t = browser._tree
+    for i in range(t.topLevelItemCount()):
+        top = t.topLevelItem(i)
+        if top_text is not None and top.text(0) != top_text:
+            continue
+        r = walk(top)
+        if r is not None:
+            return r
+
+
+def _wb_browser(model_space, tmp_path):
+    from firepro3d.blocks_browser import BlocksBrowser
+    root = str(tmp_path / "lib")
+    wb = _fpdb(os.path.join(root, "Workbench", "Hatches", "Dots.fpdb"), "uuid-dots",
+               tile={"width": 1.0})
+    return BlocksBrowser(model_space, root=root), wb
+
+
+def test_promote_verb_on_workbench_leaf_under_gate(model_space, qapp, tmp_path):
+    block_library.set_dev_gate(True)
+    b, wb = _wb_browser(model_space, tmp_path)
+    got = []
+    b.promoteRequested.connect(lambda i, p: got.append((i, p)))
+    menu = b._build_context_menu(_browser_leaf(b, "uuid-dots"))
+    acts = {a.text(): a for a in menu.actions()}
+    assert "Promote to System..." in acts
+    acts["Promote to System..."].trigger()
+    assert got == [("uuid-dots", wb)]
+
+
+def test_no_promote_verb_without_gate(model_space, qapp, tmp_path):
+    b, _wb = _wb_browser(model_space, tmp_path)
+    menu = b._build_context_menu(_browser_leaf(b, "uuid-dots"))
+    assert "Promote to System..." not in [a.text() for a in menu.actions()]
+
+
+def test_shipped_leaf_keeps_duplicate_when_workbench_owns_id(model_space, qapp, tiers):
+    from firepro3d.blocks_browser import BlocksBrowser
+    root, shipped, wb = tiers
+    block_library.set_dev_gate(True)
+    b = BlocksBrowser(model_space, root=root)
+    leaf = _browser_leaf(b, "system-hatches-brick", top_text=block_library.SYSTEM_LIBRARY)
+    texts = [a.text() for a in b._build_context_menu(leaf).actions()]
+    assert "Duplicate to library..." in texts
+    assert "Promote to System..." not in texts     # promote from the Workbench leaf
+
+
+def test_refile_prefill_is_workbench_for_a_workbench_file(monkeypatch, tmp_path):
+    from firepro3d import block_editor
+    from firepro3d.block_definition import BlockDefinition
+    root = str(tmp_path / "lib")
+    seen = []
+    monkeypatch.setattr(block_editor, "_ask_library_target",
+                        lambda scene, parent, r, mode, initial, **kw: seen.append(initial))
+    d = BlockDefinition.new(name="X", library="System", series="Hatches",
+                            primitives=[], origin=(0.0, 0.0))
+    d.source_path = os.path.join(root, "Workbench", "Hatches", "X.fpdb")
+    block_editor.run_refile_dialog(None, d, None, root=root)
+    d.source_path = os.path.join(root, "Styles", "Hatches", "X.fpdb")
+    block_editor.run_refile_dialog(None, d, None, root=root)
+    assert [i[1] for i in seen] == ["Workbench", "Styles"]
