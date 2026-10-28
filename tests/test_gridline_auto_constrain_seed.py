@@ -1,6 +1,9 @@
 """Gridline Auto Constrain R7: the default 3V+3H seed (startup + New Project,
 MainWindow._place_default_gridlines) opens auto-constrained and the records
-survive save / reopen."""
+survive save / reopen.
+
+Driven through File > New; startup shares ``_place_default_gridlines`` (one
+join line covers both), and its own undo reset is covered only indirectly."""
 from __future__ import annotations
 
 from collections import Counter
@@ -27,6 +30,11 @@ def test_g6_seed_has_hv_and_chained_spacing(mw, qapp, tmp_path):
         QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
     cons = sc.constraint_ctl.constraints
     assert len(sc._gridlines) == 6
+    # The joined seed is the undo baseline: Ctrl+Z never exposes it un-joined.
+    assert (len(sc._undo_stack), sc._undo_pos) == (1, 0)
+    sc.undo()
+    assert len(sc._gridlines) == 6 and len(sc.constraint_ctl.constraints) == 10
+    cons = sc.constraint_ctl.constraints
     assert Counter(c.type for c in cons) == {
         "vertical": 3, "horizontal": 3, "dim_point_line": 4}
     by_label = {g._uid: g.grid_label for g in sc._gridlines}

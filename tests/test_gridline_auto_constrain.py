@@ -409,10 +409,67 @@ def test_g7_block_editor_paste_never_joins(qapp):
 
 
 def test_level_duplication_copies_no_gridlines(plan_sc):
-    """Gridlines carry no level: Duplicate Level never copies (or joins) them."""
+    """Gridlines carry no level: Duplicate Level never copies (or joins) them.
+
+    The no-join rule is structural (``_items_on_level`` never yields a
+    gridline), not a flag in ``copy_items_to_level``; a wall on the source
+    level makes the copy really run ``paste_items``."""
+    from firepro3d.wall import WallSegment
     sc = plan_sc
     _gl(sc, (0, -1500), (0, 1500), "A")
     _gl(sc, (1000, -1500), (1000, 1500), "B")
-    sc.duplicate_level_entities(sc.active_level, "Level 2")
+    src = sc.active_level
+    wall = WallSegment(QPointF(0, 3000), QPointF(3000, 3000), thickness_mm=200.0)
+    wall.level = src
+    sc.addItem(wall)
+    sc._walls.append(wall)
+    sc.duplicate_level_entities(src, "Level 2")
+    assert [w.level for w in sc._walls] == [src, "Level 2"]     # the copy ran
     assert [g._uid for g in sc._gridlines] == ["A", "B"]
-    assert sc.constraint_ctl.constraints == []
+    assert not [c for c in sc.constraint_ctl.constraints
+                if {"A", "B"} & {r.get("uid") for r in c.refs if isinstance(r, dict)}]
+
+
+# -- Task 5: the blue readouts are gone (R5) ----------------------------------
+
+import numpy as np  # noqa: E402
+from PyQt6.QtGui import QImage  # noqa: E402
+from PyQt6.QtWidgets import QLineEdit  # noqa: E402
+
+
+def _blue_pixels(view) -> int:
+    """Count #0066cc pixels (the retired readout colour) in the viewport."""
+    img = view.viewport().grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
+    ptr = img.constBits()
+    ptr.setsize(img.sizeInBytes())
+    a = np.frombuffer(ptr, dtype=np.uint8).reshape(img.height(), img.bytesPerLine())
+    px = a[:, : img.width() * 4].reshape(img.height(), img.width(), 4)
+    return int(np.count_nonzero((px[..., 0] == 0xCC) & (px[..., 1] == 0x66) & (px[..., 2] == 0x00)))
+
+
+def test_g8_selected_gridline_paints_no_blue_readout(pv):
+    view, sc = pv
+    _gl(sc, (-100, -200), (-100, 200))
+    b = _gl(sc, (100, -200), (100, 200))
+    sc.set_mode("select")
+    b.setSelected(True)
+    view.viewport().repaint(); QApplication.processEvents()
+    assert _blue_pixels(view) == 0
+
+
+def test_g8_double_click_at_old_readout_opens_no_editor(pv):
+    view, sc = pv
+    _gl(sc, (-100, -200), (-100, 200))
+    b = _gl(sc, (100, -200), (100, 200))
+    sc.set_mode("select")
+    b.setSelected(True)
+    view.viewport().repaint(); QApplication.processEvents()
+    # Qt's real double-click sequence at the old readout midpoint (QTest's
+    # mouseDClick never reaches mouseDoubleClickEvent in this harness).
+    from PyQt6.QtCore import QEvent
+    from tests._snap_polish_helpers import post
+    T = QEvent.Type
+    for et in (T.MouseButtonPress, T.MouseButtonRelease, T.MouseButtonPress,
+               T.MouseButtonDblClick, T.MouseButtonRelease):
+        post(view, et, QPointF(0, -200))
+    assert view.viewport().findChildren(QLineEdit) == []
