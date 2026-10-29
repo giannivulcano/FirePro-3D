@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -23,7 +23,7 @@ applies-to:
 
 ## 1. Goal
 
-Define the canonical grid system for FirePro3D: a single **parametric** `GridlineItem` class (origin + length + angle + per-bubble offsets) with auto-numbered bubble labels, pull-tab grips, lock support, perpendicular repositioning, and on-selection spacing dimensions. Gridlines are placed **on-canvas** (Revit-style, mirroring the Line tool) and edited through the right-side **Properties panel** — there is no modal dialog. Gridlines are level-independent building datums that project into elevation views. The legacy `GridLine` class is removed.
+Define the canonical grid system for FirePro3D: a single **parametric** `GridlineItem` class (origin + length + angle + per-bubble offsets) with auto-numbered bubble labels, pull-tab grips, lock support, perpendicular repositioning, and auto-constrained spacing dimensions (§5.4). Gridlines are placed **on-canvas** (Revit-style, mirroring the Line tool) and edited through the right-side **Properties panel** — there is no modal dialog. Gridlines are level-independent building datums that project into elevation views. The legacy `GridLine` class is removed.
 
 ## 2. Motivation
 
@@ -68,7 +68,7 @@ Gridlines support arbitrary angles (not just cardinal); the angle is a first-cla
 | `_bubble1_offset` | `float` | `GRIDLINE_BUBBLE_OFFSET_MM` | Absolute along-axis outward standoff at the origin end (mm) |
 | `_bubble2_offset` | `float` | `GRIDLINE_BUBBLE_OFFSET_MM` | Absolute along-axis outward standoff at the far end (mm) |
 | `_label_text` | `str` | auto-assigned | Shared by both bubbles |
-| `_locked` | `bool` | `False` | Prevents grip drag, body drag, spacing edit, panel geometry edit |
+| `_locked` | `bool` | `False` | Prevents grip drag, body drag, panel geometry edit; fixed in a constraint solve (spacing-dim edits move the other side) |
 | `_display_overrides` | `dict` | `{}` | Per-instance display overrides |
 | `_display_scale` | `float` | `1.0` | Bubble scale factor (from Display Manager) |
 | `_grid_color` | `QColor` | `GRID_COLOR` (#4488cc) | Line + bubble border color |
@@ -173,21 +173,13 @@ Triggered by dragging an endpoint grip (manipulator-owned `GripHandle` since U3,
 
 `_perpendicular_vector()` is a **fixed** normal `(−d.y, d.x)` with **no** sign-flip. The fixed sign guarantees every gridline in a parallel cluster shares a consistent normal, which the parallelism-based spacing (§5.4) requires.
 
-### 5.4 On-Selection Spacing Dimensions
+### 5.4 Spacing Dimensions (Auto Constrain, 2026-10-28)
 
-When one or more gridlines are selected, spacing dimensions appear between **truly parallel** gridlines using the existing dimensional constraint visual style. Pairing is by **angle clustering**: each gridline's direction angle mod π; two gridlines are parallel (eligible for a spacing dimension) iff their angles agree within a small fixed tolerance (`EPS_ANGLE`). Within a parallel cluster, members are projected onto the cluster's shared normal, sorted, and a dimension is emitted between every adjacent pair where ≥1 member is selected. **Non-parallel neighbors get no dimension.** This replaces the old binary `dy>=dx` bucket, which mis-paired lines of different angles and flipped discontinuously near 45°.
+Gridline spacing is a **plan constraint**: when Auto Constrain is on, a placed gridline gets a driving Smart Dimension (`dim_point_line`) to its nearest near-parallel neighbour on each side, and an exactly axis-aligned one gets H / V. Neighbours are gridlines within `GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG` of parallel (the same bar the retired readouts clustered by); **non-parallel neighbours get no dimension**. Placing between two dimmed neighbours re-chains the spacing. The rules (records, gate, re-chain, which creation paths join) are owned by `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` §3 "Gridline placement records" (GA1-GA3); display follows that design's G12.
 
-- **Single selection:** dimensions to the nearest parallel unselected neighbor on each side (adjacent pairs in the sorted cluster).
-- **Multi-selection:** dimensions between adjacent selected parallel gridlines plus dimensions to the nearest unselected parallel neighbor on each outer edge.
+### 5.5 Editing Spacing
 
-### 5.5 Double-Click Spacing Edit
-
-Double-clicking a spacing dimension opens an inline text field on the dimension (routed through `model_view.mouseDoubleClickEvent`; the dims are read from a cached copy so the second click of the double-click cannot clear them). The user enters a new spacing value in display units (via the existing numerical input handler with unit conversion).
-
-- **Single selection:** the selected gridline moves perpendicular to satisfy the new spacing. The neighbor stays fixed.
-- **Multi-selection:** all selected gridlines move as a rigid group, maintaining their relative spacing. The unselected anchor neighbor stays fixed.
-- Lock-aware: locked gridlines in the moving set are skipped.
-- Undo: single state push.
+Spacing is edited through the Smart Dimension (a typed value, `parametric-constraint-system.md` D55): the solve moves the unlocked gridline perpendicular to satisfy it; a locked gridline is fixed (L1). **Retired 2026-10-28:** the blue on-selection spacing readouts (`_compute_gridline_spacing` + the `model_view` paint) and their double-click inline edit (`_start_spacing_edit` / `_apply_spacing_edit`), replaced by the auto dims above.
 
 ### 5.6 Bubble Offset (Implemented)
 
@@ -255,8 +247,9 @@ Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line
 - **Ctrl** = angle-constrain; **Tab** = exact length + angle dynamic input
 - `single_place_mode` returns to select mode after one placement; otherwise it loops
 - On placement the factory syncs auto-number counters *before* construction (§6.3), calls `apply_category_defaults` (adopts the live Display Manager "Grid Line" color/scale), appends to `_gridlines`, selects the item, emits `requestPropertyUpdate`, then re-syncs counters and re-runs duplicate warnings
+- **Auto Constrain** (2026-10-28): the commit then adds the gridline's H / V and spacing dims (§5.4) before its undo push, so gridline + records undo together
 
-The **Draw-tab ribbon "Gridline" button** (a checkable mode button in the Geometry group, `main.py`) sets `draw_gridline`. The default 3+3 seed is unchanged (`place_grid_lines`, called by `_place_default_gridlines`).
+The **Draw-tab ribbon "Gridline" button** (a checkable mode button in the Geometry group, `main.py`) sets `draw_gridline`. The default 3+3 seed is `place_grid_lines`, called by `_place_default_gridlines`, which then auto-constrains it and ties 1 / A to the origin (§5.4 pointer, GA3).
 
 ### 7.2 Properties-Panel Editing
 
@@ -413,7 +406,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 
 ### 11.14 Parallelism-based spacing pairing
 
-**Chosen:** Pair gridlines for spacing dimensions by true parallelism (angle mod π within `EPS_ANGLE`), not the binary `dy>=dx` bucket.
+**Chosen:** Pair gridlines for spacing dimensions by true parallelism (angle mod π within `EPS_ANGLE`), not the binary `dy>=dx` bucket. *(2026-10-28: the readouts are retired; the auto spacing dims keep the rule via `GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG`, §5.4.)*
 **Rationale:** The binary bucket mis-paired non-parallel lines and flipped discontinuously near 45°. Naming keeps `dy>=dx` (standard structural convention); only spacing pairing changed.
 
 ### 11.15 Model-absolute dash on screen, paper-mm on paper
@@ -450,6 +443,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 
 ### 11.7 Spacing dimensions with double-click edit
 
+**Superseded 2026-10-28** by auto-constrained Smart Dimension spacing (§5.4 / §5.5); kept as history.
 **Chosen:** Show on selection, double-click to edit, isolate movement (no cascade).
 **Rationale:** Provides immediate feedback on grid spacing without a separate tool. Isolation (only selected gridlines move) is predictable. Multi-selection enables rigid-group movement for cascade-like behavior when desired.
 
@@ -473,7 +467,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [x] `GridlineItem` is the single canonical gridline class
 - [x] `grid_line.py` removed; all imports cleaned up
 - [x] Parametric data model: `_origin` + `_length` + `_angle_deg` + per-bubble offsets; single `_rebuild_geometry()` writer keeps `line()` in sync
-- [x] Lock/unlock prevents grip drag, body drag, spacing edit, and panel geometry edit
+- [x] Lock/unlock prevents grip drag, body drag, and panel geometry edit; a locked gridline is fixed in a spacing-dim solve
 - [x] Manipulator-owned grips at endpoints (on selection), house selection style (U3, §4.3; `_PullTabGrip` retired)
 - [x] Perpendicular body drag with directional constraint (fixed-sign normal)
 - [x] On-canvas placement via `draw_gridline` mode, mirroring the Line tool (1st click origin, 2nd click length+angle, Ctrl-constrain, Tab exact input, single-place)
@@ -493,8 +487,8 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [ ] Elevation Z-extent defaults to full building height; per-view grip-editable overrides stored on elevation scene
 - [x] Single "Grid Line" display manager category
 - [x] Undo: panel geometry commit = one step; drag operations = one step on mouse release
-- [x] On-selection spacing dimensions between truly parallel gridlines (angle clustering); non-parallel neighbors show none
-- [x] Double-click spacing edit: selected gridline(s) move, neighbor stays fixed; multi-select moves as rigid group preserving relative spacing
+- [x] Auto-constrained spacing (2026-10-28): placement, copies, paste and the default seed get H / V + driving spacing dims to the near-parallel neighbour on each side; insertion re-chains; non-parallel neighbours get none (§5.4)
+- [x] Editing a spacing dim moves the unlocked gridline; a locked one stays (§5.5); the on-selection readouts and their double-click edit are retired
 - [x] Serialization: new parametric format on both paths (`scene_io` + `_capture_network`); legacy `p1/p2` (and `start/end`) files load
 - [x] Snap interaction deferred to snap spec (cross-reference only)
 
@@ -512,7 +506,7 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 ## 13. Verification Checklist
 
 - [x] Core acceptance criteria met (except elevation Z-override items, still open)
-- [x] Unit tests pass: auto-numbering (flipped), serialization round-trip (both paths), legacy migration, parametric edits, grip extend/shorten, parallelism spacing, duplicate detection
+- [x] Unit tests pass: auto-numbering (flipped), serialization round-trip (both paths), legacy migration, parametric edits, grip extend/shorten, spacing auto-constrain (`test_gridline_auto_constrain*.py`; the readout tests retired 2026-10-28), duplicate detection
 - [x] Functional/widget tests: on-canvas placement mirrors the Line tool (incl. Tab + Ctrl); property-panel edits reach geometry; copy/paste of a lone gridline
 - [x] No regressions: default 3+3 seed, snap on gridlines, duplicate warnings, lock enforcement
 - [x] `grid_line.py` and `grid_lines_dialog.py` fully removed, no dead imports
@@ -528,9 +522,9 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | File | Role |
 |------|------|
 | `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property`; `alignment_reference_points()`; `offset_copy()`/`array_copies()` copy factories; `_is_template` placement-template flag |
-| `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, parallelism spacing, body drag, `place_grid_lines` seed, both undo serialization paths; `gridline_offset`/`gridline_array` transient modes; `_collect_alignment_refs`; `get_effective_position` inference hook; `_get_gridline_template()` |
+| `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, copy / paste auto-join call sites (§5.4), body drag, `place_grid_lines` seed, both undo serialization paths; `gridline_offset`/`gridline_array` transient modes; `_collect_alignment_refs`; `get_effective_position` inference hook; `_get_gridline_template()` |
 | `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
-| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost. Grip render is manipulator-owned since U3 (§4.3) — the `drawForeground` legacy grip loop skips the migrated gridline. |
+| `firepro3d/model_view.py` | Double-click-to-select gridline; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost. Grip render is manipulator-owned since U3 (§4.3) — the `drawForeground` legacy grip loop skips the migrated gridline. |
 | `firepro3d/scene_tools.py` | `_find_grip_hit` grip hit-test (honors `grip_hittable`); shared with all grip-bearing items — **skips** the U3-migrated gridline (`_item_uses_manip_handles`). |
 | `firepro3d/manip_handle.py` | `GridlineGripHandle` — the gridline's live-apply grip (parallel-delta on all grips + endpoint Ctrl-constrain + sibling Esc-restore); see `selection-manipulator.md §"U3 — GripHandle"`. |
 | `firepro3d/align_engine.py` | `AlignEngine`, `ReferenceFeature`, `Guide`, `AlignResult` — entity-agnostic; owned by `Model_Space` |
@@ -564,7 +558,7 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 - **Counter sync with mixed custom labels:** Labels like "X-1" that don't parse as numbers or letters are ignored by sync. Counter resumes from the highest parseable label.
 - **Zero-length placement:** the placement press rejects a sub-0.5-mm span ("Gridline too short — skipped"); mutators floor `_length` at 1.0 mm.
 - **Cardinal test retired (2026-10-21):** section views no longer filter gridlines by cardinality; a gridline parallel to the cut line (no crossing) is hidden, any other draws at its crossing (`section-view-subsystem.md` §4.1).
-- **Spacing pairing tolerance:** angle clustering uses a small fixed `EPS_ANGLE`. Non-parallel gridlines share no cluster → no spacing dimension between them.
+- **Spacing neighbour tolerance:** a near-parallel neighbour is within `GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG`; a non-parallel one gets no spacing dimension, and a coincident one is skipped (§5.4).
 
 ## 16. Out of Scope
 
@@ -598,7 +592,7 @@ Copies are **rigid parallel translations**: same `_angle_deg` and `_length`, `_o
 
 ### 17.5 Labeling & Commit
 
-Before building copies, `sync_grid_counters` runs on the existing gridlines so auto-labels continue the current sequence. Each copy receives a fresh sequential auto-label via `auto_label()`. After all copies are appended to `_gridlines`, `apply_duplicate_warnings` re-scans. The entire array/offset commit is **one** `push_undo_state()` — whole set = one undo step.
+Before building copies, `sync_grid_counters` runs on the existing gridlines so auto-labels continue the current sequence. Each copy receives a fresh sequential auto-label via `auto_label()`. After all copies are appended to `_gridlines`, `apply_duplicate_warnings` re-scans and the copies auto-join one at a time (§5.4). The entire array/offset commit is **one** `push_undo_state()` — whole set + records = one undo step.
 
 ### 17.6 Serialization
 

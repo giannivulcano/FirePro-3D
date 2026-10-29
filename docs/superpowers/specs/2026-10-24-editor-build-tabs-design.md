@@ -1,7 +1,7 @@
 ---
 status: current -- slices 1-3 built (c23c1610, db16090a, f44a4c2b)   # three feature slices (see Build slices)
-last-verified: 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
-verified-commit: f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
+last-verified: 2026-10-29  # Gridline Auto Constrain Account: GA1-GA3 rows, s2 origin-tie exception, s3 plan_commit + Gridline placement records; prior 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
+verified-commit: d3813e9d   # Gridline Auto Constrain Account; prior f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
 applies-to:
   - main.py (init_ribbon, _init_build_tab / _init_editor_tab, canvas context, retired contextual-tab mechanism)
   - firepro3d/ribbon_bar.py
@@ -13,6 +13,8 @@ applies-to:
   - firepro3d/gridline.py
   - firepro3d/scene_io.py
   - firepro3d/model_view.py
+  - firepro3d/geometry_drawing_controller.py (gridline commit auto-join, GA1)
+  - firepro3d/model_space.py (copy / paste auto-join call sites, GA2)
 source-tasks:
   - "todo_open.md -> [type:design] Context-aware \"Editor\" tab + new \"Build\" tab; plan-view Editor edits feature primitive geometry [P1]"
 consolidates:   # Rule A -- each of these gets a one-line pointer at Account; full rewrites are follow-ups
@@ -97,6 +99,9 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | S3-S1 | Hidden walls (hidden level) are **not placement join targets at all** -- no snap, no record (`_auto_join_wall` skips `not isVisible()` in both passes). This changes pre-existing snap behaviour, intended. Grip-drag propagation and the drag snap-candidate list still scan hidden walls (noted, not ruled) | slice-3 VC9 seam review ruling (2026-10-27) |
 | I1 | A canvas switch drops the selection-jump memory. Leaving for paper / 3D / section, or leaving a block / schematic canvas, first restores the pre-jump tab (block: Build, then B3 returns to the original); plan <-> detail keeps Editor | slice-3 T5 review ruling (2026-10-27) |
 | F2 | ENTERING a block / schematic after a plan selection jump restores the pre-jump tab first, so B3 remembers the original tab and closing the block returns there, not to Editor | slice-3 FIX1 review ruling (2026-10-27) |
+| GA1 | Gridline Auto Constrain (2026-10-28): a plan gridline gets H/V by exactness + a driving spacing dim to its nearest near-parallel neighbour on **each side**; placing between two dimmed neighbours **re-chains** (their spacing dim is replaced); spacing dims are driving and display under G12; the blue on-selection readouts are retired. Rules in §3 "Gridline placement records" | Gridline Auto Constrain Phase 2 ask (2026-10-28) |
+| GA2 | Paths: draw_gridline (click + typed), Array / Offset / Replicate, Paste / Duplicate and the 3V+3H seed join; the grid generator dialog (`place_grid_lines` called directly) does not (filed follow-up) | Phase 2 ask (2026-10-28) |
+| GA3 | Seed gridlines 1 and A tie their **start point** to the origin (`coincident [origin, p1]`), so they can neither move nor slide along their axis -- the one plan ground ref | Phase 6 smoke ruling (2026-10-28) |
 
 ## Architecture & Constraints
 
@@ -182,7 +187,10 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
   The plan lists each site with its verdict. Not to be confused with the per-constraint
   `c.enabled` (Suppress) flag.
 - **No origin / axes in plan.** The reserved grounds `origin`, `x_axis`, `y_axis` are not
-  offered and not painted in plan; H/V and Fix are absolute and need neither.
+  offered and not painted in plan; H/V and Fix are absolute and need neither. **One
+  exception (GA3):** the seed's `coincident [origin, p1]` origin ties, made in code (§3
+  "Gridline placement records") -- still never offered as a pick or painted; load keeps
+  only that shape (`scene_io._plan_record_resolves`), every other ground record drops.
 - **Wall adapter** (`sketch_adapters`): variables `x1 y1 x2 y2` from `_pt1` / `_pt2`
   (centerline, scene coords); handles `p1`, `p2`, `mid` (derived midpoint, D58), edge
   `edge`; grip map 0 -> `p1`, 1 -> `p2`, 2 (translate) and 3 (width) pin the whole item
@@ -230,14 +238,35 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 
 - **Placement records (slice 3, G11).** `_auto_join_wall` returns records (built by the
   pure `auto_constrain` helpers `plan_wall_join` / `plan_wall_hv` / `plan_wall_rect`) and
-  `_ac_commit` sends them through `ConstraintController.auto_join` before the placement's
-  own `push_undo_state`: endpoint-to-endpoint join -> `coincident [new end, partner end]`;
+  `auto_constrain.plan_commit` (shared with gridlines since 2026-10-28; `plan_ctl` = the
+  plan controller, never a Block Editor's) sends them through
+  `ConstraintController.auto_join` before the placement's own `push_undo_state`: endpoint-to-endpoint join -> `coincident [new end, partner end]`;
   tee join -> `point_on_curve [new end, host edge]` (handles per PD1: the drawn line);
   line / polyline walls add `horizontal` / `vertical` when the drawn line is exactly H/V;
   a rectangle commit (`_commit_wall_rect_rotated`) adds the corner `coincident`s from its
   own joins + 3 `perpendicular` (PD4). Gate: toggle XOR Shift (D139) on the committing
   press; a typed (HUD) completion follows the toggle alone (PD2). Plan scene only. Hidden
   walls are not join targets (S3-S1). The geometric snap / join itself is otherwise unchanged.
+- **Gridline placement records (Gridline Auto Constrain, 2026-10-28; GA1-GA3).**
+  `auto_constrain.plan_gridline_join(gl, gridlines, constraints)` returns `(records,
+  remove_ids)`: `horizontal` / `vertical` on `edge` when exactly axis-aligned (D148); per
+  side, the nearest gridline within `GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG` of parallel (a
+  coincident one, within `AUTO_CONSTRAIN_MATCH_TOL_MM`, is skipped) gets `parallel [edge,
+  edge]` -- dropped when both are the same exact axis -- and a driving `dim_point_line [gl
+  mid, neighbour edge]` (value measured at add; editing it moves the unlocked side, a locked
+  gridline is fixed per L1). With a neighbour on both sides, every **driving**
+  `dim_point_line` between those two is named for removal (re-chain); a reference dim stays.
+  `auto_join(records, remove=)` deletes them in the same step and puts them back when no
+  record is kept (D146 / D147 hold). `auto_constrain.join_gridlines(scene, new, modifiers)`
+  joins each gridline of a batch as if placed one at a time (later members not yet
+  neighbours). Gate: toggle XOR Shift on the committing press; a typed completion and every
+  non-press path (copies, paste, seed) follow the toggle alone (`plan_on(None)`). Call
+  sites: `GeometryDrawingController._commit_draw_line_at` (gridline branch), the
+  Array / Offset / Replicate commit, `Model_Space.paste_items` (skipped when given a
+  rotation -- Polar Array joins after the turn), `MainWindow._place_default_gridlines`
+  (the seed, plus `plan_origin_ties` for the gridlines whose start sits on the origin --
+  GA3). Duplicate Level never copies gridlines (they carry no level; guard
+  `test_level_duplication_copies_no_gridlines`).
 - **Proximity follow coexists (G10, slice 3).** On an endpoint drag the solver moves every
   end tied to it by an enabled, non-red `coincident` (PD5); `_propagate_wall_endpoint` then
   skips those ends so nothing moves twice. Touching ends with no tie still follow by
