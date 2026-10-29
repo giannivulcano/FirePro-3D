@@ -148,6 +148,31 @@ def test_ac3_template_saves_and_overlays_annotation_defaults(qapp, tmp_path, mon
     assert fresh.annotation_defaults == {"Room": d.id}
 
 
+def test_pre_sb3_template_still_embeds_the_system_default_eagerly(qapp, tmp_path, monkeypatch,
+                                                                   sys_defaults):
+    """VC9 Minor 2: a template saved before SB3 has no ``annotation_defaults`` key;
+    the System default must still be embedded by the template overlay itself, not
+    lazily inside the first boundingRect()/paint()."""
+    from firepro3d import app_data, block_library
+    from firepro3d.settings import template
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    path = template.save_current_as_default(_scene())
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    data.pop("annotation_defaults", None)                      # pre-SB3 shape
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    sysroot = tmp_path / "sys"
+    _shipped(sysroot, "SysTag", "system-tags-systag")
+    block_library.set_system_root(str(sysroot))                # conftest restores it
+    sys_defaults({"Room": "system-tags-systag"})
+    fresh = _scene()
+    assert "system-tags-systag" not in fresh._block_definitions
+    template.apply_template_settings(fresh)
+    assert fresh.annotation_defaults == {}
+    assert "system-tags-systag" in fresh._block_definitions   # embedded by the overlay (D-C)
+
+
 from firepro3d import block_library
 from firepro3d.settings.panes import AnnotationPane, MarksPane
 from firepro3d.settings.project_settings_dialog import ProjectSettingsDialog

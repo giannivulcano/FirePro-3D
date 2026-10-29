@@ -471,9 +471,10 @@ def test_tag_binding_a_non_label_field_renders_its_value(qapp):
     want = host_values(room)["Area"].text
     assert want and tag._bound_cache[1][0] == (want,)
     d1 = _digest(_render(ms, RECT, 300, 300))
-    room._boundary = [QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)]
-    room._rebuild()
-    tag.refresh()
+    w1 = tag.boundingRect().width()                   # primes the cached rect ("4000000 mm²")
+    room._boundary = [QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)]
+    room._rebuild()                     # _update_label drops the cached rect (VC9 Minor 1): no manual refresh
     want2 = host_values(room)["Area"].text
     assert want2 != want and tag.paints() and tag._bound_cache[1][0] == (want2,)
+    assert len(want2) < len(want) and tag.boundingRect().width() < w1   # "10000 mm²": the rect followed
     assert _digest(_render(ms, RECT, 300, 300)) != d1

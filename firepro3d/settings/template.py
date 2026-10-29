@@ -209,10 +209,12 @@ def apply_template_settings(scene) -> None:
         scene.annotation_defaults = {**scene.annotation_defaults,
                                      **{str(k): v for k, v in ad.items() if isinstance(v, str)}}
         scene._annot_memo.clear()
-        from ..system_blocks import ANNOTATION_CATEGORIES
-        for cat in ANNOTATION_CATEGORIES:          # embed now, never inside a boundingRect()/paint()
-            scene.annotation_block(cat)
-        scene.refresh_room_tags()
+    # Eager resolve even for a pre-SB3 template (no key): embed the System
+    # default now, never inside a boundingRect()/paint().
+    from ..system_blocks import ANNOTATION_CATEGORIES
+    for cat in ANNOTATION_CATEGORIES:
+        scene.annotation_block(cat)
+    scene.refresh_room_tags()
     apply_template_titleblock(scene, data)
 
 

@@ -186,8 +186,9 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     def _update_label(self):
         """Anchor the tag at centroid + label_offset; show it with show_label.
 
-        The tag pulls its text at paint (SB3: ``BoundLabelItem``), so a name
-        change needs ``self._tag.refresh()``, not this.
+        The tag pulls its text at paint (SB3: ``BoundLabelItem``); a geometry
+        rebuild or Renumber lands here, so the cached bounds rect is dropped
+        too (a tag bound to ``@[Area]`` / ``@[Mark]`` would otherwise go stale).
         """
         c = self._centroid()
         self._tag.setVisible(self._show_label and c is not None)
@@ -195,6 +196,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             return          # degenerate room: tag hidden (design Edge Cases)
         self._tag.set_anchor(QPointF(c.x() + self._label_offset.x(),
                                      c.y() + self._label_offset.y()))
+        self._tag.refresh()       # drop the cached rect (rebuild / Renumber reach here)
 
     @property
     def boundary(self) -> list[QPointF]:
