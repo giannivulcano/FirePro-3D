@@ -509,8 +509,10 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
                 bid = choice.block_id
                 if choice.path and sc is not None:
                     from .blocks_browser import ensure_block_loaded
+                    from .annotation_choices import LIBRARY_TIER
+                    name = choice.label.removesuffix(f" ({LIBRARY_TIER})")   # bare block name
                     bid = ensure_block_loaded(sc, choice.block_id, choice.path,
-                                              choice.label, parent=None)
+                                              name, parent=None)
                     if bid is None:
                         return                      # load failed (message shown); nothing assigned
             if bid == self._tag_block:

@@ -32,32 +32,68 @@ class Choice:
     path: str | None = None
 
 
-_parsed: dict[str, tuple[float, object]] = {}   # path -> (mtime, BlockDefinition | None)
+_parsed: dict[str, tuple[tuple[int, int], object]] = {}   # path -> ((mtime_ns, size), BlockDefinition | None)
 
 
 def parsed_file(path: str):
-    """``block_library.load_block_file(path)`` parsed once per mtime.
+    """``block_library.load_block_file(path)`` parsed once per (mtime_ns, size).
 
     The property panel calls ``get_properties()`` on every target for every
     row of the form, so the walk must not re-parse files. The call goes through
-    the module attribute (a test counts it)."""
+    the module attribute (a test counts it).
+
+    The returned ``BlockDefinition`` is shared by every caller and READ-ONLY:
+    read ``name`` / ``library`` / eligibility off it, never register it into a
+    scene (render caches live on the definition) -- embed through
+    ``blocks_browser.ensure_block_loaded`` / the resolver, which reload from the
+    path."""
     try:
-        mtime = os.path.getmtime(path)
+        st = os.stat(path)
     except OSError:
         _parsed.pop(path, None)
         return None
+    sig = (st.st_mtime_ns, st.st_size)
     hit = _parsed.get(path)
-    if hit is not None and hit[0] == mtime:
+    if hit is not None and hit[0] == sig:
         return hit[1]
     d = block_library.load_block_file(path)
-    _parsed[path] = (mtime, d)
+    _parsed[path] = (sig, d)
     return d
+
+
+def _stamp(*bases: str) -> tuple:
+    """Cheap fingerprint of every ``.fpdb`` under *bases* -- ``(path, mtime_ns,
+    size)`` from a directory scan only (no file is opened, no meta read)."""
+    out = []
+    for base in bases:
+        if not os.path.isdir(base):
+            continue
+        for _dirs, path in block_library._walk_fpdb(base):
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            out.append((path, st.st_mtime_ns, st.st_size))
+    return (tuple(bases), tuple(out))
+
+
+# One-slot caches of the two disk walks (SB3b review I2). A Room's Tag row
+# asks for the choices on every ``get_properties()`` and the panel calls that
+# per target per row, so the real walks (``shipped_index`` /
+# ``list_library``: meta read + owner resolution) run only when the stamp of the
+# files on disk changed -- a file added / edited / removed shows up on the next
+# build with no signal or timer.
+_shipped_cache: list = [None, None]     # [stamp, {id: path}]
+_library_cache: list = [None, None]     # [stamp, list_library entries]
 
 
 def shipped_defs() -> dict:
     """``{id: BlockDefinition}`` for the System tier, in file-name order."""
+    stamp = _stamp(block_library.system_root())
+    if _shipped_cache[0] != stamp:
+        _shipped_cache[:] = [stamp, dict(block_library.shipped_index())]
     out: dict = {}
-    for bid, path in sorted(block_library.shipped_index().items(), key=lambda kv: kv[1]):
+    for bid, path in sorted(_shipped_cache[1].items(), key=lambda kv: kv[1]):
         d = parsed_file(path)
         if d is not None:
             out[bid] = d
@@ -70,8 +106,10 @@ def library_defs(scene, root: str | None = None) -> list[tuple[str, object, str]
     tier only). A copied duplicate-id file is skipped: it would load under a
     fresh id neither picker could name beforehand."""
     from .blocks_browser import library_only_entries
-    entries = [e for e in block_library.list_library(root, system=False)
-               if not e.get("duplicate")]
+    stamp = _stamp(block_library._root(root))
+    if _library_cache[0] != stamp:
+        _library_cache[:] = [stamp, block_library.list_library(root, system=False)]
+    entries = [e for e in _library_cache[1] if not e.get("duplicate")]
     out = []
     for _lib, _ser, _name, bid, path in library_only_entries(scene, root, entries=entries):
         if not bid:

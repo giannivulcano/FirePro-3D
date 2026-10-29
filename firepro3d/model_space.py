@@ -477,9 +477,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # SB3: category -> block id (Project Settings > Annotation; cloned
         # from the template, saved in the .fpd, never in undo).
         self.annotation_defaults: dict[str, str] = {}
-        self._annot_memo: dict = {}      # (category, mapped id) -> resolved id | None (SB3b)
+        self._annot_memo: dict = {}      # (category, mapped id, fallback) -> resolved id | None (SB3b)
         self._annot_resolving = False    # True while annotation_block embeds a file
-        self._annot_notified: set = set()   # (category, mapped) pairs already noticed; survives memo clears
+        self._annot_notified: set = set()   # (category, mapped, fallback) triples already noticed; survives memo clears
         self.project_settings_size: tuple | None = None   # (w, h) of the Project Settings dialog, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
@@ -1820,7 +1820,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         misses falls through to the project default (one notice per
         (category, id)); the project default's own miss walks on to
         ``SYSTEM_DEFAULTS`` as before (Q6; the mapping is kept). Memoised per
-        (category, id) in ``_annot_memo``, cleared on ``blockDefinitionsChanged``.
+        (category, id, fallback) in ``_annot_memo`` (the per-element and
+        project-default steps resolve the same id differently), cleared on
+        ``blockDefinitionsChanged``.
         """
         if mapped:
             d = self._block_definitions.get(mapped)
@@ -1840,10 +1842,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._block_registry.get(rid) if rid else None
 
     def _resolve_mapped(self, category: str, mapped: str, *, fallback: bool):
-        """One memoised resolver step for (*category*, *mapped*): the resolved
-        block id or None. A miss is noticed once per pair (``_annot_notified``
-        outlives memo clears): one log line + one status-bar message."""
-        key = (category, mapped)
+        """One memoised resolver step for (*category*, *mapped*, *fallback*): the
+        resolved block id or None. The result depends on *fallback* (a per-element
+        id walks itself alone; the project default also walks the System default),
+        so it is part of the key. A miss is noticed once per triple
+        (``_annot_notified`` outlives memo clears): one log line + one
+        status-bar message."""
+        key = (category, mapped, fallback)
         if key in self._annot_memo:
             return self._annot_memo[key]
         self._annot_resolving = True

@@ -351,6 +351,8 @@ def test_g6_room_row_lists_the_library_tag_and_a_pick_embeds_and_assigns_in_one_
     assert ms._rooms[0].tag_block is None and "lib-tag-1" not in ms._block_definitions
     ms.redo()
     assert ms._rooms[0].tag_block == "lib-tag-1" and "lib-tag-1" in ms._block_definitions
+    pm.show_properties([])                                          # drop the room references (M3)
+    pm._refresh_timer.stop()
 
 
 def test_tag_row_shows_missing_and_not_eligible_and_keeps_the_id(qapp):
@@ -370,3 +372,134 @@ def test_tag_row_shows_missing_and_not_eligible_and_keeps_the_id(qapp):
     off = Room(boundary=[QPointF(0, 0), QPointF(1, 0), QPointF(1, 1)])   # no scene: the row degrades
     assert off.get_properties()["Tag"] == {"type": "enum", "value": "Project default (none)",
                                            "options": ["Project default (none)"]}
+
+
+# -- review fix round: I1 (memo keyed by fallback), I2 (cached choices), M4 --------------
+
+@pytest.mark.parametrize("room_first", [True, False], ids=["room-first", "default-first"])
+def test_i1_room_pinned_to_the_same_missing_id_as_the_default_draws_the_system_default(qapp, room_first, tmp_path):
+    import shutil
+    from firepro3d.assets import system_blocks_path
+    from firepro3d.system_blocks import SYSTEM_DEFAULTS
+    folder = tmp_path / "sys" / "Tags"                              # conftest hands every test an EMPTY System tier
+    folder.mkdir(parents=True)
+    shutil.copy(system_blocks_path("Tags", "RoomTag.fpdb"), folder / "RoomTag.fpdb")
+    block_library.set_system_root(str(tmp_path / "sys"))
+    ms = _scene()
+    ms.annotation_defaults["Room"] = "X"                            # the project default is missing too
+    pinned = _add_room(ms, "Pinned")
+    plain = _add_room(ms, "Plain", x0=5000.0)
+    pinned._tag_block = "X"
+    ms._annot_memo.clear()
+    ms._annot_notified.clear()
+    notices = _notices(ms)
+    order = (pinned, plain) if room_first else (plain, pinned)
+    drawn = {r.name: r._tag.definition() for r in order}            # the first resolve decides the order
+    for r in order:
+        r._tag.refresh()
+    _render(ms, RECT_A, 300, 300)
+    sysid = SYSTEM_DEFAULTS["Room"]
+    for r in (pinned, plain):
+        d = ms._block_definitions[sysid]
+        assert drawn[r.name] is ms.block_registry.get(sysid)        # not the orphan placeholder
+        assert r._tag.definition() is ms.block_registry.get(sysid)
+        k = ms.scale_manager.drawing_scale
+        assert _tag_height(r) == pytest.approx(_glyph_rect(d, r).height() * k, rel=1e-6)
+    assert pinned.tag_block == "X"
+    assert len(notices) == 2                                        # one per user-visible miss
+    assert sum("using the project default" in n for n in notices) == 1
+    assert sum("using the System default" in n for n in notices) == 1
+
+
+def test_m4_ineligible_per_room_id_falls_back_with_one_notice_and_the_row_says_not_eligible(qapp):
+    ms = _scene()
+    d = _tag_def(ms)
+    room = _add_room(ms, "Office")
+    real = BlockDefinition.new(name="Door", library="", series="", origin=(0.0, 0.0), primitives=[])
+    real.host_category = "Room"                                     # real size: not annotative
+    ms.register_block_definition(real)
+    notices = _notices(ms)
+    with_default = _digest(_render(ms, RECT_A, 300, 300))
+    room._tag_block = real.id
+    room._tag.refresh()
+    assert _digest(_render(ms, RECT_A, 300, 300)) == with_default   # drew the project default
+    assert room._tag.definition() is ms.block_registry.get(d.id)
+    assert len(notices) == 1 and real.id in notices[0] and "project default" in notices[0]
+    room._tag.refresh()
+    _render(ms, RECT_A, 300, 300)
+    assert len(notices) == 1
+    assert room.tag_block == real.id                                # the id is kept
+    assert room.to_dict()["tag_block"] == real.id
+    row = room.get_properties()["Tag"]
+    assert row["value"] == "Door (not eligible)" and row["value"] in row["options"]
+
+
+def test_i2_tag_choices_walk_the_disk_once_per_panel_build_and_see_new_library_files(qapp, monkeypatch):
+    from firepro3d import annotation_choices as ac
+    root = block_library_dir()
+    _lib_file(root, "LibTag", "lib-tag-1")
+    ms = _scene()
+    _tag_def(ms)
+    rooms = [_add_room(ms, f"R{i}", x0=5000.0 * i) for i in range(3)]
+    calls = {"list": 0, "shipped": 0}
+    real_list, real_shipped = block_library.list_library, block_library.shipped_index
+
+    def counting_list(*a, **kw):
+        calls["list"] += 1
+        return real_list(*a, **kw)
+
+    def counting_shipped(*a, **kw):
+        calls["shipped"] += 1
+        return real_shipped(*a, **kw)
+
+    monkeypatch.setattr(block_library, "list_library", counting_list)
+    monkeypatch.setattr(block_library, "shipped_index", counting_shipped)
+    ac._shipped_cache[:] = [None, None]
+    ac._library_cache[:] = [None, None]
+    pm = PropertyManager()
+    try:
+        pm.show_properties(rooms)                                   # cold: 3 targets x every key
+        assert calls["list"] <= 1 and calls["shipped"] <= 1         # bound: ONE walk of each
+        combo = pm._prop_widgets["Tag"]
+        assert "LibTag (Library)" in [combo.itemText(i) for i in range(combo.count())]
+        calls.update(list=0, shipped=0)
+        pm.show_properties(rooms)                                   # unchanged disk: no walks
+        assert calls == {"list": 0, "shipped": 0}
+        _lib_file(root, "NewTag", "lib-tag-2")                      # a file added between builds
+        pm.show_properties(rooms)
+        assert calls["list"] == 1 and calls["shipped"] == 0         # exactly one re-walk, library only
+        combo = pm._prop_widgets["Tag"]
+        assert "NewTag (Library)" in [combo.itemText(i) for i in range(combo.count())]
+    finally:
+        pm.show_properties([])
+        pm._refresh_timer.stop()
+
+
+def test_m1_parsed_file_reparses_a_same_mtime_rewrite_of_a_different_size(qapp, tmp_path):
+    from firepro3d import annotation_choices as ac
+    import os
+    p = _lib_file(str(tmp_path), "Tag", "m1-a")
+    first = ac.parsed_file(p)
+    st = os.stat(p)
+    d = json.loads(Path(p).read_text(encoding="utf-8"))
+    d["name"] = "TagRenamedLonger"
+    Path(p).write_text(json.dumps(d), encoding="utf-8")
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))                # same tick, different size
+    again = ac.parsed_file(p)
+    assert again is not first and again.name == "TagRenamedLonger"
+
+
+def test_m2_failed_library_embed_names_the_bare_block_in_the_message_and_assigns_nothing(qapp, monkeypatch):
+    from firepro3d import themed_message
+    shown = []
+    monkeypatch.setattr(themed_message, "themed_info", lambda parent, title, text: shown.append(text))
+    root = block_library_dir()
+    path = _lib_file(root, "LibTag", "lib-tag-1")
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "Office")
+    assert "LibTag (Library)" in room.get_properties()["Tag"]["options"]
+    Path(path).unlink()                                             # the file vanishes before the pick
+    room.set_property("Tag", "LibTag (Library)")
+    assert room.tag_block is None and "lib-tag-1" not in ms._block_definitions
+    assert len(shown) == 1 and "LibTag" in shown[0] and "(Library)" not in shown[0]
