@@ -494,13 +494,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "bottom_abs_z_mm":   self._bottom_abs_z_mm,
             "thickness_mm":      self._thickness_mm,
         }
-        # Per-instance Display-Manager overrides (stroke/fill colour, etc.).
-        # Emitted only when non-empty (matches GridlineItem.to_dict) so untouched
-        # floor records stay lean; from_dict defaults to {} when absent. Round-
-        # tripped so both file save AND undo/redo preserve them.
-        if self._display_overrides:
-            d["display_overrides"] = dict(self._display_overrides)
-        return d
+        # Per-instance Display-Manager overrides: the shared mixin helper (L283).
+        return self.display_overrides_to_dict(d)
 
     @classmethod
     def from_dict(cls, data: dict) -> "FloorSlab":
@@ -527,13 +522,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._top_level = data.get("level", DEFAULT_LEVEL)
             slab._top_offset_mm = data.get("level_offset_mm", 0.0)
             slab._bottom_mode = "thickness"
-        slab._display_overrides = dict(data.get("display_overrides", {}))
-        sec = slab._display_overrides.get("section_type")
-        if isinstance(sec, str) and sec:
-            # HF5 VC9 M2: a name-duplicate type's alias id re-points to the kept id
-            # (the table loads before items), so the override survives save / open.
-            from . import fill_types
-            slab._display_overrides["section_type"] = fill_types.canonical_id(sec)
+        slab.display_overrides_from_dict(data)      # incl. the HF5 canonical_id re-point
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────

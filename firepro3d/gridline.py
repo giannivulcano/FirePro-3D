@@ -28,6 +28,7 @@ from .constants import (
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from .marks import duplicate_groups, letter_label
+from .displayable_item import display_overrides_from_dict, display_overrides_to_dict
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -945,9 +946,7 @@ class GridlineItem(QGraphicsLineItem):
             "locked": self._locked,
             "uid": self._uid,
         }
-        if self._display_overrides:
-            d["display_overrides"] = self._display_overrides
-        return d
+        return display_overrides_to_dict(self, d)        # L283: a copy, never the live dict
 
     @classmethod
     def from_dict(cls, d: dict) -> "GridlineItem":
@@ -982,9 +981,9 @@ class GridlineItem(QGraphicsLineItem):
         item._locked = d.get("locked", False)
         if d.get("uid"):
             item._uid = str(d["uid"])
-        item._display_overrides = d.get("display_overrides", {})
         # Silently ignore "level"/"axis" keys from old files.
         item._rebuild_geometry()
+        display_overrides_from_dict(item, d)             # after the rebuild: a carried Hide wins
         return item
 
     # ── Properties for property panel ─────────────────────────────────────
