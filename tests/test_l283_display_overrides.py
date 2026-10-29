@@ -154,3 +154,48 @@ def test_every_holder_to_dict_from_dict_carries_overrides(qapp):
     assert rf2._display_overrides == {"visible": False}
     assert all(it.isVisible() is False for it in (w2, o2, r2, rf2))
     assert "display_overrides" not in Room(boundary=list(SQUARE)).to_dict()
+
+
+def test_g4_fpd_round_trip_and_paste_carry_hide_and_section_type(qapp, tmp_path):
+    ms = Model_Space()
+    ms._level_manager = LevelManager()
+    wall = _wall(ms)
+    op = WallOpening(wall=wall, feature_id="door_914", offset_along=600.0)
+    wall.openings.append(op)
+    ms.addItem(op)
+    room = Room(boundary=list(SQUARE))
+    room.name = "Office"
+    room.level = "Level 1"
+    room._scale_manager_ref = ms.scale_manager
+    ms.addItem(room)
+    ms._rooms.append(room)
+    roof = RoofItem(points=list(SQUARE))
+    ms.addItem(roof)
+    ms._roofs.append(roof)
+    ms._hide_items([wall, op, room, roof])                       # Model Browser Hide
+    wall._display_overrides["section_type"] = "some-id"          # Fill Type section override
+    f = tmp_path / "ov.fpd"
+    assert ms.save_to_file(str(f))
+    rec = json.loads(f.read_text(encoding="utf-8"))
+    assert rec["walls"][0]["display_overrides"] == {"visible": False, "section_type": "some-id"}
+    assert rec["walls"][0]["openings"][0]["display_overrides"] == {"visible": False}
+    assert rec["rooms"][0]["display_overrides"] == {"visible": False}
+    assert rec["roofs"][0]["display_overrides"] == {"visible": False}
+    ms2 = Model_Space()
+    ms2._level_manager = LevelManager()
+    ms2.load_from_file(str(f))
+    w2, r2, rf2 = ms2._walls[0], ms2._rooms[0], ms2._roofs[0]
+    o2 = w2.openings[0]
+    for it in (w2, o2, r2, rf2):
+        assert it._display_overrides.get("visible") is False
+        assert it.isVisible() is False                           # hidden on the canvas after open
+    assert w2._display_overrides["section_type"] == "some-id"
+    # Paste (Ctrl+V, Array, Duplicate Level all rebuild from to_dict records).
+    new = ms2.paste_items(QPointF(10000.0, 0.0), data=ms2._clipboard_item_dicts([w2, r2, rf2]))
+    pw = next(i for i in new if isinstance(i, WallSegment))
+    pr = next(i for i in new if isinstance(i, Room))
+    prf = next(i for i in new if isinstance(i, RoofItem))
+    assert pw._display_overrides == {"visible": False, "section_type": "some-id"} and pw.isVisible() is False
+    assert pw.openings[0]._display_overrides == {"visible": False} and pw.openings[0].isVisible() is False
+    assert pr._display_overrides == {"visible": False} and pr.isVisible() is False
+    assert prf._display_overrides == {"visible": False} and prf.isVisible() is False
