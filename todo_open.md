@@ -347,6 +347,7 @@
 - [ ] [type:bug] `tests/test_system_library_tier.py::test_system_tier_lists_shipped_hatches` fails since Arrow shipped as a System end type [P4] [subject:Architecture]
   - Details: SB3 G3 keep-green, VC7-proved pre-existing 2026-10-28 (fails identically at 23512cb3 and at HEAD). The test pins the System tier listing to the hatch names only; be8135a7 shipped `firepro3d/system_blocks/Endtypes/Arrow.fpdb`, so the listing now opens with `Arrow`. Re-word the guard to the hatch subset (or per-series expectations); `Tags/RoomTag.fpdb` (SB3 Task 11) will join the listing too. `tests/test_system_library_tier.py`.
   - +1 occurrence 2026-10-28 (SB3 G4 keep-green, VC7-proved at 23512cb3 and HEAD, 5 failed / 6 passed both): `tests/test_system_library_browser.py` `_system_leaf` helper takes the System row's `child(0)` as the Hatches series and raises `StopIteration` now that `Endtypes` sorts first — fails `test_g7_shown_browser_pins_system_with_padlock`, `test_g3_edit_block_on_system_leaf_requests_duplicate`, `test_g3_embedded_system_leaf_still_duplicates`, `test_g2_main_window_duplicate_opens_the_copy`, `test_g2_main_window_cancelled_duplicate_changes_nothing`. Same fix shape: find the series child by name.
+  - +1 occurrence 2026-10-29 (SB3b Task 7 keep-green, VC7-proved in detached worktrees at base 75e3cb0f and HEAD 24a2fdca, 1 failed both): `test_system_tier_lists_shipped_hatches` still fails (`Arrow` + `RoomTag` in the System listing).
 
 ## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
 
