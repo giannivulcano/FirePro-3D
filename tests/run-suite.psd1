@@ -21,6 +21,8 @@
         'tests/test_dynamic_input_parity.py'
         'tests/test_manip_griphandle_note_parity.py'
         'tests/test_opening_ribbon.py'
+        'tests/test_sb1c_mainwindow.py'
+        'tests/test_sb3_mainwindow.py'
         'tests/test_scene_tools.py'
     )
     Markers    = 'not perf'

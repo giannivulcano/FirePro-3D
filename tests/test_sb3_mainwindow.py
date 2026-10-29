@@ -3,7 +3,6 @@ OWN pytest process): AC5 the load notice reaches the status bar through the real
 window; AC9 Annotation / Marks pane OK marks the project modified, no undo step."""
 import shutil
 
-import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import block_library

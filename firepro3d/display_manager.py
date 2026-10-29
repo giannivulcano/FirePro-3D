@@ -269,7 +269,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Window",          "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Opening",         "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": None,      "section_pattern": None,         "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": None,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal", "section_type": "Floor Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},

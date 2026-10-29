@@ -46,7 +46,7 @@ class HaloSelectionMixin:
         return False
 
     def _halo_candidate_ok(self, item, scene_pos):
-        """Per-candidate accept filter (Model_Space uses it for Room label-rect).
+        """Per-candidate accept filter (Model_Space uses it for the Room polygon bbox).
         Default: accept."""
         return True
 
@@ -124,7 +124,7 @@ class HaloSelectionMixin:
         for u in underlays:
             if u.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
                 ranked.append(u)
-        # Per-candidate accept filter (Model_Space: labelled Room label-rect).
+        # Per-candidate accept filter (Model_Space: Room polygon bbox).
         ranked = [r for r in ranked if self._halo_candidate_ok(r, scene_pos)]
         return ranked
 
@@ -204,7 +204,7 @@ class HaloSelectionMixin:
                 continue
             if not (r.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
                 continue
-            # Per-candidate accept filter (Model_Space: labelled Room label-rect
+            # Per-candidate accept filter (Model_Space: Room polygon bbox
             # touched by the band; generic default accepts everything).
             if not self._halo_candidate_ok(r, scene_rect):
                 continue

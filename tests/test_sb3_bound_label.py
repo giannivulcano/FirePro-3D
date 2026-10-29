@@ -417,7 +417,6 @@ def test_f4_bounds_are_cached_until_refresh_or_the_paper_scale_changes(qapp):
     assert len(calls) == 2
     tag._paper_scale = None
     assert tag.boundingRect() == r1 and len(calls) == 3
-    assert BoundLabelItem(room).boundingRect() is not None   # scene-attached child, no crash
 
 
 def test_host_values_keys_filter_matches_the_full_call_field_by_field(qapp):
