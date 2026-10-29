@@ -477,3 +477,80 @@ def test_tag_binding_a_non_label_field_renders_its_value(qapp):
     assert want2 != want and tag.paints() and tag._bound_cache[1][0] == (want2,)
     assert len(want2) < len(want) and tag.boundingRect().width() < w1   # "10000 mm²": the rect followed
     assert _digest(_render(ms, RECT, 300, 300)) != d1
+
+
+from firepro3d.render_op import STROKE, TEXT
+
+
+def test_bound_text_box_hugs_the_value_and_keeps_the_authored_anchor(qapp):
+    """U4 ruling 2026-10-29: a bound text's box is authored round the
+    placeholder (the shipped RoomTag: 13.9 mm wrap, 7 mm box, centred). The
+    resolved value never wraps -- the box re-fits to it, one line, and stays
+    centred where the authored box was centred."""
+    ms = _scene()
+    prim = {"type": "text", "text": "@[Name]", "x": -6.95, "y": -3.5, "height_mm": 3.0,
+            "wrap_width_mm": 13.9, "box_height_mm": 7.0, "align": "C", "valign": "M",
+            "border": True, "cell_padding_mm": 1.0}
+    d = BlockDefinition.new(name="HugTag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    ms.register_block_definition(d)
+    ms.annotation_defaults["Room"] = d.id
+
+    def _text_and_frame(name):
+        room = _add_room(ms, name)
+        ops, _c = bound_text_ops(d, {}, host_values(room), False, 1.0, None, None)
+        text = [o for o in ops if o.kind == TEXT]
+        frame = [o for o in ops if o.kind == STROKE]
+        assert len(text) == 1 and len(frame) == 1
+        return text[0].path.boundingRect(), frame[0].path.boundingRect()
+
+    short_t, short_f = _text_and_frame("Office")
+    long_t, long_f = _text_and_frame("Mechanical Equipment Room")
+    # One line: the auto-height box is one line tall for both (a wrapped
+    # value would double it); the glyph bbox differs only by descenders.
+    assert long_f.height() == pytest.approx(short_f.height(), abs=0.05)
+    assert long_t.height() < 2 * 3.0
+    # The box followed the value: wider than the authored 13.9 mm wrap.
+    assert long_f.width() > 13.9 and long_f.width() > short_f.width() + 10.0
+    # Anchored: both boxes stay centred on the authored centre (0, 0).
+    for f in (short_f, long_f):
+        assert f.center().x() == pytest.approx(0.0, abs=0.05)
+        assert f.center().y() == pytest.approx(0.0, abs=0.05)
+
+
+def test_bound_text_box_keeps_a_rotated_off_centre_anchor(qapp):
+    """A right-aligned tag rotated 90 deg: the authored box's right-middle
+    point, rotated about the authored box's centre, is where the hugged box's
+    right-middle point (rotated about ITS centre) lands."""
+    import math
+    from PyQt6.QtGui import QTransform
+    ms = _scene()
+    prim = {"type": "text", "text": "@[Name]", "x": 4.0, "y": -2.0, "height_mm": 3.0,
+            "wrap_width_mm": 12.0, "box_height_mm": 8.0, "align": "R", "valign": "M",
+            "border": True, "cell_padding_mm": 1.0, "angle": 90.0}
+    d = BlockDefinition.new(name="RotTag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    ms.register_block_definition(d)
+    ms.annotation_defaults["Room"] = d.id
+    room = _add_room(ms, "Mechanical Equipment Room")
+    ops, _c = bound_text_ops(d, {}, host_values(room), False, 1.0, None, None)
+    frame = [o for o in ops if o.kind == STROKE][0].path.boundingRect()
+    # Raw source: the authored box (4, -2, 12 x 8), centre (10, 2), right-middle
+    # (16, 2); rotated +90 (Y-up CCW = Qt -90) about (10, 2) -> (10, -4).
+    m = QTransform()
+    m.translate(10.0, 2.0)
+    m.rotate(-90.0)
+    m.translate(-10.0, -2.0)
+    want = m.map(QPointF(16.0, 2.0))
+    assert (want.x(), want.y()) == pytest.approx((10.0, -4.0), abs=1e-9)
+    # The hugged box is one line tall and rotated 90, so its axis-aligned bbox is
+    # tall and narrow; its rotated right-middle point is the bbox's TOP centre.
+    assert frame.height() > frame.width() + 10.0
+    got = QPointF(frame.center().x(), frame.top())
+    assert math.hypot(got.x() - want.x(), got.y() - want.y()) < 0.1

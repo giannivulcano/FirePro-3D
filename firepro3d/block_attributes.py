@@ -190,6 +190,54 @@ class BoundPrim:
     override_args: tuple = (None, None)
 
 
+# align / valign -> the fraction of the box width / height at which the
+# alignment anchor sits: the point an auto-sized box keeps when it re-fits.
+_ANCHOR_X = {"L": 0.0, "C": 0.5, "R": 1.0}
+_ANCHOR_Y = {"T": 0.0, "M": 0.5, "B": 1.0}
+
+
+def hugged_text_item(text_item_cls, rec: dict):
+    """A text item for a bound record whose box hugs the resolved value.
+
+    An author sizes a bound text's box (``wrap_width_mm`` / ``box_height_mm``)
+    round the ``@[Field]`` placeholder, so a wider value would wrap and a
+    shorter one would sit in a loose box. Both are dropped (0 = auto-fit) and
+    the auto box is re-anchored where the authored box's alignment point sat
+    (its centre for a centred tag), so the box follows the value without
+    moving off its host (SB3 visual gate, 2026-10-29). An axis authored
+    auto-fit (0) is left where it is; a record auto-fit on both axes is built
+    as-is.
+    """
+    from PyQt6.QtCore import QPointF, QRectF
+    from PyQt6.QtGui import QTransform
+    w_mm = float(rec.get("wrap_width_mm") or 0.0)
+    h_mm = float(rec.get("box_height_mm") or 0.0)
+    if w_mm <= 0 and h_mm <= 0:
+        return text_item_cls.from_dict(rec)
+    hug = text_item_cls.from_dict({**rec, "wrap_width_mm": 0.0, "box_height_mm": 0.0})
+    s = hug.scale() or 1.0
+    hb = hug._box_rect_local()                       # the auto box, local unscaled
+    ab = QRectF(0.0, 0.0, w_mm / s if w_mm > 0 else hb.width(),
+                h_mm / s if h_mm > 0 else hb.height())   # the authored box, same frame
+    fx = _ANCHOR_X.get(str(rec.get("align", "L")), 0.0)
+    fy = _ANCHOR_Y.get(str(rec.get("valign", "T")), 0.0)
+
+    def _anchor(r):
+        """The alignment point of box *r*, rotated the way the item bakes its
+        angle: about the box's own centre (``_rotation_transform``)."""
+        p = QPointF(r.left() + fx * r.width(), r.top() + fy * r.height())
+        o = r.center()
+        m = QTransform()
+        m.translate(o.x(), o.y())
+        m.rotate(-hug._angle)
+        m.translate(-o.x(), -o.y())
+        return m.map(p)
+
+    delta = _anchor(ab) - _anchor(hb)                # local, rotated frame
+    hug.setPos(hug.pos() + hug.mapToParent(delta) - hug.mapToParent(QPointF(0.0, 0.0)))
+    return hug
+
+
 def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: bool,
                    scale: float, ov_args, cache):
     """The per-placement bound text ops of *defn* (SB1a design S2; lifted from
@@ -240,7 +288,7 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
     for b, s in zip(bps, strings):
         rec = dict(b.prim)
         rec["text"] = s
-        item = TextItem.from_dict(rec)
+        item = hugged_text_item(TextItem, rec)
         path = item.mapToParent(_local_path(item))
         centre = item.grip_points()[8]
         op = RenderOp(TEXT, path, colour=item.data.color,
