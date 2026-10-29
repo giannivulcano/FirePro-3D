@@ -260,3 +260,113 @@ def test_shared_choices_keep_a_missing_or_ineligible_current_as_an_extra_entry(q
         assert ac.default_label(ms, "Room") == "Project default (none)"
     finally:
         SYSTEM_DEFAULTS.update(saved)
+
+
+# -- G3 / G6 (room half) / row labels ----------------------------------------------
+
+def _pick(pm, label):
+    """P4 probe P-1: drive the panel's enum Selector by text -- the shipped connect
+    (property_manager.py enum branch: currentTextChanged -> _apply_property). The
+    assert makes a swallowed signal fail loudly; if it does, replace the two middle
+    lines with ``pm._apply_property("Tag", label)`` (still the real write path,
+    property-panel.md 3.3) and say so in the task report. The 50 ms debounced
+    refresh is stopped so a dead target never reaches a later test's event loop."""
+    combo = pm._prop_widgets["Tag"]
+    fired = []
+    combo.currentTextChanged.connect(lambda t: fired.append(t))
+    combo.setCurrentText(label)
+    assert fired == [label], "P-1: Selector.setCurrentText did not emit currentTextChanged"
+    pm._refresh_timer.stop()
+    return combo
+
+
+def test_g3_panel_tag_pick_is_one_undo_step_for_two_rooms_and_undo_redo_swap_the_block(qapp):
+    ms = _scene()
+    small = _tag_def(ms, "Small", 3.0)
+    big = _tag_def(ms, "Big", 6.0)
+    ms.annotation_defaults["Room"] = small.id
+    a = _add_room(ms, "Office")
+    b = _add_room(ms, "Lobby", x0=5000.0)
+    ms.push_undo_state()                                            # the seed a new / opened file has
+    k = ms.scale_manager.drawing_scale
+    before = (_digest(_render(ms, RECT_A, 300, 300)), _digest(_render(ms, RECT_B, 300, 300)))
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    combo = pm._prop_widgets["Tag"]
+    assert combo.currentText() == "Project default (Small)"
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "Project default (Small)", "Small (Project)", "Big (Project)"]
+    n = len(ms._undo_stack)
+    _pick(pm, "Big (Project)")
+    assert len(ms._undo_stack) == n + 1                             # ONE step for two rooms
+    assert a.tag_block == big.id and b.tag_block == big.id
+    assert _tag_height(a) == pytest.approx(_glyph_rect(big, a).height() * k, rel=1e-6)
+    picked = (_digest(_render(ms, RECT_A, 300, 300)), _digest(_render(ms, RECT_B, 300, 300)))
+    assert picked != before
+    ms.undo()
+    ra, rb = ms._rooms
+    assert ra.tag_block is None and rb.tag_block is None
+    assert (_digest(_render(ms, RECT_A, 300, 300)), _digest(_render(ms, RECT_B, 300, 300))) == before
+    assert _tag_height(ra) == pytest.approx(_glyph_rect(small, ra).height() * k, rel=1e-6)
+    ms.redo()
+    ra, rb = ms._rooms
+    assert ra.tag_block == big.id and rb.tag_block == big.id
+    assert (_digest(_render(ms, RECT_A, 300, 300)), _digest(_render(ms, RECT_B, 300, 300))) == picked
+    # mixed multi-select: differing rooms show "< mixed >" and a no-op commit stays a no-op
+    ra._tag_block = None
+    pm.show_properties([ra, rb])
+    combo = pm._prop_widgets["Tag"]
+    assert combo.itemText(0) == "< mixed >" and combo.currentText() == "< mixed >"
+    m = len(ms._undo_stack)
+    pm._apply_property("Tag", "< mixed >")
+    pm._refresh_timer.stop()
+    assert len(ms._undo_stack) == m and ra.tag_block is None and rb.tag_block == big.id
+    pm.show_properties([])                                          # drop the room references
+
+
+def test_g6_room_row_lists_the_library_tag_and_a_pick_embeds_and_assigns_in_one_step(qapp):
+    root = block_library_dir()
+    _lib_file(root, "LibTag", "lib-tag-1")
+    _lib_file(root, "LibDoor", "lib-door-1", eligible=False)
+    ms = _scene()
+    d = _tag_def(ms)
+    room = _add_room(ms, "Office")
+    ms.push_undo_state()
+    row = room.get_properties()["Tag"]
+    assert row["type"] == "enum"
+    assert row["options"] == ["Project default (TestTag)", "TestTag (Project)", "LibTag (Library)"]
+    assert row["value"] == "Project default (TestTag)"
+    keys = list(room.get_properties())
+    assert keys.index("Tag") == keys.index("Show Label") + 1       # AC1: under Show Label
+    pm = PropertyManager()
+    pm.show_properties([room])
+    n = len(ms._undo_stack)
+    _pick(pm, "LibTag (Library)")
+    assert "lib-tag-1" in ms._block_definitions                     # embedded (drag-embed path)
+    assert room.tag_block == "lib-tag-1"
+    assert len(ms._undo_stack) == n + 1                             # embed + assignment = ONE step
+    assert room._tag.definition().id == "lib-tag-1"
+    assert room.get_properties()["Tag"]["value"] == "LibTag (Project)"
+    ms.undo()
+    assert ms._rooms[0].tag_block is None and "lib-tag-1" not in ms._block_definitions
+    ms.redo()
+    assert ms._rooms[0].tag_block == "lib-tag-1" and "lib-tag-1" in ms._block_definitions
+
+
+def test_tag_row_shows_missing_and_not_eligible_and_keeps_the_id(qapp):
+    ms = _scene()
+    _tag_def(ms)
+    room = _add_room(ms, "Office")
+    room._tag_block = "ghost-id"
+    assert room.get_properties()["Tag"]["value"] == "ghost-id (missing)"
+    real = BlockDefinition.new(name="Door", library="", series="", origin=(0.0, 0.0), primitives=[])
+    real.host_category = "Room"
+    ms.register_block_definition(real)
+    room._tag_block = real.id
+    row = room.get_properties()["Tag"]
+    assert row["value"] == "Door (not eligible)" and row["value"] in row["options"]
+    room.set_property("Tag", "Project default (TestTag)")
+    assert room.tag_block is None
+    off = Room(boundary=[QPointF(0, 0), QPointF(1, 0), QPointF(1, 1)])   # no scene: the row degrades
+    assert off.get_properties()["Tag"] == {"type": "enum", "value": "Project default (none)",
+                                           "options": ["Project default (none)"]}
