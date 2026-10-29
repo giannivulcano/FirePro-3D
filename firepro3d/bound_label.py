@@ -44,7 +44,7 @@ def eligible_definition(defn, category: str) -> bool:
             and getattr(defn, "host_category", "") == category)
 
 
-def resolve_annotation_block(scene, category: str, mapped: str):
+def resolve_annotation_block(scene, category: str, mapped: str, *, fallback: bool = True):
     """The id of the block that draws *category*'s label when the project copy
     of *mapped* is missing or ineligible (SB3 D-B / Q6 / G5), and the notice
     to show (None when the mapped id itself resolved).
@@ -56,12 +56,17 @@ def resolve_annotation_block(scene, category: str, mapped: str):
     and accepted only when ``eligible_definition``. Nothing -> ``(None,
     notice)``: the tag draws the orphan placeholder.
 
+    *fallback* False (SB3b: an element's own ``tag_block``) walks *mapped* alone
+    and reports a miss as "using the project default"; the caller
+    (``Model_Space.annotation_block``) then falls through to the project-default
+    chain.
+
     Returns:
         ``(block id or None, notice text or None)``.
     """
     from . import block_library
     from .system_blocks import SYSTEM_DEFAULTS
-    default = SYSTEM_DEFAULTS.get(category, "")
+    default = SYSTEM_DEFAULTS.get(category, "") if fallback else ""
     for bid in (b for b in dict.fromkeys((mapped, default)) if b):
         d = scene._block_definitions.get(bid)
         if d is None:
@@ -76,6 +81,9 @@ def resolve_annotation_block(scene, category: str, mapped: str):
                 return bid, None
             return bid, (f"{category} tag: block {mapped} is missing or not an annotative "
                          f"{category} tag - using the System default ({d.name})")
+    if not fallback:
+        return None, (f"{category} tag: block {mapped} is missing or not an annotative "
+                      f"{category} tag - using the project default")
     tail = ("" if mapped == default else " and no System default is available")
     return None, (f"{category} tag: block {mapped} is missing or not an annotative "
                   f"{category} tag{tail} - drawing a placeholder")
@@ -139,11 +147,14 @@ class BoundLabelItem(QGraphicsItem):
         return self._category
 
     def _resolve(self):
-        """``(definition or None, resolver present)``."""
+        """``(definition or None, resolver present)`` -- the host's own block id
+        (``tag_block``, SB3b; None on hosts without one) goes first, then the
+        project default (``annotation_block`` section 3 chain). Still one
+        resolve per paint (``_state``)."""
         fn = getattr(self.scene(), "annotation_block", None)
         if fn is None:
             return None, False
-        return fn(self._category), True
+        return fn(self._category, getattr(self.parentItem(), "tag_block", None)), True
 
     def definition(self):
         return self._resolve()[0]

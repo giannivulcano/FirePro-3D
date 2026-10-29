@@ -99,6 +99,10 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         self._label_offset: QPointF = QPointF(0, 0)  # user drag offset from centroid
         self._tag = BoundLabelItem(self)
         self._tag.setZValue(Z_OVERLAY)  # above everything including walls
+        # SB3b: this room's own tag block id; None = the project default
+        # (annotation_defaults["Room"]). Resolved first by BoundLabelItem._resolve.
+        self._tag_block: str | None = None
+        self._tag_choices: dict = {}      # Tag row label -> annotation_choices.Choice | None
 
         # Rendering
         self.setZValue(-60)  # below walls (-50), above floors (-80)
@@ -201,6 +205,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     @property
     def boundary(self) -> list[QPointF]:
         return list(self._boundary)
+
+    @property
+    def tag_block(self) -> str | None:
+        """This room's tag block id (SB3b); None = follows the project default."""
+        return self._tag_block
 
     # ── Area / perimeter calculations ────────────────────────────────────
 
@@ -535,6 +544,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "ceiling_type":     self._ceiling_type,
             "label_offset":     [self._label_offset.x(), self._label_offset.y()],
         }
+        if self._tag_block is not None:
+            d["tag_block"] = self._tag_block          # SB3b: absent = project default
         return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
@@ -556,6 +567,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         room._system_type = data.get("system_type", "Wet")
         dp = data.get("design_point")
         room._design_point = (float(dp[0]), float(dp[1])) if dp else None
+        tb = data.get("tag_block")                     # SB3b: missing / non-str / "" -> None
+        room._tag_block = tb if isinstance(tb, str) and tb else None
         room._rebuild()  # rebuild polygon + label now that name/tag are set
         room.display_overrides_from_dict(data)         # L283: after the rebuild
         return room
