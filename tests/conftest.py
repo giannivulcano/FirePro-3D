@@ -436,6 +436,30 @@ def model_scene(qapp):
     return _factory
 
 
+_OS_POINTER_EVENTS = frozenset({
+    _QtCore.QEvent.Type.MouseMove, _QtCore.QEvent.Type.MouseButtonPress,
+    _QtCore.QEvent.Type.MouseButtonRelease, _QtCore.QEvent.Type.MouseButtonDblClick,
+    _QtCore.QEvent.Type.Wheel, _QtCore.QEvent.Type.Enter, _QtCore.QEvent.Type.Leave,
+    _QtCore.QEvent.Type.HoverEnter, _QtCore.QEvent.Type.HoverMove,
+    _QtCore.QEvent.Type.HoverLeave,
+})
+
+
+class _DropOsPointerInput(_QtCore.QObject):
+    """Event filter that drops SPONTANEOUS pointer events (the real OS cursor).
+
+    A shown test view lands wherever the window manager cascades it, which
+    depends on how many windows earlier tests opened; when the physical cursor
+    happens to sit there, Windows sends Enter/MouseMove and the scene hover-halos
+    the item under it (or a stray move joins a posted grip drag). Tests drive
+    the view with ``QApplication.sendEvent`` / ``postEvent``, which are never
+    spontaneous, so only the OS pointer is filtered.
+    """
+
+    def eventFilter(self, obj, ev):
+        return ev.type() in _OS_POINTER_EVENTS and ev.spontaneous()
+
+
 @pytest.fixture
 def shown_model_view(qapp):
     """A SHOWN, focused ``Model_View`` wrapping a ``Model_Space`` with a
@@ -458,6 +482,11 @@ def shown_model_view(qapp):
 
     view = Model_View(scene)
     view.resize(800, 600)
+    # The physical cursor must not reach the view (order/position-dependent
+    # hover halo; stray moves in a posted drag) -- see _DropOsPointerInput.
+    view._os_pointer_filter = _DropOsPointerInput(view)
+    view.viewport().installEventFilter(view._os_pointer_filter)
+    view.installEventFilter(view._os_pointer_filter)
     view.show()
     QTest.qWaitForWindowExposed(view)
     # Pin a known, deterministic transform AFTER the window is exposed so that
