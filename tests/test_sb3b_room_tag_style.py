@@ -209,3 +209,54 @@ def test_ac6_tag_block_round_trips_file_undo_and_paste(qapp, tmp_path):
     # paste (Ctrl+V, Array and Duplicate Level all rebuild rooms from to_dict records)
     new = ms.paste_items(QPointF(10000.0, 0.0), data=ms._clipboard_item_dicts([ms._rooms[0]]))
     assert [r.tag_block for r in new if isinstance(r, Room)] == [big.id]
+
+
+# -- G6 (pane half) + the shared list -------------------------------------------
+
+def test_g6_pane_lists_only_the_eligible_library_tag_and_embeds_a_pick_outside_history(qapp):
+    from firepro3d import annotation_choices as ac
+    root = block_library_dir()                                      # the isolated per-test user root
+    _lib_file(root, "LibTag", "lib-tag-1")                          # eligible
+    _lib_file(root, "LibDoor", "lib-door-1", eligible=False)        # real size: never listed
+    ms = _scene()
+    d = _tag_def(ms)
+    _add_room(ms, "Office")
+    labels = [(c.label, c.block_id, c.path is not None) for c in ac.choices(ms, "Room")]
+    assert labels == [("TestTag (Project)", d.id, False), ("LibTag (Library)", "lib-tag-1", True)]
+    pane = AnnotationPane(scene=ms)
+    pane.load()
+    combo = pane._combos["Room"]
+    assert [combo.itemText(i) for i in range(combo.count())] == ["TestTag (Project)", "LibTag (Library)"]
+    assert combo.currentData() == d.id
+    n = len(ms._undo_stack)
+    combo.setCurrentIndex(combo.findData("lib-tag-1"))
+    pane.apply()                                                    # spec 7: no undo step
+    assert ms.annotation_defaults["Room"] == "lib-tag-1"
+    assert "lib-tag-1" in ms._block_definitions                     # embedded by the resolver
+    assert len(ms._undo_stack) == n
+    assert ms._rooms[0]._tag.definition().id == "lib-tag-1"
+    pane.load()                                                     # now a project block
+    assert pane._combos["Room"].currentText() == "LibTag (Project)"
+
+
+def test_shared_choices_keep_a_missing_or_ineligible_current_as_an_extra_entry(qapp):
+    from firepro3d import annotation_choices as ac
+    ms = _scene()
+    d = _tag_def(ms)
+    real = BlockDefinition.new(name="Door", library="", series="", origin=(0.0, 0.0), primitives=[])
+    real.host_category = "Room"
+    ms.register_block_definition(real)
+    assert [c.label for c in ac.choices(ms, "Room")] == ["TestTag (Project)"]
+    assert [c.label for c in ac.choices(ms, "Room", current=real.id)] == ["TestTag (Project)", "Door (not eligible)"]
+    assert [c.label for c in ac.choices(ms, "Room", current="ghost-id")] == ["TestTag (Project)", "ghost-id (missing)"]
+    assert [c.label for c in ac.choices(ms, "Room", current=d.id)] == ["TestTag (Project)"]
+    assert ac.default_label(ms, "Room") == "Project default (TestTag)"
+    ms.annotation_defaults.clear()
+    from firepro3d.system_blocks import SYSTEM_DEFAULTS
+    saved = dict(SYSTEM_DEFAULTS)
+    SYSTEM_DEFAULTS.clear()
+    try:
+        ms._annot_memo.clear()
+        assert ac.default_label(ms, "Room") == "Project default (none)"
+    finally:
+        SYSTEM_DEFAULTS.update(saved)
