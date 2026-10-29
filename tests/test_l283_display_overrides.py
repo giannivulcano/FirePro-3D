@@ -199,3 +199,25 @@ def test_g4_fpd_round_trip_and_paste_carry_hide_and_section_type(qapp, tmp_path)
     assert pw.openings[0]._display_overrides == {"visible": False} and pw.openings[0].isVisible() is False
     assert pr._display_overrides == {"visible": False} and pr.isVisible() is False
     assert prf._display_overrides == {"visible": False} and prf.isVisible() is False
+
+
+def test_g4_folded_holders_gridline_and_slab_keep_hide_through_paste_and_array(qapp):
+    """Review fix (Group A): the folded-in holders keep a carried Hide on paste;
+    _register_gridline's category apply used to re-show a pasted / arrayed gridline."""
+    ms = Model_Space()
+    ms._level_manager = LevelManager()
+    gl = GridlineItem(QPointF(0.0, 0.0), QPointF(5000.0, 0.0), label="A")
+    ms._register_gridline(gl)
+    slab = FloorSlab(points=list(SQUARE))
+    slab.level = "Level 1"
+    ms.addItem(slab)
+    ms._floor_slabs.append(slab)
+    ms._hide_items([gl, slab])
+    new = ms.paste_items(QPointF(0.0, 10000.0), data=ms._clipboard_item_dicts([gl, slab]))
+    pg = next(i for i in new if isinstance(i, GridlineItem))
+    ps = next(i for i in new if isinstance(i, FloorSlab))
+    assert pg._display_overrides == {"visible": False} and pg.isVisible() is False
+    assert ps._display_overrides == {"visible": False} and ps.isVisible() is False
+    cp = gl._clone_parallel(1000.0)
+    ms._register_gridline(cp)                                        # the Array / Offset path
+    assert cp._display_overrides == {"visible": False} and cp.isVisible() is False

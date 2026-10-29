@@ -7192,6 +7192,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         self.addItem(gl)
         apply_category_defaults(gl)
+        if gl._display_overrides.get("visible") is False:
+            gl.setVisible(False)    # L283: the category apply re-showed a carried Hide (paste / array)
         self._gridlines.append(gl)
 
     def _make_line_like(self, anchor, tip):
