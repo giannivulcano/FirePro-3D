@@ -1,7 +1,7 @@
 ---
 status: implemented
-last-verified: 2026-10-23
-verified-commit: 245088ad
+last-verified: 2026-10-29   # SB3 Account: D10 / D11 room rows + AC6 superseded, annotative_factor defn= param (pointers only); rest not re-audited; prior 2026-10-23
+verified-commit: 8be9034a   # SB3 Account; prior 245088ad
 applies-to:
   - firepro3d/annotative.py            # new
   - firepro3d/block_instance.py
@@ -40,7 +40,7 @@ the paper heights of bubbles and room labels are per-category Display Manager se
 - **No per-view scale.** `PlanView.scale` and a detail-view scale are **dropped** (Phase 2
   ruling 2026-10-23): annotations stay consistent across views; model-geometry blocks (doors,
   schematics) stay real size and scale with their view. This amends concept F6 / F8.
-- **One factor, four contexts** -- `annotative.annotative_factor(item, painter=None) -> float`,
+- **One factor, four contexts** -- `annotative.annotative_factor(item, painter=None, defn=None) -> float` (SB3: *defn* = the caller's already-resolved definition; `frame_scaled(item, defn=None)` likewise),
   decided in this order:
 
   | Context | Factor k (scene units per authored mm) |
@@ -75,8 +75,8 @@ the paper heights of bubbles and room labels are per-category Display Manager se
 | D7 | Drawing-scale change: `_on_project_settings_changed` re-prepares the plan's annotative instances (today only editors are re-prepared) | trigger today is project load; the UI stays L715 (Phase 2 ruling) |
 | D8 | Block properties: row "On screen: Fixed size \| Scale with zoom" (`linetype_render.SCREEN_LABELS`) directly under "Scale mode", shown only when Annotative and never for schematic editors (`block_properties_info.py` `if not schematic:` gate); switching Scale mode refreshes the panel; an annotative block that also carries a repeat / end capability shows that capability's own "On screen" row, which masks the block-level `annotative_screen` row (`_screen_row_free`) | LTS-1 precedent; section 2 approval |
 | D9 | Block Editor: 1 drawn mm = 1 printed mm for an annotative definition; ends / linetypes keep the ET1-1 drawing-scale preview | Phase 2 grill "Printed mm, like ends" |
-| D10 | Shared paper conversion `annotative.paper_scene_size(mm, S) = mm / S` used by `_apply_room_label_paper_height` with `ROOM_LABEL_PAPER_CAP_MM = 2.5` and by `_apply_gridline` plus the elevation-gridline caller with `GRIDLINE_BUBBLE_PAPER_CAP_MM = 3.0` (to `bubble_paper_geometry`); per-type mutate/restore helpers stay until SB3 / SB4b | Phase 2 AC5 / AC6 |
-| D11 | Model canvas unchanged for bubbles (`GridBubble.RADIUS_PX` 14 px screen-fixed) and room labels (150 mm model) | Phase 2 grill "Keep today" x2 |
+| D10 | **Room row superseded by SB3 (2026-10-29): room tag = `BoundLabelItem`, annotative in model and paper; `_apply_room_label_paper_height` and `ROOM_LABEL_PAPER_CAP_MM` retired; see [`system-blocks.md`](../../specs/system-blocks.md).** Shared paper conversion `annotative.paper_scene_size(mm, S) = mm / S` used by ~~`_apply_room_label_paper_height` with `ROOM_LABEL_PAPER_CAP_MM = 2.5` and by~~ `_apply_gridline` plus the elevation-gridline caller with `GRIDLINE_BUBBLE_PAPER_CAP_MM = 3.0` (to `bubble_paper_geometry`); per-type mutate/restore helpers stay until SB3 / SB4b | Phase 2 AC5 / AC6 |
+| D11 | Model canvas unchanged for bubbles (`GridBubble.RADIUS_PX` 14 px screen-fixed) and ~~room labels (150 mm model)~~ -- **room row superseded by SB3 (2026-10-29): annotative in the model canvas too (authored mm x drawing scale); see [`system-blocks.md`](../../specs/system-blocks.md)** | Phase 2 grill "Keep today" x2 |
 | D12 | Retire factory keys `bubble_label_height_mm` / `label_height_mm` and their settings backfill (`paper_display.py`), and the Grid Line "Label Ht" Display Manager column (header, editor, write-back, reset in `display_manager.py`); stored QSettings values are never read again | Phase 2 grill "Retire now" + "Ignore; plot at 2.5 / 3.0" |
 | D13 | P4, plan step 1: probe whether `RenderOp.mapped` scales pen widths and text with the path, and how the property panel refreshes after an enum edit; record the result before code relies on it | P4 |
 
@@ -90,7 +90,7 @@ the paper heights of bubbles and room labels are per-category Display Manager se
 - [x] AC3 Block Editor stores authored geometry 1:1 in printed mm.
 - [x] AC4 Real-size blocks unchanged.
 - [x] AC5 Gridline bubbles: canvas 14 px unchanged; paper 3.0 mm cap via the shared conversion.
-- [x] AC6 Room labels: canvas 150 mm unchanged; paper 2.5 mm via the shared conversion.
+- [x] AC6 ~~Room labels: canvas 150 mm unchanged; paper 2.5 mm via the shared conversion.~~ **Superseded by SB3 (2026-10-29, room tag = `BoundLabelItem`, annotative in model and paper; see [`system-blocks.md`](../../specs/system-blocks.md)).**
 - [x] AC7 Grid Line "Label Ht" DM column and both stored keys retired; a stale stored value is
       ignored. (Probe correction: Room `label_height_mm` never had a DM row.)
 - [x] AC8 No drawing-scale UI (stays task L715).

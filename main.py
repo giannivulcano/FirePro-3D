@@ -1659,7 +1659,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _btn = g_set.add_large_button(
             "Project Settings", _I("settings_project_icon.svg"),
             self._open_project_settings)
-        _btn.setToolTip("Settings for the current project (Project Info / Units / Marks)")
+        _btn.setToolTip("Settings for the current project (Project Info / Units / Marks / Annotation)")
         _btn = g_set.add_large_button(
             "Renumber", _I("renumber_icon.svg"), self._open_renumber)
         _btn.setToolTip("Renumber element Marks for a category (Door, Window, ... Gridline)")

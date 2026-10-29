@@ -2,7 +2,7 @@
 
 > **Status:** **Partial — Leg A (PLAN scene, 2026-09-13) + Leg B (ELEVATION scene, 2026-09-14) implemented.** The selection-mode contract + the **HALO** (Highlight-Activated Lock-On) preselection engine are built against the unified `SelectionManipulator` (the sole grip owner since U4 — see `selection-manipulator.md`). Leg B folds HALO + the manipulator + the scene-drawn rubber-band onto the elevation scene via the extracted scene-agnostic `HaloSelectionMixin` (`halo_selection.py`) — see §14. 3D-scene selection (Leg C) remains future work — see §13. DoRs: `docs/superpowers/specs/2026-09-13-halo-selection-mode-leg-a-design.md`, `docs/superpowers/specs/2026-09-14-u5-leg-b-elevation-selection-design.md`.
 > **Source files:** `firepro3d/model_space.py`, `firepro3d/model_view.py`, `firepro3d/halo.py`, `firepro3d/halo_selection.py` (ranking + band + app-wide HALO tunables), `firepro3d/view_scale.py` (visible-view hit width), `firepro3d/theme.py` (`accent` token), `firepro3d/constants.py` (`HALO_TRACE_*`)
-> **Date:** 2026-05-02 (spec); 2026-10-24 (§4.2 wall HALO trace = `path()` = outline body; last-verified 2026-10-24, verified commit `63a86f02`); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`); 2026-09-23 (§4.3 removal pruning + §5.9 batch selection, block polish, verified `434066c`); 2026-09-24 (Rev 4: HALO pixel ranking, app-wide aperture/band, no band preview, batched band commit, verified `f2b1d99`); 2026-10-14 (§15 CS5 D68: every Block Editor readout retired -- `show_dim_readouts` / `is_dim_readout`, verified `2cd04bec`); 2026-10-15 (§4.1 / §4.2 block = composite: drawn-trace distance + `halo_area_path` fills / text boxes, stroke-band `shape()`, `manip_bounds` frame, verified `5e4948d6`); 2026-10-19 (§4.1 area-item rule reads `fill_layers` after UP1 — pointer only, verified `902c5c0e`); 2026-10-20 (§4.1 `HALO_AREA` list gains Filled Regions — HF3, pointer only, verified `66880197`); 2026-10-22 (§14 gridline-hosted block copies row — gridline-hosted blocks, pointer only, verified `d44b0e11`)
+> **Date:** 2026-05-02 (spec); 2026-10-29 (SB3 Account: the Room label-rect click / rubber-band restriction retired -- §2.1 / §2.4 bullets, §3.1 table, §4.2, §5.4, §6.3, §10, §11 rows; polygon only; last-verified 2026-10-29, verified commit `8be9034a`; rest not re-audited); 2026-10-24 (§4.2 wall HALO trace = `path()` = outline body; last-verified 2026-10-24, verified commit `63a86f02`); 2026-09-13 (Leg A as-built); 2026-09-21 (§4.2 trace-render polish); 2026-09-23 (§4.3 undo/redo candidate invalidation, verified `b05244d`); 2026-09-23 (§4.3 removal pruning + §5.9 batch selection, block polish, verified `434066c`); 2026-09-24 (Rev 4: HALO pixel ranking, app-wide aperture/band, no band preview, batched band commit, verified `f2b1d99`); 2026-10-14 (§15 CS5 D68: every Block Editor readout retired -- `show_dim_readouts` / `is_dim_readout`, verified `2cd04bec`); 2026-10-15 (§4.1 / §4.2 block = composite: drawn-trace distance + `halo_area_path` fills / text boxes, stroke-band `shape()`, `manip_bounds` frame, verified `5e4948d6`); 2026-10-19 (§4.1 area-item rule reads `fill_layers` after UP1 — pointer only, verified `902c5c0e`); 2026-10-20 (§4.1 `HALO_AREA` list gains Filled Regions — HF3, pointer only, verified `66880197`); 2026-10-22 (§14 gridline-hosted block copies row — gridline-hosted blocks, pointer only, verified `d44b0e11`)
 > **Revision:** 4 (Rev 4: HALO ranks SNAP-style — px distance to the drawn trace, Z only inside a px priority band; aperture/band app-wide + tunable; live band preview removed. Rev 2: Leg A reconciliation — HALO engine, Spacebar disambiguation, manipulator owns grips. Rev 3: §4.2 HALO render reworked — traces the *drawn* primitive geometry in the `accent` token, semi-transparent + soft glow, composite `halo_trace_path` hook.)
 > **Absorbs:** TODO "Restore label-only click-selection for rooms"
 >
@@ -35,7 +35,7 @@ Several planned features (inferred placement, section views, OSNAP toolbar) depe
 - HALO preselection-highlight engine (aperture pick + shared ranking + hover outline).
 - Direction-dependent rubber-band (window vs crossing).
 - Spacebar-cycle disambiguation (replaces the retired post-click same-type cycling; Tab is freed for the dynamic-input HUD).
-- Room label-only click restriction (with polygon fallback).
+- ~~Room label-only click restriction (with polygon fallback).~~ **Retired by SB3 (2026-10-29, Q13):** a Room is a candidate by its polygon; see §5.4.
 - Underlay Spacebar-reachability.
 
 ### 2.2 Out of scope (named, not specced)
@@ -60,7 +60,7 @@ Several planned features (inferred placement, section views, OSNAP toolbar) depe
 
 ### 2.4 Absorbs
 
-- TODO item: "Restore label-only click-selection for rooms" — resolved by §5.4 (Room click restriction).
+- TODO item: "Restore label-only click-selection for rooms" — resolved by §5.4 (Room click restriction), then **retired again by SB3 (2026-10-29)**: the restriction no longer exists.
 
 ---
 
@@ -77,7 +77,7 @@ Runtime Z values are owned by `view-relationships.md §7.3` + `constants.py` —
 | 1 (highest) | Node (+ Sprinkler child) | 0.5 | Sprinkler click resolves to parent Node |
 | 2 | Pipe | 0.4 | |
 | 3 | WallSegment | 0.3 | |
-| 4 | Room | 0.2 | Label-bg rect only (§5.4) |
+| 4 | Room | 0.2 | Polygon's scene bbox (§5.4; the label-rect restriction was retired by SB3) |
 | 5 | RoofItem | 0.1 | |
 | 6 | FloorSlab | 0.0 | |
 | Special | GridlineItem | own Z | Selectable; bubble click resolves to parent |
@@ -115,7 +115,7 @@ Runtime Z values are owned by `view-relationships.md §7.3` + `constants.py` —
 - **Color token:** `theme.py` `accent` (dark `#63BE8B` / light `#2f9e63`) — do not hard-code the hex. Rendered **semi-transparent** with a **soft outer glow** (a QPainter multi-pass approximation — `drawForeground` has no filter pipeline). Tuning lives in `constants.py`: `HALO_TRACE_COLOR` / `HALO_TRACE_ALPHA` / `HALO_TRACE_WIDTH_PX` / `HALO_GLOW_PX`.
 - Distinct-by-treatment from the selection highlight (in the dark theme `accent` shares the `selection` hue; the HALO reads apart via its alpha + glow + trace, not hue), snap markers, and the manipulator frame/handles (`selection-manipulator.md`).
 - One item outlined at a time (the HALO item). Clears when the aperture is empty.
-- Room: outlines the label rect when a label is visible, else the polygon (§5.4). Underlay: no hover outline (reachable only as the terminal Spacebar candidate — §5.5).
+- Room: outlines its polygon (§5.4; the label-rect outline was retired by SB3). Underlay: no hover outline (reachable only as the terminal Spacebar candidate — §5.5).
 
 ### 4.3 Suppression
 
@@ -184,13 +184,7 @@ When multiple selectable items fall within the HALO aperture, **Spacebar** cycle
 
 ### 5.4 Room Click Restriction
 
-Room selection is restricted to its **label rect** *when a label is visible* — clicks inside the polygon but outside the label pass through to the next candidate or to empty space. When **no** label is visible, selection **falls back to the full polygon**. The label rect is exposed via the new `Room.label_scene_rect()` accessor.
-
-This applies to HALO preselection detection, Spacebar-cycle candidate evaluation, and click commit.
-
-**`shape()` stays the full polygon** — it is *not* narrowed to the label rect. Narrowing `shape()` would cull the room off-screen when only its label is on-screen (Qt `shape()` affects paint culling); the label-rect restriction is enforced in the HALO/selection path, not via `shape()`.
-
-Room rubber-band selection uses the label rect for containment/intersection testing (§6).
+**RETIRED by SB3 (2026-10-29, Q13).** Room selection was once restricted to its label rect when a label was visible (`Room.label_scene_rect()`). That restriction, the accessor, the HALO gather special case and the rubber-band special case are gone: a Room is a candidate by its **polygon** (`Model_Space._halo_room_hit`), for HALO preselection, Spacebar-cycle candidates, click commit and rubber-band (§6) alike; HALO preselection disambiguates overlapping candidates. Clicking the room tag (a non-selectable `BoundLabelItem` child) selects the Room by that polygon path. `shape()` is the full polygon. The tag's contract is owned by [`system-blocks.md`](system-blocks.md) section 8.
 
 ### 5.5 Underlay Spacebar-Reachability
 
@@ -255,7 +249,7 @@ The blue/solid ↔ green/dashed flip is live during the drag as direction change
 - **Ctrl+drag:** additive — rubber-band results are added to the existing selection.
 - Items with the `_exclude_from_bulk_select` flag (DetailMarker, SectionMarker) are excluded from both modes.
 - Underlays excluded from both modes.
-- Room: rubber-band tests against the label rect (`Room.label_scene_rect()`), not the polygon.
+- Room: rubber-band tests against the polygon's scene bbox (SB3 Q13 retired the label-rect test; §5.4).
 - HALO suppressed during drag (§4.3).
 
 ---
@@ -321,7 +315,7 @@ Grip and handle interaction is **owned by the `SelectionManipulator`** — since
 | Rubber-band (select) | Window only (L->R), Qt-native `RubberBandDrag` | Scene-drawn (view `NoDrag`), direction-dependent L->R window / R->L crossing, empty-start | **SHIPPED** |
 | Rubber-band visual | Default Qt style | Blue/solid (window) vs green/dashed (crossing), live flip | **SHIPPED** |
 | Ctrl+rubber-band | Replaces selection | Additive | **SHIPPED** |
-| Room click target | Anywhere inside polygon | Label rect when a label shows, else polygon fallback; `shape()` stays full polygon | **SHIPPED** |
+| Room click target | Anywhere inside polygon | Anywhere inside the polygon's scene bbox -- `Model_Space._halo_room_hit` (the label-rect restriction was retired by SB3, §5.4); `shape()` is the full polygon | **SHIPPED** |
 | Underlay selectability | Never | Terminal Spacebar candidate; read-only props (`requestPropertyUpdate`) + canvas context menu; locked excluded | **SHIPPED** |
 | Ctrl+click | Toggle (gridlines only) | Universal toggle — gridline special case removed | **SHIPPED** |
 | Escape | Mode-dependent | Precedence ladder (§7.1) | **SHIPPED** |
@@ -340,7 +334,7 @@ Leg A (plan scene, 2026-09-13) — shipped:
 - [x] Spacebar-cycle: pre-click disambiguation through candidates in `halo_rank` order; underlay reachable as the last candidate; resets on cursor move; `"<Type> — i of N"` readout
 - [x] Post-click same-type cycling (`_cycle_similar_selection`) removed from select mode; **Tab freed for the HUD**
 - [x] Selection priority follows the shared `halo_rank` ordering (§3, §4.1)
-- [x] Room click-selection restricted to the label rect when a label shows, polygon fallback otherwise; `shape()` unchanged
+- [x] ~~Room click-selection restricted to the label rect when a label shows, polygon fallback otherwise~~ -- retired by SB3 (2026-10-29): polygon only; `shape()` unchanged
 - [x] Direction-dependent scene-drawn rubber-band: L->R window (blue/solid), R->L crossing (green/dashed)
 - [x] Ctrl+drag adds rubber-band results to existing selection
 - [x] Ctrl+Click universal toggle for all selectable entity types (gridline special case removed)

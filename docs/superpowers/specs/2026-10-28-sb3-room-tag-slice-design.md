@@ -1,7 +1,7 @@
 ---
-status: proposal
-last-verified: 2026-10-28
-verified-commit: b9328614
+status: current          # BUILT 2026-10-29 (feat/sb3-room-tag, merged ff to main 8be9034a); the built contract is docs/specs/system-blocks.md
+last-verified: 2026-10-29   # SB3 Account: built; status current, AC ticks with test names, edge-case rows (hug ruling, nameless room), notice-at-first-resolve wording, performance note; prior 2026-10-28
+verified-commit: 8be9034a   # SB3 Account; prior b9328614
 applies-to:
   - firepro3d/bound_label.py          # new: BoundLabelItem
   - firepro3d/system_blocks.py        # new: SYSTEM_DEFAULTS
@@ -23,7 +23,7 @@ source-tasks:
 
 # SB3 -- Room tag as a System block (first vertical slice) -- Design Spec
 
-> **Status: proposal.** Nothing here is built. Parent concept:
+> **Status: current (built 2026-10-29).** The built contract is [`docs/specs/system-blocks.md`](../../specs/system-blocks.md); this document is the slice's design record. Parent concept:
 > [`2026-09-29-system-blocks-concept-design.md`](2026-09-29-system-blocks-concept-design.md)
 > (Q4 intrinsic labels, Q5 block resolution, F1 split cache, F4 System tier, F5
 > `BoundLabelItem`, G1-G7 guards, build phase 3 + the reassessment checkpoint).
@@ -58,7 +58,7 @@ intrinsic label before touching pipes, bubbles and heads.
 | Q4 | Tag draws in the **block's authored colours** (Automatic = theme ink). Room row colour no longer tints it; Room row `font` key **retires**. | Same as every block; SB1c D12 precedent for retiring a DM size key. |
 | Q5a | Pane picker = **System blocks + project-embedded blocks** with `host_category == "Room"`; default row "RoomTag (System)". Per-room tag style is **SB3b** (filed). | Library blocks enter the project through the Blocks browser as today. |
 | Q5b | Pane OK **marks the project modified, no undo step**; the Marks pane is fixed to mark modified too. | Project settings are not undoable (Revit-like). |
-| Q6 | Mapped id missing from project + libraries -> **SYSTEM_DEFAULTS RoomTag + one load notice**; the mapping stays in the file. | G5 "never vanishes"; a later Reload can resolve it. |
+| Q6 | Mapped id missing from project + libraries -> **SYSTEM_DEFAULTS RoomTag + one load notice** *(as built: one status-bar notice + log line at the first resolve -- the eager resolve at the end of a file load, a template apply or a pane apply)*; the mapping stays in the file. | G5 "never vanishes"; a later Reload can resolve it. |
 | Q7 | G6 bar: **<= 0.25 ms per labelled room**, full-view headless render (200 rooms <= 50 ms, 1000 <= 250 ms); 9-rooms-in-view <= 25 ms. Base at b9328614: 14 / 42 / 141 ms for 50 / 200 / 1000 rooms; zoomed 12-22 ms. | ~1.8x headroom for glyph-outline paint over HTML text. |
 | Q8 | Visual gate = **base screenshot of a reference .fpd + the live new build**; approval freezes the G7 pixel lock. | No in-app toggle (old painter retired). |
 | Q9 | **Retire the built-in label** (QGraphicsTextItem/HTML, `_RoundedRectBgItem`, `_label_font_size`, `_label_font_color`, `ROOM_LABEL_PAPER_CAP_MM`, `_apply_room_label_paper_height`). Saved `show_label` + `label_offset` **carry over as-is**; DM `font` never read; **no format bump**. | The block replaces the label; no fallback painter. |
@@ -81,7 +81,7 @@ routes the tag through the existing annotative `_apply_block` (SB1c D6).
 | `bound_label.BoundLabelItem(QGraphicsItem)` **new** | Child of a host element; `host = parentItem()`. `definition()` = `scene.annotation_block(category)`. `_paper_scale` (set by the paper pass). Pose = translate(anchor) x annotative *k* from `annotative.annotative_factor(self, painter)` (Scale with zoom only; a Fixed-size definition is treated as missing, one log line). `boundingRect` / `shape` = ops bbox x *k* from `annotative.model_factor`. `set_anchor(QPointF)` with `prepareGeometryChange`. Paints nothing when every bound string is empty. Not selectable, not movable, no snaps; visible iff host `show_label`. Not serialized (the host owns it). |
 | `block_attributes.bound_text_ops(defn, attributes, host_values, mirrored, scale, ov_args, cache) -> (ops, cache)` **lifted** from `BlockInstance._bound_ops` | One implementation; the method becomes a wrapper holding its cache. Parity guard: a golden ops digest for a bound `BlockInstance` is identical before and after the lift. |
 | `render_op.paint_ops(painter, ops, pose, resolve_stroke, ...)` **lifted** from the loop in `BlockInstance.paint` | Same loop body; `BlockInstance.paint` calls it. The exact parameter list is a plan item (P4: read the loop's free variables first). |
-| `Model_Space.annotation_defaults: dict[str, str]` + `annotation_block(category) -> BlockDefinition \| None` | Resolver chain: project registry -> System `block_library.shipped_index()` (embedded on first use through the existing load path, outside undo) -> library roots (embedded) -> `SYSTEM_DEFAULTS[category]` shipped file -> `None`. A miss on the mapped id emits one notice through the load-warning channel; the mapping is kept. Result memoised per (category, mapped id, registry version). |
+| `Model_Space.annotation_defaults: dict[str, str]` + `annotation_block(category) -> BlockDefinition \| None` | Resolver chain: project registry -> System `block_library.shipped_index()` (embedded on first use through the existing load path, outside undo) -> library roots (embedded) -> `SYSTEM_DEFAULTS[category]` shipped file -> `None`. A miss on the mapped id emits one notice through `Model_Space._show_status` (status bar) plus a log line, once per (category, mapped id); the mapping is kept. Result memoised per (category, mapped id, registry version). |
 | `system_blocks.SYSTEM_DEFAULTS = {"Room": "<frozen uuid>"}` **new module** | The uuid is read from the promoted `.fpdb` (concept F4 frozen ids). |
 | `firepro3d/system_blocks/Tags/<id>.fpdb` | The user-authored RoomTag. `assets.py` already resolves the series folder. |
 | `Room` | Drops the HTML label, `_RoundedRectBgItem`, `_label_font_size/_color`, `label_scene_rect`; gains `self._tag = BoundLabelItem(self)` anchored at centroid + `label_offset`. Grip / `label_offset` / `show_label` / `mark` persistence unchanged. `set_property("Room Name")` -> `self._tag.update()` (pull-on-paint; the ops cache is keyed on the resolved strings). |
@@ -117,33 +117,35 @@ Persistence: `annotation_defaults` in the `.fpd` and the template; Room keeps `m
 
 ## Acceptance Criteria
 
-- [ ] AC1 A room shows the mapped block's tag at its centroid + `label_offset`, annotative in model and paper (Q2); the HTML label and its helpers are gone (Q9 list), and `label_scene_rect` with its HALO special case (Q13).
-- [ ] AC2 Renaming a room through the property panel changes the rendered tag text (G1); an empty Name paints nothing (Q13).
-- [ ] AC3 `annotation_defaults` round-trips through `.fpd` save/load and template save/apply (G2); a legacy file loads with `show_label` and `label_offset` unchanged.
-- [ ] AC4 A PDF export at two drawing scales measures the tag's cap height at the authored mm (G3); the model view at the project scale measures authored mm x scale.
-- [ ] AC5 A mapped id missing from project and libraries draws the SYSTEM_DEFAULTS RoomTag with one load notice; the mapping is kept (Q6, G5). The shipped `.fpdb` cannot be written outside the dev gate.
-- [ ] AC6 G6 bench: <= 0.25 ms per labelled room full view at 200 and 1000 rooms, <= 25 ms zoomed to 9 rooms (`-m perf`, interleaved base/HEAD, raw lines to a file).
-- [ ] AC7 Visual gate: the user approves the live tag against the base screenshot; the approved design is frozen by a pixel-sampled lock test (G7).
-- [ ] AC8 Dragging the tag grip through the real view changes `label_offset`; undo restores it (Q3).
-- [ ] AC9 The Annotation pane lists System + project blocks with `host_category == "Room"`, applies on OK and marks the project modified; the Marks pane marks modified too (Q5a/Q5b).
-- [ ] AC10 `bound_text_ops` / `paint_ops` parity: a bound `BlockInstance`'s ops digest is identical before and after the lift.
-- [ ] AC11 Retired strings (`label_scene_rect`, `ROOM_LABEL_PAPER_CAP_MM`, `_RoundedRectBgItem`, `_label_font_size`, `_label_font_color`, `_apply_room_label_paper_height`) are absent from `firepro3d/` and `tests/`; the Room row `font` key is gone from the Display Manager.
+- [x] AC1 A room shows the mapped block's tag at its centroid + `label_offset`, annotative in model and paper (Q2); the HTML label and its helpers are gone (Q9 list), and `label_scene_rect` with its HALO special case (Q13). Guard: `test_sb3_bound_label.py::test_ac1_tag_renders_at_centroid_plus_offset_and_scales_with_the_drawing_scale`, `test_sb3_retired_strings.py::test_retired_strings_absent`.
+- [x] AC2 Renaming a room through the property panel changes the rendered tag text (G1); an empty Name paints nothing (Q13). Guard: `test_sb3_bound_label.py::test_ac2_panel_rename_changes_the_rendered_tag_and_an_empty_name_paints_nothing`.
+- [x] AC3 `annotation_defaults` round-trips through `.fpd` save/load and template save/apply (G2); a legacy file loads with `show_label` and `label_offset` unchanged. Guard: `test_sb3_annotation_defaults.py::test_ac3_annotation_defaults_round_trip_through_the_fpd`, `::test_ac3_legacy_file_keeps_show_label_and_label_offset`, `::test_ac3_template_saves_and_overlays_annotation_defaults`.
+- [x] AC4 A PDF export at two drawing scales measures the tag's cap height at the authored mm (G3); the model view at the project scale measures authored mm x scale. Guard: `test_sb3_paper.py::test_ac4_pdf_tag_cap_height_is_the_authored_mm`, `::test_ac4_model_view_tag_is_authored_mm_times_the_drawing_scale`.
+- [x] AC5 A mapped id missing from project and libraries draws the SYSTEM_DEFAULTS RoomTag with one notice at the first resolve (status bar + log; a file load resolves eagerly, so the notice follows "Loaded from"); the mapping is kept (Q6, G5). The shipped `.fpdb` cannot be written outside the dev gate. Guard: `test_sb3_system_default.py::test_ac5_missing_mapped_id_falls_back_to_the_shipped_roomtag_with_one_notice`, `::test_shipped_roomtag_cannot_be_written_outside_the_dev_gate`, `test_sb3_mainwindow.py::test_ac5_load_notice_reaches_the_status_bar` (own process).
+- [x] AC6 G6 bench: <= 0.25 ms per labelled room full view at 200 and 1000 rooms, <= 25 ms zoomed to 9 rooms (`-m perf`, interleaved base/HEAD, raw lines to a file). Guard: `test_sb3_perf.py::test_g6_full_view_per_room_bar`, `::test_g6_zoomed_nine_rooms_bar` (`-m perf`).
+- [x] AC7 Visual gate: the user approves the live tag against the base screenshot; the approved design is frozen by a pixel-sampled lock test (G7). Guard: `test_sb3_pixel_lock.py::test_g7_room_tag_pixels_locked` (user approval 2026-10-29).
+- [x] AC8 Dragging the tag grip through the real view changes `label_offset`; undo restores it (Q3). Guard: `test_sb3_bound_label.py::test_ac8_dragging_the_tag_grip_through_the_view_writes_label_offset_and_undo_restores`.
+- [x] AC9 The Annotation pane lists System + project blocks with `host_category == "Room"`, applies on OK and marks the project modified; the Marks pane marks modified too (Q5a/Q5b). Guard: `test_sb3_annotation_defaults.py::test_ac9_annotation_pane_lists_eligible_project_and_system_blocks`, `::test_ac9_pane_apply_writes_the_mapping_and_calls_on_changed_only_on_a_change`, `::test_ac9_marks_pane_apply_calls_on_changed_only_on_a_change`, `test_sb3_mainwindow.py::test_ac9_pane_ok_marks_the_project_modified_without_an_undo_step`.
+- [x] AC10 `bound_text_ops` / `paint_ops` parity: a bound `BlockInstance`'s ops digest is identical before and after the lift. Guard: `test_sb3_parity.py::test_ac10_bound_ops_digest_unchanged_by_the_lift`, `::test_ac10_bound_instance_render_unchanged_by_the_lift`.
+- [x] AC11 Retired strings (`label_scene_rect`, `ROOM_LABEL_PAPER_CAP_MM`, `_RoundedRectBgItem`, `_label_font_size`, `_label_font_color`, `_apply_room_label_paper_height`) are absent from `firepro3d/` and `tests/`; the Room row `font` key is gone from the Display Manager. Guard: `test_sb3_retired_strings.py::test_retired_strings_absent`, `::test_display_manager_room_row_has_no_font_key`.
 
 ## Verification Checklist
 
-- [ ] All acceptance criteria met, each with its guard (VC3: real path, RED with the fix reverted).
+- [x] All acceptance criteria met, each with its guard (VC3: real path, RED with the fix reverted).
 - [ ] Full suite green on the final tree (VC6).
-- [ ] Reassessment checkpoint run and recorded (Q10): G6 result, F1 static-geometry reuse, spec-amendment count.
-- [ ] Account: `docs/specs/system-blocks.md` promoted from the concept (consolidating contract); pointers in `block-system.md`, `wall-room-floor-system.md`, `paper-space.md` 9.9, `settings-dialog.md`, `model-space-containment-contract.md` C9, `element-parameters.md`; SB1c D10/D11 room rows marked superseded.
-- [ ] SB3b (per-room tag style) filed.
+- [x] Reassessment checkpoint run and recorded (Q10): G6 result, F1 static-geometry reuse, spec-amendment count (`docs/specs/system-blocks.md`, "Checkpoint 2026-10-29: PASSED").
+- [x] Account (2026-10-29): `docs/specs/system-blocks.md` promoted from the concept (consolidating contract); pointers in `block-system.md`, `wall-room-floor-system.md`, `paper-space.md` 9.9, `settings-dialog.md`, `model-space-containment-contract.md` C9, `element-parameters.md`; SB1c D10/D11 room rows marked superseded.
+- [x] SB3b (per-room tag style) filed.
 
 ## Edge Cases & Error Handling
 
-- Mapped block missing everywhere, shipped RoomTag also absent -> the red orphan placeholder path (never vanishes).
+- Mapped block missing everywhere, shipped RoomTag also absent -> the red orphan placeholder path (never vanishes) **only when the room has a name**.
+- Nameless room + no resolvable block -> **draws nothing** (not the placeholder; ratified 2026-10-28: the placeholder needs a label to lose, `system_blocks.LABEL_FIELD`).
 - Block authored against an unknown host key -> the field placeholder (existing `resolve_fields` behaviour).
-- Mapped block not annotative or wrong `host_category` -> treated as missing (log + fallback).
+- Mapped block not annotative or wrong `host_category` -> treated as missing (log + one status-bar notice via `_show_status` + fallback; the notice fires at the first resolve and is lost if no window has a status bar yet).
 - Room with no boundary / degenerate centroid -> tag not painted.
 - Paper pass on a hidden tag (`show_label` False) -> skipped.
+- Bound text in an authored fixed-width box (the shipped RoomTag's box is sized round the placeholder) -> the **hug ruling** (FP1 at smoke, 2026-10-29): a host-bound text primitive auto-sizes width and height round its RESOLVED value, anchored at the authored box's alignment point (`block_attributes.hugged_text_record`); static and `keep_upright` static text are untouched; `block_explode` hugs before substituting (explode parity). Contract: `docs/specs/system-blocks.md` section 6.
 
 ## User-only steps (Phase 4 batches these)
 
@@ -153,4 +155,4 @@ Persistence: `annotation_defaults` in the `.fpd` and the template; Room keeps `m
 
 ## Performance
 
-Per-paint cost = resolver memo hit + ops cache hit + `paint_ops` over a handful of ops; glyph outlines rebuild only on a resolved-string change (F1). G6 bench shapes and bar: Q7.
+Per-paint cost = resolver memo hit + ops cache hit + `paint_ops` over a handful of ops; the host getters are keyed (`element_params.host_values(item, keys=None)` runs only the bound keys), the definition is resolved once per paint and passed through (`annotative_factor(item, painter=None, defn=None)`); glyph outlines rebuild only on a resolved-string change (F1). G6 bench shapes and bar: Q7.

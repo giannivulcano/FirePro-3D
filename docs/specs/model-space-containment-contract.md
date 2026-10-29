@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
+last-verified: 2026-10-29   # SB3 Account: C9 host-bound annotation amendment built for intrinsic labels (pointer only); rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: 8be9034a   # SB3 Account; prior db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -198,13 +198,14 @@ The line between "allowed in the model" and "paper-space only":
   furniture is a paper schematic or title-block content, decided at SB4f; never
   a paper Block.)
 
-> **Ratified amendment, not yet built (2026-09-29).** The System Blocks
+> **Ratified amendment, built for intrinsic labels (2026-09-29; SB3 2026-10-29).** The System Blocks
 > concept grill (Q2) adds a third class, **host-bound annotation → model**: tags and
 > labels that read data from a host element live in Model Space on the host's level
 > (sheet-scoped tags also remain allowed on paper). Free notes, keynotes and legends
-> stay paper-only. The as-intended rule is owned by
-> `docs/superpowers/specs/2026-09-29-system-blocks-concept-design.md` until task SB3
-> writes it into this section.
+> stay paper-only. **Built by SB3 (2026-10-29) for intrinsic labels:** the room tag is a
+> `BoundLabelItem`, a child of a model item and never a scene-level entity (pointer:
+> [`system-blocks.md`](system-blocks.md) section 2). Placed tags and sheet-scoped tags are
+> not built (the concept `2026-09-29-system-blocks-concept-design.md`, F7).
 
 ## Design Decisions
 
