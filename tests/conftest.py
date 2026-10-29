@@ -453,7 +453,9 @@ class _DropOsPointerInput(_QtCore.QObject):
     happens to sit there, Windows sends Enter/MouseMove and the scene hover-halos
     the item under it (or a stray move joins a posted grip drag). Tests drive
     the view with ``QApplication.sendEvent`` / ``postEvent``, which are never
-    spontaneous, so only the OS pointer is filtered.
+    spontaneous. ``QTest.mouseClick`` / ``mousePress`` / ``mouseRelease`` on a
+    widget ARE marked spontaneous by Qt and are dropped too: drive this view
+    with sendEvent / postEvent, not QTest mouse calls.
     """
 
     def eventFilter(self, obj, ev):
