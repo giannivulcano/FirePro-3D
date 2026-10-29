@@ -554,3 +554,87 @@ def test_bound_text_box_keeps_a_rotated_off_centre_anchor(qapp):
     assert frame.height() > frame.width() + 10.0
     got = QPointF(frame.center().x(), frame.top())
     assert math.hypot(got.x() - want.x(), got.y() - want.y()) < 0.1
+
+
+def _hug_def(ms, prim, name="AnchorTag"):
+    d = BlockDefinition.new(name=name, library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    d.scale_mode = "annotative"
+    d.host_category = "Room"
+    d.attributes = [normalise_attr({"key": "Name", "source": "host", "host_key": "Name"})]
+    ms.register_block_definition(d)
+    ms.annotation_defaults["Room"] = d.id
+    return d
+
+
+def _frame_of(d, room):
+    ops, _c = bound_text_ops(d, {}, host_values(room), False, 1.0, None, None)
+    return [o for o in ops if o.kind == STROKE][0].path.boundingRect()
+
+
+@pytest.mark.parametrize("align,valign,anchor", [
+    ("L", "T", (4.0, -2.0)),       # the authored box's top-left corner
+    ("R", "B", (16.0, 6.0)),       # its bottom-right corner
+    ("C", "T", (10.0, -2.0)),      # its top-middle
+])
+def test_bound_text_box_keeps_each_authored_anchor(qapp, align, valign, anchor):
+    """Raw source: the authored box (4, -2, 12 x 8). The hugged box of a long
+    value keeps the authored alignment point, not just the centre."""
+    ms = _scene()
+    d = _hug_def(ms, {"type": "text", "text": "@[Name]", "x": 4.0, "y": -2.0, "height_mm": 3.0,
+                      "wrap_width_mm": 12.0, "box_height_mm": 8.0, "align": align,
+                      "valign": valign, "border": True, "cell_padding_mm": 1.0})
+    f = _frame_of(d, _add_room(ms, "Mechanical Equipment Room"))
+    fx = {"L": f.left(), "C": f.center().x(), "R": f.right()}[align]
+    fy = {"T": f.top(), "M": f.center().y(), "B": f.bottom()}[valign]
+    assert f.width() > 12.0 and (fx, fy) == pytest.approx(anchor, abs=0.05)
+
+
+def test_bound_text_box_authored_auto_height_keeps_its_top(qapp):
+    """One axis auto (box_height_mm 0, wrap 12, L/T): the width re-fits and the
+    box's top-left stays at the authored (4, -2)."""
+    ms = _scene()
+    d = _hug_def(ms, {"type": "text", "text": "@[Name]", "x": 4.0, "y": -2.0, "height_mm": 3.0,
+                      "wrap_width_mm": 12.0, "box_height_mm": 0.0, "border": True,
+                      "cell_padding_mm": 1.0})
+    f = _frame_of(d, _add_room(ms, "Mechanical Equipment Room"))
+    assert f.width() > 12.0 and (f.left(), f.top()) == pytest.approx((4.0, -2.0), abs=0.05)
+
+
+def test_static_keep_upright_text_keeps_its_authored_box(qapp):
+    """Hugging is for bound text only: a static keep_upright text with a
+    deliberate wrap width still wraps in its authored box."""
+    ms = _scene()
+    prim = {"type": "text", "text": "Mechanical Equipment Room", "x": 4.0, "y": -2.0,
+            "height_mm": 3.0, "wrap_width_mm": 12.0, "box_height_mm": 0.0, "border": True,
+            "cell_padding_mm": 1.0, "keep_upright": True}
+    d = _hug_def(ms, prim, name="StaticTag")
+    f = _frame_of(d, _add_room(ms, "Office"))
+    assert f.width() == pytest.approx(12.0, abs=0.05) and f.height() > 2 * 3.0   # wrapped
+
+
+def test_exploded_bound_text_lands_in_the_hugged_box(qapp, make_model_space):
+    """Explode parity: a bound BlockInstance's text explodes to the box it was
+    drawn in (same frame rect as bound_text_ops), not the authored one."""
+    from firepro3d.block_explode import explode_instances
+    from firepro3d.text_item import TextItem
+    ms = make_model_space()
+    prim = {"type": "text", "text": "@[Name]", "x": -6.95, "y": -3.5, "height_mm": 3.0,
+            "wrap_width_mm": 13.9, "box_height_mm": 7.0, "align": "C", "valign": "M",
+            "border": True, "cell_padding_mm": 1.0}
+    d = BlockDefinition.new(name="DoorTag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    d.attributes = [normalise_attr({"key": "Name", "default": "Mechanical Equipment Room"})]
+    ms.register_block_definition(d)
+    inst = ms.place_block_instance(d.id, (100.0, 50.0))
+    drawn = [o for o in inst.render_ops() if o.kind == STROKE][0].path.boundingRect()
+    assert drawn.width() > 13.9                                   # hugged when drawn
+    made = explode_instances(ms, [inst], flatten=True)
+    text = [t for t in made if isinstance(t, TextItem)][0]
+    assert text._data.text == "Mechanical Equipment Room"
+    assert text._data.wrap_width_mm == 0.0 and text._data.box_height_mm == 0.0
+    g = text.grip_points()                                      # the box text_box_ops strokes
+    assert (g[4] - g[0]).x() == pytest.approx(drawn.width(), abs=0.05)
+    # render_ops() is definition-local; the exploded item is posed at the instance origin
+    assert (g[8].x(), g[8].y()) == pytest.approx((100.0 + drawn.center().x(),
+                                                  50.0 + drawn.center().y()), abs=0.05)

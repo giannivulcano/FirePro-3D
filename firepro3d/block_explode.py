@@ -10,7 +10,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
-from .block_attributes import resolve_fields, resolve_values
+from .block_attributes import hugged_text_record, resolve_fields, resolve_values
 from .block_definition import _nested_pose, is_scaffold
 from .annotative import model_factor
 from .block_pose import is_upright, pose_matrix, valid_scale
@@ -275,8 +275,12 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
             is_text = rec.get("type") == _TEXT_TYPE
             keep = False
             if is_text:
-                rec = dict(rec)
-                rec["text"] = resolve_fields(str(rec.get("text", "")), vals)[0]
+                # Bound text explodes to the box it was drawn in: the hugged
+                # record (box re-fit round the value, re-anchored), then the
+                # value substituted -- the same shape bound_text_ops renders.
+                value = resolve_fields(str(rec.get("text", "")), vals)[0]
+                rec = dict(hugged_text_record(rec, value))
+                rec["text"] = value
                 keep = bool(rec.pop("keep_upright", False))
                 c_def = _text_centre(rec)
                 if s != 1.0:
