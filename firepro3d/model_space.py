@@ -9287,6 +9287,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(wall)
                 self._walls.append(wall)
                 apply_category_defaults(wall)
+                if wall._display_overrides.get("visible") is False:
+                    wall.setVisible(False)      # L283: the category apply re-showed a carried Hide
                 marks.mint(self, wall)
                 for op_data in obj.get("openings", []):
                     op = WallOpening.from_dict(op_data, wall=wall)

@@ -517,7 +517,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     # ── Serialization ────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type":             "room",
             "boundary":         [[p.x(), p.y()] for p in self._boundary],
             "color":            self._color.name(),
@@ -535,6 +535,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "ceiling_type":     self._ceiling_type,
             "label_offset":     [self._label_offset.x(), self._label_offset.y()],
         }
+        return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
     def from_dict(cls, data: dict) -> "Room":
@@ -556,4 +557,5 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         dp = data.get("design_point")
         room._design_point = (float(dp[0]), float(dp[1])) if dp else None
         room._rebuild()  # rebuild polygon + label now that name/tag are set
+        room.display_overrides_from_dict(data)         # L283: after the rebuild
         return room

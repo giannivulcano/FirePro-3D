@@ -891,7 +891,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         openings_data = []
         for op in self.openings:
             openings_data.append(op.to_dict())
-        return {
+        d = {
             "type":          "wall",
             "pt1":           [self._pt1.x(), self._pt1.y()],
             "pt2":           [self._pt2.x(), self._pt2.y()],
@@ -912,6 +912,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "join_mode_pt2": self._join_mode_pt2,
             "openings":      openings_data,
         }
+        return self.display_overrides_to_dict(d)       # L283: Hide / section_type / colours
 
     @classmethod
     def from_dict(cls, data: dict) -> "WallSegment":
@@ -969,6 +970,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             wall._join_mode_pt1 = "Solid"
         if wall._join_mode_pt2 == "Miter":
             wall._join_mode_pt2 = "Solid"
+        wall.display_overrides_from_dict(data)         # L283 (canonical_id on section_type)
         # Openings restored by caller after wall_opening module is available
         return wall
 

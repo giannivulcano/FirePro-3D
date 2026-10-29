@@ -1094,7 +1094,8 @@ class Geometry2DMixin:
         if self.reference:
             d["reference"] = True
             d["printed"] = bool(self.printed)
-        return d
+        # L283: every Geometry2D holder mixes DisplayableItemMixin (class pattern above).
+        return self.display_overrides_to_dict(d)
 
     def _geom2d_from_dict(self, data: dict):
         """Restore mixin fields from *data* (level-less — C3).
@@ -1126,6 +1127,7 @@ class Geometry2DMixin:
         self.layer = data.get("layer", "")
         from .fill_layers import from_record
         self.fill_layers = from_record(data.get("fill"))
+        self.display_overrides_from_dict(data)         # L283
 
 
 def _scene_hit_width(item) -> float:

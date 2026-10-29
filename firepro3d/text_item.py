@@ -1333,7 +1333,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._data.angle = self._angle
         d = dict(self._data.to_dict())
         d["uid"] = self._uid
-        return d
+        return self.display_overrides_to_dict(d)       # L283 (Block Editor undo carries a Hide)
 
     @classmethod
     def from_dict(cls, d: dict) -> "TextItem":
@@ -1344,6 +1344,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         obj.setPos(data.x, data.y)
         if data.angle:
             obj.set_angle(data.angle)
+        obj.display_overrides_from_dict(d)             # L283
         return obj
 
     # ── A. Inline-edit lifecycle (carried from TextAnnotationItem) ──────────

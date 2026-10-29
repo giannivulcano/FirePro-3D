@@ -245,16 +245,17 @@ def test_project_payload_with_legacy_keys_wins_over_stored_type(qapp, model_spac
     assert lay.background.color == "#abcdef"
 
 
-def test_floor_slab_override_round_trips_and_wall_overrides_are_not_serialized(qapp, model_space):
-    """Wall per-item overrides are not serialized (open bug, not fixed here); a
-    floor slab's section_type override persists beside the project table."""
+def test_floor_slab_and_wall_section_overrides_round_trip(qapp, model_space):
+    """L283 (2026-10-29): a wall's per-item section_type override now round-trips
+    to_dict / from_dict like a floor slab's (the pre-L283 version of this test
+    pinned the open bug)."""
     from firepro3d.floor_slab import FloorSlab
     from firepro3d.wall import WallSegment
     w = _wall(model_space)
     w._display_overrides["section_type"] = "some-id"
     d = w.to_dict()
-    assert "section_type" not in json.dumps(d) and "display_overrides" not in d
-    assert WallSegment.from_dict(d)._display_overrides == {}
+    assert d["display_overrides"] == {"section_type": "some-id"}
+    assert WallSegment.from_dict(d)._display_overrides["section_type"] == "some-id"
     slab = FloorSlab(points=[QPointF(0, 0), QPointF(100, 0), QPointF(100, 100)])
     slab._display_overrides["section_type"] = "some-id"
     assert FloorSlab.from_dict(slab.to_dict())._display_overrides["section_type"] == "some-id"
