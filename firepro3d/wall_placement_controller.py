@@ -158,7 +158,7 @@ class WallPlacementController:
             marks.mint(self._scene, wall)
             # Auto-join: snap endpoints to nearby walls
             recs = self._auto_join_wall(wall) + ac.plan_wall_hv(wall)
-            self._ac_commit(recs, None if event is None else event.modifiers())
+            ac.plan_commit(self._scene, recs, None if event is None else event.modifiers())
             wall.setSelected(True)
             for v in self._scene.views(): v.viewport().update()
             self._scene.preview_pipe.hide()
@@ -232,28 +232,6 @@ class WallPlacementController:
                     snapped.add(my_idx)
                     records += ac.plan_wall_join(wall, my_idx, other)
         return records
-
-    def _ac_ctl(self):
-        """The plan scene's ConstraintController when plan constraints are
-        live (never in a Block Editor scene), else None."""
-        ctl = getattr(self._scene, "constraint_ctl", None)
-        if ctl is None or not ctl.enabled or ctl.block_editor:
-            return None
-        return ctl
-
-    def _ac_commit(self, records, modifiers) -> None:
-        """G11 / PD2: add *records* through ``auto_join`` when Auto Constrain
-        XOR Shift is on (*modifiers* None = a typed completion: the toggle
-        alone). Runs before the placement's own ``push_undo_state``."""
-        ctl = self._ac_ctl()
-        if ctl is None or not records:
-            return
-        if modifiers is None:
-            on = ac.toggle_on()
-        else:
-            on = ac.infer_on(bool(modifiers & Qt.KeyboardModifier.ShiftModifier))
-        if on:
-            ctl.auto_join(records)
 
     # ── Grip-drag: propagate coincident endpoints ───────────────────────────
 
@@ -634,7 +612,7 @@ class WallPlacementController:
         for wall in walls_created:
             recs += self._auto_join_wall(wall)
             wall.setSelected(True)
-        self._ac_commit(recs + ac.plan_wall_rect(walls_created), modifiers)
+        ac.plan_commit(self._scene, recs + ac.plan_wall_rect(walls_created), modifiers)
         for v in self._scene.views():
             v.viewport().update()
         # Clean up preview + ref guides

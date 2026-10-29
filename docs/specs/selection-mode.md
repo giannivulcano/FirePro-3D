@@ -53,7 +53,7 @@ Several planned features (inferred placement, section views, OSNAP toolbar) depe
 |------|-------------|
 | `selection-manipulator.md` | **Owns what happens to the selection** (frame, handles, rigid transforms, grip editing, undo). This spec owns **what gets selected** (HALO preselection lives here). §8 delegates all grip/handle interaction there. |
 | `snapping-engine.md` | Snap is independent of selection. Snap engine remains active during grip/handle drag. No overlap. |
-| `grid-system.md` | Gridline click/selection behavior defers to this spec. Grid spec owns grip catalog (pull-tab, reposition) and spacing dimensions. |
+| `grid-system.md` | Gridline click/selection behavior defers to this spec. Grid spec owns grip catalog (pull-tab, reposition) and spacing dimensions (auto-constrained Smart Dims since 2026-10-28, §5.4). |
 | `underlay-workflow.md` | Underlay selectability rules defined here. Underlay spec owns browser tree management, layer visibility, context menu contents. |
 | `wall-room-floor-system.md` | Wall/room/floor selection highlight and grip behavior defers to this spec for protocol. Entity spec owns grip catalog and visual treatment. |
 | `align-placement.md` | Selection dimensions (post-placement spacing edit) triggered by selection state defined here. Inferred spec owns the dimension behavior itself. |

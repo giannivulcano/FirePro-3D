@@ -8,8 +8,9 @@ import json
 import logging
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, QSettings
 
+from firepro3d.constants import AUTO_CONSTRAIN_KEY
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.wall import WallSegment
@@ -143,6 +144,10 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
              "refs": [{"uid": "0" * 32, "h": "edge"}]},
             {"id": "ground", "type": "coincident",              # origin ground: never in plan
              "refs": [{"uid": w, "h": "p1"}, {"ref": "origin"}]},
+            {"id": "tie", "type": "coincident",                 # the seed's origin tie only
+             "refs": [{"ref": "origin"}, {"uid": g, "h": "p1"}]},
+            {"id": "tie_edge", "type": "point_on_curve",        # origin on a line: drops
+             "refs": [{"ref": "origin"}, {"uid": g, "h": "edge"}]},
         ]
     f = _payload_with(tmp_path, cons)
     sc = Model_Space()
@@ -150,10 +155,10 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
         with caplog.at_level(logging.INFO):
             sc.load_from_file(str(f))
         ids = [c.id for c in sc.constraint_ctl.constraints]
-        assert ids == ["keep", "future"]
+        assert ids == ["keep", "future", "tie"]
         future = sc.constraint_ctl.constraints[1]
         assert future.inert
-        assert any("Clean-drop: discarded 2 " in r.getMessage() for r in caplog.records)
+        assert any("Clean-drop: discarded 3 " in r.getMessage() for r in caplog.records)
     finally:
         sc.cleanup()
 
@@ -161,7 +166,10 @@ def test_unresolvable_records_drop_and_resolvable_unknown_type_stays_inert(
 def test_t10_copy_keeps_internal_constraints_on_the_copies(qapp):
     """D30: the paste path (commit_duplicate / commit_paste feed paste_items
     with internal_records) re-creates a constrained wall pair's and gridline
-    pair's internal constraints on the copies' new uids."""
+    pair's internal constraints on the copies' new uids. Auto Constrain is
+    off: pasted gridlines' own joins (R8) are guarded in
+    test_gridline_auto_constrain.py."""
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
     sc = Model_Space()
     try:
         w1 = _wall(sc, (0, 0), (3000, 0))
@@ -185,6 +193,7 @@ def test_t10_copy_keeps_internal_constraints_on_the_copies(qapp):
         assert sorted(c.type for c in copied) == ["parallel", "perpendicular"]
         assert not any(c.inert for c in copied)
     finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
         sc.cleanup()
 
 

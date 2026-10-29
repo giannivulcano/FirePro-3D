@@ -11,9 +11,9 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 
-from .constants import AUTO_CONSTRAIN_MATCH_TOL_MM
+from .constants import AUTO_CONSTRAIN_MATCH_TOL_MM, GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG
 from .geometry_2d import ArcItem, CircleItem, LineItem
 from .sketch_adapters import adapter_for
 from .sketch_solver import LIN_TOL, curve_radius
@@ -243,6 +243,33 @@ def infer_on(shift: bool) -> bool:
     return toggle_on() != bool(shift)
 
 
+def plan_ctl(scene):
+    """G11: *scene*'s ConstraintController when plan constraints are live
+    (never in a Block Editor scene), else None."""
+    ctl = getattr(scene, "constraint_ctl", None)
+    if ctl is None or not ctl.enabled or ctl.block_editor:
+        return None
+    return ctl
+
+
+def plan_on(modifiers) -> bool:
+    """D139 for a plan placement: toggle XOR Shift; *modifiers* None (a typed
+    completion or a non-press path: copies, paste, the seed) = the toggle."""
+    if modifiers is None:
+        return toggle_on()
+    return infer_on(bool(modifiers & Qt.KeyboardModifier.ShiftModifier))
+
+
+def plan_commit(scene, records, modifiers, remove=()) -> list:
+    """G11 / PD2: add *records* (and delete *remove* ids) through
+    ``auto_join`` when :func:`plan_on`; runs before the caller's own
+    ``push_undo_state`` (D147). Returns the kept constraints."""
+    ctl = plan_ctl(scene)
+    if ctl is None or not (records or remove) or not plan_on(modifiers):
+        return []
+    return ctl.auto_join(records, remove=remove)
+
+
 def wall_drawn_handles(wall) -> tuple:
     """PD1: ``(end1, end2, edge)`` handle names on the wall's CLICK line
     (``_pt1`` / ``_pt2``): Center -> centerline, Left -> right face,
@@ -290,3 +317,106 @@ def plan_wall_rect(walls) -> list:
             out.append(("perpendicular", [{"uid": a._uid, "h": wall_drawn_handles(a)[2]},
                                           {"uid": b._uid, "h": wall_drawn_handles(b)[2]}]))
     return out
+
+
+# -- Gridline Auto Constrain (2026-10-28): plan scene only ---------------------
+
+def _gl_vars(gl):
+    """(ox, oy, fx, fy): origin + far end, as the solver reads them."""
+    return tuple(float(v) for v in adapter_for(gl).read(gl))
+
+
+def plan_gridline_join(gl, gridlines, constraints=()) -> tuple:
+    """R1 / R2 / R6: records for gridline *gl* against the other *gridlines*.
+
+    H / V on its edge when exactly axis-aligned (D148); per side, the nearest
+    gridline within ``GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG`` of parallel (a
+    coincident one is skipped) gets ``parallel`` -- unless both are the same
+    exact axis -- and a driving ``dim_point_line`` [gl mid, neighbour edge].
+    With a neighbour on both sides, every driving ``dim_point_line`` in
+    *constraints* between those two is named for removal (re-chain); a
+    reference dim is a measurement, not spacing, and stays.
+
+    Returns:
+        ``(records, remove_ids)``.
+    """
+    uid = getattr(gl, "_uid", None)
+    if uid is None or adapter_for(gl) is None:
+        return [], []
+    ox, oy, fx, fy = _gl_vars(gl)
+    ln = math.hypot(fx - ox, fy - oy)
+    if ln <= LIN_TOL:
+        return [], []
+    nx, ny = -(fy - oy) / ln, (fx - ox) / ln
+    s0 = ox * nx + oy * ny
+    ang = math.atan2(fy - oy, fx - ox) % math.pi
+    tol = math.radians(GRIDLINE_NEIGHBOUR_ANGLE_TOL_DEG)
+    hv = plan_hv((ox, oy), (fx, fy), [{"uid": uid, "h": "edge"}])
+    below = above = None                                 # (distance, gridline)
+    for o in gridlines:
+        if o is gl or getattr(o, "_uid", None) is None or adapter_for(o) is None:
+            continue
+        v = _gl_vars(o)
+        d = abs(math.atan2(v[3] - v[1], v[2] - v[0]) % math.pi - ang)
+        if min(d, math.pi - d) > tol:
+            continue
+        s = v[0] * nx + v[1] * ny - s0
+        if abs(s) <= AUTO_CONSTRAIN_MATCH_TOL_MM:
+            continue                                     # coincident: no spacing
+        if s < 0 and (below is None or -s < below[0]):
+            below = (-s, o)
+        elif s > 0 and (above is None or s < above[0]):
+            above = (s, o)
+    recs = list(hv)
+    for side in (below, above):
+        if side is None:
+            continue
+        o = side[1]
+        v = _gl_vars(o)
+        o_hv = plan_hv((v[0], v[1]), (v[2], v[3]), [])
+        if not hv or not o_hv or hv[0][0] != o_hv[0][0]:
+            recs.append(("parallel", [{"uid": uid, "h": "edge"},
+                                      {"uid": o._uid, "h": "edge"}]))
+        recs.append(("dim_point_line", [{"uid": uid, "h": "mid"},
+                                        {"uid": o._uid, "h": "edge"}]))
+    remove = []
+    if below is not None and above is not None:
+        pair = {below[1]._uid, above[1]._uid}
+        remove = [c.id for c in constraints
+                  if c.type == "dim_point_line" and c.driving and isinstance(c.refs, list)
+                  and {r.get("uid") for r in c.refs if isinstance(r, dict)} == pair]
+    return recs, remove
+
+
+def plan_origin_ties(gridlines) -> list:
+    """Smoke ruling (2026-10-28): a ``coincident`` [origin, gridline p1] for
+    each of *gridlines* whose start point sits on the origin (within
+    ``LIN_TOL``) -- the point, not the line, so 1 and A cannot slide along
+    their axis. The default seed's 1 and A; the plan's only ground ref -- no
+    origin cross or axes are offered or painted."""
+    recs = []
+    for gl in gridlines:
+        uid = getattr(gl, "_uid", None)
+        if uid is None or adapter_for(gl) is None:
+            continue
+        ox, oy = _gl_vars(gl)[:2]
+        if math.hypot(ox, oy) > LIN_TOL:
+            continue
+        recs.append(("coincident", [{"ref": "origin"}, {"uid": uid, "h": "p1"}]))
+    return recs
+
+
+def join_gridlines(scene, new, modifiers) -> list:
+    """R7 / R8: auto-join each gridline of *new* as if placed one at a time
+    (later ones are not yet neighbours), inside the caller's undo step.
+    Returns the kept constraints."""
+    ctl = plan_ctl(scene)
+    if ctl is None or not new or not plan_on(modifiers):
+        return []
+    kept = []
+    for i, gl in enumerate(new):
+        later = {id(g) for g in new[i + 1:]}
+        pool = [g for g in scene._gridlines if id(g) not in later]
+        recs, remove = plan_gridline_join(gl, pool, ctl.constraints)
+        kept += plan_commit(scene, recs, modifiers, remove)
+    return kept

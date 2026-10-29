@@ -2138,9 +2138,11 @@ class ConstraintController:
                 self._status(REDUNDANT_STATUS)   # D42 (review M2)
         return out
 
-    def auto_join(self, records) -> list:
+    def auto_join(self, records, remove=()) -> list:
         """AC1 AD9: add Auto Constrain joins clean-only, inside the caller's
-        undo step.
+        undo step. *remove* (Gridline Auto Constrain R2 re-chain) names
+        constraint ids deleted first, in the same step; when no record is
+        kept they are put back (a re-chain never loses the old spacing).
 
         Each ``(ctype, refs)`` goes through :meth:`add` uncommitted with the
         status muted; a refused record is skipped, a red one (the solve held
@@ -2152,11 +2154,18 @@ class ConstraintController:
         Returns:
             The kept constraints.
         """
-        if not self.enabled or not records:
+        if not self.enabled or not (records or remove):
             return []
         kept = []
+        removed = []
         self._mute += 1
         try:
+            if remove:
+                ids = set(remove)
+                removed = [(i, k, k.id in self.red)
+                           for i, k in enumerate(self.constraints) if k.id in ids]
+                self.constraints = [k for k in self.constraints if k.id not in ids]
+                self.red -= ids
             for ctype, refs in records:
                 n0 = len(self.constraints)
                 # Never let a join break the placement: any raise drops this
@@ -2176,6 +2185,18 @@ class ConstraintController:
                     self.red -= dropped
                     continue
                 kept.append(c)
+            if removed and not kept:                # nothing replaced them: put back
+                for i, k, was_red in removed:
+                    self.constraints.insert(i, k)
+                    if was_red:
+                        self.red.add(k.id)
+                removed = []
+            elif removed:
+                gone = {k.id for _i, k, _r in removed}
+                if self.selected_id in gone:
+                    self.selected_id = None
+                if self.hover_id in gone:
+                    self.hover_id = None
             if kept:
                 try:
                     self._recheck_red(tuple(c.id for c in kept))
@@ -2183,7 +2204,7 @@ class ConstraintController:
                     _log.exception("Auto Constrain: red re-check failed")
         finally:
             self._mute -= 1
-        if kept:
+        if kept or removed:
             self._commit_gen += 1
             try:
                 self._repaint()

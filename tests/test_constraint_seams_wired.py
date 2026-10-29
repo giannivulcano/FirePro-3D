@@ -34,6 +34,8 @@ def _geo(it):
 class _RecCtl:
     """Records every seam call (and the geometry at edit enter AND exit)."""
 
+    enabled = False          # auto_constrain.plan_ctl: no auto join through the fake
+
     def __init__(self):
         self.events: list = []
 

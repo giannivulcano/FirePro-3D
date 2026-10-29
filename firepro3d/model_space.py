@@ -494,8 +494,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
         self._gridline_drag_original_pos = None # perpendicular position at drag start
-        # Gridline spacing dimensions (on-selection)
-        self._gridline_spacing_dims: list[dict] = []
         # Offset (scene-tools.md D9) — behaviour in ModifyToolsController; the
         # ghost is the candidate item's trace in _move_ghost.
         self._offset_source = None              # armed source item
@@ -790,16 +788,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # Selection change handler
 
     def _on_selection_changed(self):
-        """Recompute gridline spacing dimensions when selection changes."""
-        self._gridline_spacing_dims = self._compute_gridline_spacing()
-        # Snapshot selected gridlines — only update when there IS a
-        # selection.  The double-click press events fire deselection
-        # before mouseDoubleClickEvent, so we must keep the last
-        # non-empty snapshot intact.
-        sel = [item for item in self.selectedItems()
-               if isinstance(item, GridlineItem)]
-        if sel:
-            self._gridline_spacing_selected = sel
+        """Selection changed: refresh a solely-selected underlay's record and repaint."""
         # C2: a solely-selected underlay group shows its read-only property
         # record (get_properties() is all "label" fields). Underlays reach
         # selection only as the terminal HALO candidate, so this cannot shadow
@@ -811,132 +800,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.requestPropertyUpdate.emit(found[0])
         for v in self.views():
             v.viewport().update()
-
-    # -------------------------------------------------------------------------
-    # Gridline spacing computation
-
-    def _compute_gridline_spacing(self) -> list[dict]:
-        """Compute spacing dimensions between adjacent gridlines.
-
-        Single selection: dimensions to nearest parallel unselected
-        neighbour on each side.
-
-        Multi-selection: chain dimensions between adjacent selected
-        gridlines, plus one dimension from each outer edge to the
-        nearest unselected neighbour.
-        """
-        EPS_ANGLE = math.radians(0.5)
-
-        selected_set = set(
-            item for item in self.selectedItems()
-            if isinstance(item, GridlineItem))
-        if not selected_set:
-            return []
-
-        def _ang_mod_pi(gl):
-            ln = gl.line()
-            a = math.atan2(ln.p2().y() - ln.p1().y(),
-                           ln.p2().x() - ln.p1().x())
-            return a % math.pi
-
-        # Cluster gridlines by direction angle (mod π): two lines share a
-        # cluster only if they are TRULY parallel within EPS_ANGLE.  This
-        # replaces the old binary dy>=dx bucket, which mis-paired lines of
-        # different angles and flipped discontinuously near 45°.
-        clusters: list[list[dict]] = []   # each: [{gl, a}]
-        for gl in self._gridlines:
-            a = _ang_mod_pi(gl)
-            for cl in clusters:
-                d = abs(a - cl[0]["a"])
-                d = min(d, math.pi - d)
-                if d <= EPS_ANGLE:
-                    cl.append({"gl": gl, "a": a})
-                    break
-            else:
-                clusters.append([{"gl": gl, "a": a}])
-
-        results = []
-
-        for cl in clusters:
-            if not any(m["gl"] in selected_set for m in cl):
-                continue
-
-            # Cluster shared normal from the first member.  All members are
-            # parallel within EPS_ANGLE, so their normals agree.
-            px, py = cl[0]["gl"]._perpendicular_vector()
-
-            # Along-direction unit vector + position from the first selected
-            # member (for dimension-line placement).
-            ref_gl = next(m["gl"] for m in cl if m["gl"] in selected_set)
-            dir_x = ref_gl.line().p2().x() - ref_gl.line().p1().x()
-            dir_y = ref_gl.line().p2().y() - ref_gl.line().p1().y()
-            dir_len = math.hypot(dir_x, dir_y)
-            ux = dir_x / dir_len if dir_len > 1e-12 else 0.0
-            uy = dir_y / dir_len if dir_len > 1e-12 else 1.0
-            along_pos = ref_gl.line().p1().x() * ux + ref_gl.line().p1().y() * uy
-
-            def _make_dim(gl_a, perp_a, gl_b, perp_b, px=px, py=py,
-                          along_pos=along_pos, ux=ux, uy=uy):
-                from_pt = QPointF(perp_a * px + along_pos * ux,
-                                  perp_a * py + along_pos * uy)
-                to_pt = QPointF(perp_b * px + along_pos * ux,
-                                perp_b * py + along_pos * uy)
-                mid = QPointF((from_pt.x() + to_pt.x()) / 2,
-                              (from_pt.y() + to_pt.y()) / 2)
-                return {
-                    "from_gl": gl_a, "to_gl": gl_b,
-                    "distance": abs(perp_b - perp_a),
-                    "from_pt": from_pt, "to_pt": to_pt,
-                    "midpoint": mid, "perp_vector": (px, py),
-                }
-
-            # Project members onto the shared normal and sort.
-            members = sorted(
-                ((m["gl"],
-                  m["gl"].line().p1().x() * px + m["gl"].line().p1().y() * py)
-                 for m in cl),
-                key=lambda t: t[1])
-
-            # Walk the sorted list: emit a dim between every adjacent pair
-            # where at least one side is selected (covers single + multi).
-            for i in range(len(members) - 1):
-                gl_a, perp_a = members[i]
-                gl_b, perp_b = members[i + 1]
-                if gl_a in selected_set or gl_b in selected_set:
-                    results.append(_make_dim(gl_a, perp_a, gl_b, perp_b))
-
-        return results
-
-    def _apply_spacing_edit(self, dim: dict, new_distance: float,
-                            selected: list | None = None):
-        """Move gridlines so that the spacing matches *new_distance*.
-
-        *selected* is the list of GridlineItems that were selected when
-        the edit started.  All selected gridlines move as a rigid group;
-        the unselected anchor stays put.
-        """
-        self.push_undo_state()
-        from_gl, to_gl = dim["from_gl"], dim["to_gl"]
-        delta = new_distance - dim["distance"]
-
-        if selected is None:
-            selected = [i for i in self.selectedItems()
-                        if isinstance(i, GridlineItem)]
-
-        if to_gl in selected and from_gl not in selected:
-            for gl in selected:
-                if not gl.locked:
-                    gl.move_perpendicular(delta)
-        elif from_gl in selected and to_gl not in selected:
-            for gl in selected:
-                if not gl.locked:
-                    gl.move_perpendicular(-delta)
-        else:
-            if not to_gl.locked:
-                to_gl.move_perpendicular(delta)
-
-        self._gridline_spacing_dims = self._compute_gridline_spacing()
-        self.update()
 
     # -------------------------------------------------------------------------
     # Preview items
@@ -6147,6 +6010,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             cp.grid_label = auto_label(gp[0], gp[1])
             self._register_gridline(cp)      # addItem + apply_category_defaults + append
         apply_duplicate_warnings(self._gridlines)
+        from . import auto_constrain as _ac
+        _ac.join_gridlines(self, copies, None)   # R8: one at a time, before the push (D147)
         self.push_undo_state()
         self._end_gridline_replicate()
         return True
@@ -9500,6 +9365,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
                                               rotation_deg=rotation_deg)
+        # R8: pasted gridlines join like placements, after the copied internal
+        # records (a duplicate of one is redundant -> dropped, D146); every
+        # caller pushes its undo step after this returns. A turned copy (Polar
+        # Array) is not yet at its final pose: that caller joins after the turn.
+        if rotation_deg is None:
+            pasted_gls = [it for it in new_items if isinstance(it, GridlineItem)]
+            if pasted_gls:
+                from . import auto_constrain as _ac
+                _ac.join_gridlines(self, pasted_gls, None)
         if pattern_skipped:
             self._show_status(skip_reason)
         elif da_skipped:
