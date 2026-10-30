@@ -9,6 +9,8 @@ from PyQt6.QtCore import QPointF
 from firepro3d import constraint_dims as cd
 from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
+from firepro3d import sketch_model as sm
+from firepro3d.wall import WallSegment
 
 
 def _scene():
@@ -800,3 +802,49 @@ def test_mirror_copied_rect_dim_measures_the_mirrored_edge(be):
     (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == cc.id]
     (ws, we), _w2 = e.graphic.witness
     assert abs(we.y() - ws.y()) == pytest.approx(40 + K.DIM_WITNESS_EXT_PX - K.DIM_WITNESS_GAP_PX, abs=1.0)
+
+
+# -- Constraints between wall faces (design 2026-10-30): WF2 -----------------
+
+def _plan_wall(sc, a, b, thick=200.0):
+    w = WallSegment(QPointF(*a), QPointF(*b), thickness_mm=thick)
+    sc.addItem(w); sc._walls.append(w)
+    return w
+
+
+def test_wf2_face_edge_midpoint_names_round_trip():
+    assert cd.edge_mid_name("face_l") == "mid_l"
+    assert cd.edge_mid_name("face_r") == "mid_r"
+    assert cd.mid_edge_name("mid_l") == "face_l"
+    assert cd.mid_edge_name("mid_r") == "face_r"
+    assert cd.edge_mid_name("end1") is None            # end caps have no midpoint handle
+    assert cd.mid_edge_name("p1l") is None
+
+
+def test_wf2_parallel_wall_faces_classify_as_one_point_line_measure(qapp):
+    sc = Model_Space()                                  # plan scene: walls live here
+    try:
+        a = _plan_wall(sc, (0, 0), (4000, 0))           # Center, 200 thick -> faces y = +100 / -100
+        b = _plan_wall(sc, (0, 1500), (3000, 1500))     # faces y = 1600 / 1400
+        qa, qb = a.quad_points(), b.quad_points()       # p1l, p1r, p2r, p2l
+        assert qa[0].y() == pytest.approx(100.0) and qb[1].y() == pytest.approx(1400.0)
+        by = sc.constraint_ctl.item_by_uid()
+        hit = cd.classify_dim([E(a, "face_l"), E(b, "face_r")], by)
+        assert hit == ("dim_point_line",
+                       [{"uid": b._uid, "h": "mid_r"}, {"uid": a._uid, "h": "face_l"}])
+        c1 = sm.Constraint.new(*hit)
+        # clear distance = B's face_r (y 1400) - A's face_l (y 100) = 1300
+        assert sc.constraint_ctl.measure(c1) == pytest.approx(qb[1].y() - qa[0].y())
+        assert sc.constraint_ctl.measure(c1) == pytest.approx(1300.0)
+        # face then an END CAP (perpendicular to it): the angle path, as today
+        assert cd.classify_dim([E(a, "face_l"), E(b, "end1")], by) == (
+            "dim_angle", [E(a, "face_l"), E(b, "end1")])
+        # D56: the pair picked the other way round is ONE measure
+        c2 = sm.Constraint.new(*cd.classify_dim([E(b, "face_r"), E(a, "face_l")], by))
+        assert c2.refs[0] == {"uid": a._uid, "h": "mid_l"}
+        assert cd.measure_key(c1, by) == cd.measure_key(c2, by)
+        # face then a parallel CENTERLINE of the other wall: allowed (edge case row)
+        assert cd.classify_dim([E(a, "face_l"), E(b, "edge")], by) == (
+            "dim_point_line", [{"uid": b._uid, "h": "mid"}, {"uid": a._uid, "h": "face_l"}])
+    finally:
+        sc.cleanup()

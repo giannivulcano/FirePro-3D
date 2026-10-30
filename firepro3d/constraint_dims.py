@@ -567,13 +567,14 @@ def placement_for(ctl, ctype, refs, p):
     return {}, None
 
 
-_EDGE_MID = {"edge": "mid", "top": "tm", "right": "rm", "bottom": "bm", "left": "lm"}
+_EDGE_MID = {"edge": "mid", "top": "tm", "right": "rm", "bottom": "bm", "left": "lm", "face_l": "mid_l", "face_r": "mid_r"}   # WF2: wall faces
 PARALLEL_SIN = 1e-9
 
 
 def edge_mid_name(h) -> str | None:
     """The derived midpoint handle (D58) of edge handle *h*: a line ``edge``
-    -> ``mid``, ``s<i>`` -> ``m<i>``, a rect / text side -> its mid."""
+    -> ``mid``, ``s<i>`` -> ``m<i>``, a rect / text side -> its mid, a wall
+    face ``face_l`` / ``face_r`` -> its hidden ``mid_l`` / ``mid_r`` (WF2)."""
     if not isinstance(h, str):
         return None
     if h in _EDGE_MID:
@@ -587,7 +588,8 @@ _MID_TO_EDGE = {m: e for e, m in _EDGE_MID.items()}
 def mid_edge_name(h) -> str | None:
     """Reverse of :func:`edge_mid_name`: midpoint handle *h* -> its edge
     handle (``mid`` -> ``edge``, ``m<i>`` -> ``s<i>``, ``tm`` / ``rm`` /
-    ``bm`` / ``lm`` -> ``top`` / ``right`` / ``bottom`` / ``left``); None
+    ``bm`` / ``lm`` -> ``top`` / ``right`` / ``bottom`` / ``left``,
+    ``mid_l`` / ``mid_r`` -> ``face_l`` / ``face_r``); None
     when *h* is not a midpoint handle."""
     if not isinstance(h, str):
         return None
