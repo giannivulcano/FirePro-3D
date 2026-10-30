@@ -41,6 +41,7 @@ Default levels shipped with every new document:
 - **remove_level(name)** -- deletes a level (at least one must remain)
 - **remove_levels(names, items, scene)** -- deletes several levels in one action and re-points their items (delete targets: `specs/view-relationships.md` §12)
 - **rename_level(old, new, items)** -- renames a level and updates all scene items that referenced it
+- **repair_missing_refs(items)** -- on open, re-points level refs that name a missing level (`specs/wall-room-floor-system.md` §11.3); the item list for rename / delete / repair comes from `leveled_items(scene)`
 - **update_elevations(scene)** -- recomputes `z_pos` for all nodes using `ceiling_level` elevation + `ceiling_offset`
 - **to_list() / from_list(data)** -- serialization for project save/load
 - **reset()** -- restores default levels (used on new file)
