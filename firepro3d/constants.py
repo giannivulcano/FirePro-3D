@@ -9,6 +9,8 @@ hard-coded across multiple modules.
 
 # ── Default level / annotation group ──────────────────────────────────────────
 DEFAULT_LEVEL = "Level 1"
+DEFAULT_LEVEL_GAP_MM = 3048.0   # 10'-0": default storey gap — Level Manager Add with one level
+                                # (view-relationships section 12.4) and the shipped Level 2 / 3 datums
 # Annotation grouping label (the per-entity "layer" system was removed; this is
 # now only a category for CAD annotations — see annotations.py).
 DEFAULT_ANNOTATION_GROUP = "Default"

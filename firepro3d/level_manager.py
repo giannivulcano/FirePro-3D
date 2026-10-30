@@ -60,7 +60,7 @@ def _z_intersects(item, view_height, view_depth) -> bool:
     return z_top >= view_depth and z_bot <= view_height
 
 from .constants import (
-    DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM,
+    DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, DEFAULT_LEVEL_GAP_MM,
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
     Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE, Z_CATEGORY_BY_CLASS,
@@ -256,8 +256,8 @@ class PlanViewManager:
 # Defaults shipped with every new document
 DEFAULT_LEVELS: list[Level] = [
     Level(DEFAULT_LEVEL, elevation=0.0, number=1),
-    Level("Level 2", elevation=3048.0, number=2),
-    Level("Level 3", elevation=6096.0, number=3),
+    Level("Level 2", elevation=DEFAULT_LEVEL_GAP_MM, number=2),
+    Level("Level 3", elevation=2 * DEFAULT_LEVEL_GAP_MM, number=3),
 ]
 
 
@@ -291,6 +291,11 @@ class LevelManager:
                 return lvl
         return None
 
+    def resort(self) -> None:
+        """Keep the list lowest-elevation-first; ties keep their prior relative order
+        (view-relationships section 12.4 Order). ``list.sort`` is stable."""
+        self._levels.sort(key=lambda l: l.elevation)
+
     def add_level(self, name: str | None = None,
                   elevation: float = 0.0) -> Level:
         if name is None or self.get(name) is not None:
@@ -301,13 +306,69 @@ class LevelManager:
         lvl = Level(name, elevation=elevation)
         lvl.number = 1 + sum(1 for l in self._levels if l.elevation <= elevation)
         self._levels.append(lvl)
+        self.resort()
         return lvl
+
+    def next_elevation_above_top(self) -> float:
+        """The Add elevation (section 12.4): top + the gap between the top two levels;
+        with one level, top + DEFAULT_LEVEL_GAP_MM (10'-0")."""
+        if not self._levels:
+            return 0.0
+        ordered = sorted(self._levels, key=lambda l: l.elevation)
+        top = ordered[-1].elevation
+        gap = (top - ordered[-2].elevation) if len(ordered) > 1 else DEFAULT_LEVEL_GAP_MM
+        return top + gap
 
     def remove_level(self, name: str):
         """Delete a level.  The last remaining level cannot be deleted."""
         if len(self._levels) <= 1:
             return
         self._levels = [l for l in self._levels if l.name != name]
+
+    def delete_targets(self, names) -> dict[str, str]:
+        """Section 12.4 Delete: each deleted level -> the nearest remaining level at or
+        below it; a deleted level with nothing remaining below -> the lowest remaining
+        level (the next one above). Empty when *names* covers every level."""
+        doomed = set(names)
+        remaining = [l for l in self._levels if l.name not in doomed]   # lowest first
+        if not remaining:
+            return {}
+        out: dict[str, str] = {}
+        for lvl in self._levels:
+            if lvl.name not in doomed:
+                continue
+            below = [r for r in remaining if r.elevation <= lvl.elevation]
+            out[lvl.name] = (below[-1] if below else remaining[0]).name
+        return out
+
+    def remove_levels(self, names, items=(), scene=None) -> dict[str, str]:
+        """Delete *names* (one action), re-pointing every ``.level`` in *items* and the
+        floor ``_top_level`` / ``_bottom_level`` refs on *scene* to each level's
+        ``delete_targets`` entry. Returns the targets (empty = refused: nothing left)."""
+        targets = self.delete_targets(names)
+        if not targets:
+            return {}
+        for old, new in targets.items():
+            self._remap_level_refs(old, new, items, scene)
+        self._levels = [l for l in self._levels if l.name not in targets]
+        return targets
+
+    @staticmethod
+    def _remap_level_refs(old_name: str, new_name: str, items, scene) -> None:
+        """Point every level reference at *old_name* to *new_name* (rename + delete share it)."""
+        for item in items:
+            # Floors (pure z-range visibility) have no meaningful owning
+            # level — never rewrite their .level; their boundary refs are
+            # remapped below instead.
+            if getattr(item, "_visibility_by_zrange", False):
+                continue
+            if getattr(item, "level", None) == old_name:
+                item.level = new_name
+        for slab in getattr(scene, "_floor_slabs", []):
+            if getattr(slab, "_top_level", None) == old_name:
+                slab._top_level = new_name
+            if getattr(slab, "_bottom_level", None) == old_name:
+                slab._bottom_level = new_name
 
     def rename_level(self, old_name: str, new_name: str, items,
                      scene=None) -> bool:
@@ -326,21 +387,7 @@ class LevelManager:
         if lvl is None:
             return False
         lvl.name = new_name
-        for item in items:
-            # Floors (pure z-range visibility) have no meaningful owning
-            # level — never rewrite their .level; their boundary refs are
-            # remapped below instead.
-            if getattr(item, "_visibility_by_zrange", False):
-                continue
-            if getattr(item, "level", None) == old_name:
-                item.level = new_name
-        # Floors: remap boundary level refs (they're excluded from the
-        # generic .level loop above — their owning .level is obsolete).
-        for slab in getattr(scene, "_floor_slabs", []):
-            if getattr(slab, "_top_level", None) == old_name:
-                slab._top_level = new_name
-            if getattr(slab, "_bottom_level", None) == old_name:
-                slab._bottom_level = new_name
+        self._remap_level_refs(old_name, new_name, items, scene)
         return True
 
     # ── Serialisation ─────────────────────────────────────────────────────────
@@ -358,6 +405,7 @@ class LevelManager:
         if data and not any("number" in d for d in data):
             for i, l in enumerate(sorted(self._levels, key=lambda l: l.elevation)):
                 l.number = i + 1
+        self.resort()
 
     def reset(self):
         """Reset to default levels (used on new file)."""
