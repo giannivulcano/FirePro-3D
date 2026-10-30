@@ -477,9 +477,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # SB3: category -> block id (Project Settings > Annotation; cloned
         # from the template, saved in the .fpd, never in undo).
         self.annotation_defaults: dict[str, str] = {}
-        self._annot_memo: dict = {}      # category -> (mapped id, resolved id | None)
+        self._annot_memo: dict = {}      # (category, mapped id, fallback) -> resolved id | None (SB3b)
         self._annot_resolving = False    # True while annotation_block embeds a file
-        self._annot_notified: set = set()   # (category, mapped) pairs already noticed; survives memo clears
+        self._annot_notified: set = set()   # (category, mapped, fallback) triples already noticed; survives memo clears
         self.project_settings_size: tuple | None = None   # (w, h) of the Project Settings dialog, per project
         self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
@@ -1808,35 +1808,60 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
 
-    def annotation_block(self, category: str):
-        """The ``BlockDefinition`` that draws *category*'s intrinsic label
-        (SB3 D-B): the mapped project block when eligible, else the resolver
-        chain (``bound_label.resolve_annotation_block``: System tier ->
-        library roots -> ``SYSTEM_DEFAULTS``), memoised per (category,
-        mapped id) and cleared on ``blockDefinitionsChanged``. A miss emits
-        one status-bar notice + log line (Q6); the mapping is kept.
+    def annotation_block(self, category: str, mapped: str | None = None):
+        """The ``BlockDefinition`` that draws *category*'s intrinsic label.
+
+        *mapped* = an element's own block id (SB3b: ``Room.tag_block``); None =
+        the project default (``annotation_defaults[category]``, else
+        ``SYSTEM_DEFAULTS``). Chain (system-blocks.md section 3): the id's
+        eligible project copy; else the resolver
+        (``bound_label.resolve_annotation_block``: System tier -> library
+        roots, embedding a file hit outside undo). A per-element id that still
+        misses falls through to the project default (one notice per
+        (category, id)); the project default's own miss walks on to
+        ``SYSTEM_DEFAULTS`` as before (Q6; the mapping is kept). Memoised per
+        (category, id, fallback) in ``_annot_memo`` (the per-element and
+        project-default steps resolve the same id differently), cleared on
+        ``blockDefinitionsChanged``.
         """
+        if mapped:
+            d = self._block_definitions.get(mapped)
+            if d is not None and eligible_definition(d, category):
+                return self._block_registry.get(mapped)
+            rid = self._resolve_mapped(category, mapped, fallback=False)
+            if rid:
+                return self._block_registry.get(rid)
+            # a missing / ineligible per-element id: the project default below
         mapped = self.annotation_defaults.get(category) or SYSTEM_DEFAULTS.get(category, "")
         if not mapped:
             return None
         d = self._block_definitions.get(mapped)
         if d is not None and eligible_definition(d, category):
             return self._block_registry.get(mapped)
-        memo = self._annot_memo.get(category)
-        if memo is None or memo[0] != mapped:
-            self._annot_resolving = True
-            try:
-                rid, notice = resolve_annotation_block(self, category, mapped)
-            finally:
-                self._annot_resolving = False
-            self._annot_memo[category] = (mapped, rid)
-            if notice and (category, mapped) not in self._annot_notified:
-                self._annot_notified.add((category, mapped))   # one notice per mapping, not per memo life
-                log.warning(notice)
-                self._show_status(notice, 10000)
-        else:
-            rid = memo[1]
+        rid = self._resolve_mapped(category, mapped, fallback=True)
         return self._block_registry.get(rid) if rid else None
+
+    def _resolve_mapped(self, category: str, mapped: str, *, fallback: bool):
+        """One memoised resolver step for (*category*, *mapped*, *fallback*): the
+        resolved block id or None. The result depends on *fallback* (a per-element
+        id walks itself alone; the project default also walks the System default),
+        so it is part of the key. A miss is noticed once per triple
+        (``_annot_notified`` outlives memo clears): one log line + one
+        status-bar message."""
+        key = (category, mapped, fallback)
+        if key in self._annot_memo:
+            return self._annot_memo[key]
+        self._annot_resolving = True
+        try:
+            rid, notice = resolve_annotation_block(self, category, mapped, fallback=fallback)
+        finally:
+            self._annot_resolving = False
+        self._annot_memo[key] = rid
+        if notice and key not in self._annot_notified:
+            self._annot_notified.add(key)
+            log.warning(notice)
+            self._show_status(notice, 10000)
+        return rid
 
     def instance_count(self, block_id: str) -> int:
         """Number of placed BlockInstances referencing *block_id*."""
@@ -7192,6 +7217,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         self.addItem(gl)
         apply_category_defaults(gl)
+        if gl._display_overrides.get("visible") is False:
+            gl.setVisible(False)    # L283: the category apply re-showed a carried Hide (paste / array)
         self._gridlines.append(gl)
 
     def _make_line_like(self, anchor, tip):
@@ -9287,6 +9314,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(wall)
                 self._walls.append(wall)
                 apply_category_defaults(wall)
+                if wall._display_overrides.get("visible") is False:
+                    wall.setVisible(False)      # L283: the category apply re-showed a carried Hide
                 marks.mint(self, wall)
                 for op_data in obj.get("openings", []):
                     op = WallOpening.from_dict(op_data, wall=wall)

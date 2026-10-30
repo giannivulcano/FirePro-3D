@@ -99,6 +99,10 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         self._label_offset: QPointF = QPointF(0, 0)  # user drag offset from centroid
         self._tag = BoundLabelItem(self)
         self._tag.setZValue(Z_OVERLAY)  # above everything including walls
+        # SB3b: this room's own tag block id; None = the project default
+        # (annotation_defaults["Room"]). Resolved first by BoundLabelItem._resolve.
+        self._tag_block: str | None = None
+        self._tag_choices: dict = {}      # Tag row label -> annotation_choices.Choice | None
 
         # Rendering
         self.setZValue(-60)  # below walls (-50), above floors (-80)
@@ -201,6 +205,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     @property
     def boundary(self) -> list[QPointF]:
         return list(self._boundary)
+
+    @property
+    def tag_block(self) -> str | None:
+        """This room's tag block id (SB3b); None = follows the project default."""
+        return self._tag_block
 
     # ── Area / perimeter calculations ────────────────────────────────────
 
@@ -415,6 +424,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Mark":              {"type": "string",    "value": self._mark},
             "Show Label":        {"type": "enum",      "value": "True" if self._show_label else "False",
                                   "options": ["True", "False"]},
+            "Tag":               self._tag_row(),      # SB3b: per-room tag block (None = project default)
             # No "Fill Color" row — the Display Manager owns room
             # appearance.  set_property("Fill Color") stays for back-compat.
             "Geometry":          {"type": "header"},
@@ -457,6 +467,61 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
                 if sc is not None and hasattr(sc, "sceneModified"):
                     sc.sceneModified.emit()
 
+    def _tag_row(self) -> dict:
+        """The Tag enum row (SB3b AC1): "Project default (<name>)" = None first,
+        then the shared choice labels (``annotation_choices.choices``); a kept
+        missing / ineligible id is listed as "(missing)" / "(not eligible)" so
+        the row can show it. Enum rows carry strings, so the label -> Choice map
+        is kept on the room for ``set_property``; off-scene the row degrades to
+        the default entry alone."""
+        from . import annotation_choices as ac
+        sc = self.scene()
+        default = ac.default_label(sc, "Room")
+        self._tag_choices = {default: None}
+        if sc is not None and hasattr(sc, "_block_definitions"):
+            for c in ac.choices(sc, "Room", current=self._tag_block):
+                self._tag_choices.setdefault(c.label, c)
+        value = default
+        if self._tag_block is not None:
+            value = next((lbl for lbl, c in self._tag_choices.items()
+                          if c is not None and c.block_id == self._tag_block), default)
+        return {"type": "enum", "value": value, "options": list(self._tag_choices)}
+
+    def _set_tag(self, label: str) -> None:
+        """Apply a Tag row pick (SB3b AC1 / AC2). The label maps through the
+        row's choice map (rebuilt when unknown -- a multi-select target whose
+        form was not built this round); "< mixed >" and stale labels are no-ops
+        (property-panel.md 3.5). A "(Library)" pick embeds the file first
+        (``blocks_browser.ensure_block_loaded`` -> one ``load_blocks_from_files``
+        batch); embed + assignment are ONE undo step (``deferred_undo_push``
+        round both, re-entrant inside the panel's own multi-target block)."""
+        import contextlib
+        if label not in self._tag_choices:
+            self._tag_row()
+        if label not in self._tag_choices:
+            return
+        choice = self._tag_choices[label]
+        sc = self.scene()
+        cm = getattr(sc, "deferred_undo_push", None) if sc is not None else None
+        with (cm() if callable(cm) else contextlib.nullcontext()):
+            bid = None
+            if choice is not None:
+                bid = choice.block_id
+                if choice.path and sc is not None:
+                    from .blocks_browser import ensure_block_loaded
+                    from .annotation_choices import LIBRARY_TIER
+                    name = choice.label.removesuffix(f" ({LIBRARY_TIER})")   # bare block name
+                    bid = ensure_block_loaded(sc, choice.block_id, choice.path,
+                                              name, parent=None)
+                    if bid is None:
+                        return                      # load failed (message shown); nothing assigned
+            if bid == self._tag_block:
+                return
+            self._tag_block = bid
+            self._tag.refresh()
+            if sc is not None and hasattr(sc, "request_undo_push"):
+                sc.request_undo_push()              # a Room edit that IS an undo step (AC1)
+
     def set_property(self, key: str, value):
         if key == "Room Name":
             self.name = str(value)
@@ -467,6 +532,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         elif key == "Show Label":
             self._show_label = (str(value) == "True")
             self._update_label()
+        elif key == "Tag":
+            self._set_tag(str(value))
         elif key == "Floor Level":
             self.level = str(value)
         elif key == "Ceiling Level":
@@ -517,7 +584,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     # ── Serialization ────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type":             "room",
             "boundary":         [[p.x(), p.y()] for p in self._boundary],
             "color":            self._color.name(),
@@ -535,6 +602,9 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "ceiling_type":     self._ceiling_type,
             "label_offset":     [self._label_offset.x(), self._label_offset.y()],
         }
+        if self._tag_block is not None:
+            d["tag_block"] = self._tag_block          # SB3b: absent = project default
+        return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
     def from_dict(cls, data: dict) -> "Room":
@@ -555,5 +625,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         room._system_type = data.get("system_type", "Wet")
         dp = data.get("design_point")
         room._design_point = (float(dp[0]), float(dp[1])) if dp else None
+        tb = data.get("tag_block")                     # SB3b: missing / non-str / "" -> None
+        room._tag_block = tb if isinstance(tb, str) and tb else None
         room._rebuild()  # rebuild polygon + label now that name/tag are set
+        room.display_overrides_from_dict(data)         # L283: after the rebuild
         return room

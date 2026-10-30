@@ -594,7 +594,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     # ── Serialisation ────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type":            "roof",
             "points":          [[p.x(), p.y()] for p in self._points],
             "color":           self._colour,
@@ -608,6 +608,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             "level":           self.level,
             "name":            self.name,
         }
+        return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
     def from_dict(cls, data: dict) -> "RoofItem":
@@ -639,6 +640,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         roof._ridge_position = data.get("ridge_position", 0.5)
         roof.level = data.get("level", DEFAULT_LEVEL)
         roof.name = data.get("name", "")
+        roof.display_overrides_from_dict(data)         # L283
         return roof
 
     # ── 3D mesh generation ───────────────────────────────────────────────

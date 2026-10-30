@@ -109,6 +109,36 @@ def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,
         item.setPos(0, 0)
 
 
+def display_overrides_to_dict(item, d: dict) -> dict:
+    """Stamp ``item._display_overrides`` onto *d* as ``display_overrides`` when non-empty.
+
+    L283: the one serializer behind ``DisplayableItemMixin.display_overrides_to_dict``;
+    also called directly by ``GridlineItem``, which holds ``_display_overrides`` but
+    is not a mixin subclass. The value is a copy, never the live dict.
+    """
+    if item._display_overrides:
+        d["display_overrides"] = dict(item._display_overrides)
+    return d
+
+
+def display_overrides_from_dict(item, data: dict) -> None:
+    """Restore ``item._display_overrides`` from *data* (missing / malformed -> {}).
+
+    A ``section_type`` re-points to its kept Fill Type id
+    (``fill_types.canonical_id``; HF5 VC9 M2). A Model Browser Hide (``visible``
+    False, written by ``Model_Space._hide_items``) is re-applied via
+    ``item.setVisible(False)``.
+    """
+    ov = data.get("display_overrides")
+    item._display_overrides = dict(ov) if isinstance(ov, dict) else {}
+    sec = item._display_overrides.get("section_type")
+    if isinstance(sec, str) and sec:
+        from . import fill_types
+        item._display_overrides["section_type"] = fill_types.canonical_id(sec)
+    if item._display_overrides.get("visible") is False:
+        item.setVisible(False)
+
+
 class DisplayableItemMixin:
     """Mixin providing standard display-manager attributes.
 
@@ -142,6 +172,29 @@ class DisplayableItemMixin:
         self._display_section_color: str | None = None
         # Fill Type id of the cut (Display Manager, HF5); None = the default look.
         self._display_section_type: str | None = None
+
+    # -- Per-instance Display-Manager overrides: one serializer for both paths --
+
+    def display_overrides_to_dict(self, d: dict) -> dict:
+        """Stamp ``display_overrides`` onto *d* when non-empty and return it.
+
+        L283: every holder's ``to_dict`` -- the ``.fpd`` save AND the undo
+        snapshot (scene-io.md section 1) -- routes through here; an untouched
+        item writes no key. The value is a copy, never the live dict.
+        """
+        return display_overrides_to_dict(self, d)
+
+    def display_overrides_from_dict(self, data: dict) -> None:
+        """Restore ``display_overrides`` from *data* (missing / malformed -> {}).
+
+        A ``section_type`` re-points to its kept Fill Type id
+        (``fill_types.canonical_id``; HF5 VC9 M2: a name-duplicate type's alias
+        id loads as the kept id, the table loads before the items). A Model
+        Browser Hide (``visible`` False, written by ``Model_Space._hide_items``)
+        is re-applied to the item so it stays hidden on the canvas after undo,
+        open and paste even where no level pass runs afterwards.
+        """
+        display_overrides_from_dict(self, data)
 
     def _outline_pen(self, color, cosmetic_px: float = 1.0,
                      style: Qt.PenStyle = Qt.PenStyle.SolidLine) -> QPen:
