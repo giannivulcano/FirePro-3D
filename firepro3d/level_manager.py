@@ -291,6 +291,19 @@ def leveled_items(scene) -> list:
     return items
 
 
+# Secondary level refs, beyond the owning ``.level``, that follow a rename / delete /
+# open repair: attr -> the item's ``set_property`` key (keeps node ``_properties``
+# mirrors, node z and wall height in step).
+_BASE_LEVEL_REFS = {"_base_level": "Base Level"}            # WallSegment
+_UPPER_LEVEL_REFS = {
+    "_top_level": "Top Level",                              # WallSegment
+    "_ceiling_level": "Ceiling Level",                      # Room
+    "ceiling_level": "Ceiling Level",                       # Node
+    "node1_ceiling_level": "N1 Ceiling Level",              # Pipe template
+    "node2_ceiling_level": "N2 Ceiling Level",
+}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Manager (pure data, no Qt)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -387,6 +400,15 @@ class LevelManager:
         return targets
 
     @staticmethod
+    def _set_level_ref(item, attr: str, key: str, value: str) -> None:
+        """Write one level ref through the item's own property path when it has one."""
+        setter = getattr(item, "set_property", None)
+        if setter is not None:
+            setter(key, value)
+        else:
+            setattr(item, attr, value)
+
+    @staticmethod
     def _remap_level_refs(old_name: str, new_name: str, items, scene) -> None:
         """Point every level reference at *old_name* to *new_name* (rename + delete share it)."""
         for item in items:
@@ -397,6 +419,9 @@ class LevelManager:
                 continue
             if getattr(item, "level", None) == old_name:
                 item.level = new_name
+            for attr, key in (*_BASE_LEVEL_REFS.items(), *_UPPER_LEVEL_REFS.items()):
+                if getattr(item, attr, None) == old_name:
+                    LevelManager._set_level_ref(item, attr, key, new_name)
         for slab in getattr(scene, "_floor_slabs", []):
             if getattr(slab, "_top_level", None) == old_name:
                 slab._top_level = new_name
