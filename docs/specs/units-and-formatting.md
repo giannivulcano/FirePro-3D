@@ -6,6 +6,7 @@ applies-to:
   - firepro3d/scale_manager.py
   - firepro3d/dynamic_input.py    # FieldKind formatter/parser shells (FACTOR → ScaleManager; COUNT still local — §8 D5)
   - firepro3d/dimension_edit.py   # widget contract owned by property-panel.md §3.8; unit rules owned here
+  - firepro3d/length_expr.py      # §3.1 NUM_PATTERN + §3.2 length grammar / expression evaluator
 source-tasks: "Design-Area Criteria System wrap-up (2026-07-14) — user-requested consistency guide after mixed ft²/sq ft surfaced in smoke test"
 ---
 
@@ -33,7 +34,7 @@ Values are converted **at display time only**. Never store a display string as t
 | Quantity | Imperial | Metric | Formatter (the one home) |
 |---|---|---|---|
 | Length | `10' 6 1/2"` | mm / m per unit + precision | `ScaleManager.format_length(mm)` |
-| Length input | any format | any format | `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())` via **`DimensionEdit`** (never `QDoubleSpinBox` — property-panel.md §3.8); grammar per §3.1 |
+| Length input | any format | any format | `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())` via **`DimensionEdit`** (never `QDoubleSpinBox` — property-panel.md §3.8); grammar per §3.1, literals and expressions per §3.2 |
 | Area (geometry-derived) | `2304.0 sq ft` | `214.00 m²` (`N mm²` for METRIC_MM) | `ScaleManager.format_area_mm2(mm2)` (+ `area_mm2_value` numeric twin); `Room._fmt_area` delegates to it |
 | Volume | `23040 cu ft` | `652.4 m³` (`N mm³` for METRIC_MM) | `ScaleManager.format_volume_mm3(mm3)` (+ `volume_mm3_value`); `Room._fmt_volume` delegates to it |
 | Area (NFPA design basis, stored ft²) | `1500 sq ft` | `139.4 m²` | `ScaleManager.format_area_sqft(sqft)`; None-safe module wrapper `scale_manager.format_area_sqft(sqft, sm)` |
@@ -60,8 +61,40 @@ The way a *number* may be written is one fact, and both `parse_dimension` and `p
 | `.`, `-`, `-.` | ❌ | a sign or dot alone is not a number |
 | `1e3` | ❌ | far more likely a typo than an intended 1000 |
 | `1,5` | ❌ | decimal comma is ambiguous against a thousands separator |
+| `3/8`, `5 3/8` | lengths only (§3.2) | fraction / mixed number (whole + space + fraction); `parse_angle` and `parse_factor` refuse it |
+| `6-1/2` | inch values only (§3.2) | drafting hyphen form — after a foot mark or before an inch mark; elsewhere `-` is subtraction |
 
-Rejections route to `DimensionEdit`'s revert-to-last-valid, never to a wild value. Implementation: the shared `_NUM` sub-pattern in `scale_manager.py` (used by `parse_dimension` and, unsigned, by `parse_factor`); the unit suffixes and sign rules wrapped around it are each parser's own business. Two parsers still re-spell the grammar instead of reusing `_NUM` — see §8 D5 (COUNT) and D6 (angle/span).
+Rejections route to `DimensionEdit`'s revert-to-last-valid, never to a wild value. Implementation: the shared `NUM_PATTERN` in `length_expr.py`, imported by `scale_manager.py` as `_NUM` (used by `parse_factor`, unsigned); `length_expr.py` builds its fraction and mixed-number forms on top of it; the unit suffixes and sign rules wrapped around it are each parser's own business. Two parsers still re-spell the grammar instead of reusing `_NUM` — see §8 D5 (COUNT) and D6 (angle/span).
+
+### 3.2 Length literals and expressions
+
+`parse_dimension` delegates to `length_expr.evaluate_length` (added 2026-10-30, backlog 823 + 1066). The text is tokenized into length literals, bare numbers and operators, then evaluated by a recursive-descent parser over typed values (length vs. bare number) — never `eval()`. Every `DimensionEdit` and every dynamic-input HUD length field gets it through `parse_dimension`.
+
+| Literal | Forms | Value |
+|---|---|---|
+| Feet | `5'`, `5 ft`, then an optional inch part separated by a space or `-`: `5' 6"`, `5'-6"`, `5' 5.5"`, `5'6-1/2"`, `5'-6 1/2"`, `5ft 6in`, `5' 6` (closing inch mark optional) | ft × 12 + in, in inches |
+| Inch | `6"`, `6 in`, `6 inch`, `6 inches`; `6 1/2"`, `6-1/2"`, `3/8"` | inches |
+| Metric | `3048 mm`, `3.048 m` | mm / m |
+| Bare | `10`, `5 3/8`, `3/8` | the field's default unit — `fallback_unit`, i.e. `sm.bare_number_unit()` |
+
+Unit words end at a letter boundary (`5 min` is refused, not read as `5 m`) and are case-insensitive.
+
+**Rules (ratified 2026-10-30, Phase 2 FP1):**
+
+1. A bare mixed number (`5 3/8`, `3/8`) is a value in the field's default unit (feet in imperial).
+2. Drafting minus rule: a `-` *directly* after a foot mark that leads into an inch value is the ft-in separator (`5'-6"`, `5'- 6"`); every other `-` is subtraction or a leading sign (`10' - 3"` = 9'-9", `12"-3"` = 9"). The hyphen mixed number `6-1/2` is an inch value only when followed by an inch mark or when it is the inch part after a foot mark.
+3. With `*` `/`, a unitless operand is a scalar; with `+` `−`, it is a length in the default unit. Bare ⊕ bare stays bare. Length × length, anything ÷ length, ÷ 0 → rejected.
+4. Lengths only (angle/factor/count untouched); standard precedence; parentheses.
+
+**Operators:** `+`, `-` / `−`, `*` / `×`, `/` / `÷`, `(` `)`; `×` `÷` bind tighter than `+` `−`, and chain left to right; unary minus (`-10'`, `-(5')`). A bare unspaced `a/b` (`3/8`) is evaluated as division — the same value as the fraction, so rule 1 holds — which keeps `10'/2/5` = 1'; only a marked fraction (`3/8"`, `1/2'`) or a spaced mixed number (`5 3/8`) is one literal. A marked fraction after `/` is a length, so `10'/1/2"` is a ratio and refused. Right after a `/`, whatever the spacing, a bare value is a plain number, never a mixed number: `1/2 3/4` and `1/ 2 3/4` are two fractions side by side (refused), and dividing by a mixed number takes brackets — `10' / (2 1/2)` = 4', while `10' / 2 1/2` is refused (ratified 2026-10-30, after the T1-2 review found spacing-dependent readings).
+
+**Unknown default unit:** when `fallback_unit` is not one `_to_mm` knows, only text whose result carries its own unit parses; a bare result returns `None`.
+
+**Rejected → `None` (revert-to-last-valid):** length × length (an area), anything ÷ a length (a ratio), ÷ 0, a zero denominator (`1/0"`), juxtaposed literals (`5' 6" 3"`, `5ft 6in 2`, `1m 50mm` — never truncated to the leading part), unbalanced or empty brackets, a dangling operator, input over 200 characters (bounds the recursion depth), a non-finite result.
+
+**Behaviour change:** `5' -6"` (a space before the minus) now reads 5' − 6" = 4'-6" (it was 5'-6").
+
+Angle, span, factor and count fields take no arithmetic.
 
 ## 4. Angles
 
