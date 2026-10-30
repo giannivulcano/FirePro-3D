@@ -1116,6 +1116,7 @@ QTreeView#underlayTable::item, QTableView#underlayTable::item, QTableWidget#leve
 QTreeView#underlayTable::item:hover, QTableView#underlayTable::item:hover, QTableWidget#levelTable::item:hover {{ background: {t.accent_soft}; }}
 QTreeView#underlayTable::item:selected, QTableView#underlayTable::item:selected, QTableWidget#levelTable::item:selected {{ background: {t.accent_soft2}; color: {t.ink}; }}
 QTableWidget#levelTable::item {{ padding: 0 {M.LEVEL_CELL_PAD}px; }}
+QTableWidget#levelTable {{ border: 1px solid {t.line}; border-radius: {M.RADIUS_INPUT}px; }}
 QTreeView#underlayTable::branch {{ background: {t.table}; }}
 QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
 QTreeView#underlayTable::branch:closed:has-children:has-siblings {{ background: {t.table}; image: url("{chev_r}"); }}

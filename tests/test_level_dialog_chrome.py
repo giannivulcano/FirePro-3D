@@ -66,6 +66,21 @@ def test_level_table_uses_the_mockup_metrics_under_the_house_qss(qapp):
         dlg.close()
 
 
+def test_level_table_is_framed_by_a_line_border_like_the_mockup(qapp):
+    """Mockup `.tbl`: 1px `--line` border, `--r-input` radius (smoke 2026-10-30)."""
+    from PyQt6.QtGui import QColor
+    from firepro3d.theme import detect
+    dlg = _shown(qapp)
+    try:
+        img = dlg.widget.table.grab().toImage()
+        line = QColor(detect().line)
+        w, h = img.width(), img.height()
+        for x, y in ((w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1)):
+            assert img.pixelColor(x, y).name() == line.name(), (x, y)
+    finally:
+        dlg.close()
+
+
 def test_close_button_accepts(qapp):
     dlg = _shown(qapp)
     footer = dlg.findChild(QFrame, "footerBar")
