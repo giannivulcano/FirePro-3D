@@ -243,3 +243,15 @@ def test_add_number_with_custom_numbers_follows_the_count_rule(shown_model_view)
     scene, lm, w = _widget(shown_model_view, ("A", 0.0, 7), ("B", 3000.0, 9))
     w._add_level()
     assert [(l.name, l.number, l.elevation) for l in lm.levels] == [("A", 7, 0.0), ("B", 9, 3000.0), ("Level 1", 3, 6000.0)]
+
+
+def test_populate_restores_the_header_view_sort_after_a_refill(shown_model_view):
+    """Group C review M1: the session's view sort (Number descending) survives populate().
+    Protected by the sorting re-enable after the fill (the sortItems line after it is redundant)."""
+    scene, lm, w = _widget(shown_model_view, ("Level 1", 0.0, 1), ("Level 2", 3048.0, 2), ("Mezz", 1524.0, 10))
+    w.table.horizontalHeader().setSortIndicator(_COL_NUM, Qt.SortOrder.DescendingOrder)
+    assert _rows(w) == ["Mezz", "Level 2", "Level 1"]
+    w.populate()                                                       # the refill
+    assert _rows(w) == ["Mezz", "Level 2", "Level 1"]                  # still Number descending
+    assert _names(lm) == ["Level 1", "Mezz", "Level 2"]                # the store never moved
+
