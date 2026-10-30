@@ -178,7 +178,10 @@ def test_undo_of_a_rename_leaves_a_single_plan_tab(mw):
     lw = win.level_widget
     lw.table.item(_row(lw, "Level 2"), _COL_NAME).setText("Mezz")
     assert "Plan: Mezz" in _tabs(win) and "Plan: Level 2" not in _tabs(win)
+    seen = []                                   # tabs a levelsChanged consumer sees (VC9 M2)
+    lw.levelsChanged.connect(lambda: seen.append(_tabs(win)))
     win.scene.undo()
+    assert seen and all("Plan: Mezz" not in t for t in seen)   # stale tab closed before the emit
     tabs = _tabs(win)
     assert "Plan: Level 2" in tabs and "Plan: Mezz" not in tabs       # P8 reconcile
     assert win.central_tabs.tabText(win.central_tabs.currentIndex()) == "Plan: Level 2"

@@ -2632,7 +2632,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._on_levels_removed(stale)          # a tab whose level the undo took away (rename / delete)
         self.level_widget.populate()                # after the stale tabs close, as on open / new
         self.level_widget.levelsChanged.emit()
-        cur =self.central_tabs.tabText(self.central_tabs.currentIndex())
+        cur = self.central_tabs.tabText(self.central_tabs.currentIndex())
         if cur != f"Plan: {active}":             # only re-open when the view is elsewhere
             self.level_widget.activeLevelChanged.emit(active)
 
