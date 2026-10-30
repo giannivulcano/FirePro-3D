@@ -303,6 +303,13 @@ _UPPER_LEVEL_REFS = {
     "node2_ceiling_level": "N2 Ceiling Level",
 }
 
+# (base attr, base offset attr, upper attr, upper offset attr, upper set_property key):
+# the vertical spans a delete must not collapse (view-relationships s12.4, D2).
+_LEVEL_SPANS = (
+    ("_base_level", "_base_offset_mm", "_top_level", "_top_offset_mm", "Top Level"),   # WallSegment
+    ("level", None, "_ceiling_level", "_ceiling_offset", "Ceiling Level"),            # Room
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Manager (pure data, no Qt)
@@ -388,16 +395,56 @@ class LevelManager:
         return out
 
     def remove_levels(self, names, items=(), scene=None) -> dict[str, str]:
-        """Delete *names* (one action), re-pointing every ``.level`` in *items* and the
+        """Delete *names* (one action), re-pointing every level ref in *items* and the
         floor ``_top_level`` / ``_bottom_level`` refs on *scene* to each level's
-        ``delete_targets`` entry. Returns the targets (empty = refused: nothing left)."""
+        ``delete_targets`` entry; a wall Top / room Ceiling that would land at or below
+        its base is lifted (``_lift_collapsed_spans``). Returns the targets (empty =
+        refused: nothing left)."""
         targets = self.delete_targets(names)
         if not targets:
             return {}
+        items = list(items)
+        old_tops = self._span_tops(items, targets)
         for old, new in targets.items():
             self._remap_level_refs(old, new, items, scene)
         self._levels = [l for l in self._levels if l.name not in targets]
+        self._lift_collapsed_spans(items, old_tops)
         return targets
+
+    def _span_tops(self, items, targets) -> dict[int, tuple]:
+        """Absolute top z of each span whose upper ref is being deleted, keyed by id(item)."""
+        out = {}
+        for item in items:
+            for span in _LEVEL_SPANS:
+                upper, upper_off = span[2], span[3]
+                lvl = self.get(getattr(item, upper, None) or "")
+                if lvl is not None and lvl.name in targets:
+                    out[id(item)] = (span, lvl.elevation + getattr(item, upper_off, 0.0))
+                    break
+        return out
+
+    def _lift_collapsed_spans(self, items, old_tops) -> None:
+        """D2: a re-pointed upper ref at or below its base moves to the nearest level above
+        the base; with none above it takes the base level plus the offset that keeps the
+        old absolute top."""
+        for item in items:
+            entry = old_tops.get(id(item))
+            if entry is None:
+                continue
+            (base_attr, base_off, upper, upper_off, key), old_top = entry
+            base = self.get(getattr(item, base_attr, None) or "")
+            top = self.get(getattr(item, upper, None) or "")
+            if base is None or top is None:
+                continue
+            base_z = base.elevation + (getattr(item, base_off, 0.0) if base_off else 0.0)
+            if top.elevation + getattr(item, upper_off, 0.0) > base_z:
+                continue
+            above = [l for l in self._levels if l.elevation > base.elevation]
+            if above:
+                self._set_level_ref(item, upper, key, above[0].name)
+            else:
+                setattr(item, upper_off, old_top - base.elevation)
+                self._set_level_ref(item, upper, key, base.name)
 
     @staticmethod
     def _set_level_ref(item, attr: str, key: str, value: str) -> None:

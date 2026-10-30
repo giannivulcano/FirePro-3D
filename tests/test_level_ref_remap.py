@@ -46,8 +46,10 @@ def _row(widget, name):
 def _delete(widget, monkeypatch, *names):
     monkeypatch.setattr(lw_mod, "themed_confirm", lambda *a, **k: True)
     widget.table.clearSelection()
-    for n in names:
-        widget.table.selectRow(_row(widget, n))
+    sm = widget.table.selectionModel()
+    for n in names:             # selectRow would replace the selection
+        sm.select(widget.table.model().index(_row(widget, n), 0),
+                  sm.SelectionFlag.Select | sm.SelectionFlag.Rows)
     widget._delete_level()
 
 
@@ -69,3 +71,27 @@ def test_delete_base_level_moves_base_to_nearest_below(qapp, shown_model_view, m
     assert (w._base_level, w._top_level) == ("Level 1", "Level 3")
     assert w.z_range_mm() == (0.0, 6000.0)
     assert node.ceiling_level == "Level 3"
+
+
+def test_delete_top_level_lifts_top_to_next_above(qapp, shown_model_view, monkeypatch):
+    scene, lm, widget, w, room, node = _setup(shown_model_view)        # L1 -> L2
+    _delete(widget, monkeypatch, "Level 2")
+    assert w._top_level == "Level 3" and w.z_range_mm() == (0.0, 6000.0)
+    assert room._ceiling_level == "Level 3"
+    assert node.ceiling_level == "Level 1"                             # plain nearest-below
+
+
+def test_delete_top_with_nothing_above_keeps_old_top_as_offset(qapp, shown_model_view, monkeypatch):
+    scene, lm, widget, w, room, node = _setup(shown_model_view)
+    _delete(widget, monkeypatch, "Level 2", "Level 3")
+    assert (w._base_level, w._top_level) == ("Level 1", "Level 1")
+    assert w._top_offset_mm == 3000.0 and w.z_range_mm() == (0.0, 3000.0)
+
+
+def test_undo_restores_wall_refs_after_delete(qapp, shown_model_view, monkeypatch):
+    scene, lm, widget, w, room, node = _setup(shown_model_view)
+    _delete(widget, monkeypatch, "Level 2")
+    scene.undo()
+    w2 = scene._walls[0]
+    assert (w2._base_level, w2._top_level) == ("Level 1", "Level 2")
+    assert w2.z_range_mm() == (0.0, 3000.0)
