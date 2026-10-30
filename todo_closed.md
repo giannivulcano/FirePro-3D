@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block Editor text -- Delete / copy of a TextItem -- 2026-10-30
+
+- [x] [type:bug] Block Editor text: Delete does nothing on a selected text item, and its box grips show but don't move [P1] [subject:Blocks] [done:2026-10-30]
+  - Details: user report 2026-10-30; filed + fixed same day. Root cause: `TextItem.data` (TextAnnotationData property) shadows `QGraphicsItem.data()`, so the capability-frame filter `i.data(0)` in `Model_Space.delete_items` and `copy_selected_items` raised TypeError for any text (Delete/Cut/Copy dead in plan and Block Editor; the real Delete key aborted the process headless). Fix: `QGraphicsItem.data(i, 0)`. Guard `tests/test_text_delete_copy_block_editor.py` shown RED pre-fix. Grips-don't-move half not reproducible headless; user smoke 2026-10-30 'good'. Small, no full suite by user ruling.
+
 ## Level refs -- rename / delete keep wall, room, node, pipe, block and slab refs + open repair -- 2026-10-30
 
 - [x] [done:2026-10-30] [type:bug] Renaming or deleting a level leaves walls' Base / Top Level pointing at a missing level, so 3D and sections drop them to elevation 0 [P1] [subject:CAD]

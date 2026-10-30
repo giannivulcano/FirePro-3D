@@ -929,7 +929,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The Block Editor capability frame is an overlay, never deletable
         # geometry (D-A32 / LT4): the capability toggle owns its lifetime.
         from .capability_frame import CAPABILITY_FRAME_TAG
-        selected = [i for i in items if i.data(0) != CAPABILITY_FRAME_TAG]
+        # QGraphicsItem.data(i, 0), not i.data(0): TextItem shadows data().
+        selected = [i for i in items
+                    if QGraphicsItem.data(i, 0) != CAPABILITY_FRAME_TAG]
         if not selected:
             return
         selected_set = set(selected)
@@ -9106,7 +9108,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .capability_frame import CAPABILITY_FRAME_TAG
         # The capability frame is never copied, so it never shifts the base point.
         items = [it for it in self.selectedItems()
-                 if it.data(0) != CAPABILITY_FRAME_TAG]
+                 if QGraphicsItem.data(it, 0) != CAPABILITY_FRAME_TAG]
         rect = QRectF()
         for it in items:
             rect = rect.united(it.sceneBoundingRect())
