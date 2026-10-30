@@ -2,6 +2,14 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Units -- dimension input grammar + arithmetic (823 + 1066) -- 2026-10-30
+
+- [x] [done:2026-10-30] [type:bug] Typing a bare fractional inch (`1/2"`, `3/4"`) into any dimension field silently reverts [P2] [subject:UX]
+  - Details: found at the LT4 Task 7 build (2026-10-05, probe). `ScaleManager.parse_dimension('1/2"', 'ft')` and `(…, 'in')` return None, so every `DimensionEdit` reverts; `1 1/2"`, `0.5"` and `0' 1/2"` parse. Pre-existing, app-wide. Governing: `docs/specs/units-and-formatting.md` (parse rules) + `property-panel.md` §3.8. Repro first, then guard through a real DimensionEdit in an imperial project.
+- [x] [done:2026-10-30] [type:feature] `DimensionEdit` arithmetic input [P3] [subject:UX]
+  - Details: user, 2026-08-16 — accept basic expressions in any dimension field and auto-evaluate on commit (`3ft - 1.5ft` → `1' - 6"`, `12" * 2`, `10ft/3`). No arithmetic parsing exists anywhere in the codebase today — net-new. Mixed units must normalise through `parse_dimension` per-term before evaluating; unparseable/unsafe expressions fall through the existing revert-to-last-valid path (never `eval()`). Benefits all 11 `DimensionEdit` consumers + the Dynamic Input HUD. `dimension_edit.py`, `scale_manager.py`. ref: units-and-formatting.
+  - Built 2026-10-30 on `feat/dimension-input-grammar` together with the bare-fraction bug above (broadened at 1b to `5' 5.5"`, `5 3/8`, `6-1/2"`, and the silent `5ft 6in` truncation): new `firepro3d/length_expr.py` (tokenizer + recursive descent over typed length/number values, never `eval`); `parse_dimension` delegates (`4f1dd2fa`); DimensionEdit imperial guard (`64c3e9c8`); units spec §3.1 rows + new §3.2 (`f74af4a6`). FP1 rulings: bare `5 3/8` = default unit, drafting minus rule, unitless operand = scalar for × ÷, lengths with + − × ÷ and (). Review fixes: chained bare division (`10'/2/5` was 25'), adjacent fractions (`1/2 3/4` was 1 ÷ 2¾); user ruling: a mixed-number divisor takes brackets (`10' / (2 1/2)`). Keep-green 686 passed (12 files). Smoke passed (user). VC6 full suite waived by the user.
+
 ## Level Manager dialog -- house shell, sortable table, multi-select actions -- 2026-10-30
 
 - [x] [done:2026-10-30] [type:feature] Level Manager dialog: house theme + UI style guide, sortable columns, feature grill [P2] [subject:UX]
