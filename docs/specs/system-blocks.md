@@ -1,9 +1,10 @@
 ---
-status: partial          # SB3 (room tag, the first vertical slice) BUILT 2026-10-29, checkpoint PASSED; SB4a-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-10-29  # SB3 Account: promoted from the concept (consolidating contract for what is built; the concept stays as history)
-verified-commit: 8be9034a   # SB3 landing on main (feat/sb3-room-tag 409afacb..8be9034a, ff)
+status: partial          # SB3 (room tag, the first vertical slice) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
+last-verified: 2026-10-30  # SB3b Account: s2/s3/s7/s8/s10 + the status/ownership lines re-audited against 7e5d3b15; prior 2026-10-29  # SB3 Account: promoted from the concept (consolidating contract for what is built; the concept stays as history)
+verified-commit: 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 landing on main (feat/sb3-room-tag 409afacb..8be9034a, ff)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, eligible_definition, resolve_annotation_block
+  - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
   - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD
   - firepro3d/system_blocks/Tags/     # the shipped RoomTag .fpdb
   - firepro3d/block_attributes.py     # bound_text_ops, hugged_text_record (lifted/added for the tag)
@@ -32,13 +33,16 @@ source-tasks:
 > architecture F1-F8, the not-yet-built phases 4-7). The slice's own design record is
 > [`2026-10-28-sb3-room-tag-slice-design.md`](../superpowers/specs/2026-10-28-sb3-room-tag-slice-design.md)
 > (ratified decisions Q1-Q13, D-A..D-E). Not built: the remaining intrinsic labels
-> (SB4a-e), placed tags (concept F7, Tag tool), sheet-scoped tags.
+> (SB4a-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
+> 2026-10-30)** adds the per-room tag block (`Room.tag_block`, sections 3 / 8) and the
+> shared picker list that also widens the Annotation pane to the user library (section 7).
 
 ## Ownership (Rule A)
 
 This spec owns: the `BoundLabelItem` contract, the annotation-block resolver and its
 fallback chain, `annotation_defaults` (model, persistence, pane), `SYSTEM_DEFAULTS`,
-the Room tag's behaviour, the hug rule for host-bound text, and the SB3 reassessment
+the Room tag's behaviour (incl. the per-room `tag_block` semantics and the shared picker
+list `annotation_choices`), the hug rule for host-bound text, and the SB3 reassessment
 checkpoint. It links, never restates:
 
 - Block definition / flyweight / System tier / library roots / Promote:
@@ -69,7 +73,9 @@ block-instance list).
   source through the `element_params` getters (`host_values`, asked only for the keys the
   block binds plus the category's label field -- the keyed form is owned by
   `element-parameters.md`). The pull happens at paint; there is no per-element change signal.
-- **Definition.** `definition()` is the scene's `annotation_block(category)` (section 3).
+- **Definition.** `definition()` is the scene's `annotation_block(category, host.tag_block)`
+  (section 3): the host's own block id first (`tag_block`; `None` on a host without one),
+  then the project default.
 - **Pose and sizing.** `set_anchor(pt)` moves the block origin (`setPos`); the annotative
   factor k is folded into the ops, so `boundingRect` / `shape` / the paper pass need no
   extra scaling code. The contract for k (and its pre-resolved-definition parameter) is the
@@ -97,27 +103,37 @@ block-instance list).
   shared static list) plus the `bound_text_ops` glyphs, rebuilt only when a resolved
   string changes. `_state()` resolves the definition and host values once per paint.
 
-## 3. Block resolution (`Model_Space.annotation_block(category)`)
+## 3. Block resolution (`Model_Space.annotation_block(category, mapped=None)`)
 
-1. The mapped id is `annotation_defaults[category]`, else `SYSTEM_DEFAULTS[category]`.
-2. A project block with that id that is eligible wins.
-3. Otherwise `bound_label.resolve_annotation_block` walks, for the mapped id and then the
+1. **The element's own id (SB3b).** When `mapped` is given (`Room.tag_block`) and the
+   project copy of that id is eligible, it wins. Otherwise that id alone is resolved
+   (`_resolve_mapped(..., fallback=False)`: project registry -> System tier -> library
+   roots, no `SYSTEM_DEFAULTS` step); a miss falls through to step 2 with one notice
+   ("... using the project default"). The id itself is kept on the element.
+2. The project default is `annotation_defaults[category]`, else `SYSTEM_DEFAULTS[category]`.
+3. A project block with that id that is eligible wins.
+4. Otherwise `bound_label.resolve_annotation_block` walks, for the mapped id and then the
    `SYSTEM_DEFAULTS` id: project registry -> System tier -> library roots
    (`block_library._find_by_id`, System tier first). A file hit is **embedded into the
    project on first resolve, outside undo** (`load_blocks_outside_history`), and accepted
    only when eligible (an ineligible file is never embedded).
-4. Nothing resolves -> `None` (the tag draws the placeholder or nothing, section 2).
+5. Nothing resolves -> `None` (the tag draws the placeholder or nothing, section 2).
 
-The result is memoised per category (`_annot_memo`), cleared on `blockDefinitionsChanged`
-(`_on_block_definitions_changed`); the same handler re-shapes every room tag through
-`refresh_room_tags()`, except while `_annot_resolving` (the resolver itself embedding a
-file) -- the memo clear always runs.
+The resolver step lives in `Model_Space._resolve_mapped`. Its result is memoised in
+`_annot_memo`, keyed `(category, mapped id, fallback)` -- the same id resolves differently
+as a per-element id (`fallback=False`) and as the project default (`fallback=True`) -- and
+cleared on `blockDefinitionsChanged` (`_on_block_definitions_changed`); the same handler
+re-shapes every room tag through `refresh_room_tags()`, except while `_annot_resolving`
+(the resolver itself embedding a file) -- the memo clear always runs.
 
 A mapped id that is missing, not annotative, not Scale-with-zoom, or of the wrong
 `host_category` is **treated as missing**: one log line plus one status-bar notice via
 `_show_status` (the first view whose window has a status bar), remembered per
-(category, mapped id) in `_annot_notified` so it fires once per mapping, not per memo
-life. **The mapping stays in the file**, so a later Reload or library fix can resolve it.
+`(category, mapped id, fallback)` triple in `_annot_notified` so it fires once per triple,
+not per memo life. A room pinned to the same missing id as the project default therefore
+gets two distinct notices: the per-room miss ("using the project default") and the
+default's own ("using the System default"). **The mapping stays in the file**, so a later
+Reload or library fix can resolve it.
 The notice fires at the **first resolve** of the mapping -- normally the eager resolve at
 the end of a file load (`scene_io.load_from_file`), a template apply or a pane apply.
 Known gap, filed: the notice is lost when no window has a status bar yet.
@@ -170,11 +186,20 @@ exploded tag lands in the same box it was drawn in (explode parity). Guards:
   project resolves System -> library roots -> `SYSTEM_DEFAULTS`.
 - **Pane** (Project Settings > Annotation, `AnnotationPane`; rail list owned by
   [`settings-dialog.md`](settings-dialog.md)): one row per `ANNOTATION_CATEGORIES`.
-  Choices = the project's eligible blocks, labelled "(Project)" (or "(System)" when the
-  embedded block's library is System), then eligible shipped blocks the project has not
-  embedded, "(System)". The default row reads "RoomTag (System)". A current mapping that
-  is missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry.
-  The picker does **not** list the user's library folder (SB3b widens it).
+  The choice list is `annotation_choices.choices` -- the **one home**, shared with the Room
+  Tag row (section 8); `AnnotationPane.choices` is a wrapper over it. Entries: the
+  project's eligible blocks, labelled "(Project)" (or "(System)" when the embedded block's
+  library is System), then eligible shipped blocks the project has not embedded,
+  "(System)", then eligible user-library `.fpdb` files the project has not embedded,
+  "(Library)" (SB3b). The default row reads "RoomTag (System)". A current mapping that is
+  missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry appended
+  by the shared list. A "(Library)" pick is embedded outside history by the resolver
+  (section 3) when the mapping is applied; the pane's apply stays non-undoable.
+  `annotation_choices` caches its two disk walks (`shipped_defs`, `library_defs`) by a
+  stat stamp of the `.fpdb` files -- `(path, mtime_ns, size)`, a directory scan only -- and
+  its parse cache (`parsed_file`) by `(mtime_ns, size)`; `parsed_file` returns one shared
+  **read-only** `BlockDefinition` (read name / library / eligibility off it, never register
+  it into a scene). A library file with a duplicate id is not listed.
   `apply()` writes `scene.annotation_defaults` and fires `on_changed` (the main window's
   modified flag) **only when the effective mapping changed** (compared with
   `SYSTEM_DEFAULTS` applied); **no undo step** (project settings are not undoable).
@@ -190,6 +215,23 @@ exploded tag lands in the same box it was drawn in (explode parity). Guards:
   tag at centroid + `label_offset` and calls `tag.refresh()`; when `show_label` is off or
   the centroid is degenerate it hides the tag instead. A name change (`set_property`)
   refreshes it too.
+- **Per-room tag block (SB3b).** `Room.tag_block` (a property over `_tag_block`; `None` =
+  follows the project default, the value a new room has) names the block that draws this
+  room's tag; `BoundLabelItem` resolves it first (section 3). A change of the project
+  default therefore moves only the rooms whose `tag_block` is `None`. Persistence: a sparse
+  `tag_block` key on the room record (written only when set; missing / non-str / empty ->
+  `None`), on both serialization paths ([`wall-room-floor-system.md`](wall-room-floor-system.md)
+  12.3; [`scene-io.md`](scene-io.md) 2). Copy/paste and Duplicate Level carry it (both
+  rebuild rooms from `to_dict` through `paste_items`).
+- **Tag row (SB3b).** The Room panel has a "Tag" enum row under Show Label. Its first entry
+  is "Project default (<resolved block name>)" (= `None`); the rest are the shared list
+  (`annotation_choices.choices`, section 7) including "(Library)" entries and the kept
+  "(missing)" / "(not eligible)" entry for a pinned id that no longer resolves. The setter
+  (`Room._set_tag`) maps the label back to a choice, embeds a "(Library)" file first
+  (`blocks_browser.ensure_block_loaded`), assigns, and requests **one undo step**
+  (`Model_Space.request_undo_push`; embed and assignment are the same step). A multi-room
+  selection uses the first-target form with `< mixed >`; committing `< mixed >` (or any
+  stale label) is a no-op ([`property-panel.md`](property-panel.md) 3.5).
 - **Selection.** Click on the tag selects the **Room**. HALO and the rubber band treat a
   Room as a candidate by its **polygon's scene bbox** (`Model_Space._halo_room_hit`); the
   C1 label-rect restriction is retired (Q13; [`selection-mode.md`](selection-mode.md)).
@@ -233,6 +275,21 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | AC6 / G6 perf bar | `test_sb3_perf.py` (`-m perf`) |
 | AC7 / G7 pixel lock of the approved tag | `test_sb3_pixel_lock.py` |
 | Q1 the tag shows the Name, not the Mark | `test_sb2b_mark_storage.py::test_room_label_shows_name_not_mark` |
+| SB3b G1 two rooms, two tag blocks (`test_g1_*`); G2 a missing per-room id falls back to the project default with one notice (`test_g2_*`); AC5 a default change moves only `None` rooms (`test_ac5_*`); AC6 `tag_block` round-trips file / undo / paste (`test_ac6_*`) | `test_sb3b_room_tag_style.py` |
+| SB3b G6 / AC3 the pane lists the eligible library tag and embeds a pick outside history (`test_g6_pane_*`); the shared list keeps a missing / ineligible current (`test_shared_choices_keep_*`) | `test_sb3b_room_tag_style.py` |
+| SB3b G3 / AC1 / AC2 Room Tag row: one undo step for two rooms, `< mixed >` no-op, undo / redo swap (`test_g3_*`); the "(Library)" pick embeds and assigns in one step (`test_g6_room_row_*`); the row shows "(missing)" / "(not eligible)" (`test_tag_row_shows_missing_*`) | `test_sb3b_room_tag_style.py` |
+| SB3b review-fix guards: a room pinned to the same missing id as the default, both orders, two distinct notices (`test_i1_*`); the choice list walks the disk once per panel build and sees new library files (`test_i2_*`); `parsed_file` re-parses a same-mtime rewrite of a different size (`test_m1_*`); a failed library embed names the bare block and assigns nothing (`test_m2_*`); an ineligible per-room id falls back with one notice and the row says "(not eligible)" (`test_m4_*`) | `test_sb3b_room_tag_style.py` |
+| L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
+
+**Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**
+
+- **AC4 "one resolve per paint"** has **no guard on the per-room (mapped) path**:
+  `test_sb3_perf.py` times rooms with `tag_block = None` only. The invariant holds by
+  construction (`BoundLabelItem._state()` resolves once per paint) but is not measured for a
+  pinned room.
+- **"Duplicate Level carries `tag_block` and `display_overrides`"** is guarded **by
+  composition only**: the tests drive `paste_items(_clipboard_item_dicts(...))`, the path
+  `copy_items_to_level` / `duplicate_level_entities` call, not those two entry points.
 
 ## Checkpoint 2026-10-29: PASSED
 
@@ -266,7 +323,8 @@ Contradictions found during the build, and their resolution:
 
 ## Build order after the checkpoint
 
-Phase 3 (this slice) is **done**. Phase 4 is the follow-up per remaining intrinsic
+Phase 3 (this slice) is **done**, as is SB3b (per-room tag style, library-folder picker;
+2026-10-30). Phase 4 is the follow-up per remaining intrinsic
 conversion, SB4a-e (todo lines; each user-designed and visually gated, G7). Phases 5-7
 (uids and hosting, placed tags, sheet tags) are gated on phase 4 and described in the
-concept. SB3b (per-room tag style, library-folder picker) is filed.
+concept.
