@@ -60,6 +60,6 @@ Docs exist to keep the AI grounded in the *intended* architecture — they are a
 
 ## Task workflow
 
-- Context reset threshold: 160k
+- Context reset threshold: 200k
 
 > Note (2026-06-23): the curated docs were swept for the 2026-06-22 audit's drift findings in the Section-A drift-fix pass — the **layer system is removed** (`user_layer` gone; `DEFAULT_USER_LAYER` renamed to `DEFAULT_ANNOTATION_GROUP`), ezdxf is **import-only**, and PyVista/VTK (not `vispy`) drives 3D. Remaining doc-reorg work (directory moves, frontmatter backfill) is tracked in `DOCS-REVIEW.md`.
