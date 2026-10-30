@@ -310,12 +310,17 @@ _LEVEL_REFS = {**_BASE_LEVEL_REFS, **_UPPER_LEVEL_REFS, **_CEILING_LEVEL_REFS}
 # Delete keeps absolute z (view-relationships s12.4 "nothing moves"): level ref attr ->
 # (its paired offset attr, the ``_properties`` mirror of that offset or None).
 _LEVEL_OFFSETS = {
+    "level": ("_level_offset_mm", None),                    # BlockInstance
     "_base_level": ("_base_offset_mm", None),               # WallSegment
     "_top_level": ("_top_offset_mm", None),
     "_ceiling_level": ("_ceiling_offset", None),            # Room
     "ceiling_level": ("ceiling_offset", "Ceiling Offset"),  # Node
     "node1_ceiling_level": ("node1_ceiling_offset", None),  # Pipe template
     "node2_ceiling_level": ("node2_ceiling_offset", None),
+}
+_SLAB_LEVEL_OFFSETS = {                                     # FloorSlab boundaries
+    "_top_level": ("_top_offset_mm", None),
+    "_bottom_level": ("_bottom_offset_mm", None),
 }
 
 
@@ -411,21 +416,22 @@ class LevelManager:
         if not targets:
             return {}
         items = list(items)
-        self._rebase_offsets(items, targets)
+        self._rebase_offsets(items, targets, scene)
         for old, new in targets.items():
             self._remap_level_refs(old, new, items, scene)
         self._levels = [l for l in self._levels if l.name not in targets]
         return targets
 
-    def _rebase_offsets(self, items, targets) -> None:
+    def _rebase_offsets(self, items, targets, scene=None) -> None:
         """Before a delete re-points them, re-base each paired offset onto its target
         level so the absolute z is unchanged: ``old.elevation + off - new.elevation``.
         Runs while the deleted levels are still listed; the remap's ``set_property``
         then recomputes node z and wall height from the new offset."""
-        for item in items:
-            if getattr(item, "_visibility_by_zrange", False):
-                continue
-            for attr, (off_attr, mirror) in _LEVEL_OFFSETS.items():
+        holders = [(i, _LEVEL_OFFSETS) for i in items
+                   if not getattr(i, "_visibility_by_zrange", False)]
+        holders += [(s, _SLAB_LEVEL_OFFSETS) for s in getattr(scene, "_floor_slabs", [])]
+        for item, table in holders:
+            for attr, (off_attr, mirror) in table.items():
                 old = self.get(getattr(item, attr, None) or "")
                 off = getattr(item, off_attr, None)
                 if old is None or old.name not in targets or off is None:

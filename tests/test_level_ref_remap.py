@@ -5,6 +5,8 @@ import json
 from PyQt6.QtCore import QPointF
 
 from firepro3d import level_widget as lw_mod
+from firepro3d.block_instance import BlockInstance
+from firepro3d.floor_slab import FloorSlab
 from firepro3d.level_widget import LevelWidget, _COL_NAME
 from firepro3d.room import Room
 from firepro3d.wall import WallSegment
@@ -74,6 +76,7 @@ def test_delete_middle_base_level_keeps_wall_in_place(qapp, shown_model_view, mo
     assert (w._base_level, w._top_level) == ("Level 1", "Level 3")
     assert w._base_offset_mm == 3000.0
     assert w.z_range_mm() == (3000.0, 6000.0)
+    assert w._height_mm == 3000.0                                     # stored height recomputed
     assert node.ceiling_level == "Level 3"
 
 
@@ -102,6 +105,26 @@ def test_delete_ceiling_level_keeps_node_and_room_ceiling_in_place(qapp, shown_m
     assert node.get_properties()["Ceiling Level"]["value"] == "Level 1"
     assert float(node._properties["Ceiling Offset"]["value"]) == node.ceiling_offset
     assert room.z_range_mm() == room_z
+
+
+def test_delete_keeps_pipe_template_block_and_slab_in_place(qapp, shown_model_view,
+                                                             monkeypatch):
+    scene, lm, widget, w, room, node = _setup(shown_model_view)
+    pipe = scene.add_pipe(node, scene.add_node(500, -800))
+    pipe.node1_ceiling_level = pipe.node2_ceiling_level = "Level 2"
+    pipe.node1_ceiling_offset, pipe.node2_ceiling_offset = -50.0, 100.0
+    block = BlockInstance(block_id="x", resolver=lambda _id: None,
+                          level="Level 2", level_offset_mm=250.0)
+    scene._block_instances.append(block); scene.addItem(block)
+    slab = FloorSlab([QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)])
+    scene._floor_slabs.append(slab); scene.addItem(slab)
+    slab._top_level, slab._top_offset_mm = "Level 2", 0.0
+    block_z, slab_z = block.z_range_mm(), slab.z_range_mm()
+    _delete(widget, monkeypatch, "Level 2")
+    assert (pipe.node1_ceiling_level, pipe.node2_ceiling_level) == ("Level 1", "Level 1")
+    assert (pipe.node1_ceiling_offset, pipe.node2_ceiling_offset) == (2950.0, 3100.0)
+    assert block.level == "Level 1" and block.z_range_mm() == block_z == (3250.0, 3250.0)
+    assert slab._top_level == "Level 1" and slab.z_range_mm() == slab_z
 
 
 def test_undo_restores_wall_refs_after_delete(qapp, shown_model_view, monkeypatch):
