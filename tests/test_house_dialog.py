@@ -41,3 +41,20 @@ def test_header_context_slot(qapp):
     d.set_header_context("myfile.pdf")
     labels = [w.text() for w in d._titlebar.findChildren(QLabel)]
     assert any("myfile.pdf" in x for x in labels)
+
+
+def test_close_only_footer_is_a_neutral_rightmost_button(qapp):
+    """Level Manager footer (ui-design-system D3 'Manager = Close-only'): close= adds a
+    neutral button (no variant), registered as StandardButton.Close, and no Cancel."""
+    from PyQt6.QtWidgets import QDialog, QPushButton
+    d = _dlg(qapp)
+    out = d.set_footer_buttons(cancel=False, close=("Close", d.accept))
+    box = d._footer_box
+    assert box.button(QDialogButtonBox.StandardButton.Cancel) is None
+    close = box.button(QDialogButtonBox.StandardButton.Close)
+    assert close is out["close"] and close.text() == "Close"
+    assert close.property("variant") is None
+    assert close.autoDefault() is False
+    assert [b.text() for b in d._footer.findChildren(QPushButton)] == ["Close"]
+    close.click()
+    assert d.result() == QDialog.DialogCode.Accepted

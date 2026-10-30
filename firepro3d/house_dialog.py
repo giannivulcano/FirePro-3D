@@ -83,9 +83,9 @@ class HouseDialog(FramelessShellMixin, QDialog):
     def body_layout(self):
         return self._body_outer
 
-    # ── footer helper (Cancel-left / primary-right) ─────────────────────
+    # ── footer helper (Cancel-left / primary-right / neutral close=) ─────────────────────
     def set_footer_buttons(self, *, primary=None, cancel=True,
-                           extra_left=None, danger=False):
+                           extra_left=None, danger=False, close=None):
         self._footer = QFrame(objectName="footerBar")
         fl = QHBoxLayout(self._footer)
         fl.setContentsMargins(*M.FOOTER_MARGIN)
@@ -122,6 +122,18 @@ class HouseDialog(FramelessShellMixin, QDialog):
             btn.clicked.connect(slot)
             out["primary"] = btn
             fl.addWidget(btn)
+
+        if close is not None:
+            # Neutral (no variant) rightmost button — the Manager "Close-only" footer
+            # shape (ui-design-system D3). Never the default button: Enter inside a
+            # cell editor must commit the edit, not close the dialog.
+            label, slot = close
+            cbtn = QPushButton(label, self._footer)
+            cbtn.setAutoDefault(False)
+            cbtn.clicked.connect(slot)
+            box._register(QDialogButtonBox.StandardButton.Close, cbtn)
+            out["close"] = cbtn
+            fl.addWidget(cbtn)
 
         self._root.addWidget(self._footer)
         self.adjustSize()

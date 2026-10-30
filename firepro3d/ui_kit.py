@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import html
 
-from PyQt6.QtCore import Qt, QRect, QRectF, QPointF, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QRect, QRectF, QPointF, QSize, pyqtSignal
 from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
-                         QFontDatabase, QIntValidator, QCursor)
+                         QFontDatabase, QIntValidator, QCursor, QFontMetrics, QPolygon)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
-                             QLineEdit, QToolButton)
+                             QLineEdit, QToolButton, QHeaderView)
 
 from .colour_tokens import is_token, resolve_colour, token_label
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
@@ -36,6 +36,76 @@ def dock_header(text: str) -> QLabel:
         f" border-bottom: 1px solid {t.line_strong};"
         f" font-size: {M.DOCK_HEADER_PT}pt; font-weight: bold;")
     return lbl
+
+
+def glyph_button(glyph: str | None, tooltip: str, slot, *, icon=None) -> QToolButton:
+    """A square house glyph button (``"+"``, ``"−"`` or an icon) for an action row
+    under a table (Level Manager). Styled by build_dialog_qss ``QToolButton[glyph="true"]``;
+    ``M.GLYPH_BTN_PX`` square. (The block_attributes_editor / titleblock editor rows
+    predate this helper and keep their bare QToolButtons.)"""
+    b = QToolButton()
+    b.setProperty("glyph", True)
+    if icon is not None:
+        b.setIcon(icon)
+    else:
+        b.setText(glyph or "")
+    b.setToolTip(tooltip)
+    b.setFixedSize(M.GLYPH_BTN_PX, M.GLYPH_BTN_PX)
+    b.clicked.connect(slot)
+    return b
+
+
+class SortHeader(QHeaderView):
+    """Horizontal header whose sort caret is painted in the accent token right after
+    the section text (the house ``QHeaderView::section`` rule has no arrow; the native
+    one is hidden exactly as ``block_manager.FilterHeader`` does). Click = sort /
+    reverse, as a stock header."""
+
+    def __init__(self, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self.setSectionsClickable(True)
+        self.setSortIndicatorShown(False)
+        # Left-aligned text (mockup th text-align:left) so the caret can sit right after it.
+        self.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+    def set_view_sorting(self, table, on: bool = True) -> None:
+        """Enable / disable the view's sorting WITHOUT the native arrow coming back:
+        ``QTableView.setSortingEnabled(True)`` calls ``setSortIndicatorShown(True)``
+        from C++ (a Python override is not dispatched) - P4 probe (i) 2026-10-30.
+        Every consumer calls this instead of ``table.setSortingEnabled``."""
+        table.setSortingEnabled(on)
+        self.setSortIndicatorShown(False)
+
+    def paintSection(self, painter, rect, index):
+        super().paintSection(painter, rect, index)
+        if index != self.sortIndicatorSection():
+            return
+        model = self.model()
+        text = "" if model is None else str(model.headerData(
+            index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole) or "")
+        # The section text is drawn with the QSS ::section font (TABLE_HEADER_PX / 600),
+        # which neither painter.font() nor self.font() reflects (probe (k)): measure a copy.
+        f = QFont(self.font())
+        f.setPixelSize(M.TABLE_HEADER_PX)
+        f.setWeight(QFont.Weight.DemiBold)
+        x = (rect.left() + M.TABLE_HEADER_PAD_X
+             + QFontMetrics(f).horizontalAdvance(text) + M.SORT_CARET_GAP)
+        w, h = M.SORT_CARET_W, M.SORT_CARET_H
+        if x + w > rect.right():
+            return
+        cy = rect.center().y()
+        c = _detect().color("accent")
+        painter.save()
+        painter.setClipRect(rect)      # the QSS ::section rule leaves an EMPTY clip after super() (probe (j))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(c)
+        painter.setBrush(c)
+        if self.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder:
+            pts = [QPoint(x, cy + h // 2), QPoint(x + w, cy + h // 2), QPoint(x + w // 2, cy - h // 2)]
+        else:
+            pts = [QPoint(x, cy - h // 2), QPoint(x + w, cy - h // 2), QPoint(x + w // 2, cy + h // 2)]
+        painter.drawPolygon(QPolygon(pts))
+        painter.restore()
 
 
 def browser_tree_qss() -> str:

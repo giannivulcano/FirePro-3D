@@ -238,6 +238,26 @@ class _Metrics:
     BLOCK_OPEN_LIST_H = 260     # block tree minimum height
     BLOCK_OPEN_EMPTY_PT = 10    # empty-state message ("No blocks match") — own QSS
 
+    # Level Manager dialog (level_widget.py / level_dialog.py; mockup
+    # docs/mockups/level-manager-tuner.html approved 2026-10-30). Table font = the house
+    # dialog 9.75pt and header = the house QHeaderView::section 10px: inherited, not retokened.
+    LEVEL_ROW_H = 26            # table row height
+    LEVEL_CELL_PAD = 8          # ::item horizontal padding (the shared house tables keep 4)
+    LEVEL_COL_NUMBER_W = 90     # Number column width (Name stretches)
+    LEVEL_COL_ELEV_W = 120      # Elevation column width
+    LEVEL_DLG_SIZE = (520, 460) # initial dialog size (w, h)
+    LEVEL_DLG_MIN = (420, 350)  # minimum size (the pre-rewrite level_dialog.py:30 value)
+    LEVEL_TOOLBAR_TOP = 10      # table -> glyph row gap (mockup .toolbar margin-top)
+    # House glyph row (ui_kit.glyph_button) + accent sort caret (ui_kit.SortHeader)
+    GLYPH_BTN_PX = 28           # square glyph button edge (mockup "glyph btn 28")
+    GLYPH_BTN_GAP = 8           # spacing between glyph buttons
+    TABLE_HEADER_PAD_X = 8      # QHeaderView::section horizontal padding (build_dialog_qss)
+    TABLE_HEADER_PX = 10        # QHeaderView::section font px (= 7.5pt @ 96 dpi; mockup head-pt) - the
+                                # QSS rule AND ui_kit.SortHeader's text measurement read it
+    SORT_CARET_W = 6            # caret width  (block_manager FilterHeader caret shape)
+    SORT_CARET_H = 5            # caret height
+    SORT_CARET_GAP = 6          # header text -> caret gap (mockup th .arr margin-left)
+
 
 M = _Metrics()
 
@@ -1087,13 +1107,14 @@ QStackedWidget#detailsPanel {{ background: {t.surface}; border-left: 1px solid {
 QStackedWidget#railContent {{ background: {t.surface}; }}
 
 /* ── Underlay/Block table (tree AND flat view share rules) ──────────────── */
-QTreeView#underlayTable, QTableView#underlayTable {{
+QTreeView#underlayTable, QTableView#underlayTable, QTableWidget#levelTable {{
     background: {t.table}; alternate-background-color: {t.table}; color: {t.ink};
     border: none; gridline-color: transparent; selection-background-color: {t.accent_soft2};
     selection-color: {t.ink}; outline: none; }}
-QTreeView#underlayTable::item, QTableView#underlayTable::item {{ border-bottom: 1px solid {t.line}; padding: 0 4px; }}
-QTreeView#underlayTable::item:hover, QTableView#underlayTable::item:hover {{ background: {t.accent_soft}; }}
-QTreeView#underlayTable::item:selected, QTableView#underlayTable::item:selected {{ background: {t.accent_soft2}; color: {t.ink}; }}
+QTreeView#underlayTable::item, QTableView#underlayTable::item, QTableWidget#levelTable::item {{ border-bottom: 1px solid {t.line}; padding: 0 4px; }}
+QTreeView#underlayTable::item:hover, QTableView#underlayTable::item:hover, QTableWidget#levelTable::item:hover {{ background: {t.accent_soft}; }}
+QTreeView#underlayTable::item:selected, QTableView#underlayTable::item:selected, QTableWidget#levelTable::item:selected {{ background: {t.accent_soft2}; color: {t.ink}; }}
+QTableWidget#levelTable::item {{ padding: 0 {M.LEVEL_CELL_PAD}px; }}
 QTreeView#underlayTable::branch {{ background: {t.table}; }}
 QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
 QTreeView#underlayTable::branch:closed:has-children:has-siblings {{ background: {t.table}; image: url("{chev_r}"); }}
@@ -1130,6 +1151,13 @@ QDialog[houseDialog="true"] QPushButton[switch="true"][segpos="right"] {{ border
 QDialog[houseDialog="true"] QPushButton[switch="true"][segpos="mid"] {{ border-left: none; }}
 QDialog[houseDialog="true"] QPushButton[switch="true"]:checked {{ background: {t.accent}; color: {t.on_accent}; }}
 
+/* ── Kit: glyph buttons (ui_kit.glyph_button — square +/−/icon row under a table) ── */
+QDialog[houseDialog="true"] QToolButton[glyph="true"] {{
+    background: {t.table}; color: {t.ink}; border: 1px solid {t.line_strong};
+    border-radius: {M.RADIUS_INPUT}px; padding: 0; font-size: 15px; font-weight: 600; }}
+QDialog[houseDialog="true"] QToolButton[glyph="true"]:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
+QDialog[houseDialog="true"] QToolButton[glyph="true"]:disabled {{ color: {t.faint}; border-color: {t.line}; }}
+
 /* ── Kit: Pill ──────────────────────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[pill="true"] {{ padding: {M.PILL_PADDING[0]}px {M.PILL_PADDING[1]}px; border-radius: {M.RADIUS_PILL}px; }}
 QDialog[houseDialog="true"] QPushButton[pill="true"]:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
@@ -1159,7 +1187,7 @@ QMenu#uwMenu::separator {{ height: 1px; background: {t.line}; margin: 5px 4px; }
 QMenu#uwMenu::indicator {{ width: 14px; height: 14px; margin-left: 4px; }}
 QHeaderView::section {{
     background: {t.table}; color: {t.muted}; border: none; border-bottom: 1px solid {t.line_strong};
-    padding: 7px 8px; font-size: 10px; font-weight: 600; }}
+    padding: 7px {M.TABLE_HEADER_PAD_X}px; font-size: {M.TABLE_HEADER_PX}px; font-weight: 600; }}
 QToolTip {{
     background: {t.surface2}; color: {t.ink}; border: 1px solid {t.line_strong}; padding: 4px 7px; }}
 """

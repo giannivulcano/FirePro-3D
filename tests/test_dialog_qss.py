@@ -27,3 +27,18 @@ def test_metrics_interpolated():
 def test_no_raw_hex_only_tokens():
     qss = th.build_dialog_qss(th.detect())
     assert "$" not in qss  # all placeholders substituted
+
+
+def test_level_table_and_glyph_rules_present():
+    """The Level Manager table joins the shared house-table rule set (no duplicated values)
+    and the glyph QToolButton row has a house rule (mockup level-manager-tuner.html)."""
+    qss = th.build_dialog_qss(th.detect())
+    shared = [ln for ln in qss.splitlines() if "QTableView#underlayTable" in ln and "{" in ln]
+    assert shared and all("QTableWidget#levelTable" in ln for ln in shared), shared
+    assert f"QTableWidget#levelTable::item {{ padding: 0 {M.LEVEL_CELL_PAD}px; }}" in qss
+    assert 'QToolButton[glyph="true"]' in qss
+    assert f"padding: 7px {M.TABLE_HEADER_PAD_X}px" in qss
+    # Table 9.75pt / header 10px are the house root + QHeaderView rules (one home each).
+    root = next(ln for ln in qss.splitlines() if ln.startswith('QDialog[houseDialog="true"] {'))
+    assert "font-size: 9.75pt" in root
+    assert f"font-size: {M.TABLE_HEADER_PX}px; font-weight: 600;" in qss
