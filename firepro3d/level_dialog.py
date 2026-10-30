@@ -1,56 +1,40 @@
 """
 level_dialog.py
 ===============
-Modal dialog wrapping the LevelWidget for standalone access from the ribbon.
+The Level Manager dialog (ribbon Build > Datums > Levels): a HouseDialog wrapping a
+LevelWidget with a Close-only footer (view-relationships section 12; chrome per
+ui-design-system.md; mockup docs/mockups/level-manager-tuner.html).
 """
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QHBoxLayout
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal
 
+from .house_dialog import HouseDialog
 from .level_manager import LevelManager
 from .level_widget import LevelWidget
+from .theme import M
 
 
-class LevelDialog(QDialog):
-    """Modal dialog for managing levels (add/remove/edit/duplicate).
-
-    Wraps the existing LevelWidget and exposes its signals so main.py
-    can react to level changes.
-    """
+class LevelDialog(HouseDialog):
+    """Modal Level Manager. Forwards the widget's signals so main.py can chain them
+    into the hidden hub widget (one consumer list — section 12 D4)."""
 
     activeLevelChanged = pyqtSignal(str)
     levelsChanged = pyqtSignal()
     duplicateLevel = pyqtSignal(str, str)
+    levelRenamed = pyqtSignal(str, str)
+    levelsRemoved = pyqtSignal(list)
 
     def __init__(self, manager: LevelManager, scene=None, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Level Manager")
-        self.setMinimumSize(420, 350)
-        self.resize(480, 450)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-
-        # Embed the existing LevelWidget
-        self._widget = LevelWidget(manager, scene=scene, parent=self)
-        layout.addWidget(self._widget)
-
-        # Close button
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        close_btn = QPushButton("Close")
-        close_btn.setFixedWidth(80)
-        close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
-        layout.addLayout(btn_row)
-
-        # Forward signals
-        self._widget.activeLevelChanged.connect(self.activeLevelChanged.emit)
-        self._widget.levelsChanged.connect(self.levelsChanged.emit)
-        self._widget.duplicateLevel.connect(self.duplicateLevel.emit)
-
-    def populate(self):
-        """Refresh the embedded widget."""
-        self._widget.populate()
+        super().__init__(parent, title="Level Manager", resizable=True)
+        self.widget = LevelWidget(manager, scene=scene, parent=self)
+        self.body_layout().addWidget(self.widget, 1)
+        self.set_footer_buttons(cancel=False, close=("Close", self.accept))
+        self.setMinimumSize(*M.LEVEL_DLG_MIN)     # the old dialog's floor (table + glyph row + footer)
+        self.resize(*M.LEVEL_DLG_SIZE)        # after set_footer_buttons: it adjustSize()s
+        self.widget.activeLevelChanged.connect(self.activeLevelChanged)
+        self.widget.levelsChanged.connect(self.levelsChanged)
+        self.widget.duplicateLevel.connect(self.duplicateLevel)
+        self.widget.levelRenamed.connect(self.levelRenamed)
+        self.widget.levelsRemoved.connect(self.levelsRemoved)

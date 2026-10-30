@@ -19,7 +19,7 @@ GUARDED = ["house_dialog.py", "ui_kit.py", "themed_message.py",
            # Block Editor Open… picker (house dialog; block-system.md).
            "block_open_dialog.py",
            # Level Manager (theme.M.LEVEL_* / GLYPH_BTN_* tokens).
-           "level_widget.py"]
+           "level_widget.py", "level_dialog.py"]
 
 _CALL = re.compile(r"set(?:ContentsMargins|FixedHeight|FixedWidth|Spacing)\s*\(([^)]*)\)")
 _NUMERIC = re.compile(r"\b\d+\b")
