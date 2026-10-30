@@ -133,3 +133,29 @@ def test_hud_converts_a_nonzero_scene_minimum_into_mm(qapp):
     editor.setText("60 mm")
     assert editor.try_commit() is True
     assert hud.values()["Distance"] == pytest.approx(120.0)  # 60 mm × 2
+
+
+def test_imperial_field_takes_inch_forms_and_arithmetic(qapp):
+    """Backlog 823/1066 through the real widget commit path (§3.2)."""
+    from firepro3d.scale_manager import DisplayUnit
+    sm = ScaleManager()
+    sm.display_unit = DisplayUnit.IMPERIAL
+    edit = DimensionEdit(sm, initial_mm=1000.0)
+    seen = []
+    edit.valueChanged.connect(seen.append)
+
+    edit.setText('5\' 5.5"')
+    assert edit.try_commit()
+    assert seen[-1] == pytest.approx(1663.7)
+    assert edit.text() == '5\' 5 1/2"'
+
+    edit.setText("10' / 3")
+    assert edit.try_commit()
+    assert edit.value_mm() == pytest.approx(1016.0)
+    assert edit.text() == '3\' 4"'
+
+    edit.setText("6' * 2'")
+    assert not edit.try_commit()            # area: refused, reverted
+    assert edit.value_mm() == pytest.approx(1016.0)
+    assert edit.text() == '3\' 4"'
+    assert len(seen) == 2
