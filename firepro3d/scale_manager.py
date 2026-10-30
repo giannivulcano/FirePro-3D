@@ -21,24 +21,14 @@ from enum import Enum
 from math import floor
 from PyQt6.QtCore import QPointF
 
+# The shared §3.1 number grammar lives with the length grammar it serves;
+# ``parse_factor`` reuses it here, unsigned.
+from .length_expr import NUM_PATTERN as _NUM, evaluate_length
+
 # Unit conversion constants shared by the NFPA formatters and callers
 # that need them at module import time (before ScaleManager is instantiated).
 _SQFT_TO_M2: float = 0.09290304      # ft² → m²
 _GPM_FT2_TO_MM_MIN: float = 40.746  # gpm/ft² → mm/min
-
-# The unsigned-number grammar every ``parse_dimension`` branch shares.
-#
-# Accepts a leading dot (".5") and a trailing one ("12."), because both are
-# ordinary ways to type a decimal and ``parse_angle`` has always taken them.
-# The narrower ``\d+(?:\.\d+)?`` used to reject both, which mattered most for
-# the leading dot: "." is one of ``Model_Space.ENGAGE_CHARS``, so pressing it
-# opens the dynamic-input HUD and seeds the field with ".", and the keystroke
-# that starts a decimal produced text this parser then refused.
-#
-# Deliberately still excludes scientific notation and the decimal comma: "1e3"
-# is far more likely a typo than 1000, and "1,5" is ambiguous against a
-# thousands separator.  Both route to revert-to-last-valid instead.
-_NUM: str = r"(?:\d+\.?\d*|\.\d+)"
 
 
 class DisplayUnit(Enum):
@@ -492,6 +482,11 @@ class ScaleManager:
             3048 mm       → millimeters
             3.048 m       → metres
             10            → bare number, interpreted as *fallback_unit*
+            5' 5.5"       → decimal inches after feet
+            5'6-1/2"      → drafting hyphen fraction
+            3/8"          → fraction of an inch
+            5 3/8         → bare mixed number, *fallback_unit*
+            (10' - 6") / 2 → + - * / and brackets (units spec §3.2)
 
         A decimal may be written with a leading or a trailing dot — ``.5`` and
         ``12.`` are both accepted, in every one of the forms above — matching
@@ -501,72 +496,13 @@ class ScaleManager:
         separator.  Both then route to ``DimensionEdit``'s revert-to-last-valid
         rather than to a wild value.
 
-        Returns None if the text cannot be parsed.
+        Returns None if the text cannot be read in full — never a truncated value.
         """
-        text = text.strip()
-        if not text:
-            return None
-
-        # 1. Feet-inches-fraction:  10' 6 1/2"  or  10' 6"  or  10'-6 1/2"
-        m = re.match(
-            rf"^(-?{_NUM})\s*['']\s*"                  # feet
-            r"(?:[-\s]*(\d+)?"                         # optional whole inches
-            r"(?:\s+(\d+)\s*/\s*(\d+))?"               # optional fraction
-            r'\s*["""]?\s*)?$',                         # optional closing "
-            text
-        )
-        if m:
-            ft_str = m.group(1)
-            negative = ft_str.startswith("-")
-            ft = abs(float(ft_str))
-            inches = float(m.group(2)) if m.group(2) else 0.0
-            if m.group(3) and m.group(4):
-                denom = float(m.group(4))
-                if denom != 0:
-                    inches += float(m.group(3)) / denom
-            total_inches = ft * 12.0 + inches
-            if negative:
-                total_inches = -total_inches
-            return total_inches * 25.4
-
-        # 2. Pure inches with fraction:  6 1/2"  or  6"
-        m = re.match(
-            rf'^(-?{_NUM})'                            # whole inches
-            r'(?:\s+(\d+)\s*/\s*(\d+))?'               # optional fraction
-            r'\s*["""]$',                               # closing "
-            text
-        )
-        if m:
-            inches = float(m.group(1))
-            if m.group(2) and m.group(3):
-                denom = float(m.group(3))
-                if denom != 0:
-                    inches += float(m.group(2)) / denom
-            return inches * 25.4
-
-        # 3. Number + unit suffix
-        m = re.match(
-            rf'^(-?{_NUM})\s*(ft|in|mm|m)\b',
-            text, re.IGNORECASE
-        )
-        if m:
-            value = float(m.group(1))
-            unit = m.group(2).lower()
-            try:
-                return ScaleManager._to_mm(value, unit)
-            except ValueError:
-                return None
-
-        # 4. Bare number → use fallback_unit
-        m = re.match(rf'^(-?{_NUM})\s*$', text)
-        if m:
-            value = float(m.group(1))
-            try:
-                return ScaleManager._to_mm(value, fallback_unit)
-            except ValueError:
-                return None
-
-        return None
+        try:
+            unit_mm = ScaleManager._to_mm(1.0, fallback_unit)
+        except ValueError:
+            unit_mm = None     # only text that carries its own unit parses
+        return evaluate_length(text, unit_mm)
 
     # -----------------------------------------------------------------
     # Imperial formatting  (moved from Pipe for reuse)

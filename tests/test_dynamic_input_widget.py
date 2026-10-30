@@ -1449,3 +1449,36 @@ class TestEngagement:
         assert hud.testAttribute(self._TRANSPARENT)
         assert all(ed.testAttribute(self._TRANSPARENT)
                    for ed in (hud.editor("Length"), hud.editor("Angle")))
+
+
+class TestHudExpressions:
+    """Arithmetic typed into a HUD length field (units spec §3.2).
+
+    ``/`` is an app-wide ``QShortcut`` in ``main.py`` (toggles Properties).
+    The positive control proves the shortcut is live in this harness before
+    the field assertion relies on it *not* firing.
+    """
+
+    def test_typed_expression_commits_and_slash_stays_in_the_field(
+            self, shown_hud):
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        from firepro3d.scale_manager import DisplayUnit
+
+        sm = ScaleManager()
+        sm.display_unit = DisplayUnit.IMPERIAL
+        hud = shown_hud(SCHEMAS["line"], sm)
+        host = hud.parentWidget()
+        fired = []
+        QShortcut(QKeySequence("/"), host, lambda: fired.append(1),
+                  context=Qt.ShortcutContext.ApplicationShortcut)
+
+        QTest.keyClick(host, Qt.Key.Key_Slash)          # positive control
+        assert fired == [1]
+        fired.clear()
+
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "(10' + 6\") * 2 / 4 - 6\"")
+        assert fired == []                              # "/" reached the field
+        assert hud.values()["Length"] == pytest.approx(1447.8, abs=1e-6)
