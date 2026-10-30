@@ -113,17 +113,15 @@ def test_ac3_end_on_a_host_face_line_or_midpoint(mw, plan, qapp, toggle, monkeyp
         new = _place(sc, view, monkeypatch, start, click, staged)
         assert len(new) == 1
         w = new[0]
-        # A PER click records a ``perpendicular`` row and the solver turns the new
-        # wall square to the face about its RAW (pixel-quantised) start, so its end
-        # slides along the face by up to one pixel; every other snap holds exactly.
-        tol = 1.0 / view.transform().m11() if snap_type == "perpendicular" else 1e-9
-        assert (w._pt2 - click).manhattanLength() <= tol, "the end moved off the face click"
+        # Every snap (PER included: it only places the click) holds the end exactly.
+        assert (w._pt2 - click).manhattanLength() <= 1e-9, "the end moved off the face click"
         mine = _mine(sc, w, host)
         want = ("point_on_curve", [{"uid": w._uid, "h": _handle_of(w, 2)},
                                   {"uid": host._uid, "h": face}])
         assert want in mine, mine
         per = ("perpendicular", [{"uid": w._uid, "h": _edge_of(w)}, {"uid": host._uid, "h": face}])
-        assert (per in mine) == (snap_type == "perpendicular"), mine
+        assert per not in mine, mine                         # smoke ruling: no PER row
+        assert all(c[0] != "perpendicular" for c in mine), mine
     finally:
         _cleanup_walls(sc, new + [host])
 

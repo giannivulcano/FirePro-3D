@@ -327,14 +327,14 @@ def plan_wall_join(wall, idx: int, other, other_idx: int | None = None) -> list:
 def plan_wall_face_join(wall, idx: int, target: Target | None) -> list:
     """WF6 (wall faces design): end *idx* of new *wall* joined to a captured
     host face *target* -- a face corner (``coincident``) or a face line
-    (``point_on_curve``, plus ``perpendicular`` [new drawn edge, face] on a
-    PER snap, as :func:`plan_joins` does for lines); ``[]`` without a uid or
-    target. The drawn handles are PD1's (:func:`wall_drawn_handles`)."""
+    (``point_on_curve``); ``[]`` without a uid or target. A PER snap only
+    places the click: no ``perpendicular`` row (smoke ruling 2026-10-30), so
+    no incoming edge is passed to :func:`plan_joins`. The drawn handles are
+    PD1's (:func:`wall_drawn_handles`)."""
     wu = getattr(wall, "_uid", None)
     if wu is None or target is None:
         return []
-    dh = wall_drawn_handles(wall)
-    return plan_joins(wu, dh[idx], dh[2], target)
+    return plan_joins(wu, wall_drawn_handles(wall)[idx], None, target)
 
 
 def plan_wall_hv(wall) -> list:

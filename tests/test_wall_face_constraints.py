@@ -220,8 +220,7 @@ def test_wf6_plan_wall_face_join_records():
         ("point_on_curve", [{"uid": "N", "h": "p2r"}, {"uid": "H", "h": "face_l"}])]
     per = ac.Target("edge", {"uid": "H", "h": "face_l"}, (0.0, 0.0), perpendicular=True)
     assert ac.plan_wall_face_join(new, 1, per) == [
-        ("point_on_curve", [{"uid": "N", "h": "p2r"}, {"uid": "H", "h": "face_l"}]),
-        ("perpendicular", [{"uid": "N", "h": "face_r"}, {"uid": "H", "h": "face_l"}])]
+        ("point_on_curve", [{"uid": "N", "h": "p2r"}, {"uid": "H", "h": "face_l"}])]  # PER adds nothing
     assert ac.plan_wall_face_join(new, 1, None) == []
     nouid = _free((0, 0), (1, 0), None, "X")
     nouid._uid = None
