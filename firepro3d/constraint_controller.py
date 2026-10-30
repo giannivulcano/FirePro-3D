@@ -225,6 +225,7 @@ DIM_TEXT_STATUS = "Text boxes can't be dimensioned yet"                 # CS3c A
 DIM_ANGLE_ZERO_STATUS = "Pick an edge with length"                          # D77
 DIM_COLLINEAR_STATUS = "Lines are collinear -- nothing to dimension"        # D77/D81
 DIM_POINT_ON_LINE_STATUS = "Point is on the line -- nothing to dimension"  # CS15 D136
+DIM_WALL_THICKNESS_STATUS = "Thickness is a wall property -- edit it in the panel"   # WF4 (wall faces design)
 
 
 def _xy(p) -> tuple[float, float]:
@@ -2303,11 +2304,35 @@ class ConstraintController:
         a, b = g[1]
         return math.hypot(b.x() - a.x(), b.y() - a.y())
 
+    @staticmethod
+    def _same_wall_thickness(c) -> bool:
+        """WF4 (wall faces design): a ``dim_point_line`` between two of the SAME
+        wall's parallel lines (face / face, or face / centerline) measures its
+        thickness (or half of it) -- a wall property. ``_parallel_refs`` takes
+        the midpoint from the SECOND pick, so the point may be the hidden
+        ``mid_l`` / ``mid_r`` (line = the other face or ``edge``) OR the
+        centerline ``mid`` (line = a face); both pairs are the same wall's
+        parallel pair and both are refused."""
+        if c.type != "dim_point_line" or not isinstance(c.refs, list) or len(c.refs) != 2:
+            return False
+        p, ln = c.refs
+        if not (isinstance(p, dict) and isinstance(ln, dict)):
+            return False
+        if p.get("uid") is None or p.get("uid") != ln.get("uid"):
+            return False
+        ph, lh = p.get("h"), ln.get("h")
+        if ph in ("mid_l", "mid_r"):
+            return lh in ("face_l", "face_r", "edge")
+        return ph == "mid" and lh in ("face_l", "face_r")
+
     def _dim_refusal(self, c) -> str | None:
-        """The add-time refusal status of dim *c* -- D59 text sizing, a zero
-        distance, a D56 repeat -- or None. CS4b D63 runs it before placement."""
+        """The add-time refusal status of dim *c* -- D59 text sizing, a WF4
+        same-wall thickness pair, a zero distance, a D56 repeat -- or None.
+        CS4b D63 runs it before placement."""
         if self._sizes_a_text(c.refs):
             return DIM_TEXT_STATUS
+        if self._same_wall_thickness(c):
+            return DIM_WALL_THICKNESS_STATUS
         if c.type == "dim_angle":
             from .constraint_dims import dim_geom
             by = self.item_by_uid()
