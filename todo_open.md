@@ -694,6 +694,9 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: Pipe/Fitting/Sprinkler/Valve/Pump. Reconcile the terminology tension first (there "Feature" = discipline/system grouping vs "Feature = concrete placeable definition" here). Own session.
 - [ ] [type:feature] Additional host strategies [P3] [subject:Architecture]
   - Details: Floor-hosted (table, riser base), Ceiling-hosted (pendent sprinkler, diffuser), Face/Level-free. `host_type` is in the model from day one; wire the placement strategies.
+  - +1 occurrence (2026-10-30): the first Floor host strategy is carved out as "Floor-hosted blank Opening" (below); reuse its floor placement strategy here.
+- [ ] [type:feature] Floor-hosted blank Opening (floor void / penetration) [P2] [subject:Architecture]
+  - Details: user request 2026-10-30. The blank Opening kind (`kind="blank"`, label "Opening") exists only wall-hosted (`WallOpening`, `wall_opening.py`); `floor_slab.py` has no void support. Add a Floor `host_type` placement strategy (F3) for the blank Opening: place on a slab, cut the slab in plan / 3D / section, save/load, lifecycle with its host floor. Overlaps "Spec session: Floor openings & stairs" (stairs stay there). `feature.py`, `wall_opening.py`, `floor_slab.py`, `feature_placement_controller.py`. ref: feature-system.md F3, wall-room-floor-system.md §7.
 - [ ] [type:feature] 3D: true solid CSG + re-mitre wall corners [P1] [subject:CAD]
   - Details: Phase A caps opening reveals (watertight shell) and switched `wall.get_3d_mesh` to `quad_points` so opening jambs stay perpendicular on joined walls, but 3D wall corners now butt-join (not mitred). Optionally rebuild walls+openings via PyVista `boolean_difference` (true watertight solids, mitred corners) — grounded as the alternative to reveal-capping; also sets up the future Create-tab "operations". `wall.py`, `view_3d.py`.
   - +1 occurrence 2026-10-23 (wall polish VC9 M6): `get_3d_mesh` still builds unmitered quads, so 3D corners stay butt-joined while plan corners are now seamless pies; reuse `WallSegment.outline()` bodies for the 3D footprint.
@@ -1176,6 +1179,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: wall-relative positioning (`offset_along` centerline), width-to-scene conversion chain (3-level fallback), swing arc geometry (doors), crossing-diagonal symbol (windows), hit-test scaling by zoom, preset libraries (doors 820-1800×2040mm, windows 600×1800mm), sill height. `wall_opening.py`.
 - [ ] [type:design] Spec session: Floor openings & stairs [P2] [subject:Architecture]
   - Details: openings, stair geometry, multi-level connectivity, sprinkler coverage implications. No implementation exists today; this is a greenfield design spec.
+  - +1 occurrence (2026-10-30): the plain floor opening is being built as "Floor-hosted blank Opening" (Opening element section); this spec keeps stairs + multi-level connectivity.
 
 ## Code Review Audit — Spec Gaps (from 2026-04-09 audit)
 
