@@ -13,7 +13,7 @@ The level system provides multi-story building support. Each entity in the scene
 
 ## LevelManager
 
-`LevelManager` is a pure-data manager (no Qt widgets) that maintains an ordered list of `Level` dataclass objects:
+`LevelManager` is a pure-data manager (no Qt widgets) that maintains an ordered list of `Level` dataclass objects (order and Level Manager dialog behaviour: `specs/view-relationships.md` §12):
 
 ```python
 @dataclass

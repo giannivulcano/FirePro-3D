@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Level Manager dialog tuner</title>
+<style>
+  /* Tokens: firepro3d/theme.py DARK / LIGHT (primitives) + Theme derived (surface2=raised, table=sunken,
+     accent_soft=accent@34/255, accent_soft2=accent@56/255). */
+  :root{
+    --ground:#141619; --surface:#1E2125; --sunken:#212529; --raised:#24282D;
+    --line:#363B41; --line-strong:#454B52; --ink:#E6E9EC; --muted:#98A1AA; --faint:#6F7982;
+    --accent:#63BE8B; --on-accent:#ffffff; --danger:#E07A6F;
+    --surface2:var(--raised); --table:var(--sunken);
+    --accent-soft:rgba(99,190,139,.133); --accent-soft2:rgba(99,190,139,.22);
+    --danger-soft:rgba(224,122,111,.149);
+    --r-input:6px; --r-card:7px;
+    /* tunables */
+    --row-h:26px; --table-pt:9.75pt; --head-pt:7.5pt; --cell-pad:8px;
+    --tb-h:28px; --tb-gap:8px; --dlg-w:520px; --dlg-h:460px;
+    --body-mt:18px; --body-mr:20px; --body-mb:18px; --body-ml:20px;
+    --col-num:90px; --col-elev:120px;
+    --hdr-h:34px;
+  }
+  :root[data-theme=light]{
+    --ground:#f4f5f6; --surface:#ffffff; --sunken:#ffffff; --raised:#eceef0;
+    --line:#d4d8dc; --line-strong:#b4bac0; --ink:#1c2024; --muted:#5a636c; --faint:#98a1aa;
+    --accent:#2f9e63; --on-accent:#ffffff; --danger:#c42b1c;
+    --accent-soft:rgba(47,158,99,.133); --accent-soft2:rgba(47,158,99,.22);
+    --danger-soft:rgba(196,43,28,.149);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font:13px/1.4 Arial,"Segoe UI",system-ui;padding:22px;display:flex;gap:26px;align-items:flex-start;min-height:100vh}
+  .ctl{width:330px;flex:0 0 330px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+  .ctl h1{font-size:16px;margin:0 0 10px}
+  .ctl h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:14px 0 8px;border-bottom:1px solid var(--line);padding-bottom:4px}
+  .sr{display:grid;grid-template-columns:118px 1fr 56px;gap:8px;align-items:center;margin-bottom:7px;font-size:11.5px;color:var(--ink)}
+  .sr input{width:100%;accent-color:var(--accent)}
+  .sr .v{color:var(--muted);text-align:right}
+  .tbtn{padding:5px 10px;background:var(--raised);border:1px solid var(--line-strong);color:var(--ink);border-radius:5px;cursor:pointer;font-size:11px}
+  .tbtn:hover{border-color:var(--accent)}
+  .out{margin-top:10px;background:var(--sunken);border:1px solid var(--line);border-radius:6px;padding:8px;font:11px ui-monospace,Consolas;white-space:pre-wrap;color:var(--ink);max-height:240px;overflow:auto}
+  .stage{flex:1;display:flex;justify-content:center;padding-top:10px}
+  /* house dialog (QDialog[houseDialog]; font 9.75pt) */
+  .dlg{width:var(--dlg-w);height:var(--dlg-h);background:var(--surface);color:var(--ink);font-size:9.75pt;border:1px solid var(--line-strong);border-radius:10px;
+       display:flex;flex-direction:column;overflow:hidden;box-shadow:0 14px 40px rgba(0,0,0,.45);position:relative}
+  .shellHeader{height:var(--hdr-h);flex:0 0 var(--hdr-h);background:var(--surface2);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:4px 10px 4px 14px}
+  .shellHeader .title{font-size:14px;font-weight:700}
+  .shellHeader .sp{flex:1}
+  .dot{width:20px;height:20px;border-radius:50%;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;cursor:pointer}
+  .dot:hover{background:var(--danger-soft);color:var(--danger);border-color:var(--danger)}
+  .dialogBody{flex:1;min-height:0;background:var(--surface);border-top:1px solid var(--line);display:flex;flex-direction:column;
+       padding:var(--body-mt) var(--body-mr) var(--body-mb) var(--body-ml)}
+  .footerBar{flex:0 0 auto;background:var(--surface2);border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;padding:9px 14px}
+  .footerBar .stretch{flex:1}
+  .btn{background:var(--table);color:var(--ink);border:1px solid var(--line-strong);border-radius:var(--r-input);padding:5px 12px;font:inherit;font-weight:500;cursor:pointer}
+  .btn:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent)}
+  .btn:disabled{color:var(--faint);border-color:var(--line);cursor:default}
+  .toolbar{display:flex;gap:var(--tb-gap);margin-top:10px;flex:0 0 auto}
+  .toolbar .btn{height:var(--tb-h);padding-top:0;padding-bottom:0}
+  .toolbar .glyph{width:var(--tb-h);padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;line-height:1}
+  .toolbar .glyph:disabled svg{opacity:.4}
+  .tbl{flex:1;min-height:0;overflow:auto;background:var(--table);border:1px solid var(--line);border-radius:var(--r-input);outline:none}
+  table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:var(--table-pt);user-select:none}
+  th{position:sticky;top:0;background:var(--table);color:var(--muted);text-align:left;border-bottom:1px solid var(--line-strong);
+     padding:7px 8px;font-size:var(--head-pt);font-weight:600;cursor:pointer;white-space:nowrap}
+  th:hover{color:var(--ink)}
+  th .arr{display:inline-block;margin-left:6px;color:var(--accent);font-size:9px}
+  td{height:var(--row-h);padding:0 var(--cell-pad);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
+  tr:hover td{background:var(--accent-soft)}
+  tr.sel td{background:var(--accent-soft2);color:var(--ink)}
+  tr.active td{font-weight:700}
+  .menu{position:fixed;z-index:50;background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);border-radius:8px;padding:5px;min-width:160px;font-size:9.75pt;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .menu div{padding:6px 22px 6px 10px;border-radius:5px;cursor:pointer}
+  .menu div:hover:not(.dis){background:var(--accent-soft)}
+  .menu div.dis{color:var(--faint);cursor:default}
+  #tip{position:fixed;z-index:60;background:var(--surface2);color:var(--ink);border:1px solid var(--line-strong);padding:4px 7px;font-size:12px;pointer-events:none;display:none}
+  .hint{color:var(--muted);font-size:11px;margin-top:10px;max-width:var(--dlg-w)}
+</style></head>
+<body>
+<div class="ctl">
+  <h1>Level Manager</h1>
+  <div style="display:flex;gap:6px;margin-bottom:6px">
+    <button class="tbtn" id="themeBtn">Theme: dark</button>
+    <button class="tbtn" id="reset">Reset</button>
+  </div>
+  <h3>Table</h3>
+  <div class="sr"><label>Row height</label><input type="range" data-v="row-h" min="20" max="40" value="26"><span class="v"></span></div>
+  <div class="sr"><label>Table font (pt)</label><input type="range" data-v="table-pt" min="7.5" max="12" step=".25" value="9.75"><span class="v"></span></div>
+  <div class="sr"><label>Header font (pt)</label><input type="range" data-v="head-pt" min="6" max="11" step=".25" value="7.5"><span class="v"></span></div>
+  <div class="sr"><label>Cell padding</label><input type="range" data-v="cell-pad" min="2" max="18" value="8"><span class="v"></span></div>
+  <div class="sr"><label>Number col w</label><input type="range" data-v="col-num" min="60" max="180" value="90"><span class="v"></span></div>
+  <div class="sr"><label>Elevation col w</label><input type="range" data-v="col-elev" min="80" max="200" value="120"><span class="v"></span></div>
+  <h3>Toolbar</h3>
+  <div class="sr"><label>Button height</label><input type="range" data-v="tb-h" min="22" max="40" value="28"><span class="v"></span></div>
+  <div class="sr"><label>Button gap</label><input type="range" data-v="tb-gap" min="2" max="20" value="8"><span class="v"></span></div>
+  <h3>Dialog</h3>
+  <div class="sr"><label>Width</label><input type="range" data-v="dlg-w" min="380" max="760" value="520"><span class="v"></span></div>
+  <div class="sr"><label>Height</label><input type="range" data-v="dlg-h" min="300" max="700" value="460"><span class="v"></span></div>
+  <div class="sr"><label>Body margin T</label><input type="range" data-v="body-mt" min="0" max="32" value="18"><span class="v"></span></div>
+  <div class="sr"><label>Body margin R</label><input type="range" data-v="body-mr" min="0" max="32" value="20"><span class="v"></span></div>
+  <div class="sr"><label>Body margin B</label><input type="range" data-v="body-mb" min="0" max="32" value="18"><span class="v"></span></div>
+  <div class="sr"><label>Body margin L</label><input type="range" data-v="body-ml" min="0" max="32" value="20"><span class="v"></span></div>
+  <div style="margin-top:10px"><button class="tbtn" id="copy">Copy values</button></div>
+  <div class="out" id="out"></div>
+</div>
+
+<div class="stage">
+  <div>
+    <div class="dlg">
+      <div class="shellHeader"><span class="title">Level Manager</span><span class="sp"></span><span class="dot" title="Close">&times;</span></div>
+      <div class="dialogBody">
+        <div class="tbl" id="tbl" tabindex="0">
+          <table>
+            <colgroup><col><col id="cNum"><col id="cElev"></colgroup>
+            <thead><tr><th data-c="name">Name<span class="arr"></span></th><th data-c="num">Number<span class="arr"></span></th><th data-c="elev">Elevation<span class="arr"></span></th></tr></thead>
+            <tbody id="tb"></tbody>
+          </table>
+        </div>
+        <!-- House glyph row (block_attributes_editor / titleblock editor: + / minus QToolButtons under the table);
+             Duplicate recycles firepro3d/graphics/Ribbon/duplicate_icon.svg (two-token: ink source, accent result). -->
+        <div class="toolbar">
+          <button class="btn glyph" id="bAdd" data-tip="Add level">+</button>
+          <button class="btn glyph" id="bDel" data-tip="Delete level(s)">&minus;</button>
+          <button class="btn glyph" id="bDup" data-tip="Duplicate level"><svg viewBox="0 0 40 40" width="16" height="16"><rect x="6" y="6" width="16" height="16" fill="none" stroke="var(--ink)" stroke-width="2.6" stroke-linejoin="round"/><rect x="18" y="18" width="16" height="16" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linejoin="round"/><circle cx="6" cy="6" r="2" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.6"/><circle cx="18" cy="18" r="2" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.6"/></svg></button>
+        </div>
+      </div>
+      <div class="footerBar"><span class="stretch"></span><button class="btn" id="bClose">Close</button></div>
+    </div>
+    <p class="hint">Click / Ctrl-click / Shift-click rows; click a header to sort (toggles asc/desc, view only); right-click a row; Delete key deletes. Hover the disabled Delete (select every row) for the tooltip.</p>
+  </div>
+</div>
+<div id="tip"></div>
+<div class="menu" id="menu" style="display:none"></div>
+
+<script>
+const $=id=>document.getElementById(id), R=document.documentElement;
+/* ---------- tuner ---------- */
+const UNITS={'table-pt':'pt','head-pt':'pt'}, defaults={};
+const sliders=[...document.querySelectorAll('input[data-v]')];
+sliders.forEach(s=>{defaults[s.dataset.v]=s.value;s.addEventListener('input',()=>apply(s));apply(s);});
+function apply(s){const n=s.dataset.v,u=UNITS[n]||'px';R.style.setProperty('--'+n,s.value+u);
+  s.parentNode.querySelector('.v').textContent=s.value+(u==='pt'?'pt':'');
+  if(n==='col-num')$('cNum').style.width=s.value+'px';
+  if(n==='col-elev')$('cElev').style.width=s.value+'px';
+  dump();}
+function vals(){const o={};sliders.forEach(s=>o[s.dataset.v]=+s.value);return o;}
+function dump(){const v=vals();
+ $('out').textContent='LEVEL_ROW_H = '+v['row-h']+'\nLEVEL_TABLE_PT = '+v['table-pt']+'\nLEVEL_HEADER_PT = '+v['head-pt']+
+ '\nLEVEL_CELL_PAD = '+v['cell-pad']+'\nLEVEL_COL_NUMBER_W = '+v['col-num']+'\nLEVEL_COL_ELEV_W = '+v['col-elev']+
+ '\nLEVEL_TB_BTN_H = '+v['tb-h']+'\nLEVEL_TB_GAP = '+v['tb-gap']+'\nLEVEL_DLG_SIZE = ('+v['dlg-w']+', '+v['dlg-h']+')'+
+ '\nLEVEL_BODY_MARGIN = ('+v['body-ml']+', '+v['body-mt']+', '+v['body-mr']+', '+v['body-mb']+')  # L,T,R,B'+
+ '\nTHEME = '+(R.dataset.theme||'dark');}
+$('copy').onclick=()=>{const all=$('out').textContent+'\n\n'+JSON.stringify(vals(),null,2);
+  const fb=()=>{const a=document.createElement('textarea');a.value=all;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();};
+  try{navigator.clipboard.writeText(all).catch(fb);}catch(e){fb();}
+  $('copy').textContent='Copied';setTimeout(()=>$('copy').textContent='Copy values',1200);};
+$('reset').onclick=()=>{sliders.forEach(s=>{s.value=defaults[s.dataset.v];apply(s);});};
+$('themeBtn').onclick=()=>{const l=R.dataset.theme!=='light';if(l)R.dataset.theme='light';else delete R.dataset.theme;
+  $('themeBtn').textContent='Theme: '+(l?'light':'dark');dump();};
+
+/* ---------- level model (elev in mm) ---------- */
+let levels=[{id:1,name:'Level 1',num:1,elev:0},{id:2,name:'Level 2',num:2,elev:3048},{id:3,name:'Level 3',num:3,elev:6096},{id:4,name:'Mezzanine',num:4,elev:1524}];
+let nextId=5, activeId=1, sortCol='elev', sortDir=1, sel=new Set(), anchor=null;
+function fmt(mm){const sign=mm<0?'-':'';let inch=Math.round(Math.abs(mm)/25.4*16)/16;const ft=Math.floor(inch/12);inch=inch-ft*12;
+  return sign+ft+"'-"+(+inch.toFixed(2))+'"';}
+function view(){const a=levels.map((l,i)=>[l,i]);
+  const key={name:l=>l.name.toLowerCase(),num:l=>l.num,elev:l=>l.elev}[sortCol];
+  a.sort((x,y)=>{const p=key(x[0]),q=key(y[0]);const c=p<q?-1:p>q?1:0;return c?c*sortDir:x[1]-y[1];});
+  return a.map(x=>x[0]);}
+function render(){
+  const v=view(); sel=new Set([...sel].filter(id=>levels.some(l=>l.id===id)));
+  $('tb').innerHTML=v.map(l=>'<tr data-id="'+l.id+'" class="'+(sel.has(l.id)?'sel ':'')+(l.id===activeId?'active':'')+'"><td>'+l.name+'</td><td>'+l.num+'</td><td>'+fmt(l.elev)+'</td></tr>').join('');
+  document.querySelectorAll('th').forEach(th=>th.querySelector('.arr').textContent=th.dataset.c===sortCol?(sortDir>0?'▲':'▼'):'');
+  const n=sel.size, all=n>0&&n===levels.length;
+  $('bDup').disabled=n!==1;
+  $('bDel').disabled=n===0||all;
+  $('bDel').dataset.tip=all?'At least one level must remain':'Delete level(s)';
+}
+function pick(id,e){const ids=view().map(l=>l.id);
+  if(e.shiftKey&&anchor!=null){const a=ids.indexOf(anchor),b=ids.indexOf(id);const lo=Math.min(a,b),hi=Math.max(a,b);
+    if(!(e.ctrlKey||e.metaKey))sel=new Set();ids.slice(lo,hi+1).forEach(i=>sel.add(i));}
+  else if(e.ctrlKey||e.metaKey){if(sel.has(id))sel.delete(id);else sel.add(id);anchor=id;}
+  else{sel=new Set([id]);anchor=id;}}
+$('tb').addEventListener('click',e=>{const tr=e.target.closest('tr');if(!tr)return;pick(+tr.dataset.id,e);render();});
+document.querySelectorAll('th').forEach(th=>th.onclick=()=>{const c=th.dataset.c;
+  if(sortCol===c)sortDir=-sortDir;else{sortCol=c;sortDir=1;}render();});
+function newLevel(elev){let n=1;while(levels.some(l=>l.name==='Level '+n))n++;
+  const L={id:nextId++,name:'Level '+n,num:Math.max(...levels.map(l=>l.num))+1,elev:elev};levels.push(L);sel=new Set([L.id]);anchor=L.id;render();}
+function add(){const byE=[...levels].sort((a,b)=>a.elev-b.elev);const top=byE[byE.length-1];
+  const gap=byE.length>1?top.elev-byE[byE.length-2].elev:3048;newLevel(top.elev+gap);}
+function del(){if($('bDel').disabled)return;levels=levels.filter(l=>!sel.has(l.id));
+  if(!levels.some(l=>l.id===activeId))activeId=[...levels].sort((a,b)=>a.elev-b.elev)[0].id;sel=new Set();render();}
+function dup(){if(sel.size!==1)return;newLevel(levels.find(l=>sel.has(l.id)).elev);}
+$('bAdd').onclick=add;$('bDel').onclick=del;$('bDup').onclick=dup;
+$('tbl').addEventListener('keydown',e=>{if(e.key==='Delete')del();});
+/* tooltip on disabled Delete */
+const tip=$('tip');
+document.addEventListener('mousemove',e=>{const b=$('bDel');const r=b.getBoundingClientRect();
+  const over=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+  if(over&&b.dataset.tip){tip.textContent=b.dataset.tip;tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY+16)+'px';}else tip.style.display='none';});
+/* context menu */
+const menu=$('menu');
+$('tb').addEventListener('contextmenu',e=>{e.preventDefault();const tr=e.target.closest('tr');if(!tr)return;
+  const id=+tr.dataset.id;if(!sel.has(id)){sel=new Set([id]);anchor=id;render();}
+  const n=sel.size, all=n===levels.length;
+  menu.innerHTML='<div data-a="add">Add Level</div><div data-a="dup" class="'+(n!==1?'dis':'')+'">Duplicate Level</div><div data-a="del" class="'+(all?'dis':'')+'"'+(all?' title="At least one level must remain"':'')+'>Delete Level'+(n>1?'s':'')+'</div>';
+  menu.style.display='block';menu.style.left=e.clientX+'px';menu.style.top=e.clientY+'px';});
+menu.addEventListener('click',e=>{const d=e.target.closest('div');if(!d||d.classList.contains('dis'))return;
+  ({add:add,dup:dup,del:del})[d.dataset.a]();menu.style.display='none';});
+document.addEventListener('click',e=>{if(!menu.contains(e.target))menu.style.display='none';});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')menu.style.display='none';});
+render();dump();
+</script>
+</body></html>

@@ -11,6 +11,8 @@ applies-to:
   - firepro3d/section_marker.py
   - firepro3d/detail_view.py
   - firepro3d/view_range_dialog.py
+  - firepro3d/level_widget.py
+  - firepro3d/level_dialog.py
 ---
 
 # View Relationships — Specification
@@ -464,3 +466,51 @@ A reader should be able to answer all of these *without reading code*:
 - **[P2] Future spec session: Cross-view selection / interaction sync.** Will reference §2 vocabulary.
 - **[P3] Future spec session: Paper-viewport-specific overrides** (on top of view-instance overrides). Depends on view templates spec landing first.
 - ~~**[P3] Document `Node.z_offset` legacy field migration.**~~ **Done 2026-05-03.** `z_offset` deprecated: no longer written on save/copy; `ceiling_offset` is sole Z-computation source. Old files still load via backward-compat read path.
+
+---
+
+## 12. Level Manager (forged 2026-10-30)
+
+> Status: §12.1–12.3 as-built (2026-10-30); §12.4 as-intended, **ratified by the FP4 grill 2026-10-30** (build pending: the Level Manager dialog task). Chrome (the dialog shell, table header QSS, metrics) is owned by `ui-design-system.md`; Level Number and the one-undo-step rule are owned by `element-parameters.md` "Marks (SB2b)" (cited, not restated).
+
+### 12.1 Surfaces (as-built)
+
+- **`LevelDialog`** (`level_dialog.py`) — the only visible level table. A bare modal `QDialog` ("Level Manager") wrapping a fresh `LevelWidget` plus a Close button; forwards the widget's three signals. Opened from the ribbon Build → Datums → **Levels** button (`main._open_level_dialog`), which wires the same consumers as the hub (below). `LevelDialog.populate` has no caller.
+- **`LevelWidget`** (`level_widget.py`) — the table + controls. `main.py` also builds one as `self.level_widget`, but it is **never docked or shown**: it is a hidden signal hub (`populate()` + `levelsChanged.emit()` after load / undo restore drive the consumers). The dialog builds a second widget on the same `LevelManager`.
+- **Consumers of `levelsChanged`:** `LevelManager.apply_to_scene`, `update_property_manager`, `ProjectBrowser.refresh_levels`, `SectionManager.rebuild_all`, `_refresh_empty_canvas_level`. `activeLevelChanged(name)` → `_on_active_level_changed` → `_activate_plan_view` (opens / switches to the `Plan: <name>` tab). `duplicateLevel(src, new)` → `Model_Space.duplicate_level_entities`.
+
+### 12.2 Controls (as-built)
+
+| Control | Behaviour |
+|---|---|
+| "Levels" header label | Own QSS at `M.DOCK_HEADER_PT` (pinned by `test_header_label_font_qss.py`). |
+| View Level combo | One entry per level, `"<name>  (<elev>)"`; picking one emits `activeLevelChanged` → opens that level's plan tab behind the modal dialog. |
+| + Add | `LevelManager.add_level()` — next free `Level <i>` name, elevation 0, Number = 1 + count of levels at or below; appended last. One undo step. |
+| − Delete | Refused for the last level (info box); else confirm, move every leveled item to the **first remaining level in list order**, strip the name from underlay `record.levels`, remove; active level falls back to `levels[0]` when it was deleted. One undo step. |
+| ⧉ Duplicate / context menu "Duplicate Level..." | New level at the source elevation; `duplicateLevel` copies the entities (history suspended so level + copies = one step). The context menu holds only this action. |
+| Table: Name / Number / Elevation | Rows in `manager.levels` order (list order, **no sort**). Double-click / selected-click edits. Name → `rename_level` (refuses empty / duplicate; remaps `.level`, floor `_top_level` / `_bottom_level`, underlay `record.levels`). Number → int, reverts on non-int. Elevation → `DimensionDelegate` (UserRole float) or text parsed by `ScaleManager.parse_dimension`; then `update_elevations`. Each change one undo step. Active level's row is bold. |
+| `_assign_selection` | Moves the selected items to the active level — **no UI caller**. |
+
+### 12.3 Divergences found at forging (P1, 2026-10-30)
+
+- **D1 — plan views not renamed / removed.** `PlanViewManager.rename_level` / `remove_level` have no caller: a rename leaves the `Plan: <old>` tab and its `PlanView` (view range) behind and opens a fresh `Plan: <new>`; a delete leaves the deleted level's tab and `PlanView`.
+- **D2 — delete leaves floor boundary refs stale.** Rename remaps floor `_top_level` / `_bottom_level`; delete does not.
+- **D3 — delete fallback is list-first, not nearest.** Items move to the first remaining level in list order, whatever its elevation.
+- **D4 — two widgets on one manager.** The hidden hub never refreshes while the dialog edits (harmless while hidden).
+- **D5 — chrome.** Literal metrics + inline QSS (not on `HouseDialog` / the kit); outside the hex guard.
+
+### 12.4 As-intended (ratified 2026-10-30, FP4 grill)
+
+- **Purpose:** a setup table (add / name / number / elevation, occasional edits). Day-to-day navigation is the Project Browser's; the View Level combo is **removed** (the active level's row stays bold).
+- **Order:** levels are stored and shown **lowest elevation first** everywhere (table, Project Browser Plans, save order); ties keep their prior relative order. A project saved out of order is re-sorted on open (names, Numbers, elevations unchanged). A table header click sorts / reverses the view only, for that dialog session.
+- **Add:** above the top level — top elevation + the gap between the top two levels (10'-0" with one level); next free `Level <n>` name; Number = next. **Duplicate:** single row, keeps the source elevation, copies entities (one step).
+- **Delete:** one or more rows (button, Delete key, context menu); disabled with a tooltip when the selection covers every level. Items move to the **nearest remaining level below** (the lowest deleted → next above); the level's plan tab closes, its `PlanView` is dropped, and floor `_top_level` / `_bottom_level` re-point to the same target. One undo step per action.
+- **Rename:** the open `Plan: <old>` tab is retitled in place and keeps its `PlanView` (view range).
+- **Level Number** never auto-changes (only Add proposes one) — semantics owned by `element-parameters.md` "Marks (SB2b)".
+- **Columns:** Name / Number / Elevation only (the per-level default view range stays off the table).
+- **Context menu:** Add / Delete / Duplicate. `_assign_selection` is retired (a level move is the property panel's Level row).
+- **Project open** refreshes every `levelsChanged` consumer (today the Project Browser Plans list keeps the startup levels — fixed with this task).
+- **Chrome:** `HouseDialog` + the component kit per `ui-design-system.md`; mockup-gated (served slider tuner) before building.
+- **Done bar:** guard tests for each bullet above + a live smoke run.
+
+D1–D4 are resolved by these rows; D5 by the chrome row.
