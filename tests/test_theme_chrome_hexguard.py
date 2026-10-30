@@ -30,6 +30,8 @@ GUARDED = [
     "header_rail.py", "footer_rail.py",
     # Empty-canvas placeholder (view-3d.md §10 I5).
     "canvas_placeholder.py",
+    # Level Manager (view-relationships s12; chrome via build_dialog_qss, no own QSS).
+    "level_widget.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")

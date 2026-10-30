@@ -162,21 +162,6 @@ def test_all_zero_numbers_survive_undo(qapp, shown_model_view):
     assert [l.number for l in scene._level_manager.levels] == [0] * len(lm.levels)
 
 
-# ------------------------------------------------------------------ F: no-op assign pushes nothing
-
-def test_assign_selection_with_no_change_pushes_no_undo_step(qapp, shown_model_view):
-    from firepro3d.level_widget import LevelWidget
-    view, scene = shown_model_view
-    w = _wall(scene, 0.0, "Level 1")
-    scene.active_level = "Level 1"
-    scene.push_undo_state()
-    widget = LevelWidget(scene._level_manager, scene)
-    w.setSelected(True)
-    depth = len(scene._undo_stack)
-    widget._assign_selection()
-    assert len(scene._undo_stack) == depth
-
-
 # ------------------------------------------------------------------ G: release does not mask the caller's exception
 
 def test_release_in_finally_does_not_mask_the_original_exception(qapp, shown_model_view, monkeypatch):

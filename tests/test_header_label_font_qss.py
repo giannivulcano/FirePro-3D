@@ -1,8 +1,8 @@
 """Header labels keep their size under the live app QSS (smoke audit 2026-09-30).
 
 The app stylesheet's ``QWidget { font-size: 9.75pt }`` silently beats a
-widget's ``setFont()`` size (bold/family survive). Dock headers and the Levels
-header now own their size in their own stylesheet. These guards run under the
+widget's ``setFont()`` size (bold/family survive). Dock headers now own their size
+in their own stylesheet. These guards run under the
 real app QSS and re-apply it once (a theme switch re-styles live widgets).
 """
 from __future__ import annotations
@@ -35,14 +35,3 @@ def test_dock_header_keeps_its_size(app_qss):
     assert f.pointSizeF() == M.DOCK_HEADER_PT
     assert f.bold()
 
-
-def test_levels_header_keeps_its_size(app_qss):
-    from PyQt6.QtWidgets import QLabel
-    from firepro3d.level_manager import LevelManager
-    from firepro3d.level_widget import LevelWidget
-    w = LevelWidget(LevelManager())
-    hdr = next(l for l in w.findChildren(QLabel) if l.text() == "Levels")
-    _effective(w, app_qss)
-    f = hdr.font()
-    assert f.pointSizeF() == M.DOCK_HEADER_PT
-    assert f.bold()

@@ -88,19 +88,6 @@ def test_add_delete_duplicate_each_one_step(qapp, shown_model_view, monkeypatch)
     assert (len(lm.levels), len(scene._walls)) == (n_levels, n_walls)
 
 
-def test_assign_selection_is_one_step_and_undoable(qapp, shown_model_view):
-    view, scene, lm, widget = _setup(shown_model_view)
-    wall = scene._walls[0]
-    scene.active_level = "Level 1"
-    wall.setSelected(True)
-    depth = len(scene._undo_stack)
-    widget._assign_selection()
-    assert wall.level == "Level 1"
-    assert len(scene._undo_stack) == depth + 1
-    scene.undo()
-    assert scene._walls[0].level == "Level 2"
-
-
 def test_undo_restores_active_level_and_underlay_levels(qapp, shown_model_view):
     view, scene, lm, widget = _setup(shown_model_view)
     rec = _underlay(scene, ["Level 2"])
