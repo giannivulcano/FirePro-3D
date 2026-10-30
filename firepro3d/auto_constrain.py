@@ -117,9 +117,9 @@ def resolve_snap(snap) -> Target | None:
 
 def resolve_wall_snap(snap) -> Target | None:
     """WF5 (wall faces design): :func:`resolve_snap`, plus a MID snap sitting on
-    a HIDDEN edge midpoint (a wall face's ``mid_l`` / ``mid_r``, WF1) -> that
-    edge as an edge target (the face line; there is no visible point to hold).
-    None exactly where ``resolve_snap`` is None otherwise."""
+    a HIDDEN edge midpoint -- only a wall face's ``mid_l`` / ``mid_r`` (WF1) are
+    walked -- -> that edge as an edge target (the face line; there is no visible
+    point to hold). None exactly where ``resolve_snap`` is None otherwise."""
     t = resolve_snap(snap)
     if t is not None or snap is None or snap.snap_type != "midpoint":
         return t
@@ -132,7 +132,7 @@ def resolve_wall_snap(snap) -> Target | None:
     p = QPointF(snap.point)
     x = np.array(ad.read(src), dtype=float)
     pts = ad.points(src, 0)
-    for name in sorted(ad.hidden_names(src)):
+    for name in sorted(n for n in ad.hidden_names(src) if n in ("mid_l", "mid_r")):
         edge = mid_edge_name(name)
         e = pts.get(name)
         if edge is None or e is None or not _close(QPointF(*e.eval(x)[0]), p):

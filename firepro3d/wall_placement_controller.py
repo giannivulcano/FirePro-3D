@@ -246,7 +246,8 @@ class WallPlacementController:
             if host is None:
                 continue
             h = t.ref.get("h")
-            if (t.kind == "point" and h in _FACE_CORNERS) or (t.kind == "edge" and h in _FACE_EDGES):
+            if ((t.kind == "point" and h in _FACE_CORNERS) or (t.kind == "edge" and h in _FACE_EDGES)) \
+                    and ac.matches(t, wall.pt1 if my_idx == 0 else wall.pt2):   # AD4: Ctrl / close-loop moved the tip
                 snapped.add(my_idx)
                 records += ac.plan_wall_face_join(wall, my_idx, t)
 

@@ -11,7 +11,9 @@ from __future__ import annotations
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.constants import AUTO_JOIN_TOLERANCE, TEE_TOLERANCE
 from firepro3d.snap_engine import OsnapResult
@@ -46,19 +48,33 @@ class _Staged:
         return self.result if d <= self.radius else None
 
 
-def _place(sc, view, monkeypatch, a, b, staged, align=ALIGN_CENTER, shift=False):
-    """One line wall a -> b through the real press path with the OSNAP pick staged."""
+def _press_mods(view, pt, mods):
+    """``_press`` with explicit keyboard modifiers (Ctrl angle-constrain)."""
+    vp = view.viewport()
+    p = view.mapFromScene(pt)
+    for et in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        QApplication.sendEvent(vp, QMouseEvent(et, p.toPointF(), vp.mapToGlobal(p).toPointF(),
+                               Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods))
+
+
+def _place(sc, view, monkeypatch, a, b, staged, align=ALIGN_CENTER, shift=False,
+           ctrl_end=False, radius=50.0):
+    """One line wall a -> b through the real press path with the OSNAP pick staged.
+    *ctrl_end*: the end press holds Ctrl (angle constrain); *radius*: the staged pick's reach."""
     assert sc._snap_enabled, "cursor snap must be live for the press to read a snap"
     tmpl = sc._get_wall_template()
     old_t, old_s = tmpl._alignment, sc._wall_alignment
     sc._wall_alignment = align                      # set_mode('wall') re-syncs the template from it
     tmpl._alignment = align
     n0 = len(sc._walls)
-    monkeypatch.setattr(sc._snap_engine, "find", _Staged(staged))
+    monkeypatch.setattr(sc._snap_engine, "find", _Staged(staged, radius))
     try:
         sc.set_mode("wall")                         # default primitive: line
         _press(view, a, shift)
-        _press(view, b, shift)
+        if ctrl_end:
+            _press_mods(view, b, Qt.KeyboardModifier.ControlModifier)
+        else:
+            _press(view, b, shift)
         sc.set_mode("select")
     finally:
         monkeypatch.undo()
@@ -259,4 +275,49 @@ def test_s1_a_hidden_host_face_target_is_dropped(mw, plan, qapp, toggle, monkeyp
                        for _t, refs in _mine(sc, w, host)), "a hidden host was recorded as a target"
     finally:
         host.setVisible(True)
+        _cleanup_walls(sc, new + [host])
+
+
+def test_i1_a_ctrl_constrained_end_off_the_face_records_nothing(mw, plan, qapp, toggle, monkeypatch):
+    sc, view = plan
+    toggle(True)
+    host = _host(sc, (0, 0), (4000, 0))
+    new = []
+    try:
+        y = host.quad_points()[0].y()                        # face_l: +100
+        click = QPointF(2500.0, y)
+        staged = OsnapResult(point=QPointF(click), snap_type="nearest", source_item=host)
+        new = _place(sc, view, monkeypatch, QPointF(1000.0, 1500.0), click, staged, ctrl_end=True)
+        w = new[0]
+        # precondition: Ctrl angle-constrain moved the committed end off the named face point
+        assert (w._pt2 - click).manhattanLength() > 5.0, w._pt2
+        assert not any(host._uid in {r.get("uid") for r in refs}
+                       for _t, refs in _mine(sc, w, host)), _mine(sc, w, host)
+    finally:
+        _cleanup_walls(sc, new + [host])
+
+
+def test_i1_a_close_loop_end_off_the_face_records_nothing(mw, plan, qapp, toggle, monkeypatch):
+    sc, view = plan
+    toggle(True)
+    host = _host(sc, (0, 0), (4000, 0))
+    new = []
+    try:
+        px = 1.0 / view.transform().m11()                    # scene mm per screen pixel
+        y = host.quad_points()[0].y()                        # face_l: +100
+        face_pt = QPointF(1000.0, y)
+        staged = OsnapResult(point=QPointF(face_pt), snap_type="nearest", source_item=host)
+        # the start sits 10 px off the face point (outside the staged pick's 4 px reach, so
+        # it names nothing); the end click names the face point, within the 15 px close-loop
+        # radius of the start -> the tip jumps to the chain start, off the named point
+        start = QPointF(1000.0, y + 10.0 * px)
+        new = _place(sc, view, monkeypatch, start, face_pt, staged, radius=4.0 * px)
+        assert len(new) == 1
+        w = new[0]
+        assert not any(host._uid in {r.get("uid") for r in refs}
+                       for _t, refs in _mine(sc, w, host)), _mine(sc, w, host)
+        # the end closed onto the chain start (a recorded face join would have solved it away)
+        assert (w._pt2 - w._pt1).manhattanLength() < 1e-9, "the end did not close onto the chain start"
+        assert (w._pt2 - face_pt).manhattanLength() > 5.0 * px, w._pt2
+    finally:
         _cleanup_walls(sc, new + [host])
