@@ -2622,8 +2622,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _on_levels_restored(self):
         """Undo / redo replaced the level list (SB2b M15): refresh every level view."""
-        self.level_widget.populate()
-        self.level_widget.levelsChanged.emit()
         active = self.scene.active_level            # BEFORE closing tabs: a close re-targets it
         live = {l.name for l in self.level_mgr.levels}
         stale = [self.central_tabs.tabText(i)[len("Plan: "):]
@@ -2632,7 +2630,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                  and self.central_tabs.tabText(i)[len("Plan: "):] not in live]
         if stale:
             self._on_levels_removed(stale)          # a tab whose level the undo took away (rename / delete)
-        cur = self.central_tabs.tabText(self.central_tabs.currentIndex())
+        self.level_widget.populate()                # after the stale tabs close, as on open / new
+        self.level_widget.levelsChanged.emit()
+        cur =self.central_tabs.tabText(self.central_tabs.currentIndex())
         if cur != f"Plan: {active}":             # only re-open when the view is elsewhere
             self.level_widget.activeLevelChanged.emit(active)
 

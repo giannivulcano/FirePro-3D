@@ -130,7 +130,8 @@ def test_rename_keeps_the_plan_view_and_emits_level_renamed(shown_model_view):
 
 def test_multi_delete_moves_items_to_the_nearest_level_below_in_one_step(shown_model_view, monkeypatch):
     scene, lm, w = _widget(shown_model_view, ("Ground", 0.0, 1), ("Mezz", 1524.0, 2), ("L2", 3048.0, 3), ("Roof", 9144.0, 4))
-    monkeypatch.setattr(lw_mod, "themed_confirm", lambda *a, **k: True)
+    asked = []
+    monkeypatch.setattr(lw_mod, "themed_confirm", lambda *a, **k: asked.append(a[1]) or True)
     a, b = _wall(scene, "Mezz"), _wall(scene, "Roof", y=500.0)
     pvm = scene._plan_view_manager
     pvm.create("Mezz", lm); pvm.create("Roof", lm)
@@ -140,6 +141,7 @@ def test_multi_delete_moves_items_to_the_nearest_level_below_in_one_step(shown_m
     depth = len(scene._undo_stack)
     _select(w, "Mezz", "Roof")
     w._delete_level()
+    assert asked == ["Delete Levels"]                                 # P6: one confirm for the selection
     assert _names(lm) == ["Ground", "L2"]
     assert (a.level, b.level) == ("Ground", "L2")                     # Mezz -> Ground, Roof -> L2
     assert pvm.get("Plan: Mezz") is None and pvm.get("Plan: Roof") is None

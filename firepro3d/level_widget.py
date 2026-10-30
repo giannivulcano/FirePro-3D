@@ -212,13 +212,16 @@ class LevelWidget(QWidget):
         index = {l.name: i for i, l in enumerate(self.manager.levels)}
         was = self._building
         self._building = True
+        # Snapshot the items first: with the view sort live, each setData re-sorts its
+        # row, so a row-index loop could skip a row that moved under it.
+        rows = [(self._level_at_row(row),
+                 [self.table.item(row, col) for col in (_COL_NAME, _COL_NUM, _COL_ELEV)])
+                for row in range(self.table.rowCount())]
         try:
-            for row in range(self.table.rowCount()):
-                lvl = self._level_at_row(row)
+            for lvl, items in rows:
                 if lvl is None:
                     continue
-                for col in (_COL_NAME, _COL_NUM, _COL_ELEV):
-                    it = self.table.item(row, col)
+                for it in items:
                     if it is not None:
                         it.setData(_ROLE_ORDER, index[lvl.name])
         finally:
