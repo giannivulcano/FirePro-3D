@@ -119,12 +119,14 @@ def test_delete_keeps_pipe_template_block_and_slab_in_place(qapp, shown_model_vi
     slab = FloorSlab([QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)])
     scene._floor_slabs.append(slab); scene.addItem(slab)
     slab._top_level, slab._top_offset_mm = "Level 2", 0.0
+    slab._bottom_mode, slab._bottom_level, slab._bottom_offset_mm = "level", "Level 2", -200.0
     block_z, slab_z = block.z_range_mm(), slab.z_range_mm()
     _delete(widget, monkeypatch, "Level 2")
     assert (pipe.node1_ceiling_level, pipe.node2_ceiling_level) == ("Level 1", "Level 1")
     assert (pipe.node1_ceiling_offset, pipe.node2_ceiling_offset) == (2950.0, 3100.0)
     assert block.level == "Level 1" and block.z_range_mm() == block_z == (3250.0, 3250.0)
-    assert slab._top_level == "Level 1" and slab.z_range_mm() == slab_z
+    assert (slab._top_level, slab._bottom_level) == ("Level 1", "Level 1")
+    assert slab.z_range_mm() == slab_z == (2800.0, 3000.0)
 
 
 def test_undo_restores_wall_refs_after_delete(qapp, shown_model_view, monkeypatch):
