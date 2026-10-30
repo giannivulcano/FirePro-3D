@@ -475,6 +475,27 @@ class LevelManager:
             if getattr(slab, "_bottom_level", None) == old_name:
                 slab._bottom_level = new_name
 
+    def repair_missing_refs(self, items) -> int:
+        """Open repair (wall-room-floor s11.3): a base ref naming a missing level becomes the
+        item's own ``.level``; a missing upper ref becomes the next level above it (the own
+        level when none is above). Returns the number of refs repaired."""
+        fixed = 0
+        for item in items:
+            if getattr(item, "_visibility_by_zrange", False):
+                continue
+            own = self.get(getattr(item, "level", None) or "")
+            if own is None:
+                continue
+            above = [l for l in self._levels if l.elevation > own.elevation]
+            upper = (above[0] if above else own).name
+            for refs, value in ((_BASE_LEVEL_REFS, own.name), (_UPPER_LEVEL_REFS, upper)):
+                for attr, key in refs.items():
+                    ref = getattr(item, attr, None)
+                    if ref is not None and self.get(ref) is None:
+                        self._set_level_ref(item, attr, key, value)
+                        fixed += 1
+        return fixed
+
     def rename_level(self, old_name: str, new_name: str, items,
                      scene=None) -> bool:
         """Rename a level and update all items that referenced the old name.

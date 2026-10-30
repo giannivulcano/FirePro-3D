@@ -95,3 +95,21 @@ def test_undo_restores_wall_refs_after_delete(qapp, shown_model_view, monkeypatc
     w2 = scene._walls[0]
     assert (w2._base_level, w2._top_level) == ("Level 1", "Level 2")
     assert w2.z_range_mm() == (0.0, 3000.0)
+
+
+def test_open_repairs_refs_to_missing_levels(qapp, shown_model_view, tmp_path):
+    scene, lm, widget, w, room, node = _setup(shown_model_view, base="Level 2", top="Level 3")
+    path = tmp_path / "dangling.fpd"
+    scene.save_to_file(str(path))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for wd in data["walls"]:
+        wd["base_level"], wd["top_level"] = "Gone", "Gone Too"      # 26307 Walls 1-4 shape
+    for rd in data["rooms"]:
+        rd["ceiling_level"] = "Gone Too"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    scene.load_from_file(str(path))
+    w2, r2 = scene._walls[0], scene._rooms[0]
+    assert w2.level == "Level 2"
+    assert (w2._base_level, w2._top_level) == ("Level 2", "Level 3")   # own, next above own
+    assert w2.z_range_mm() == (3000.0, 6000.0)
+    assert r2._ceiling_level == "Level 3"
