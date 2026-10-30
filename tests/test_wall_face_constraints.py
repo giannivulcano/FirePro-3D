@@ -226,3 +226,45 @@ def test_wf6_plan_wall_face_join_records():
     nouid = _free((0, 0), (1, 0), None, "X")
     nouid._uid = None
     assert ac.plan_wall_face_join(nouid, 0, face) == []
+
+
+# -- AC7 / WF10: opening a file adds no records; face refs resolve -----------
+
+def test_ac7_opening_a_saved_file_adds_no_records_and_face_refs_resolve(qapp, tmp_path):
+    a = Model_Space()
+    b = Model_Space()
+    try:
+        host = _wall(a, (0, 0), (4000, 0))
+        part = _wall(a, (2000, 1500), (2000, host.quad_points()[0].y()))
+        other = _wall(a, (0, 1500), (3000, 1500))
+        ctl = a.constraint_ctl
+        assert ctl.add("point_on_curve", [R(part, "p2"), R(host, "face_l")]) is not None
+        assert ctl.add("dim_point_line", [R(other, "mid_r"), R(host, "face_l")]) is not None  # hidden mid
+        want = [c.to_dict() for c in ctl.constraints]
+        assert len(want) == 2
+        f = tmp_path / "faces.fpd"
+        a.save_to_file(str(f))
+        b.load_from_file(str(f))
+        got = [c.to_dict() for c in b.constraint_ctl.constraints]
+        assert got == want                       # same records, same count: nothing added or dropped
+        assert not any(c.invalid for c in b.constraint_ctl.constraints)
+        assert b.constraint_ctl.measure(b.constraint_ctl.constraints[1]) == pytest.approx(1300.0)  # 1400 - 100
+    finally:
+        a.cleanup()
+        b.cleanup()
+
+
+def test_wf10_legacy_face_placed_end_loads_with_zero_records(qapp, tmp_path):
+    a = Model_Space()
+    b = Model_Space()
+    try:
+        host = _wall(a, (0, 0), (4000, 0))
+        _wall(a, (2000, 1500), (2000, host.quad_points()[0].y()))   # on the face, no record (legacy)
+        f = tmp_path / "legacy.fpd"
+        a.save_to_file(str(f))
+        b.load_from_file(str(f))
+        assert b.constraint_ctl.constraints == []
+        assert len(b._walls) == 2
+    finally:
+        a.cleanup()
+        b.cleanup()
