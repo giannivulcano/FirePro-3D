@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-10-30  # SB3b + L283 Account: s2 additive keys paragraph + s5 undo-capture note only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: 7e5d3b15   # SB3b + L283 merge on main; prior db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/network_codec.py
@@ -83,6 +83,13 @@ positive finite numbers below 100000, else None); each `levels` entry carries `n
 wall openings and `rooms` carry `mark` (a room file with no `mark` reads the legacy `tag`; save writes
 `mark` only); a pipe's `properties` map and a node's `sprinkler` record carry `"Mark"`. A level list with no `number` key
 anywhere (an old file) is numbered by elevation on load.
+SB3b / L283 add two more additive keys (no `SAVE_VERSION` bump), both on the file and the undo-snapshot
+paths: `rooms[].tag_block` (the room's own tag block id; written only when set, meaning owned by
+[`system-blocks.md`](system-blocks.md) section 8) and `display_overrides` on `walls` (and their nested
+`openings`), `rooms` and `roofs` -- written only when non-empty, from the one mixin helper
+(`displayable_item.display_overrides_to_dict`). `floor_slabs`, `gridlines` and the network records
+(nodes, pipes, water supply) already carried it. A stored Hide (`visible: false`) is re-applied on load
+and paste. Meaning of the overrides: [`display-system.md`](../architecture/display-system.md).
 The undo snapshot carries the same Marks data through the same `to_dict` / codec paths, and now also the
 level list (`levels`), `plan_views`, `active_level` and per-underlay `underlay_levels`;
 network_codec's load and undo paths add pipes and sprinklers with `mint=False`, so neither re-mints a Mark.
@@ -133,6 +140,8 @@ invariant**:
   authoring gate refuses those modes, and load clean-drops legacy content), so
   the retained undo capture never reintroduces forbidden content into a project.
   Dimensions are retired entirely (not a block primitive), so no scene captures them.
+  The 2D geometry and text `display_overrides` (L283) ride this retained Block-Editor undo
+  capture only -- a plan scene never writes them to the file (that content is clean-dropped).
 - **Unaffected:** `block_definitions`, `blocks` (instances), `underlays`,
   `walls`/`rooms`/`floor_slabs`/`roofs`, `gridlines`, `nodes`/`pipes`, `sheets`
   (paper annotations, incl. the unified Text), `levels`, and all view/scale

@@ -595,7 +595,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
     # ── Serialisation (§7.11) ────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "feature_id":      self.feature_id,
             "type":            self._type,
             "width_mm":        self._width_mm,
@@ -609,6 +609,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             "level":           self.level,
             "mark":            self._mark,
         }
+        return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
     def from_dict(cls, data: dict, wall=None) -> "WallOpening":
@@ -652,6 +653,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
 
         if wall is not None:
             obj._reposition()
+        obj.display_overrides_from_dict(data)          # L283: after the reposition
         return obj
 
     # ── Property panel integration (§7.6 / §7.9 / §7.13) ────────────────────

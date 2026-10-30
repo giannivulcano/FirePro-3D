@@ -1816,8 +1816,9 @@ class AnnotationPane(SettingsPane):
 
     Choices: the project's eligible blocks (``bound_label.eligible_definition``)
     then the System tier's (``block_library.shipped_index``), labelled
-    "<name> (Project)" / "<name> (System)"; the System default reads
-    "RoomTag (System)". apply() writes the mapping and, on a change, fires
+    "<name> (Project)" / "<name> (System)", then the user library's
+    ("<name> (Library)", SB3b); the System default reads "RoomTag (System)".
+    apply() writes the mapping and, on a change, fires
     *on_changed* (the main window's modified flag); no undo step -- settings
     are not undoable (D-D).
     """
@@ -1843,7 +1844,8 @@ class AnnotationPane(SettingsPane):
         outer.addLayout(form)
         hint = QLabel("The block that draws each category's label. System blocks ship with "
                       "FirePro3D; project blocks are this project's annotative blocks with a "
-                      "matching Host category. Applies on OK (no undo step).")
+                      "matching Host category; Library blocks are embedded when picked. "
+                      "Applies on OK (no undo step).")
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         outer.addWidget(hint)
@@ -1851,52 +1853,33 @@ class AnnotationPane(SettingsPane):
 
     @staticmethod
     def _shipped_defs() -> dict:
-        """``{id: BlockDefinition}`` for the System tier, parsed once per call."""
-        from firepro3d import block_library
-        out = {}
-        for bid, path in sorted(block_library.shipped_index().items(), key=lambda kv: kv[1]):
-            d = block_library.load_block_file(path)
-            if d is not None:
-                out[bid] = d
-        return out
+        """``{id: BlockDefinition}`` for the System tier (``annotation_choices``)."""
+        from firepro3d import annotation_choices
+        return annotation_choices.shipped_defs()
 
     @staticmethod
-    def choices(scene, category: str, shipped: dict | None = None) -> list[tuple[str, str]]:
-        """``[(label, block id)]``: eligible project blocks, then eligible
-        System blocks the project has not embedded (file name order).
-        *shipped* = ``_shipped_defs()`` when the caller lists several categories."""
-        from firepro3d import block_library
-        from firepro3d.bound_label import eligible_definition
-        if shipped is None:
-            shipped = AnnotationPane._shipped_defs()
-        out: list[tuple[str, str]] = []
-        for bid, d in scene._block_definitions.items():
-            if eligible_definition(d, category):
-                tier = "System" if d.library == block_library.SYSTEM_LIBRARY else "Project"
-                out.append((f"{d.name} ({tier})", bid))
-        seen = {bid for _label, bid in out}
-        for bid, d in shipped.items():
-            if bid not in seen and eligible_definition(d, category):
-                out.append((f"{d.name} (System)", bid))
-        return out
+    def choices(scene, category: str, shipped: dict | None = None,
+                library: list | None = None) -> list[tuple[str, str]]:
+        """``[(label, block id)]`` -- the SHARED list (``annotation_choices.choices``,
+        SB3b AC3): project, System, then user-library "(Library)" entries."""
+        from firepro3d import annotation_choices
+        return [(c.label, c.block_id) for c in annotation_choices.choices(
+            scene, category, shipped=shipped, library=library)]
 
     def load(self) -> None:
+        from firepro3d import annotation_choices
         from firepro3d.system_blocks import SYSTEM_DEFAULTS
         self._snapshot = dict(getattr(self._scene, "annotation_defaults", {}) or {})
-        shipped = self._shipped_defs()
+        shipped = annotation_choices.shipped_defs()            # one walk for every category
+        library = annotation_choices.library_defs(self._scene)
         for cat, combo in self._combos.items():
             combo.blockSignals(True)
             combo.clear()
-            for label, bid in self.choices(self._scene, cat, shipped):
-                combo.addItem(label, bid)
             current = self._snapshot.get(cat) or SYSTEM_DEFAULTS.get(cat, "")
-            idx = combo.findData(current) if current else -1
-            if current and idx < 0:
-                known = self._scene._block_definitions.get(current) or shipped.get(current)
-                tag = f"{known.name} (not eligible)" if known is not None else f"{current} (missing)"
-                combo.addItem(tag, current)                    # Q6: the mapping is kept
-                idx = combo.count() - 1
-            combo.setCurrentIndex(idx)                         # -1 = nothing mapped, nothing staged
+            for c in annotation_choices.choices(self._scene, cat, shipped=shipped,
+                                                library=library, current=current or None):
+                combo.addItem(c.label, c.block_id)             # Q6: a kept mapping is listed last
+            combo.setCurrentIndex(combo.findData(current) if current else -1)   # -1 = nothing staged
             combo.blockSignals(False)
 
     def staged(self) -> dict:

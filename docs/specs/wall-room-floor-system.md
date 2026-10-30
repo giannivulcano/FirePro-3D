@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-10-29   # SB3 Account: Room fields table _mark / _label_offset / _show_label pointers only; rest not re-audited; prior 2026-10-27  # Editor/Build slice 3 Account: header note, §4.5 propagation (tied-end skip), §5.4 auto-join (records, hidden walls), §12.1 uid key only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: header note (wall uid built) + 4.5 pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: Room _tag -> _mark and the wall / opening / room `mark` schema keys only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
-verified-commit: 8be9034a   # SB3 Account; prior f44a4c2b   # Editor/Build slice 3 Account (§4.5 / §5.4 / §12.1 only); prior db16090a   # Editor/Build slice 2 Account (pointers only); prior ceacaab4   # SB2b Account (Mark keys only); prior 58769fc5   # Editor/Build design (pointer only); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-10-30  # SB3b + L283 Account: s9.1 Room fields, s12.1-s12.4 serialization keys only, rest not re-audited; prior 2026-10-29   # SB3 Account: Room fields table _mark / _label_offset / _show_label pointers only; rest not re-audited; prior 2026-10-27  # Editor/Build slice 3 Account: header note, §4.5 propagation (tied-end skip), §5.4 auto-join (records, hidden walls), §12.1 uid key only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: header note (wall uid built) + 4.5 pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: Room _tag -> _mark and the wall / opening / room `mark` schema keys only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
+verified-commit: 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 Account; prior f44a4c2b   # Editor/Build slice 3 Account (§4.5 / §5.4 / §12.1 only); prior db16090a   # Editor/Build slice 2 Account (pointers only); prior ceacaab4   # SB2b Account (Mark keys only); prior 58769fc5   # Editor/Build design (pointer only); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/wall_outline.py   # pure outline geometry (junction pie, cluster union, stroke pieces)
@@ -580,6 +580,8 @@ Before creating a new room, the algorithm checks for existing rooms with substan
 | `_color` | `QColor` | category default | Fill/stroke color |
 | `_label_offset` | `QPointF` | (0, 0) | Offset of the `BoundLabelItem` anchor from the centroid (SB3; pointer: [`system-blocks.md`](system-blocks.md) section 8) |
 | `_show_label` | `bool` | `True` | Visibility of the room's `BoundLabelItem` tag (SB3; pointer: [`system-blocks.md`](system-blocks.md) section 8) |
+| `_tag_block` | `str \| None` | `None` | This room's own tag block id; `None` = follows the project default (SB3b; semantics, Tag row and persistence owned by [`system-blocks.md`](system-blocks.md) section 8) |
+| `_display_overrides` | `dict` | `{}` | Per-instance Display-Manager overrides (L283 persists them on both serialization paths; owned by [`display-system.md`](../architecture/display-system.md) and, for Hide, [`model-browser.md`](model-browser.md)) |
 
 ### 9.2 Hazard Classes
 
@@ -844,9 +846,12 @@ Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the ind
     "name": "Wall 1",
     "mark": "",
     "uid": "<uuid4 hex>",
-    "openings": [...]
+    "openings": [...],
+    "display_overrides": { }
 }
 ```
+
+`display_overrides` (L283) is **emitted only when non-empty**; `section_type` inside it is canonicalised on load (`fill_types.canonical_id`) and a stored Hide (`visible: false`) is re-applied. The one serializer is `DisplayableItemMixin.display_overrides_to_dict` / `display_overrides_from_dict` (`displayable_item.py`), shared by every holder (§12.2-§12.4 and the roof).
 
 **Backward compatibility:** `thickness_in` → `thickness_mm` (× 25.4), `height_ft` → `height_mm` (× 304.8), legacy single `join_mode` applies to both endpoints.
 
@@ -856,21 +861,29 @@ Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the ind
 
 ```json
 {
-    "kind": "door",
+    "feature_id": "<feature id>",
+    "type": "door",
     "width_mm": 920.0,
     "height_mm": 2040.0,
     "sill_mm": 0.0,
     "offset_along": 500.0,
+    "cross_offset_mm": 0.0,
+    "alignment": "<OPENING_ALIGN_* value>",
+    "mirror_hinge": false,
+    "mirror_facing": false,
     "level": "Level 1",
-    "mark": ""
+    "mark": "",
+    "display_overrides": { }
 }
 ```
+
+`display_overrides` is emitted only when non-empty (L283, same helper as §12.1). A pre-redesign record (`kind` instead of `feature_id` / `type`) still loads: `kind` + width map to the nearest Feature (`nearest_feature_for`) and the placement fields default.
 
 (`mark` is the SB2b instance Mark on walls, openings and rooms; a room file with no `mark` reads the legacy `tag`. Owned by `element-parameters.md` "Marks (SB2b)".)
 
 Openings are serialized within their parent wall's `openings` array. The wall reference is restored by the caller during deserialization.
 
-> **Redesign (§7.11, PROPOSAL):** the instance shape gains `feature_id`, `type`, `cross_offset_mm`, `alignment`, `mirror_hinge`, `mirror_facing`; the legacy shape above (`kind` + width/height/sill/offset_along/level) becomes the **migration source** (`kind`→`type`+`feature_id`; missing fields default). New fields must land on **both** serialization paths (file + undo — see §7.11 undo tension).
+> **Redesign (§7.11, Phase A BUILT):** the instance shape above carries `feature_id`, `type`, `cross_offset_mm`, `alignment`, `mirror_hinge`, `mirror_facing`; the legacy shape (`kind` + width/height/sill/offset_along/level) is the **migration source** (`kind`→`type`+`feature_id`; missing fields default). New fields must land on **both** serialization paths (file + undo — see §7.11 undo tension).
 
 ### 12.3 Room
 
@@ -891,9 +904,13 @@ Openings are serialized within their parent wall's `openings` array. The wall re
     "design_point": [1500.0, 0.1],
     "compartment_type": "Room",
     "ceiling_type": "Noncombustible unobstructed",
-    "label_offset": [0, 0]
+    "label_offset": [0, 0],
+    "tag_block": "<block id>",
+    "display_overrides": { }
 }
 ```
+
+`tag_block` (SB3b) and `display_overrides` (L283) are **optional**: each is written only when set / non-empty, so an untouched room carries neither. A missing, non-string or empty `tag_block` loads as `None` (follows the project default; meaning owned by [`system-blocks.md`](system-blocks.md) section 8). Both ride `to_dict` / `from_dict`, i.e. the file save and the undo snapshot alike.
 
 `design_point` serializes as `null` when unset (load restores `None` → curve-minimum default, §9.7). Missing `occupancy`/`system_type`/`design_point` on old saves default to `""`/`"Wet"`/`null`. (The legacy `user_layer` field is gone — the per-item layer system was removed.)
 
@@ -918,7 +935,7 @@ Openings are serialized within their parent wall's `openings` array. The wall re
 }
 ```
 
-`to_dict()` is the **single serializer for both persistence paths** — `scene_io` (file save) and `_capture_network`/`_restore_network` (undo) both delegate to it (memory: dual serialization paths). `display_overrides` (per-instance Display-Manager stroke/fill overrides) is **emitted only when non-empty** (matches `GridlineItem`); `from_dict` defaults it to `{}`.
+`to_dict()` is the **single serializer for both persistence paths** — `scene_io` (file save) and `_capture_network`/`_restore_network` (undo) both delegate to it (memory: dual serialization paths). `display_overrides` (per-instance Display-Manager stroke/fill overrides) is **emitted only when non-empty**; the slab now uses the same shared `DisplayableItemMixin` helper as every other holder (matches `GridlineItem`, which calls the module-level form), and `from_dict` defaults it to `{}`.
 
 **Migration (lossless, both paths):** a legacy record (no `top_mode` key) `{level, level_offset_mm, thickness_mm}` loads to `top_mode="level"`, `top_level=level`, `top_offset_mm=level_offset_mm`, `bottom_mode="thickness"`, `thickness_mm` — reproducing the same `(bot_z, top_z)`/mesh as before. Legacy `thickness_ft` → `thickness_mm` (× 304.8) still handled. **The new schema is written on re-save; legacy keys (`level`, `level_offset_mm`) are dropped** (the load path keeps reading them).
 
