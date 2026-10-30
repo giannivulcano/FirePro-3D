@@ -39,6 +39,7 @@ Default levels shipped with every new document:
 
 - **add_level(name, elevation)** -- creates a new level; auto-generates name if not provided
 - **remove_level(name)** -- deletes a level (at least one must remain)
+- **remove_levels(names, items, scene)** -- deletes several levels in one action and re-points their items (delete targets: `specs/view-relationships.md` §12)
 - **rename_level(old, new, items)** -- renames a level and updates all scene items that referenced it
 - **update_elevations(scene)** -- recomputes `z_pos` for all nodes using `ceiling_level` elevation + `ceiling_offset`
 - **to_list() / from_list(data)** -- serialization for project save/load

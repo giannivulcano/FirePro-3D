@@ -165,7 +165,7 @@ class _Metrics:
     PATTERN_KIND_W = 34          # Dash / Gap / Dot kind label column
     PATTERN_ADD_GAP = 4          # + Dash / + Gap / + Dot button spacing
     DOCK_HEADER_H = 27       # dock header rail: 26px canvas tab bar + its 1px divider row (was 33 at 31px tabs)
-    DOCK_HEADER_PT = 9       # dock / Levels header text (bold) — set via the label's own QSS
+    DOCK_HEADER_PT = 9       # dock header text (bold) — set via the label's own QSS
     # empty-canvas placeholder (canvas_placeholder.py — mockup-approved 2026-09-30)
     EMPTY_CANVAS_TITLE_PT = 13        # "No views open", bold, ink — own QSS
     EMPTY_CANVAS_HINT_PT = 9          # hint line, muted — own QSS
