@@ -311,12 +311,15 @@ class LevelManager:
 
     def next_elevation_above_top(self) -> float:
         """The Add elevation (section 12.4): top + the gap between the top two levels;
-        with one level, top + DEFAULT_LEVEL_GAP_MM (10'-0")."""
+        with one level, or when the top two tie (zero gap), top + DEFAULT_LEVEL_GAP_MM
+        (10'-0")."""
         if not self._levels:
             return 0.0
         ordered = sorted(self._levels, key=lambda l: l.elevation)
         top = ordered[-1].elevation
-        gap = (top - ordered[-2].elevation) if len(ordered) > 1 else DEFAULT_LEVEL_GAP_MM
+        gap = (top - ordered[-2].elevation) if len(ordered) > 1 else 0.0
+        if gap <= 0.0:
+            gap = DEFAULT_LEVEL_GAP_MM
         return top + gap
 
     def remove_level(self, name: str):

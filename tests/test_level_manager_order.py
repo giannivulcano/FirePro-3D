@@ -48,6 +48,12 @@ def test_next_elevation_above_top():
     assert _lm(("A", 0.0, 1), ("B", 5000.0, 2)).next_elevation_above_top() == 10000.0
 
 
+def test_next_elevation_above_top_falls_back_to_ten_feet_when_the_top_two_tie():
+    # User ruling 2026-10-30: a zero top gap would stack Add on the top level.
+    lm = _lm(("Level 1", 0.0, 1), ("Level 2", 3048.0, 2), ("Mezz", 3048.0, 3))
+    assert lm.next_elevation_above_top() == 3048.0 + DEFAULT_LEVEL_GAP_MM
+
+
 def test_delete_targets_nearest_remaining_below_lowest_goes_up():
     lm = _lm(("Ground", 0.0, 1), ("Mezz", 1524.0, 2), ("L2", 3048.0, 3), ("Roof", 9144.0, 4))
     assert lm.delete_targets(["Mezz", "Roof"]) == {"Mezz": "Ground", "Roof": "L2"}
