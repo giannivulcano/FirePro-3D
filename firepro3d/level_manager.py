@@ -293,22 +293,30 @@ def leveled_items(scene) -> list:
 
 # Secondary level refs, beyond the owning ``.level``, that follow a rename / delete /
 # open repair: attr -> the item's ``set_property`` key (keeps node ``_properties``
-# mirrors, node z and wall height in step).
+# mirrors, node z and wall height in step). The open repair sends a missing base or
+# sprinkler ceiling ref to the item's own level, a missing upper ref to the next above.
 _BASE_LEVEL_REFS = {"_base_level": "Base Level"}            # WallSegment
 _UPPER_LEVEL_REFS = {
     "_top_level": "Top Level",                              # WallSegment
     "_ceiling_level": "Ceiling Level",                      # Room
+}
+_CEILING_LEVEL_REFS = {
     "ceiling_level": "Ceiling Level",                       # Node
     "node1_ceiling_level": "N1 Ceiling Level",              # Pipe template
     "node2_ceiling_level": "N2 Ceiling Level",
 }
+_LEVEL_REFS = {**_BASE_LEVEL_REFS, **_UPPER_LEVEL_REFS, **_CEILING_LEVEL_REFS}
 
-# (base attr, base offset attr, upper attr, upper offset attr, upper set_property key):
-# the vertical spans a delete must not collapse (view-relationships s12.4, D2).
-_LEVEL_SPANS = (
-    ("_base_level", "_base_offset_mm", "_top_level", "_top_offset_mm", "Top Level"),   # WallSegment
-    ("level", None, "_ceiling_level", "_ceiling_offset", "Ceiling Level"),            # Room
-)
+# Delete keeps absolute z (view-relationships s12.4 "nothing moves"): level ref attr ->
+# (its paired offset attr, the ``_properties`` mirror of that offset or None).
+_LEVEL_OFFSETS = {
+    "_base_level": ("_base_offset_mm", None),               # WallSegment
+    "_top_level": ("_top_offset_mm", None),
+    "_ceiling_level": ("_ceiling_offset", None),            # Room
+    "ceiling_level": ("ceiling_offset", "Ceiling Offset"),  # Node
+    "node1_ceiling_level": ("node1_ceiling_offset", None),  # Pipe template
+    "node2_ceiling_level": ("node2_ceiling_offset", None),
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -397,54 +405,36 @@ class LevelManager:
     def remove_levels(self, names, items=(), scene=None) -> dict[str, str]:
         """Delete *names* (one action), re-pointing every level ref in *items* and the
         floor ``_top_level`` / ``_bottom_level`` refs on *scene* to each level's
-        ``delete_targets`` entry; a wall Top / room Ceiling that would land at or below
-        its base is lifted (``_lift_collapsed_spans``). Returns the targets (empty =
-        refused: nothing left)."""
+        ``delete_targets`` entry; a ref with a paired offset keeps its absolute z
+        (``_rebase_offsets``). Returns the targets (empty = refused: nothing left)."""
         targets = self.delete_targets(names)
         if not targets:
             return {}
         items = list(items)
-        old_tops = self._span_tops(items, targets)
+        self._rebase_offsets(items, targets)
         for old, new in targets.items():
             self._remap_level_refs(old, new, items, scene)
         self._levels = [l for l in self._levels if l.name not in targets]
-        self._lift_collapsed_spans(items, old_tops)
         return targets
 
-    def _span_tops(self, items, targets) -> dict[int, tuple]:
-        """Absolute top z of each span whose upper ref is being deleted, keyed by id(item)."""
-        out = {}
+    def _rebase_offsets(self, items, targets) -> None:
+        """Before a delete re-points them, re-base each paired offset onto its target
+        level so the absolute z is unchanged: ``old.elevation + off - new.elevation``.
+        Runs while the deleted levels are still listed; the remap's ``set_property``
+        then recomputes node z and wall height from the new offset."""
         for item in items:
-            for span in _LEVEL_SPANS:
-                upper, upper_off = span[2], span[3]
-                lvl = self.get(getattr(item, upper, None) or "")
-                if lvl is not None and lvl.name in targets:
-                    out[id(item)] = (span, lvl.elevation + getattr(item, upper_off, 0.0))
-                    break
-        return out
-
-    def _lift_collapsed_spans(self, items, old_tops) -> None:
-        """D2: a re-pointed upper ref at or below its base moves to the nearest level above
-        the base; with none above it takes the base level plus the offset that keeps the
-        old absolute top."""
-        for item in items:
-            entry = old_tops.get(id(item))
-            if entry is None:
+            if getattr(item, "_visibility_by_zrange", False):
                 continue
-            (base_attr, base_off, upper, upper_off, key), old_top = entry
-            base = self.get(getattr(item, base_attr, None) or "")
-            top = self.get(getattr(item, upper, None) or "")
-            if base is None or top is None:
-                continue
-            base_z = base.elevation + (getattr(item, base_off, 0.0) if base_off else 0.0)
-            if top.elevation + getattr(item, upper_off, 0.0) > base_z:
-                continue
-            above = [l for l in self._levels if l.elevation > base.elevation]
-            if above:
-                self._set_level_ref(item, upper, key, above[0].name)
-            else:
-                setattr(item, upper_off, old_top - base.elevation)
-                self._set_level_ref(item, upper, key, base.name)
+            for attr, (off_attr, mirror) in _LEVEL_OFFSETS.items():
+                old = self.get(getattr(item, attr, None) or "")
+                off = getattr(item, off_attr, None)
+                if old is None or old.name not in targets or off is None:
+                    continue
+                new_off = old.elevation + off - self.get(targets[old.name]).elevation
+                setattr(item, off_attr, new_off)
+                props = getattr(item, "_properties", None)
+                if mirror and isinstance(props, dict) and mirror in props:
+                    props[mirror]["value"] = str(new_off)
 
     @staticmethod
     def _set_level_ref(item, attr: str, key: str, value: str) -> None:
@@ -466,7 +456,7 @@ class LevelManager:
                 continue
             if getattr(item, "level", None) == old_name:
                 item.level = new_name
-            for attr, key in (*_BASE_LEVEL_REFS.items(), *_UPPER_LEVEL_REFS.items()):
+            for attr, key in _LEVEL_REFS.items():
                 if getattr(item, attr, None) == old_name:
                     LevelManager._set_level_ref(item, attr, key, new_name)
         for slab in getattr(scene, "_floor_slabs", []):
@@ -476,9 +466,10 @@ class LevelManager:
                 slab._bottom_level = new_name
 
     def repair_missing_refs(self, items) -> int:
-        """Open repair (wall-room-floor s11.3): a base ref naming a missing level becomes the
-        item's own ``.level``; a missing upper ref becomes the next level above it (the own
-        level when none is above). Returns the number of refs repaired."""
+        """Open repair (wall-room-floor s11.3): a base or node / pipe ceiling ref naming a
+        missing level becomes the item's own ``.level``; a missing wall Top / room Ceiling
+        becomes the next level above it (the own level when none is above). Returns the
+        number of refs repaired."""
         fixed = 0
         for item in items:
             if getattr(item, "_visibility_by_zrange", False):
@@ -488,7 +479,8 @@ class LevelManager:
                 continue
             above = [l for l in self._levels if l.elevation > own.elevation]
             upper = (above[0] if above else own).name
-            for refs, value in ((_BASE_LEVEL_REFS, own.name), (_UPPER_LEVEL_REFS, upper)):
+            for refs, value in ((_BASE_LEVEL_REFS, own.name), (_UPPER_LEVEL_REFS, upper),
+                                (_CEILING_LEVEL_REFS, own.name)):
                 for attr, key in refs.items():
                     ref = getattr(item, attr, None)
                     if ref is not None and self.get(ref) is None:

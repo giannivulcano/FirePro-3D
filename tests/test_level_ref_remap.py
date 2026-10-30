@@ -65,20 +65,24 @@ def test_rename_repoints_wall_room_and_node_refs(qapp, shown_model_view):
     assert node.get_properties()["Ceiling Level"]["value"] == "Mezz"   # mirror follows
 
 
-def test_delete_base_level_moves_base_to_nearest_below(qapp, shown_model_view, monkeypatch):
+# Every delete keeps absolute z (view-relationships s12.4 "nothing moves"): a re-pointed
+# ref with a paired offset takes the offset that keeps its old elevation.
+
+def test_delete_middle_base_level_keeps_wall_in_place(qapp, shown_model_view, monkeypatch):
     scene, lm, widget, w, room, node = _setup(shown_model_view, base="Level 2", top="Level 3")
     _delete(widget, monkeypatch, "Level 2")
     assert (w._base_level, w._top_level) == ("Level 1", "Level 3")
-    assert w.z_range_mm() == (0.0, 6000.0)
+    assert w._base_offset_mm == 3000.0
+    assert w.z_range_mm() == (3000.0, 6000.0)
     assert node.ceiling_level == "Level 3"
 
 
-def test_delete_top_level_lifts_top_to_next_above(qapp, shown_model_view, monkeypatch):
+def test_delete_bottom_level_keeps_wall_in_place(qapp, shown_model_view, monkeypatch):
     scene, lm, widget, w, room, node = _setup(shown_model_view)        # L1 -> L2
-    _delete(widget, monkeypatch, "Level 2")
-    assert w._top_level == "Level 3" and w.z_range_mm() == (0.0, 6000.0)
-    assert room._ceiling_level == "Level 3"
-    assert node.ceiling_level == "Level 1"                             # plain nearest-below
+    _delete(widget, monkeypatch, "Level 1")
+    assert (w._base_level, w._top_level) == ("Level 2", "Level 2")
+    assert w._base_offset_mm == -3000.0
+    assert w.z_range_mm() == (0.0, 3000.0)
 
 
 def test_delete_top_with_nothing_above_keeps_old_top_as_offset(qapp, shown_model_view, monkeypatch):
@@ -86,6 +90,18 @@ def test_delete_top_with_nothing_above_keeps_old_top_as_offset(qapp, shown_model
     _delete(widget, monkeypatch, "Level 2", "Level 3")
     assert (w._base_level, w._top_level) == ("Level 1", "Level 1")
     assert w._top_offset_mm == 3000.0 and w.z_range_mm() == (0.0, 3000.0)
+
+
+def test_delete_ceiling_level_keeps_node_and_room_ceiling_in_place(qapp, shown_model_view,
+                                                                    monkeypatch):
+    scene, lm, widget, w, room, node = _setup(shown_model_view)        # ceilings on L2
+    node_z, room_z = node.z_pos, room.z_range_mm()
+    _delete(widget, monkeypatch, "Level 2")
+    assert node.ceiling_level == room._ceiling_level == "Level 1"
+    assert node.z_pos == node_z
+    assert node.get_properties()["Ceiling Level"]["value"] == "Level 1"
+    assert float(node._properties["Ceiling Offset"]["value"]) == node.ceiling_offset
+    assert room.z_range_mm() == room_z
 
 
 def test_undo_restores_wall_refs_after_delete(qapp, shown_model_view, monkeypatch):
@@ -106,6 +122,8 @@ def test_open_repairs_refs_to_missing_levels(qapp, shown_model_view, tmp_path):
         wd["base_level"], wd["top_level"] = "Gone", "Gone Too"      # 26307 Walls 1-4 shape
     for rd in data["rooms"]:
         rd["ceiling_level"] = "Gone Too"
+    for nd in data["nodes"]:
+        nd["ceiling_level"] = "Gone Too"
     path.write_text(json.dumps(data), encoding="utf-8")
     scene.load_from_file(str(path))
     w2, r2 = scene._walls[0], scene._rooms[0]
@@ -113,3 +131,6 @@ def test_open_repairs_refs_to_missing_levels(qapp, shown_model_view, tmp_path):
     assert (w2._base_level, w2._top_level) == ("Level 2", "Level 3")   # own, next above own
     assert w2.z_range_mm() == (3000.0, 6000.0)
     assert r2._ceiling_level == "Level 3"
+    n2 = next(n for n in scene.sprinkler_system.nodes if n.level == "Level 2")
+    assert n2.ceiling_level == "Level 2"                               # own level (R2)
+    assert n2.z_pos == 3000.0 + n2.ceiling_offset
