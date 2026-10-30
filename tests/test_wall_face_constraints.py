@@ -77,7 +77,9 @@ def test_wf3_translate_raws_hook():
 # (derived ends). Right: click line is face_l, face_r 200 below (derived ends).
 @pytest.mark.parametrize("b_align,b_face", [
     (ALIGN_CENTER, "face_r"), (ALIGN_CENTER, "face_l"),
-    (ALIGN_LEFT, "face_l"), (ALIGN_RIGHT, "face_r")])
+    (ALIGN_LEFT, "face_l"), (ALIGN_RIGHT, "face_r"),
+    # drawn line IS the picked face (raw ends): the _pl_apply raw path
+    (ALIGN_LEFT, "face_r"), (ALIGN_RIGHT, "face_l")])
 def test_ac1_typed_face_dim_moves_the_second_wall_by_the_full_delta(qapp, b_align, b_face):
     sc = _sc()
     ctl = sc.constraint_ctl
