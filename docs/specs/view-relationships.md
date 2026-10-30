@@ -396,6 +396,23 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 
 **Override resolution rules** — what wins when two overrides conflict — are **deferred to a future spec session** (working title: "view templates"). This spec deliberately defines only the *catalog*, not the *resolution*.
 
+### 7.5 Per-view datum extents (Revit 2D/3D) — RATIFIED 2026-10-30, NOT BUILT
+
+> **Not built.** This is the ratified target for catalog row 6 (annotations) for datums only, from the per-view datum design grill (Q1–Q15, 2026-10-30). Built in four slices filed in `todo_open.md` ("Per-view datum extents slice 1–4"); each slice's Account flips its rows to as-built.
+
+Goal: details, sections and sheet viewports show gridlines and level datums near the content they show, not at building-wide extents. Plan view markers are out of scope (separate per-view visibility follow-up).
+
+| # | Rule |
+|---|---|
+| D1 | **Override unit = the view instance** (`PlanView`, `DetailMarker`, `SectionMarker`), consistent with §7.4. Never the paper viewport: every viewport of one view renders its datums identically. |
+| D2 | **Per end, per view:** extent (end position), bubble on/off, bubble standoff (a future bubble elbow joins this set). Model-only: line origin / angle, label, lock, graphic override. |
+| D3 | **Ends start 3D** (the model extent, shared by every view; a drag moves every view). A per-end 2D/3D toggle detaches the end in this view only. The toggle is a clickable "3D"/"2D" tag next to the end grip, shown only while selected, never plotted. |
+| D4 | **Vertical views use the same model.** A gridline gains a model vertical extent ("auto" = full building height until first set), shared by every section / elevation; a level datum gains a model horizontal extent ("auto" = span of visible grids). A 2D end there is this-view-only, persisted on the `SectionMarker`, keyed by gridline `uid` (today's label-keyed `gridline_z_overrides`, grid-system.md §8.3, becomes this record). |
+| D5 | **A detail starts from model extents**, not the parent plan's 2D layout. |
+| D6 | **Display-only auto-trim:** a datum end outside the shown crop (detail crop, section crop box, sheet viewport `crop_rect`) draws to the crop edge with its bubble / head there. Nothing is stored until the user drags; two viewports with different crops may differ (derived, not stored). |
+| D7 | **A 2D end is stored along the line** (an axis offset), so a model move / rotate carries it; a model length change moves only 3D ends; a 2D end may exceed the model extent; deleting the datum drops every view's record in the same undo step. |
+| D8 | **Tools:** Propagate Extents (copy selected grids' 2D ends to picked views — plan/detail → plan/detail, section → parallel sections) and Reset to model extents (per end or whole grid, this view), one undo step each. A multi-select end drag moves the matching end of every selected grid. The Revit alignment lock is deferred to the constraint system. |
+
 ---
 
 ## 8. The two-Z conversion rule

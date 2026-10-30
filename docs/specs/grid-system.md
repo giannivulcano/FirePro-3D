@@ -288,6 +288,8 @@ For a qualifying gridline, the `ElevGridlineItem` is drawn as a vertical line in
 
 ### 8.3 Per-View Z-Extent Overrides
 
+> **Ratified target (2026-10-30, not built):** per-view 2D/3D datum extents in every view kind, which re-key this label-keyed record by `uid` and add a model vertical extent, are owned by `view-relationships.md` §7.5 (Rule A). The as-built behaviour below stands until slice 2 lands.
+
 Each section / elevation view stores (on its `SectionMarker`, so it persists) a dict mapping gridline labels to Z-extent overrides:
 
 ```python
