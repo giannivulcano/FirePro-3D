@@ -358,6 +358,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.level_widget.levelsChanged.connect(self.update_property_manager)
         # (Level combo removed from ribbon — levels managed via Levels tab)
         self.level_widget.duplicateLevel.connect(self.scene.duplicate_level_entities)
+        # Section 12.4 Rename / Delete: the plan tabs follow the level list (D1).
+        self.level_widget.levelRenamed.connect(self._on_level_renamed)
+        self.level_widget.levelsRemoved.connect(self._on_levels_removed)
         self.scene.levelsRestored.connect(self._on_levels_restored)
 
         self.project_browser = ProjectBrowser(level_manager=self.scene._level_manager,
@@ -2621,7 +2624,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Undo / redo replaced the level list (SB2b M15): refresh every level view."""
         self.level_widget.populate()
         self.level_widget.levelsChanged.emit()
-        active = self.scene.active_level
+        active = self.scene.active_level            # BEFORE closing tabs: a close re-targets it
+        live = {l.name for l in self.level_mgr.levels}
+        stale = [self.central_tabs.tabText(i)[len("Plan: "):]
+                 for i in range(self.central_tabs.count())
+                 if self.central_tabs.tabText(i).startswith("Plan: ")
+                 and self.central_tabs.tabText(i)[len("Plan: "):] not in live]
+        if stale:
+            self._on_levels_removed(stale)          # a tab whose level the undo took away (rename / delete)
         cur = self.central_tabs.tabText(self.central_tabs.currentIndex())
         if cur != f"Plan: {active}":             # only re-open when the view is elsewhere
             self.level_widget.activeLevelChanged.emit(active)
@@ -2630,6 +2640,29 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Handle active level change from widget — opens the plan tab."""
         self._commit_text_edits()
         self._activate_plan_view(name)
+
+    def _on_level_renamed(self, old: str, new: str) -> None:
+        """Section 12.4 Rename: retitle the open `Plan: <old>` tab in place. Its PlanView
+        was already moved by the widget (PlanViewManager.rename_level), so the
+        activeLevelChanged that follows finds the tab and keeps the view range."""
+        old_title, new_title = f"Plan: {old}", f"Plan: {new}"
+        for i in range(self.central_tabs.count()):
+            if self.central_tabs.tabText(i) == old_title:
+                self.central_tabs.setTabText(i, new_title)
+                w = self.central_tabs.widget(i)           # keep the view's own labels in step
+                w.setObjectName(f"plan_view_{new}")       # (_activate_plan_view sets both)
+                w.plan_view_name = new_title
+        if getattr(self.scene, "active_view_key", None) == f"plan:{old_title}":
+            self.scene.active_view_key = f"plan:{new_title}"
+
+    def _on_levels_removed(self, names) -> None:
+        """Section 12.4 Delete: close each deleted level's plan tab (the widget already
+        dropped its PlanView and re-pointed items / floor refs). Uses the user-close
+        path so the tab's Model_View is disposed the same way."""
+        titles = {f"Plan: {n}" for n in names}
+        for i in range(self.central_tabs.count() - 1, -1, -1):
+            if self.central_tabs.tabText(i) in titles:
+                self._on_tab_close_requested(i)
 
     # ── Template workflow helpers ─────────────────────────────────────────────
 
@@ -3332,18 +3365,25 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 v.viewport().update()
 
     def _open_level_dialog(self):
-        """Open the Level Manager dialog."""
+        """Open the Level Manager dialog (modal)."""
+        dlg = self._build_level_dialog()
+        dlg.exec()
+        dlg.deleteLater()                        # parented to the window: do not accumulate (review M-11)
+
+    def _build_level_dialog(self):
+        """The Level Manager dialog chained into the hidden hub widget (view-relationships
+        section 12 D4): the hub repopulates first, then ITS signals fan out to every
+        consumer wired at startup - one consumer list. Split from exec() for tests."""
         from firepro3d.level_dialog import LevelDialog
         dlg = LevelDialog(self.level_mgr, scene=self.scene, parent=self)
-        dlg.activeLevelChanged.connect(self._on_active_level_changed)
-        dlg.levelsChanged.connect(
-            lambda: self.level_mgr.apply_to_scene(self.scene))
-        dlg.levelsChanged.connect(self.update_property_manager)
-        dlg.levelsChanged.connect(self.project_browser.refresh_levels)
-        dlg.levelsChanged.connect(self.section_manager.rebuild_all)
-        dlg.levelsChanged.connect(self._refresh_empty_canvas_level)
-        dlg.duplicateLevel.connect(self.scene.duplicate_level_entities)
-        dlg.exec()
+        hub = self.level_widget
+        dlg.levelsChanged.connect(hub.populate)          # connection order = call order
+        dlg.levelsChanged.connect(hub.levelsChanged)
+        dlg.activeLevelChanged.connect(hub.activeLevelChanged)
+        dlg.duplicateLevel.connect(hub.duplicateLevel)
+        dlg.levelRenamed.connect(hub.levelRenamed)
+        dlg.levelsRemoved.connect(hub.levelsRemoved)
+        return dlg
 
     def open_sprinkler_manager(self):
         """Open the Sprinkler Manager database dialog."""
@@ -3524,6 +3564,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # the opened project has no such level (and old Elevation/Detail tabs
         # carry over too).
         self._close_stale_view_tabs()
+        # Section 12.4 Project open: every levelsChanged consumer refreshes (before this
+        # emit the Project Browser Plans list kept the previous project's levels). After
+        # _close_stale_view_tabs so section_manager.rebuild_all sees no stale views.
+        self.level_widget.levelsChanged.emit()
         # Re-seat the keep-alive 3D view on the loaded project (I9).
         self.view_3d.reset_for_project(self.scene.scale_manager)
         # Re-apply level visibility — activate the saved level's plan tab
@@ -3744,6 +3788,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # default plan view (otherwise stale 'Plan: <old level>' tabs persist).
         from firepro3d.constants import DEFAULT_LEVEL
         self._close_stale_view_tabs()
+        self.level_widget.levelsChanged.emit()      # section 12.4: the default levels reach every consumer
         self._activate_plan_view(
             getattr(self.scene, "active_level", None) or DEFAULT_LEVEL)
 
