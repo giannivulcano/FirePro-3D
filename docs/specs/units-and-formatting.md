@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built conventions; divergences ledger at end
-last-verified: 2026-10-24  # SB2a Account: §3 area / volume / pressure / flow rows name the ScaleManager formatters, new velocity + pipe ID rows, D1 resolved, D2 reworded; prior 2026-10-01 scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
-verified-commit: a6122a0e   # SB2a Account; prior c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
+last-verified: 2026-10-30  # dimension-input-grammar Account: §3.2 length literals + expressions (length_expr.py), §3.1 fraction rows scoped to lengths, NUM_PATTERN home moved; prior 2026-10-24 SB2a Account: §3 area / volume / pressure / flow rows name the ScaleManager formatters, new velocity + pipe ID rows, D1 resolved, D2 reworded; prior 2026-10-01 scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
+verified-commit: 6984a2b1   # dimension-input-grammar Account; prior a6122a0e   # SB2a Account; prior c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
 applies-to:
   - firepro3d/scale_manager.py
   - firepro3d/dynamic_input.py    # FieldKind formatter/parser shells (FACTOR → ScaleManager; COUNT still local — §8 D5)
