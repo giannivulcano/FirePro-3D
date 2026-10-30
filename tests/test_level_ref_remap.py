@@ -138,6 +138,21 @@ def test_undo_restores_wall_refs_after_delete(qapp, shown_model_view, monkeypatc
     assert w2.z_range_mm() == (0.0, 3000.0)
 
 
+def test_undo_restores_slab_refs_after_delete(qapp, shown_model_view, monkeypatch):
+    scene, lm, widget, w, room, node = _setup(shown_model_view)
+    slab = FloorSlab([QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)])
+    scene._floor_slabs.append(slab); scene.addItem(slab)
+    slab._top_level, slab._top_offset_mm = "Level 2", 0.0
+    slab._bottom_mode, slab._bottom_level, slab._bottom_offset_mm = "level", "Level 2", -200.0
+    scene.push_undo_state()
+    _delete(widget, monkeypatch, "Level 2")
+    scene.undo()
+    s2 = scene._floor_slabs[0]
+    assert (s2._top_level, s2._top_offset_mm) == ("Level 2", 0.0)
+    assert (s2._bottom_level, s2._bottom_offset_mm) == ("Level 2", -200.0)
+    assert s2.z_range_mm() == (2800.0, 3000.0)
+
+
 def test_open_repairs_refs_to_missing_levels(qapp, shown_model_view, tmp_path):
     scene, lm, widget, w, room, node = _setup(shown_model_view, base="Level 2", top="Level 3")
     path = tmp_path / "dangling.fpd"
