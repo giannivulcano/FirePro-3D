@@ -27,7 +27,7 @@ from . import theme as th
 from .theme import M
 from .ui_kit import SortHeader, glyph_button
 from .constants import DEFAULT_LEVEL
-from .level_manager import Level, LevelManager
+from .level_manager import Level, LevelManager, leveled_items
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -512,26 +512,4 @@ class LevelWidget(QWidget):
         return self.manager.get(it.text())
 
     def _all_scene_items(self) -> list:
-        if self.scene is None:
-            return []
-        items = (list(self.scene.sprinkler_system.nodes) +
-                 list(self.scene.sprinkler_system.pipes))
-        # Loose 2D primitives are level-less (containment C3) — not remapped.
-        items += getattr(self.scene, "_block_instances", [])
-        items += getattr(self.scene, "_gridlines", [])
-        items += getattr(self.scene, "_roofs", [])
-        # Walls (+ their openings), rooms and design areas carry a level too; without
-        # them a rename / delete orphaned their level and undo had nothing to restore.
-        for wall in getattr(self.scene, "_walls", []):
-            items.append(wall)
-            items += getattr(wall, "openings", [])
-        items += getattr(self.scene, "_rooms", [])
-        items += getattr(self.scene, "design_areas", [])
-        ann = getattr(self.scene, "annotations", None)
-        if ann:
-            items += getattr(ann, "dimensions", [])
-            items += getattr(ann, "notes", [])
-        ws = getattr(self.scene, "water_supply_node", None)
-        if ws is not None:
-            items.append(ws)
-        return items
+        return leveled_items(self.scene)

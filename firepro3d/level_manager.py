@@ -261,6 +261,36 @@ DEFAULT_LEVELS: list[Level] = [
 ]
 
 
+def leveled_items(scene) -> list:
+    """Every scene item that carries level references (rename / delete / open repair).
+
+    Floors are not listed: their boundary refs are remapped from ``scene._floor_slabs``.
+    Loose 2D primitives are level-less (containment C3).
+    """
+    if scene is None:
+        return []
+    items = (list(scene.sprinkler_system.nodes) +
+             list(scene.sprinkler_system.pipes))
+    items += getattr(scene, "_block_instances", [])
+    items += getattr(scene, "_gridlines", [])
+    items += getattr(scene, "_roofs", [])
+    # Walls (+ their openings), rooms and design areas carry a level too; without
+    # them a rename / delete orphaned their level and undo had nothing to restore.
+    for wall in getattr(scene, "_walls", []):
+        items.append(wall)
+        items += getattr(wall, "openings", [])
+    items += getattr(scene, "_rooms", [])
+    items += getattr(scene, "design_areas", [])
+    ann = getattr(scene, "annotations", None)
+    if ann:
+        items += getattr(ann, "dimensions", [])
+        items += getattr(ann, "notes", [])
+    ws = getattr(scene, "water_supply_node", None)
+    if ws is not None:
+        items.append(ws)
+    return items
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Manager (pure data, no Qt)
 # ─────────────────────────────────────────────────────────────────────────────
