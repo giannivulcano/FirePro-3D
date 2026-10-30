@@ -182,3 +182,21 @@ def test_undo_of_a_rename_leaves_a_single_plan_tab(mw):
     tabs = _tabs(win)
     assert "Plan: Level 2" in tabs and "Plan: Mezz" not in tabs       # P8 reconcile
     assert win.central_tabs.tabText(win.central_tabs.currentIndex()) == "Plan: Level 2"
+
+
+def test_delete_of_the_active_top_level_activates_the_level_below_not_the_lowest(mw, monkeypatch):
+    """P7: deleting the active level activates ITS nearest-below target, which differs
+    from levels[0] when a lower level survives (Group C review M3)."""
+    win = mw
+    monkeypatch.setattr(lw_mod, "themed_confirm", lambda *a, **k: True)
+    win._activate_plan_view("Level 3")                        # active = Level 3 (top)
+    dlg = win._build_level_dialog()
+    dlg.show(); QTest.qWaitForWindowExposed(dlg)
+    try:
+        dlg.widget.table.setCurrentCell(_row(dlg.widget, "Level 3"), 0)
+        dlg.widget._delete_level()
+    finally:
+        dlg.close()
+    assert _names(win) == ["Level 1", "Level 2"]
+    assert win.scene.active_level == "Level 2"
+    assert win.central_tabs.tabText(win.central_tabs.currentIndex()) == "Plan: Level 2"
