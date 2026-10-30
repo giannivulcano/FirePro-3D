@@ -299,8 +299,9 @@ class _LineAdapter(_Adapter):
 
 class _WallAdapter(_LineAdapter):
     """Slice 2 (ruling W1): vars = the drawn line x1 y1 x2 y2 (``_pt1`` /
-    ``_pt2``, the grips). Points ``p1`` ``p2`` ``mid`` (true centerline) and
-    the untrimmed body corners ``p1l`` ``p1r`` ``p2l`` ``p2r``; edges ``edge``
+    ``_pt2``, the grips). Points ``p1`` ``p2`` ``mid`` (true centerline), the
+    untrimmed body corners ``p1l`` ``p1r`` ``p2l`` ``p2r`` and the HIDDEN face
+    midpoints ``mid_l`` ``mid_r`` (WF1); edges ``edge``
     (centerline), ``face_l``, ``face_r``, ``end1``, ``end2``. Width is not a
     variable (``half_thickness_scene`` is a constant of the build)."""
 
@@ -318,9 +319,14 @@ class _WallAdapter(_LineAdapter):
     def points(self, it, off):
         sc, sl, sr = self._offsets(it)
         p1, p2 = _offset_point(off, 0, sc), _offset_point(off, 1, sc)
+        p1l, p1r = _offset_point(off, 0, sl), _offset_point(off, 0, sr)
+        p2l, p2r = _offset_point(off, 1, sl), _offset_point(off, 1, sr)
         return {"p1": p1, "p2": p2, "mid": _mid(p1, p2),
-                "p1l": _offset_point(off, 0, sl), "p1r": _offset_point(off, 0, sr),
-                "p2l": _offset_point(off, 1, sl), "p2r": _offset_point(off, 1, sr)}
+                "p1l": p1l, "p1r": p1r, "p2l": p2l, "p2r": p2r,
+                # WF1 (wall faces design): HIDDEN face midpoints -- never a
+                # marker / pick / grip; D81 face dims and the solver resolve
+                # them by name.
+                "mid_l": _mid(p1l, p2l), "mid_r": _mid(p1r, p2r)}
 
     def edges(self, it, off):
         p = self.points(it, off)
@@ -338,6 +344,10 @@ class _WallAdapter(_LineAdapter):
 
     def struct_key(self, it):
         return (self.type_key, 4, it._alignment, round(it.half_thickness_scene(), 9))
+
+    def hidden_names(self, it):
+        """WF1: the face midpoints stay out of every pick / marker enumeration."""
+        return frozenset(("mid_l", "mid_r"))
 
     def write(self, it, v):
         it._pt1 = QPointF(float(v[0]), float(v[1]))

@@ -52,7 +52,10 @@ def test_handles_match_the_wall_geometry(plan, align):
     q = w.quad_points()                        # p1l, p1r, p2r, p2l
     want = {"p1": _xy(w.centerline_pt1), "p2": _xy(w.centerline_pt2),
             "mid": _xy(w.centerline_midpoint()),
-            "p1l": _xy(q[0]), "p1r": _xy(q[1]), "p2r": _xy(q[2]), "p2l": _xy(q[3])}
+            "p1l": _xy(q[0]), "p1r": _xy(q[1]), "p2r": _xy(q[2]), "p2l": _xy(q[3]),
+            # WF1: hidden face midpoints = the middle of each face's quad corners
+            "mid_l": ((q[0].x() + q[3].x()) / 2.0, (q[0].y() + q[3].y()) / 2.0),
+            "mid_r": ((q[1].x() + q[2].x()) / 2.0, (q[1].y() + q[2].y()) / 2.0)}
     assert set(pts) == set(want)
     for name, xy in want.items():
         assert _eval(pts[name], x) == pytest.approx(xy, abs=1e-9), name
@@ -143,3 +146,36 @@ def test_solver_write_rebuilds_the_outline(plan):
     body = w.outline_geometry().body          # WallOutline.body: the paint fill polygon
     xs = [body.at(i).x() for i in range(body.count())]
     assert xs and max(xs) - min(xs) == pytest.approx(4000.0, abs=1.0)
+
+
+# -- Constraints between wall faces (design 2026-10-30): WF1 / AC6 -----------
+
+@pytest.mark.parametrize("align", [ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT])
+def test_wf1_face_midpoints_are_hidden_point_handles(plan, align):
+    w = _wall(plan, (0, 0), (3000, 1000), align)
+    ad = adapter_for(w)
+    x = ad.read(w)
+    pts = ad.points(w, 0)
+    q = w.quad_points()                        # p1l, p1r, p2r, p2l (wall.py quad_points order)
+    want_l = ((q[0].x() + q[3].x()) / 2.0, (q[0].y() + q[3].y()) / 2.0)   # middle of face p1l-p2l
+    want_r = ((q[1].x() + q[2].x()) / 2.0, (q[1].y() + q[2].y()) / 2.0)   # middle of face p1r-p2r
+    assert _eval(pts["mid_l"], x) == pytest.approx(want_l, abs=1e-9)
+    assert _eval(pts["mid_r"], x) == pytest.approx(want_r, abs=1e-9)
+    assert ad.hidden_names(w) == frozenset(("mid_l", "mid_r"))
+    assert ad.mid_names(w) == frozenset(("mid",))                # WF1: not extended
+    assert ad.handle_kind(w, "mid_l") == "point"
+    assert ad.handle_kind(w, "mid_r") == "point"
+
+
+def test_ac6_item_handles_and_pick_candidates_skip_the_face_midpoints(plan):
+    from firepro3d.auto_constrain import item_handles
+    from firepro3d.constraint_controller import PickState
+    w = _wall(plan, (0, 0), (3000, 0))
+    names = [ref["h"] for kind, ref, _a, _b in item_handles(w) if kind == "point"]
+    # W1 row (editor-build-tabs design): points p1 p2 mid p1l p1r p2l p2r -- seven, no face mids
+    assert sorted(names) == sorted(["p1", "p2", "mid", "p1l", "p1r", "p2l", "p2r"])
+    ps = PickState(plan.constraint_ctl, "dim_distance")
+    marks = [ref for kind, ref, _a, _b in ps._candidates()
+             if kind == "point" and ref.get("uid") == w._uid]
+    assert len(marks) == 7, marks
+    assert not {"mid_l", "mid_r"} & {r["h"] for r in marks}
