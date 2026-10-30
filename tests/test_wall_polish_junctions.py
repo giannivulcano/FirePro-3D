@@ -448,3 +448,51 @@ def test_acute_three_way_falls_back_per_pair(qapp):
     p1l, p1r = c.outline_geometry().quad[0], c.outline_geometry().quad[1]
     sq1l, sq1r = c.quad_points()[0], c.quad_points()[1]
     assert (p1l != sq1l) or (p1r != sq1r)
+
+
+def _area(poly):
+    n = poly.count()
+    t = 0.0
+    for i in range(n):
+        a, b = poly.at(i), poly.at((i + 1) % n)
+        t += a.x() * b.y() - b.x() * a.y()
+    return abs(t) / 2.0
+
+
+def test_closed_right_rectangle_with_tees_strokes_no_miter_seam(qapp):
+    """Bug guard (26307 Model_new Basement/Mall): a closed Right-aligned
+    rectangle at building coordinates, plus a Right-aligned tee spanning it
+    and a Center tee off its left wall.  The independently computed shared
+    miter vertices differ by float noise, and the tees' union extensions ran
+    through Qt booleans on collinear edges; a body dropped from the cluster
+    union stroked the corner diagonal and cut the tee extensions off."""
+    s = _ms()
+    t = 457.2
+    x0, y0 = 10407.630212091033, 9135.47248278189
+    x1, y1 = 24072.830212091038, 19320.87248278189
+
+    def mk(p1, p2, th, align):
+        w = _wall(s, p1, p2, th=th)
+        w._alignment = align
+        return w
+
+    rect = [mk((x0, y0), (x1, y0), t, ALIGN_RIGHT),
+            mk((x1, y0), (x1, y1), t, ALIGN_RIGHT),
+            mk((x1, y1), (x0, y1), t, ALIGN_RIGHT),
+            mk((x0, y1), (x0, y0), t, ALIGN_RIGHT)]
+    tee_v = mk((15741.6, y0), (15741.6, y1), 254.0, ALIGN_RIGHT)
+    tee_h = mk((x0, 11548.5), (15741.6, 11548.5), 203.2, ALIGN_CENTER)
+
+    corners = [((x0, y0), (x0 - t, y0 - t)), ((x1, y0), (x1 + t, y0 - t)),
+               ((x1, y1), (x1 + t, y1 + t)), ((x0, y1), (x0 - t, y1 + t))]
+    for (ix, iy), (ox, oy) in corners:
+        mid = QPointF((ix + ox) / 2.0, (iy + oy) / 2.0)
+        for w in rect:
+            assert not _stroked(w, mid), f"miter seam stroked at {mid}"
+    # positive control: an outer face is stroked
+    assert _stroked(rect[0], QPointF((x0 + x1) / 2.0, y0 - t))
+
+    # tee extensions into the hosts survive (a dropped body left the stub only)
+    for w in (tee_v, tee_h):
+        o = w.outline()
+        assert _area(o.union_body) > _area(o.body) * 1.01

@@ -113,6 +113,30 @@ class TestUnionAndStrokes:
                          if abs(a.y() - 50) < 1e-6 and abs(b.y() - 50) < 1e-6)
         assert on_face == [(0.0, 650.0), (750.0, 2000.0)]
 
+    def test_union_welds_vertices_that_differ_by_float_noise(self, qapp):
+        """Bug guard: two walls compute the shared outer miter vertex
+        independently and differ by ~3e-12 mm (real Wall 3 / Wall 4 of
+        26307 Model_new, Right-aligned closed rectangle).  Unsnapped, Qt's
+        clipper drops one body in every operand order and the miter
+        diagonal is stroked."""
+        w3 = _poly((24072.830212091038, 19320.872482781888),
+                   (10407.630212091033, 19320.87248278189),
+                   (9950.43021208938, 19778.072482781892),
+                   (24530.03021209104, 19778.07248278189))
+        w4 = _poly((10407.630212091033, 19320.87248278189),
+                   (10407.630212127795, 9135.47248278189),
+                   (9950.430212129444, 8678.272482781891),
+                   (9950.430212089383, 19778.072482781892))
+        u = cluster_union([w3, w4])
+        assert u.contains(QPointF(10200.0, 14000.0))    # inside Wall 4
+        assert u.contains(QPointF(17000.0, 19550.0))    # inside Wall 3
+        segs = stroke_segments(w4, boundary_segments(u))
+        # the shared miter edge (10407.63,19320.87)-(9950.43,19778.07) is
+        # interior to the union: no stroked piece may lie on it
+        for p, q in segs:
+            assert not (abs(p.x() + p.y() - 29728.5027) < 1e-2
+                        and abs(q.x() + q.y() - 29728.5027) < 1e-2)
+
     def test_lone_body_strokes_every_edge(self, qapp):
         body = _poly((0, 50), (1000, 50), (1000, -50), (0, -50))
         segs = stroke_segments(body, boundary_segments(cluster_union([body])))

@@ -32,9 +32,9 @@ from .constants import (DEFAULT_LEVEL,
                        WALL_OUTLINE_ON_EDGE_TOL)
 from .view_scale import scene_hit_width
 from PyQt6 import sip
-from .wall_outline import (JunctionArm, WallOutline, boundary_segments,
-                           cluster_union, intersect_lines, junction_pie,
-                           stroke_segments, visible_corners)
+from .wall_outline import (JunctionArm, WallOutline, _poly_path,
+                           boundary_segments, cluster_union, intersect_lines,
+                           junction_pie, stroke_segments, visible_corners)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -1414,17 +1414,47 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         end edge stays a union boundary (stroked, its corner visible).  The
         host's raw quad is used (not its cached outline) so that mutually
         teeing chains cannot recurse.  Falls back to *union_body* unless the
-        result is a single closed region.
+        result is a single closed region.  When every extension point (those
+        on the host's true centerline) already lies inside the host quad there
+        is no overhang to cut, and the boolean is skipped: Qt's clipper drops
+        a body when the operands share collinear edges.
         """
-        def _path(poly: QPolygonF) -> QPainterPath:
-            p = QPainterPath()
-            p.addPolygon(poly)
-            p.closeSubpath()
-            return p
+        host_quad = list(host.quad_points())
+        a, b = host.centerline_pt1, host.centerline_pt2
+        span = math.hypot(b.x() - a.x(), b.y() - a.y())
+        body_pts = {(round(body.at(i).x(), 6), round(body.at(i).y(), 6))
+                    for i in range(body.count())}
+        ext = [union_body.at(i) for i in range(union_body.count())
+               if (round(union_body.at(i).x(), 6),
+                   round(union_body.at(i).y(), 6)) not in body_pts
+               and span > 0.0
+               and abs((b.x() - a.x()) * (union_body.at(i).y() - a.y())
+                       - (b.y() - a.y()) * (union_body.at(i).x() - a.x())
+                       ) / span <= WALL_OUTLINE_ON_EDGE_TOL]
 
-        host_poly = QPolygonF(list(host.quad_points()))
-        allowed = _path(body).united(_path(host_poly))
-        clipped = _path(union_body).intersected(allowed).simplified()
+        def _inside(pt: QPointF) -> bool:
+            side = None
+            for i in range(4):
+                p, q = host_quad[i], host_quad[(i + 1) % 4]
+                edge = math.hypot(q.x() - p.x(), q.y() - p.y())
+                if edge == 0.0:
+                    continue
+                d = ((q.x() - p.x()) * (pt.y() - p.y())
+                     - (q.y() - p.y()) * (pt.x() - p.x())) / edge
+                if abs(d) <= WALL_OUTLINE_ON_EDGE_TOL:
+                    continue
+                if side is None:
+                    side = d > 0
+                elif side != (d > 0):
+                    return False
+            return True
+
+        if ext and all(_inside(pt) for pt in ext):
+            return union_body
+
+        host_poly = QPolygonF(host_quad)
+        allowed = _poly_path(body).united(_poly_path(host_poly))
+        clipped = _poly_path(union_body).intersected(allowed).simplified()
         polys = clipped.toSubpathPolygons()
         if len(polys) != 1 or polys[0].count() < 4:
             return union_body

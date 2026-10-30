@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath, QPolygonF
 
-from .constants import WALL_OUTLINE_MIN_SEG, WALL_OUTLINE_ON_EDGE_TOL
+from .constants import (
+    WALL_OUTLINE_MIN_SEG, WALL_OUTLINE_ON_EDGE_TOL, WALL_OUTLINE_SNAP)
 
 Line = tuple[QPointF, QPointF]
 
@@ -143,8 +144,12 @@ def junction_pie(arms: list[JunctionArm], junction: QPointF,
 
 
 def _poly_path(poly: QPolygonF) -> QPainterPath:
+    """Closed path of *poly*, vertices snapped to ``WALL_OUTLINE_SNAP``."""
+    g = WALL_OUTLINE_SNAP
     p = QPainterPath()
-    p.addPolygon(poly)
+    p.addPolygon(QPolygonF([QPointF(round(poly.at(i).x() / g) * g,
+                                    round(poly.at(i).y() / g) * g)
+                            for i in range(poly.count())]))
     p.closeSubpath()
     return p
 

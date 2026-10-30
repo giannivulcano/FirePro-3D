@@ -278,6 +278,10 @@ MAX_MITER_FACTOR = 4.0        # miter extension cap: half_thickness * this facto
 # (every real wall edge is >= the 25.4 mm minimum thickness).
 WALL_OUTLINE_ON_EDGE_TOL = 1e-3
 WALL_OUTLINE_MIN_SEG = MITER_TOL
+# Two walls compute a shared miter vertex independently and can differ by
+# ~1e-12 mm; Qt's path clipper then drops a whole body.  Union operand
+# vertices are snapped to this grid (mm) so such pairs weld exactly.
+WALL_OUTLINE_SNAP = 1e-6
 AUTO_JOIN_TOLERANCE = 20.0    # snap radius for endpoint-to-endpoint wall joins
 TEE_TOLERANCE = 40.0          # snap radius for tee (mid-wall) joins
 
