@@ -93,7 +93,8 @@ def test_backcompat_shells_wall(scene):
 def test_wall_state_stays_scene_side(scene):
     """Behavior-home: wall state remains Model_Space attributes (NOT moved to _wall_ctl)."""
     for attr in ("_walls", "_next_wall_num", "_wall_primitive", "_wall_alignment",
-                 "_wall_anchor", "_wall_rect_side_pt", "_wall_rect_pivot"):
+                 "_wall_anchor", "_wall_rect_side_pt", "_wall_rect_pivot",
+                 "_wall_start_target"):                      # WF5 (wall faces design)
         assert hasattr(scene, attr), f"scene lost state {attr}"
 
 

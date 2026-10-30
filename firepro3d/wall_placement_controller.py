@@ -122,9 +122,16 @@ class WallPlacementController:
         if self._scene._wall_anchor is None:
             self._scene._wall_anchor = snapped
             self._scene._wall_chain_start = QPointF(snapped)
+            # WF5: this press's OSNAP target (a typed-HUD completion, event None,
+            # captures nothing) -- the shipped GeometryDrawingController._capture read.
+            self._scene._wall_start_target = (
+                None if event is None
+                else ac.resolve_wall_snap(getattr(self._scene, "_snap_result", None)))
             self._scene.update_preview_node(snapped)
             self._scene.instructionChanged.emit(f"Pick wall end point [{self._scene._wall_alignment}]  Space=align")
         else:
+            end_target = (None if event is None
+                          else ac.resolve_wall_snap(getattr(self._scene, "_snap_result", None)))
             tip = snapped
             if event is not None and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 tip = self._scene._constrain_angle(self._scene._wall_anchor, snapped)
@@ -157,7 +164,9 @@ class WallPlacementController:
             apply_category_defaults(wall)
             marks.mint(self._scene, wall)
             # Auto-join: snap endpoints to nearby walls
-            recs = self._auto_join_wall(wall) + ac.plan_wall_hv(wall)
+            recs = self._auto_join_wall(
+                wall, targets=(self._scene._wall_start_target, end_target)) + ac.plan_wall_hv(wall)
+            self._scene._wall_start_target = None   # WF5: a chained start inherits no target
             ac.plan_commit(self._scene, recs, None if event is None else event.modifiers())
             wall.setSelected(True)
             for v in self._scene.views(): v.viewport().update()
@@ -184,9 +193,13 @@ class WallPlacementController:
     # ── Post-commit endpoint snap (miter / tee auto-join) ───────────────────
 
     def _auto_join_wall(self, wall: WallSegment,
-                        tolerance: float = AUTO_JOIN_TOLERANCE):
+                        tolerance: float = AUTO_JOIN_TOLERANCE,
+                        targets=(None, None)):
         """Snap wall endpoints to nearby existing wall endpoints (miter join)
         and to mid-wall faces (tee join).
+
+        *targets* = the (start, end) captured ``auto_constrain.Target`` of the
+        two presses (WF5), consumed by passes 1b / 1c (Task 6).
 
         Returns the G11 Auto Constrain records for the joins made (the caller
         decides whether to add them).
@@ -692,6 +705,7 @@ class WallPlacementController:
         if new_mode != "wall":
             s._wall_anchor = None
             s._wall_chain_start = None
+            s._wall_start_target = None
             if s._wall_preview_line is not None:
                 if s._wall_preview_line.scene() is s:
                     s.removeItem(s._wall_preview_line)

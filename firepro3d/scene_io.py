@@ -656,6 +656,7 @@ class SceneIOMixin:
         self._rooms = []
         self._wall_anchor = None
         self._wall_chain_start = None
+        self._wall_start_target = None
         self._floor_active = None
         self._roof_active = None
         reset_grid_counters()

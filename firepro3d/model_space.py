@@ -595,6 +595,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._roof_rect_preview: "QGraphicsRectItem | None" = None
         self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
         self._wall_chain_start: "QPointF | None" = None    # very first anchor for wall-close
+        self._wall_start_target = None   # WF5: the start click's auto_constrain.Target (face joins)
         self._wall_preview_rect: "QGraphicsPathItem | None" = None  # thickness preview
         self._wall_preview_line: "QGraphicsLineItem | None" = None
         self._wall_rect_anchor: "QPointF | None" = None   # first click for rect wall

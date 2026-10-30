@@ -115,6 +115,32 @@ def resolve_snap(snap) -> Target | None:
     return None
 
 
+def resolve_wall_snap(snap) -> Target | None:
+    """WF5 (wall faces design): :func:`resolve_snap`, plus a MID snap sitting on
+    a HIDDEN edge midpoint (a wall face's ``mid_l`` / ``mid_r``, WF1) -> that
+    edge as an edge target (the face line; there is no visible point to hold).
+    None exactly where ``resolve_snap`` is None otherwise."""
+    t = resolve_snap(snap)
+    if t is not None or snap is None or snap.snap_type != "midpoint":
+        return t
+    src = snap.source_item
+    uid = getattr(src, "_uid", None)
+    ad = adapter_for(src) if src is not None else None
+    if uid is None or ad is None:
+        return None
+    from .constraint_dims import mid_edge_name
+    p = QPointF(snap.point)
+    x = np.array(ad.read(src), dtype=float)
+    pts = ad.points(src, 0)
+    for name in sorted(ad.hidden_names(src)):
+        edge = mid_edge_name(name)
+        e = pts.get(name)
+        if edge is None or e is None or not _close(QPointF(*e.eval(x)[0]), p):
+            continue
+        return Target("edge", {"uid": uid, "h": edge}, (p.x(), p.y()))
+    return None
+
+
 def matches(target: Target | None, vertex) -> bool:
     """AD4: a stored target applies only to the vertex at its snap point."""
     return target is not None and _close(QPointF(*target.point), QPointF(vertex))

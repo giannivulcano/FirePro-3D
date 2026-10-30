@@ -125,3 +125,76 @@ def test_ac1_a_fixed_second_wall_never_moves_on_a_typed_face_dim(qapp):
             assert (a._pt1.y(), a._pt2.y()) == pytest.approx((0.0, 0.0), abs=1e-6)   # conflict: hold last good
     finally:
         sc.cleanup()
+
+
+# -- WF5: per-press snap capture ---------------------------------------------
+
+def test_wf5_resolve_wall_snap_targets(qapp):
+    sc = Model_Space()
+    try:
+        h = _wall(sc, (0, 0), (4000, 0))
+        q = h.quad_points()                                  # p1l, p1r, p2r, p2l
+        mid_l = QPointF((q[0].x() + q[3].x()) / 2.0, (q[0].y() + q[3].y()) / 2.0)
+        # a face MIDPOINT snap (hidden mid_l, WF1) -> the face as an edge target
+        t = ac.resolve_wall_snap(OsnapResult(point=mid_l, snap_type="midpoint", source_item=h))
+        assert t == ac.Target("edge", {"uid": h._uid, "h": "face_l"}, (mid_l.x(), mid_l.y()))
+        # a face CORNER snap -> the corner point handle
+        t = ac.resolve_wall_snap(OsnapResult(point=QPointF(q[3]), snap_type="endpoint", source_item=h))
+        assert t == ac.Target("point", {"uid": h._uid, "h": "p2l"}, (q[3].x(), q[3].y()))
+        # a PER foot on face_r -> the face, perpendicular flagged
+        p = QPointF(1000.0, q[1].y())
+        t = ac.resolve_wall_snap(OsnapResult(point=p, snap_type="perpendicular", source_item=h))
+        assert t == ac.Target("edge", {"uid": h._uid, "h": "face_r"}, (1000.0, q[1].y()),
+                              perpendicular=True)
+        # a centerline MID snap is the visible ``mid`` point, as resolve_snap gives it
+        cm = h.centerline_midpoint()
+        t = ac.resolve_wall_snap(OsnapResult(point=cm, snap_type="midpoint", source_item=h))
+        assert t.kind == "point" and t.ref == {"uid": h._uid, "h": "mid"}
+        assert ac.resolve_wall_snap(None) is None
+        far = OsnapResult(point=QPointF(123.0, 456.0), snap_type="midpoint", source_item=h)
+        assert ac.resolve_wall_snap(far) is None            # no handle at the point
+    finally:
+        sc.cleanup()
+
+
+class _Ev:
+    """Press-event stand-in: ``_press_wall`` reads only ``modifiers()``."""
+
+    def __init__(self, mods=Qt.KeyboardModifier.NoModifier):
+        self._m = mods
+
+    def modifiers(self):
+        return self._m
+
+
+def test_wf5_start_press_captures_its_target_and_the_end_press_releases_it(make_model_space):
+    sc = make_model_space()
+    h = _wall(sc, (0, 0), (4000, 0))
+    q = h.quad_points()
+    start = QPointF(2000.0, q[0].y())                        # on face_l, mid-span
+    want = ac.Target("edge", {"uid": h._uid, "h": "face_l"}, (2000.0, q[0].y()))
+    assert sc._wall_start_target is None
+    # the start click stores its target on the scene (the controller owns no state)
+    sc.set_mode("wall")
+    sc._snap_result = OsnapResult(point=QPointF(start), snap_type="nearest", source_item=h)
+    sc._wall_ctl._press_wall(_Ev(), start, start, None, None, None)
+    assert sc._wall_start_target == want
+    sc.set_mode("select")                                   # clear() drops it
+    assert sc._wall_start_target is None
+    # the end click consumes it: a chained continuation inherits no target
+    sc.set_mode("wall")
+    sc._snap_result = OsnapResult(point=QPointF(start), snap_type="nearest", source_item=h)
+    sc._wall_ctl._press_wall(_Ev(), start, start, None, None, None)
+    assert sc._wall_start_target == want
+    sc._snap_result = None
+    end = QPointF(2000.0, 1500.0)
+    n0 = len(sc._walls)
+    sc._wall_ctl._press_wall(_Ev(), end, end, None, None, None)
+    assert len(sc._walls) == n0 + 1
+    assert sc._wall_start_target is None
+    # a typed-HUD completion (event None) captures nothing, whatever the stale snap
+    sc.set_mode("wall")
+    sc._snap_result = OsnapResult(point=QPointF(start), snap_type="nearest", source_item=h)
+    sc._wall_ctl._press_wall(None, start, start, None, None, None)
+    assert sc._wall_start_target is None
+    sc.set_mode("select")
