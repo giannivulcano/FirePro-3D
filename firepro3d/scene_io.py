@@ -552,6 +552,13 @@ class SceneIOMixin:
                 sec_mgr.clear()
             sec_mgr.seed_cardinals()
 
+        # Re-point level refs that name a missing level (wall-room-floor s11.3 open repair)
+        if self._level_manager:
+            from .level_manager import leveled_items
+            _fixed = self._level_manager.repair_missing_refs(leveled_items(self))
+            if _fixed:
+                log.info("Repaired %d level reference(s) to missing levels on load", _fixed)
+
         # Apply level visibility
         if self._level_manager:
             self._level_manager.apply_to_scene(self)
