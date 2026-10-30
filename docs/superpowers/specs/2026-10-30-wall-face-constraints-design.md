@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-10-30, unbuilt; rows flip to "built" at Account
-last-verified: 2026-10-30
-verified-commit: 75e3cb0f  # main at the branch cut (feat/wall-face-constraints)
+status: built             # WF1-WF11 built on feat/wall-face-constraints (merged to main 2026-10-30)
+last-verified: 2026-10-30  # Account: all WF rows + AC1-AC8 re-audited against the branch diff
+verified-commit: 43e792d4  # wall-face constraints Account; prior 75e3cb0f (main at the branch cut)
 applies-to:
   - firepro3d/sketch_adapters.py        # _WallAdapter hidden face midpoints + translate hook
   - firepro3d/constraint_dims.py        # _EDGE_MID face rows
@@ -81,22 +81,22 @@ bands on the true centerline at half-thickness + `MITER_TOL`.)
 
 ## Acceptance Criteria
 
-- [ ] AC1 Smart Dimension, face of wall A then parallel face of wall B, places a `dim_point_line` reading the clear distance; typing a value moves B by the full delta (both ends, length and direction kept) and A holds; a B held by Fix or a tied end yields to today's conflict / least-change path.
-- [ ] AC2 Face then the other face of the same wall: status `DIM_WALL_THICKNESS_STATUS`, no record, tool live.
-- [ ] AC3 Wall line started (and, separately, ended) on a host face line or face midpoint: `_pt` exactly at the click, record `point_on_curve [new drawn end, host face_l|face_r]` and no `perpendicular` on any snap (PER included), gate honoured (toggle XOR Shift), Center / Left / Right hosts.
-- [ ] AC4 Same on a host face corner: record `coincident [new drawn end, host p1l|p1r|p2l|p2r]`, no snap move.
-- [ ] AC5 After AC3, moving the host perpendicular (grip drag through the real view) moves the tied end onto the new face line; sliding it off-span leaves the end on the line with no red constraint.
-- [ ] AC6 No new pick markers: `item_handles(wall)` yields no `mid_l` / `mid_r`; the pick-mode marker count on a wall is unchanged.
-- [ ] AC7 Opening a saved file adds no records (constraint count equals the file's).
-- [ ] AC8 Pass order: an end within `AUTO_JOIN_TOLERANCE` of a host endpoint AND named on a face corner takes the endpoint join (Pass 1), not 1b.
-- [ ] Testing: e2e on the shown MainWindow via the real Smart Dimension button and posted face clicks (`tests/test_plan_constraints_e2e.py` pattern); placement via the real press path with a staged `scene._snap_engine.find` (a press recomputes `_snap_result` inside `get_effective_position`, so the engine, not the result, is staged; line / midpoint / corner x Center / Left / Right); refusal asserts the status text; every guard RED-proved with the change reverted (`shared/red-proof.ps1`).
+- [x] AC1 Smart Dimension, face of wall A then parallel face of wall B, places a `dim_point_line` reading the clear distance; typing a value moves B by the full delta (both ends, length and direction kept) and A holds; a B held by Fix or a tied end yields to today's conflict / least-change path.
+- [x] AC2 Face then the other face of the same wall: status `DIM_WALL_THICKNESS_STATUS`, no record, tool live.
+- [x] AC3 Wall line started (and, separately, ended) on a host face line or face midpoint: `_pt` exactly at the click, record `point_on_curve [new drawn end, host face_l|face_r]` and no `perpendicular` on any snap (PER included), gate honoured (toggle XOR Shift), Center / Left / Right hosts.
+- [x] AC4 Same on a host face corner: record `coincident [new drawn end, host p1l|p1r|p2l|p2r]`, no snap move.
+- [x] AC5 After AC3, moving the host perpendicular (grip drag through the real view) moves the tied end onto the new face line; sliding it off-span leaves the end on the line with no red constraint.
+- [x] AC6 No new pick markers: `item_handles(wall)` yields no `mid_l` / `mid_r`; the pick-mode marker count on a wall is unchanged.
+- [x] AC7 Opening a saved file adds no records (constraint count equals the file's).
+- [x] AC8 Pass order: an end within `AUTO_JOIN_TOLERANCE` of a host endpoint AND named on a face corner takes the endpoint join (Pass 1), not 1b.
+- [x] Testing: e2e on the shown MainWindow via the real Smart Dimension button and posted face clicks (`tests/test_plan_constraints_e2e.py` pattern); placement via the real press path with a staged `scene._snap_engine.find` (a press recomputes `_snap_result` inside `get_effective_position`, so the engine, not the result, is staged; line / midpoint / corner x Center / Left / Right); refusal asserts the status text; every guard RED-proved with the change reverted (`shared/red-proof.ps1`).
 
 ## Verification Checklist
 
-- [ ] All acceptance criteria met
-- [ ] Keep-green set (1b report) green; full suite via `shared/run-suite.ps1` on the final tree
-- [ ] No regressions: Pass 1 / Pass 2 parity tests (`test_wall_placement_slice_parity.py`, `test_auto_constrain_wall.py`) unchanged
-- [ ] Account: pointers in the three governing specs; W1 row amended (hidden `mid_l` / `mid_r`); rows here flipped to built with the commit
+- [x] All acceptance criteria met
+- [x] Keep-green set (1b report) green (final coupled set 298 passed); full suite skipped by the standing Large-tier ruling (no VC6)
+- [x] No regressions: Pass 1 / Pass 2 parity tests (`test_wall_placement_slice_parity.py`, `test_auto_constrain_wall.py`) unchanged
+- [x] Account: pointers in the three governing specs; W1 row amended (hidden `mid_l` / `mid_r`); rows here flipped to built with the commit
 
 ## Existing Code Context
 

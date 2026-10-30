@@ -1,7 +1,7 @@
 ---
 status: current -- slices 1-3 built (c23c1610, db16090a, f44a4c2b)   # three feature slices (see Build slices)
-last-verified: 2026-10-29  # Gridline Auto Constrain Account: GA1-GA3 rows, s2 origin-tie exception, s3 plan_commit + Gridline placement records; prior 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
-verified-commit: d3813e9d   # Gridline Auto Constrain Account; prior f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
+last-verified: 2026-10-30  # wall-face constraints Account: W1 hidden mid_l / mid_r, PD1 face-join pointer; prior 2026-10-29  # Gridline Auto Constrain Account: GA1-GA3 rows, s2 origin-tie exception, s3 plan_commit + Gridline placement records; prior 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
+verified-commit: 43e792d4   # wall-face constraints Account (W1 / PD1); prior d3813e9d   # Gridline Auto Constrain Account; prior f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
 applies-to:
   - main.py (init_ribbon, _init_build_tab / _init_editor_tab, canvas context, retired contextual-tab mechanism)
   - firepro3d/ribbon_bar.py
@@ -86,9 +86,9 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
 | H1 | A solve that moves a gridline treats its hosted blocks as a grip drag does: ride the frame on shift / rotate; origin slide along the axis compensates so they stay put (D6) | slice-2 Phase 2 ask (2026-10-26) |
 | R2 | **Array stays live on a wall selection** -- Array copies walls through the paste path (`paste_items` has a wall branch). B2 wrongly listed Array among the tools that refuse walls; in plan a wall selection greys Scale / Flip / Mirror / Offset only | slice-1 Phase 5 ask (2026-10-26) |
 
-| W1 | Plan constraints reference any edge of the wall seen from plan: faces face_l / face_r, centerline, ends end1 / end2; points p1 p2 mid p1l p1r p2l p2r (untrimmed quad) | slice-2 Phase 4 ask (2026-10-26) |
+| W1 | Plan constraints reference any edge of the wall seen from plan: faces face_l / face_r, centerline, ends end1 / end2; points p1 p2 mid p1l p1r p2l p2r (untrimmed quad); plus hidden derived face midpoints `mid_l` / `mid_r` (never a marker or pick; `docs/superpowers/specs/2026-10-30-wall-face-constraints-design.md` WF1) | slice-2 Phase 4 ask (2026-10-26) |
 | L1 | A locked gridline acts as fixed: never moves; a solve that would move it is a conflict (hold-last-good) | slice-2 Phase 4 ask (2026-10-26) |
-| PD1 | Placement records use the wall's **drawn-line** handles, not the true centerline: Center -> `p1` `p2` `edge`; Left -> `p1r` `p2r` `face_r`; Right -> `p1l` `p2l` `face_l` (`auto_constrain.wall_drawn_handles`). Adding a record never moves a Left / Right wall; no new handles (W1 unchanged) | slice-3 Phase 3 plan |
+| PD1 | Placement records use the wall's **drawn-line** handles, not the true centerline: Center -> `p1` `p2` `edge`; Left -> `p1r` `p2r` `face_r`; Right -> `p1l` `p2l` `face_l` (`auto_constrain.wall_drawn_handles`). Adding a record never moves a Left / Right wall; no new handles (W1 unchanged). Face-target joins: wall-face design WF6 | slice-3 Phase 3 plan |
 | PD2 | Gate = toggle XOR Shift (D139), Shift read from the press event (line / polyline) or the keyboard modifiers captured at the click (rect). A **typed (HUD) completion follows the toggle alone** (modifiers `None`): the wall auto-join snap is geometric (happens whatever the gate) and the record only names it. Plan only -- never in a Block Editor scene | slice-3 Phase 3 plan; Fix round M4 |
 | PD3 | Tee join -> `point_on_curve [new drawn end, host drawn edge]` (the snap lands on the host's click line) | slice-3 Phase 3 plan |
 | PD4 | Rect commit: the four walls' own endpoint joins give the corner `coincident`s (duplicates drop as redundant in `auto_join`); then 3 `perpendicular` between consecutive drawn edges (a 4th is redundant). A rect adds no `horizontal` / `vertical` | slice-3 Phase 3 plan |
