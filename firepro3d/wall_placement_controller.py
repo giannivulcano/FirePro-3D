@@ -38,6 +38,11 @@ from .geometry_2d import (rect_side_ghost, rect_signed_depth,
                           rect_from_side_and_depth, apply_rect_ghost,
                           rotated_rect_corners, _rect_solve)
 
+# WF6 (wall faces design): the host handles a captured OSNAP target may name --
+# Pass 1b pins to a face corner, Pass 1c puts the end on a face line.
+_FACE_CORNERS = frozenset(("p1l", "p1r", "p2l", "p2r"))
+_FACE_EDGES = frozenset(("face_l", "face_r"))
+
 
 class WallPlacementController:
     def __init__(self, scene):
@@ -196,10 +201,13 @@ class WallPlacementController:
                         tolerance: float = AUTO_JOIN_TOLERANCE,
                         targets=(None, None)):
         """Snap wall endpoints to nearby existing wall endpoints (miter join)
-        and to mid-wall faces (tee join).
+        and to mid-wall faces (tee join); record a press that named a host
+        face corner / face line (WF6, no snap move).
 
-        *targets* = the (start, end) captured ``auto_constrain.Target`` of the
-        two presses (WF5), consumed by passes 1b / 1c (Task 6).
+        Pass order: 1 endpoint within *tolerance* > 1b captured face corner >
+        1c captured face line > 2 click line within ``TEE_TOLERANCE``. An end
+        a pass claims is skipped by the later ones. *targets* = the (start,
+        end) ``auto_constrain.Target`` of the two presses (WF5), None = unnamed.
 
         Returns the G11 Auto Constrain records for the joins made (the caller
         decides whether to add them).
@@ -227,6 +235,21 @@ class WallPlacementController:
                     other.invalidate_geometry()
                     other.update()
 
+        # Pass 1b / 1c (WF6): the press named a host FACE corner / face line
+        # (WF5 target). No snap move (the OSNAP already put the click on it);
+        # an end Pass 1 claimed is skipped (AC8). Hidden / gone hosts drop (S1).
+        for my_idx in (0, 1):
+            if my_idx in snapped:          # claimed by Pass 1 (AC8)
+                continue
+            t = targets[my_idx] if my_idx < len(targets) else None
+            host = self._face_target_host(wall, t)
+            if host is None:
+                continue
+            h = t.ref.get("h")
+            if (t.kind == "point" and h in _FACE_CORNERS) or (t.kind == "edge" and h in _FACE_EDGES):
+                snapped.add(my_idx)
+                records += ac.plan_wall_face_join(wall, my_idx, t)
+
         # Pass 2: tee join — snap unsnapped endpoints onto the host
         # wall's CENTERLINE (the point the user picked stays put; the
         # drawn body is coped back to the host face at render time by
@@ -245,6 +268,21 @@ class WallPlacementController:
                     snapped.add(my_idx)
                     records += ac.plan_wall_join(wall, my_idx, other)
         return records
+
+    def _face_target_host(self, wall, target):
+        """WF5: the VISIBLE ``WallSegment`` in ``scene._walls`` that *target*
+        names, other than *wall*; None for no target, a non-wall source, a
+        hidden host or one no longer in the scene (dropped silently, S1)."""
+        if target is None or not isinstance(target.ref, dict):
+            return None
+        uid = target.ref.get("uid")
+        if uid is None:
+            return None
+        for other in self._scene._walls:
+            if (other is not wall and isinstance(other, WallSegment)
+                    and other.isVisible() and getattr(other, "_uid", None) == uid):
+                return other
+        return None
 
     # ── Grip-drag: propagate coincident endpoints ───────────────────────────
 

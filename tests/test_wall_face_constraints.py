@@ -198,3 +198,31 @@ def test_wf5_start_press_captures_its_target_and_the_end_press_releases_it(make_
     sc._wall_ctl._press_wall(None, start, start, None, None, None)
     assert sc._wall_start_target is None
     sc.set_mode("select")
+
+
+# -- WF6: plan_wall_face_join = plan_joins over the drawn handles ------------
+
+def _free(a, b, align=None, uid="u"):
+    w = WallSegment(QPointF(*a), QPointF(*b))
+    if align is not None:
+        w._alignment = align
+    w._uid = uid
+    return w
+
+
+def test_wf6_plan_wall_face_join_records():
+    new = _free((2000, 1500), (2000, 100), ALIGN_LEFT, "N")      # drawn handles p1r p2r face_r
+    corner = ac.Target("point", {"uid": "H", "h": "p2l"}, (0.0, 0.0))
+    assert ac.plan_wall_face_join(new, 0, corner) == [
+        ("coincident", [{"uid": "N", "h": "p1r"}, {"uid": "H", "h": "p2l"}])]
+    face = ac.Target("edge", {"uid": "H", "h": "face_l"}, (0.0, 0.0))
+    assert ac.plan_wall_face_join(new, 1, face) == [
+        ("point_on_curve", [{"uid": "N", "h": "p2r"}, {"uid": "H", "h": "face_l"}])]
+    per = ac.Target("edge", {"uid": "H", "h": "face_l"}, (0.0, 0.0), perpendicular=True)
+    assert ac.plan_wall_face_join(new, 1, per) == [
+        ("point_on_curve", [{"uid": "N", "h": "p2r"}, {"uid": "H", "h": "face_l"}]),
+        ("perpendicular", [{"uid": "N", "h": "face_r"}, {"uid": "H", "h": "face_l"}])]
+    assert ac.plan_wall_face_join(new, 1, None) == []
+    nouid = _free((0, 0), (1, 0), None, "X")
+    nouid._uid = None
+    assert ac.plan_wall_face_join(nouid, 0, face) == []
