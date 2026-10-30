@@ -251,6 +251,7 @@ class _Metrics:
     # House glyph row (ui_kit.glyph_button) + accent sort caret (ui_kit.SortHeader)
     GLYPH_BTN_PX = 28           # square glyph button edge (mockup "glyph btn 28")
     GLYPH_BTN_GAP = 8           # spacing between glyph buttons
+    GLYPH_FONT_PX = 15          # glyph button label font size
     TABLE_HEADER_PAD_X = 8      # QHeaderView::section horizontal padding (build_dialog_qss)
     TABLE_HEADER_PX = 10        # QHeaderView::section font px (= 7.5pt @ 96 dpi; mockup head-pt) - the
                                 # QSS rule AND ui_kit.SortHeader's text measurement read it
@@ -1154,7 +1155,7 @@ QDialog[houseDialog="true"] QPushButton[switch="true"]:checked {{ background: {t
 /* ── Kit: glyph buttons (ui_kit.glyph_button — square +/−/icon row under a table) ── */
 QDialog[houseDialog="true"] QToolButton[glyph="true"] {{
     background: {t.table}; color: {t.ink}; border: 1px solid {t.line_strong};
-    border-radius: {M.RADIUS_INPUT}px; padding: 0; font-size: 15px; font-weight: 600; }}
+    border-radius: {M.RADIUS_INPUT}px; padding: 0; font-size: {M.GLYPH_FONT_PX}px; font-weight: 600; }}
 QDialog[houseDialog="true"] QToolButton[glyph="true"]:hover:enabled {{ background: {t.accent_soft}; border-color: {t.accent}; }}
 QDialog[houseDialog="true"] QToolButton[glyph="true"]:disabled {{ color: {t.faint}; border-color: {t.line}; }}
 
