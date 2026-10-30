@@ -77,6 +77,7 @@ def test_level_table_is_framed_by_a_line_border_like_the_mockup(qapp):
         w, h = img.width(), img.height()
         for x, y in ((w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1)):
             assert img.pixelColor(x, y).name() == line.name(), (x, y)
+        assert img.pixelColor(0, 0).name() != line.name()          # rounded corner, not square
     finally:
         dlg.close()
 
