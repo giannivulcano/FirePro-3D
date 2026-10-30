@@ -2534,7 +2534,8 @@ class ConstraintController:
     def _pl_apply(self, c):
         """D81 / CS15 D135: hold the line, move the point along its normal so
         the distance reads *v* -- an edge midpoint translates its edge (raw
-        ends only), a raw point handle moves alone; else None (least change)."""
+        ends, or the item's ``translate_raws`` when the ends are derived: a
+        wall, WF3), a raw point handle moves alone; else None (least change)."""
         from types import SimpleNamespace
         from .constraint_dims import mid_edge_name
         by = self.item_by_uid()
@@ -2547,9 +2548,13 @@ class ConstraintController:
         edge = mid_edge_name(h)
         ends = ad.edges(it, 0).get(edge) if edge else None
         if ends is not None:
-            if ends[0].raw is None or ends[1].raw is None:
-                return None
-            raws = (ends[0].raw, ends[1].raw)
+            if ends[0].raw is not None and ends[1].raw is not None:
+                raws = (ends[0].raw, ends[1].raw)
+            else:
+                tr = ad.translate_raws(it, h)      # WF3: a wall face / Left-Right centerline mid
+                if tr is None:
+                    return None
+                raws = tuple(zip(tr[0::2], tr[1::2]))
         else:
             pe = ad.points(it, 0).get(h)
             if pe is None or pe.raw is None:

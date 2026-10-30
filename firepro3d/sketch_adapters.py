@@ -242,6 +242,13 @@ class _Adapter:
         never offered as pick candidates -- text ``ins``. None by default."""
         return frozenset()
 
+    def translate_raws(self, item, h: str) -> tuple | None:
+        """WF3 (wall faces design): the raw variable indices, as flattened
+        ``(x, y, x, y, ...)`` pairs, that translate the item RIGIDLY when point
+        handle *h* is driven along a normal by a typed ``dim_point_line``
+        value (``_pl_apply``); None (default) = least change, as today."""
+        return None
+
     def grip_handle(self, item, index: int):
         return GRIP_HANDLES.get(self.type_key, {}).get(index)
 
@@ -348,6 +355,11 @@ class _WallAdapter(_LineAdapter):
     def hidden_names(self, it):
         """WF1: the face midpoints stay out of every pick / marker enumeration."""
         return frozenset(("mid_l", "mid_r"))
+
+    def translate_raws(self, it, h):
+        """WF3: a wall midpoint (centerline or either face) drives the whole
+        wall -- all four drawn-line vars shift by one normal delta."""
+        return (0, 1, 2, 3) if h in ("mid", "mid_l", "mid_r") else None
 
     def write(self, it, v):
         it._pt1 = QPointF(float(v[0]), float(v[1]))
