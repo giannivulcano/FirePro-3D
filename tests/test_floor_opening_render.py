@@ -94,3 +94,42 @@ def test_void_outline_uses_its_display_colour(qapp, shown_model_view):
             c = QColor(img.pixel(int((vp.x() + dx) * dpr), int((vp.y() + dy) * dpr)))
             greens.append(c.green() > 180 and c.red() < 90 and c.blue() < 90)
     assert any(greens)
+
+
+def _area3(v, f):
+    a, b, c = (v[i] for i in f)
+    ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    wx, wy, wz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+    cx, cy, cz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+    return 0.5 * math.sqrt(cx * cx + cy * cy + cz * cz)
+
+
+def test_mesh_has_a_true_hole_with_side_walls(qapp, model_scene):
+    scene = model_scene()
+    slab = _add(scene, FloorSlab(points=_rect(0, 0, 4000, 3000)),
+                _rect(1000, 1000, 2000, 2000))
+    mesh = slab.get_3d_mesh(scene._level_manager)
+    v, faces = mesh["vertices"], mesh["faces"]
+    # Top = Level 1 (0.0), bottom = 0.0 - 152.4 (thickness mode default)
+    top = [f for f in faces if all(v[i][2] == 0.0 for i in f)]
+    bottom = [f for f in faces if all(v[i][2] == pytest.approx(-152.4) for i in f)]
+    side = [f for f in faces if len({v[i][2] for i in f}) == 2]
+    assert sum(_area3(v, f) for f in top) == pytest.approx(11_000_000.0)      # 12e6 - 1e6
+    assert sum(_area3(v, f) for f in bottom) == pytest.approx(11_000_000.0)
+    # walls = (outer 2*(4000+3000) + hole 4*1000) * 152.4 = 18000 * 152.4
+    assert sum(_area3(v, f) for f in side) == pytest.approx(2_743_200.0)
+
+
+def test_swallowed_slab_has_no_mesh(qapp, model_scene):
+    scene = model_scene()
+    slab = _add(scene, FloorSlab(points=_rect(0, 0, 4000, 3000)),
+                _rect(-100, -100, 4100, 3100))
+    assert slab.get_3d_mesh(scene._level_manager) is None
+
+
+def test_void_less_mesh_unchanged(qapp, model_scene):
+    scene = model_scene()
+    slab = _add(scene, FloorSlab(points=_rect(0, 0, 4000, 3000)))
+    mesh = slab.get_3d_mesh(scene._level_manager)
+    # today's layout: 2n vertices; 2 top + 2 bottom ear triangles + 2n side triangles
+    assert len(mesh["vertices"]) == 8 and len(mesh["faces"]) == 12

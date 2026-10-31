@@ -639,6 +639,9 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                 return (sm.scene_to_real(pt.x()), -sm.scene_to_real(pt.y()))
             return (pt.x(), -pt.y())
 
+        if self.openings:                   # floor voids: holed caps + hole walls (A4)
+            return self._holed_mesh(top_z, bot_z, to_mm)
+
         pts_2d = [to_mm(p) for p in self._points]
         n = len(pts_2d)
 
@@ -667,6 +670,52 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             faces.append([i, j, j + n])
             faces.append([i, j + n, i + n])
 
+        return {
+            "vertices": verts,
+            "faces": faces,
+            "color": (self._color.redF(), self._color.greenF(),
+                      self._color.blueF(), 1.0),
+        }
+
+    def _holed_mesh(self, top_z: float, bot_z: float, to_mm) -> dict | None:
+        """Mesh of the cut region: per piece, holed top/bottom caps + ring walls.
+
+        Args:
+            top_z: Resolved top world-mm Z.
+            bot_z: Resolved bottom world-mm Z.
+            to_mm: Scene QPointF -> (x, y) world-mm mapper (``get_3d_mesh``'s).
+
+        Returns:
+            The ``get_3d_mesh`` dict, or None when no material remains.
+        """
+        from .floor_cut import signed_area, triangulate_with_holes
+        verts: list = []
+        faces: list = []
+        for outer, holes in self.cut_region():
+            o = [to_mm(p) for p in outer]
+            hs = [[to_mm(p) for p in h] for h in holes]
+            pts, tris = triangulate_with_holes(o, hs)
+            if not tris:
+                continue
+            base, n = len(verts), len(pts)
+            verts += [[x, y, top_z] for x, y in pts]
+            verts += [[x, y, bot_z] for x, y in pts]
+            faces += [[base + a, base + b, base + c] for a, b, c in tris]
+            faces += [[base + a + n, base + c + n, base + b + n] for a, b, c in tris]
+            first = {}
+            for i, p in enumerate(pts):
+                first.setdefault(p, i)
+            rings = [o if signed_area(o) > 0 else o[::-1]]           # outer CCW
+            rings += [h if signed_area(h) < 0 else h[::-1] for h in hs]   # holes CW
+            for ring in rings:
+                m = len(ring)
+                for k in range(m):
+                    i = base + first[ring[k]]
+                    j = base + first[ring[(k + 1) % m]]
+                    faces.append([i, j, j + n])
+                    faces.append([i, j + n, i + n])
+        if not faces:
+            return None
         return {
             "vertices": verts,
             "faces": faces,
