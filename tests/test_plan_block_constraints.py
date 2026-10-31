@@ -462,3 +462,21 @@ def test_plan_block_paints_its_own_colour_never_the_status_tint(sc):
     cols = [QColor(img.pixel(x, y)).name() for x in range(400) for y in range(400)]
     assert sum(c != "#000000" for c in cols) > 0, "nothing painted (vacuous)"
     assert free not in cols
+
+
+# -- Task 9: Auto Constrain stays block-free in plan (Q6 / PB5) ---------------
+
+def test_plan_auto_constrain_never_names_a_block(sc):
+    from firepro3d import auto_constrain as ac
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    try:
+        d = snap_def(sc)
+        w = wall(sc, W_A[:2], W_A[2:])
+        inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+        kept = ac.plan_commit(sc, [("coincident", [{"uid": w._uid, "h": "p1"},
+                                                   {"uid": inst._uid, "h": "u0:p1"}])], None)
+        assert kept == [] and sc.constraint_ctl.constraints == []
+        assert inst.block_pos() == (1000.0, 0.0)
+        assert wall_xy(w) == W_A
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)

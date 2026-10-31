@@ -294,9 +294,20 @@ def plan_on(modifiers) -> bool:
 def plan_commit(scene, records, modifiers, remove=()) -> list:
     """G11 / PD2: add *records* (and delete *remove* ids) through
     ``auto_join`` when :func:`plan_on`; runs before the caller's own
-    ``push_undo_state`` (D147). Returns the kept constraints."""
+    ``push_undo_state`` (D147). A record naming a block instance is dropped:
+    Auto Constrain never ties a block in plan (plan block constraints Q6 /
+    PB5 -- deferred). Returns the kept constraints."""
     ctl = plan_ctl(scene)
     if ctl is None or not (records or remove) or not plan_on(modifiers):
+        return []
+    from .constraint_controller import _is_block   # lazy: it imports this module
+    by = ctl.item_by_uid()
+
+    def _names_block(refs):
+        return any(isinstance(r, dict) and _is_block(by.get(r.get("uid")))
+                   for r in refs)
+    records = [(t, refs) for t, refs in records if not _names_block(refs)]   # Q6
+    if not (records or remove):
         return []
     return ctl.auto_join(records, remove=remove)
 
