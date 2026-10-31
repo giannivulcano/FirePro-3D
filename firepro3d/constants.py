@@ -31,7 +31,6 @@ Z_DETAIL_MARKER  = 45     # detail view markers
 Z_WATER_SUPPLY   = 50     # water supply symbol
 Z_SPRINKLER      = 100    # sprinkler symbols
 Z_OVERLAY        = 200    # previews, view markers, room labels, badges
-PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
 Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
@@ -311,6 +310,7 @@ DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (pape
 # the block scale_mode="annotative" (authored in printed mm; SB1c, annotative.py).
 DEFAULT_MODEL_TEXT_HEIGHT_MM = 100.0  # model/Block-Editor default CAP height (scene mm)
 DEFAULT_MODEL_TEXT_PADDING_MM = 15.0  # model/Block-Editor default cell padding (scene mm)
+PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
 GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width

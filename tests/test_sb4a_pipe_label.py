@@ -126,6 +126,14 @@ def test_g3_left_and_right_pipes_get_the_same_label_angle(qapp):
     left = _pipe(ms, 3000.0, 6000.0, 0.0, 5000.0)     # same direction, drawn backwards
     assert left.label.rotation() == right.label.rotation()
     assert -90.0 <= right.label.rotation() < 90.0
+    # Ground truth (VC3): the label's local +x axis, mapped to the scene, runs
+    # along the pipe and reads left to right -- whichever way the pipe was drawn.
+    for pipe, (dx, dy) in ((right, (3000.0, 1000.0)), (left, (-3000.0, -1000.0))):
+        lab = pipe.label
+        ax = lab.mapToScene(QPointF(1.0, 0.0)) - lab.mapToScene(QPointF(0.0, 0.0))
+        ux, uy = (dx, dy) if dx > 0 else (-dx, -dy)       # the pipe line, pointing +x
+        assert ax.x() * uy - ax.y() * ux == pytest.approx(0.0, abs=1e-6 * abs(ux))   # parallel
+        assert ax.x() * ux + ax.y() * uy > 0.0                                       # reads left to right
     up = _pipe(ms, 8000.0, 0.0, 8000.0, -3000.0)          # plan-vertical, both directions
     down = _pipe(ms, 9000.0, -3000.0, 9000.0, 0.0)
     assert up.label.rotation() == down.label.rotation() == -90.0
@@ -165,7 +173,7 @@ def test_g6_legacy_label_size_loads_clean_and_is_gone(qapp):
     assert not _category_has_font("Pipe")
 
 
-def test_tag_row_follows_show_label_and_assignment_is_one_undo_step(qapp):
+def test_tag_row_follows_show_label_and_default_entry_assignment_is_a_no_op(qapp):
     ms = _scene()
     p = _pipe(ms)
     keys = list(p.get_properties())
