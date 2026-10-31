@@ -80,6 +80,7 @@ Z_CATEGORY_BY_CLASS = {
 ELEV_Z_SNAPPABLE_CLASSES = frozenset({
     "FloorSlab", "RoofItem", "Room", "WallSegment",
     "WallOpening", "DoorOpening", "WindowOpening",
+    "FloorOpening",     # floor void: z follows its host slab (floor-opening A7)
 })
 
 # ── Default gridline geometry ────────────────────────────────────────────────
