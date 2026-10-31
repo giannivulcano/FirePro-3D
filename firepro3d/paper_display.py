@@ -939,7 +939,7 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
         # sheet; restore_model_display puts the original back (mirrors rooms /
         # gridline bubble labels). FULL_COLOR keeps the authored/model colour.
         _lbl = getattr(pipe, "label", None)
-        if _lbl is not None:
+        if _lbl is not None and hasattr(_lbl, "setDefaultTextColor"):   # SB4a: BoundLabelItem has none (T9)
             _lbl.setDefaultTextColor(_paper_qcolor(cat["color"], pipe))
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
@@ -1274,7 +1274,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
                 _lbl = getattr(item, "label", None)
                 entry["pipe_label_color"] = (
-                    _lbl.defaultTextColor() if _lbl is not None else None)
+                    _lbl.defaultTextColor() if hasattr(_lbl, "defaultTextColor") else None)
             elif isinstance(item, GridlineItem):
                 entry["gridline"] = _save_gridline_state(item)
             elif cat_key == "Elevation Marker":
@@ -1516,7 +1516,7 @@ def restore_model_display(saved: list[dict]):
             item._paper_pen_width = entry.get("paper_pen_width")
             _lbl = getattr(item, "label", None)
             _lc = entry.get("pipe_label_color")
-            if _lbl is not None and _lc is not None:
+            if _lbl is not None and _lc is not None and hasattr(_lbl, "setDefaultTextColor"):
                 _lbl.setDefaultTextColor(_lc)
             item.update()
 

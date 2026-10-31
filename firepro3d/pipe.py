@@ -1,10 +1,11 @@
 import math
-from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsItem, QGraphicsTextItem, QStyle
+from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsItem, QStyle
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
+from .bound_label import BoundLabelItem, TagBlockHost
 
 from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
@@ -12,7 +13,8 @@ from .assets import asset_path
 from .view_scale import scene_hit_width
 from .paper_display import shows_selection
 
-class Pipe(DisplayableItemMixin, QGraphicsLineItem):
+class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
+    _TAG_CATEGORY = "Pipe"
     SNAP_TOLERANCE_DEG = 7.5  # snap if within this angle
 
     # Line Type display widths (mm, real-world, scales with zoom)
@@ -97,7 +99,6 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
             "── Label ──": {"type": "label",  "value": ""},
             "Show Label":  {"type": "enum",   "value": "True",           "options": ["True", "False"]},
-            "Label Size": {"type": "string", "value": "12"},
         }
 
         self.node1 = node1
@@ -118,9 +119,9 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.node2_ceiling_offset: float | None = None
         self._placement_phase: int = 0  # 0=before 1st click, 1=before 2nd click
 
-        self.label = QGraphicsTextItem("")  # top-level; added to scene in update_label
-        self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        self.label.setAcceptHoverEvents(False)
+        self._init_tag_block()
+        # Top-level annotation-block label (SB4a D1); added to the scene in update_label
+        self.label = BoundLabelItem(self, child=False)
 
         self._riser_symbol: QGraphicsSvgItem | None = None
 
@@ -142,10 +143,11 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             if not visible:
                 self.label.setVisible(False)
             else:
-                # Re-evaluate: only show if Show Label is on and pipe isn't vertical
-                show = (self._properties["Show Label"]["value"] == "True"
-                        and not self._is_vertical())
-                self.label.setVisible(show)
+                # update_label applies every rule (Show Label, vertical, geometry);
+                # a label not yet in a scene joins it on the next geometry update
+                # (as the HTML label did), never as a side effect of visibility
+                if self.label.scene() is not None:
+                    self.update_label()
         if hasattr(self, "_riser_symbol") and self._riser_symbol is not None:
             if not visible:
                 self._riser_symbol.setVisible(False)
@@ -248,10 +250,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             return  # cannot position label yet
 
         if not hasattr(self, "label") or self.label is None:
-            self.label = QGraphicsTextItem("")
-            self.label.setDefaultTextColor(Qt.GlobalColor.black)
-            self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-            self.label.setAcceptHoverEvents(False)
+            self.label = BoundLabelItem(self, child=False)
 
         # Ensure label is added to the same scene as the pipe
         sc = self.scene()
@@ -276,82 +275,23 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         if not visible:
             return  # skip extra work if hidden
 
-        # Format text — show display diameter (Ø prefix, metric when metric)
-        diameter = self._properties.get('Diameter', {}).get('value', 'N/A')
-        if self._is_metric_display():
-            diameter = self._INT_TO_METRIC.get(diameter, diameter)
-        else:
-            diameter = self._INT_TO_IMPERIAL.get(diameter, diameter)
-        scene = self.scene()
-        if scene and hasattr(scene, "scale_manager"):
-            length = scene.scale_manager.scene_to_display(getattr(self, "length", 0.0))
-        else:
-            length = f"{self.length:.1f} mm"
-
-        # Text height from Label Size property (inches → mm for scene units)
-        try:
-            _label_in = float(self._properties.get(
-                "Label Size", {}).get("value", "12"))
-        except (ValueError, TypeError):
-            _label_in = 12.0
-        text_h = _label_in * 25.4   # inches → mm
-        # Gap between rows = actual rendered pipe width (incl. display scale) + margin
-        gap = self.display_width_mm() * self._display_scale + text_h * 0.3
-
-        # Include hydraulic results if available — only for pipes that carry
-        # flow; zero-flow tree pipes outside the design area stay unlabelled
-        # instead of cluttering the drawing with "0.0 gpm / 0.00 psi".
-        hr_lines = ""
-        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
-            result = scene.hydraulic_result
-            q = result.pipe_flows.get(self)
-            hf = result.pipe_friction_loss.get(self)
-            if q:
-                hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
-                             f"margin-top:{gap:.0f}px; color:#00aaff;'>"
-                             f"{q:.1f} gpm</div>")
-                if hf is not None:
-                    hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
-                                 f"margin-top:{gap:.0f}px; color:#ffaa00;'>"
-                                 f"{hf:.2f} psi</div>")
-
-        html = (f"<div style='text-align:center;'>"
-                f"<div style='font-size:{text_h:.0f}px;'>{diameter}</div>"
-                f"<div style='font-size:{text_h:.0f}px; "
-                f"margin-top:{gap:.0f}px;'>{length}</div>"
-                f"{hr_lines}</div>")
-        self.label.setHtml(html)
-        # Measure natural width then lock it so text-align:center works
-        self.label.setTextWidth(-1)
-        ideal = self.label.document().idealWidth()
-        self.label.setTextWidth(ideal)
-
-        self.set_label_position()
+        line = self.line()
+        v = CAD_Math.get_unit_vector(line.p1(), line.p2())
+        if v.x() < 0:                     # keep the label readable (AC4: whole label turns)
+            v = QPointF(-v.x(), -v.y())
+        angle = -CAD_Math.get_angle_between_vectors(v, QPointF(1, 0), signed=True)
+        if angle == 90:
+            angle = -90.0                 # [-90, 90): today's mapping, kept
+        self.label.set_anchor(QPointF((line.x1() + line.x2()) / 2,
+                                      (line.y1() + line.y2()) / 2))
+        self.label.setRotation(angle)
+        self.label._pose_rot = angle      # an authored keep_upright text stays readable
+        self.label.refresh()
         self._update_riser_symbol()
 
-
-    def set_label_position(self):
-        line = self.line()  # QLineF
-    
-        v1 = CAD_Math.get_unit_vector(line.p1(),line.p2())
-        # If pointing left, flip direction
-        if v1.x() < 0:
-            v1 = QPointF(-v1.x(), -v1.y())
-        v2 = QPointF(1, 0)
-        angle = -CAD_Math.get_angle_between_vectors(v1, v2, signed=True)
-        if angle == 90:
-            angle = -90
-        
-        mid_point = QPointF((line.x1() + line.x2()) / 2, (line.y1() + line.y2()) / 2)
-        bounds = self.label.boundingRect()
-        center = bounds.center()
-
-        # set transform origin so future rotations work around the center
-        self.label.setTransformOriginPoint(center)
-
-        # move label so its center sits on line midpoint
-        self.label.setPos(mid_point - center)
-        self.label.setRotation(angle)
+    def _tag_changed(self) -> None:
+        """Re-shape the pipe label after its tag mapping changed."""
+        self.update_label()
 
     # --------------------------------------------------------------
     # PIPE HELPERS
@@ -440,7 +380,11 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         return getattr(self, "_scene_ref", None)
 
     def get_properties(self):
-        props = self._properties.copy()
+        props = {}
+        for k, v in self._properties.items():
+            props[k] = v
+            if k == "Show Label":
+                props["Tag"] = self._tag_row()     # SB3b/SB4a: per-pipe tag block
         # Show diameter with Ø prefix; metric nominal sizes when metric display
         props["Diameter"] = dict(props["Diameter"])
         int_val = props["Diameter"]["value"]
@@ -518,6 +462,9 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             return  # discard old/removed or read-only properties
         if key == "C-Factor":
             return  # read-only; derived from Material
+        if key == "Tag":
+            self._set_tag(str(value))
+            return
         # Per-node template ceiling properties
         if key in ("N1 Ceiling Level", "N2 Ceiling Level"):
             attr = "node1_ceiling_level" if key.startswith("N1") else "node2_ceiling_level"
@@ -554,7 +501,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                     self._properties["Line Type"]["value"] = "Main"
                 else:
                     self._properties["Line Type"]["value"] = "Branch"
-            if key in ("Diameter", "Show Label", "Label Size"):
+            if key in ("Diameter", "Show Label"):
                 self.update_label()
             if key in ("Colour", "Diameter", "Line Type"):
                 self.set_pipe_display()

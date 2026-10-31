@@ -21,7 +21,7 @@ from . import marks
 from .node import Node
 from .pipe import Pipe
 from .display_manager import apply_category_defaults
-from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_COPLANAR_TOL
+from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_COPLANAR_TOL, PIPE_PREVIEW_LABEL_IN
 
 
 class PipeNetworkController:
@@ -804,12 +804,7 @@ class PipeNetworkController:
                 lbl = f"{dia_str}\n{len_str}" if dia_str else len_str
                 self._scene._preview_label.setText(lbl)
                 # Font size from template label size (inches → mm scene units)
-                label_size = 12
-                try:
-                    label_size = int(template._properties.get(
-                        "Label Size", {}).get("value", 12))
-                except (ValueError, TypeError):
-                    pass
+                label_size = PIPE_PREVIEW_LABEL_IN
                 font = QFont("Consolas")
                 font.setPixelSize(max(1, int(label_size * 25.4)))
                 self._scene._preview_label.setFont(font)

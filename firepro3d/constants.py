@@ -31,6 +31,7 @@ Z_DETAIL_MARKER  = 45     # detail view markers
 Z_WATER_SUPPLY   = 50     # water supply symbol
 Z_SPRINKLER      = 100    # sprinkler symbols
 Z_OVERLAY        = 200    # previews, view markers, room labels, badges
+PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
 Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
