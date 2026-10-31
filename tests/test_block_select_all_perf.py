@@ -69,6 +69,9 @@ def test_select_all_and_rotate_commit_within_1ms_per_primitive(qapp, tmp_path, s
                     view.viewport(), Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)))
                 n = len(scene.selectedItems())
                 assert n >= min_prims, f"scene composition: {n} selected"
+                # The panel show is part of the timed cost: prove it ran.
+                assert len(win.prop_manager._targets) >= min_prims, \
+                    "property panel was not shown for the selection"
                 assert scene._modify_ctl.start("rotate")
                 c = view.mapFromScene(scene.itemsBoundingRect().center())
                 QTest.mouseMove(view.viewport(), c)
@@ -85,10 +88,6 @@ def test_select_all_and_rotate_commit_within_1ms_per_primitive(qapp, tmp_path, s
             line = f"shape={shape.__name__} n={n} bar={bar:.3f} select={sel_t} rotate={rot_t}\n"
             with open(tmp_path / "bench.txt", "w") as fh:  # raw lines for the record
                 fh.write(line)
-            out = os.environ.get("PERF_BENCH_OUT")
-            if out:
-                with open(out, "a") as fh:
-                    fh.write(line)
             print(line, end="")
             assert statistics.median(sel_t) <= bar, f"Ctrl+A {sel_t} > {bar:.3f}s"
             assert statistics.median(rot_t) <= bar, f"rotate commit {rot_t} > {bar:.3f}s"
