@@ -107,6 +107,10 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._thickness_mm: float = DEFAULT_THICKNESS_MM
         # Consumed by level_manager in a later task; visibility is pure z-range.
         self._visibility_by_zrange: bool = True
+        # Owned floor voids (FloorOpening, floor-opening A2) and the cached cut
+        # region (slab minus voids) that cut_region() rebuilds lazily.
+        self.openings: list = []
+        self._cut_cache: list | None = None
 
         self.init_displayable()
         self.name: str = ""
@@ -177,9 +181,48 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def points(self) -> list[QPointF]:
         return self._points
 
+    # ── Floor voids (FloorOpening) + cut region (floor-opening A2/A3) ────────
+
+    def add_opening(self, op) -> None:
+        """Own *op* (a FloorOpening): list it, point it here, re-derive the cut."""
+        if op not in self.openings:
+            self.openings.append(op)
+        op.host = self
+        self.invalidate_cut()
+
+    def remove_opening(self, op) -> None:
+        """Stop owning *op* (scene removal is the caller's)."""
+        if op in self.openings:
+            self.openings.remove(op)
+        self.invalidate_cut()
+
+    def invalidate_cut(self) -> None:
+        """Drop the cached cut region (slab or a void changed geometry)."""
+        self._cut_cache = None
+        self.update()
+
+    def cut_region(self) -> list:
+        """Material region: ``floor_cut.cut_rings(slab, voids)`` output.
+
+        Returns:
+            ``[(outer, [holes])]`` in scene coords. Without voids the slab
+            ring itself (copies); empty when a void swallows the slab or the
+            slab has fewer than 3 points.
+        """
+        if len(self._points) < 3:
+            return []
+        if not self.openings:
+            return [([QPointF(p) for p in self._points], [])]
+        if self._cut_cache is None:
+            from .floor_cut import cut_rings
+            self._cut_cache = cut_rings(self._points,
+                                        [op._points for op in self.openings])
+        return self._cut_cache
+
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
 
     def _rebuild_path(self):
+        self._cut_cache = None          # slab geometry changed: re-derive the cut
         path = QPainterPath()
         if len(self._points) < 2:
             self.setPath(path)
@@ -494,6 +537,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "bottom_abs_z_mm":   self._bottom_abs_z_mm,
             "thickness_mm":      self._thickness_mm,
         }
+        if self.openings:               # only when non-empty: void-less files unchanged (AC7)
+            d["openings"] = [op.to_dict() for op in self.openings]
         # Per-instance Display-Manager overrides: the shared mixin helper (L283).
         return self.display_overrides_to_dict(d)
 
@@ -523,6 +568,10 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._top_offset_mm = data.get("level_offset_mm", 0.0)
             slab._bottom_mode = "thickness"
         slab.display_overrides_from_dict(data)      # incl. the HF5 canonical_id re-point
+        if data.get("openings"):
+            from .floor_opening import FloorOpening
+            for rec in data["openings"]:            # re-attach owned voids (A2)
+                slab.add_opening(FloorOpening.from_dict(rec, slab))
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────

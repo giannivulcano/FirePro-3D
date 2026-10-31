@@ -54,6 +54,9 @@ OPENING_TYPES        = ["door", "window", "blank"]
 Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
 Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
+# A hosted opening is pinned just above its host's z (level_manager.apply_to_scene):
+# a wall's openings and a floor slab's voids (FloorOpening, floor-opening A1).
+Z_OPENING_ABOVE_HOST = Z_CAT_OPENING - Z_CAT_WALL
 
 # Model classes (by ``type(item).__name__``) whose z is elevation-based
 # (level_manager.apply_to_scene), category offset per class.
