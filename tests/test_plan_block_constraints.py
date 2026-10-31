@@ -166,3 +166,198 @@ def test_annotative_nested_instance_in_the_block_editor_keeps_its_handles(qapp):
         assert "ins" in hs and "u0:p1" in hs
     finally:
         be.cleanup()
+
+
+# ── Task 4: two-tier stateless solve (PB3) ─────────────────────────────────
+
+W_A = (0.0, -1500.0, 4000.0, -1500.0)          # the usual wall, 1500 above ins (1000, 0)
+
+
+def _tied(sc, h="u0:p1", target="edge"):
+    d = snap_def(sc)
+    w = wall(sc, W_A[:2], W_A[2:])
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    c = sc.constraint_ctl.add("dim_point_line", [{"uid": inst._uid, "h": h},
+                                                 {"uid": w._uid, "h": target}])
+    assert c is not None and c.driving
+    return d, w, inst, c
+
+
+def test_wall_edit_carries_a_tied_block(sc):
+    _d, w, inst, _c = _tied(sc, target="face_l")
+    with sc.constraint_ctl.edit([w]):
+        w.translate(0.0, 500.0)
+    assert wall_xy(w) == pytest.approx((0.0, -1000.0, 4000.0, -1000.0), abs=1e-9)
+    assert inst.block_pos() == pytest.approx((1000.0, 500.0), abs=1e-4)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-4)   # solver noise ~1e-6 deg
+
+
+def test_block_move_slides_along_its_tie_and_never_moves_the_wall(sc):
+    _d, w, inst, _c = _tied(sc)
+    with sc.constraint_ctl.edit([inst]):
+        inst.translate(600.0, 400.0)
+    assert inst.block_pos() == pytest.approx((1600.0, 0.0), abs=1e-4)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-4)
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+
+
+def test_block_tier_add_moves_the_block_onto_the_held_wall(sc):
+    d = snap_def(sc)
+    w = wall(sc, W_A[:2], W_A[2:])
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    assert sc.constraint_ctl.add("coincident", [{"uid": inst._uid, "h": "ins"},
+                                                {"uid": w._uid, "h": "p1"}])
+    assert inst.block_pos() == pytest.approx((0.0, -1500.0), abs=1e-4)
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+
+
+def test_typed_rotation_a_parallel_tie_forbids_is_refused(sc):
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    d = snap_def(sc)
+    w = wall(sc, W_A[:2], W_A[2:])
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    assert sc.constraint_ctl.add("parallel", [{"uid": inst._uid, "h": "u0:edge"},
+                                              {"uid": w._uid, "h": "edge"}])
+    msgs = _status(sc)
+    with sc.constraint_ctl.edit([inst], typed=True):
+        inst.set_block_rotation(45.0)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-9)
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+    assert CONFLICT_STATUS in msgs
+
+
+def _two_walls(sc):
+    """Wall A 1500 above, wall B 1500 below ins (1000, 0); t1 = L1 p1 -> A,
+    t2 = ins -> B. L1 p1 sits 80 above ins and 100 from it, so following A
+    by dy is reachable only while |dy - 80| <= 100."""
+    d = snap_def(sc)
+    a = wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    b = wall(sc, (0.0, 1500.0), (4000.0, 1500.0))
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    t1 = ctl.add("dim_point_line", [{"uid": inst._uid, "h": "u0:p1"}, {"uid": a._uid, "h": "edge"}])
+    t2 = ctl.add("dim_point_line", [{"uid": inst._uid, "h": "ins"}, {"uid": b._uid, "h": "edge"}])
+    assert t1 is not None and t2 is not None
+    return a, b, inst, t1, t2
+
+
+def test_wall_edit_a_block_cannot_follow_commits_and_reds_the_tie(sc):
+    from firepro3d.constraint_controller import CONFLICT_STATUS
+    a, b, inst, t1, t2 = _two_walls(sc)
+    msgs = _status(sc)
+    with sc.constraint_ctl.edit([a]):
+        a.translate(0.0, 600.0)
+    assert wall_xy(a) == pytest.approx((0.0, -900.0, 4000.0, -900.0), abs=1e-9)
+    assert inst.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-9)
+    assert inst.block_rotation() == 0.0
+    assert t1.id in sc.constraint_ctl.red and t2.id not in sc.constraint_ctl.red
+    assert CONFLICT_STATUS not in msgs
+
+
+def test_mixed_move_walls_lead_and_blocks_keep_the_applied_pose(sc):
+    a, b, inst, t1, t2 = _two_walls(sc)
+    with sc.constraint_ctl.edit([a, inst]):
+        a.translate(0.0, 600.0)
+        inst.translate(0.0, 600.0)
+    assert wall_xy(a) == pytest.approx((0.0, -900.0, 4000.0, -900.0), abs=1e-9)
+    assert inst.block_pos() == pytest.approx((1000.0, 600.0), abs=1e-9)
+    assert t2.id in sc.constraint_ctl.red and t1.id not in sc.constraint_ctl.red
+
+
+def test_building_tier_add_carries_attached_blocks(sc):
+    d = snap_def(sc)
+    w = wall(sc, (0.0, -1500.0), (4000.0, -1100.0))          # tilted
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("dim_point_line", [{"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "edge"}])
+    d0 = abs(1000.0 * 400.0 - 1500.0 * 4000.0) / math.hypot(4000.0, 400.0)   # ins to the drawn line
+    assert ctl.add("horizontal", [{"uid": w._uid, "h": "edge"}])
+    assert w._pt1.y() == pytest.approx(w._pt2.y(), abs=1e-6)
+    assert inst.block_pos()[1] - w._pt1.y() == pytest.approx(d0, abs=1e-6)
+    assert inst.block_pos()[0] == pytest.approx(1000.0, abs=1e-6)
+
+
+def test_an_unconstrained_block_never_moves_with_a_wall(sc):
+    d, w, _inst, _c = _tied(sc)
+    loose = sc.place_block_instance(d.id, (2000.0, -1400.0))
+    with sc.constraint_ctl.edit([w]):
+        w.translate(0.0, 300.0)
+    assert loose.block_pos() == (2000.0, -1400.0)
+
+
+def test_load_solves_walls_first_then_blocks_against_held_walls(sc):
+    _d, w, inst, _c = _tied(sc, h="ins")
+    ctl = sc.constraint_ctl
+    recs = ctl.to_records()
+    recs[0]["value"] = 1000.0                                  # the file disagrees with the geometry
+    ctl.load(recs)
+    assert inst.block_pos() == pytest.approx((1000.0, -500.0), abs=1e-4)   # 1000 below the held wall
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+
+
+def test_typed_value_on_a_block_tier_dim_moves_the_block_not_the_wall(sc):
+    d = snap_def(sc)
+    w = wall(sc, W_A[:2], W_A[2:])
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("dim_point_line", [{"uid": w._uid, "h": "mid"}, {"uid": inst._uid, "h": "u0:edge"}])
+    assert c is not None and c.value == pytest.approx(1420.0)   # L1 at y = -80, wall at -1500
+    assert ctl.set_value(c.id, 2000.0)
+    assert inst.block_pos() == pytest.approx((1000.0, 580.0), abs=5e-3)   # L1 at y = 500
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+
+
+def test_mirror_in_place_resolves_with_the_block_as_the_edit(sc):
+    _d, w, inst, _c = _tied(sc)
+    axis = (QPointF(0.0, 0.0), QPointF(100.0, 0.0))           # y = 0 through ins
+    with sc.constraint_ctl.edit([inst], point_map=lambda p: QPointF(p.x(), -p.y())):
+        inst.manip_reflect(*axis)
+    assert inst.block_mirrored() is True                      # DD3: the flag flips (rotation follows)
+    # L1 p1 local (60, -80) reflects to 80 below ins; the tie needs it 80 above -> ins at -160
+    assert inst.block_pos() == pytest.approx((1000.0, -160.0), abs=1e-4)
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+
+
+# ── Task 5: drag session per tier ───────────────────────────────────────────
+
+def test_drag_frames_carry_the_block_then_a_block_frame_slides(sc):
+    _d, w, inst, _c = _tied(sc, target="face_l")
+    ctl = sc.constraint_ctl
+    ctl.begin_drag([w])
+    for dy in (100.0, 250.0, 400.0):
+        assert ctl.drag_frame([w], lambda dy=dy: w.translate(0.0, dy), reset=True)
+        assert w._pt1.y() == pytest.approx(-1500.0 + dy, abs=1e-9)
+        assert inst.block_pos() == pytest.approx((1000.0, dy), abs=1e-4)
+    ctl.end_drag()
+    ctl.begin_drag([inst])
+    assert ctl.drag_frame([inst], lambda: inst.translate(600.0, 400.0), reset=True)
+    ctl.end_drag()
+    assert inst.block_pos() == pytest.approx((1600.0, 400.0), abs=1e-4)
+    assert wall_xy(w) == pytest.approx((0.0, -1100.0, 4000.0, -1100.0), abs=1e-9)
+
+
+def test_drag_frame_a_block_cannot_follow_puts_it_back_and_end_drag_reds_the_tie(sc):
+    a, _b, inst, t1, t2 = _two_walls(sc)
+    ctl = sc.constraint_ctl
+    ctl.begin_drag([a])
+    assert ctl.drag_frame([a], lambda: a.translate(0.0, 10.0), reset=True)   # reachable: it turns
+    assert abs(inst.block_rotation()) > 1.0
+    assert inst.block_pos()[1] == pytest.approx(0.0, abs=1e-6)               # ins held by t2
+    assert ctl.drag_frame([a], lambda: a.translate(0.0, 600.0), reset=True)  # the wall edit applies
+    assert a._pt1.y() == pytest.approx(-900.0, abs=1e-9)
+    assert inst.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-9)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-9)
+    assert t1.id not in ctl.red                                              # never per frame
+    ctl.end_drag()
+    assert t1.id in ctl.red and t2.id not in ctl.red
+
+
+def test_cancel_drag_restores_wall_and_block(sc):
+    _d, w, inst, _c = _tied(sc)
+    ctl = sc.constraint_ctl
+    ctl.begin_drag([w])
+    assert ctl.drag_frame([w], lambda: w.translate(0.0, 300.0), reset=True)
+    assert inst.block_pos() == pytest.approx((1000.0, 300.0), abs=1e-4)
+    ctl.cancel_drag()
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+    assert inst.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-9)

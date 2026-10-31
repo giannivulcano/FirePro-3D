@@ -155,3 +155,111 @@ def test_g7_annotative_block_offers_ins_only(mw, pb, qapp, screen):
                                   {"uid": w._uid, "h": "p1"}]) is None
     c = ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "p1"}])
     assert c is not None and c.id in {x.id for x in ctl.active()}
+
+
+def test_g5_parallel_tie_turns_the_block_mirror_and_scale_untouched(mw, pb, qapp):
+    """AC2: a Parallel to a 30 deg wall turns the block to 30 deg about
+    ``ins``; mirror / scale are table constants; the wall never turns.
+    RED: drop the ANCHOR_CID fixes (the wall takes part of the turn)."""
+    sc, _view = pb
+    d = snap_def(sc)
+    dx, dy = 3000.0 * math.cos(math.radians(30.0)), 3000.0 * math.sin(math.radians(30.0))
+    w = _wall(sc, (0.0, 0.0), (dx, -dy))                      # 30 deg Y-up (Qt y-down)
+    inst = _block(sc, d, (1000.0, 1000.0), mirrored=True, scale=1.5)
+    w0 = wall_xy(w)
+    c = sc.constraint_ctl.add("parallel", [{"uid": inst._uid, "h": "u0:edge"},
+                                           {"uid": w._uid, "h": "edge"}])
+    assert c is not None and c.id not in sc.constraint_ctl.red
+    assert inst.block_rotation() == pytest.approx(30.0, abs=1e-6)
+    assert inst.block_mirrored() is True and inst.block_scale() == 1.5
+    assert inst.block_pos() == pytest.approx((1000.0, 1000.0), abs=1e-4)
+    assert wall_xy(w) == pytest.approx(w0, abs=1e-9)
+
+
+def test_g3b_a_move_needing_the_wall_to_move_is_refused(mw, pb, qapp, monkeypatch):
+    """AC3: Coincident ins -> wall p1 moves the BLOCK to the wall (never the
+    wall); + Parallel = fully defined -> Move is refused at its entry and at
+    its commit, nothing moves. RED: drop the ANCHOR_CID fixes."""
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    sc, _view = pb
+    msgs = []
+    monkeypatch.setattr(sc, "_show_status", lambda m, *a, **k: msgs.append(m))
+    d = snap_def(sc)
+    w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    inst = _block(sc, d, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "p1"}])
+    assert ctl.add("parallel", [{"uid": inst._uid, "h": "u0:edge"}, {"uid": w._uid, "h": "edge"}])
+    assert inst.block_pos() == pytest.approx((0.0, -1500.0), abs=1e-4)     # onto wall p1
+    assert wall_xy(w) == pytest.approx((0.0, -1500.0, 4000.0, -1500.0), abs=1e-9)
+    _select(sc, inst, qapp)
+    sc.set_mode("move")
+    assert sc.mode != "move" and GROUNDED_STATUS in msgs
+    sc._selected_items = [inst]
+    assert sc.move_items(QPointF(500.0, 500.0)) is False
+    assert inst.block_pos() == pytest.approx((0.0, -1500.0), abs=1e-4)
+    assert wall_xy(w) == pytest.approx((0.0, -1500.0, 4000.0, -1500.0), abs=1e-9)
+
+
+def _tie_setup(sc):
+    d = snap_def(sc)
+    w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    inst = _block(sc, d, (1000.0, 0.0))
+    c = _dpl(sc.constraint_ctl, {"uid": inst._uid, "h": "u0:p1"}, {"uid": w._uid, "h": "face_l"})
+    return w, inst, c
+
+
+def test_g2_wall_drag_carries_a_block_tied_to_its_face(mw, pb, qapp):
+    """AC3: block corner -> wall-face distance; a real body drag of the wall
+    carries the block by the same delta, no turn. RED: drop the per-frame
+    ``self._reanchor(sys_)`` in ``_solve_once``'s tier branch."""
+    sc, view = pb
+    w, inst, _c = _tie_setup(sc)
+    _select(sc, w, qapp)
+    _drag(view, QPointF(3000.0, -1500.0), QPointF(3000.0, -1000.0))
+    dy = w._pt1.y() + 1500.0
+    assert abs(dy) > 100.0, "the wall did not move (vacuous)"
+    assert w._pt2.y() == pytest.approx(w._pt1.y(), abs=1e-9)
+    assert inst.block_pos() == pytest.approx((1000.0, dy), abs=1e-4)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-4)
+
+
+def test_g3_block_drag_slides_parallel_and_leaves_the_wall(mw, pb, qapp):
+    """AC3: a real body drag of the tied block slides it along the wall
+    (y held by the tie), the wall never moves. RED: drop the ANCHOR_CID fixes."""
+    sc, view = pb
+    w, inst, _c = _tie_setup(sc)
+    w0 = wall_xy(w)
+    _select(sc, inst, qapp)
+    grab = oracle(inst, 120.0, -80.0)                 # L1 midpoint, on the stroke
+    _drag(view, grab, QPointF(grab.x() + 600.0, grab.y() + 400.0))
+    x, y = inst.block_pos()
+    assert abs(x - 1000.0) > 100.0, "the block did not move (vacuous)"
+    assert y == pytest.approx(0.0, abs=1e-4)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-4)
+    assert wall_xy(w) == pytest.approx(w0, abs=1e-9)
+
+
+def test_g4_wall_drag_a_block_cannot_follow_commits_and_reds_the_tie(mw, pb, qapp):
+    """AC3 / PB3 wall row: walls A (1500 above) and B (1500 below) hold a
+    block (t1 = L1 p1 -> A, t2 = ins -> B); following A is reachable only
+    while |dy - 80| <= 100 (L1 p1: 80 above ins, 100 from it). Dragging A
+    600 commits A, the block keeps its pose, t1 goes red at release.
+    RED: ``end_drag`` without its ``mark_unsatisfied_red`` line."""
+    sc, view = pb
+    d = snap_def(sc)
+    a = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    b = _wall(sc, (0.0, 1500.0), (4000.0, 1500.0))
+    inst = _block(sc, d, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    t1 = _dpl(ctl, {"uid": inst._uid, "h": "u0:p1"}, {"uid": a._uid, "h": "edge"})
+    t2 = _dpl(ctl, {"uid": inst._uid, "h": "ins"}, {"uid": b._uid, "h": "edge"})
+    b0 = wall_xy(b)
+    _select(sc, a, qapp)
+    _drag(view, QPointF(3000.0, -1500.0), QPointF(3000.0, -900.0))
+    dy = a._pt1.y() + 1500.0
+    assert dy > 181.0, f"the wall stopped at dy={dy} (held, or vacuous)"
+    assert inst.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-4)
+    assert inst.block_rotation() == pytest.approx(0.0, abs=1e-9)
+    assert wall_xy(b) == pytest.approx(b0, abs=1e-9)
+    assert t1.id in ctl.red and t2.id not in ctl.red
