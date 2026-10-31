@@ -260,7 +260,8 @@ class ModifyToolsController:
                     or hasattr(it, "manip_translate")):
                 seen.add(id(it))
                 out.append(it)
-        return out
+        from .floor_opening import drop_carried_voids
+        return drop_carried_voids(out)       # a slab carries its voids (floor-opening A2)
 
     # ── Copy / Cut (D4) ─────────────────────────────────────────────────────
 

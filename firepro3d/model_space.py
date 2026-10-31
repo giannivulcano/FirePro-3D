@@ -59,6 +59,7 @@ from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
+from .floor_opening import FloorOpening, drop_carried_voids
 from .feature import DEFAULT_FEATURE_FOR_TYPE
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
                             seed_line, is_valid_relative_angle)
@@ -9447,6 +9448,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if id(item) not in seen:
                 seen.add(id(item))
                 resolved.append(item)
+        resolved = drop_carried_voids(resolved)   # a slab carries its voids (floor-opening A2)
         if self.constraint_ctl.refuse_grounded(resolved):     # D17 (CS3)
             self._selected_items = None
             return False

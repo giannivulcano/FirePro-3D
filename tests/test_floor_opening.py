@@ -109,3 +109,52 @@ def test_void_vertex_grips(qapp):
     slab, op = _slab_with_void()
     assert len(op.manip_handles()) == 4
     assert _xy(op.grip_points()) == _VOID_PTS
+
+
+def test_void_follows_host_translate(qapp):
+    slab, op = _slab_with_void()
+    slab.translate(500.0, -300.0)
+    assert _xy(op.points) == [(1500, 700), (2500, 700), (2500, 1700), (1500, 1700)]
+    assert _material_area(slab) == pytest.approx(11_000_000.0)
+
+
+def test_void_follows_host_rotate(qapp):
+    slab, op = _slab_with_void()
+    slab.manip_rotate(90.0, P(0, 0))
+    # rotate_point(p, pivot, -90): cos = 0, sin = -1 -> (x, y) -> (y, -x)
+    got = [(round(p.x(), 6), round(p.y(), 6)) for p in op.points]
+    assert got == [(1000, -1000), (1000, -2000), (2000, -2000), (2000, -1000)]
+    assert _material_area(slab) == pytest.approx(11_000_000.0)
+
+
+def test_drop_carried_voids(qapp):
+    slab, op = _slab_with_void()
+    other = FloorSlab(points=_rect(0, 0, 10, 10))
+    assert drop_carried_voids([slab, op]) == [slab]
+    assert drop_carried_voids([op, other]) == [op, other]
+
+
+def _in_scene(scene, slab, op):
+    scene.addItem(slab)
+    scene._floor_slabs.append(slab)
+    scene.addItem(op)
+
+
+def test_move_with_host_selected_moves_void_once(qapp, shown_model_view):
+    view, scene = shown_model_view
+    slab, op = _slab_with_void()
+    _in_scene(scene, slab, op)
+    scene._selected_items = [slab, op]
+    assert scene.move_items(P(100.0, 0.0)) is True
+    assert op.points[0].x() == pytest.approx(1100.0)          # once; twice = 1200
+
+
+def test_rotate_with_host_selected_rotates_void_once(qapp, shown_model_view):
+    view, scene = shown_model_view
+    slab, op = _slab_with_void()
+    _in_scene(scene, slab, op)
+    scene._rotate_pivot = P(0.0, 0.0)
+    scene._selected_items = [slab, op]
+    assert scene._modify_ctl.commit_rotate(90.0) is True
+    p = op.points[0]                                          # (1000, 1000) rotated
+    assert (p.x(), p.y()) == pytest.approx((1000.0, -1000.0))  # twice = (-1000, -1000)

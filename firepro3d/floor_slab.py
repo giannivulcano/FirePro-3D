@@ -367,6 +367,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def translate(self, dx: float, dy: float):
         self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
         self._rebuild_path()
+        for op in self.openings:        # follow-host (floor-opening A2)
+            op.translate(dx, dy)
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rigid rotate of the 2D slab boundary about ``pivot`` (Y-up CCW+).
@@ -377,6 +379,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
                         for p in self._points]
         self._rebuild_path()
+        for op in self.openings:        # follow-host (floor-opening A2)
+            op.manip_rotate(angle_deg, pivot)
 
     # ── Properties API ───────────────────────────────────────────────────────
 

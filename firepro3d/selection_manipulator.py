@@ -479,7 +479,9 @@ class SelectionManipulator(QGraphicsObject):
                     "SelectionManipulator: %s excluded from wrap "
                     "(no translate capability)", type(it).__name__)
 
-        self._items = self._top_level_only(kept)
+        from .floor_opening import drop_carried_voids
+        # A slab carries its voids: never drag a void a second time.
+        self._items = drop_carried_voids(self._top_level_only(kept))
         self._item_set = set(self._items)
         if not self._items:
             self.hide()
