@@ -161,7 +161,7 @@ class SceneIOMixin:
             "design_areas":        design_areas_data,
             "gridlines":           gridlines_data,
             "walls":               walls_data,
-            "constraints":         self.constraint_ctl.to_records(),   # plan walls + gridlines (C8 exception)
+            "constraints":         self.constraint_ctl.to_records(),   # plan walls, gridlines + unhosted blocks (C8 exception)
             "floor_slabs":         floor_slabs_data,
             "roofs":               roofs_data,
             "rooms":               rooms_data,

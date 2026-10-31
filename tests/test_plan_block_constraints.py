@@ -494,6 +494,7 @@ def _pb_drag_median(s, w, translate, frames):
     ctl = s.constraint_ctl
     ad = adapter_for(w)
     ctl.begin_drag(w)
+    assert ctl.dragging, "drag session never opened (bench would time no-ops)"
     ts = []
     for k in range(frames):
         x1, y1, x2, _y2 = ad.read(w)
@@ -527,12 +528,13 @@ def test_pb_one_wall_many_blocks_frame_per_block_budget(qapp):
         s.constraint_ctl.load([{"id": "h", "type": "horizontal",
                                 "refs": [{"uid": w._uid, "h": "edge"}]}])
         blocks = _pb_tie(s, [w] * n_blocks, [(i * 1000.0 + 500.0, 0.0) for i in range(n_blocks)])
-        y0 = blocks[-1].block_pos()[1]
+        y0 = [b.block_pos()[1] for b in blocks]
         med = _pb_drag_median(s, w, True, 31)
         print(f"one wall + {n_blocks} tied blocks: drag frame median {med:.2f} ms")
         dy = w._pt2.y() + 1500.0
         assert abs(dy) > 0.5                                             # the wall moved
-        assert blocks[-1].block_pos()[1] - y0 == pytest.approx(dy, abs=1e-6)  # VC2: blocks followed
+        assert [b.block_pos()[1] - y for b, y in zip(blocks, y0)] == pytest.approx(
+            [dy] * n_blocks, abs=1e-6)                                   # VC2: every block followed
         assert med <= per_block_ms * n_blocks, f"drag frame {med:.2f} ms"
     finally:
         s.cleanup()
