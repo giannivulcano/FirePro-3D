@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QStyle
 from .colour_tokens import resolve_colour
 from .constants import Z_OPENING_ABOVE_HOST
 from .displayable_item import DisplayableItemMixin
-from .feature import FEATURE_LABEL
+from .feature import DEFAULT_FLOOR_OPENING_FEATURE, FEATURE_LABEL
 from .paper_display import shows_selection
 from .view_scale import scene_hit_width
 
@@ -53,7 +53,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
     HALO_AREA = True   # HALO: cursor inside = direct hit
 
     def __init__(self, points: list[QPointF], host: "FloorSlab",
-                 feature_id: str = "floor_sketched", mark: str = ""):
+                 feature_id: str = DEFAULT_FLOOR_OPENING_FEATURE, mark: str = ""):
         QGraphicsPathItem.__init__(self)
         self.init_displayable()
         self.feature_id: str = feature_id
@@ -175,7 +175,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
         """Rebuild a void for *host* (the caller appends it via ``add_opening``)."""
         op = cls(points=[QPointF(p[0], p[1]) for p in data.get("points", [])],
                  host=host,
-                 feature_id=data.get("feature_id", "floor_sketched"),
+                 feature_id=data.get("feature_id", DEFAULT_FLOOR_OPENING_FEATURE),
                  mark=data.get("mark", ""))
         op.display_overrides_from_dict(data)
         return op
@@ -198,7 +198,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
                         "value": feature_label(fdef) if fdef is not None else "Opening"},
             "Type": {"type": "label",
                      "value": fdef.type_name if fdef is not None else self.feature_id},
-            "Host": {"type": "label", "value": self.host.name or "Floor"},
+            "Host": {"type": "label", "value": (self.host.name if self.host is not None else "") or "Floor"},
             "Points": {"type": "label", "value": str(len(self._points))},
             "Mark": {"type": "string", "value": self._mark},
         }

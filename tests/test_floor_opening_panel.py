@@ -69,10 +69,18 @@ def test_mark_edit_pushes_one_undo_step(qapp, model_scene):
     """GUARD: the panel commit is ONE step; a direct set_property pushes its own."""
     scene, slab, op = _scene_void(model_scene)
     pm = _panel(scene, op)
+    scene.push_undo_state()            # baseline holding Mark O1
     n = len(scene._undo_stack)
     pm._apply_property("Mark", "X9")
     assert marks.get_mark(op) == "X9"
     assert len(scene._undo_stack) == n + 1
+    scene.undo()                       # the step restores the OLD Mark
+    restored = [o for s in scene._floor_slabs for o in s.openings]
+    assert [marks.get_mark(o) for o in restored] == ["O1"]
+    scene.redo()
+    restored = [o for s in scene._floor_slabs for o in s.openings]
+    assert [marks.get_mark(o) for o in restored] == ["X9"]
+    op = restored[0]
     op.set_property("Mark", "X10")
     assert marks.get_mark(op) == "X10"
     assert len(scene._undo_stack) == n + 2

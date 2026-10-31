@@ -4008,7 +4008,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """End a running modify tool before an undo/redo restore: the restore
         detaches every item, so the tool's captured selection / base point
         would otherwise commit onto dead items (scene-tools.md I2)."""
-        if self.mode in self._modify_ctl.CANCEL_ON_UNDO_MODES:
+        if (self.mode in self._modify_ctl.CANCEL_ON_UNDO_MODES
+                or self.mode == "floor_opening"):
+            # floor_opening: its armed host / candidates / draft point at slabs
+            # the restore rebuilds, so a later commit would orphan a void.
             self.set_mode(None)
 
     def _manip_drag_blocks_undo(self) -> bool:

@@ -430,6 +430,8 @@ class FeaturePlacementController:
         self.clear_floor_host_pick()
         for v in sc.views():
             v.viewport().update()
+        if host is not None and host not in sc._floor_slabs:
+            host = None      # stale (undo / redo rebuilt the slabs): never orphan a void
         if host is None or len(points) < 3:
             sc._show_status("A floor opening needs at least 3 points", timeout=2000)
             sc.instructionChanged.emit("Click on a floor to place an opening")
