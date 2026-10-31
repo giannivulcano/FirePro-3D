@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Floor openings -- floor-hosted blank Opening (floor void) -- 2026-10-31
+
+- [x] [done:2026-10-31] [type:feature] Floor-hosted blank Opening (floor void / penetration) [P2] [subject:Architecture]
+  - Details: user request 2026-10-30. The blank Opening kind (`kind="blank"`, label "Opening") exists only wall-hosted (`WallOpening`, `wall_opening.py`); `floor_slab.py` has no void support. Add a Floor `host_type` placement strategy (F3) for the blank Opening: place on a slab, cut the slab in plan / 3D / section, save/load, lifecycle with its host floor. Overlaps "Spec session: Floor openings & stairs" (stairs stay there). `feature.py`, `wall_opening.py`, `floor_slab.py`, `feature_placement_controller.py`. ref: feature-system.md F3, wall-room-floor-system.md §7.
+  - Built 2026-10-31 on `feat/floor-opening` (Large; design `docs/superpowers/specs/2026-10-30-floor-opening-design.md`): `FloorOpening` (own item owned by its `FloorSlab`, cut = intersection via `floor_cut`), Type Opening > Floor > Sketched (`host_type` Floor) + Architecture ribbon Floor Opening button + Feature Browser route; rect corner/centre + polygon placement, topmost-slab pick with Space cycle; plan see-through hole + own outline, section break, true 3D hole (bridge vertices welded, `ca193661`); follows host move/rotate, own grips/move, dies with host; shared Opening DM row, Mark sequence, Model Browser child, panel rows; save/load/undo/paste. VC9 fix round `43641dae` (undo/redo mid-draft ends placement; Level.Name via host). Merged main `e51c9627` at `87ab2826`. Keep-green 158 files; smoke passed; full suite waived by the user. Follow-ups filed under Opening element, Floor placement workflow, Wall, Room & Floor Slab Follow-Ups.
+
 ## Block Editor constraint system -- X / Y axes as snap targets + Auto Constrain axis records -- 2026-10-31
 
 - [x] [type:feature] Block Editor X/Y axes as snap targets, so Auto Constrain ties new geometry to them while drawing (schematics too) [P1] [subject:CAD] [done:2026-10-31]
