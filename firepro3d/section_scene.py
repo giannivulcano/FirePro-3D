@@ -1916,8 +1916,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             # to walls at the same depth (mask first, then visible rect).
             self._register_depth_item(depth, mask, rect)
 
-    # ── Roofs ────────────────────────────────────────────────────────────
-
     def _slab_cut_spans(self, slab, rings, h_lo: float,
                         h_hi: float) -> list[tuple[float, float]]:
         """Horizontal spans where the cut line crosses slab material (A4 section).
@@ -1945,6 +1943,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             a, b = ha + t0 * (hb - ha), ha + t1 * (hb - ha)
             out.append((min(a, b), max(a, b)))
         return sorted(out)
+
+    # ── Roofs ────────────────────────────────────────────────────────────
 
     def _project_roofs(self):
         props = self._roof_display_props()
