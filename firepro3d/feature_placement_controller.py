@@ -23,16 +23,63 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QPointF
-from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QColor, QPainterPath, QPen
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from . import marks
-from .constants import OPENING_ALIGNMENTS
+from .colour_tokens import resolve_colour
+from .constants import FLOOR_OPENING_HOST_HL_COLOR, OPENING_ALIGNMENTS, Z_OVERLAY
+from .display_manager import apply_category_defaults
 from .wall_opening import WallOpening
 from .feature import DEFAULT_FEATURE_FOR_TYPE
 
 if TYPE_CHECKING:
     from .wall import WallSegment
+
+
+class FloorOpeningDraft(QGraphicsPathItem):
+    """In-progress floor-void boundary for the polygon primitive (floor-opening A6).
+
+    A placement preview only: never in a host's ``openings``, never serialized,
+    never on the undo stack.  Duck-types the members the floor polygon machinery
+    reads off ``Model_Space._floor_active`` (``_points``, ``_color``,
+    ``add_point``, ``last_point``, ``_rebuild_path``, ``close_polygon``) so that
+    machinery is shared with the slab, not forked.
+    """
+
+    def __init__(self, first: QPointF, color: QColor):
+        super().__init__()
+        self._points: list[QPointF] = [QPointF(first)]
+        self._color = QColor(color)
+        pen = QPen(self._color, 1, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setZValue(Z_OVERLAY)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self._exclude_from_bulk_select = True
+        self._rebuild_path()
+
+    def add_point(self, pt: QPointF) -> None:
+        """Append a vertex and redraw."""
+        self._points.append(QPointF(pt))
+        self._rebuild_path()
+
+    def last_point(self) -> QPointF:
+        """A copy of the most recent vertex (rubber-band anchor)."""
+        return QPointF(self._points[-1])
+
+    def close_polygon(self) -> None:
+        """Redraw (the draft is committed by the controller, never kept)."""
+        self._rebuild_path()
+
+    def _rebuild_path(self) -> None:
+        path = QPainterPath()
+        if self._points:
+            path.moveTo(self._points[0])
+            for p in self._points[1:]:
+                path.lineTo(p)
+        self.setPath(path)
 
 
 class FeaturePlacementController:
@@ -236,3 +283,168 @@ class FeaturePlacementController:
         """
         if new_mode != "opening":
             self._clear_opening_ghost()
+
+    # ── Floor host strategy (floor-opening design A6) ────────────────────────
+    # Floor voids reuse the floor rect / polygon machinery in Model_Space; the
+    # host pick, Spacebar cycle, draft and commit live here.  State stays on
+    # the scene (_floor_opening_* fields), like the _opening_* fields.
+
+    def floor_slabs_at(self, pt: QPointF) -> list:
+        """Visible slabs whose fill path contains *pt*, highest resolved top first.
+
+        The fill ``path()`` (not the stroked ``shape()``) decides containment; a
+        slab whose z-range does not resolve is skipped, exactly as it is hidden.
+        Equal tops keep ``_floor_slabs`` order (stable sort).
+        """
+        found = []
+        for slab in self._scene._floor_slabs:
+            if not slab.isVisible() or not slab.path().contains(pt):
+                continue
+            zr = slab.z_range_mm()
+            if zr is None:
+                continue
+            found.append((zr[1], slab))
+        found.sort(key=lambda t: -t[0])
+        return [slab for _, slab in found]
+
+    def floor_opening_host(self):
+        """The current host candidate, or None when nothing is armed."""
+        sc = self._scene
+        cands = sc._floor_opening_candidates
+        if not cands:
+            return None
+        return cands[sc._floor_opening_host_idx % len(cands)]
+
+    def arm_floor_host(self, pt: QPointF) -> bool:
+        """First click of a floor-void placement: pick the host under *pt*.
+
+        Returns:
+            True when a host was armed; False (status + instruction posted,
+            nothing armed) when no floor is under the point.
+        """
+        sc = self._scene
+        cands = self.floor_slabs_at(pt)
+        if not cands:
+            msg = "Click on a floor to place an opening"
+            sc._show_status(msg, timeout=2000)
+            sc.instructionChanged.emit(msg)
+            return False
+        sc._floor_opening_candidates = cands
+        sc._floor_opening_host_idx = 0
+        self._show_floor_host_highlight()
+        return True
+
+    def cycle_floor_host(self) -> bool:
+        """Spacebar while drawing: advance to the next stacked slab.
+
+        Returns:
+            True when the host changed; False with fewer than two candidates
+            (nothing ambiguous, so the key falls through).
+        """
+        sc = self._scene
+        cands = sc._floor_opening_candidates
+        if len(cands) < 2:
+            return False
+        sc._floor_opening_host_idx = (sc._floor_opening_host_idx + 1) % len(cands)
+        self._show_floor_host_highlight()
+        host = self.floor_opening_host()
+        sc.instructionChanged.emit(
+            f"Opening host: {host.name or 'Floor'} "
+            f"({sc._floor_opening_host_idx + 1}/{len(cands)})  -  Space = next floor")
+        return True
+
+    def _show_floor_host_highlight(self) -> None:
+        """Outline the current host (created lazily, one item per placement)."""
+        sc = self._scene
+        host = self.floor_opening_host()
+        if host is None:
+            return
+        hl = sc._floor_opening_host_hl
+        if hl is None:
+            hl = QGraphicsPathItem()
+            pen = QPen(QColor(FLOOR_OPENING_HOST_HL_COLOR), 3, Qt.PenStyle.SolidLine)
+            pen.setCosmetic(True)
+            hl.setPen(pen)
+            hl.setZValue(Z_OVERLAY)
+            hl.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            hl._exclude_from_bulk_select = True
+            sc.addItem(hl)
+            sc._floor_opening_host_hl = hl
+        hl.setPath(host.path())
+        for v in sc.views():
+            v.viewport().update()
+
+    def clear_floor_host_pick(self) -> None:
+        """Drop the candidates and the highlight (idempotent)."""
+        sc = self._scene
+        sc._floor_opening_candidates = []
+        sc._floor_opening_host_idx = 0
+        hl = sc._floor_opening_host_hl
+        if hl is not None:
+            if hl.scene() is sc:
+                sc.removeItem(hl)
+            sc._floor_opening_host_hl = None
+
+    def floor_opening_colour(self) -> QColor:
+        """Draft / ghost colour: the Display Manager "Opening" row colour."""
+        from .display_manager import _read_category_from_settings
+        from .floor_opening import FLOOR_VOID_DEFAULT_COLOR
+        c = _read_category_from_settings("Opening").get("color") or FLOOR_VOID_DEFAULT_COLOR
+        return resolve_colour(c)
+
+    def begin_floor_opening_draft(self, pt: QPointF) -> "FloorOpeningDraft":
+        """Start the polygon draft at *pt* (a preview; the host is untouched)."""
+        sc = self._scene
+        draft = FloorOpeningDraft(pt, self.floor_opening_colour())
+        sc.addItem(draft)
+        sc._floor_active = draft
+        return draft
+
+    def commit_floor_opening_draft(self):
+        """Close the polygon draft: remove the preview, commit its points.
+
+        Returns:
+            The placed FloorOpening, or None when discarded (< 3 points).
+        """
+        sc = self._scene
+        draft = sc._floor_active
+        sc._floor_active = None
+        pts = list(draft._points) if draft is not None else []
+        if draft is not None and draft.scene() is sc:
+            sc.removeItem(draft)
+        sc.preview_pipe.hide()
+        sc._hide_close_ring()
+        return self.commit_floor_opening(pts)
+
+    def commit_floor_opening(self, points):
+        """The void commit target (A6): host.add_opening, addItem, mint, undo, Select.
+
+        Fewer than 3 points discard (no void, no undo entry) and re-arm.
+
+        Returns:
+            The placed FloorOpening, or None when discarded.
+        """
+        from .floor_opening import FloorOpening
+        sc = self._scene
+        host = self.floor_opening_host()
+        self.clear_floor_host_pick()
+        for v in sc.views():
+            v.viewport().update()
+        if host is not None and host not in sc._floor_slabs:
+            host = None      # stale (undo / redo rebuilt the slabs): never orphan a void
+        if host is None or len(points) < 3:
+            sc._show_status("A floor opening needs at least 3 points", timeout=2000)
+            sc.instructionChanged.emit("Click on a floor to place an opening")
+            return None
+        op = FloorOpening([QPointF(p) for p in points], host,
+                          feature_id=sc._floor_opening_feature_id)
+        host.add_opening(op)
+        if op.scene() is not sc:
+            sc.addItem(op)
+        apply_category_defaults(op)
+        marks.mint(sc, op)
+        sc.push_undo_state()
+        sc.instructionChanged.emit("Click on a floor to place an opening")
+        # Single-placement: return to Select with the new void selected.
+        sc._end_placement_switch(op)
+        return op

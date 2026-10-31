@@ -107,6 +107,10 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._thickness_mm: float = DEFAULT_THICKNESS_MM
         # Consumed by level_manager in a later task; visibility is pure z-range.
         self._visibility_by_zrange: bool = True
+        # Owned floor voids (FloorOpening, floor-opening A2) and the cached cut
+        # region (slab minus voids) that cut_region() rebuilds lazily.
+        self.openings: list = []
+        self._cut_cache: list | None = None
 
         self.init_displayable()
         self.name: str = ""
@@ -177,9 +181,49 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def points(self) -> list[QPointF]:
         return self._points
 
+    # ── Floor voids (FloorOpening) + cut region (floor-opening A2/A3) ────────
+
+    def add_opening(self, op) -> None:
+        """Own *op* (a FloorOpening): list it, point it here, re-derive the cut."""
+        if op not in self.openings:
+            self.openings.append(op)
+        op.host = self
+        self.invalidate_cut()
+
+    def remove_opening(self, op) -> None:
+        """Stop owning *op* (scene removal is the caller's)."""
+        if op in self.openings:
+            self.openings.remove(op)
+        self.invalidate_cut()
+
+    def invalidate_cut(self) -> None:
+        """Drop the cached cut region (slab or a void changed geometry)."""
+        self._cut_cache = None
+        self.update()
+
+    def cut_region(self) -> list:
+        """Material region: ``floor_cut.cut_rings(slab, voids)`` output.
+
+        Returns:
+            ``[(outer, [holes])]`` in scene coords. Without voids the slab
+            ring itself (copies); empty when a void swallows the slab or the
+            slab has fewer than 3 points. The returned list is the cache
+            itself: callers must treat it as read-only.
+        """
+        if len(self._points) < 3:
+            return []
+        if not self.openings:
+            return [([QPointF(p) for p in self._points], [])]
+        if self._cut_cache is None:
+            from .floor_cut import cut_rings
+            self._cut_cache = cut_rings(self._points,
+                                        [op._points for op in self.openings])
+        return self._cut_cache
+
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
 
     def _rebuild_path(self):
+        self._cut_cache = None          # slab geometry changed: re-derive the cut
         path = QPainterPath()
         if len(self._points) < 2:
             self.setPath(path)
@@ -192,6 +236,27 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self.setPath(path)
 
     # ── Paint ────────────────────────────────────────────────────────────────
+
+    def _material_path(self) -> QPainterPath:
+        """The cut region as one odd-even path (outer rings and their holes)."""
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        for outer, holes in self.cut_region():
+            for ring in (outer, *holes):
+                path.addPolygon(QPolygonF(ring))
+                path.closeSubpath()
+        return path
+
+    def _draw_material(self, painter) -> None:
+        """Fill the slab material with the painter's current brush.
+
+        Void-less: today's exact polygon call. With voids: the cut region, so
+        the hole stays see-through (floor-opening A4).
+        """
+        if self.openings:
+            painter.drawPath(self._material_path())
+        else:
+            painter.drawPolygon(QPolygonF(self._points))
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
@@ -213,7 +278,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                     bg = vp_palette.color(vp_palette.ColorRole.Base)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
-            painter.drawPolygon(QPolygonF(self._points))
+            self._draw_material(painter)
 
         # Fill, then the section hatch, then the outline on top (AC1): the
         # hatch body fills the polygon and would cover the stroke's inner half.
@@ -225,14 +290,17 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                 fill_color.setAlpha(_FILL_ALPHA)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(fill_color))
-            painter.drawPolygon(QPolygonF(self._points))
+            self._draw_material(painter)
 
         # Section-cut hatch overlay
         if getattr(self, "_is_section_cut", False) and len(self._points) >= 3:
             from .displayable_item import draw_section_type
-            clip = QPainterPath()
-            clip.addPolygon(QPolygonF(self._points))
-            clip.closeSubpath()
+            if self.openings:
+                clip = self._material_path()       # hatch skips the voids (A4)
+            else:
+                clip = QPainterPath()
+                clip.addPolygon(QPolygonF(self._points))
+                clip.closeSubpath()
             draw_section_type(painter, clip, self.scene(), self,
                               getattr(self, "_display_section_type", None),
                               line_col,
@@ -263,6 +331,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             return path
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
+        if self.openings:                           # a click in a void misses the slab
+            return stroker.createStroke(path) | self._material_path()
         return stroker.createStroke(path) | path    # union stroke + fill area
 
     # ── Grip points ──────────────────────────────────────────────────────────
@@ -324,6 +394,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def translate(self, dx: float, dy: float):
         self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
         self._rebuild_path()
+        for op in self.openings:        # follow-host (floor-opening A2)
+            op.translate(dx, dy)
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rigid rotate of the 2D slab boundary about ``pivot`` (Y-up CCW+).
@@ -334,6 +406,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
                         for p in self._points]
         self._rebuild_path()
+        for op in self.openings:        # follow-host (floor-opening A2)
+            op.manip_rotate(angle_deg, pivot)
 
     # ── Properties API ───────────────────────────────────────────────────────
 
@@ -494,6 +568,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "bottom_abs_z_mm":   self._bottom_abs_z_mm,
             "thickness_mm":      self._thickness_mm,
         }
+        if self.openings:               # only when non-empty: void-less files unchanged (AC7)
+            d["openings"] = [op.to_dict() for op in self.openings]
         # Per-instance Display-Manager overrides: the shared mixin helper (L283).
         return self.display_overrides_to_dict(d)
 
@@ -523,6 +599,10 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._top_offset_mm = data.get("level_offset_mm", 0.0)
             slab._bottom_mode = "thickness"
         slab.display_overrides_from_dict(data)      # incl. the HF5 canonical_id re-point
+        if data.get("openings"):
+            from .floor_opening import FloorOpening
+            for rec in data["openings"]:            # re-attach owned voids (A2)
+                slab.add_opening(FloorOpening.from_dict(rec, slab))
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────
@@ -559,6 +639,9 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                 return (sm.scene_to_real(pt.x()), -sm.scene_to_real(pt.y()))
             return (pt.x(), -pt.y())
 
+        if self.openings:                   # floor voids: holed caps + hole walls (A4)
+            return self._holed_mesh(top_z, bot_z, to_mm)
+
         pts_2d = [to_mm(p) for p in self._points]
         n = len(pts_2d)
 
@@ -587,6 +670,57 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             faces.append([i, j, j + n])
             faces.append([i, j + n, i + n])
 
+        return {
+            "vertices": verts,
+            "faces": faces,
+            "color": (self._color.redF(), self._color.greenF(),
+                      self._color.blueF(), 1.0),
+        }
+
+    def _holed_mesh(self, top_z: float, bot_z: float, to_mm) -> dict | None:
+        """Mesh of the cut region: per piece, holed top/bottom caps + ring walls.
+
+        Args:
+            top_z: Resolved top world-mm Z.
+            bot_z: Resolved bottom world-mm Z.
+            to_mm: Scene QPointF -> (x, y) world-mm mapper (``get_3d_mesh``'s).
+
+        Returns:
+            The ``get_3d_mesh`` dict, or None when no material remains.
+        """
+        from .floor_cut import signed_area, triangulate_with_holes
+        verts: list = []
+        faces: list = []
+        for outer, holes in self.cut_region():
+            o = [to_mm(p) for p in outer]
+            hs = [[to_mm(p) for p in h] for h in holes]
+            pts, tris = triangulate_with_holes(o, hs)
+            if not tris:
+                continue
+            # Weld coincident points (bridge endpoints appear twice in the
+            # bridged ring) so the mesh has no duplicate-position vertices.
+            first = {}
+            remap = []
+            for p in pts:
+                remap.append(first.setdefault(p, len(first)))
+            upts = list(first)                       # unique points, index = first[p]
+            tris = [(remap[a], remap[b], remap[c]) for a, b, c in tris]
+            base, n = len(verts), len(upts)
+            verts += [[x, y, top_z] for x, y in upts]
+            verts += [[x, y, bot_z] for x, y in upts]
+            faces += [[base + a, base + b, base + c] for a, b, c in tris]
+            faces += [[base + a + n, base + c + n, base + b + n] for a, b, c in tris]
+            rings = [o if signed_area(o) > 0 else o[::-1]]           # outer CCW
+            rings += [h if signed_area(h) < 0 else h[::-1] for h in hs]   # holes CW
+            for ring in rings:
+                m = len(ring)
+                for k in range(m):
+                    i = base + first[ring[k]]
+                    j = base + first[ring[(k + 1) % m]]
+                    faces.append([j, i, i + n])      # rings are CCW/CW in y-up mm:
+                    faces.append([j, i + n, j + n])  # this order faces away from material
+        if not faces:
+            return None
         return {
             "vertices": verts,
             "faces": faces,

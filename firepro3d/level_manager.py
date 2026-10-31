@@ -64,6 +64,7 @@ from .constants import (
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
     Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE, Z_CATEGORY_BY_CLASS,
+    Z_OPENING_ABOVE_HOST,
 )
 @dataclass
 class Level:
@@ -742,6 +743,12 @@ class LevelManager:
         # ── Floor slabs ──────────────────────────────────────────────────
         for item in getattr(scene, "_floor_slabs", []):
             _set_level_vis(item)
+            # Owned voids (FloorOpening): same z-range pass as the host, and
+            # never shown where the host is hidden (floor-opening A1).
+            for op in getattr(item, "openings", []):
+                _set_level_vis(op)
+                if not item.isVisible():
+                    op.setVisible(False)
 
         # ── Design areas ──────────────────────────────────────────────────
         for item in getattr(scene, "design_areas", []):
@@ -845,6 +852,9 @@ class LevelManager:
                 op.setZValue(wall_z + (Z_CAT_OPENING - Z_CAT_WALL))
         for item in getattr(scene, "_floor_slabs", []):
             _apply_elev_z(item)
+            # A void pins just above its host slab (mirrors the wall -> opening pin).
+            for op in getattr(item, "openings", []):
+                op.setZValue(item.zValue() + Z_OPENING_ABOVE_HOST)
 
         # Underlays: elevation-based z above floor slabs, below roofs
         for data, item in getattr(scene, "underlays", []):

@@ -50,7 +50,7 @@ from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.blocks_browser import BlocksBrowser
 from firepro3d.constants import (DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM,
                                  MODEL_WEIGHT_FACTOR)
-from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
+from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
 from firepro3d import __version__ as APP_VERSION
@@ -204,7 +204,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._initial_fit_done = True
         self._MAX_RECENT = 8
         self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
-        self._last_feature: dict[str, str] = {}  # type_ → last-used feature id
+        # (kind, host_type) -> last-used feature id.  Keyed by host too: the
+        # wall Blank and the floor void share kind "blank" (floor-opening A5).
+        self._last_feature: dict[tuple[str, str], str] = {}
 
         # Auto-save every 2 minutes for crash recovery
         self._autosave_timer = QTimer(self)
@@ -1745,6 +1747,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             checkable=True)
         _blank_btn.setToolTip("Place a blank (frameless) opening in a wall")
         self._mode_buttons["blank"] = _blank_btn
+        _floor_open_btn = g_3d.add_small_button(
+            "Floor Opening", _I("blank_icon.svg"),
+            lambda: self._enter_floor_opening_mode(),
+            checkable=True)
+        _floor_open_btn.setToolTip(
+            "Cut an opening (shaft / stair well) through a floor -- "
+            "click on the floor first; Space = next stacked floor")
+        self._mode_buttons["floor_opening"] = _floor_open_btn
         _detail_btn = g_3d.add_small_button(
             "Detail", _I("detail_icon.svg"),
             lambda: self.scene.set_mode("detail"),
@@ -2735,7 +2745,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "gridline_offset": "Offset Gridline", "detail": "Detail View",
         "section": "Section",
         # Architecture
-        "wall": "Wall", "floor": "Floor", "roof": "Roof", "roof_rect": "Roof",
+        "wall": "Wall", "floor": "Floor", "floor_opening": "Floor Opening",
+        "roof": "Roof", "roof_rect": "Roof",
         "room": "Room", "room_manual": "Room", "opening": "Opening",
         "door": "Door", "window": "Window",
         # 2D geometry + text + annotation
@@ -2821,11 +2832,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         Args:
             type_: Opening type key — ``"door"``, ``"window"``, or ``"blank"``.
+                Wall Types only (the ribbon Door/Window/Blank buttons).
 
         Returns:
             A Feature id string (e.g. ``"door_914"``).
         """
-        return self._last_feature.get(type_, DEFAULT_FEATURE_FOR_TYPE[type_])
+        return self._last_feature.get((type_, "Wall"), DEFAULT_FEATURE_FOR_TYPE[type_])
 
     def _enter_opening_mode(self, type_: str) -> None:
         """Enter opening placement carrying the persistent template (§7.6).
@@ -2845,6 +2857,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             tmpl.apply_feature(feature_id)
         self.scene.set_mode("opening", template=tmpl)
 
+    def _enter_floor_opening_mode(self) -> None:
+        """Enter floor-void placement with the last-used Floor Type (A5)."""
+        self.scene._floor_opening_feature_id = self._last_feature.get(
+            ("blank", "Floor"), DEFAULT_FLOOR_OPENING_FEATURE)
+        self.scene.set_mode("floor_opening")
+
     def _on_feature_activated(self, feature_id: str) -> None:
         """Handle a leaf activation from the Feature Browser (§7.13).
 
@@ -2856,7 +2874,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             fdef = get_feature(feature_id)
         except KeyError:
             return
-        self._last_feature[fdef.kind] = feature_id
+        self._last_feature[(fdef.kind, fdef.host_type)] = feature_id
+        if fdef.host_type == "Floor":
+            # Floor host strategy (feature-system F3): the floor_opening mode.
+            self._enter_floor_opening_mode()
+            return
         tmpl = self.current_opening_template
         if tmpl.feature_id != feature_id:
             tmpl.apply_feature(feature_id)

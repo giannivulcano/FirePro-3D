@@ -1846,6 +1846,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             pts = getattr(slab, "_points", [])
             if not pts:
                 continue
+            rings = slab.cut_region()
+            if not rings:                    # a void swallows the slab: no body (A4)
+                self._zones[id(slab)] = ZONE_HIDDEN
+                continue
             h_vals = []
             world_pts = []
             for pt in pts:
@@ -1853,6 +1857,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 world_pts.append((wx, wy))
                 h, _ = self._project(wx, wy, 0)
                 h_vals.append(h)
+            if slab.openings:                # material extent: edge voids narrow it
+                h_vals = [self._project(*self._scene_to_world(p.x(), p.y()), 0)[0]
+                          for outer, _holes in rings for p in outer]
             h_min, h_max = min(h_vals), max(h_vals)
 
             zone, h_lo, h_hi = self._basis.classify_polygon(world_pts)
@@ -1860,8 +1867,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if zone == ZONE_HIDDEN:
                 continue
             if zone == ZONE_CUT:
-                self._cut_items.append(("slab", slab, (h_lo, h_hi, bot_z, top_z)))
-                continue
+                spans = self._slab_cut_spans(slab, rings, h_lo, h_hi)
+                for s_lo, s_hi in spans:
+                    self._cut_items.append(("slab", slab, (s_lo, s_hi, bot_z, top_z)))
+                if spans:
+                    continue
+                # The cut line runs only through voids: draw the rest as elevation.
             clipped = self._clip_h(h_min, h_max)
             if clipped is None:
                 continue
@@ -1904,6 +1915,34 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             # the unified sorter places them at the correct Z relative
             # to walls at the same depth (mask first, then visible rect).
             self._register_depth_item(depth, mask, rect)
+
+    def _slab_cut_spans(self, slab, rings, h_lo: float,
+                        h_hi: float) -> list[tuple[float, float]]:
+        """Horizontal spans where the cut line crosses slab material (A4 section).
+
+        A void-less slab keeps the classified ``(h_lo, h_hi)``. With voids: one
+        span per ``floor_cut.intervals_inside`` interval of the marker's cut
+        segment (scene coords; ``h`` is affine in its parameter).
+
+        Args:
+            slab: The cut FloorSlab.
+            rings: ``slab.cut_region()``.
+            h_lo: Classified low h of the full footprint.
+            h_hi: Classified high h of the full footprint.
+
+        Returns:
+            ``[(h_lo, h_hi), ...]`` ascending; empty when the cut line meets
+            only voids.
+        """
+        if not slab.openings:
+            return [(h_lo, h_hi)]
+        from .floor_cut import intervals_inside
+        ha, hb = self._basis.h_a, self._basis.h_b
+        out = []
+        for t0, t1 in intervals_inside(rings, self._marker.cut_a, self._marker.cut_b):
+            a, b = ha + t0 * (hb - ha), ha + t1 * (hb - ha)
+            out.append((min(a, b), max(a, b)))
+        return sorted(out)
 
     # ── Roofs ────────────────────────────────────────────────────────────
 

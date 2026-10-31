@@ -82,7 +82,7 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 | # | Tab | Groups |
 |---|-----|--------|
 | 1 | **Manage** | File (New/Open/Save As as a 3-stack of SMALL buttons + a large **Recent** menu button — **no Save button**, Save lives on the header rail) · Settings (System/Project Settings · **Renumber**) · Display (Display Manager) |
-| 2 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) · **Underlay** (Underlay Manager). *(No Block group since 2026-09-30 — moved to the Build tab, tab 6.)* |
+| 2 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Blank / Floor Opening [→ `set_mode("floor_opening")`, Type `floor_sketched`; feature-system F3] / Detail) · Datums (Levels/Gridline) · **Underlay** (Underlay Manager). *(No Block group since 2026-09-30 — moved to the Build tab, tab 6.)* |
 | 3 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
 | 4 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
 | 5 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |

@@ -16,6 +16,7 @@ from PyQt6.QtCore import QPointF
 
 from .dynamic_input import SCHEMAS, seed_line
 from .cad_math import CAD_Math
+from .constants import FLOOR_SKETCH_MODES
 
 
 class PlacementInputCoordinator:
@@ -76,6 +77,15 @@ class PlacementInputCoordinator:
                 ("Floor (Polygon)", "Pick first boundary point",
                  lambda s: s._set_floor_primitive("polygon")),
             ],
+            # Floor void (floor-opening A6): the floor machinery, void commit target.
+            "floor_opening": [
+                ("Floor Opening (Corner Rectangle)", "Pick first corner on a floor",
+                 lambda s: s._set_floor_primitive("rect", from_center=False)),
+                ("Floor Opening (Center Rectangle)", "Pick centre point on a floor",
+                 lambda s: s._set_floor_primitive("rect", from_center=True)),
+                ("Floor Opening (Polygon)", "Pick first boundary point on a floor",
+                 lambda s: s._set_floor_primitive("polygon")),
+            ],
             # Array (scene-tools.md D10 + P1 DD5): one mode, the variant
             # sets ``_array_variant``.
             "array": [
@@ -108,7 +118,7 @@ class PlacementInputCoordinator:
         if s.mode == "wall":
             return (s._wall_anchor is None
                     and s._wall_rect_anchor is None)
-        if s.mode == "floor":
+        if s.mode in FLOOR_SKETCH_MODES:
             return (s._floor_active is None
                     and s._floor_rect_anchor is None)
         if s.mode == "array":
@@ -641,7 +651,7 @@ class PlacementInputCoordinator:
                 return QPointF(a) if a is not None else None
             a = self._scene._wall_anchor
             return QPointF(a) if a is not None else None
-        if self._scene.mode == "floor":
+        if self._scene.mode in FLOOR_SKETCH_MODES:
             if self._scene._floor_primitive == "rect":
                 # 3-click rect: the base anchors both the side and depth steps.
                 a = self._scene._floor_rect_anchor
@@ -731,7 +741,7 @@ class PlacementInputCoordinator:
             return self._polygon_schema_for_step()
         if self._scene.mode == "wall":
             return self._wall_schema_for_primitive()
-        if self._scene.mode == "floor":
+        if self._scene.mode in FLOOR_SKETCH_MODES:
             return self._floor_schema_for_primitive()
         if self._scene.mode == "array":
             # P1 DD5: the HUD follows the ←/→ variant.
@@ -766,7 +776,7 @@ class PlacementInputCoordinator:
             return s._draw_rect_anchor, s._draw_rect_side_pt, s._draw_rect_from_center
         if s.mode == "wall" and s._wall_primitive == "rect":
             return s._wall_rect_anchor, s._wall_rect_side_pt, s._wall_rect_from_center
-        if s.mode == "floor" and s._floor_primitive == "rect":
+        if s.mode in FLOOR_SKETCH_MODES and s._floor_primitive == "rect":
             return s._floor_rect_anchor, s._floor_rect_side_pt, s._floor_rect_from_center
         return None
 

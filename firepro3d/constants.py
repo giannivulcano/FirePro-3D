@@ -54,6 +54,9 @@ OPENING_TYPES        = ["door", "window", "blank"]
 Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
 Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
+# A hosted opening is pinned just above its host's z (level_manager.apply_to_scene):
+# a wall's openings and a floor slab's voids (FloorOpening, floor-opening A1).
+Z_OPENING_ABOVE_HOST = Z_CAT_OPENING - Z_CAT_WALL
 
 # Model classes (by ``type(item).__name__``) whose z is elevation-based
 # (level_manager.apply_to_scene), category offset per class.
@@ -77,6 +80,7 @@ Z_CATEGORY_BY_CLASS = {
 ELEV_Z_SNAPPABLE_CLASSES = frozenset({
     "FloorSlab", "RoofItem", "Room", "WallSegment",
     "WallOpening", "DoorOpening", "WindowOpening",
+    "FloorOpening",     # floor void: z follows its host slab (floor-opening A7)
 })
 
 # ── Default gridline geometry ────────────────────────────────────────────────
@@ -314,6 +318,10 @@ MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
 # Selection colour comes from the theme `selection` tokens (selection
 # manipulator); these paper-mm sizes set the manipulator's paper-scene handles.
 SELECTION_OUTLINE_COLOR = "#0055ff"         # polyline close-ring indicator only
+FLOOR_OPENING_HOST_HL_COLOR = "#ff4400"     # floor-void host-pick outline (= scene_tools highlight)
+# Placement modes that share the floor rect / polygon machinery (floor-opening A6):
+# "floor" commits a FloorSlab, "floor_opening" a FloorOpening void on a host slab.
+FLOOR_SKETCH_MODES = ("floor", "floor_opening")
 SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
 SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
 

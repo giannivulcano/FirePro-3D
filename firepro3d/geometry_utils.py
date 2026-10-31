@@ -64,6 +64,12 @@ def triangulate_polygon(pts: list[tuple[float, float]]) -> list[tuple[int, int, 
                 if j in (i, (i - 1) % m, (i + 1) % m):
                     continue
                 px, py = pts[indices[j]]
+                # A bridged ring (floor_cut.triangulate_with_holes) repeats each
+                # bridge endpoint; a copy sitting on an ear corner is not inside
+                # it. A simple polygon never repeats a vertex, so roofs/floors
+                # are unaffected.
+                if (px, py) in ((ax, ay), (bx, by), (cx, cy)):
+                    continue
                 if point_in_triangle(px, py, ax, ay, bx, by, cx, cy):
                     is_ear = False
                     break

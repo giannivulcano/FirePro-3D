@@ -234,7 +234,10 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         ribbon; the panel enum offers the Types within the current Feature."""
         cur = FEATURE_REGISTRY.get(self.feature_id)
         label = feature_label(cur) if cur is not None else "Opening"
-        return [f for f in FEATURE_REGISTRY.values() if feature_label(f) == label]
+        # Wall Types only: a floor-hosted Type (feature-system F3) is placed by
+        # the floor_opening mode, never switched onto a wall opening.
+        return [f for f in FEATURE_REGISTRY.values()
+                if feature_label(f) == label and f.host_type == "Wall"]
 
     # ── Scene/unit helpers ────────────────────────────────────────────────────
 

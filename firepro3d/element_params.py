@@ -141,7 +141,13 @@ def _ppm(item) -> float:
 def _level_name(item, name=None):
     sc = scene_of(item)
     lm = getattr(sc, "_level_manager", None)
-    name = getattr(item, "level", None) if name is None else name
+    if name is None:
+        from .floor_opening import FloorOpening
+        if isinstance(item, FloorOpening):   # a void sits on its host's top level
+            from .marks import item_level_name
+            name = item_level_name(item)
+        else:
+            name = getattr(item, "level", None)
     lvl = lm.get(name) if (lm is not None and name) else None
     return lvl.name if lvl is not None else None
 
@@ -366,8 +372,11 @@ def category_of(item) -> Optional[str]:
     from .sprinkler import Sprinkler
     from .wall import WallSegment
     from .wall_opening import WallOpening
+    from .floor_opening import FloorOpening
     if isinstance(item, WallOpening):
         return _OPENING_CATEGORY.get(item.openings_type)
+    if isinstance(item, FloorOpening):
+        return "Opening"      # a floor void shares the Opening sequence (floor-opening A8)
     for cls, cat in ((Room, "Room"), (Pipe, "Pipe"), (Sprinkler, "Sprinkler"),
                      (WallSegment, "Wall"), (GridlineItem, "Gridline")):
         if isinstance(item, cls):
