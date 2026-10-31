@@ -512,9 +512,7 @@ class ModelBrowser(QWidget):
             return
         self._syncing = True
         try:
-            self._scene.clearSelection()
-            for entity in entities:
-                entity.setSelected(True)
+            self._scene.select_items(entities)    # clear + select, one emit (§5.9)
         finally:
             self._syncing = False
         if len(entities) == 1:
@@ -640,9 +638,7 @@ class ModelBrowser(QWidget):
         plain = [e for e in entities if not _gridline_hosted(e)]
         self._syncing = True
         try:
-            self._scene.clearSelection()
-            for entity in plain:
-                entity.setSelected(True)
+            self._scene.select_items(plain)       # clear + select, one emit (§5.9)
         finally:
             self._syncing = False
         if hosted:

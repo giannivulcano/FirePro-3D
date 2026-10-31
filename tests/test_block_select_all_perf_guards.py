@@ -89,3 +89,26 @@ def test_commit_emits_constant_selection_changed(qapp, tool):
     assert sel_big >= 40                      # the commit still leaves its result selected
     assert big == small, f"{tool}: {small} emits at n=4 but {big} at n=40"
     assert big <= 2
+
+
+def _explode_emits(n):
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    proj = Model_Space()
+    d = BlockDefinition.new(
+        name="E", library="L", series="S", origin=(0.0, 0.0),
+        primitives=[LineItem(QPointF(i * 10.0, 0), QPointF(i * 10.0, 50)).to_dict()
+                    for i in range(n)])
+    proj.register_block_definition(d)
+    ms = BlockEditorWidget(proj).editor_scene     # explode is Block-Editor-only (C1)
+    inst = ms.place_block_instance(d.id, (0.0, 0.0))
+    ms.select_items([inst])
+    hits = []
+    ms.selectionChanged.connect(lambda: hits.append(1))
+    new = ms.explode_selected_blocks()
+    assert len(new) == n and all(it.isSelected() for it in new)
+    return len(hits)
+
+
+def test_explode_reselect_is_one_batch(qapp):
+    assert _explode_emits(40) == _explode_emits(4) <= 2
