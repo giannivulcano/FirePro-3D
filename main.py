@@ -2735,7 +2735,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "gridline_offset": "Offset Gridline", "detail": "Detail View",
         "section": "Section",
         # Architecture
-        "wall": "Wall", "floor": "Floor", "roof": "Roof", "roof_rect": "Roof",
+        "wall": "Wall", "floor": "Floor", "floor_opening": "Floor Opening",
+        "roof": "Roof", "roof_rect": "Roof",
         "room": "Room", "room_manual": "Room", "opening": "Opening",
         "door": "Door", "window": "Window",
         # 2D geometry + text + annotation

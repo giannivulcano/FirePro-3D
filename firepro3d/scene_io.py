@@ -667,6 +667,10 @@ class SceneIOMixin:
         self._wall_chain_start = None
         self._wall_start_target = None
         self._floor_active = None
+        # Floor-void host pick (A6): clear() below deletes the highlight item.
+        self._floor_opening_candidates = []
+        self._floor_opening_host_idx = 0
+        self._floor_opening_host_hl = None
         self._roof_active = None
         reset_grid_counters()
         self.active_level = DEFAULT_LEVEL

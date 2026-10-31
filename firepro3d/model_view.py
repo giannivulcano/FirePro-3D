@@ -9,6 +9,7 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent, QKeySe
 from . import theme as th
 from .snap_engine import paint_snap_indicator
 from .text_item import editing_text_item
+from .constants import FLOOR_SKETCH_MODES
 
 _DETAIL_BORDER_COLOR = "#4488cc"
 
@@ -1312,7 +1313,7 @@ class Model_View(QGraphicsView):
                 ev.accept()
                 return True
             # Floor polygon placement pops its last vertex on Delete too.
-            if (getattr(sc, "mode", None) == "floor"
+            if (getattr(sc, "mode", None) in FLOOR_SKETCH_MODES
                     and getattr(sc, "_floor_active", None) is not None):
                 ev.accept()
                 return True

@@ -48,7 +48,7 @@ from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY)
+                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -1213,6 +1213,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._place_reference = False
         if mode in self._REFERENCE_MODES:
             self._refresh_ref_colour()      # the Space toggle refreshes too
+        _prev_mode = self.mode   # the floor-family teardown below needs the mode left
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         if hasattr(self, 'pipeNodeHighlight'):
@@ -1336,10 +1337,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Wall placement teardown (line/polyline + rect) — owned by the wall
         # controller (slice 10). Idempotent; guarded on new_mode inside clear().
         self._wall_ctl.clear(mode)
-        # Clean up floor drawing state (unified: polygon + rect share "floor")
-        if mode != "floor":
+        # Clean up floor-family drawing state (polygon + rect fields are shared by
+        # "floor" and "floor_opening"): kept only when re-entering the SAME
+        # floor-family mode.  A floor-void draft is always discarded -- it reaches
+        # its host only through commit (floor-opening design A6).
+        if mode not in FLOOR_SKETCH_MODES or mode != _prev_mode:
             if self._floor_active is not None:
-                if len(self._floor_active._points) < 3:
+                if (_prev_mode == "floor_opening"
+                        or len(self._floor_active._points) < 3):
                     if self._floor_active.scene() is self:
                         self.removeItem(self._floor_active)
                     if self._floor_active in self._floor_slabs:
@@ -1356,6 +1361,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if self._floor_rect_preview.scene() is self:
                     self.removeItem(self._floor_rect_preview)
                 self._floor_rect_preview = None
+            self._feature_ctl.clear_floor_host_pick()   # floor-void host + highlight
         # Clean up roof drawing state
         if mode != "roof":
             if self._roof_active is not None:
@@ -1518,6 +1524,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point  ·  Space = alignment",
             "floor":           "Pick first point",
+            "floor_opening":   "Click on a floor to place an opening",
             "room":            "Click inside a closed wall region",
             "pick_region":     "Click inside an enclosed area (Esc to finish)",
             "room_manual":     "Pick first room boundary point",
@@ -4521,7 +4528,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return self._plc._mode_placement_anchor()
 
     # S1: modes whose ⊥ snap measures from the placement start point.
-    _PER_FROM_MODES = ("draw_line", "polyline", "wall", "pipe", "floor", "roof",
+    _PER_FROM_MODES = ("draw_line", "polyline", "wall", "pipe", "floor", "floor_opening", "roof",
                        "draw_rectangle", "draw_circle", "draw_ellipse",
                        "draw_arc", "draw_spline")
 
@@ -4531,7 +4538,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         if self.mode == "wall" and self._wall_primitive == "rect":
             return None
-        if self.mode == "floor" and self._floor_primitive == "rect":
+        if self.mode in FLOOR_SKETCH_MODES and self._floor_primitive == "rect":
             return None
         if self.mode == "roof":
             # Roof reads its own anchor here: PLC ``_mode_placement_anchor`` has
@@ -4641,6 +4648,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # floor mirrors wall: primitive-aware (rect step-aware / polygon), the
         # router dispatches to the same press handlers the mouse uses.
         "floor": "_apply_floor_dynamic_input",
+        "floor_opening": "_apply_floor_dynamic_input",   # floor void: same builders (A6)
         # pipe is relative-angle aware: _on_dynamic_input_committed special-cases
         # it BEFORE the generic resolve (see _commit_pipe_typed).  This entry
         # only satisfies the _hud_available gate; _apply_pipe_dynamic_input is a
@@ -5062,6 +5070,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "opening":
             self._cycle_opening_alignment()
             return True
+        if self.mode == "floor_opening":
+            # Stacked slabs under the first click: Space picks the next host (A6).
+            return self._feature_ctl.cycle_floor_host()
         if self.mode == "draw_arc" and self._draw_arc_step == 2 and reverse:
             if self._arc_variant == _ARC_VARIANT_ENDPOINTS:
                 self._geom_ctl._toggle_arc_ep_major()
@@ -5487,6 +5498,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "stretch":                  "_move_stretch",
         "wall":                     "_move_wall_router",
         "floor":                    "_move_floor_router",
+        "floor_opening":            "_move_floor_router",
         "roof":                     "_move_roof",
         "roof_rect":                "_move_roof_rect",
         "room_manual":              "_move_room_manual",
@@ -5533,6 +5545,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_arc":        "_preview_from_arc",
         "wall":            "_preview_from_wall",
         "floor":           "_preview_from_floor",
+        "floor_opening":   "_preview_from_floor",
     }
 
     def _preview_from_resolved(self, resolved) -> None:
@@ -6107,7 +6120,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     _SINGLE_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
-        "wall", "floor", "roof", "roof_rect", "opening", "door", "window",
+        "wall", "floor", "floor_opening", "roof", "roof_rect", "opening", "door", "window",
         "text",
     })
 
@@ -6115,7 +6128,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
         "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
         "text", "place_block", "set_scale", "water_supply", "design_area",
-        "wall", "floor", "roof", "roof_rect", "room_manual",
+        "wall", "floor", "floor_opening", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail", "section",
         "gridline_offset", "gridline_array",
         "move", "paste", "copy_base", "duplicate", "rotate", "array", "scale",
@@ -6167,6 +6180,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "polygon":                  "_press_polygon",
         "wall":                     "_press_wall_router",
         "floor":                    "_press_floor_router",
+        "floor_opening":            "_press_floor_router",
         "roof":                     "_press_roof",
         "roof_rect":                "_press_roof_rect",
         "opening":                  "_press_opening",
@@ -7195,7 +7209,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Floor polygon placement: pop the last boundary vertex (discard the
         # in-progress slab at one vertex).  Shares the Delete-pop UX with the
         # polyline tool.
-        if self.mode == "floor" and self._floor_active is not None:
+        if self.mode in FLOOR_SKETCH_MODES and self._floor_active is not None:
             fa = self._floor_active
             if len(fa._points) <= 1:
                 if fa.scene() is self:
@@ -7203,6 +7217,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if fa in self._floor_slabs:
                     self._floor_slabs.remove(fa)
                 self._floor_active = None
+                if self.mode == "floor_opening":    # back to step 0: re-pick the host
+                    self._feature_ctl.clear_floor_host_pick()
                 self.preview_pipe.hide()
                 self.instructionChanged.emit("Pick first boundary point")
             else:
@@ -7609,8 +7625,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if primitive == "rect":
             self._floor_rect_from_center = from_center
 
+    def _floor_draft_colour(self) -> QColor:
+        """Ghost colour for the floor-family placement in progress: the floor
+        template's colour, or the Opening row colour for a floor void (A6)."""
+        if self.mode == "floor_opening":
+            return self._feature_ctl.floor_opening_colour()
+        return QColor(self._get_floor_template()._color)
+
     def _press_floor_router(self, *args):
-        """Dispatch a floor click to the active primitive's builder."""
+        """Dispatch a floor click to the active primitive's builder.
+
+        In ``floor_opening`` the FIRST click must land on a floor: it arms the
+        host (``FeaturePlacementController.arm_floor_host``) or is rejected with
+        a status and nothing armed (floor-opening design A6).
+        """
+        if (self.mode == "floor_opening" and self._at_placement_step_zero()
+                and not self._feature_ctl.arm_floor_host(args[2])):
+            return None
         if self._floor_primitive == "rect":
             return self._press_floor_rect(*args)
         return self._press_floor(*args)   # polygon
@@ -7692,16 +7723,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # ── Floor polygon (click-vertex) ──────────────────────────────────────────
     def _press_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._floor_active is None:
-            _ftmpl = self._get_floor_template()
-            slab = FloorSlab(color=_ftmpl._color.name())
-            # Name from the template (uniquified) BEFORE appending to _floor_slabs
-            # so the new slab is not counted against itself.
-            slab.name = self._unique_floor_name(self._floor_base_name())
-            self._apply_floor_template_fields(slab)
-            slab.add_point(snapped)
-            self.addItem(slab)
-            self._floor_slabs.append(slab)
-            self._floor_active = slab
+            if self.mode == "floor_opening":
+                # Void target: a preview draft only -- the host, scene lists and
+                # undo stack see the void at commit (floor-opening design A6).
+                self._feature_ctl.begin_floor_opening_draft(snapped)
+            else:
+                _ftmpl = self._get_floor_template()
+                slab = FloorSlab(color=_ftmpl._color.name())
+                # Name from the template (uniquified) BEFORE appending to _floor_slabs
+                # so the new slab is not counted against itself.
+                slab.name = self._unique_floor_name(self._floor_base_name())
+                self._apply_floor_template_fields(slab)
+                slab.add_point(snapped)
+                self.addItem(slab)
+                self._floor_slabs.append(slab)
+                self._floor_active = slab
             self.update_preview_node(snapped)
             self.instructionChanged.emit(
                 "Pick next boundary point (click near first / Enter / double-click to close, Del pops)")
@@ -7718,6 +7754,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if len(pts) >= 3:
                 if close_hit(pts[0], tip, snapped, self._active_view_scale()):
                     self._geom_ctl.hide_close_ring()
+                    if self.mode == "floor_opening":          # void commit target (A6)
+                        self._feature_ctl.commit_floor_opening_draft()
+                        return
                     slab = self._floor_active
                     slab.close_polygon()
                     apply_category_defaults(slab)
@@ -7746,8 +7785,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit(
                 "Pick edge midpoint (width + angle)" if self._floor_rect_from_center
                 else "Pick first side (direction + width)")
-            _ftmpl = self._get_floor_template()
-            _fc = QColor(_ftmpl._color)
+            _fc = self._floor_draft_colour()
             pen = QPen(_fc, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             preview = QGraphicsRectItem(QRectF(snapped, snapped))
@@ -7837,6 +7875,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if pt1 is None or pt2 is None or pivot is None:
             return False
         corners = rotated_rect_corners(pt1, pt2, angle_deg, pivot)
+        if self.mode == "floor_opening":
+            # Void commit target (floor-opening A6): reset the rect state, then
+            # hand the four corners to the feature controller's commit.
+            self._reset_floor_rect_state()
+            self.clear_placement_state()
+            # Rect state is already reset: a discard is not a stay-at-depth refusal (review F5).
+            self._feature_ctl.commit_floor_opening(list(corners))
+            return True
         _ftmpl = self._get_floor_template()
         slab = FloorSlab(points=list(corners), color=_ftmpl._color.name())
         # Name from the template (uniquified) BEFORE appending to _floor_slabs.
@@ -7848,25 +7894,28 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         slab.setSelected(True)
         for v in self.views():
             v.viewport().update()
-        # Clean up preview + ref guides.
-        if self._floor_rect_preview is not None:
-            if self._floor_rect_preview.scene() is self:
-                self.removeItem(self._floor_rect_preview)
-            self._floor_rect_preview = None
-        self._clear_floor_rect_ref_lines()
-        # Reset all rect state (re-arm continuous placement).
         _from_centre = self._floor_rect_from_center
-        self._floor_rect_anchor = None
-        self._floor_rect_side_pt = None
-        self._floor_rect_sized_pt1 = None
-        self._floor_rect_sized_pt2 = None
-        self._floor_rect_pivot = None
+        self._reset_floor_rect_state()      # preview + ref guides + rect state
         self.clear_placement_state()
         self.push_undo_state()
         self.instructionChanged.emit(
             "Pick centre point" if _from_centre else "Pick first corner")
         self._end_placement_switch(slab)   # single-placement → Select
         return True
+
+    def _reset_floor_rect_state(self) -> None:
+        """Remove the floor-rect ghost + side guide and clear the 3-click state
+        (shared by the slab and void commit targets)."""
+        if self._floor_rect_preview is not None:
+            if self._floor_rect_preview.scene() is self:
+                self.removeItem(self._floor_rect_preview)
+            self._floor_rect_preview = None
+        self._clear_floor_rect_ref_lines()
+        self._floor_rect_anchor = None
+        self._floor_rect_side_pt = None
+        self._floor_rect_sized_pt1 = None
+        self._floor_rect_sized_pt2 = None
+        self._floor_rect_pivot = None
 
     def _clear_floor_rect_ref_lines(self) -> None:
         """Remove the floor-rect side guide from the scene."""
@@ -8306,12 +8355,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         # ── Floor: double-click closes the polygon ───────────────────────
         if (event.button() == Qt.MouseButton.LeftButton
-                and self.mode == "floor"
+                and self.mode in FLOOR_SKETCH_MODES
                 and self._floor_active is not None):
             pts = self._floor_active._points
             # Double-click adds an extra point via mousePressEvent — remove it
             if len(pts) > 3:
                 pts.pop()
+            if self.mode == "floor_opening":
+                # Void commit target (A6); < 3 points discards.
+                self._feature_ctl.commit_floor_opening_draft()  # A6 dblclick
+                event.accept()
+                return
             if len(pts) >= 3:
                 self._floor_active.close_polygon()
                 apply_category_defaults(self._floor_active)
@@ -8890,8 +8944,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._finish_polyline()
                 # (single-placement now returns to select; see _end_placement_switch)
             # Close an in-progress floor slab
-            elif self.mode == "floor" and self._floor_active is not None:
-                if len(self._floor_active._points) >= 3:
+            elif self.mode in FLOOR_SKETCH_MODES and self._floor_active is not None:
+                if self.mode == "floor_opening":   # Enter closes the void draft (A6)
+                    # Void commit target; < 3 points discards.
+                    self._feature_ctl.commit_floor_opening_draft()
+                elif len(self._floor_active._points) >= 3:
                     self._hide_close_ring()   # DD8 cue may be up at Enter
                     self._floor_active.close_polygon()
                     apply_category_defaults(self._floor_active)

@@ -318,6 +318,9 @@ MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
 # manipulator); these paper-mm sizes set the manipulator's paper-scene handles.
 SELECTION_OUTLINE_COLOR = "#0055ff"         # polyline close-ring indicator only
 FLOOR_OPENING_HOST_HL_COLOR = "#ff4400"     # floor-void host-pick outline (= scene_tools highlight)
+# Placement modes that share the floor rect / polygon machinery (floor-opening A6):
+# "floor" commits a FloorSlab, "floor_opening" a FloorOpening void on a host slab.
+FLOOR_SKETCH_MODES = ("floor", "floor_opening")
 SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
 SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
 
