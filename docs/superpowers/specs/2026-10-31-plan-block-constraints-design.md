@@ -1,7 +1,7 @@
 ---
-status: draft             # Phase 3 approved 2026-10-31 (sections 1-3); not built
+status: built             # BUILT 2026-10-31 (v0.77.0, feat/plan-block-constraints); Phase 3 approved 2026-10-31
 last-verified: 2026-10-31
-verified-commit: 1b25c9a2
+verified-commit: 35b55a2d
 applies-to:
   - firepro3d/constraint_controller.py  # plan capability (+ BlockInstance), two-tier plan solve, ANCHOR_CID, on_definitions_changed, plan_ref_uids
   - firepro3d/sketch_adapters.py        # _NestedAdapter on plan instances; _ins_only (annotative -> ins only)
@@ -46,6 +46,9 @@ AC1-AC8 and the out-of-scope list are recorded on the source task line. Phase 3 
 | PB1 | **AC4 restated:** gridline-hosted blocks (`BlockInstance.host`) take **no part** in plan constraints -- no handles, never in a solve, a record naming one drops on load; they still ride their gridline (H1). Reason: hosted blocks are never visible in plan (`block-system.md` "Gridline-hosted instances") and plan picks are visible-only (AC8), so "handles offered" was unreachable. Section-view block constraints -> follow-up. | Phase 3 FP1 (2026-10-31) |
 | PB2 | **Annotative blocks offer `ins` only** (Scale with zoom and Fixed size alike); real-size blocks offer every handle. No re-solve on a drawing-scale change. | Phase 3 FP1 (2026-10-31) |
 | PB3 | **Two-tier plan solve** (chosen over "fix walls on block edits only"): building-tier constraints solve as if no blocks existed; block-tier constraints then solve with every wall / gridline held. A block never pushes or holds a wall in any edit. | Phase 3 approach (2026-10-31) |
+| PB4 | **Definition change hooks every swap path** (as built: `Model_Space.commit_block_definition` edit, `retarget_block_refs` swap, `reload_block_definition` reload, `load_blocks_from_files` load-replace each call `on_definitions_changed()`; supersedes the s3 hook-site names). | Phase 4 gate (2026-10-31) |
+| PB5 | **Plan Auto Constrain never ties a block:** plan joins filter block instances out (`auto_constrain`); Auto Constrain on block placement stays a follow-up (Q6). | Phase 4 gate (2026-10-31) |
+| PB6 | **Drag stage-2 failure holds the drag-start pose:** when stage 2 cannot converge mid-drag the blocks keep their drag-start pose (`stage2_failed` describes the last good frame) and their ties go red on release. | Phase 4 gate (2026-10-31) |
 
 ## Architecture & Constraints
 
@@ -166,6 +169,18 @@ AC1-AC8 and the out-of-scope list are recorded on the source task line. Phase 3 
 
 Auto Constrain on block placement (Q6); copies keeping outside ties (Q8); definition-flagged constraint
 points (Q7 C); plan Explode remap; constraints on blocks in section / elevation views (PB1).
+
+### Known gaps and follow-ups found at build (Phase 5-6, filed)
+
+- **VC9 M2 (divergence from the PB3 edit table):** non-drag `_solve_two` refuses a no-edit solve whose
+  stage 2 fails, where the wall row above says the wall edit commits and the ties go red. Filed as a
+  `todo_open.md` bug; the table is the intended behaviour.
+- **VC9 M3:** `on_definitions_changed` does not call `_recheck_red` (filed).
+- **VC9 M4:** `_propagate_wall_endpoint` leaves stale ties (filed).
+- **Plan wall-chain drag** costs about 2.2 s per frame at 200 walls -- pre-existing (found by the PB3 bench), filed.
+- **Perf bars (Task 10, user-ratified 2026-10-31):** block tier <= 0.5 ms per tied block per frame (one wall +
+  100 blocks); tied-vs-bare chain ratio <= 1.10. Guards: the perf tests in `tests/test_plan_block_constraints.py`.
+- Account carried no SAVE_VERSION bump (Q9) and no ruling change to the s2 edit table beyond PB4-PB6.
 
 ## Existing Code Context
 

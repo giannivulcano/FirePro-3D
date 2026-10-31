@@ -1,7 +1,7 @@
 ---
 status: current -- slices 1-3 built (c23c1610, db16090a, f44a4c2b)   # three feature slices (see Build slices)
-last-verified: 2026-10-30  # wall-face constraints Account: W1 hidden mid_l / mid_r, PD1 face-join pointer; prior 2026-10-29  # Gridline Auto Constrain Account: GA1-GA3 rows, s2 origin-tie exception, s3 plan_commit + Gridline placement records; prior 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
-verified-commit: 43e792d4   # wall-face constraints Account (W1 / PD1); prior d3813e9d   # Gridline Auto Constrain Account; prior f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
+last-verified: 2026-10-31  # plan-block-constraints Account: s2 capability + plan_ref_uids pointer only; prior 2026-10-30  # wall-face constraints Account: W1 hidden mid_l / mid_r, PD1 face-join pointer; prior 2026-10-29  # Gridline Auto Constrain Account: GA1-GA3 rows, s2 origin-tie exception, s3 plan_commit + Gridline placement records; prior 2026-10-27   # slice 3 Account; prior 2026-10-27 slice 2 Account; prior 2026-10-26
+verified-commit: 35b55a2d   # plan-block-constraints Account; prior 43e792d4   # wall-face constraints Account (W1 / PD1); prior d3813e9d   # Gridline Auto Constrain Account; prior f44a4c2b   # slice 3 Account; prior db16090a; prior c23c1610
 applies-to:
   - main.py (init_ribbon, _init_build_tab / _init_editor_tab, canvas context, retired contextual-tab mechanism)
   - firepro3d/ribbon_bar.py
@@ -172,6 +172,8 @@ the plan canvas, and removing contextual tabs ends the per-selection tab churn (
   `tests/test_modify_tools_ribbon.py` (VC5 whole-repo grep at plan time).
 
 ### 2. Plan constraint capability and persistence (slice 2)
+
+> **Amended 2026-10-31 (plan-block-constraints):** the plan `ref_types` also holds unhosted `BlockInstance` (walls + gridlines + blocks below read accordingly), and the plan uid set is the one accessor `plan_ref_uids(scene)` used by load and `primitive_uids` -- `docs/superpowers/specs/2026-10-31-plan-block-constraints-design.md`.
 
 - **Capability, not a role check.** `ConstraintController` keeps `enabled` and gains
   `ref_types`: `None` (all adapters) when `scene_role == "block_editor"`,

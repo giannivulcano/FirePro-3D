@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-29   # SB3 Account: C9 host-bound annotation amendment built for intrinsic labels (pointer only); rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: 8be9034a   # SB3 Account; prior db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
+last-verified: 2026-10-31   # plan-block-constraints Account: C8 amendment pointer only, rest not re-audited; prior 2026-10-29   # SB3 Account: C9 host-bound annotation amendment built for intrinsic labels (pointer only); rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: 35b55a2d   # plan-block-constraints Account; prior 8be9034a   # SB3 Account; prior db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -172,6 +172,8 @@ the unification target is governed by `reference-graphic-model.md`.
   (`docs/mockups/ribbon-containment-contract.html`).
 
 ### C8 — Migration: clean drop
+
+> **Amended 2026-10-31 (plan-block-constraints):** the plan-constraints exception below now also covers level-scoped (unhosted) block instances as refs; hosted instances stay excluded and C1 is unchanged -- `docs/superpowers/specs/2026-10-31-plan-block-constraints-design.md`.
 
 > Exception owned by `docs/superpowers/specs/2026-10-24-editor-build-tabs-design.md` §4 (built in Editor/Build slice 2, 2026-10-27): "plan constraints whose refs are all walls / gridlines persist in the `.fpd`; every other constraint record is still dropped." They are saved under the top-level `constraints` key; C1 is unchanged.
 
