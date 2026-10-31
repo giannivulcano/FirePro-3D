@@ -361,3 +361,33 @@ def test_cancel_drag_restores_wall_and_block(sc):
     ctl.cancel_drag()
     assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
     assert inst.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-9)
+
+
+# ── Task 6: per-tier diagnostics ────────────────────────────────────────────
+
+def test_block_ties_set_the_blocks_dof_only(sc):
+    d = snap_def(sc)
+    w = wall(sc, W_A[:2], W_A[2:])
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "p1"}])
+    diag = ctl.diagnostics()
+    assert diag.item_dof[inst._uid] == 1      # x, y tied to the held wall end; rotation free (D104)
+    assert diag.item_dof[w._uid] == 4         # a block tie never reduces a wall's DOF
+    assert diag.dof == 4 + 1
+
+
+def test_a_block_tie_never_makes_a_wall_constraint_amber(sc):
+    from firepro3d.constraint_controller import REDUNDANT_STATUS
+    d = snap_def(sc)
+    w1 = wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    w2 = wall(sc, (0.0, -1500.0), (0.0, 1500.0))
+    inst = sc.place_block_instance(d.id, (0.0, -1500.0))
+    ctl = sc.constraint_ctl
+    assert ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": w1._uid, "h": "p1"}])
+    assert ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": w2._uid, "h": "p1"}])
+    msgs = _status(sc)
+    wc = ctl.add("coincident", [{"uid": w1._uid, "h": "p1"}, {"uid": w2._uid, "h": "p1"}])
+    assert wc is not None
+    assert wc.id not in ctl.diagnostics().redundant
+    assert REDUNDANT_STATUS not in msgs

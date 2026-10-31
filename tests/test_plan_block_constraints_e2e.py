@@ -263,3 +263,31 @@ def test_g4_wall_drag_a_block_cannot_follow_commits_and_reds_the_tie(mw, pb, qap
     assert inst.block_rotation() == pytest.approx(0.0, abs=1e-9)
     assert wall_xy(b) == pytest.approx(b0, abs=1e-9)
     assert t1.id in ctl.red and t2.id not in ctl.red
+
+
+def test_g12_anchor_cid_never_reaches_records_conflicts_or_redundant(mw, pb, qapp, tmp_path):
+    """G12: a LOCKED gridline's L1 fixes precede the stage-2 anchors, so
+    every anchor fix is implied -- ``ANCHOR_CID`` is equality-redundant and
+    must be filtered; a contradictory block record is red on admission (the
+    anchor conflict names no record); neither cid is saved.
+    RED: the diagnostics filter as ``c != LOCK_CID`` only."""
+    sc, _view = pb
+    d = snap_def(sc)
+    gl = _grid(sc, (-1000.0, -1000.0), (4000.0, -1000.0), "L")
+    gl.locked = True
+    inst = _block(sc, d, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    c = _dpl(ctl, {"uid": inst._uid, "h": "ins"}, {"uid": gl._uid, "h": "edge"})
+    diag = ctl.diagnostics()
+    assert diag.redundant <= {k.id for k in ctl.constraints}   # no cid but a record's
+    assert c.id not in diag.redundant
+    assert diag.item_dof[inst._uid] == 2                      # 3 - one distance
+    g0 = (gl._origin.x(), gl._origin.y())
+    bad = ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": gl._uid, "h": "p1"}])
+    assert bad is not None and bad.id in ctl.red and c.id not in ctl.red
+    assert (gl._origin.x(), gl._origin.y()) == pytest.approx(g0, abs=1e-9)
+    f = tmp_path / "anchor.fpd"
+    sc.save_to_file(str(f))
+    text = f.read_text()
+    assert "__anchored__" not in text and "__locked__" not in text
+    assert {c.id, bad.id} <= {r["id"] for r in json.loads(text)["constraints"]}

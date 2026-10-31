@@ -3525,16 +3525,29 @@ class ConstraintController:
         dof, redundant = total, frozenset()
         cons = self.active()
         if cons:
-            sys_, slots, _w = self._build(cons)
-            sys_.cid_rank = {c.id: k for k, c in enumerate(cons)}
-            d = self._solver.diagnose(sys_)
-            redundant = frozenset(c for c in d.redundant if c != LOCK_CID)   # L1: never a record
-            ordered = list(slots.items())
-            dofs = d.dof_of_many([range(off, off + ad.nvars(it))
-                                  for _u, (it, ad, off) in ordered])
-            for (u, _slot), n in zip(ordered, dofs):
-                item_dof[u] = n
-            dof = total - (len(sys_.x) - d.dof)
+            # PB3: per tier -- the block tier is diagnosed with every wall /
+            # gridline held, so a block's DOF is 3 minus its own ties and a
+            # block tie never lowers a wall's DOF or makes a wall record amber.
+            bt, kt = self._split_tiers(cons)
+            red_, removed = set(), 0
+            for tier_cons, anchored in ((bt, False), (kt, True)):
+                if not tier_cons:
+                    continue
+                sys_, slots, _w = self._build(tier_cons, anchored=anchored)
+                sys_.cid_rank = {c.id: k for k, c in enumerate(tier_cons)}
+                d = self._solver.diagnose(sys_)
+                red_ |= {c for c in d.redundant if c not in (LOCK_CID, ANCHOR_CID)}   # L1 / PB3: never a record
+                ordered = [(u, s) for u, s in slots.items()
+                           if not anchored or _is_block(s[0])]
+                dofs = d.dof_of_many([range(off, off + ad.nvars(it))
+                                      for _u, (it, ad, off) in ordered])
+                for (u, _slot), n in zip(ordered, dofs):
+                    item_dof[u] = n
+                nv = (sum(ad.nvars(it) for _u, (it, ad, _o) in ordered)
+                      if anchored else len(sys_.x))
+                removed += nv - d.dof
+            redundant = frozenset(red_)
+            dof = total - removed
         conflict = frozenset(u for c in self.constraints if c.id in self.red
                              for u in (_safe_ref_uids(c) or ()))
         out = SketchDiag(dof, redundant, item_dof, conflict)
