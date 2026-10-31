@@ -29,6 +29,17 @@ def _xy(pts):
     return [(p.x(), p.y()) for p in pts]
 
 
+def _ring_set(ring):
+    """Order/start-independent vertex set (the clipper may rotate a ring)."""
+    return {(round(p.x(), 3), round(p.y(), 3)) for p in ring}
+
+
+def _cut_ring_sets(slab):
+    ((outer, holes),) = slab.cut_region()
+    (hole,) = holes
+    return _ring_set(outer), _ring_set(hole)
+
+
 def _slab_with_void(void=(1000, 1000, 2000, 2000)):
     slab = FloorSlab(points=_rect(0, 0, 4000, 3000))
     op = FloorOpening(_rect(*void), host=slab)
@@ -113,18 +124,26 @@ def test_void_vertex_grips(qapp):
 
 def test_void_follows_host_translate(qapp):
     slab, op = _slab_with_void()
+    assert _material_area(slab) == pytest.approx(11_000_000.0)       # primes the cache
     slab.translate(500.0, -300.0)
     assert _xy(op.points) == [(1500, 700), (2500, 700), (2500, 1700), (1500, 1700)]
     assert _material_area(slab) == pytest.approx(11_000_000.0)
+    outer, hole = _cut_ring_sets(slab)                 # area is translation-blind: check coords
+    assert outer == {(500, -300), (4500, -300), (4500, 2700), (500, 2700)}
+    assert hole == {(1500, 700), (2500, 700), (2500, 1700), (1500, 1700)}
 
 
 def test_void_follows_host_rotate(qapp):
     slab, op = _slab_with_void()
+    assert _material_area(slab) == pytest.approx(11_000_000.0)       # primes the cache
     slab.manip_rotate(90.0, P(0, 0))
     # rotate_point(p, pivot, -90): cos = 0, sin = -1 -> (x, y) -> (y, -x)
     got = [(round(p.x(), 6), round(p.y(), 6)) for p in op.points]
     assert got == [(1000, -1000), (1000, -2000), (2000, -2000), (2000, -1000)]
     assert _material_area(slab) == pytest.approx(11_000_000.0)
+    outer, hole = _cut_ring_sets(slab)                 # area is rotation-blind: check coords
+    assert outer == {(0, 0), (0, -4000), (3000, -4000), (3000, 0)}
+    assert hole == {(1000, -1000), (1000, -2000), (2000, -2000), (2000, -1000)}
 
 
 def test_drop_carried_voids(qapp):

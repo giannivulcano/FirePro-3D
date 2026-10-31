@@ -385,3 +385,26 @@ def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view)
     assert r.isSelected()                                # NOT deselected
     assert manip._mode == "grip"                         # grip gesture began
     _post_mouse(view, QEvent.Type.MouseButtonRelease, corner)
+
+
+def test_frame_drag_with_host_selected_moves_void_once(qapp, scene_and_view):
+    """AC5: a void selected with its slab is carried by the slab, never dragged twice."""
+    scene, view = scene_and_view
+    from firepro3d.floor_slab import FloorSlab
+    from firepro3d.floor_opening import FloorOpening
+    slab = FloorSlab(points=[QPointF(0, 0), QPointF(300, 0),
+                             QPointF(300, 200), QPointF(0, 200)])
+    op = FloorOpening([QPointF(100, 80), QPointF(150, 80),
+                       QPointF(150, 130), QPointF(100, 130)], host=slab)
+    slab.add_opening(op)
+    scene.addItem(slab)
+    scene._floor_slabs.append(slab)
+    scene.addItem(op)
+    slab.setSelected(True)
+    op.setSelected(True)
+    qapp.processEvents()
+    # (220, 150) is inside the frame, >12 px from every slab / void grip.
+    _press_move_release(view, QPointF(220, 150), QPointF(220, 190))
+    assert slab.points[0].y() == pytest.approx(40.0)          # slab moved by dy
+    assert op.points[0].y() == pytest.approx(120.0)           # 80 + 40 once; twice = 160
+    assert op.points[0].x() == pytest.approx(100.0)

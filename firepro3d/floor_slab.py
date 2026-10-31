@@ -207,7 +207,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         Returns:
             ``[(outer, [holes])]`` in scene coords. Without voids the slab
             ring itself (copies); empty when a void swallows the slab or the
-            slab has fewer than 3 points.
+            slab has fewer than 3 points. The returned list is the cache
+            itself: callers must treat it as read-only.
         """
         if len(self._points) < 3:
             return []
