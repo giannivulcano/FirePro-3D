@@ -779,6 +779,8 @@ def _category_for_item(item) -> str | None:
         return "Wall"
     if isinstance(item, WallOpening):
         return item.display_category
+    if type(item).__name__ == "FloorOpening":   # floor void: the Opening row (A8)
+        return item.display_category
     if isinstance(item, Room):
         return "Room"
     if isinstance(item, Node):

@@ -671,8 +671,9 @@ def _is_geo2d_item(item) -> bool:
 
 
 def _is_opening_item(item) -> bool:
-    """Check if item is a WallOpening (avoids circular imports)."""
-    return type(item).__name__ == "WallOpening"
+    """Check if item is an Opening-row element -- a WallOpening or a floor void
+    (FloorOpening, floor-opening A8) -- by class name (avoids circular imports)."""
+    return type(item).__name__ in ("WallOpening", "FloorOpening")
 
 
 def _apply_geo2d(item, color, opacity, visible, fill_color=None):
@@ -3329,9 +3330,13 @@ def _items_for_category_static(scene, key: str) -> list:
     elif key == "Wall":
         return list(getattr(scene, "_walls", []))
     elif key in ("Door", "Window", "Opening"):
-        return [op for wall in getattr(scene, "_walls", [])
-                for op in getattr(wall, "openings", [])
-                if op.display_category == key]
+        items = [op for wall in getattr(scene, "_walls", [])
+                 for op in getattr(wall, "openings", [])
+                 if op.display_category == key]
+        if key == "Opening":       # floor voids follow the walls' openings (A8)
+            items += [op for slab in getattr(scene, "_floor_slabs", [])
+                      for op in getattr(slab, "openings", [])]
+        return items
     elif key == "Room":
         return list(getattr(scene, "_rooms", []))
     elif key == "Floor":
