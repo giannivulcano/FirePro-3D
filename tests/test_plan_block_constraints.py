@@ -434,3 +434,31 @@ def test_refused_stage1_frame_keeps_stage2_failed_so_end_drag_reds_the_tie(sc):
     assert t1.id not in ctl.red                                # never per frame
     ctl.end_drag()
     assert t1.id in ctl.red and t2.id not in ctl.red
+
+
+# ── T2 fix round: the D39 status tint stays Block-Editor only ───────────────
+
+def test_plan_block_paints_its_own_colour_never_the_status_tint(sc):
+    """D39 is editor only: a plan block -- a participating constraint ref
+    since PB1 -- paints its strokes in its own colour, never the
+    ``constraint_free`` tint (regression from Task 2). RED: drop
+    ``and self.block_editor`` from ``tint_color``'s gate."""
+    from PyQt6.QtCore import QRectF, Qt
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    from firepro3d import theme
+    d = snap_def(sc)
+    w = wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    assert sc.constraint_ctl.add("dim_point_line", [{"uid": inst._uid, "h": "u0:p1"},
+                                                    {"uid": w._uid, "h": "edge"}])
+    assert sc.constraint_ctl.show_status and sc.constraint_ctl.enabled
+    free = QColor(theme.detect().color("constraint_free")).name()
+    r = inst.sceneBoundingRect().adjusted(-10.0, -10.0, 10.0, 10.0)
+    img = QImage(400, 400, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.black)
+    p = QPainter(img)
+    sc.render(p, QRectF(0, 0, 400, 400), r)
+    p.end()
+    cols = [QColor(img.pixel(x, y)).name() for x in range(400) for y in range(400)]
+    assert sum(c != "#000000" for c in cols) > 0, "nothing painted (vacuous)"
+    assert free not in cols

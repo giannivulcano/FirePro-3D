@@ -1649,7 +1649,8 @@ class ConstraintController:
             COPY (never ``setPen``, delta 2) -- a shared cached QColor, so
             callers must not mutate it -- or None for no tint.
         """
-        if (not (self.enabled and self.show_status) or item.isSelected()
+        if (not (self.enabled and self.show_status and self.block_editor)   # D39: editor only
+                or item.isSelected()
                 or getattr(item, "_ghost_pen", False)
                 or getattr(item, "_is_ghost", False)):
             return None
