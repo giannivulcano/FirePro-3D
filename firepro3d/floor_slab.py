@@ -237,6 +237,27 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Paint ────────────────────────────────────────────────────────────────
 
+    def _material_path(self) -> QPainterPath:
+        """The cut region as one odd-even path (outer rings and their holes)."""
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        for outer, holes in self.cut_region():
+            for ring in (outer, *holes):
+                path.addPolygon(QPolygonF(ring))
+                path.closeSubpath()
+        return path
+
+    def _draw_material(self, painter) -> None:
+        """Fill the slab material with the painter's current brush.
+
+        Void-less: today's exact polygon call. With voids: the cut region, so
+        the hole stays see-through (floor-opening A4).
+        """
+        if self.openings:
+            painter.drawPath(self._material_path())
+        else:
+            painter.drawPolygon(QPolygonF(self._points))
+
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
@@ -257,7 +278,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                     bg = vp_palette.color(vp_palette.ColorRole.Base)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
-            painter.drawPolygon(QPolygonF(self._points))
+            self._draw_material(painter)
 
         # Fill, then the section hatch, then the outline on top (AC1): the
         # hatch body fills the polygon and would cover the stroke's inner half.
@@ -269,14 +290,17 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                 fill_color.setAlpha(_FILL_ALPHA)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(fill_color))
-            painter.drawPolygon(QPolygonF(self._points))
+            self._draw_material(painter)
 
         # Section-cut hatch overlay
         if getattr(self, "_is_section_cut", False) and len(self._points) >= 3:
             from .displayable_item import draw_section_type
-            clip = QPainterPath()
-            clip.addPolygon(QPolygonF(self._points))
-            clip.closeSubpath()
+            if self.openings:
+                clip = self._material_path()       # hatch skips the voids (A4)
+            else:
+                clip = QPainterPath()
+                clip.addPolygon(QPolygonF(self._points))
+                clip.closeSubpath()
             draw_section_type(painter, clip, self.scene(), self,
                               getattr(self, "_display_section_type", None),
                               line_col,
@@ -307,6 +331,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             return path
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
+        if self.openings:                           # a click in a void misses the slab
+            return stroker.createStroke(path) | self._material_path()
         return stroker.createStroke(path) | path    # union stroke + fill area
 
     # ── Grip points ──────────────────────────────────────────────────────────
