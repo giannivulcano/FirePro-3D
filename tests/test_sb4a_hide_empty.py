@@ -122,3 +122,5 @@ def test_flattened_nested_hide_empty_line_follows_the_outer_host(qapp):
     made = [t for t in explode_instances(ms, [inst], flatten=True) if isinstance(t, TextItem)]
     assert len(drawn) == 2
     assert len(made) == len(drawn)                 # the Flow line is not lost
+    flow = ep.host_values(p, {"Flow"})["Flow"].text
+    assert flow in [t._data.text for t in made]
