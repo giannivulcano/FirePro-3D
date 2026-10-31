@@ -132,3 +132,24 @@ def test_multi_select_show_builds_each_target_once(qapp, monkeypatch):
     mixed = [w for w in pm.findChildren(QLineEdit)
              if w.placeholderText() == "< mixed >"]
     assert mixed, "differing values must still render < mixed >"
+
+
+def test_show_scans_each_capability_once_and_not_across_shows(qapp, monkeypatch):
+    from firepro3d import capability_folder
+    from firepro3d.property_manager import PropertyManager
+    real = capability_folder.scan_tiered
+    caps = []
+
+    def counting(folder, capability):
+        caps.append(capability)
+        return real(folder, capability)
+    monkeypatch.setattr(capability_folder, "scan_tiered", counting)
+    lines = [LineItem(QPointF(0, 0), QPointF(100.0 + i, 0)) for i in range(30)]
+    pm = PropertyManager()
+    pm.show_properties(lines)
+    first = list(caps)
+    assert first, "a line's stroke rows must scan the capability folders"
+    assert len(first) == len(set(first)), f"rescanned within one show: {first}"
+    caps.clear()
+    pm.show_properties(lines)                 # the next show rescans (fresh folders)
+    assert sorted(caps) == sorted(first)

@@ -199,9 +199,11 @@ class PropertyManager(QWidget):
 
     def show_properties(self, item):
         """Display properties for *item* (single entity, list, or None)."""
+        from .capability_folder import scan_memo
         self._refreshing = True
         try:
-            self._show_properties_inner(item)
+            with scan_memo():                 # one folder scan per capability per show
+                self._show_properties_inner(item)
         finally:
             self._refreshing = False
 
