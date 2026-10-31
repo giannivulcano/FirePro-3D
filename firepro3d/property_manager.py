@@ -256,16 +256,20 @@ class PropertyManager(QWidget):
         has_level_ref = False
 
         props = primary.get_properties()
+        # Each other target's dict is built ONCE per show, not once per key:
+        # a build can rescan the capability folders (stroke rows), so the
+        # per-key rebuild was O(keys x targets) (property-panel §3.5).
+        others_props = [o.get_properties() if hasattr(o, "get_properties") else {}
+                        for o in self._targets[1:]]
         for key, meta in props.items():
             widget = None
             prop_type = meta.get("type", "string")
 
             # Detect mixed values across multi-selection
             is_mixed = False
-            if len(self._targets) > 1:
+            if others_props:
                 primary_val = str(meta.get("value", ""))
-                for other in self._targets[1:]:
-                    other_props = other.get_properties() if hasattr(other, "get_properties") else {}
+                for other_props in others_props:
                     other_meta = other_props.get(key)
                     if other_meta and str(other_meta.get("value", "")) != primary_val:
                         is_mixed = True

@@ -112,3 +112,23 @@ def _explode_emits(n):
 
 def test_explode_reselect_is_one_batch(qapp):
     assert _explode_emits(40) == _explode_emits(4) <= 2
+
+
+def test_multi_select_show_builds_each_target_once(qapp, monkeypatch):
+    from PyQt6.QtWidgets import QLineEdit
+    from firepro3d.property_manager import PropertyManager
+    lines = [LineItem(QPointF(0, 0), QPointF(100.0 + i, 0)) for i in range(30)]
+    real = LineItem.get_properties
+    calls = []
+
+    def counting(self):
+        calls.append(self)
+        return real(self)
+    monkeypatch.setattr(LineItem, "get_properties", counting)
+    pm = PropertyManager()
+    pm.show_properties(lines)
+    assert len(calls) == len(lines)
+    # §3.5 kept: the differing Length still renders "< mixed >"
+    mixed = [w for w in pm.findChildren(QLineEdit)
+             if w.placeholderText() == "< mixed >"]
+    assert mixed, "differing values must still render < mixed >"
