@@ -480,3 +480,95 @@ def test_plan_auto_constrain_never_names_a_block(sc):
         assert wall_xy(w) == W_A
     finally:
         QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+
+
+# -- Task 10: PB3 block-tier perf budget (ratified with the user 2026-10-31) --
+# Bars are on the block tier's OWN cost: the walls-only plan chain is ~2.2 s
+# per frame at the branch base already (filed separately), so an absolute
+# frame bar on a long chain measures the building tier, not this change.
+
+def _pb_drag_median(s, w, translate, frames):
+    """Median ``ctl.drag`` time (ms) over *frames* wall-grip frames on *w*."""
+    import time
+    from firepro3d.sketch_adapters import adapter_for
+    ctl = s.constraint_ctl
+    ad = adapter_for(w)
+    ctl.begin_drag(w)
+    ts = []
+    for k in range(frames):
+        x1, y1, x2, _y2 = ad.read(w)
+        y = -1500.0 + float(k % 7)
+        ad.write(w, [x1, y if translate else y1, x2, y])
+        t = time.perf_counter()
+        ctl.drag(w, 1)
+        ts.append((time.perf_counter() - t) * 1e3)
+    ctl.end_drag()
+    return sorted(ts)[len(ts) // 2]
+
+
+def _pb_tie(s, targets, pos):
+    """Place one Snap block per *pos*, L1 p1 dimensioned to each target's edge."""
+    d = snap_def(s)
+    blocks = [s.place_block_instance(d.id, p) for p in pos]
+    for b, tw in zip(blocks, targets):
+        assert s.constraint_ctl.add("dim_point_line", [{"uid": b._uid, "h": "u0:p1"},
+                                                       {"uid": tw._uid, "h": "edge"}])
+    return blocks
+
+
+@pytest.mark.perf
+def test_pb_one_wall_many_blocks_frame_per_block_budget(qapp):
+    """Shape B: one Horizontal wall carrying 100 tied blocks, translated by its
+    grip; block tier <= 0.5 ms per tied block per frame (base measured 0.38)."""
+    n_blocks, per_block_ms = 100, 0.5
+    s = Model_Space()
+    try:
+        w = wall(s, (0.0, -1500.0), (100000.0, -1500.0))
+        s.constraint_ctl.load([{"id": "h", "type": "horizontal",
+                                "refs": [{"uid": w._uid, "h": "edge"}]}])
+        blocks = _pb_tie(s, [w] * n_blocks, [(i * 1000.0 + 500.0, 0.0) for i in range(n_blocks)])
+        y0 = blocks[-1].block_pos()[1]
+        med = _pb_drag_median(s, w, True, 31)
+        print(f"one wall + {n_blocks} tied blocks: drag frame median {med:.2f} ms")
+        dy = w._pt2.y() + 1500.0
+        assert abs(dy) > 0.5                                             # the wall moved
+        assert blocks[-1].block_pos()[1] - y0 == pytest.approx(dy, abs=1e-6)  # VC2: blocks followed
+        assert med <= per_block_ms * n_blocks, f"drag frame {med:.2f} ms"
+    finally:
+        s.cleanup()
+
+
+@pytest.mark.perf
+def test_pb_wall_chain_tied_blocks_overhead_ratio(qapp):
+    """Shape A: 200-wall chain (Horizontal + Coincident) with 50 blocks tied to
+    every 4th wall vs the same chain bare; one wall-end grip frame each. The
+    block tier adds <= 10 % (measured ~1 %)."""
+    def chain(s):
+        walls = [wall(s, (i * 1000.0, -1500.0), (i * 1000.0 + 1000.0, -1500.0))
+                 for i in range(200)]
+        recs = [{"id": f"h{i}", "type": "horizontal", "refs": [{"uid": w._uid, "h": "edge"}]}
+                for i, w in enumerate(walls)]
+        recs += [{"id": f"j{i}", "type": "coincident",
+                  "refs": [{"uid": walls[i]._uid, "h": "p2"},
+                           {"uid": walls[i + 1]._uid, "h": "p1"}]} for i in range(199)]
+        s.constraint_ctl.load(recs)
+        return walls
+
+    meds = {}
+    for tied in (False, True):
+        s = Model_Space()
+        try:
+            walls = chain(s)
+            blocks = _pb_tie(s, [walls[i * 4] for i in range(50)],
+                             [(i * 4000.0 + 500.0, 0.0) for i in range(50)]) if tied else []
+            meds[tied] = _pb_drag_median(s, walls[100], False, 9)
+            assert abs(walls[100]._pt2.y() + 1500.0) > 0.5                # the chain end moved
+            if tied:   # VC2: a block on a wall the chain carried followed it
+                dy = walls[100]._pt1.y() + 1500.0
+                assert abs(dy) > 0.5                                         # not vacuous
+                assert blocks[25].block_pos()[1] == pytest.approx(dy, abs=1e-6)
+        finally:
+            s.cleanup()
+    ratio = meds[True] / meds[False]
+    print(f"chain frame {meds[False]:.1f} ms bare, {meds[True]:.1f} ms tied, ratio {ratio:.3f}")
+    assert ratio <= 1.10, f"block tier overhead ratio {ratio:.3f}"
