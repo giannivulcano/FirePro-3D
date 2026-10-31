@@ -70,3 +70,19 @@ def test_refresh_annotation_tags_reshapes_pipe_labels(qapp):
     ms.refresh_annotation_tags()
     assert p.label._rect is None
 
+
+def test_shipped_pipelabel_is_eligible_and_binds_the_four_fields(qapp):
+    import json
+    import os
+    import firepro3d
+    from firepro3d import block_library
+    from firepro3d.bound_label import eligible_definition
+    path = os.path.join(os.path.dirname(firepro3d.__file__), "system_blocks", "Tags", "PipeLabel.fpdb")
+    d = block_library.load_block_file(path)
+    assert d.id == "system-tags-pipelabel" and eligible_definition(d, "Pipe")
+    keys = {a["host_key"] for a in d.effective_attributes() if a.get("source") == "host"}
+    assert keys == {"Diameter", "Length", "Flow", "FrictionLoss"}
+    raw = json.load(open(path, encoding="utf-8"))
+    hide = {p["text"]: p.get("hide_empty", False) for p in raw["primitives"]}
+    assert hide == {"@[Diameter]": False, "@[Length]": False,
+                    "@[Flow]": True, "@[FrictionLoss]": True}
