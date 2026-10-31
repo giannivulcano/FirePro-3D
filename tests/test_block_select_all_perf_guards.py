@@ -40,6 +40,21 @@ def _arm(sc, tool, items):
     sc.mode = tool
 
 
+def _prep(sc, tool):
+    """Pre-commit steps that must not count toward the emit tally."""
+    ctl = sc._modify_ctl
+    if tool == "copy":
+        sc.set_mode("copy_base")
+        sc._selected_items = list(sc.selectedItems())
+    elif tool == "paste":
+        # The real Copy -> Paste entry: write the clipboard, then arm paste.
+        sc._copy_is_cut = False
+        assert ctl.write_clipboard(list(sc._selected_items), QPointF(0.0, 0.0))
+        sc.set_mode(None)
+        assert ctl.begin_paste() is True
+        sc._selected_items = []
+
+
 def _commit(sc, tool):
     ctl = sc._modify_ctl
     if tool == "rotate":
@@ -48,6 +63,10 @@ def _commit(sc, tool):
         ctl.commit_duplicate(QPointF(5.0, 0.0))
     elif tool == "array":
         assert ctl.commit_array({"count": 3, "total_deg": 360.0}) is True
+    elif tool == "copy":
+        ctl.press_copy_base(None, QPointF(0.0, 0.0), QPointF(0.0, 0.0))
+    elif tool == "paste":
+        ctl.commit_paste(QPointF(5.0, 0.0))
     elif tool == "move":
         assert ctl._apply_move_displacement({"offset": QPointF(5.0, 0.0)}) is True
 
@@ -56,13 +75,14 @@ def _emits_for(tool, n):
     w, sc = _editor_scene()
     items = _lines(sc, n)
     _arm(sc, tool, items)
+    _prep(sc, tool)
     hits = []
     sc.selectionChanged.connect(lambda: hits.append(1))
     _commit(sc, tool)
     return len(hits), len(sc.selectedItems())
 
 
-@pytest.mark.parametrize("tool", ["rotate", "duplicate", "array", "move"])
+@pytest.mark.parametrize("tool", ["rotate", "duplicate", "array", "move", "copy", "paste"])
 def test_commit_emits_constant_selection_changed(qapp, tool):
     small, sel_small = _emits_for(tool, 4)
     big, sel_big = _emits_for(tool, 40)
