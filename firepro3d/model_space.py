@@ -9426,7 +9426,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._floor_slabs.append(slab)
                 for op in slab.openings:
                     self.addItem(op)
-                    # PART B (marks): marks.mint(self, op)  -- fresh Mark for each pasted void (A2)
+                    marks.mint(self, op)   # a pasted void gets a fresh Mark (A2)
                 new_items.append(slab)
             elif obj_type == "roof":
                 roof = RoofItem.from_dict(obj)
