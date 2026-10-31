@@ -53,3 +53,60 @@ def test_void_hidden_with_its_host(qapp, model_scene):
     slab._display_overrides["visible"] = False
     lm.apply_to_scene(scene, "Level 1", view_height=4000.0, view_depth=-1.0)
     assert not slab.isVisible() and not op.isVisible()
+
+
+def _section(section_scene_for):
+    # Placed cut y = 0 from x = 0 to x = 10000, look_sign +1 (scene-up = look side),
+    # depth 4000. ppm 1 and D = (1, 0): h = world x = scene x.
+    from tests.test_section_classification import _placed_scene
+    return _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+
+
+def _slab_rects(sec, slab, cut):
+    from firepro3d.section_scene import _ElevCutRect, _ElevProxyRect, _ROLE_SOURCE
+    kind = _ElevCutRect if cut else _ElevProxyRect
+    out = [it.rect() for it in sec.items()
+           if isinstance(it, kind) and it.data(_ROLE_SOURCE) is slab
+           and (cut or not isinstance(it, _ElevCutRect))]
+    return sorted(out, key=lambda r: r.x())
+
+
+def test_section_through_a_void_breaks_the_slab(qapp, section_scene_for):
+    from firepro3d.section_marker import ZONE_CUT
+    ms, sec = _section(section_scene_for)
+    slab = _slab(ms, _rect(2000, -1000, 6000, 1000), _rect(3000, -500, 4000, 500),
+                 top=3000.0, bottom=2800.0)
+    sec.rebuild()
+    assert sec.zone_of(slab) == ZONE_CUT
+    rects = _slab_rects(sec, slab, cut=True)
+    # material along the cut line: x 2000..3000 and 4000..6000
+    assert [(r.x(), r.width()) for r in rects] == [(2000.0, 1000.0), (4000.0, 2000.0)]
+    assert all(r.y() == -3000.0 and r.height() == 200.0 for r in rects)   # v = -z
+
+
+def test_section_cut_void_less_slab_is_one_span(qapp, section_scene_for):
+    ms, sec = _section(section_scene_for)
+    slab = _slab(ms, _rect(2000, -1000, 6000, 1000), top=3000.0, bottom=2800.0)
+    sec.rebuild()
+    assert [(r.x(), r.width()) for r in _slab_rects(sec, slab, cut=True)] == [(2000.0, 4000.0)]
+
+
+def test_behind_slab_extent_is_its_material(qapp, section_scene_for):
+    ms, sec = _section(section_scene_for)
+    # behind the cut (scene-up); the void crosses the slab's east edge at x = 5000
+    slab = _slab(ms, _rect(2000, -3000, 6000, -1000), _rect(5000, -3500, 7000, -500),
+                 top=3000.0, bottom=2800.0)
+    sec.rebuild()
+    (r,) = _slab_rects(sec, slab, cut=False)
+    assert (r.x(), r.width()) == pytest.approx((2000.0, 3000.0))   # material x 2000..5000
+
+
+def test_swallowed_slab_draws_nothing_in_section(qapp, section_scene_for):
+    from firepro3d.section_marker import ZONE_HIDDEN
+    from tests.test_section_classification import _source_rects
+    ms, sec = _section(section_scene_for)
+    slab = _slab(ms, _rect(2000, -1000, 6000, 1000), _rect(1900, -1100, 6100, 1100),
+                 top=3000.0, bottom=2800.0)
+    sec.rebuild()
+    assert sec.zone_of(slab) == ZONE_HIDDEN
+    assert _source_rects(sec, slab) == []
