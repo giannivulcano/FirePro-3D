@@ -60,7 +60,7 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .floor_opening import FloorOpening, drop_carried_voids
-from .feature import DEFAULT_FEATURE_FOR_TYPE
+from .feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
                             seed_line, is_valid_relative_angle)
 from . import geometry_intersect as gi
@@ -634,6 +634,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._opening_mirror_hinge: bool = False
         self._opening_mirror_facing: bool = False
         self._opening_ghost: "WallOpening | None" = None    # live preview on hovered wall
+        # Floor-void placement (floor-opening design A6): host candidates under
+        # the first click (topmost first), the current pick + its highlight, and
+        # the Floor Type to place.  Behaviour lives in _feature_ctl.
+        self._floor_opening_candidates: list = []
+        self._floor_opening_host_idx: int = 0
+        self._floor_opening_host_hl: "QGraphicsPathItem | None" = None
+        self._floor_opening_feature_id: str = DEFAULT_FLOOR_OPENING_FEATURE
         # Detail view placement
         self._detail_rect_anchor: "QPointF | None" = None
         self._detail_rect_preview: "QGraphicsRectItem | None" = None
