@@ -182,3 +182,47 @@ def test_tag_row_follows_show_label_and_default_entry_assignment_is_a_no_op(qapp
     assert row["type"] == "enum" and row["value"] in row["options"]
     p.set_property("Tag", row["value"])               # the default entry: a no-op
     assert p.tag_block is None
+
+
+def test_g5_tag_block_round_trips_the_file_codec(qapp):
+    from firepro3d.network_codec import serialize_pipe
+    ms = _scene()
+    p = _pipe(ms)
+    d = _pipe_def(ms)
+    p._tag_block = d.id
+    ids = {p.node1: 0, p.node2: 1}
+    rec = serialize_pipe(p, ids)
+    assert rec["tag_block"] == d.id
+    p._tag_block = None
+    assert "tag_block" not in serialize_pipe(p, ids)        # sparse
+
+
+@pytest.mark.parametrize("bad", ["", None, 7, ["x"]])
+def test_g5_garbage_tag_block_loads_as_none(qapp, bad):
+    from firepro3d.network_codec import deserialize_pipe, serialize_pipe
+    ms = _scene()
+    p = _pipe(ms)
+    d = _pipe_def(ms)
+    p._tag_block = d.id
+    rec = serialize_pipe(p, {p.node1: 0, p.node2: 1})
+    rec["tag_block"] = bad
+    q = deserialize_pipe(ms, rec, {0: p.node1, 1: p.node2})
+    assert q.tag_block is None
+
+
+def test_g5_tag_row_pick_is_one_undo_step(qapp):
+    ms = _scene()
+    p = _pipe(ms)
+    d = _pipe_def(ms)
+    ms.push_undo_state()                                # the seed a new / opened file has
+    opts = p.get_properties()["Tag"]["options"]
+    pick = next(o for o in opts if o.startswith("TestPipeLabel"))
+    n = len(ms._undo_stack)
+    p.set_property("Tag", pick)
+    assert len(ms._undo_stack) == n + 1                 # ONE step (Room SB3b G3 pattern)
+    assert p.tag_block == d.id
+    ms.undo()
+    p2 = ms.sprinkler_system.pipes[0]
+    assert p2.tag_block is None
+    ms.redo()
+    assert ms.sprinkler_system.pipes[0].tag_block == d.id
