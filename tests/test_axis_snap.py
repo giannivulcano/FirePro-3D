@@ -95,3 +95,89 @@ def test_axis_marker_lies_along_the_axis(vs):
     view, sc = vs
     assert snap_tangent_deg(_find(view, sc, 200, 6)) == pytest.approx(0.0)
     assert snap_tangent_deg(_find(view, sc, -7, -150)) == pytest.approx(90.0)
+
+
+# ── Task 2: Auto Constrain ───────────────────────────────────────────────
+
+def _recs(sc):
+    return [(c.type, [(r.get("uid"), r.get("h"), r.get("ref")) for r in c.refs])
+            for c in sc.constraint_ctl.constraints]
+
+
+def _draw(view, sc, a, b):
+    sc.set_mode("draw_line")
+    move(view, QPointF(*a)); click(view, QPointF(*a))
+    move(view, QPointF(*b)); click(view, QPointF(*b))
+    return sc._draw_lines[-1]
+
+
+def _key(view, key):
+    view.setFocus()
+    QTest.keyClick(view.viewport(), key)
+    QApplication.processEvents()
+
+
+def test_resolve_snap_maps_an_axis_to_its_ground_edge():
+    t = ac.resolve_snap(OsnapResult(QPointF(200, 0), "nearest", name="x_axis"))
+    assert t == ac.Target("edge", {"ref": "x_axis"}, (200.0, 0.0))
+    p = ac.resolve_snap(OsnapResult(QPointF(0, 50), "perpendicular", name="y_axis"))
+    assert p == ac.Target("edge", {"ref": "y_axis"}, (0.0, 50.0), perpendicular=False)
+    assert ac.resolve_snap(OsnapResult(QPointF(3, 4), "nearest")) is None
+
+
+def test_line_end_on_x_axis_records_point_on_axis(vs):
+    view, sc = vs
+    # (230, 4): NEA foot (230, 0) at 4 px; the PER foot from (150, 200) is
+    # (150, 0), 80 px away (outside the 15 px aperture) -> NEA.
+    n = _draw(view, sc, (150, 200), (230, 4))
+    assert _xy(n.grip_points()[2]) == (230.0, 0.0)
+    assert _recs(sc) == [("point_on_curve", [(n._uid, "p2", None), (None, None, "x_axis")])]
+
+
+def test_recorded_axis_relation_holds_under_a_grip_drag(vs):
+    view, sc = vs
+    n = _draw(view, sc, (150, 200), (230, 4))
+    sc.set_mode("select"); sc.clearSelection(); n.setSelected(True)
+    QApplication.processEvents()
+    drag(view, QPointF(230, 0), QPointF(230, -150))   # 150 px off any snap
+    assert n.grip_points()[2].y() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_per_onto_y_axis_records_point_on_axis_and_horizontal_only(vs):
+    view, sc = vs
+    # From (150, 200): PER foot on the Y axis (0, 200) at hypot(3, 4) = 5 px
+    # (prio 4) beats the NEA foot (0, 196) at 3 px (prio 7) inside the band.
+    n = _draw(view, sc, (150, 200), (3, 196))
+    assert _xy(n.grip_points()[2]) == (0.0, 200.0)
+    assert _recs(sc) == [
+        ("point_on_curve", [(n._uid, "p2", None), (None, None, "y_axis")]),
+        ("horizontal", [(n._uid, "edge", None)])]
+
+
+def test_polyline_vertex_on_axis_records_at_finish(vs):
+    view, sc = vs
+    sc.set_mode("polyline")
+    for p in ((150, 200), (260, 5), (330, 180)):
+        move(view, QPointF(*p)); click(view, QPointF(*p))
+    _key(view, Qt.Key.Key_Return)
+    poly = sc._polylines[-1]
+    assert _recs(sc) == [("point_on_curve", [(poly._uid, "v1", None), (None, None, "x_axis")])]
+
+
+def test_circle_centre_on_axis_records_point_on_axis(vs):
+    view, sc = vs
+    sc.set_mode("draw_circle")
+    for p in ((150, 4), (150, 100)):
+        move(view, QPointF(*p)); click(view, QPointF(*p))
+    c = sc._draw_circles[-1]
+    assert _recs(sc) == [("point_on_curve", [(c._uid, "center", None), (None, None, "x_axis")])]
+
+
+def test_line_and_axis_record_are_one_undo_step(vs):
+    view, sc = vs
+    sc.push_undo_state()
+    n_lines = len(sc._draw_lines)
+    _draw(view, sc, (150, 200), (230, 4))
+    assert len(sc.constraint_ctl.constraints) == 1
+    sc.undo(); QApplication.processEvents()
+    assert len(sc._draw_lines) == n_lines and sc.constraint_ctl.constraints == []
