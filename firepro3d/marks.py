@@ -234,7 +234,7 @@ def item_level_name(item) -> Optional[str]:
     node = getattr(item, "node", None)
     if node is not None:                  # Sprinkler: the node is authoritative
         return getattr(node, "level", None)
-    level =getattr(item, "level", None)
+    level = getattr(item, "level", None)
     if not level:                         # Pipe with no level of its own: node1's
         level = getattr(getattr(item, "node1", None), "level", None)
     return level
