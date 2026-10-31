@@ -135,3 +135,47 @@ def test_startup_panel_defaults(qapp, main_window):
     assert mw.browser_dock.isVisible() is True
     assert mw.prop_dock.isVisible() is True
     assert mw.hydro_dock.isVisible() is False
+
+
+# -- Floor host routing (floor-opening design A5) -----------------------------
+
+def test_floor_opening_button_enters_floor_opening_mode(qapp, main_window):
+    mw = main_window
+    btn = mw._mode_buttons["floor_opening"]
+    assert btn.text() == "Floor Opening"
+    btn.click()
+    assert mw.scene.mode == "floor_opening"
+    assert btn.isChecked()                       # _sync_mode_buttons lights it
+    assert mw.scene._floor_opening_feature_id == "floor_sketched"
+
+
+def test_feature_browser_floor_leaf_enters_floor_opening_mode(qapp, main_window):
+    mw = main_window
+    fb = mw.feature_browser
+    fb._on_item_activated(fb._find_leaf("floor_sketched"), 0)
+    assert mw.scene.mode == "floor_opening"
+    assert mw.scene._floor_opening_feature_id == "floor_sketched"
+    assert mw.current_opening_template.feature_id != "floor_sketched"   # wall template untouched
+
+
+def test_blank_button_never_launches_the_floor_type(qapp, main_window):
+    """GUARD A5: after the floor leaf is used, the wall Blank button still
+    places the wall blank (today's _last_feature is keyed by kind, shared)."""
+    mw = main_window
+    fb = mw.feature_browser
+    fb._on_item_activated(fb._find_leaf("floor_sketched"), 0)
+    assert mw.scene.mode == "floor_opening"
+    mw._mode_buttons["blank"].click()
+    assert mw.scene.mode == "opening"
+    assert mw.scene._opening_feature_id == "blank_900"
+    assert mw.current_opening_template.feature_id == "blank_900"
+
+
+def test_feature_browser_wall_leaf_still_enters_opening(qapp, main_window):
+    mw = main_window
+    fb = mw.feature_browser
+    fb._on_item_activated(fb._find_leaf("door_813"), 0)
+    assert mw.scene.mode == "opening"
+    assert mw.scene._opening_feature_id == "door_813"
+    mw._mode_buttons["door"].click()             # last-used door Type persists
+    assert mw.scene._opening_feature_id == "door_813"
