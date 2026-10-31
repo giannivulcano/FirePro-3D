@@ -391,3 +391,46 @@ def test_a_block_tie_never_makes_a_wall_constraint_amber(sc):
     assert wc is not None
     assert wc.id not in ctl.diagnostics().redundant
     assert REDUNDANT_STATUS not in msgs
+
+
+# ── Task 7: definition edit / swap (AC5) ────────────────────────────────────
+
+def test_retarget_to_a_definition_with_a_moved_child_resolves_in_its_step(sc):
+    from firepro3d.block_definition import BlockDefinition
+    d, w, inst, c = _tied(sc, target="edge")
+    prims = [dict(p) for p in d.primitives]
+    prims[0] = {**prims[0], "pt1": [60.0, -120.0]}            # L1 p1 40 further from ins (local)
+    d2 = BlockDefinition.new(name="Snap2", library="L", series="S", origin=(0.0, 0.0),
+                             primitives=prims)
+    sc.register_block_definition(d2)
+    sc.push_undo_state()
+    n = len(sc._undo_stack)
+    assert sc.retarget_block_refs(d.id, d2.id) >= 1
+    assert len(sc._undo_stack) == n + 1                       # one step, the solve inside it
+    assert inst.block_pos() == pytest.approx((1000.0, 40.0), abs=1e-6)   # p1 back at y = -80
+    assert wall_xy(w) == pytest.approx(W_A, abs=1e-9)
+    assert c.id not in sc.constraint_ctl.red
+
+
+def test_refused_stage1_frame_keeps_stage2_failed_so_end_drag_reds_the_tie(sc):
+    """PB6: ``stage2_failed`` describes the last GOOD frame. Frame 1 (whole-wall
+    grip) moves wall A out of the block's reach (stage 2 fails, the frame
+    stands); frame 2 collapses the wall to a point (D36 conflict in its
+    building tier: stage 1 refused, frame 1 restored); release reds the tie.
+    RED: reset ``ctx.stage2_failed`` at the top of ``_solve_two``'s ctx branch."""
+    from firepro3d.sketch_adapters import adapter_for
+    a, _b, inst, t1, t2 = _two_walls(sc)
+    ctl = sc.constraint_ctl
+    c = wall(sc, (0.0, -1200.0), (4000.0, -1200.0))              # building tier: 300 clear of wall A
+    assert ctl.add("dim_point_line", [{"uid": c._uid, "h": "p1"}, {"uid": a._uid, "h": "edge"}]) is not None
+    ctl.begin_drag(a)
+    adapter_for(a).write(a, [0.0, -900.0, 4000.0, -900.0])
+    ctl.drag(a, 2)
+    assert ctl._drag_ctx.stage2_failed                         # non-vacuous: frame 1 failed stage 2
+    assert wall_xy(a) == pytest.approx((0.0, -900.0, 4000.0, -900.0), abs=1e-4)
+    adapter_for(a).write(a, [0.0, -900.0, 0.0, -900.0])        # collapsed to a point: D36 conflict
+    ctl.drag(a, 2)
+    assert wall_xy(a) == pytest.approx((0.0, -900.0, 4000.0, -900.0), abs=1e-4)   # refused: frame 1 restored
+    assert t1.id not in ctl.red                                # never per frame
+    ctl.end_drag()
+    assert t1.id in ctl.red and t2.id not in ctl.red

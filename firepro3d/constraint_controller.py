@@ -549,8 +549,9 @@ class _DragCtx:
     ``block`` is the plan's anchored block tier, or None. ``focus`` = the
     stage-2 focus uids for the whole gesture (the held walls / gridlines this
     drag can move) -- fixed per session so a D35 reset frame never flips a
-    block between solved and unsolved. ``stage2_failed``: the last frame's
-    blocks could not follow (red at ``end_drag``)."""
+    block between solved and unsolved. ``stage2_failed``: the last GOOD
+    frame's blocks could not follow (red at ``end_drag``); a frame refused in
+    stage 1 restores that good frame and keeps the flag, never resets it."""
 
     __slots__ = ("building", "block", "focus", "stage2_failed")
 
@@ -1345,6 +1346,14 @@ class ConstraintController:
             kt: The block-tier records (stateless only).
             ctx: The drag session's ``_DragCtx`` (its ``block`` tier is set).
             edited, pin, focus, typed, reset: As :meth:`_solve`.
+
+        Returns:
+            True when the edit stands (committed): both stages converged, or
+            stage 2 failed after a building edit -- the blocks keep their
+            pose and their ties go red (outside a drag at once; in a drag via
+            ``ctx.stage2_failed``, red at ``end_drag``). False when refused:
+            a stage-1 conflict, or a stage-2 failure with no building edit
+            (a block edit, a block-tier add / value).
         """
         edited = list(edited)
         b_edit = [it for it in edited if not _is_block(it)]
@@ -1357,6 +1366,8 @@ class ConstraintController:
         pin_k = pin if pin is not None and _is_block(pin[0]) else None
         moved: set = set()
         if ctx is not None:
+            # ctx.stage2_failed describes the last GOOD frame: a frame refused
+            # below (stage 1) returns False and keeps the flag (PB6).
             if ctx.building is not None and b_edit:
                 if not self._solve_once(None, tier=ctx.building, edited=b_edit, pin=pin_b,
                                         typed=typed_b, reset=reset, written=moved):
@@ -2017,7 +2028,16 @@ class ConstraintController:
 
     def _tier(self, cons, *, anchored: bool) -> _Tier:
         """A drag session's ``_Tier`` over *cons* -- a fresh build, never the
-        cached System (a commit solve may still reuse that one)."""
+        cached System (a commit solve may still reuse that one).
+
+        Args:
+            cons: The tier's constraint records.
+            anchored: True for the block tier (walls / gridlines held by
+                ``ANCHOR_CID``).
+
+        Returns:
+            The tier's session ``_Tier``.
+        """
         built = self._build_fresh(cons, anchored=anchored)
         return _Tier(built, self._slot_layout(built[1], len(built[0].x)))
 
@@ -2026,7 +2046,15 @@ class ConstraintController:
         Editor; a plan drag no block record takes part in) is today's single
         System. A plan drag that moves a held wall / gridline a block record
         names, or drags a block a block record names, gets the anchored block
-        tier -- plus a building tier when it drags a wall / gridline."""
+        tier -- plus a building tier when it drags a wall / gridline.
+
+        Args:
+            cons: The active constraint records.
+            items: The dragged items.
+
+        Returns:
+            The session's ``_DragCtx``.
+        """
         bt, kt = self._split_tiers(cons)
         if not kt:
             return _DragCtx(self._tier(bt, anchored=False), None)
@@ -3009,6 +3037,28 @@ class ConstraintController:
             self._recheck_red()
         self._commit_gen += 1
         return len(dropped)
+
+    def on_definitions_changed(self) -> None:
+        """AC5 (plan block constraints s3): a block definition was edited or
+        swapped. Re-validates every block record (``active()``, NB4 -- a lost
+        child handle goes inert, kept verbatim, revived on undo), then
+        re-solves each block-tier group with every wall / gridline held (PB3
+        stage 2); a group the new geometry cannot satisfy keeps its pose and
+        its unsatisfied records go red. No undo push: the caller's own step
+        (``commit_block_definition`` / ``retarget_block_refs`` /
+        ``reload_block_definition`` / ``load_blocks_from_files``) carries it."""
+        if not self.enabled or self.block_editor or not self._constraints:
+            return
+        self._build_cache = self._anchor_cache = None   # handle tables changed
+        by = self.item_by_uid()
+        kt = self._block_tier(self.active())
+        for group in self._groups(kt):
+            gc = [c for c in kt if (_safe_ref_uids(c) or set()) & group]
+            blocks = {u for u in group if _is_block(by.get(u))}
+            if not self._solve_once(gc, anchored=True, focus=blocks):
+                self.mark_unsatisfied_red(gc)
+        self._commit_gen += 1
+        self._repaint()
 
     def on_items_removed(self, items) -> int:
         """Cascade-delete constraints touching removed items (caller pushes undo)."""

@@ -291,3 +291,43 @@ def test_g12_anchor_cid_never_reaches_records_conflicts_or_redundant(mw, pb, qap
     text = f.read_text()
     assert "__anchored__" not in text and "__locked__" not in text
     assert {c.id, bad.id} <= {r["id"] for r in json.loads(text)["constraints"]}
+
+
+def test_g8_definition_edit_resolves_in_one_undo_step_and_a_lost_handle_goes_inert(
+        mw, pb, qapp, tmp_path):
+    """AC5: the Block Editor's save seam (``commit_block_definition``) moving
+    L1 p1 40 mm re-solves the tied block (walls held) inside its ONE undo step;
+    deleting L1 leaves the record inert, flagged, saved verbatim.
+    RED: drop the ``on_definitions_changed()`` call in commit_block_definition."""
+    sc, _view = pb
+    d = snap_def(sc)
+    w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    inst = _block(sc, d, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    c = _dpl(ctl, {"uid": inst._uid, "h": "u0:p1"}, {"uid": w._uid, "h": "edge"})
+    w0 = wall_xy(w)
+
+    def commit(prims):
+        assert sc.commit_block_definition(
+            block_id=d.id, name=d.name, library=d.library, series=d.series,
+            primitives=prims, origin=(0.0, 0.0), place_instance=False) is not None
+
+    prims = [dict(p) for p in d.primitives]
+    prims[0] = {**prims[0], "pt1": [60.0, -120.0]}
+    commit(prims)
+    assert inst.block_pos() == pytest.approx((1000.0, 40.0), abs=1e-6)   # p1 back at y = -80
+    assert wall_xy(w) == pytest.approx(w0, abs=1e-9)
+    assert c.id not in ctl.red
+    sc.undo()                                                  # ONE step: definition + pose
+    blk = next(b for b in sc._block_instances if b._uid == inst._uid)
+    assert blk.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-6)
+    assert sc.get_block_definition(d.id).primitives[0]["pt1"] == [60.0, -80.0]
+    commit([dict(p) for p in sc.get_block_definition(d.id).primitives if p.get("uid") != "u0"])
+    c2 = ctl.find(c.id)
+    assert c2.inert and c2.invalid
+    assert ctl.kind_text(c2) == "Unsupported constraint"
+    assert blk.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-6)
+    f = tmp_path / "inert.fpd"
+    sc.save_to_file(str(f))
+    saved = {r["id"]: r for r in json.loads(f.read_text())["constraints"]}
+    assert saved[c.id]["refs"][0] == {"uid": inst._uid, "h": "u0:p1"}

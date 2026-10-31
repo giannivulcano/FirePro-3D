@@ -2266,6 +2266,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._merge_bundled_weights(path)
         self._merge_bundled_fill_types(pending_types)
         self._swap_block_definition(block_id, lib_def)
+        self.constraint_ctl.on_definitions_changed()   # AC5 reload
         self.push_undo_state()
         self.blockDefinitionsChanged.emit()
         return True
@@ -2380,6 +2381,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # One step -- coalesced into a multi-target panel commit's step
             # when inside ``deferred_undo_push`` (a folder pick applied to N
             # selected lines is ONE undo step, load included).
+            self.constraint_ctl.on_definitions_changed()   # AC5 load-replace
             self.request_undo_push()
             self.blockDefinitionsChanged.emit()
         return summary
@@ -2700,6 +2702,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 count += 1
         if count == 0:
             return 0
+        self.constraint_ctl.on_definitions_changed()   # AC5 swap
         self.request_undo_push()
         self.blockDefinitionsChanged.emit()
         return count
@@ -3240,6 +3243,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             px, py = ((float(place_at[0]), float(place_at[1]))
                       if place_at is not None else (ox, oy))
             self.place_block_instance(defn.id, (px, py), rotation=0.0)
+        if old is not None:
+            self.constraint_ctl.on_definitions_changed()   # AC5 edit: re-solve inside this one step
         self.push_undo_state()
         self.update()  # section-cut walls/floors repaint against the new tile version (G5)
         if pattern_saved_msg is not None:
