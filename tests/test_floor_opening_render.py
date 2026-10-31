@@ -177,3 +177,67 @@ def test_mesh_side_walls_face_away_from_the_material(qapp, model_scene):
     # Both ring kinds are present and each faces the right way.
     hole_walls = [p for p, c in probes if 1000 <= c[0] <= 2000 and -2000 <= c[1] <= -1000]
     assert len(hole_walls) == 8
+
+
+def _polydata(scene, slab):
+    """The slab's 3D polydata, built exactly as View3D._build_slabs does."""
+    import numpy as np
+    from firepro3d.view_3d import _mesh_from_faces
+    md = slab.get_3d_mesh(level_manager=scene._level_manager)
+    return _mesh_from_faces(np.array(md["vertices"], dtype=np.float32),
+                            np.array(md["faces"], dtype=np.uint32))
+
+
+def _seam_cases():
+    return {
+        "rect_one_void": ([P(0, 0), P(4000, 0), P(4000, 3000), P(0, 3000)],
+                          [_rect(1000, 1000, 2000, 2000)]),
+        "polygon_two_voids": ([P(0, 0), P(6000, 0), P(6000, 2000), P(4000, 3500),
+                               P(0, 3500)],
+                              [_rect(500, 500, 1500, 1500), _rect(2500, 500, 3500, 1500)]),
+        "void_crossing_edge": ([P(0, 0), P(4000, 0), P(4000, 3000), P(0, 3000)],
+                               [_rect(3000, 1000, 5000, 2000)]),
+    }
+
+
+@pytest.mark.parametrize("case", list(_seam_cases()))
+def test_holed_mesh_is_watertight_no_seam_edges(qapp, model_scene, case):
+    pts, voids = _seam_cases()[case]
+    scene = model_scene()
+    slab = _add(scene, FloorSlab(points=pts), *voids)
+    mesh = _polydata(scene, slab)
+    open_edges = mesh.extract_feature_edges(
+        boundary_edges=True, non_manifold_edges=True,
+        feature_edges=False, manifold_edges=False)
+    assert open_edges.n_cells == 0
+
+
+@pytest.mark.parametrize("case", list(_seam_cases()))
+def test_holed_mesh_edge_pass_has_no_diagonal_lines(qapp, model_scene, case):
+    """View3D._add_edge_actor's edge pass must draw only axis-aligned/vertical lines."""
+    pts, voids = _seam_cases()[case]
+    if case == "polygon_two_voids":
+        pts_ok = False                      # slanted outer edge is legitimately diagonal
+    else:
+        pts_ok = True
+    scene = model_scene()
+    slab = _add(scene, FloorSlab(points=pts), *voids)
+    mesh = _polydata(scene, slab)
+    edges = mesh.extract_feature_edges(          # same parameters as _add_edge_actor
+        boundary_edges=True, feature_edges=True,
+        non_manifold_edges=False, manifold_edges=False, feature_angle=1.0)
+    assert edges.n_cells > 0
+    diagonals = []
+    for i in range(edges.n_cells):
+        ids = edges.get_cell(i).point_ids
+        a, b = edges.points[ids[0]], edges.points[ids[-1]]
+        dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
+        if dx > 1e-3 and dy > 1e-3:
+            diagonals.append((tuple(a), tuple(b)))
+    if pts_ok:
+        assert diagonals == []
+    else:
+        # only the two copies (top + bottom) of the slanted outer edge (6000,2000)->(4000,3500)
+        assert len(diagonals) == 2
+        for a, b in diagonals:
+            assert {round(a[0]), round(b[0])} == {4000, 6000}

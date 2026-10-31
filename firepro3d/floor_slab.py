@@ -697,14 +697,19 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             pts, tris = triangulate_with_holes(o, hs)
             if not tris:
                 continue
-            base, n = len(verts), len(pts)
-            verts += [[x, y, top_z] for x, y in pts]
-            verts += [[x, y, bot_z] for x, y in pts]
+            # Weld coincident points (bridge endpoints appear twice in the
+            # bridged ring) so the mesh has no duplicate-position vertices.
+            first = {}
+            remap = []
+            for p in pts:
+                remap.append(first.setdefault(p, len(first)))
+            upts = list(first)                       # unique points, index = first[p]
+            tris = [(remap[a], remap[b], remap[c]) for a, b, c in tris]
+            base, n = len(verts), len(upts)
+            verts += [[x, y, top_z] for x, y in upts]
+            verts += [[x, y, bot_z] for x, y in upts]
             faces += [[base + a, base + b, base + c] for a, b, c in tris]
             faces += [[base + a + n, base + c + n, base + b + n] for a, b, c in tris]
-            first = {}
-            for i, p in enumerate(pts):
-                first.setdefault(p, i)
             rings = [o if signed_area(o) > 0 else o[::-1]]           # outer CCW
             rings += [h if signed_area(h) < 0 else h[::-1] for h in hs]   # holes CW
             for ring in rings:
