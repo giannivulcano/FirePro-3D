@@ -1,7 +1,7 @@
 ---
 status: built             # BUILT 2026-10-31 (v0.77.0, feat/plan-block-constraints); Phase 3 approved 2026-10-31
 last-verified: 2026-10-31
-verified-commit: 35b55a2d
+verified-commit: ce88ae5a
 applies-to:
   - firepro3d/constraint_controller.py  # plan capability (+ BlockInstance), two-tier plan solve, ANCHOR_CID, on_definitions_changed, plan_ref_uids
   - firepro3d/sketch_adapters.py        # _NestedAdapter on plan instances; _ins_only (annotative -> ins only)
