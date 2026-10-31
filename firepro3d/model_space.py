@@ -34,7 +34,8 @@ from .geometry_2d import (
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
-from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
+from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult, axis_snap_name
+from .sketch_model import AXIS_DIRS
 from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
@@ -4263,7 +4264,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
             align_aperture_px=self._align_path_tol_px,
-            from_point=self._snap_from_point())
+            from_point=self._snap_from_point(),
+            # Offset (D9, snapping-engine s4.2): an axis the source lies on is
+            # the source too -- its snap would zero the distance.
+            axis_source=self._offset_source if self.mode == "offset_side" else None)
         if res is None:
             self._snap_result = None
             self._align_result = None
@@ -4406,10 +4410,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         exclusion key off it (``id(source_item)`` when present, else the snap
         type + the snapped point rounded to 1 µm — so two source-less snaps at
         different points are distinct acquisitions, DD6 / I-2; the only
-        source-less origin snap is the fixed white (0,0) cross, D4).
+        source-less origin snap is the fixed white (0,0) cross, D4). A Block
+        Editor axis snap (snapping-engine §4.2) is instead one source per axis,
+        with that axis's direction, so dwelling on it acquires it like an edge.
         """
         if res is None:
             return None
+        axis = axis_snap_name(res)
+        if axis is not None:        # §4.2: one identity + direction per axis, wherever the foot slides
+            return {"point": (res.point.x(), res.point.y()),
+                    "snap_type": res.snap_type,
+                    "source_id": hash(("axis", axis)),
+                    "direction": AXIS_DIRS[axis]}
         src = getattr(res, "source_item", None)
         source_id = (id(src) if src is not None else
                      hash((res.snap_type, round(res.point.x(), 3),

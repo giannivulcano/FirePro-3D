@@ -294,6 +294,9 @@ def test_align_dwell_on_origin_tracks_its_axes(qapp):
     view, scene = make_view(scale=1.0, mode="draw_line")
     try:
         scene._snap_engine.snap_intersection = False   # no accidental cross hit
+        # NEA off: the Block Editor X axis is itself a NEA snap that outranks
+        # this H ray at the same point (snapping-engine s4.2).
+        scene._snap_engine.snap_nearest = False
         dwell(view, QPointF(1, 1))                 # rest on the origin snap
         move(view, QPointF(300, 4))                # near the origin's H ray
         res = scene._align_result

@@ -53,9 +53,11 @@ def test_align_path_on_perpendicular_ray_paints_perpendicular_glyph(qapp):
 def test_align_path_on_hv_ray_paints_nearest_glyph(qapp):
     view, scene = make_view(mode="draw_line")
     try:
-        scene.addItem(LineItem(QPointF(-2000, 0), QPointF(0, 0)))
-        dwell(view, QPointF(0, 0))
-        move(view, QPointF(800, 10))
+        # At y = 400, not on the X axis: the Block Editor axis NEA snap would
+        # outrank the H ray (snapping-engine s4.2).
+        scene.addItem(LineItem(QPointF(-2000, 400), QPointF(-300, 400)))
+        dwell(view, QPointF(-300, 400))
+        move(view, QPointF(800, 410))
         res = scene._align_result
         assert res is not None and res.snap_type == "align_path"
         assert _count_colour(view, res.point, SNAP_COLORS["nearest"]) >= 10

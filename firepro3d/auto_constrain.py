@@ -17,6 +17,7 @@ from .constants import AUTO_CONSTRAIN_MATCH_TOL_MM, GRIDLINE_NEIGHBOUR_ANGLE_TOL
 from .geometry_2d import ArcItem, CircleItem, LineItem
 from .sketch_adapters import adapter_for
 from .sketch_solver import LIN_TOL, curve_radius
+from .snap_engine import axis_snap_name
 
 POINT_SNAPS = frozenset({"endpoint", "midpoint", "center"})   # AD6 -> a point handle
 EDGE_SNAPS = frozenset({"nearest", "perpendicular"})          # AD6 -> an edge, else a curve
@@ -79,7 +80,8 @@ def _close(p, q) -> bool:
 def resolve_snap(snap) -> Target | None:
     """AD6: the constraint target of one OSNAP result, or None (silently).
 
-    ``origin`` -> the origin ground; END / MID / CEN -> the source item's point
+    ``origin`` -> the origin ground; an axis NEA / PER (Block Editor) -> that
+    axis ground as an edge (no ⟂ record); END / MID / CEN -> the source item's point
     handle at the snap point; NEA / PER -> the source's edge whose segment holds
     the point, else a circle / arc curve it lies on. Any other kind, an ALIGN
     or grid result, or a source with no adapter -> None.
@@ -91,6 +93,9 @@ def resolve_snap(snap) -> Target | None:
     xy = (p.x(), p.y())
     if t == "origin":
         return Target("point", {"ref": "origin"}, xy)
+    axis = axis_snap_name(snap)
+    if axis is not None:      # §4.2 axis: an edge on the ground; PER adds no ⟂ (H / V is AC2's)
+        return Target("edge", {"ref": axis}, xy)
     if t not in POINT_SNAPS and t not in EDGE_SNAPS:
         return None
     src = snap.source_item

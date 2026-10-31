@@ -38,14 +38,16 @@ def _draw_off(view, scene, start_click, perp, tangent, away_from):
 def test_line_started_on_rotated_rect_edge_tracks_perpendicular(qapp):
     view, scene = make_view(mode="draw_line")
     try:
-        r = RectangleItem(QPointF(0, 0), QPointF(1000, 600))
-        r.set_angle(30.0, QPointF(0, 0))              # non-axis edge: H/V rays can't fake it
+        # x offset 600: keeps the perpendicular ray clear of the Block Editor
+        # Y axis, whose NEA snap would outrank the ALIGN path (snapping-engine s4.2).
+        r = RectangleItem(QPointF(600, 0), QPointF(1600, 600))
+        r.set_angle(30.0, QPointF(600, 0))            # non-axis edge: H/V rays can't fake it
         scene.addItem(r)
-        e0, e1 = r.mapToScene(QPointF(0, 0)), r.mapToScene(QPointF(1000, 0))
+        e0, e1 = r.mapToScene(QPointF(600, 0)), r.mapToScene(QPointF(1600, 0))
         u = _unit(e1.x() - e0.x(), e1.y() - e0.y())    # edge direction
         perp = (-u[1], u[0])
-        start = r.mapToScene(QPointF(400, 0))          # on the edge, clear of mid/corners
-        s, end = _draw_off(view, scene, start, perp, u, r.mapToScene(QPointF(500, 300)))
+        start = r.mapToScene(QPointF(1000, 0))         # on the edge, clear of mid/corners
+        s, end = _draw_off(view, scene, start, perp, u, r.mapToScene(QPointF(1100, 300)))
         # Ground truth: the committed line is ⟂ to the edge (dot ≈ 0).
         d = _unit(end.x() - s.x(), end.y() - s.y())
         assert abs(d[0] * u[0] + d[1] * u[1]) < 1e-6
