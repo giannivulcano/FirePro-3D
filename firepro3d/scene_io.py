@@ -444,6 +444,8 @@ class SceneIOMixin:
             slab = FloorSlab.from_dict(entry)
             self.addItem(slab)
             self._floor_slabs.append(slab)
+            for op in slab.openings:        # owned voids (from_dict re-attached them)
+                self.addItem(op)
 
         # --- Roofs ---
         for entry in payload.get("roofs", []):

@@ -1012,9 +1012,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._walls.remove(item)
                 self.removeItem(item)
             elif isinstance(item, FloorSlab):
+                for op in list(item.openings):   # owned voids go with their host (A2)
+                    if op.scene() is self:
+                        self.removeItem(op)
+                item.openings.clear()
                 if item in self._floor_slabs:
                     self._floor_slabs.remove(item)
                 self.removeItem(item)
+            elif isinstance(item, FloorOpening):
+                if item.host is not None:
+                    item.host.remove_opening(item)
+                if item.scene() is self:          # already gone when its host went first
+                    self.removeItem(item)
             elif isinstance(item, RoofItem):
                 if item in self._roofs:
                     self._roofs.remove(item)
@@ -3640,6 +3649,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(w)
 
             for fs in list(self._floor_slabs):
+                for op in fs.openings:          # voids before their slab (A2)
+                    if op.scene() is self:
+                        self.removeItem(op)
                 if fs.scene() is self:
                     self.removeItem(fs)
             self._floor_slabs.clear()
@@ -3743,6 +3755,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 slab = FloorSlab.from_dict(d)
                 self.addItem(slab)
                 self._floor_slabs.append(slab)
+                for op in slab.openings:        # owned voids (from_dict re-attached them)
+                    self.addItem(op)
 
             for d in state.get("roofs", []):
                 roof = RoofItem.from_dict(d)
@@ -9343,9 +9357,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 slab = FloorSlab.from_dict(obj)     # pure z-range: refs naming the source retarget
                 self._retarget_level_refs(slab, obj.get("source_level"),
                                           "_top_level", "_bottom_level")
-                slab.translate(offset.x(), offset.y())
+                slab.translate(offset.x(), offset.y())   # carries its voids (A2)
                 self.addItem(slab)
                 self._floor_slabs.append(slab)
+                for op in slab.openings:
+                    self.addItem(op)
+                    # PART B (marks): marks.mint(self, op)  -- fresh Mark for each pasted void (A2)
                 new_items.append(slab)
             elif obj_type == "roof":
                 roof = RoofItem.from_dict(obj)
