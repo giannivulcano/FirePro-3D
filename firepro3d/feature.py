@@ -37,7 +37,7 @@ class FeatureDef:
     kind: str                     # paint/legacy discriminator: "door" | "window" | "blank"
     family: str                   # tier-2: "Single-Flush" | "Double-Flush" | "Fixed" | "Blank"
     type_name: str                # tier-3 leaf (Type): sized preset, e.g. "813 × 2032"
-    host_type: str                # "Wall" (Phase A); future Floor/Ceiling/Face/Level
+    host_type: str                # "Wall" | "Floor" (F3); future Ceiling/Face/Level
     display_name: str
     default_width_mm: float
     default_height_mm: float
@@ -61,6 +61,10 @@ FEATURE_REGISTRY: dict[str, FeatureDef] = {
                              "Fixed 900 × 1200", 900.0, 1200.0, 900.0, 1),
     "blank_900": FeatureDef("blank_900", "blank", "Blank", "900 × 2100", "Wall",
                             "Blank 900 × 2100", 900.0, 2100.0, 0.0, 1),
+    # Floor host strategy (feature-system F3; floor-opening design A5): the
+    # void's shape is sketched, so the size defaults are unused.  Id frozen (F4).
+    "floor_sketched": FeatureDef("floor_sketched", "blank", "Floor", "Sketched", "Floor",
+                                 "Floor Sketched", 0.0, 0.0),
 }
 
 # Default Type per ``kind`` (the ribbon Door/Window/Blank buttons resolve through this).
@@ -69,6 +73,11 @@ DEFAULT_FEATURE_FOR_TYPE: dict[str, str] = {
     "window": "window_900",
     "blank": "blank_900",
 }
+
+# Default floor-hosted Type (the ribbon "Floor Opening" button; floor-opening A5).
+# Kept apart from DEFAULT_FEATURE_FOR_TYPE (keyed by kind, which the wall Blank
+# shares) so the wall Blank button can never resolve to a floor Type.
+DEFAULT_FLOOR_OPENING_FEATURE: str = "floor_sketched"
 
 
 def get_feature(feature_id: str) -> FeatureDef:
@@ -89,9 +98,12 @@ def features_by_hierarchy() -> dict[str, dict[str, list[FeatureDef]]]:
 
 
 def nearest_feature_for(kind: str, width_mm: float) -> str:
-    """Legacy-migration helper: pick the registry id of *kind* closest to width."""
-    candidates = [f for f in FEATURE_REGISTRY.values() if f.kind == kind]
-    if not candidates:
-        candidates = list(FEATURE_REGISTRY.values())
+    """Legacy-migration helper: pick the registry id of *kind* closest to width.
+
+    Wall Types only: the legacy records it migrates are wall openings, and a
+    floor-hosted Type (host_type "Floor", sizes 0.0) must never win.
+    """
+    walls = [f for f in FEATURE_REGISTRY.values() if f.host_type == "Wall"]
+    candidates = [f for f in walls if f.kind == kind] or walls
     best = min(candidates, key=lambda f: abs(f.default_width_mm - width_mm))
     return best.id

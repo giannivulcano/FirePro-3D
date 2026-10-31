@@ -3,7 +3,8 @@ from PyQt6.QtCore import QPointF
 
 from firepro3d.feature import (
     FeatureDef, FEATURE_REGISTRY, features_by_hierarchy, get_feature,
-    DEFAULT_FEATURE_FOR_TYPE, feature_label,
+    DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE, feature_label,
+    nearest_feature_for,
 )
 from firepro3d.wall_opening import WallOpening
 from firepro3d.wall import WallSegment
@@ -41,11 +42,15 @@ def test_feature_label_maps_kind_to_canonical_name():
 
 
 def test_feature_ids_are_stable_for_migration():
-    """feature_id is serialized in .fpd — these ids must never be re-keyed."""
+    """feature_id is serialized in .fpd — these ids must never be re-keyed.
+
+    floor_sketched joined 2026-10-30 (floor-opening design A5): the first Floor
+    host-strategy Type (feature-system F3)."""
     assert set(FEATURE_REGISTRY.keys()) == {
         "door_813", "door_914", "door_1829", "window_900", "blank_900",
+        "floor_sketched",
     }
-    # Every Type carries a family + a sized Type-name leaf.
+    # Every Type carries a family + a Type-name leaf.
     for f in FEATURE_REGISTRY.values():
         assert f.family and f.type_name
 
@@ -54,6 +59,45 @@ def test_default_feature_per_type():
     assert DEFAULT_FEATURE_FOR_TYPE["door"] == "door_914"
     assert DEFAULT_FEATURE_FOR_TYPE["window"] in FEATURE_REGISTRY
     assert DEFAULT_FEATURE_FOR_TYPE["blank"] in FEATURE_REGISTRY
+
+
+# -- Floor host strategy (floor-opening design A5) ----------------------------
+
+def test_floor_sketched_row_is_opening_floor_sketched():
+    """Opening > Floor > Sketched, host Floor; sizes unused (the shape is drawn)."""
+    f = get_feature("floor_sketched")
+    assert (f.kind, f.family, f.type_name, f.host_type, f.display_name) == (
+        "blank", "Floor", "Sketched", "Floor", "Floor Sketched")
+    assert (f.default_width_mm, f.default_height_mm) == (0.0, 0.0)
+    assert feature_label(f) == "Opening"
+    assert DEFAULT_FLOOR_OPENING_FEATURE == "floor_sketched"
+
+
+def test_hierarchy_has_opening_floor_sketched_leaf():
+    tree = features_by_hierarchy()
+    assert [f.id for f in tree["Opening"]["Floor"]] == ["floor_sketched"]
+    assert [f.id for f in tree["Opening"]["Blank"]] == ["blank_900"]
+
+
+def test_wall_types_never_offer_the_floor_type(qapp):
+    """GUARD (RED without the host_type filters): legacy blank migration and the
+    wall template's Feature enum stay on Wall Types."""
+    # raw: blank_900 default width 900.0, floor_sketched 0.0 (feature.py registry)
+    assert nearest_feature_for("blank", 300.0) == "blank_900"
+    assert nearest_feature_for("blank", 0.0) == "blank_900"
+    op = WallOpening(feature_id="blank_900")
+    assert [f.id for f in op._types_for_feature()] == ["blank_900"]
+    assert op.get_properties()["Feature"]["options"] == ["Blank 900 × 2100"]
+
+
+def test_feature_browser_lists_opening_floor_sketched_leaf(qapp):
+    from firepro3d.feature_browser import FeatureBrowser
+    fb = FeatureBrowser()
+    leaf = fb._find_leaf("floor_sketched")
+    assert leaf is not None
+    assert leaf.text(0) == "Sketched"
+    assert leaf.parent().text(0) == "Floor"
+    assert leaf.parent().parent().text(0) == "Opening"
 
 
 # ── Task-2 tests: WallOpening placement frame ─────────────────────────────────
