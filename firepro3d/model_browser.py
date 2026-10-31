@@ -31,6 +31,14 @@ _ROLE_ENTITY = Qt.ItemDataRole.UserRole  # stores Python id() of the entity
 _ROLE_UNDERLAY = Qt.ItemDataRole.UserRole + 1  # stores index into scene.underlays
 
 
+def _gridline_hosted(entity) -> bool:
+    """True for a gridline-hosted block (hosted-blocks D11): its ``host`` is a
+    dict record.  A floor void's ``host`` is its FloorSlab -- a plain row that
+    selects, zooms and deletes normally (floor-opening A8)."""
+    host = getattr(entity, "host", None)
+    return isinstance(host, dict) and bool(host)
+
+
 class ModelBrowser(QWidget):
     """Tree-view browser listing all model entities by category."""
 
@@ -190,6 +198,12 @@ class ModelBrowser(QWidget):
                 pts = len(slab.points) if hasattr(slab, "points") else 0
                 item.setToolTip(0, f"Points: {pts}")
                 self._style_hidden(item, slab)
+                # Floor voids nest under their host slab (floor-opening A8).
+                for op in getattr(slab, "openings", []):
+                    child = QTreeWidgetItem(item, [op._mark or "Opening"])
+                    child.setData(0, _ROLE_ENTITY, id(op))
+                    child.setToolTip(0, f"Opening  Points: {len(op.points)}")
+                    self._style_hidden(child, op)
 
             # -- Roofs --
             roofs = getattr(self._scene, "_roofs", [])
@@ -426,6 +440,9 @@ class ModelBrowser(QWidget):
         for slab in getattr(self._scene, "_floor_slabs", []):
             if id(slab) == entity_id:
                 return slab
+            for op in getattr(slab, "openings", []):
+                if id(op) == entity_id:
+                    return op
         for roof in getattr(self._scene, "_roofs", []):
             if id(roof) == entity_id:
                 return roof
@@ -481,8 +498,8 @@ class ModelBrowser(QWidget):
             return
         # A hosted block is plan-hidden (D11): never take the plain select path.
         # Mixed selections select only the plain rows; a hosted-only one focuses hosted[0] (G18).
-        hosted = [e for e in entities if getattr(e, "host", None)]
-        entities = [e for e in entities if not getattr(e, "host", None)]
+        hosted = [e for e in entities if _gridline_hosted(e)]
+        entities = [e for e in entities if not _gridline_hosted(e)]
         if not entities:
             sm = getattr(self._scene, "_section_manager", None)
             if sm is not None:
@@ -510,7 +527,7 @@ class ModelBrowser(QWidget):
         entity_id = item.data(0, _ROLE_ENTITY)
         if entity_id is not None:
             entity = self._find_entity_by_id(entity_id)
-            if entity is not None and getattr(entity, "host", None):
+            if entity is not None and _gridline_hosted(entity):
                 sm = getattr(self._scene, "_section_manager", None)
                 if sm is not None:
                     sm.focus_hosted(entity)
@@ -619,8 +636,8 @@ class ModelBrowser(QWidget):
             return
         # A hosted block is plan-hidden (D11): Qt refuses setSelected(True) on
         # it, so it goes to delete_items() by explicit list (one undo step).
-        hosted = [e for e in entities if getattr(e, "host", None)]
-        plain = [e for e in entities if not getattr(e, "host", None)]
+        hosted = [e for e in entities if _gridline_hosted(e)]
+        plain = [e for e in entities if not _gridline_hosted(e)]
         self._syncing = True
         try:
             self._scene.clearSelection()

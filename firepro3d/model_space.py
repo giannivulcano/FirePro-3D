@@ -8583,8 +8583,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Fitting is not a QGraphicsItem — re-evaluate via update()
             if isinstance(item, Fitting):
                 item.update()
-            elif getattr(item, "host", None):
-                pass   # gridline-hosted: never shown in plan (hosted-blocks D11)
+            elif isinstance(getattr(item, "host", None), dict) and item.host:
+                pass   # gridline-hosted: never shown in plan (hosted-blocks D11);
+                       # a floor void's host is its slab -- shown normally (A8)
             else:
                 item.setVisible(True)
 
