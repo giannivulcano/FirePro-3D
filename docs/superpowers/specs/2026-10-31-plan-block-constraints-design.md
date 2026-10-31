@@ -6,7 +6,7 @@ applies-to:
   - firepro3d/constraint_controller.py  # plan capability (+ BlockInstance), two-tier plan solve, ANCHOR_CID, on_definitions_changed, plan_ref_uids
   - firepro3d/sketch_adapters.py        # _NestedAdapter on plan instances; _ins_only (annotative -> ins only)
   - firepro3d/scene_io.py               # load resolves plan records through plan_ref_uids
-  - firepro3d/model_space.py            # commit_block_definition / replace_block_references -> on_definitions_changed
+  - firepro3d/model_space.py            # commit_block_definition / retarget_block_refs / reload_block_definition / load_blocks_from_files -> on_definitions_changed
   - firepro3d/block_instance.py         # solve write-back (set_block_pos / set_block_rotation) refresh (P4 probe)
 source-tasks:
   - todo_open.md "Expose placed-block primitives to constraints in model space (plan scene), like the Block Editor's nested handles" [type:feature] [P1]
@@ -112,8 +112,8 @@ AC1-AC8 and the out-of-scope list are recorded on the source task line. Phase 3 
 ### 3. Definition change, persistence, undo, copies
 
 - **Definition edit / swap (AC5):** `Model_Space.commit_block_definition` (after
-  `_block_registry.invalidate`, before its one `push_undo_state`) and `replace_block_references`
-  (before its push) call `constraint_ctl.on_definitions_changed()`: `active()` re-validates every
+  `_block_registry.invalidate`, before its one `push_undo_state`), `retarget_block_refs`,
+  `reload_block_definition` and `load_blocks_from_files` (each before its push; PB4) call `constraint_ctl.on_definitions_changed()`: `active()` re-validates every
   block record (NB4 -- a lost child handle -> inert, "Unsupported constraint" row, kept in the file,
   revived on undo); then a stage-2 solve over every block-tier component, walls held; an
   unsatisfiable record goes red. No separate undo step. Closes the plan half of the NB4 known gap.
