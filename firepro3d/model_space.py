@@ -7217,10 +7217,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if fa in self._floor_slabs:
                     self._floor_slabs.remove(fa)
                 self._floor_active = None
+                first_step = "Pick first boundary point"
                 if self.mode == "floor_opening":    # back to step 0: re-pick the host
                     self._feature_ctl.clear_floor_host_pick()
+                    first_step = "Click on a floor to place an opening"
                 self.preview_pipe.hide()
-                self.instructionChanged.emit("Pick first boundary point")
+                self.instructionChanged.emit(first_step)
             else:
                 fa._points.pop()
                 fa._rebuild_path()

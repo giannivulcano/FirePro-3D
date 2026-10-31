@@ -232,3 +232,68 @@ def test_polygon_double_click_commits_the_void(qapp, shown_model_view):
     assert len(slab.openings) == 1 and len(slab.openings[0].points) == 3
     assert [i for i in scene.items() if type(i).__name__ == "FloorOpeningDraft"] == []
     assert scene._floor_active is None and scene.mode == "select"
+
+
+def _drafts(scene):
+    return [i for i in scene.items() if type(i).__name__ == "FloorOpeningDraft"]
+
+
+def _draw_three(view, scene):
+    scene.set_mode("floor_opening")
+    _to_polygon(scene)
+    for p in ((-300, -300), (300, -300), (300, 300)):
+        _click(view, QPointF(*p))
+    assert len(_drafts(scene)) == 1
+
+
+def test_delete_pop_to_first_step_shows_the_floor_opening_text(qapp, shown_model_view):
+    """GUARD (TB4-5 review M1): Delete-pop to step 0 shows the host-pick text, not the slab text."""
+    view, scene = shown_model_view
+    _slab(scene, LOW)
+    scene.set_mode("floor_opening")
+    _to_polygon(scene)
+    _click(view, QPointF(-300, -300))
+    seen = []
+    scene.instructionChanged.connect(seen.append)
+    _key(view, Qt.Key.Key_Delete)
+    assert seen[-1] == "Click on a floor to place an opening"
+    assert "Pick first boundary point" not in seen
+
+
+def test_escape_mid_draw_leaves_no_draft_void_or_undo(qapp, shown_model_view):
+    """GUARD (TB4-5 review M2a): Esc mid-draw -> draft gone, host untouched, no undo entry."""
+    view, scene = shown_model_view
+    slab = _slab(scene, LOW)
+    n_undo = len(scene._undo_stack)
+    _draw_three(view, scene)
+    _key(view, Qt.Key.Key_Escape)
+    assert _drafts(scene) == [] and scene._floor_active is None
+    assert slab.openings == [] and _voids(scene) == []
+    assert len(scene._undo_stack) == n_undo
+
+
+def test_clear_scene_mid_draw_leaves_no_draft_and_resets_state(qapp, shown_model_view):
+    """GUARD (TB4-5 review M2b): scene_io clear mid-draw -> no draft, floor_opening state reset."""
+    view, scene = shown_model_view
+    _slab(scene, LOW)
+    _draw_three(view, scene)
+    scene._clear_scene()
+    assert _drafts(scene) == [] and _voids(scene) == []
+    assert scene._floor_active is None and scene._floor_slabs == []
+    assert scene._floor_opening_candidates == [] and scene._floor_opening_host_hl is None
+    assert scene.mode != "floor_opening"
+
+
+def test_save_mid_draw_holds_no_draft_or_void_record(qapp, shown_model_view, tmp_path):
+    """GUARD (TB4-5 review M2c): a project saved mid-draw carries the slab only, no void."""
+    import json
+    view, scene = shown_model_view
+    _slab(scene, LOW)
+    _draw_three(view, scene)
+    path = tmp_path / "mid_draw.fpd"
+    scene.save_to_file(str(path))
+    text = path.read_text(encoding="utf-8")
+    data = json.loads(text)
+    assert len(data["floor_slabs"]) == 1
+    assert data["floor_slabs"][0].get("openings", []) == []
+    assert "FloorOpeningDraft" not in text
