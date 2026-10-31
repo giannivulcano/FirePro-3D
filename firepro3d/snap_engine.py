@@ -934,8 +934,11 @@ class SnapEngine:
         # as infinite edges -- NEA cursor foot and PER-from foot, gated by those
         # toggles; source-less, named "x_axis" / "y_axis". A foot on a point a
         # real candidate already holds is skipped (geometry on an axis keeps it).
-        for name, o in self._axis_lines(scene, ctx.origin_pts):
-            if axis_source is not None and self._lies_on_axis(axis_source, name, o):
+        axes = self._axis_lines(scene, ctx.origin_pts)
+        skip = (self._collinear_axes(axis_source, axes)
+                if axis_source is not None and axes else set())
+        for name, o in axes:
+            if name in skip:
                 continue
             for kind, p in self._axis_feet(name, o, cursor_scene, from_point):
                 if not self._real_at(ctx, p):
@@ -1179,14 +1182,25 @@ class SnapEngine:
             out.append(("nearest", foot(cursor)))
         return out
 
-    def _lies_on_axis(self, item: QGraphicsItem, name: str, o: QPointF) -> bool:
-        """Whether every snap point of *item* lies on axis *name* through *o*
-        (at least two of them) -- the item is collinear with that axis."""
-        horiz = name == "x_axis"
-        pts = [p for _k, p, _n in self._collect(item)]
-        return len(pts) >= 2 and all(
-            (abs(p.y() - o.y()) if horiz else abs(p.x() - o.x())) <= _ORIGIN_COINCIDE_EPS
-            for p in pts)
+    def _collinear_axes(self, item: QGraphicsItem, axes) -> set[str]:
+        """Names of the *axes* (``(name, origin)`` pairs) that *item* lies on:
+        every one of its point snaps (at least two) is on the axis. The points
+        are gathered with every point toggle on, so the answer is the item's
+        geometry, not the user's snap settings."""
+        keys = ("snap_endpoint", "snap_midpoint", "snap_center", "snap_quadrant")
+        saved = [getattr(self, k) for k in keys]
+        for k in keys:
+            setattr(self, k, True)
+        try:
+            pts = [p for _k, p, _n in self._collect(item)]
+        finally:
+            for k, v in zip(keys, saved):
+                setattr(self, k, v)
+        if len(pts) < 2:
+            return set()
+        return {name for name, o in axes
+                if all((abs(p.y() - o.y()) if name == "x_axis" else abs(p.x() - o.x()))
+                       <= _ORIGIN_COINCIDE_EPS for p in pts)}
 
     @staticmethod
     def _real_at(ctx: "_SnapCtx", p: QPointF) -> bool:

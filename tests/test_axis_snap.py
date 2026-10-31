@@ -203,8 +203,12 @@ def _offset_source(sc, a, b):
     return ln
 
 
-def test_offset_of_a_line_on_the_x_axis_ignores_that_axis(vs):
+@pytest.mark.parametrize("endpoint_snap", [True, False])
+def test_offset_of_a_line_on_the_x_axis_ignores_that_axis(vs, endpoint_snap):
+    """endpoint_snap=False: collinearity is the line's geometry, not the
+    user's point-snap toggles (fix-round review, 2026-10-31)."""
     view, sc = vs
+    sc._snap_engine.snap_endpoint = endpoint_snap
     _offset_source(sc, (40, 0), (140, 0))
     move(view, QPointF(90, 4))                          # 4 px off source and X axis
     assert sc._offset_dist == pytest.approx(4.0, abs=0.05)
