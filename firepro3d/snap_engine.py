@@ -845,6 +845,7 @@ class SnapEngine:
         align_paths:    "list | None" = None,
         align_aperture_px: float | None = None,
         from_point:     "QPointF | None" = None,
+        axis_source:    QGraphicsItem | None = None,
     ) -> OsnapResult | None:
         """Return the nearest snappable point within tolerance, or *None*.
 
@@ -884,6 +885,9 @@ class SnapEngine:
                 foot from this point (AutoCAD PER, S1); ``None`` (default) keeps
                 the cursor foot. With a start point only ``nearest`` remains a
                 "weak" cursor-foot type that an ALIGN crossing beats outright.
+            axis_source: Optional item (Offset's armed source, D9) whose
+                collinear Block Editor axis offers no axis snap (§4.2) — that
+                axis is the source too. ``None`` (default) keeps both axes.
         """
         if not self.enabled:
             return None
@@ -931,6 +935,8 @@ class SnapEngine:
         # toggles; source-less, named "x_axis" / "y_axis". A foot on a point a
         # real candidate already holds is skipped (geometry on an axis keeps it).
         for name, o in self._axis_lines(scene, ctx.origin_pts):
+            if axis_source is not None and self._lies_on_axis(axis_source, name, o):
+                continue
             for kind, p in self._axis_feet(name, o, cursor_scene, from_point):
                 if not self._real_at(ctx, p):
                     ctx.check(kind, p, None, name)
@@ -1172,6 +1178,15 @@ class SnapEngine:
         if self.snap_nearest:
             out.append(("nearest", foot(cursor)))
         return out
+
+    def _lies_on_axis(self, item: QGraphicsItem, name: str, o: QPointF) -> bool:
+        """Whether every snap point of *item* lies on axis *name* through *o*
+        (at least two of them) -- the item is collinear with that axis."""
+        horiz = name == "x_axis"
+        pts = [p for _k, p, _n in self._collect(item)]
+        return len(pts) >= 2 and all(
+            (abs(p.y() - o.y()) if horiz else abs(p.x() - o.x())) <= _ORIGIN_COINCIDE_EPS
+            for p in pts)
 
     @staticmethod
     def _real_at(ctx: "_SnapCtx", p: QPointF) -> bool:

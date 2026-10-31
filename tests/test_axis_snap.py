@@ -183,6 +183,40 @@ def test_line_and_axis_record_are_one_undo_step(vs):
     assert len(sc._draw_lines) == n_lines and sc.constraint_ctl.constraints == []
 
 
+def test_shift_on_the_axis_click_records_nothing(vs):
+    view, sc = vs
+    shift = Qt.KeyboardModifier.ShiftModifier
+    sc.set_mode("draw_line")
+    move(view, QPointF(150, 200)); click(view, QPointF(150, 200))
+    move(view, QPointF(230, 4), shift); click(view, QPointF(230, 4), shift)
+    n = sc._draw_lines[-1]
+    assert _xy(n.grip_points()[2]) == (230.0, 0.0)          # still snaps, no relation
+    assert _recs(sc) == []
+
+
+# ── Offset (D9): the source's own axis gives no snap (user ruling 2026-10-31) ──
+
+def _offset_source(sc, a, b):
+    ln = LineItem(QPointF(*a), QPointF(*b)); sc.addItem(ln); sc._draw_lines.append(ln)
+    sc.clearSelection(); ln.setSelected(True); QApplication.processEvents()
+    sc._modify_ctl.start("offset")
+    return ln
+
+
+def test_offset_of_a_line_on_the_x_axis_ignores_that_axis(vs):
+    view, sc = vs
+    _offset_source(sc, (40, 0), (140, 0))
+    move(view, QPointF(90, 4))                          # 4 px off source and X axis
+    assert sc._offset_dist == pytest.approx(4.0, abs=0.05)
+
+
+def test_offset_of_an_off_axis_line_snaps_through_the_x_axis(vs):
+    view, sc = vs
+    _offset_source(sc, (200, 100), (300, 100))
+    move(view, QPointF(250, 3))                         # NEA on the X axis -> (250, 0)
+    assert sc._offset_dist == pytest.approx(100.0, abs=0.05)
+
+
 # ── Task 3: cue + ALIGN identity ─────────────────────────────────────────
 
 def _count_colour(view, scene_pt, hexcol, half=3):

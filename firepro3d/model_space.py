@@ -4235,7 +4235,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             only_types=None if real_ok else set(ALIGN_SNAP_TYPES),
             held=held, align_paths=rays,
             align_aperture_px=self._align_path_tol_px,
-            from_point=self._snap_from_point())
+            from_point=self._snap_from_point(),
+            # Offset (D9, snapping-engine s4.2): an axis the source lies on is
+            # the source too -- its snap would zero the distance.
+            axis_source=self._offset_source if self.mode == "offset_side" else None)
         if res is None:
             self._snap_result = None
             self._align_result = None
@@ -4378,7 +4381,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         exclusion key off it (``id(source_item)`` when present, else the snap
         type + the snapped point rounded to 1 µm — so two source-less snaps at
         different points are distinct acquisitions, DD6 / I-2; the only
-        source-less origin snap is the fixed white (0,0) cross, D4).
+        source-less origin snap is the fixed white (0,0) cross, D4). A Block
+        Editor axis snap (snapping-engine §4.2) is instead one source per axis,
+        with that axis's direction, so dwelling on it acquires it like an edge.
         """
         if res is None:
             return None

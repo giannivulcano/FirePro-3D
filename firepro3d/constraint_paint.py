@@ -28,7 +28,7 @@ from types import SimpleNamespace
 
 import numpy as np
 from PyQt6.QtCore import QPointF, QRect, QRectF, Qt
-from PyQt6.QtGui import QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 
 from . import sketch_model as sm
 from . import theme as th
@@ -501,7 +501,6 @@ def _add_geom(path, view, kind, val, vp, o) -> None:
 def _paint_axes(painter, view, t) -> None:
     """The X / Y axes, muted dashed; the axis the live snap lies on
     (snapping-engine §4.2) is drawn solid in that snap type's colour."""
-    from PyQt6.QtGui import QColor
     from .snap_engine import SNAP_COLORS, axis_snap_name, snap_glyph_type
     o = QPointF(view.mapFromScene(QPointF(0.0, 0.0)))
     vp = QRectF(view.viewport().rect())

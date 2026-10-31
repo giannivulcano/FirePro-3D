@@ -52,10 +52,13 @@ def test_perpendicular_ray_snaps_across_endpoint(shown_model_view, angle_deg):
     scene.set_mode("draw_line")
 
     rad = math.radians(angle_deg)
-    ep = (300.0 * math.cos(rad), 300.0 * math.sin(rad))
+    # The line starts at (200, 200), not (0, 0): the probe must stay clear of
+    # the Block Editor axes, whose NEA snap outranks ALIGN (snapping-engine s4.2).
+    o = (200.0, 200.0)
+    ep = (o[0] + 300.0 * math.cos(rad), o[1] + 300.0 * math.sin(rad))
     u = (math.cos(rad), math.sin(rad))              # source (line) direction
     perp = (-u[1], u[0])                            # rotated 90°
-    line = LineItem(QPointF(0.0, 0.0), QPointF(ep[0], ep[1]))
+    line = LineItem(QPointF(*o), QPointF(ep[0], ep[1]))
     scene.addItem(line)
 
     _left_click(view, scene, QPointF(ep[0], ep[1]))

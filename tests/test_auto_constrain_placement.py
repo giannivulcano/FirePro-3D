@@ -68,7 +68,7 @@ def test_midpoint_and_centre_and_origin(vs):
 def test_nearest_on_an_edge_is_point_on_curve(vs):
     view, sc = vs
     a = _line(sc, (0, 0), (300, 0))
-    n = _draw(view, sc, (0, 200), (77, 0))
+    n = _draw(view, sc, (40, 200), (77, 0))            # start off the Y axis (s4.2 snap)
     assert _recs(sc) == [("point_on_curve", [(n._uid, "p2", None), (a._uid, "edge", None)])]
 
 
