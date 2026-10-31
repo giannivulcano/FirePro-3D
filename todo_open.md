@@ -700,9 +700,10 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: beyond the Phase-A scale transform (arbitrary parameter→geometry binding / constraint engine). `constraints.py`, feature modules.
 - [ ] [type:design] Feasibility/brainstorm: fold Sprinkler Systems into the Feature framework [P3] [subject:Architecture]
   - Details: Pipe/Fitting/Sprinkler/Valve/Pump. Reconcile the terminology tension first (there "Feature" = discipline/system grouping vs "Feature = concrete placeable definition" here). Own session.
-- [ ] [type:feature] Additional host strategies [P3] [subject:Architecture]
+- [ ] [type:feature] Additional host strategies (Ceiling, Face / Level-free; more Floor-hosted Types) [P3] [subject:Architecture]
   - Details: Floor-hosted (table, riser base), Ceiling-hosted (pendent sprinkler, diffuser), Face/Level-free. `host_type` is in the model from day one; wire the placement strategies.
   - +1 occurrence (2026-10-30): the first Floor host strategy is carved out as "Floor-hosted blank Opening" (below); reuse its floor placement strategy here.
+  - Re-worded 2026-10-31: the Floor host strategy is BUILT (floor-opening, v0.76.0: `floor_sketched` Type, routing by `host_type`, feature-system F3). Remaining: Ceiling-hosted (pendent sprinkler, diffuser), Face / Level-free, and further Floor-hosted Types (table, riser base) on the built Floor strategy.
 - [ ] [type:bug] Stretch moves a floor void twice when a crossing window captures it with its host slab [P3] [subject:Architecture]
   - Details: found while planning the floor-opening build (2026-10-30). Voids follow their host on translate (floor-opening plan T4 guards the move / rotate dispatch so a void selected with its slab moves once), but `scene_tools._commit_stretch` was not covered: a crossing window catching both the slab and its void stretches the slab (carrying the void) and then the void again. Depends on the floor-opening build landing. `scene_tools.py`, `floor_opening.py`, `floor_slab.py`. ref: docs/superpowers/specs/2026-10-30-floor-opening-design.md A2.
 - [ ] [type:bug] Section: a slab whose cut line meets only voids draws as elevation but stays zone CUT [P3] [subject:Architecture]
@@ -1196,9 +1197,10 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: 4 roof types (flat/gable/hip/shed), ridge/hip line computation, pitch-to-peak-height formula, overhang offset algorithm (perpendicular-edge intersection with degenerate fallback), "auto" ridge direction heuristic (longest-edge midpoints), 3D mesh generation (pitched roofs incomplete today). `roof.py`.
 - [ ] [type:design] Spec session: Door & window elements [P2] [subject:Architecture]
   - Details: wall-relative positioning (`offset_along` centerline), width-to-scene conversion chain (3-level fallback), swing arc geometry (doors), crossing-diagonal symbol (windows), hit-test scaling by zoom, preset libraries (doors 820-1800×2040mm, windows 600×1800mm), sill height. `wall_opening.py`.
-- [ ] [type:design] Spec session: Floor openings & stairs [P2] [subject:Architecture]
+- [ ] [type:design] Spec session: Stairs (floor openings built) [P2] [subject:Architecture]
   - Details: openings, stair geometry, multi-level connectivity, sprinkler coverage implications. No implementation exists today; this is a greenfield design spec.
   - +1 occurrence (2026-10-30): the plain floor opening is being built as "Floor-hosted blank Opening" (Opening element section); this spec keeps stairs + multi-level connectivity.
+  - Re-worded 2026-10-31: plain floor voids are BUILT (floor-opening, v0.76.0; wall-room-floor-system s11.11). Remaining scope: stair geometry, multi-level connectivity, sprinkler coverage implications; a stair well can reuse the floor void.
 
 ## Code Review Audit — Spec Gaps (from 2026-04-09 audit)
 
@@ -1250,6 +1252,9 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: per-node/pipe system assignment, multiple instances, independent supply nodes, per-system hydraulic calculations. Separate spec recommended. `sprinkler_system.py`, `model_space.py`. ref: sprinkler-spec §9, D8.
 
 ## Wall, Room & Floor Slab Follow-Ups (from `docs/specs/wall-room-floor-system.md` §13–§14)
+
+- [ ] [type:maint] Pre-existing spec drift found at the floor-opening Account [P3] [subject:Docs]
+  - Details: VC10 list, 2026-10-31 (Account at `1c1e59c6`). (1) wall-room-floor-system §3.3 Z table and §11.6 still quote the retired fixed z values (-80 / -60 / -50 / -45); runtime z is elevation-based (owned by view-relationships §7.3) -- link, don't restate. (2) §11.10 names `elevation_scene._project_floor_slabs`; the module is now `section_scene.py`. (3) §7.2 / §7.13 say "Feature > Category > Type"; feature-system F4 settled "Feature > Family > Type". (4) The Model Browser never lists a wall's blank openings (noted in model-browser §3.3) -- decide whether it should. (5) snapping-engine §5 has no `FloorSlab` row though slabs take the generic path. (6) `model-space-architecture.md` (feature placement controller) not re-audited for the Floor host strategy. `docs/specs/`.
 
 - [ ] [type:bug] Level dropdown in Properties hides a missing level and can't re-select the level it falls back to [P2] [subject:UX]
   - Details: floor-opening smoke 2026-10-31, `26307 Model_new.FPD`: the Basement Floor Slab stores `top_level: "Level 1"` (deleted), but its Top Level row shows "Basement/Mall". `property_manager.py` level_ref branch: non-editable `QComboBox` + `setCurrentText(missing)` is a no-op, so index 0 shows; picking that entry emits no `currentTextChanged`, so the user must pick another level first. Show the stored value (e.g. "<missing: Level 1>" item) so any real pick applies; guard on a shown panel. Affects every level_ref row. `property_manager.py`.

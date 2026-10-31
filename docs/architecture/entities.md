@@ -12,6 +12,7 @@
 - `firepro3d/room.py` -- Polygonal room/space regions
 - `firepro3d/wall.py` -- Wall segments with thickness and openings
 - `firepro3d/floor_slab.py` -- Floor slab polygons
+- `firepro3d/floor_opening.py` -- Floor voids (`FloorOpening`) owned by a slab; cut geometry in `firepro3d/floor_cut.py` (`specs/wall-room-floor-system.md` §11.11)
 - `firepro3d/roof.py` -- Roof polygons
 - `firepro3d/wall_opening.py` -- Door and window openings in walls
 - `firepro3d/gridline.py` -- Structural gridlines (`GridlineItem`, `GridBubble`)
@@ -121,6 +122,7 @@ classDiagram
     Pipe --> Node : node1, node2
     Sprinkler --> Node : parent
     WallSegment --> "0..*" WallOpening : openings
+    FloorSlab --> "0..*" FloorOpening : openings
 ```
 
 ## Piping network entities
@@ -196,6 +198,8 @@ Walls are extruded to 3D meshes between base_level and top_level for the 3D view
 ### FloorSlab and RoofItem
 
 Polygon-based entities for floor slabs and roofs. Both support section-cut hatching when the view's cut plane intersects them. RoofItem supports pitched geometry for 3D visualization.
+
+A `FloorSlab` owns its floor voids (`FloorOpening`) the way a wall owns its openings; contract in `specs/wall-room-floor-system.md` §11.11.
 
 ## Text, 2D geometry and reference entities
 

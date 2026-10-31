@@ -1,14 +1,17 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-10-30  # wall-level-refs Account: s11.3 rename / delete pointer + open repair only, rest not re-audited; prior 2026-10-30  # miter-seam fix Account: s5.5 union-body clip skip, s6.2 operand snap, WALL_OUTLINE_SNAP constant only, rest not re-audited; prior 2026-10-30  # wall-face constraints Account: s5.4 face-join pointer only; prior 2026-10-30  # SB3b + L283 Account: s9.1 Room fields, s12.1-s12.4 serialization keys only, rest not re-audited; prior 2026-10-29   # SB3 Account: Room fields table _mark / _label_offset / _show_label pointers only; rest not re-audited; prior 2026-10-27  # Editor/Build slice 3 Account: header note, §4.5 propagation (tied-end skip), §5.4 auto-join (records, hidden walls), §12.1 uid key only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: header note (wall uid built) + 4.5 pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: Room _tag -> _mark and the wall / opening / room `mark` schema keys only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
-verified-commit: ff26e251   # wall-level-refs merge on main (s11.3 only); prior b8a0ac34   # miter-seam fix Account (s5.5 / s6.2 only); prior 43e792d4   # wall-face constraints Account (s5.4 pointer); prior 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 Account; prior f44a4c2b   # Editor/Build slice 3 Account (§4.5 / §5.4 / §12.1 only); prior db16090a   # Editor/Build slice 2 Account (pointers only); prior ceacaab4   # SB2b Account (Mark keys only); prior 58769fc5   # Editor/Build design (pointer only); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-10-31  # floor-opening Account: header note, s3.1 / s3.5 FloorOpening, s7.4 / s7.8.1 / s7.16 host_type + Opening row, s11.3 missing Top Level, s11.4 shared floor-family machinery, s11.8-s11.10 cut region / holed mesh / follow-host, new s11.11 floor voids, s12.4 openings key + new s12.5; rest not re-audited; prior 2026-10-30  # wall-level-refs Account: s11.3 rename / delete pointer + open repair only, rest not re-audited; prior 2026-10-30  # miter-seam fix Account: s5.5 union-body clip skip, s6.2 operand snap, WALL_OUTLINE_SNAP constant only, rest not re-audited; prior 2026-10-30  # wall-face constraints Account: s5.4 face-join pointer only; prior 2026-10-30  # SB3b + L283 Account: s9.1 Room fields, s12.1-s12.4 serialization keys only, rest not re-audited; prior 2026-10-29   # SB3 Account: Room fields table _mark / _label_offset / _show_label pointers only; rest not re-audited; prior 2026-10-27  # Editor/Build slice 3 Account: header note, §4.5 propagation (tied-end skip), §5.4 auto-join (records, hidden walls), §12.1 uid key only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: header note (wall uid built) + 4.5 pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: Room _tag -> _mark and the wall / opening / room `mark` schema keys only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
+verified-commit: 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior ff26e251   # wall-level-refs merge on main (s11.3 only); prior b8a0ac34   # miter-seam fix Account (s5.5 / s6.2 only); prior 43e792d4   # wall-face constraints Account (s5.4 pointer); prior 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 Account; prior f44a4c2b   # Editor/Build slice 3 Account (§4.5 / §5.4 / §12.1 only); prior db16090a   # Editor/Build slice 2 Account (pointers only); prior ceacaab4   # SB2b Account (Mark keys only); prior 58769fc5   # Editor/Build design (pointer only); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/wall_outline.py   # pure outline geometry (junction pie, cluster union, stroke pieces)
   - firepro3d/wall_placement_controller.py   # auto-join + endpoint propagation (§4.5, §5.4)
   - firepro3d/room.py
   - firepro3d/floor_slab.py
+  - firepro3d/floor_opening.py   # floor void (FloorOpening) owned by a slab (§11.11)
+  - firepro3d/floor_cut.py       # pure cut-region geometry: slab minus voids, holed triangulation, cut spans (§11.11)
   - firepro3d/wall_opening.py
+  - firepro3d/feature_placement_controller.py   # opening placement (§7) + floor-void host pick / draft / commit (§11.11)
   - firepro3d/roof.py
   - firepro3d/model_space.py   # floor placement dispatch + template persistence (§11.9)
   - firepro3d/level_manager.py  # floor pure-z-range visibility + rename remap + open repair (§11.3)
@@ -30,6 +33,8 @@ applies-to:
 **Design note (2026-08-23):** §7 rewritten as a **first-principles redesign** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill).
 **Impl note (2026-08-28):** §11 (Floor Slab) **rewritten as-built** on `feat/floor-workflow-elevation-model` — the floor gains a **two-boundary elevation model** (independent top + bottom, each with a reference mode), the owning `.level`-for-geometry is **retired** (visibility is pure z-range), and placement is folded onto the unified 2D-geometry dispatch (mirrors the wall §4.4 pattern: one checkable **Floor** button, `F`, ←/→ primitive cycle, rect rotate-step [superseded 2026-09-23 by the 3-click base → side → depth rect, §11.4], polygon, continuous placement). §11.10 records the plan view-range upper-bound derivation cross-reference. Verified against commit `579e841`; tests `tests/test_floor_{elevation_model,elevation_projection,serialization,visibility,placement_workflow,panel_display,template_persistence}.py`, `tests/test_graphic_override.py`.
 
+**Impl note (2026-10-31):** **floor voids BUILT** (`feat/floor-opening`, v0.76.0, verified `1c1e59c6`) — a `FloorOpening` owned by its `FloorSlab`, the first Floor host strategy (`feature-system.md` F3). As-built contract: §11.11 (plus §11.3 / §11.4 / §11.8–§11.10 / §12.4–§12.5 touch-ups); rationale and ratified forks: [`docs/superpowers/specs/2026-10-30-floor-opening-design.md`](../superpowers/specs/2026-10-30-floor-opening-design.md) (A1–A8). Tests `tests/test_floor_cut.py`, `tests/test_floor_opening*.py`.
+
 **Impl note (2026-08-24):** §7 **Phase A BUILT** as-built on `feat/opening-feature-element` (subagent-driven; `feature.py`, `feature_browser.py`, rewritten `wall_opening.py`, + model_space/main/elevation_scene/view_3d/display_manager/level_manager/wall wiring; ~40 commits; full suite green). Verified against commit `f5b63b2`; tests `tests/test_opening_{feature,placement,render,persistence,ribbon}.py`. **As-built refinements over the §7 draft** (from smoke tests): (a) **z-order** — an opening is pinned just above its host wall (`level_manager._apply_elev_z`) so its plan gap cuts the wall regardless of head-vs-wall height (§7.7); (b) **plan gap fill** = scene background on screen / paper-white on sheets (not white/dark block); door swing arc spans the opening; (c) **3D** — the door/window **frame is a fixed-depth object** (`_FRAME_DEPTH_MM`), only the wall **cut** matches wall depth; `wall.get_3d_mesh` builds from `quad_points` (un-mitered) so opening jambs stay perpendicular on joined walls (3D corners butt-join — follow-up to re-mitre); walls made watertight through openings (capped reveals, §7.8.3); (d) **paper space** — openings use the "Wall" paper category + a paper-aware gap fill *(category superseded 2026-10-04: per-Feature Door / Window / Opening rows, §7.8.1)*; (e) **undo** — openings ride the existing snapshot undo (no new mechanism, §7.11 correction); (f) a **pre-placement property template** (`current_opening_template`, QSettings `template/opening`) lets sill/size/orientation be set before placing (§7.6). Deferred (filed in TODO): Phase B Manager, Phase C Editor, 3D `boolean_difference`/re-mitre, vertical-plane anchoring, elevation projection polish, panel polish.
 
 ## 1. Goal
@@ -48,7 +53,8 @@ These four entity types form the core architectural model that drives NFPA 13 sp
 |--------|-------------|--------|------|
 | `WallSegment` | `DisplayableItemMixin` + `QGraphicsPathItem` | `wall.py` | Straight-segment wall with thickness, joinery, openings |
 | `Room` | `DisplayableItemMixin` + `QGraphicsPolygonItem` | `room.py` | Closed boundary from wall graph, NFPA coverage tracking |
-| `FloorSlab` | `DisplayableItemMixin` + `QGraphicsPathItem` | `floor_slab.py` | Polygon slab with thickness, occlusion masking |
+| `FloorSlab` | `DisplayableItemMixin` + `QGraphicsPathItem` | `floor_slab.py` | Polygon slab with thickness, occlusion masking, owned voids |
+| `FloorOpening` | `DisplayableItemMixin` + `QGraphicsPathItem` | `floor_opening.py` | Slab-hosted void polygon (§11.11) |
 | `WallOpening` | `QGraphicsPathItem` | `wall_opening.py` | Wall-hosted cutout (base class for Door/Window) |
 | `DoorOpening` | `WallOpening` | `wall_opening.py` | Rectangle + swing arc symbol, sill = 0 |
 | `WindowOpening` | `WallOpening` | `wall_opening.py` | Rectangle + crossing diagonals, variable sill |
@@ -90,6 +96,7 @@ WallSegment ──owns──► WallOpening (lifecycle-bound)
      │ (Z-range feeds ceiling height)
      ▼
  FloorSlab ──thickness──► Room.z_range_mm()
+     │   └──owns──► FloorOpening (lifecycle-bound, §11.11)
      │
      │ (flags set by)
      ▼
@@ -370,7 +377,7 @@ An opening is a **first-class element** (own identity, selection, property recor
 
 ### 7.4 Data Model
 
-**Feature definition (registry):** `id`, `category` ("Openings"), `type` ("Door"|"Window"|"Blank Opening"), `host_type` ("Wall"), default parameters (width/height/sill), and the three representation artifacts (§7.8) as scale-parametric authored geometry.
+**Feature definition (registry):** `id`, `category` ("Openings"), `type` ("Door"|"Window"|"Blank Opening"), `host_type` ("Wall"), default parameters (width/height/sill), and the three representation artifacts (§7.8) as scale-parametric authored geometry. *(As-built 2026-10-31: the registry also holds the floor-hosted Type `floor_sketched`, `host_type` "Floor" — §11.11. Every wall-side Type reader filters `host_type == "Wall"`: legacy migration `nearest_feature_for` (§7.11), the placed opening's Type enum `WallOpening._types_for_feature`, and the ribbon Door / Window / Blank buttons' last-used lookup; routing and keying owned by `feature-system.md` F3.)*
 
 **Opening instance (placed):**
 
@@ -434,7 +441,7 @@ Representations are **independent authored artifacts** — **not** projections o
 - **Door:** jambs + a **leaf line at the 90°-open position** + a **90° swing arc**; the **hinge side** (`mirror_hinge`) sets the pivot jamb, the **facing** (`mirror_facing`) sets which side of the wall it swings to. **Double-leaf** = two mirrored leaves + two arcs meeting at centre.
 - **Window:** jambs + **3 parallel lines** (frame / glass / frame) across the opening.
 - **Blank Opening:** jambs only (gap), no symbol.
-- Weights/colours via the Display Manager — not hardcoded. **As-built 2026-10-04: one category per Feature** — **Door / Window / Opening** (the blank kind is "Opening") on both the Model and Paper tabs (Architecture group, after Wall). The key has one home, `WallOpening.display_category` (= `feature.FEATURE_LABEL[kind]`), read by `display_manager` (`apply_category_defaults`, `_items_for_category_static`) and `paper_display._category_for_item`. Model factory colour `#888888` for all three; paper factory weight Light. **Pre-split migration:** a store or project that only has the legacy single "Opening" row seeds Door / Window from it when their own keys are absent — QSettings current + `default_*` keys via the one-shot `_migrate_opening_split` (marker `display/_opening_split_v1`), the project `display_settings` dict via `_project_entry`; an existing Door / Window key is never overwritten. Paper stroke mechanics → `paper-space.md` §6.2.
+- Weights/colours via the Display Manager — not hardcoded. **As-built 2026-10-04: one category per Feature** — **Door / Window / Opening** (the blank kind is "Opening") on both the Model and Paper tabs (Architecture group, after Wall). The key has one home per instance class, `WallOpening.display_category` (= `feature.FEATURE_LABEL[kind]`) and `FloorOpening.display_category` (always the blank kind's label, "Opening" — floor voids join the **Opening** row, 2026-10-31, §11.11), read by `display_manager` (`_is_opening_item`, `apply_category_defaults`, `_items_for_category_static` — the "Opening" list is the walls' blank openings followed by every slab's voids) and `paper_display._category_for_item`. Model factory colour `#888888` for all three; paper factory weight Light. **Pre-split migration:** a store or project that only has the legacy single "Opening" row seeds Door / Window from it when their own keys are absent — QSettings current + `default_*` keys via the one-shot `_migrate_opening_split` (marker `display/_opening_split_v1`), the project `display_settings` dict via `_project_entry`; an existing Door / Window key is never overwritten. Paper stroke mechanics → `paper-space.md` §6.2.
 
 **7.8.2 Elevation / section schematic** (the currently-missing representation)
 - The opening **voids the wall poché** across its width, **sill→head**, and the Feature's elevation schematic is drawn into the void:
@@ -501,7 +508,7 @@ Three door Features for test/troubleshooting: **813 mm (32″)** and **914 mm (3
 
 The Opening proves a general **Feature framework** that will grow beyond walls. Captured here so openings don't design into a corner; **it graduates to its own governing spec** when Phase B/C build it (filed in `SPEC-INDEX.md` orphans).
 
-- **Host strategies:** `host_type` ∈ Wall (openings) | Floor (e.g. a table, riser base) | Ceiling (pendent sprinkler, diffuser) | Face | Level/free (unhosted). The wall-hosting placement model (§7.5–7.7) is one strategy.
+- **Host strategies** (built set owned by `feature-system.md` F3 — Wall, and Floor since 2026-10-31 via the floor void §11.11)**:** `host_type` ∈ Wall (openings) | Floor (floor void; later a table, riser base) | Ceiling (pendent sprinkler, diffuser) | Face | Level/free (unhosted). The wall-hosting placement model (§7.5–7.7) is one strategy.
 - **Editor v1 (Phase C) is deliberately constrained** to the **void+symbol paradigm**: define size parameters, draw the plan & elevation schematics (reusing the 2D-geometry tools), define the wall-cut and `host_type`. **Free-form 3D solid authoring is deferred** to Editor v2, gated behind the future 3D solid-modeling ("operations") system.
 - **Future feasibility (own session):** folding Sprinkler Systems (Pipe/Fitting/Sprinkler/Valve/Pump) into the Feature framework — needs a brainstorm/feasibility review, and must first reconcile the terminology tension (there "Feature" reads as a *discipline/system* grouping, a looser sense than "Feature = a concrete placeable definition" here).
 
@@ -733,7 +740,9 @@ Floors carry `_visibility_by_zrange = True`. `LevelManager._set_level_vis` route
 
 **Open repair** (built 2026-10-30, `fix/wall-level-refs`): `SceneIOMixin.load_from_file` calls `LevelManager.repair_missing_refs(leveled_items(scene))` after levels load. A ref naming a level not in the project is re-pointed in memory (Save writes it): a wall Base Level, node Ceiling Level or pipe-template N1 / N2 Ceiling Level → the item's own `.level`; a wall Top Level or room Ceiling Level → the next level above the item's own level (its own level when none is above). Offsets are kept as stored. Floors (`_visibility_by_zrange`) are skipped; an item whose own `.level` is itself missing is left alone.
 
-**Model Browser:** floors sit under a flat "Floors (N)" node; the tooltip dropped the `Level:` line (now just `Points: N`) since a floor has no owning level.
+**A slab whose level ref is missing stays unresolved (as-built, recorded 2026-10-31).** Because the repair skips floors, a slab whose `"level"`-mode Top (or Bottom) Level names a missing level keeps that name, and `z_range_mm()` returns `None` (§11.2). `_apply_z_filter` leaves an item with no resolved range at its current visibility, so the slab **stays visible on every plan**, while consumers that need the range skip it: the 3D mesh (§11.9) and the elevation / section projection (§11.10), and floor-void placement, whose host pick never offers an unresolved slab (§11.11) — the first click is rejected with the generic "Click on a floor" status. The repair target for floors (a floor has no own level) and a clearer void-placement refusal are filed follow-ups (`todo_open.md`: "Open repair skips floors: a slab Top / Bottom Level naming a missing level stays dangling"; "Floor-void placement silently rejects a visible slab whose Top Level is missing").
+
+**Model Browser:** floors sit under a flat "Floors (N)" node; the tooltip dropped the `Level:` line (now just `Points: N`) since a floor has no owning level. A slab's voids are child rows of its row (`model-browser.md` §3.3).
 
 ### 11.4 Placement Workflow (unified dispatch — mirrors the wall)
 
@@ -762,6 +771,8 @@ as **one** `FloorSlab` (a floor is a single closed polygon, unlike the wall rect
 **Single-placement** (a completed rect or closed polygon returns to Select with the new slab selected — `_end_placement_switch`, see the 2026-09-16 impl note; Esc exits to Select). The **passive HUD** shows geometry only (rect side W + Angle, then depth H; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
 
 **Dispatch surfaces** (all mirror the wall): `_press_floor_router` / `_move_floor_router` dispatch on `_floor_primitive`; `_apply_floor_dynamic_input` handles typed placement (rect side → depth → commit; polygon routes the point through the vertex handler); `_floor_schema_for_primitive` (rect → `rect_side*` / `rect_depth*` by step, polygon → `line`); `_PLACEMENT_VARIANTS["floor"]`. (The rect rotate step and its `_transform_seed_values` floor branch are gone.)
+
+**Shared with `"floor_opening"` (2026-10-31).** The rect / polygon machinery above is the **floor family**: `constants.FLOOR_SKETCH_MODES = ("floor", "floor_opening")`. Every floor placement test that gates on the mode reads that tuple (Delete-pop, Enter / double-click close, step-zero and anchor tests in `PlacementInputCoordinator`, the rect-anchor helper, `Model_View`'s Delete routing), and `"floor_opening"` has its own rows in the dispatch tables (press / move routers, the HUD applier `_APPLIER_FOR_MODE`, the preview map, the instruction map, `_PER_FROM_MODES`, `_SINGLE_PLACEMENT_MODES`) plus `_PLACEMENT_VARIANTS["floor_opening"]` — the same three slots labelled "Floor Opening (…)", first-step instructions "… on a floor". Beyond the first-click host pick and the Spacebar host cycle (Spacebar is inert only in `"floor"`; §11.11), only the **commit target** differs: where the floor path builds a `FloorSlab`, `floor_opening` hands the closed polygon (or the rect's four corners) to `FeaturePlacementController.commit_floor_opening` (§11.11); the polygon draft is a `FloorOpeningDraft` preview, never a slab. **Mode switch:** the floor-family drawing state survives only a re-entry into the *same* floor-family mode; leaving it, or switching between `floor` and `floor_opening`, tears it down, and a void draft is always discarded (never committed by a mode switch). **Undo / redo mid-placement:** Ctrl+Z / Ctrl+Y during a `floor_opening` placement ends it (`set_mode(None)` via `_cancel_modify_tool_for_undo`, user ruling 2026-10-31 — the armed host and draft point at slabs the restore rebuilds); plain `"floor"` mode does **not** end on undo (filed: `todo_open.md` "Undo / redo mid floor-slab sketch keeps stale `_floor_active` state across the restore").
 
 **Naming:** a placed floor takes the floor template's user-authored name (the placeholder `"(Template)"` and blank both fall back to `"Floor"`), **uniquified** against existing floor names — a "Slab" collision yields `Slab 1`, `Slab 2`, … (suffix starts at 1). Named *before* the slab is appended to `_floor_slabs` so it does not collide with itself.
 
@@ -813,20 +824,49 @@ Type · Name
 4. **Outline**: `_outline_pen()` in display line color (`NoBrush`, drawn last) — 1 px cosmetic on the canvas, paper category weight on sheets (§6.2 note).
 5. **Selection**: Red outline.
 
+**With voids (2026-10-31, §11.11):** steps 1–3 paint the slab's **cut region** (`FloorSlab._draw_material` / `_material_path`: `cut_region()` rings as one odd-even path), so the hole is see-through and the hatch skips it; a void-less slab keeps the exact single-polygon calls. The **outline (step 4) stays the full slab boundary**, so a fully swallowed slab stays visible and selectable. `shape()` = boundary stroke ∪ cut region, so a click inside a void misses the slab.
+
 ### 11.9 3D Mesh
 
 `get_3d_mesh(level_manager=None)`:
 1. Resolve the vertical extent via the shared pure resolver — `_z_range_with_lm(level_manager)` when a manager is passed (the 3D pipeline supplies one), else `z_range_mm()`. Returns `None` if unresolvable **or** if `top − bot < MIN_FLOOR_THICKNESS_MM` (§11.5).
 2. Triangulate the polygon (ear-clipping, `triangulate_polygon()`); convert scene coords to mm via `scale_manager`.
 3. Build twin vertex rings at `top_z` and `bot_z`; top face = triangulation, bottom face = reversed winding, side faces = quad strips per edge.
+4. **With voids** (2026-10-31, §11.11) steps 2–3 are replaced by `_holed_mesh`: per `cut_region()` piece, `floor_cut.triangulate_with_holes` (each hole bridged into the outer ring, then the same ear-clip) gives the top / reversed bottom caps, coincident bridge points are welded (no seam line in 3D), and side quads run along every ring, hole walls included; `None` when no material remains (a swallowed slab). The ear-clip ignores a repeated bridge vertex lying on the ear's own corner (`geometry_utils.triangulate_polygon`), which a simple polygon never has.
 
 ### 11.10 Grip Points & Cross-References
 
-Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the indexed vertex and rebuilds the path. Grip-drag semantics (including Ctrl) are owned by [`selection-manipulator.md`](selection-manipulator.md). `translate(dx, dy)` shifts all vertices (so `move_items` works on floors).
+Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the indexed vertex and rebuilds the path. Grip-drag semantics (including Ctrl) are owned by [`selection-manipulator.md`](selection-manipulator.md). `translate(dx, dy)` shifts all vertices (so `move_items` works on floors). **Follow-host (2026-10-31):** `translate` and `manip_rotate` apply the same transform to every owned void; `apply_grip`, `insert_point` and `remove_point` do **not** move voids (a reshaped slab keeps its voids where they are; the cut is the intersection, §11.11).
 
-**Elevation / section projection** (`elevation_scene._project_floor_slabs`) resolves each slab's world-Z via `slab._z_range_with_lm(self._lm)` — using the elevation scene's **own** `LevelManager` explicitly (the slab lives in the model scene, so `slab.z_range_mm()` is not guaranteed to reach the right manager). Unresolvable slabs are skipped (degenerate-safe).
+**Elevation / section projection** (`elevation_scene._project_floor_slabs`) resolves each slab's world-Z via `slab._z_range_with_lm(self._lm)` — using the elevation scene's **own** `LevelManager` explicitly (the slab lives in the model scene, so `slab.z_range_mm()` is not guaranteed to reach the right manager). Unresolvable slabs are skipped (degenerate-safe). How a slab with voids is cut and projected (one cut rect per material span, extent from the cut region) is owned by `section-view-subsystem.md` §5.
 
 **Plan view-range upper bound** derivation (a thick floor above no longer bleeds into the current plan) is owned by `view-relationships.md §7.1` — link, don't restate.
+
+### 11.11 Floor Openings (voids) — the Floor host strategy (built 2026-10-31)
+
+A **floor void** (stair well, shaft, penetration) is a `FloorOpening` (`floor_opening.py`), the floor-hosted instance of the Opening Feature (Type `floor_sketched`, Opening > Floor > Sketched; Type, routing and `_last_feature` keying owned by `feature-system.md` F3). Build contract and rejected alternatives: `docs/superpowers/specs/2026-10-30-floor-opening-design.md`.
+
+**Item and ownership.** Fields: `feature_id` (frozen, F4), `_points` (closed polygon in **absolute scene coordinates**), `host` (the owning `FloorSlab`), `_mark`. The slab owns its voids in `FloorSlab.openings`; `add_opening` lists the void, points it at the slab and drops the cached cut, `remove_opening` unlists it (scene removal is the caller's). Lifecycle is hard-bound to one host, as for wall openings (§7.3): a void never exists hostless, never re-hosts, and is deleted with its slab; a slab drawn later inside a void is not cut by it.
+
+**Cut region.** `FloorSlab.cut_region()` = slab polygon minus the union of its voids, `[(outer, [holes]), …]` from the pure module `floor_cut.cut_rings` (Qt path clipper; operands snapped and no-op booleans skipped). A void crossing the slab edge cuts only the overlap (kept as drawn — cut = intersection); overlapping voids are allowed; a void that swallows the slab leaves an empty region. The result is cached on the slab and dropped whenever the slab or any owned void changes geometry (`invalidate_cut`, `_rebuild_path`). Consumers: plan paint and hit-test (§11.8), 3D (§11.9), section (`section-view-subsystem.md` §5).
+
+**Visibility and z.** `_visibility_by_zrange = True` and `z_range_mm()` delegates to the host's, so a void spans exactly its host's thickness and passes the same pure z-range test (§11.3). `LevelManager.apply_to_scene` runs each void through the host's visibility pass and hides it whenever its host is hidden; its z is pinned just above the host's (`Z_OPENING_ABOVE_HOST`, the wall→opening pin mirrored; z-order values owned by `view-relationships.md §7.3` + `constants.py`).
+
+**Plan paint.** The void draws its own outline **as drawn** in the Opening Display-Manager colour (default `FLOOR_VOID_DEFAULT_COLOR` when no override), no fill, red selection outline; `shape()` = polygon ∪ screen-width stroke (`HALO_AREA`). Display Manager row: **Opening**, shared with the walls' blank openings (§7.8.1).
+
+**Placement — the `"floor_opening"` mode** (floor-family machinery, §11.4). Entered from the Architecture-ribbon **Floor Opening** button or a Feature Browser Floor leaf. Behaviour lives in `FeaturePlacementController`; its state sits on the scene (`_floor_opening_candidates`, `_floor_opening_host_idx`, `_floor_opening_host_hl`, `_floor_opening_feature_id`).
+
+- **Host pick (first click).** `floor_slabs_at` = visible slabs whose fill `path()` (not the stroked `shape()`) contains the point and whose `z_range_mm()` resolves, highest resolved top first (ties keep `_floor_slabs` order). None → the click is rejected with the status / instruction "Click on a floor to place an opening" and nothing is armed (an unresolved slab is never a candidate — §11.3). Otherwise the topmost candidate is armed and outlined (`FLOOR_OPENING_HOST_HL_COLOR`).
+- **Spacebar** while drawing cycles to the next stacked candidate (`cycle_placement_ambiguity` → `cycle_floor_host`; inert with fewer than two candidates).
+- **Drafting.** Rect (corner / centre) and polygon exactly as the floor (§11.4); the polygon draft and the rect ghost use the Opening row colour (`floor_opening_colour`). A Delete-pop down to no vertex returns to step 0 and drops the host pick.
+- **Commit** (`commit_floor_opening`): fewer than 3 points, or a host no longer in `_floor_slabs` (stale-host backstop), discards — no void, no undo entry, status "A floor opening needs at least 3 points". Otherwise: `host.add_opening`, `addItem`, `apply_category_defaults`, `marks.mint`, `push_undo_state`, then `_end_placement_switch` (single-placement → Select with the void selected).
+- Undo / redo during the placement ends it (§11.4).
+
+**Editing.** Vertex grips (`vertex_chain_grip_handles(closed=True)`), `apply_grip`, `translate`, `manip_rotate` on the void itself; each edit drops the host's cut cache. A void selected together with its host is transformed once — the host carries it (`floor_opening.drop_carried_voids`, applied by the selection manipulator's wrap set, the modify tools' transformable set and `move_items`; Stretch is not yet covered — filed, `todo_open.md` "Stretch moves a floor void twice …"). Snap targets: `snapping-engine.md` §5. Property panel rows: Feature, Type, Host (slab name, read-only), Points (labels) and Mark (the one editable row; a changed Mark requests one undo step).
+
+**Delete.** Deleting a slab removes its voids from the scene first; deleting a void detaches it from `host.openings`. Both ride the one delete undo step.
+
+**Persistence, undo, paste.** Voids serialize **nested in their slab's record** (§12.4 `openings`, record shape §12.5) through the slab's single `to_dict` / `from_dict`, so file save / load and the undo snapshot share one path; `from_dict` re-attaches each void via `add_opening`, and the three re-attach sites (`scene_io` load, `_restore_network`, `paste_items`) `addItem` the slab's voids after the slab. Undo detach removes voids before their slab. Paste translates the slab (carrying its voids) and **mints a fresh Mark** for each pasted void; load and undo never mint (Mark rules: `element-parameters.md` "Marks (SB2b)").
 
 ## 12. Serialization
 
@@ -936,13 +976,29 @@ Openings are serialized within their parent wall's `openings` array. The wall re
     "bottom_offset_mm": 0.0,
     "bottom_abs_z_mm": 0.0,
     "thickness_mm": 152.4,
+    "openings": [...],
     "display_overrides": { }
 }
 ```
 
+`openings` (floor voids, §11.11; record shape §12.5) is **emitted only when non-empty**, so a void-less slab and an existing file serialize byte-identically; a record without it loads with no voids.
+
 `to_dict()` is the **single serializer for both persistence paths** — `scene_io` (file save) and `_capture_network`/`_restore_network` (undo) both delegate to it (memory: dual serialization paths). `display_overrides` (per-instance Display-Manager stroke/fill overrides) is **emitted only when non-empty**; the slab now uses the same shared `DisplayableItemMixin` helper as every other holder (matches `GridlineItem`, which calls the module-level form), and `from_dict` defaults it to `{}`.
 
 **Migration (lossless, both paths):** a legacy record (no `top_mode` key) `{level, level_offset_mm, thickness_mm}` loads to `top_mode="level"`, `top_level=level`, `top_offset_mm=level_offset_mm`, `bottom_mode="thickness"`, `thickness_mm` — reproducing the same `(bot_z, top_z)`/mesh as before. Legacy `thickness_ft` → `thickness_mm` (× 304.8) still handled. **The new schema is written on re-save; legacy keys (`level`, `level_offset_mm`) are dropped** (the load path keeps reading them).
+
+### 12.5 FloorOpening (2026-10-31)
+
+```json
+{
+    "feature_id": "floor_sketched",
+    "points": [[x1, y1], [x2, y2], ...],
+    "mark": "",
+    "display_overrides": { }
+}
+```
+
+Nested in the host slab's `openings` array (§12.4); the host is implicit, restored by `FloorOpening.from_dict(data, host)`. `points` are absolute scene coordinates. `display_overrides` is emitted only when non-empty (same shared helper as §12.1). Missing keys default: `feature_id` → `DEFAULT_FLOOR_OPENING_FEATURE`, `mark` → `""`.
 
 ## 13. Divergences from Current Implementation
 

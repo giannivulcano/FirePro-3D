@@ -1,10 +1,12 @@
 ---
 status: proposal          # system build deferred (Phase B/C); F4 naming SETTLED + Phase-A code re-keyed 2026-09-21
-last-verified: 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-04   # F4: tier-1 label keys the Display Manager (display_category)
-verified-commit: 58769fc5   # Editor/Build design (pointer only); prior cbfe14f     # prior 7934ccf
+last-verified: 2026-10-31  # floor-opening Account: F3 Floor host strategy built, F4 instance classes, code context; rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-04   # F4: tier-1 label keys the Display Manager (display_category)
+verified-commit: 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 58769fc5   # Editor/Build design (pointer only); prior cbfe14f     # prior 7934ccf
 applies-to:
   - firepro3d/feature.py
   - firepro3d/wall_opening.py   # the first Feature (Opening); behavior today governed by wall-room-floor-system.md §7
+  - firepro3d/floor_opening.py  # floor-hosted Opening instance (F3 Floor strategy); behavior governed by wall-room-floor-system.md §11.11
+  - main.py                     # _last_feature keying + host_type routing of Feature Browser / ribbon entry only (F3)
   # future: firepro3d/feature_manager*.py, firepro3d/feature_editor*.py
 source-tasks:
   - "todo_open.md → Opening element: Phase B Feature Manager / Phase C Feature Editor"
@@ -19,7 +21,8 @@ source-tasks:
 > during the 2026-09-16 containment-contract design. It records the *intended*
 > Feature contract. It is **not** current behavior: today only the **Opening**
 > Feature exists, built with bespoke paint and governed by
-> `wall-room-floor-system.md §7`. This spec is the home the Feature system
+> `wall-room-floor-system.md §7` (wall-hosted) and `§11.11` (floor-hosted void,
+> 2026-10-31). This spec is the home the Feature system
 > converges to when Phase B (Manager) / Phase C (Editor) are built.
 >
 > The **containment invariants** (what a Feature may contain, where it lives)
@@ -64,9 +67,31 @@ is not auto-derived from the 3D (e.g. a door is open in plan, closed in 3D), per
 ### F3 — Host strategies
 
 A Feature declares a `host_type` (per `wall-room-floor-system.md §7.16`):
-Wall (openings — the only one built), Floor, Ceiling, Face, or Level/free
-(unhosted). Host strategy drives placement + lifecycle (e.g. wall-hosted
-openings delete with their wall).
+Wall, Floor, Ceiling, Face, or Level/free (unhosted). Host strategy drives
+placement + lifecycle (e.g. wall-hosted openings delete with their wall).
+
+**Built strategies (as of 2026-10-31):**
+
+- **Wall** — door / window / blank openings (`WallOpening`); placement, cut and
+  lifecycle owned by `wall-room-floor-system.md §7`.
+- **Floor** — the floor void (`FloorOpening`, floor-opening build 2026-10-31):
+  one Type, `FEATURE_REGISTRY["floor_sketched"]` = Opening > Floor > Sketched
+  (`kind` `"blank"`, `host_type` `"Floor"`; the shape is sketched, so its size
+  defaults are unused). Placement, cut and lifecycle owned by
+  `wall-room-floor-system.md §11.11`; build contract
+  `docs/superpowers/specs/2026-10-30-floor-opening-design.md` (A5).
+
+**Routing reads `host_type`** (its first production reader): a Feature Browser
+activation (`main.py` `_on_feature_activated`) enters the `"floor_opening"` mode
+for a `host_type == "Floor"` Type and the `"opening"` mode for a wall Type; the
+Architecture-ribbon **Floor Opening** button enters `"floor_opening"` with the
+last-used Floor Type. Because the wall Blank and the floor void share `kind`
+`"blank"`, the last-used memory `_last_feature` is keyed by **`(kind,
+host_type)`**, and the floor default lives in its own constant
+`DEFAULT_FLOOR_OPENING_FEATURE`, apart from the kind-keyed
+`DEFAULT_FEATURE_FOR_TYPE`, so the wall Blank button can never resolve to a floor
+Type. Wall-side Type readers filter `host_type == "Wall"`
+(`nearest_feature_for`, `WallOpening._types_for_feature`).
 
 ### F4 — Naming / storage contract (SETTLED 2026-09-21)
 
@@ -93,7 +118,7 @@ Type` labels: same three tiers, canonical labels.
   parametric *engine* (arbitrary parameter→geometry binding) stays deferred to the
   "Full parametrics for Features" task; today a Family ships a fixed set of Types.
 - **Terminology:** "Feature" is the tier-1 classification; a *placed* occurrence is a
-  **Feature instance** (today `WallOpening`). The serialized key `feature_id` is
+  **Feature instance** (today `WallOpening` and `FloorOpening`). The serialized key `feature_id` is
   **retained** (it now denotes a *Type*) — renaming a persisted key would force the
   data migration this contract exists to prevent.
 
@@ -101,7 +126,8 @@ Type` labels: same three tiers, canonical labels.
 (the paint/legacy discriminator `"door"|"window"|"blank"`; `feature_label()` maps it
 to the Feature name — `blank → Opening`), `family`, and `type_name`;
 `features_by_hierarchy()` returns `Feature → Family → Type`. The tier-1 label also
-keys the Display Manager (`WallOpening.display_category`, 2026-10-04 — contract in
+keys the Display Manager (`WallOpening.display_category`, 2026-10-04, and
+`FloorOpening.display_category`, 2026-10-31 — contract in
 `wall-room-floor-system.md` §7.8.1). Built-in `id`s are
 **frozen**. This contract is **locked for migration discipline** — do not re-key
 on-disk libraries or `feature_id` values twice.
@@ -142,6 +168,8 @@ on-disk libraries or `feature_id` values twice.
 - `wall_opening.py` — the first Feature (Opening), bespoke paint, governed today
   by `wall-room-floor-system.md §7`. An early special case that reconciles to F1
   (compose a plan Block) when the Feature system is built out (C2a).
+- `floor_opening.py` — the floor-hosted Opening instance (F3 Floor strategy),
+  governed by `wall-room-floor-system.md §11.11`; same bespoke-paint special case.
 - `feature.py` — definition/instance scaffolding + `features_by_hierarchy()`
   (Feature → Family → Type) + `feature_label()`; `FeatureDef` fields
   `kind`/`family`/`type_name` per F4.

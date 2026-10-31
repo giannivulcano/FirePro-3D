@@ -1,5 +1,5 @@
 ---
-status: proposal          # designed 2026-10-30, unbuilt
+status: built             # designed 2026-10-30; built and merged to main 2026-10-31 (1c1e59c6, v0.76.0); governing facts now live in wall-room-floor-system.md s11.11 + feature-system.md F3
 last-verified: 2026-10-30
 verified-commit: 78382e3e
 applies-to:

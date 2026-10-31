@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -139,7 +139,7 @@ elevation and break acceptance (d). **Cut** adds the section columns only.
 | Wall | cross-section rect: width = chord of the cut line through the mitered quad (along h), height = wall z-extent; brush = *Section colour* + *Section pattern* via `draw_section_hatch`; pen = Colour. A crossing inside an opening span draws only the wall above the head (and below the sill for windows) | today's rect + openings, clipped |
 | Pipe | filled circle at the crossing, diameter = the pipe's drawn OD, Section colour | today's line |
 | Sprinkler / node | never cut | today's glyph |
-| Floor slab | chord x thickness rect, section hatch | today's mask + fill |
+| Floor slab | chord x thickness rect, section hatch (with floor voids: one rect per material span, below) | today's mask + fill |
 | Roof | **not cut-rendered in v1** (follow-up: mesh / plane intersection); a crossing roof shows as today's projected rect | today's rect, fixed Z |
 | Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`, bubble and label-keyed z-overrides as today; parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
 | Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`) | -- |
@@ -153,6 +153,17 @@ Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at p
   drawn in v1 (follow-up).
 - **Concave slab chord.** The chord is `[min h, max h]` over every crossing of the cut segment with
   the slab boundary, so a concave slab's gap is filled in v1 (follow-up).
+- **Slab with floor voids (floor-opening, 2026-10-31; voids: `wall-room-floor-system.md` §11.11).**
+  A cut slab that owns voids draws **one cut rect per material span** instead of one chord:
+  `SectionScene._slab_cut_spans` maps each `floor_cut.intervals_inside(slab.cut_region(), cut_a,
+  cut_b)` interval of the marker's cut segment to h, so the section shows a break where the cut
+  crosses a void (and, for such a slab, a concave gap is no longer filled). A void-less slab keeps
+  the single chord above. A slab whose cut region is empty (a void swallows it) is classed
+  `ZONE_HIDDEN` and draws nothing. A behind (elevation) slab with voids takes its h extent from the
+  cut region's outer rings, so an edge-crossing void narrows it and an interior void leaves it
+  unchanged. **Known gap (filed):** when the cut line crosses the slab only inside voids, no span
+  results and the slab falls through to the behind draw while its zone stays CUT (`todo_open.md`
+  "Section: a slab whose cut line meets only voids draws as elevation but stays zone CUT").
 
 ### 5.0 Paper output (AC1-AC5, 2026-10-22)
 

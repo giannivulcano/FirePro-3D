@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-10-22   # gridline-hosted blocks Account: s3.3 "(on B)" label, s3.4 / s3.5 hosted rows focus a section, s4.3 hosted Delete; prior 2026-09-18 + Blocks category (placed BlockInstances) added — C3 made blocks first-class level-scoped model entities
-verified-commit: d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior 5cd5941
+last-verified: 2026-10-31   # floor-opening Account: s3.3 floor-void child rows, s3.1 resolver, s3.4 / s3.5 / s4.3 hosted test = dict host (_gridline_hosted); prior 2026-10-22   # gridline-hosted blocks Account: s3.3 "(on B)" label, s3.4 / s3.5 hosted rows focus a section, s4.3 hosted Delete; prior 2026-09-18 + Blocks category (placed BlockInstances) added — C3 made blocks first-class level-scoped model entities
+verified-commit: 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior 5cd5941
 applies-to:
   - firepro3d/model_browser.py
 source-tasks: "TODO.md: model browser right-click / Delete-key entity deletion (orphan-gate spec forged on first touch, 2026-08-27)"
@@ -24,7 +24,7 @@ A CAD scene at architectural density is hard to navigate by clicking geometry al
 
 ### 3.1 Thin view over the scene
 - The browser holds **no entity data**. Every row's identity is `id(entity)` stored in `_ROLE_ENTITY` (`Qt.ItemDataRole.UserRole`); underlay rows store the underlay list index in `_ROLE_UNDERLAY` (`UserRole+1`).
-- `_find_entity_by_id` resolves a stored `id()` back to the live object by scanning the scene's entity lists. **Invariant:** rows are only valid within one `refresh()` generation — `id()` is reused after GC, so a stale row must never outlive its rebuild. `refresh()` is the reconciliation point.
+- `_find_entity_by_id` resolves a stored `id()` back to the live object by scanning the scene's entity lists (including each slab's `openings`, so floor-void child rows resolve). **Invariant:** rows are only valid within one `refresh()` generation — `id()` is reused after GC, so a stale row must never outlive its rebuild. `refresh()` is the reconciliation point.
 - **Perf:** `_find_entity_by_id` is a linear scan across all entity lists; it runs per selected row on selection/context/delete, not per frame. Acceptable at entity counts; do not call it inside paint or per-item loops.
 
 ### 3.2 Refresh lifecycle
@@ -35,13 +35,15 @@ A CAD scene at architectural density is hard to navigate by clicking geometry al
 ### 3.3 Categories listed
 Walls, Floors, Roofs, Rooms, **Blocks** (placed `BlockInstance`s — labelled by definition name, tooltip = level; C3; a gridline-hosted block is labelled `<name> (on <gridline label>)` with tooltip "Hosted on <label>" — record owned by `block-system.md`), Doors, Windows, Pipes, Nodes, Gridlines, Design Areas, Water Supply, and Underlays (file nodes + DXF layer children / PDF page child). Category roots show live counts and are bold; the optional categories (Blocks, Gridlines, Design Areas, Underlays) appear only when non-empty.
 
+**Floor voids (2026-10-31).** Each floor slab's voids (`FloorOpening`, `wall-room-floor-system.md` §11.11) are **child rows of the slab's row** under Floors — the first nested entity rows (wall openings are not nested: doors and windows list flat under Doors / Windows, and a wall's blank openings are not listed at all — a pre-existing gap). Label = the void's Mark, else "Opening"; tooltip `Opening  Points: N`; hidden styling as any entity row. The Floors count counts slabs only. A void row is a plain entity row: it selects, zooms and deletes like any other (it is not "hosted" in the §3.4 sense).
+
 ### 3.4 Selection sync (two-way)
 - **Tree → scene:** `_on_selection_changed` clears the scene selection and `setSelected(True)` on each resolved entity, then emits `entitySelected` (single entity or list) so the property panel updates. Underlay **file** nodes route to `_on_underlay_selected` (pan + select-if-unlocked) instead.
-- **Hosted blocks:** a gridline-hosted block is plan-hidden and cannot be selected in plan, so a selection that includes hosted rows selects only the plain rows; a hosted-only selection clears the plan selection and calls `SectionManager.focus_hosted(hosted[0])` (which view opens and how the copy is selected: `section-view-subsystem.md` s16.6). It emits no `entitySelected` itself.
+- **Hosted blocks:** "hosted" means a gridline-hosted block — an entity whose `host` is a non-empty **dict** record (`_gridline_hosted`; a floor void's `host` is its `FloorSlab` object, so it is never hosted here). A gridline-hosted block is plan-hidden and cannot be selected in plan, so a selection that includes hosted rows selects only the plain rows; a hosted-only selection clears the plan selection and calls `SectionManager.focus_hosted(hosted[0])` (which view opens and how the copy is selected: `section-view-subsystem.md` s16.6). It emits no `entitySelected` itself.
 - **Scene → tree:** `sync_from_scene()` walks the tree and selects rows whose `_ROLE_ENTITY` matches the scene's current `selectedItems()`. Wrapped in `_syncing`; swallows `RuntimeError` (scene C++ object torn down during shutdown).
 
 ### 3.5 Double-click
-`_on_item_double_clicked` selects the entity and `fitInView`s the first view on its bounding rect (+50 mm margin). A hosted-block row instead calls `SectionManager.focus_hosted` (no plan select / zoom).
+`_on_item_double_clicked` selects the entity and `fitInView`s the first view on its bounding rect (+50 mm margin). A hosted-block row (dict `host`, §3.4) instead calls `SectionManager.focus_hosted` (no plan select / zoom).
 
 ## 4. Design Decisions
 
@@ -61,7 +63,7 @@ File nodes carry a tri-state checkbox (Checked / PartiallyChecked when some DXF 
 - **Trigger surfaces:** a **Delete** action appended to the entity context menu, and the **Delete key** while the tree has focus.
 - **Scope:** only **entity** rows (rows whose `_ROLE_ENTITY` resolves to a live entity). Underlay file/layer rows are **excluded** — underlay removal is a separate, non-undoable path owned by the underlay context menu; deleting an underlay from here is out of scope.
 - **Mechanism (single home):** the browser does **not** re-implement deletion. It selects the resolved entities in the scene (clear + `setSelected(True)`), then delegates to the scene's canonical `delete_selected_items()` (`model_space.py`) — the exact path the model-view Delete key uses. That method owns the entity-graph bookkeeping (pipes/nodes/sprinklers, water supply, design areas) **and** the single undo push (`push_undo_state()`).
-- **Hosted rows:** a plan-hidden hosted block cannot be `setSelected`, so when any resolved row is hosted the browser selects the plain rows and calls `delete_items(hosted + selectedItems())` by explicit list instead (still one undo push).
+- **Hosted rows** (dict `host`, §3.4; a floor-void row is plain and deletes through the ordinary path, its host slab untouched)**:** a plan-hidden hosted block cannot be `setSelected`, so when any resolved row is hosted the browser selects the plain rows and calls `delete_items(hosted + selectedItems())` by explicit list instead (still one undo push).
 - **Undo:** inherited from `delete_selected_items()` — one undo step restores the whole deletion. The browser adds no undo command of its own (no double-push).
 - **Refresh:** `delete_selected_items()` emits `sceneModified` → debounced `refresh()`; the browser does not need an explicit refresh call, but may call one for immediacy.
 - **Confirmation:** none — deletion is undoable, matching the model-view Delete-key behavior (no modal on the canvas either).
