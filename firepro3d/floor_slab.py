@@ -712,8 +712,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
                 for k in range(m):
                     i = base + first[ring[k]]
                     j = base + first[ring[(k + 1) % m]]
-                    faces.append([i, j, j + n])
-                    faces.append([i, j + n, i + n])
+                    faces.append([j, i, i + n])      # rings are CCW/CW in y-up mm:
+                    faces.append([j, i + n, j + n])  # this order faces away from material
         if not faces:
             return None
         return {

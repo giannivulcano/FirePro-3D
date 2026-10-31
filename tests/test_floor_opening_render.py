@@ -133,3 +133,47 @@ def test_void_less_mesh_unchanged(qapp, model_scene):
     mesh = slab.get_3d_mesh(scene._level_manager)
     # today's layout: 2n vertices; 2 top + 2 bottom ear triangles + 2n side triangles
     assert len(mesh["vertices"]) == 8 and len(mesh["faces"]) == 12
+
+
+def _side_probes(mesh):
+    """For each side-wall triangle: (xy of a point 1 mm along its normal, xy centroid)."""
+    v = mesh["vertices"]
+    out = []
+    for f in mesh["faces"]:
+        a, b, c = (v[i] for i in f)
+        if len({a[2], b[2], c[2]}) != 2:
+            continue
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        wx, wy, wz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        nx, ny = uy * wz - uz * wy, uz * wx - ux * wz
+        nz = ux * wy - uy * wx
+        assert nz == pytest.approx(0.0, abs=1e-6)       # walls are vertical
+        ln = math.hypot(nx, ny)
+        cx, cy = (a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3
+        out.append(((cx + nx / ln, cy + ny / ln), (cx, cy)))
+    return out
+
+
+def test_mesh_side_walls_face_away_from_the_material(qapp, model_scene):
+    """Outer walls face outward; hole walls face into the hole (void-less convention)."""
+    scene = model_scene()
+    plain = _add(scene, FloorSlab(points=_rect(0, 0, 4000, 3000)))
+    holed = _add(scene, FloorSlab(points=_rect(0, 0, 4000, 3000)),
+                 _rect(1000, 1000, 2000, 2000))
+    # world mm = (x, -y): slab x 0..4000, y -3000..0; hole x 1000..2000, y -2000..-1000
+
+    def in_material(p, with_hole):
+        x, y = p
+        if not (0 <= x <= 4000 and -3000 <= y <= 0):
+            return False
+        return not (with_hole and 1000 <= x <= 2000 and -2000 <= y <= -1000)
+
+    plain_probes = _side_probes(plain.get_3d_mesh(scene._level_manager))
+    assert plain_probes and not any(in_material(p, False) for p, _ in plain_probes)
+
+    probes = _side_probes(holed.get_3d_mesh(scene._level_manager))
+    assert len(probes) == 2 * 8                        # 8 wall quads (4 outer + 4 hole)
+    assert not any(in_material(p, True) for p, _ in probes)
+    # Both ring kinds are present and each faces the right way.
+    hole_walls = [p for p, c in probes if 1000 <= c[0] <= 2000 and -2000 <= c[1] <= -1000]
+    assert len(hole_walls) == 8
