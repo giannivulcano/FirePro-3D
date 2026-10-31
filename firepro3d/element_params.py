@@ -366,8 +366,11 @@ def category_of(item) -> Optional[str]:
     from .sprinkler import Sprinkler
     from .wall import WallSegment
     from .wall_opening import WallOpening
+    from .floor_opening import FloorOpening
     if isinstance(item, WallOpening):
         return _OPENING_CATEGORY.get(item.openings_type)
+    if isinstance(item, FloorOpening):
+        return "Opening"      # a floor void shares the Opening sequence (floor-opening A8)
     for cls, cat in ((Room, "Room"), (Pipe, "Pipe"), (Sprinkler, "Sprinkler"),
                      (WallSegment, "Wall"), (GridlineItem, "Gridline")):
         if isinstance(item, cls):

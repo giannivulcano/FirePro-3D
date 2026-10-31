@@ -225,10 +225,16 @@ def set_mark(item, value: str) -> None:
 
 def item_level_name(item) -> Optional[str]:
     """Level name an element sits on (a sprinkler's is its node's)."""
+    from .floor_opening import FloorOpening
+    if isinstance(item, FloorOpening):    # a floor void sits on its host's top level (A8)
+        host = item.host
+        if host is None or host._top_mode != "level":
+            return None
+        return host._top_level
     node = getattr(item, "node", None)
     if node is not None:                  # Sprinkler: the node is authoritative
         return getattr(node, "level", None)
-    level = getattr(item, "level", None)
+    level =getattr(item, "level", None)
     if not level:                         # Pipe with no level of its own: node1's
         level = getattr(getattr(item, "node1", None), "level", None)
     return level
@@ -239,8 +245,11 @@ def items_of_category(scene, category: str) -> list:
     if category == "Wall":
         return list(scene._walls)
     if category in ("Door", "Window", "Opening"):
-        return [op for w in scene._walls for op in w.openings
-                if category_of(op) == category]
+        out = [op for w in scene._walls for op in w.openings
+               if category_of(op) == category]
+        if category == "Opening":       # floor voids follow the walls' openings (A8)
+            out += [op for s in scene._floor_slabs for op in s.openings]
+        return out
     if category == "Room":
         return list(scene._rooms)
     if category == "Pipe":
@@ -378,11 +387,15 @@ def preview_next(scene, category: str, pattern: str) -> str:
 
 def sort_point(item) -> tuple:
     """Renumber sort point in scene coords (spec M12): wall / pipe midpoint,
-    opening centre, room centroid, sprinkler node."""
+    opening centre, floor-void centroid, room centroid, sprinkler node."""
     from .pipe import Pipe
     from .room import Room
     from .wall import WallSegment
     from .wall_opening import WallOpening
+    from .floor_opening import FloorOpening
+    if isinstance(item, FloorOpening):            # floor void: its outline centroid
+        pts = item.points
+        return (sum(q.x() for q in pts) / len(pts), sum(q.y() for q in pts) / len(pts))
     if isinstance(item, WallOpening):
         p = item.center_on_wall() if item.wall is not None else item.scenePos()
         return (p.x(), p.y())
