@@ -1187,6 +1187,7 @@ class SnapEngine:
         every one of its point snaps (at least two) is on the axis. The points
         are gathered with every point toggle on, so the answer is the item's
         geometry, not the user's snap settings."""
+        # Keep in sync with every toggle _collect reads to gate a point kind.
         keys = ("snap_endpoint", "snap_midpoint", "snap_center", "snap_quadrant")
         saved = [getattr(self, k) for k in keys]
         for k in keys:
