@@ -92,7 +92,8 @@ def resolve_annotation_block(scene, category: str, mapped: str, *, fallback: boo
 class BoundLabelItem(QGraphicsItem):
     """A host element's label drawn by the block mapped for its category.
 
-    ``host`` = ``parentItem()``; ``definition()`` = the scene's
+    ``host`` = the item it was built for (its parent unless ``child=False``: a
+    top-level label, SB4a D1); ``definition()`` = the scene's
     ``annotation_block(category)``; the pose is the host's frame translated
     to the anchor (``setPos``) with the annotative factor k folded into the
     ops (SB1c D3: static variant at k, bound glyphs built at scale k), so
@@ -109,8 +110,9 @@ class BoundLabelItem(QGraphicsItem):
     scene teardown never re-resolve through the scene.
     """
 
-    def __init__(self, host):
-        super().__init__(host)
+    def __init__(self, host, *, child: bool = True):
+        super().__init__(host if child else None)
+        self._host = host             # the data source (== parentItem() for a child)
         self._category = element_params.category_of(host) or ""
         self._rect = None             # cached local boundingRect (None = stale)
         # Paper hooks (paper_display._apply_block; None on the model canvas).
@@ -140,7 +142,7 @@ class BoundLabelItem(QGraphicsItem):
     # -- data source / definition ------------------------------------------
     @property
     def host(self):
-        return self.parentItem()
+        return self._host
 
     @property
     def category(self) -> str:
@@ -154,7 +156,7 @@ class BoundLabelItem(QGraphicsItem):
         fn = getattr(self.scene(), "annotation_block", None)
         if fn is None:
             return None, False
-        return fn(self._category, getattr(self.parentItem(), "tag_block", None)), True
+        return fn(self._category, getattr(self._host, "tag_block", None)), True
 
     def definition(self):
         return self._resolve()[0]
@@ -164,7 +166,7 @@ class BoundLabelItem(QGraphicsItem):
         category mismatch -> placeholders, E9). *keys* limits the getters run
         (``element_params.host_values`` evaluates only those getters and returns only
         those keys); None = every key of the category."""
-        h = self.parentItem()
+        h = self._host
         if (h is None or not element_params.is_live(h)
                 or element_params.category_of(h) != self._category):
             return None
