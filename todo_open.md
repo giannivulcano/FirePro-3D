@@ -391,6 +391,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - +1 occurrence 2026-10-23 (SB1c Task 8 keep-green): fails identically at base `1f158ae8` and HEAD (worktrees, VC7).
   - +1 occurrence 2026-10-23 (wall polish keep-green): fails identically at branch base `c9a5bddd` and HEAD (worktrees, VC7).
   - +1 occurrence 2026-10-30 (wall-face constraints T8 keep-green): fails identically at branch base `75e3cb0f` (detached worktree) and HEAD `fd15ba91` (VC7).
+  - +1 occurrence 2026-10-31 (plan-block-constraints T3 keep-green): fails identically at branch base `a3b210d0` (detached worktree) and HEAD `35ce69db` (VC7).
   - +1 occurrence 2026-10-26 (editor-build S1 T1 keep-green): fails identically at branch base `e1073f95` and HEAD `30b32df9` (one worktree, alternating runs, VC7).
   - +1 occurrence 2026-10-27 (editor-build S3 T1 keep-green): fails identically at branch base `88c146c1` and HEAD `848e2172` (one worktree, alternating runs, VC7).
 - [ ] [type:design] Pattern relation for Array copies (Linear / 2D / Polar) — rigid copies + spacing + angle [P3] [subject:CAD]
