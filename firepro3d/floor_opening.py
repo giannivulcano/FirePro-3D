@@ -180,6 +180,47 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
         op.display_overrides_from_dict(data)
         return op
 
+    # ── Property panel (floor-opening design A8) ─────────────────────────────
+
+    def get_properties(self) -> dict:
+        """Placed floor-void panel rows.
+
+        Feature / Type / Host / Points are read-only labels; Mark is the one
+        editable row (``set_property`` requests its undo step).
+
+        Returns:
+            dict: Ordered property-key -> descriptor (property-panel protocol).
+        """
+        from .feature import FEATURE_REGISTRY, feature_label
+        fdef = FEATURE_REGISTRY.get(self.feature_id)
+        return {
+            "Feature": {"type": "label",
+                        "value": feature_label(fdef) if fdef is not None else "Opening"},
+            "Type": {"type": "label",
+                     "value": fdef.type_name if fdef is not None else self.feature_id},
+            "Host": {"type": "label", "value": self.host.name or "Floor"},
+            "Points": {"type": "label", "value": str(len(self._points))},
+            "Mark": {"type": "string", "value": self._mark},
+        }
+
+    def set_property(self, key: str, value) -> None:
+        """Apply a panel edit.  Only Mark is editable; a changed Mark requests
+        one undo step (coalesced by the panel's deferred push).
+
+        Args:
+            key: Property key from ``get_properties()``.
+            value: New value (str for Mark); other keys are ignored.
+        """
+        if key != "Mark":
+            return
+        new = str(value)
+        if new == self._mark:
+            return
+        self._mark = new
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "request_undo_push"):
+            sc.request_undo_push()  # A8 Mark undo
+
 
 def drop_carried_voids(items: list) -> list:
     """*items* without any FloorOpening whose host is also in *items*.
