@@ -214,7 +214,7 @@ def apply_template_settings(scene) -> None:
     from ..system_blocks import ANNOTATION_CATEGORIES
     for cat in ANNOTATION_CATEGORIES:
         scene.annotation_block(cat)
-    scene.refresh_room_tags()
+    scene.refresh_annotation_tags()
     apply_template_titleblock(scene, data)
 
 

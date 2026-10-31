@@ -307,7 +307,7 @@ class TagBlockHost:
         then the shared choice labels (``annotation_choices.choices``); a kept
         missing / ineligible id is listed as "(missing)" / "(not eligible)" so
         the row can show it. Enum rows carry strings, so the label -> Choice map
-        is kept on the room for ``set_property``; off-scene the row degrades to
+        is kept on the host for ``set_property``; off-scene the row degrades to
         the default entry alone."""
         from . import annotation_choices as ac
         sc = self.scene()

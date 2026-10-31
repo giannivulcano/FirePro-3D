@@ -463,6 +463,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
                     sc.sceneModified.emit()
 
     def _tag_changed(self) -> None:
+        """Re-shape the room tag after its mapping changed."""
         self._tag.refresh()
 
     def set_property(self, key: str, value):

@@ -1,5 +1,6 @@
 """SB4a -- pipe label drawn by an annotation block (design
 docs/superpowers/specs/2026-10-31-sb4a-pipe-label-design.md)."""
+import pytest
 from PyQt6.QtCore import QPointF, QRectF
 
 from firepro3d.block_attributes import normalise_attr
@@ -51,3 +52,21 @@ def test_top_level_label_reads_its_explicit_host(qapp):
     assert lab.category == "Pipe"
     hv = lab.host_values({"Diameter"})
     assert hv is not None and hv["Diameter"].raw == p._properties["Diameter"]["value"]
+
+
+def test_pipe_is_an_annotation_category_with_a_system_default(qapp):
+    from firepro3d import system_blocks as sb
+    assert "Pipe" in sb.ANNOTATION_CATEGORIES
+    assert sb.SYSTEM_DEFAULTS["Pipe"] == "system-tags-pipelabel"
+    assert sb.LABEL_FIELD["Pipe"] == "Diameter"
+
+
+@pytest.mark.xfail(strict=True, reason="Task 6")
+def test_refresh_annotation_tags_reshapes_pipe_labels(qapp):
+    ms = _scene()
+    p = _pipe(ms)
+    _pipe_def(ms)
+    p.label._rect = QRectF(0, 0, 1, 1)           # a stale cached rect
+    ms.refresh_annotation_tags()
+    assert p.label._rect is None
+

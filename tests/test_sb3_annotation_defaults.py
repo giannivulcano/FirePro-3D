@@ -64,7 +64,7 @@ def _scene():
 
 
 def test_categories_and_defaults_table_shape():
-    assert ANNOTATION_CATEGORIES == ("Room",)
+    assert ANNOTATION_CATEGORIES == ("Room", "Pipe")
     assert isinstance(SYSTEM_DEFAULTS, dict)
     assert all(k in ANNOTATION_CATEGORIES for k in SYSTEM_DEFAULTS)
 
