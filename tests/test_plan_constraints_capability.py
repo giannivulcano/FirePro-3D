@@ -19,6 +19,7 @@ from tests.test_constraint_paint import _dist, _grab, _px
 
 
 def test_capability_per_role(qapp):
+    from firepro3d.block_instance import BlockInstance
     from firepro3d.gridline import GridlineItem
     from firepro3d.wall import WallSegment
     plan = Model_Space()
@@ -26,7 +27,7 @@ def test_capability_per_role(qapp):
     try:
         assert plan.constraint_ctl.enabled is True
         assert plan.constraint_ctl.block_editor is False
-        assert set(plan.constraint_ctl.ref_types) == {WallSegment, GridlineItem}
+        assert set(plan.constraint_ctl.ref_types) == {WallSegment, GridlineItem, BlockInstance}
         assert be.constraint_ctl.enabled is True
         assert be.constraint_ctl.block_editor is True
         assert be.constraint_ctl.ref_types is None

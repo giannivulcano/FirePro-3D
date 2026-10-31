@@ -80,8 +80,9 @@ def constraint_tint(item):
     """D39 tint colour for *item*'s canvas stroke (MW-12 / H-MW-g).
 
     Reads the scene's ``ConstraintController.tint_color`` through ``getattr``
-    (tests install fake controllers without it). The ``enabled`` check is the
-    non-editor fast path: plan / paper scenes never reach ``tint_color``. A
+    (tests install fake controllers without it). The ``enabled`` check skips
+    scenes whose controller is off; ``tint_color`` itself enforces the
+    Block-Editor-only scope (D39), so a plan block gets None there. A
     failing lookup loses only the tint, never the item's stroke: it is
     logged once per controller and the item paints in its own colour.
 

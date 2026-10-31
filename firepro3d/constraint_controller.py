@@ -47,6 +47,7 @@ _TINT_TOKEN = {"free": "constraint_free", "defined": "ink", "conflict": "danger"
 _log = logging.getLogger(__name__)
 CONFLICT_STATUS = "Over-constrained: the change was not applied"
 LOCK_CID = "__locked__"   # slice 2 L1: the cid of a locked item's fixes
+ANCHOR_CID = "__anchored__"   # PB3: the cid of stage 2's wall / gridline holds
 INVALID_STATUS = "Invalid constraint"
 REDUNDANT_STATUS = "Redundant constraint: already implied by others"   # D42
 TRIVIAL_STATUS = "That point is already on it by construction -- pick another target"
@@ -77,16 +78,40 @@ HONOUR_RATIO = 1.1
 # for Save (§6.4) even though it can never be solved in v1.
 _PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines", "_filled_regions")
 
-# Editor/Build slice 2: the plan model scene's participating lists -- walls
-# and gridlines only (no 2D geometry in Model Space, containment C1/C7).
-_PLAN_PARTICIPATING = ("_walls", "_gridlines")
+# Editor/Build slice 2: the plan model scene's participating lists -- walls,
+# gridlines and (plan block constraints design s1) placed block instances;
+# no 2D geometry in Model Space (containment C1/C7). Hosted blocks are
+# filtered by ``can_ref`` (PB1).
+_PLAN_PARTICIPATING = ("_walls", "_gridlines", "_block_instances")
 
 
 def _plan_ref_types() -> tuple:
-    """The item types plan constraints may reference (design s2, B1/G8)."""
+    """The item types plan constraints may reference (design s2, B1/G8; plan
+    block constraints s1: + unhosted ``BlockInstance`` -- see ``can_ref``)."""
+    from .block_instance import BlockInstance
+    from .gridline import GridlineItem
+    from .wall import WallSegment
+    return (WallSegment, GridlineItem, BlockInstance)
+
+
+def _plan_line_types() -> tuple:
+    """Plan selection-first "lines" (slice 2): walls (centerline) and
+    gridlines -- never a block, which has no ``edge`` handle of its own."""
     from .gridline import GridlineItem
     from .wall import WallSegment
     return (WallSegment, GridlineItem)
+
+
+def plan_ref_uids(scene) -> set:
+    """Uids a plan constraint record may name (containment C8 exception as
+    amended by the plan block constraints design): walls, gridlines and
+    level-scoped (unhosted, PB1) block instances. The one accessor behind
+    project load (``scene_io``) and :meth:`ConstraintController.primitive_uids`."""
+    out = {getattr(it, "_uid", None) for attr in ("_walls", "_gridlines")
+           for it in getattr(scene, attr, ())}
+    out.update(getattr(b, "_uid", None) for b in getattr(scene, "_block_instances", ()) if not b.host)   # PB1
+    out.discard(None)
+    return out
 
 
 @dataclass(frozen=True)
@@ -175,12 +200,17 @@ def _safe_ref_uids(c) -> set | None:
         return None
 
 
+def _is_block(it) -> bool:
+    """Whether *it* is a block instance (placed or nested) -- the NB4 / PB3 test."""
+    return hasattr(it, "block_mirrored")
+
+
 def _refs_an_instance(c, by) -> bool:
-    """Whether any ref of *c* names a nested block instance (NB4: those are
+    """Whether any ref of *c* names a block instance (NB4: those are
     re-validated on every ``active()``; their handles live in a child
-    definition that can change under them)."""
+    definition that can change under them; PB3: the plan's block tier)."""
     for r in c.refs if isinstance(c.refs, list) else ():
-        if isinstance(r, dict) and hasattr(by.get(r.get("uid")), "block_mirrored"):
+        if isinstance(r, dict) and _is_block(by.get(r.get("uid"))):
             return True
     return False
 
@@ -495,6 +525,62 @@ class PickState:
                           self.cursor, t)
 
 
+class _Tier:
+    """One tier's drag-session System (D18 + PB3): built once at
+    ``begin_drag``; per frame only x is refreshed. ``start`` = slot values
+    at begin_drag (a D35 reset frame's goals), ``cur`` = values as last
+    written, ``layout`` = ``_slot_layout``; ``share`` = ``(dst, src_tier,
+    src)`` -- this tier's indices of the walls / gridlines the building tier
+    can move, re-read from ``src_tier.cur`` before every frame (stage 2)."""
+
+    __slots__ = ("sys", "slots", "base", "start", "cur", "layout", "share")
+
+    def __init__(self, built, layout):
+        self.sys, self.slots, self.base = built
+        self.start = self.sys.x.copy()
+        self.cur = self.start.copy()
+        self.layout = layout
+        self.share = None
+
+
+class _DragCtx:
+    """A drag session's tiers (PB3). ``building`` is the one tier of the
+    Block Editor and of a plan drag no block record takes part in;
+    ``block`` is the plan's anchored block tier, or None. ``focus`` = the
+    stage-2 focus uids for the whole gesture (the held walls / gridlines this
+    drag can move) -- fixed per session so a D35 reset frame never flips a
+    block between solved and unsolved. ``stage2_failed``: the last GOOD
+    frame's blocks could not follow (red at ``end_drag``); a frame refused in
+    stage 1 restores that good frame and keeps the flag, never resets it."""
+
+    __slots__ = ("building", "block", "focus", "stage2_failed")
+
+    def __init__(self, building, block, focus=()):
+        self.building, self.block = building, block
+        self.focus = set(focus)
+        self.stage2_failed = False
+        if block is None or building is None:
+            return
+        dst, src = [], []
+        for u, (it, ad, off) in block.slots.items():
+            b = building.slots.get(u)
+            if b is not None:
+                n = ad.nvars(it)
+                dst.extend(range(off, off + n))
+                src.extend(range(b[2], b[2] + n))
+        if dst:
+            block.share = (np.array(dst, dtype=np.intp), building,
+                           np.array(src, dtype=np.intp))
+
+    def tiers(self) -> list:
+        """The live tiers, building first."""
+        return [t for t in (self.building, self.block) if t is not None]
+
+    def uids(self) -> set:
+        """Every slot uid of every tier."""
+        return {u for t in self.tiers() for u in t.slots}
+
+
 class ConstraintController:
     """Owns the editor's constraint list and every solve seam (spec §3, §8)."""
 
@@ -533,6 +619,7 @@ class ConstraintController:
         self._tint_memo = None         # (token, SketchDiag, {uid: state}) -- H-MW-g
         self._tint_colors = None       # (Theme, {state: QColor}) -- H-MW-g
         self._build_cache = None       # (key, sys, slots, base) -- D18 _build reuse
+        self._anchor_cache = None      # the same for the PB3 stage-2 (anchored) build
         # Per-frame glyph-layout cache tokens (constraint_paint._frame, VC9 F3):
         # bumped on every scene change / item-selection change.
         self._scene_gen = 0
@@ -548,10 +635,7 @@ class ConstraintController:
         self._polish = False                   # set_value only: polish stalled solves
         self._drag_snap = None
         self._last_good = None
-        self._drag_ctx = None
-        self._drag_cur = None                  # session: slot values as last written (D18)
-        self._drag_base = None                 # session: slot values at begin_drag
-        self._drag_layout = None               # session: _slot_layout (D18)
+        self._drag_ctx = None                  # session: _DragCtx (D18; PB3 per-tier)
         self._painted: dict = {}               # id(view) -> last glyph/glow QRect
         if self.enabled:
             scene.selectionChanged.connect(self._on_selection_changed)
@@ -707,10 +791,13 @@ class ConstraintController:
 
     def can_ref(self, it) -> bool:
         """Whether *it* may be a constraint ref in this scene: it has an
-        adapter and (plan) is one of ``ref_types``."""
+        adapter and (plan) is one of ``ref_types`` -- a gridline-hosted block
+        never (PB1: hidden in plan, it rides its gridline, H1)."""
         if adapter_for(it) is None:
             return False
-        return self.ref_types is None or isinstance(it, self.ref_types)
+        if self.ref_types is None:
+            return True
+        return isinstance(it, self.ref_types) and not (_is_block(it) and it.host)   # PB1
 
     def items(self) -> list:
         """Every scene item that can carry a constraint (has an adapter)."""
@@ -997,32 +1084,39 @@ class ConstraintController:
         return c
 
     # ── system build ─────────────────────────────────────────────────────
-    def _build(self, cons):
+    def _build(self, cons, *, anchored: bool = False):
         """:meth:`_build_fresh`, reusing the last System when the constraint
         set and the items' structure are unchanged -- only x is re-read (D18
         commit bar: the commit solve and its diagnostics share one build).
+        One cache per kind (*anchored* = PB3 stage 2); a reused anchored
+        System re-seats its anchors at the re-read values (``_reanchor``).
         Callers must not keep mutating a returned System's ``x`` across
         builds (a drag session uses :meth:`_build_fresh`)."""
         by = self.item_by_uid()
         try:
-            key = (tuple((c.id, c.type, repr(c.refs), c.value, c.driving, repr(c.helper))
+            key = (anchored,
+                   tuple((c.id, c.type, repr(c.refs), c.value, c.driving, repr(c.helper))
                          for c in cons),
                    tuple((u, id(by[u]), adapter_for(by[u]).struct_key(by[u]))
                          for c in cons for u in (_safe_ref_uids(c) or ())))
         except KeyError:
-            return self._build_fresh(cons)
-        hit = self._build_cache
+            return self._build_fresh(cons, anchored=anchored)
+        attr = "_anchor_cache" if anchored else "_build_cache"
+        hit = getattr(self, attr)
         if hit is not None and hit[0] == key:
             _k, sys_, slots, base = hit
             for _u, (it, ad, off) in slots.items():
                 sys_.x[off:off + ad.nvars(it)] = ad.read(it)
+            if anchored:
+                self._reanchor(sys_)
             return sys_, slots, base
-        sys_, slots, base = self._build_fresh(cons)
-        self._build_cache = (key, sys_, slots, base)
+        sys_, slots, base = self._build_fresh(cons, anchored=anchored)
+        setattr(self, attr, (key, sys_, slots, base))
         return sys_, slots, base
 
-    def _build_fresh(self, cons):
-        """(System, slots ``uid -> (item, adapter, offset)``, base weights)."""
+    def _build_fresh(self, cons, *, anchored: bool = False):
+        """(System, slots ``uid -> (item, adapter, offset)``, base weights);
+        *anchored* = PB3 stage 2 (every wall / gridline slot held)."""
         by = self.item_by_uid()
         slots, x, w = {}, [], []
         for c in cons:
@@ -1049,6 +1143,15 @@ class ConstraintController:
             if ad.locked(it):
                 for i, val in enumerate(ad.read(it)):
                     sys_.fixes.append((off + i, float(val), LOCK_CID))
+        # PB3 stage 2: every wall / gridline slot is held -- a block never
+        # pushes or holds one. Appended after the builders and the L1 locks
+        # under ANCHOR_CID, which (like LOCK_CID) no consumer names:
+        # ``conflicts`` is only tested for emptiness, ``redundant`` drops it.
+        if anchored:
+            for _u, (it, ad, off) in slots.items():
+                if not _is_block(it):
+                    for i in range(ad.nvars(it)):
+                        sys_.fixes.append((off + i, float(sys_.x[off + i]), ANCHOR_CID))
         return sys_, slots, np.array(w, dtype=float)
 
     def _resolve(self, ref, slots):
@@ -1093,9 +1196,9 @@ class ConstraintController:
         Args:
             edited: Items whose current values are goals at ``W_EDIT``.
             pin: ``(item, grip_index)`` — the drag's grabbed handle, ``W_PIN``.
-            ctx: A cached ``(sys, slots, base_weights)`` from :meth:`begin_drag`:
-                the System structure is reused across drag frames (only x is
-                refreshed) — the D18 8 ms drag bar depends on it.
+            ctx: The drag session's ``_DragCtx`` from :meth:`begin_drag`: each
+                tier's System structure is reused across drag frames (only x
+                is refreshed) — the D18 8 ms drag bar depends on it.
             focus: Uids whose components must be solved (a new or re-enabled
                 constraint's items). ``None`` = no focus given.
             typed: ``{uid: [local var index]}`` -- a TYPED edit's changed
@@ -1112,17 +1215,56 @@ class ConstraintController:
         focus / edit that names no solver variable, nothing is (and that is
         not a failure).
 
+        PB3 (plan scene only): records naming a block instance are the block
+        tier and solve after the rest with every wall / gridline held
+        (:meth:`_solve_two`). The Block Editor, and a plan whose active set
+        holds no block record, solve as one System (:meth:`_solve_once`).
+
         Returns:
             True when converged (and written back); False = nothing written.
         """
-        if ctx is None:
-            cons = self.active() + list(hold)
+        if ctx is not None:
+            if ctx.block is None:
+                return self._solve_once(None, tier=ctx.building, edited=edited, pin=pin,
+                                        focus=focus, typed=typed, reset=reset)
+            return self._solve_two((), (), ctx=ctx, edited=edited, pin=pin,
+                                   typed=typed, reset=reset)
+        cons = self.active() + list(hold)
+        if not cons:
+            return True
+        bt, kt = self._split_tiers(cons)
+        if not kt:
+            return self._solve_once(bt, edited=edited, pin=pin, focus=focus, typed=typed)
+        return self._solve_two(bt, kt, edited=edited, pin=pin, focus=focus, typed=typed)
+
+    def _solve_once(self, cons, *, tier=None, anchored: bool = False, edited=(),
+                    pin=None, focus=None, typed=None, reset: bool = False,
+                    written=None) -> bool:
+        """One System's solve + write-back (the single-tier body of :meth:`_solve`).
+
+        Args:
+            cons: Records to build (ignored with *tier*; empty -> True).
+            tier: A drag session's ``_Tier`` (D18): its System is reused, only
+                x refreshed; written back through :meth:`_write_tracked`.
+            anchored: PB3 stage 2 -- every wall / gridline slot is held
+                (``ANCHOR_CID`` fixes at the current values).
+            edited, pin, focus, typed, reset: As :meth:`_solve`.
+            written: A set the written items' uids are added to (PB3: what
+                stage 1 moved focuses stage 2).
+
+        Returns:
+            True when converged (and written back); False = nothing written.
+        """
+        if tier is None:
             if not cons:
                 return True
-            sys_, slots, base = self._build(cons)
+            sys_, slots, base = self._build(cons, anchored=anchored)
         else:
-            sys_, slots, base = ctx
-            cur = self._drag_cur
+            sys_, slots, base = tier.sys, tier.slots, tier.base
+            cur = tier.cur
+            share = tier.share
+            if share is not None:                  # PB3: walls at the stage-1 result
+                cur[share[0]] = share[1].cur[share[2]]
             moved = []
             for it in edited:                  # only the items the caller moved (D18)
                 slot = slots.get(getattr(it, "_uid", None))
@@ -1131,9 +1273,13 @@ class ConstraintController:
                     vals = ad.read(_it)
                     cur[off:off + len(vals)] = vals
                     moved.append((off, len(vals)))
-            sys_.x[:] = self._drag_base if reset else cur
+            sys_.x[:] = tier.start if reset else cur
+            if share is not None:
+                sys_.x[share[0]] = cur[share[0]]
             for off, n in moved:
                 sys_.x[off:off + n] = cur[off:off + n]
+            if anchored:
+                self._reanchor(sys_)   # PB3: anchors follow the stage-1 walls
         weights = base.copy()
         edited_uids = {getattr(i, "_uid", None) for i in edited}
         honour = self._var_indices(slots, edited_uids)   # the edit's own vars
@@ -1168,11 +1314,131 @@ class ConstraintController:
             if slot is not None and any(
                     abs(x[slot[2] + k] - sys_.x[slot[2] + k]) > TYPED_TOL for k in ks):
                 return False                    # the typed value can't be honoured
-        if ctx is None:
-            self._write(slots, sys_.x, x)
+        if tier is None:
+            out = self._write(slots, sys_.x, x)
         else:
-            self._write_tracked(slots, sys_.x, x, self._drag_cur)
+            out = self._write_tracked(slots, sys_.x, x, tier.cur, tier.layout)
+        if written is not None:
+            written |= out
         return True
+
+    def _solve_two(self, bt, kt, *, ctx=None, edited=(), pin=None, focus=None,
+                   typed=None, reset: bool = False) -> bool:
+        """PB3 two-tier plan solve (design s2): building tier, then block tier.
+
+        Stage 1 solves the building-tier records (no block in the System)
+        when the edit names a wall / gridline, or for a focus-only / whole
+        solve; a failure there is the edit's conflict (False). Stage 2 solves
+        the block-tier records with every wall / gridline held at its current
+        (stage-1) value (``ANCHOR_CID``): its edit is the edited blocks, its
+        focus the edited walls plus every item stage 1 wrote (a drag: the
+        session's ``_DragCtx.focus``). When stage 2 cannot converge:
+
+        * a building edit happened (an edited wall / gridline, or stage 1
+          wrote one) -- the edit commits, the blocks keep their pose (a drag
+          frame puts them back at the session start) and the unsatisfied block
+          records go red: at once outside a drag, at ``end_drag`` inside one;
+        * otherwise (a block edit, a block-tier add / value) -- refused
+          (False): the caller's hold-last-good / rollback applies (D10 / D31).
+
+        Args:
+            bt: The building-tier records (stateless only).
+            kt: The block-tier records (stateless only).
+            ctx: The drag session's ``_DragCtx`` (its ``block`` tier is set).
+            edited, pin, focus, typed, reset: As :meth:`_solve`.
+
+        Returns:
+            True when the edit stands (committed): both stages converged, or
+            stage 2 failed after a building edit -- the blocks keep their
+            pose and their ties go red (outside a drag at once; in a drag via
+            ``ctx.stage2_failed``, red at ``end_drag``). False when refused:
+            a stage-1 conflict, or a stage-2 failure with no building edit
+            (a block edit, a block-tier add / value).
+        """
+        edited = list(edited)
+        b_edit = [it for it in edited if not _is_block(it)]
+        k_edit = [it for it in edited if _is_block(it)]
+        k_uids = {getattr(it, "_uid", None) for it in k_edit}
+        typed = typed or {}
+        typed_b = {u: ks for u, ks in typed.items() if u not in k_uids} or None
+        typed_k = {u: ks for u, ks in typed.items() if u in k_uids} or None
+        pin_b = pin if pin is not None and not _is_block(pin[0]) else None
+        pin_k = pin if pin is not None and _is_block(pin[0]) else None
+        moved: set = set()
+        if ctx is not None:
+            # ctx.stage2_failed describes the last GOOD frame: a frame refused
+            # below (stage 1) returns False and keeps the flag (PB6).
+            if ctx.building is not None and b_edit:
+                if not self._solve_once(None, tier=ctx.building, edited=b_edit, pin=pin_b,
+                                        typed=typed_b, reset=reset, written=moved):
+                    return False
+            if self._solve_once(None, tier=ctx.block, anchored=True, edited=edited,
+                                pin=pin_k, focus=ctx.focus, typed=typed_k, reset=reset):
+                ctx.stage2_failed = False
+                return True
+            if not (b_edit or moved):
+                return False
+            ctx.stage2_failed = True             # red at end_drag, never per frame
+            self._reset_tier_blocks(ctx.block)
+            return True
+        if bt and (b_edit or not edited):
+            if not self._solve_once(bt, edited=b_edit, pin=pin_b, focus=focus,
+                                    typed=typed_b, written=moved):
+                return False
+        if not edited and focus is None:
+            focus2 = None                        # a whole solve: every block component
+        else:
+            focus2 = ({getattr(it, "_uid", None) for it in b_edit} | moved
+                      | set(focus or ()))
+        if self._solve_once(kt, anchored=True, edited=k_edit, pin=pin_k,
+                            focus=focus2, typed=typed_k):
+            return True
+        if not (b_edit or moved):
+            return False
+        kept = {c.id for c in self.constraints}  # never a CS10 hold record
+        self.mark_unsatisfied_red([c for c in kt if c.id in kept])    # PB3 wall row: the edit commits, its ties go red
+        return True
+
+    def _split_tiers(self, cons) -> tuple:
+        """PB3: ``(building, block)`` -- a record is block tier when a ref
+        names a block instance (``_refs_an_instance``). The Block Editor, and
+        a plan without blocks, are one tier: ``(cons, [])``."""
+        cons = list(cons)
+        if self.block_editor or not getattr(self._scene, "_block_instances", None):
+            return cons, []
+        by = self.item_by_uid()
+        bt, kt = [], []
+        for c in cons:
+            (kt if _refs_an_instance(c, by) else bt).append(c)
+        return bt, kt
+
+    def _block_tier(self, cons) -> list:
+        """The PB3 block-tier records of *cons*."""
+        return self._split_tiers(cons)[1]
+
+    @staticmethod
+    def _reanchor(sys_) -> None:
+        """PB3: re-seat each ``ANCHOR_CID`` fix at its variable's current x
+        (stage 1 / the edit moved the wall). An unchanged value keeps its
+        tuple, so the solver's structure cache stays valid."""
+        fx, x = sys_.fixes, sys_.x
+        for k, (i, v, cid) in enumerate(fx):
+            if cid == ANCHOR_CID:
+                nv = float(x[i])
+                if nv != v:
+                    fx[k] = (i, nv, cid)
+
+    def _reset_tier_blocks(self, tier) -> None:
+        """PB3 drag: a frame whose blocks cannot follow puts every block of
+        the block *tier* back at its session-start pose (the wall edit still
+        applies); the tracked values follow (D18)."""
+        snap = {}
+        for u, (it, ad, off) in tier.slots.items():
+            if _is_block(it):
+                n = ad.nvars(it)
+                tier.cur[off:off + n] = tier.start[off:off + n]
+                snap[u] = (it, [float(v) for v in tier.start[off:off + n]])
+        self._restore(snap)
 
     def _solve_x(self, sys_, slots, weights, active, honour=()):
         """The solved full-space x, or None (not converged / D29 collapse).
@@ -1247,12 +1513,17 @@ class ConstraintController:
         return out
 
     @staticmethod
-    def _write(slots, x_old, x_new, uids=None) -> None:
+    def _write(slots, x_old, x_new, uids=None) -> set:
         """Exactly one write-back per item the solve CHANGED (§3) -- beyond
         the adapter's write tolerance, so a pinned item's solver jitter is
         never written (a rect write canonicalises its pivot, VC9 F2). Per
         variable, only a materially moved one takes its solved value; the
-        rest keep the item's old value (``ad.settled``, VC9 R5)."""
+        rest keep the item's old value (``ad.settled``, VC9 R5).
+
+        Returns:
+            The uids written (PB3: stage 1's moved walls focus stage 2).
+        """
+        out = set()
         for u, (it, ad, off) in slots.items():
             if uids is not None and u not in uids:
                 continue
@@ -1261,27 +1532,36 @@ class ConstraintController:
             new = x_new[off:off + n]
             if ad.changed(it, old, new):
                 ad.write(it, np.array(ad.settled(it, old, new), dtype=float))
+                out.add(u)
+        return out
 
-    def _write_tracked(self, slots, goal, x_new, cur) -> None:
+    def _write_tracked(self, slots, goal, x_new, cur, layout) -> set:
         """Drag-session write-back (D18). Each item's target is exactly what
         the stateless path leaves it at -- ``ad.settled`` against this
         frame's goal when the solve changed it (``ad.changed``), else the goal
         itself -- and it is written only when that differs from its tracked
         value *cur* (updated in place), so a reset frame never rewrites the
         snapshot. Decided over whole arrays (the base-adapter tolerance rules,
-        which no adapter overrides) via the session's slot layout."""
-        items, starts, var_item, tol = self._drag_layout
+        which no adapter overrides) via the tier's slot *layout*.
+
+        Returns:
+            The uids written (PB3: stage 1's moved walls).
+        """
+        items, starts, var_item, tol = layout
         if not items:
-            return
+            return set()
         moved = np.abs(x_new - goal) > tol           # beyond the write tolerance
         settled = np.where(moved, x_new, goal)
         changed = np.logical_or.reduceat(moved, starts)
         tgt = np.where(changed[var_item], settled, goal)
         need = np.logical_or.reduceat(tgt != cur, starts)
+        out = set()
         for k in np.flatnonzero(need):
             it, ad, off, n = items[k]
             ad.write(it, tgt[off:off + n].copy())
+            out.add(getattr(it, "_uid", None))
         cur[:] = tgt
+        return out
 
     @staticmethod
     def _slot_layout(slots, nx: int) -> tuple:
@@ -1369,7 +1649,8 @@ class ConstraintController:
             COPY (never ``setPen``, delta 2) -- a shared cached QColor, so
             callers must not mutate it -- or None for no tint.
         """
-        if (not (self.enabled and self.show_status) or item.isSelected()
+        if (not (self.enabled and self.show_status and self.block_editor)   # D39: editor only
+                or item.isSelected()
                 or getattr(item, "_ghost_pen", False)
                 or getattr(item, "_is_ghost", False)):
             return None
@@ -1718,7 +1999,6 @@ class ConstraintController:
     def _end_session(self) -> None:
         self._drag_snap = self._last_good = self._drag_ctx = None
         self._frame_start = None
-        self._drag_cur = self._drag_base = self._drag_layout = None
         self._drag_extra = []
 
     @property
@@ -1739,22 +2019,67 @@ class ConstraintController:
         if not (self.enabled and self.touches(items)):
             return
         self._drag_snap = self._snapshot(items)
-        self._drag_ctx = self._build_fresh(self.active())   # never the cached System
-        self._drag_base = self._drag_ctx[0].x.copy()
-        self._drag_cur = self._drag_base.copy()
-        slots = self._drag_ctx[1]
-        self._drag_layout = self._slot_layout(slots, len(self._drag_base))
+        self._drag_ctx = self._drag_context(self.active(), items)
+        uids = self._drag_ctx.uids()
         # Adapter-backed selection items outside the solve (unconstrained):
         # part of last-good so a held conflict holds the whole selection.
         self._drag_extra = [(k, it) for k, (it, _v) in self._drag_snap.items()
-                            if k not in slots]
+                            if k not in uids]
         self._last_good = self._good_state()
 
+    def _tier(self, cons, *, anchored: bool) -> _Tier:
+        """A drag session's ``_Tier`` over *cons* -- a fresh build, never the
+        cached System (a commit solve may still reuse that one).
+
+        Args:
+            cons: The tier's constraint records.
+            anchored: True for the block tier (walls / gridlines held by
+                ``ANCHOR_CID``).
+
+        Returns:
+            The tier's session ``_Tier``.
+        """
+        built = self._build_fresh(cons, anchored=anchored)
+        return _Tier(built, self._slot_layout(built[1], len(built[0].x)))
+
+    def _drag_context(self, cons, items) -> _DragCtx:
+        """D18 + PB3: the session's per-tier contexts. One tier (the Block
+        Editor; a plan drag no block record takes part in) is today's single
+        System. A plan drag that moves a held wall / gridline a block record
+        names, or drags a block a block record names, gets the anchored block
+        tier -- plus a building tier when it drags a wall / gridline.
+
+        Args:
+            cons: The active constraint records.
+            items: The dragged items.
+
+        Returns:
+            The session's ``_DragCtx``.
+        """
+        bt, kt = self._split_tiers(cons)
+        if not kt:
+            return _DragCtx(self._tier(bt, anchored=False), None)
+        by = self.item_by_uid()
+        dragged = {getattr(it, "_uid", None) for it in items if not _is_block(it)}
+        dragged.discard(None)
+        movable = set(dragged)
+        for group in self._groups(bt):
+            if group & dragged:
+                movable |= group
+        k_uids = {u for c in kt for u in (_safe_ref_uids(c) or ())}
+        focus = {u for u in k_uids & movable if not _is_block(by.get(u))}
+        drags_block = any(_is_block(it) and getattr(it, "_uid", None) in k_uids
+                          for it in items)
+        if not (focus or drags_block):
+            return _DragCtx(self._tier(bt, anchored=False), None)
+        building = self._tier(bt, anchored=False) if (bt and dragged) else None
+        return _DragCtx(building, self._tier(kt, anchored=True), focus)
+
     def _good_state(self):
-        """Last-good record: the tracked slot values (an array copy -- no
-        per-frame rescan or read, D18) plus the body selection's extras."""
+        """Last-good record: each tier's tracked slot values (array copies --
+        no per-frame rescan or read, D18) plus the body selection's extras."""
         extras = [(k, it, list(adapter_for(it).read(it))) for k, it in self._drag_extra]
-        return (self._drag_cur.copy(), extras)
+        return (tuple(t.cur.copy() for t in self._drag_ctx.tiers()), extras)
 
     def drag(self, item, grip_index: int) -> None:
         """One drag frame: *item*'s grip was applied; pin it and re-solve."""
@@ -1813,18 +2138,29 @@ class ConstraintController:
             self._last_good = start
 
     def _restore_good(self, good) -> None:
-        """Write a ``_good_state`` record back to the items."""
+        """Write a ``_good_state`` record back to the items (the building
+        tier last: it owns the walls both tiers hold)."""
         if good is not None:
-            cur, extras = good
-            snap = {u: (it, list(cur[off:off + ad.nvars(it)]))
-                    for u, (it, ad, off) in self._drag_ctx[1].items()}
+            curs, extras = good
+            tiers = self._drag_ctx.tiers()
+            snap = {}
+            for t, cur in zip(reversed(tiers), reversed(curs)):
+                for u, (it, ad, off) in t.slots.items():
+                    snap[u] = (it, list(cur[off:off + ad.nvars(it)]))
             snap.update({k: (it, vals) for k, it, vals in extras})
             self._restore(snap)
-            self._drag_cur[:] = cur
+            for t, cur in zip(tiers, curs):
+                t.cur[:] = cur
 
     def end_drag(self) -> None:
-        """Close the drag session (the caller then pushes undo)."""
+        """Close the drag session (the caller then pushes undo). PB3: when the
+        last frame's blocks could not follow a wall, their unsatisfied
+        records go red now -- at commit, never per frame."""
+        ctx = self._drag_ctx
+        failed = ctx is not None and ctx.stage2_failed
         self._end_session()
+        if failed:
+            self.mark_unsatisfied_red(self._block_tier(self.active()))   # PB3: red at commit
         self._commit_gen += 1
 
     def cancel_drag(self) -> None:
@@ -1837,11 +2173,17 @@ class ConstraintController:
     # ── red set (D37/D38) ────────────────────────────────────────────────
     def _try(self, cons) -> bool:
         """Whether *cons* alone is satisfiable from the current geometry
-        (D29/D34/D36 rules included). Nothing is written."""
+        (D29/D34/D36 rules included); PB3 per tier -- building, then block
+        with every wall / gridline held. Nothing is written."""
         if not cons:
             return True
-        sys_, slots, base = self._build(cons)
-        return self._solve_x(sys_, slots, base, None) is not None
+        bt, kt = self._split_tiers(cons)
+        for tier_cons, anchored in ((bt, False), (kt, True)):
+            if tier_cons:
+                sys_, slots, base = self._build(tier_cons, anchored=anchored)
+                if self._solve_x(sys_, slots, base, None) is None:
+                    return False
+        return True
 
     def _admit_in_order(self, cons) -> set:
         """D38: ids of *cons* that cannot join, in list order. Each
@@ -2445,6 +2787,9 @@ class ConstraintController:
         hit = (self._angle_apply(c) if c.type == "dim_angle" else
                self._pl_apply(c) if c.type == "dim_point_line" else
                readout_for(self, c))
+        if (hit is not None and not self.block_editor and not _is_block(hit[0])
+                and _refs_an_instance(c, self.item_by_uid())):
+            hit = None       # PB3: a block-tier value never moves a wall -- the block yields
         old, was_red = c.value, c.id in self.red
         items = [hit[0]] if hit is not None else []
         snap = self._snapshot(items)
@@ -2688,11 +3033,33 @@ class ConstraintController:
         if self.selected_id not in {c.id for c in self.constraints}:
             self.selected_id = None
         self.red &= {c.id for c in self.constraints}
-        self._build_cache = None
+        self._build_cache = self._anchor_cache = None
         if dropped:
             self._recheck_red()
         self._commit_gen += 1
         return len(dropped)
+
+    def on_definitions_changed(self) -> None:
+        """AC5 (plan block constraints s3): a block definition was edited or
+        swapped. Re-validates every block record (``active()``, NB4 -- a lost
+        child handle goes inert, kept verbatim, revived on undo), then
+        re-solves each block-tier group with every wall / gridline held (PB3
+        stage 2); a group the new geometry cannot satisfy keeps its pose and
+        its unsatisfied records go red. No undo push: the caller's own step
+        (``commit_block_definition`` / ``retarget_block_refs`` /
+        ``reload_block_definition`` / ``load_blocks_from_files``) carries it."""
+        if not self.enabled or self.block_editor or not self._constraints:
+            return
+        self._build_cache = self._anchor_cache = None   # handle tables changed
+        by = self.item_by_uid()
+        kt = self._block_tier(self.active())
+        for group in self._groups(kt):
+            gc = [c for c in kt if (_safe_ref_uids(c) or set()) & group]
+            blocks = {u for u in group if _is_block(by.get(u))}
+            if not self._solve_once(gc, anchored=True, focus=blocks):
+                self.mark_unsatisfied_red(gc)
+        self._commit_gen += 1
+        self._repaint()
 
     def on_items_removed(self, items) -> int:
         """Cascade-delete constraints touching removed items (caller pushes undo)."""
@@ -2997,7 +3364,7 @@ class ConstraintController:
         except RuntimeError:
             return None
         # Slice 2: in plan the "lines" are walls (centerline) and gridlines.
-        line_types = (LineItem,) if self.block_editor else tuple(self.ref_types or ())
+        line_types = (LineItem,) if self.block_editor else _plan_line_types()
         if (ctype in ("horizontal", "vertical", "dim_distance")   # CS6 R3 / CS7 / CS8
                 and len(sel) == 1 and isinstance(sel[0], line_types)
                 and getattr(sel[0], "_uid", None) is not None):
@@ -3110,7 +3477,8 @@ class ConstraintController:
         if (self.ref_types is not None
                 and not isinstance(target, ConstraintAdapter)
                 and not self.can_ref(target)):
-            return None                  # plan: only adapted walls / gridlines carry a section
+            return None                  # plan: only adapted walls / gridlines /
+            #                              unhosted blocks carry a section
         if isinstance(target, ConstraintAdapter):
             c = target.c
             if c is None:
@@ -3208,16 +3576,29 @@ class ConstraintController:
         dof, redundant = total, frozenset()
         cons = self.active()
         if cons:
-            sys_, slots, _w = self._build(cons)
-            sys_.cid_rank = {c.id: k for k, c in enumerate(cons)}
-            d = self._solver.diagnose(sys_)
-            redundant = frozenset(c for c in d.redundant if c != LOCK_CID)   # L1: never a record
-            ordered = list(slots.items())
-            dofs = d.dof_of_many([range(off, off + ad.nvars(it))
-                                  for _u, (it, ad, off) in ordered])
-            for (u, _slot), n in zip(ordered, dofs):
-                item_dof[u] = n
-            dof = total - (len(sys_.x) - d.dof)
+            # PB3: per tier -- the block tier is diagnosed with every wall /
+            # gridline held, so a block's DOF is 3 minus its own ties and a
+            # block tie never lowers a wall's DOF or makes a wall record amber.
+            bt, kt = self._split_tiers(cons)
+            red_, removed = set(), 0
+            for tier_cons, anchored in ((bt, False), (kt, True)):
+                if not tier_cons:
+                    continue
+                sys_, slots, _w = self._build(tier_cons, anchored=anchored)
+                sys_.cid_rank = {c.id: k for k, c in enumerate(tier_cons)}
+                d = self._solver.diagnose(sys_)
+                red_ |= {c for c in d.redundant if c not in (LOCK_CID, ANCHOR_CID)}   # L1 / PB3: never a record
+                ordered = [(u, s) for u, s in slots.items()
+                           if not anchored or _is_block(s[0])]
+                dofs = d.dof_of_many([range(off, off + ad.nvars(it))
+                                      for _u, (it, ad, off) in ordered])
+                for (u, _slot), n in zip(ordered, dofs):
+                    item_dof[u] = n
+                nv = (sum(ad.nvars(it) for _u, (it, ad, _o) in ordered)
+                      if anchored else len(sys_.x))
+                removed += nv - d.dof
+            redundant = frozenset(red_)
+            dof = total - removed
         conflict = frozenset(u for c in self.constraints if c.id in self.red
                              for u in (_safe_ref_uids(c) or ()))
         out = SketchDiag(dof, redundant, item_dof, conflict)
@@ -3264,7 +3645,7 @@ class ConstraintController:
         order (``_admit_in_order``)."""
         if not self.enabled:
             return
-        self._build_cache = None   # items were rebuilt: an id() may be reused
+        self._build_cache = self._anchor_cache = None   # items were rebuilt: an id() may be reused
         by = self.item_by_uid()
         self.constraints = [self._adopt(r, by) for r in records or []]
         self.selected_id = self.hover_id = None
@@ -3276,9 +3657,12 @@ class ConstraintController:
         self._commit_gen += 1
 
     def primitive_uids(self) -> set:
-        """Uids of EVERY editor primitive, adapter-backed or not (spline)."""
+        """Uids of EVERY editor primitive, adapter-backed or not (spline); in
+        plan the walls, gridlines and unhosted blocks (``plan_ref_uids``)."""
+        if not self.block_editor:
+            return plan_ref_uids(self._scene)
         out = set()
-        for attr in (_PRIMITIVE_LISTS if self.block_editor else _PLAN_PARTICIPATING):
+        for attr in _PRIMITIVE_LISTS:
             out.update(getattr(it, "_uid", None) for it in getattr(self._scene, attr, ()))
         out.discard(None)
         return out
@@ -3298,8 +3682,9 @@ class ConstraintController:
     def load(self, records) -> None:
         """Definition open: adopt the saved records, then the first solve
         (D18 "open = load + first solve"), one constraint-connected group at a
-        time so an admitted conflict in one group never blocks another. No
-        undo push -- the result is part of the seeded baseline -- and no
+        time so an admitted conflict in one group never blocks another; PB3:
+        the building tier first, then the block tier against the held walls.
+        No undo push -- the result is part of the seeded baseline -- and no
         status: a group that fails stays as loaded."""
         self.restore(records, _solvable=True)
         if not self.enabled:
@@ -3307,7 +3692,15 @@ class ConstraintController:
         cons = self.active()
         if not cons:
             return
-        sys_, slots, base = self._build(cons)
+        bt, kt = self._split_tiers(cons)
+        self._load_solve(bt, anchored=False)
+        self._load_solve(kt, anchored=True)
+
+    def _load_solve(self, cons, *, anchored: bool) -> None:
+        """:meth:`load`'s first solve over one tier, group by group."""
+        if not cons:
+            return
+        sys_, slots, base = self._build(cons, anchored=anchored)
         for group in self._groups(cons):
             active = self._var_indices(slots, group)
             if not active:
