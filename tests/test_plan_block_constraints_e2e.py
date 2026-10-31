@@ -331,3 +331,107 @@ def test_g8_definition_edit_resolves_in_one_undo_step_and_a_lost_handle_goes_ine
     sc.save_to_file(str(f))
     saved = {r["id"]: r for r in json.loads(f.read_text())["constraints"]}
     assert saved[c.id]["refs"][0] == {"uid": inst._uid, "h": "u0:p1"}
+
+
+def test_g9_save_reopen_undo_redo_and_delete_cascade_carry_block_ties(mw, pb, qapp, tmp_path):
+    """AC6 (+ plan probe a): undo / redo round-trips a block tie; Delete of
+    the block cascades the tie in the same undo step; save -> reopen through
+    the app's open path keeps the record content and it solves.
+    RED: ``plan_ref_uids`` without its block line (the reopen drops it)."""
+    sc, _view = pb
+    d = snap_def(sc)
+    w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    inst = _block(sc, d, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    ctl.restore([])                                             # a lone run starts on the app's default scene records
+    sc.push_undo_state()                                        # baseline: wall + block, no tie
+    c = _dpl(ctl, {"uid": inst._uid, "h": "u0:p1"}, {"uid": w._uid, "h": "face_l"})
+    want = [x.to_dict() for x in ctl.constraints]
+    sc.undo()
+    assert ctl.constraints == []
+    sc.redo()
+    assert [x.to_dict() for x in ctl.constraints] == want
+    blk = next(b for b in sc._block_instances if b._uid == inst._uid)
+    _select(sc, blk, qapp)
+    sc.delete_selected_items()
+    assert not any(b._uid == inst._uid for b in sc._block_instances)
+    assert ctl.constraints == []
+    sc.undo()
+    assert [x.to_dict() for x in ctl.constraints] == want
+    f = tmp_path / "tie.fpd"
+    sc.save_to_file(str(f))
+    assert json.loads(f.read_text())["constraints"] == want
+    mw._load_project(str(f))
+    ctl2 = mw.scene.constraint_ctl
+    assert [x.to_dict() for x in ctl2.constraints] == want
+    assert c.id in {x.id for x in ctl2.active()}
+    blk2 = next(b for b in mw.scene._block_instances if b._uid == inst._uid)
+    assert blk2.block_pos() == pytest.approx((1000.0, 0.0), abs=1e-6)
+
+
+def test_g10_copy_keeps_internal_block_ties_and_drops_outside_ones(mw, pb, qapp):
+    """AC7 / D30 (+ plan probe b): pasting two blocks keeps their internal
+    tie on the copies' uids and drops the tie to the (uncopied) wall; copies
+    keep their translated geometry. RED: ``_plan_ref_types`` without
+    ``BlockInstance`` (no block tie can exist); probe-b variant: the paste
+    block branch without its ``uid_map[obj["uid"]] = inst._uid`` line."""
+    sc, _view = pb
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, False)
+    try:
+        d = snap_def(sc)
+        w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+        b1 = _block(sc, d, (1000.0, 0.0))
+        b2 = _block(sc, d, (2000.0, 0.0))
+        ctl = sc.constraint_ctl
+        inside = ctl.add("dim_distance", [{"uid": b1._uid, "h": "ins"}, {"uid": b2._uid, "h": "ins"}])
+        assert inside is not None
+        _dpl(ctl, {"uid": b1._uid, "h": "u0:p1"}, {"uid": w._uid, "h": "edge"})
+        src = [b1, b2]
+        new = sc.paste_items(QPointF(0.0, 1000.0), data=sc._clipboard_item_dicts(src),
+                             constraints=ctl.internal_records(src))
+        copies = [it for it in new if hasattr(it, "block_mirrored")
+                  and it._uid not in {b1._uid, b2._uid}]
+        poses = sorted(tuple(round(v, 6) for v in b.block_pos()) for b in copies)
+        assert poses == [(1000.0, 1000.0), (2000.0, 1000.0)]
+        new_uids = {b._uid for b in copies}
+        on_copies = [c for c in ctl.constraints
+                     if {r.get("uid") for r in c.refs if isinstance(r, dict)} & new_uids]
+        assert len(on_copies) == 1
+        (cc,) = on_copies
+        assert cc.type == "dim_distance" and not cc.inert
+        assert {r["uid"] for r in cc.refs} == new_uids
+        assert cc.value == pytest.approx(1000.0)               # 2000 - 1000 (fixture)
+    finally:
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+
+
+def test_g11_hidden_level_block_solves_and_is_never_picked(mw, pb, qapp):
+    """AC8: a block on a hidden level is no pick candidate but still follows
+    its wall. RED: ``_PLAN_PARTICIPATING`` without ``"_block_instances"``
+    (it no longer follows); pick half: the ``if not it.isVisible():`` guard
+    in ``PickState._candidates`` replaced by ``if False:``."""
+    sc, view = pb
+    d = snap_def(sc)
+    w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    inst = _block(sc, d, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    _dpl(ctl, {"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "edge"})
+    mw.level_mgr.add_level("Level 2", elevation=20000.0)
+    try:
+        inst.level = "Level 2"
+        mw._apply_plan_level("Level 1")                         # the real level pass
+        qapp.processEvents()
+        assert not inst.isVisible() and w.isVisible(), "level pass did not hide the block"
+        ctl.begin_pick("coincident")
+        assert all(r.get("uid") != inst._uid for _k, r, _a, _b in ctl.pick._candidates()
+                   if isinstance(r, dict))
+        ctl.cancel_pick()
+        sc.set_mode("select")
+        _select(sc, w, qapp)
+        _drag(view, QPointF(3000.0, -1500.0), QPointF(3000.0, -1100.0))
+        dy = w._pt1.y() + 1500.0
+        assert abs(dy) > 100.0, "the wall did not move (vacuous)"
+        assert inst.block_pos() == pytest.approx((1000.0, dy), abs=1e-6)
+    finally:
+        mw.level_mgr.remove_level("Level 2")
+        mw._apply_plan_level("Level 1")
