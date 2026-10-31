@@ -83,3 +83,42 @@ def test_dropped_line_closes_its_slot_in_the_drawn_ops(qapp):
         return sorted(o.text_frame[1] for o in ops if o.text_frame is not None)
     ys_shown, ys_dropped = centres(shown), centres(dropped)
     assert ys_dropped == pytest.approx([ys_shown[0], ys_shown[1]], abs=0.01)
+
+
+def test_g2_zero_flow_blanks_velocity_and_friction_too(qapp):
+    ms = _scene()
+    p = _pipe(ms)
+    _solve(ms, p, 0.0, 0.0)
+    hv = ep.host_values(p, {"Flow", "Velocity", "FrictionLoss"})
+    assert [hv[k].raw for k in ("Flow", "Velocity", "FrictionLoss")] == [None, None, None]
+
+
+def test_flattened_nested_hide_empty_line_follows_the_outer_host(qapp):
+    """T7 review I-1: a nested child has no host of its own, so the flatten
+    recursion must judge blankness by the outermost instance's host -- a
+    solved pipe's Flow line survives explode as it does when drawn."""
+    from firepro3d.block_attributes import normalise_attr
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_explode import explode_instances
+    from firepro3d.text_item import TextItem
+    ms = _scene()
+    p = _pipe(ms)
+    inner = _pipe_def(ms, texts=(("@[Flow]", 6.0, True),))
+    outer = BlockDefinition.new(
+        name="OuterPipeLabel", library="", series="", origin=(0.0, 0.0),
+        primitives=[{"type": "text", "text": "@[Diameter]", "x": -10.0, "y": -4.0,
+                     "height_mm": 3.0, "wrap_width_mm": 20.0, "box_height_mm": 3.0,
+                     "align": "C", "valign": "M"},
+                    {"type": "block_instance", "block_id": inner.id, "pos": [0, 0],
+                     "rotation": 0.0}])
+    outer.host_category = "Pipe"
+    outer.attributes = [normalise_attr({"key": k, "source": "host", "host_key": k})
+                        for k in ("Diameter", "Flow")]
+    ms.register_block_definition(outer)
+    _solve(ms, p, 52.5, 1.25)
+    inst = ms.place_block_instance(outer.id, (100.0, 50.0))
+    inst.element_host = p
+    drawn = [o for o in inst.render_ops() if o.text_frame is not None]
+    made = [t for t in explode_instances(ms, [inst], flatten=True) if isinstance(t, TextItem)]
+    assert len(drawn) == 2
+    assert len(made) == len(drawn)                 # the Flow line is not lost

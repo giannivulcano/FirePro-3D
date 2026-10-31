@@ -200,7 +200,8 @@ def _bake(item, ov) -> None:
 
 
 def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = None,
-                      *, values: dict | None = None) -> list:
+                      *, values: dict | None = None,
+                      blank: frozenset | None = None) -> list:
     """Replace each instance by its definition's contents; returns new items.
 
     Primitives are re-created via ``scene._add_from_dict`` and moved onto the
@@ -226,6 +227,9 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
             no entry, which is NB5's drop path.
         values: The outermost resolved attribute values, threaded through the
             flatten recursion (A1/A9); ``None`` resolves from *instances*.
+        blank: The outermost Hide-when-empty blank keys, threaded with
+            *values* (a nested child has no host of its own); ``None``
+            resolves from *instances*.
 
     Returns:
         The newly created scene items.
@@ -243,13 +247,15 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                                   inst.host_values())
         else:
             vals = values
+        blk = blank if blank is not None else blank_keys(
+            d.effective_attributes(), inst.attributes, inst.host_values())
         # Hide when empty (D6/D7): the drawn rule, over the top-level bound texts.
         bound_i = [i for i, r in enumerate(d.primitives)
                    if r.get("type") == _TEXT_TYPE
                    and (has_fields(str(r.get("text", ""))) or r.get("keep_upright"))]
         shift_of = dict(zip(bound_i, hide_empty_shifts(
             [(d.primitives[i], QTransform.fromTranslate(-ox, -oy)) for i in bound_i],
-            blank_keys(d.effective_attributes(), inst.attributes, inst.host_values()))))
+            blk)))
         for i, rec in enumerate(d.primitives):
             key = record_key(rec, i)
             if rec.get("type") == _NESTED_TYPE:
@@ -270,7 +276,8 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 if flatten:
                     sub = {} if uid_map is not None else None
                     created.extend(explode_instances(scene, [child], flatten=True,
-                                                     uid_map=sub, values=vals))
+                                                     uid_map=sub, values=vals,
+                                                     blank=blk))
                     if sub:
                         uid_map.update({f"{key}/{k}": v for k, v in sub.items()})
                     if child.scene() is scene:      # unexplodable (missing) — keep it
