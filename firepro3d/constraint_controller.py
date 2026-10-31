@@ -77,16 +77,40 @@ HONOUR_RATIO = 1.1
 # for Save (§6.4) even though it can never be solved in v1.
 _PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines", "_filled_regions")
 
-# Editor/Build slice 2: the plan model scene's participating lists -- walls
-# and gridlines only (no 2D geometry in Model Space, containment C1/C7).
-_PLAN_PARTICIPATING = ("_walls", "_gridlines")
+# Editor/Build slice 2: the plan model scene's participating lists -- walls,
+# gridlines and (plan block constraints design s1) placed block instances;
+# no 2D geometry in Model Space (containment C1/C7). Hosted blocks are
+# filtered by ``can_ref`` (PB1).
+_PLAN_PARTICIPATING = ("_walls", "_gridlines", "_block_instances")
 
 
 def _plan_ref_types() -> tuple:
-    """The item types plan constraints may reference (design s2, B1/G8)."""
+    """The item types plan constraints may reference (design s2, B1/G8; plan
+    block constraints s1: + unhosted ``BlockInstance`` -- see ``can_ref``)."""
+    from .block_instance import BlockInstance
+    from .gridline import GridlineItem
+    from .wall import WallSegment
+    return (WallSegment, GridlineItem, BlockInstance)
+
+
+def _plan_line_types() -> tuple:
+    """Plan selection-first "lines" (slice 2): walls (centerline) and
+    gridlines -- never a block, which has no ``edge`` handle of its own."""
     from .gridline import GridlineItem
     from .wall import WallSegment
     return (WallSegment, GridlineItem)
+
+
+def plan_ref_uids(scene) -> set:
+    """Uids a plan constraint record may name (containment C8 exception as
+    amended by the plan block constraints design): walls, gridlines and
+    level-scoped (unhosted, PB1) block instances. The one accessor behind
+    project load (``scene_io``) and :meth:`ConstraintController.primitive_uids`."""
+    out = {getattr(it, "_uid", None) for attr in ("_walls", "_gridlines")
+           for it in getattr(scene, attr, ())}
+    out.update(getattr(b, "_uid", None) for b in getattr(scene, "_block_instances", ()) if not b.host)   # PB1
+    out.discard(None)
+    return out
 
 
 @dataclass(frozen=True)
@@ -175,12 +199,17 @@ def _safe_ref_uids(c) -> set | None:
         return None
 
 
+def _is_block(it) -> bool:
+    """Whether *it* is a block instance (placed or nested) -- the NB4 / PB3 test."""
+    return hasattr(it, "block_mirrored")
+
+
 def _refs_an_instance(c, by) -> bool:
-    """Whether any ref of *c* names a nested block instance (NB4: those are
+    """Whether any ref of *c* names a block instance (NB4: those are
     re-validated on every ``active()``; their handles live in a child
-    definition that can change under them)."""
+    definition that can change under them; PB3: the plan's block tier)."""
     for r in c.refs if isinstance(c.refs, list) else ():
-        if isinstance(r, dict) and hasattr(by.get(r.get("uid")), "block_mirrored"):
+        if isinstance(r, dict) and _is_block(by.get(r.get("uid"))):
             return True
     return False
 
@@ -707,10 +736,13 @@ class ConstraintController:
 
     def can_ref(self, it) -> bool:
         """Whether *it* may be a constraint ref in this scene: it has an
-        adapter and (plan) is one of ``ref_types``."""
+        adapter and (plan) is one of ``ref_types`` -- a gridline-hosted block
+        never (PB1: hidden in plan, it rides its gridline, H1)."""
         if adapter_for(it) is None:
             return False
-        return self.ref_types is None or isinstance(it, self.ref_types)
+        if self.ref_types is None:
+            return True
+        return isinstance(it, self.ref_types) and not (_is_block(it) and it.host)   # PB1
 
     def items(self) -> list:
         """Every scene item that can carry a constraint (has an adapter)."""
@@ -2997,7 +3029,7 @@ class ConstraintController:
         except RuntimeError:
             return None
         # Slice 2: in plan the "lines" are walls (centerline) and gridlines.
-        line_types = (LineItem,) if self.block_editor else tuple(self.ref_types or ())
+        line_types = (LineItem,) if self.block_editor else _plan_line_types()
         if (ctype in ("horizontal", "vertical", "dim_distance")   # CS6 R3 / CS7 / CS8
                 and len(sel) == 1 and isinstance(sel[0], line_types)
                 and getattr(sel[0], "_uid", None) is not None):
@@ -3276,9 +3308,12 @@ class ConstraintController:
         self._commit_gen += 1
 
     def primitive_uids(self) -> set:
-        """Uids of EVERY editor primitive, adapter-backed or not (spline)."""
+        """Uids of EVERY editor primitive, adapter-backed or not (spline); in
+        plan the walls, gridlines and unhosted blocks (``plan_ref_uids``)."""
+        if not self.block_editor:
+            return plan_ref_uids(self._scene)
         out = set()
-        for attr in (_PRIMITIVE_LISTS if self.block_editor else _PLAN_PARTICIPATING):
+        for attr in _PRIMITIVE_LISTS:
             out.update(getattr(it, "_uid", None) for it in getattr(self._scene, attr, ()))
         out.discard(None)
         return out

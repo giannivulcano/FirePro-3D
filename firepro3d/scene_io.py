@@ -33,7 +33,7 @@ log = logging.getLogger("FirePro3D")
 
 def _plan_record_resolves(rec, uids) -> bool:
     """Editor/Build slice 2 (C8 exception): whether every ref of constraint
-    record *rec* names a loaded wall / gridline uid (no loose geometry). The
+    record *rec* names a loaded wall / gridline / unhosted block uid (``plan_ref_uids``) (no loose geometry). The
     one ground allowed is the seed's origin tie (smoke ruling 2026-10-28):
     ``coincident`` [origin, p1]; every other ground stays Block-Editor
     only."""
@@ -514,12 +514,12 @@ class SceneIOMixin:
         # so the migration block is dropped — those entries clean-drop too.
 
         # --- Constraints (editor-build slice 2, containment C8 exception):
-        # records whose refs all resolve to a loaded wall / gridline are
+        # records whose refs all resolve to a loaded wall / gridline / level-scoped block are
         # adopted and solved (ctl.load -- an unknown type stays inert, s6.4);
         # every other record is dropped and counted below (G9: a legacy file
         # loads with none).
-        _plan_uids = ({w._uid for w in self._walls}
-                      | {g._uid for g in self._gridlines})
+        from .constraint_controller import plan_ref_uids
+        _plan_uids = plan_ref_uids(self)       # walls, gridlines, unhosted blocks (PB1)
         _cons_in = payload.get("constraints")
         if not isinstance(_cons_in, list):
             _cons_in = []
