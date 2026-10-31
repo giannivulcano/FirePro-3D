@@ -226,3 +226,31 @@ def test_g5_tag_row_pick_is_one_undo_step(qapp):
     assert p2.tag_block is None
     ms.redo()
     assert ms.sprinkler_system.pipes[0].tag_block == d.id
+
+
+# ---- Task 9: paper pass (D10; G7, AC7) ----
+from tests.test_sb3_paper import TAG_MM, _export, _text_height  # noqa: E402
+
+
+@pytest.mark.parametrize("scale", [0.02, 0.005])          # 1:50, 1:200
+def test_g7_pdf_pipe_label_cap_height_is_the_authored_mm(qapp, tmp_path, scale):
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    save_paper_color_mode(PaperColorMode.BW)
+    ms = _scene()
+    p = _pipe(ms, -1.0e6, 0.0, 1.0e6, 0.0)                 # nodes far outside the viewport
+    p.set_property("Mark", "H")                             # cap-height glyph, no ascender
+    _pipe_def(ms, texts=(("@[Mark]", -1.5, False),))
+    p.update_label()
+    h = _text_height(_export(tmp_path, ms, scale, f"p{int(1 / scale)}.pdf"))
+    assert abs(h - TAG_MM) < 0.3, h
+    assert p.label._paper_scale is None                     # restored after the pass
+
+
+def test_ac7_dm_pipe_colour_does_not_tint_the_label(qapp):
+    from firepro3d.display_manager import _apply_pipe
+    ms = _scene()
+    p = _pipe(ms)
+    _pipe_def(ms)
+    before = [op.colour for op in p.label._ops(1.0)]
+    _apply_pipe(p, "#ff00ff", 1.0, 100, True)
+    assert [op.colour for op in p.label._ops(1.0)] == before
