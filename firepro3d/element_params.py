@@ -161,6 +161,17 @@ def _hr_get(item, field: str, key):
     return getattr(hr, field).get(key) if hr is not None else None
 
 
+def _pipe_hr(field: str):
+    """T3 pipe result getter: None when the solve did not reach the pipe or
+    gave it no flow (E7; zero flow = blank, SB4a D8)."""
+    def get(p):
+        hr = _hr(p)
+        if hr is None or not hr.pipe_flows.get(p):
+            return None
+        return getattr(hr, field).get(p)
+    return get
+
+
 def _level_number_getter():
     """Getter for ``Level.Number``: the stored number of the item's level."""
     def get(item):
@@ -314,9 +325,9 @@ _TABLE = {
         _P("CFactor", "number", 1, lambda p: float(_prop(p, "C-Factor")), "C-factor"),
         _P("Length", "length", 2, _pipe_length),
         _P("InnerDiameter", "pipe_id", 2, lambda p: p.get_inner_diameter(), "Inner diameter"),
-        _P("Flow", "flow", 3, lambda p: _hr_get(p, "pipe_flows", p)),
-        _P("Velocity", "velocity", 3, lambda p: _hr_get(p, "pipe_velocity", p)),
-        _P("FrictionLoss", "pressure", 3, lambda p: _hr_get(p, "pipe_friction_loss", p),
+        _P("Flow", "flow", 3, _pipe_hr("pipe_flows")),
+        _P("Velocity", "velocity", 3, _pipe_hr("pipe_velocity")),
+        _P("FrictionLoss", "pressure", 3, _pipe_hr("pipe_friction_loss"),
            "Friction loss"),
         *_level_keys(_pipe_level),
     ],

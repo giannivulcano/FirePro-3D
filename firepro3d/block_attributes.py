@@ -116,6 +116,11 @@ def has_fields(text: str) -> bool:
     return bool(text) and TOKEN_RE.search(text) is not None
 
 
+def field_keys(text: str) -> list[str]:
+    """The ``@[key]`` keys in *text*, in order (duplicates kept)."""
+    return [m.group(1) for m in TOKEN_RE.finditer(text or "")]
+
+
 def resolve_fields(text: str, values: dict) -> tuple[str, list[str]]:
     """``resolve_text`` by another name: (resolved, unknown keys)."""
     return resolve_text(text, values)
@@ -170,6 +175,75 @@ def unknown_tokens(prims: list, attrs: list) -> list[str]:
             if k not in known and k not in out:
                 out.append(k)
     return out
+
+
+def blank_keys(attrs: list, instance_values: dict, host_values: dict | None) -> frozenset:
+    """Host-sourced attribute keys whose raw value is None (no instance
+    override, no host value or a None one) -- 'empty' for Hide when empty."""
+    out = set()
+    for rec in attrs:
+        if rec.get("source") != "host" or rec["key"] in instance_values:
+            continue
+        hv = (host_values or {}).get(rec.get("host_key"))
+        if hv is None or getattr(hv, "raw", hv) is None:
+            out.add(rec["key"])
+    return frozenset(out)
+
+
+def collapse_shifts(boxes: list) -> list:
+    """Hide-when-empty layout (SB4a D7). *boxes*: ``(top, bottom, dropped)``
+    in definition-local y, origin 0. Returns per box None (dropped) or the y
+    shift toward the origin: each kept box beyond a dropped one on the same
+    side of the origin (by centre) moves in by that box's slot -- its near
+    edge to the near edge of the next box beyond it. A box centred on the
+    origin closes nothing."""
+    def side(b):
+        c = (b[0] + b[1]) / 2.0
+        return 0 if abs(c) < 1e-9 else (1 if c > 0 else -1)
+
+    def near(b, s):
+        return b[0] if s > 0 else -b[1]           # distance-like, grows away
+
+    out = []
+    for b in boxes:
+        if b[2]:
+            out.append(None)
+            continue
+        s = side(b)
+        shift = 0.0
+        if s:
+            for d in boxes:
+                if not d[2] or side(d) != s or near(d, s) >= near(b, s):
+                    continue
+                beyond = [near(o, s) for o in boxes
+                          if o is not d and side(o) == s and near(o, s) > near(d, s)]
+                if beyond:
+                    shift += min(beyond) - near(d, s)
+        out.append(-s * shift)
+    return out
+
+
+def hide_empty_shifts(entries: list, blank: frozenset) -> list:
+    """Per ``(prim, transform)`` entry: None when the prim is dropped (Hide
+    when empty, every field blank), else its y shift (SB4a D6/D7) -- the one
+    rule ``bound_text_ops`` draws and ``block_explode`` explodes by.
+
+    The boxes are each prim's authored box (round its placeholder) mapped
+    through its definition-local transform; they are built only when
+    something drops, so the common case costs a set test per prim."""
+    drop = []
+    for prim, _t in entries:
+        keys = field_keys(str(prim.get("text", "")))
+        drop.append(bool(prim.get("hide_empty")) and bool(keys) and set(keys) <= blank)
+    if not any(drop):
+        return [0.0] * len(entries)
+    from .text_item import TextItem
+    boxes = []
+    for (prim, t), dropped in zip(entries, drop):
+        item = TextItem.from_dict(prim)
+        r = t.mapRect(item.mapToParent(item._box_rect_local()).boundingRect())
+        boxes.append((r.top(), r.bottom(), dropped))
+    return collapse_shifts(boxes)
 
 
 @dataclass(frozen=True)
@@ -287,7 +361,8 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
         return [], None
     values = resolve_values(defn.effective_attributes(), attributes, host_values)
     strings = tuple(resolve_fields(str(b.prim.get("text", "")), values)[0] for b in bps)
-    key = (strings, bool(mirrored), float(f"{scale:.9g}"), ov_args)
+    blank = blank_keys(defn.effective_attributes(), attributes, host_values)
+    key = (strings, blank, bool(mirrored), float(f"{scale:.9g}"), ov_args)
     if cache is not None and cache[0] is bps and cache[1] == key:
         return cache[2], cache
     from PyQt6.QtGui import QTransform
@@ -296,8 +371,11 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
     from .render_op import TEXT, RenderOp, apply_overrides
     from .text_item import TextItem
     sm = pose_matrix(0.0, 0.0, 0.0, bool(mirrored), scale)
+    shifts = hide_empty_shifts([(b.prim, b.transform) for b in bps], blank)
     out = []
-    for b, s in zip(bps, strings):
+    for b, s, dy in zip(bps, strings, shifts):
+        if dy is None:
+            continue                                 # Hide when empty (D6): glyphs, border, fill
         rec = dict(hugged_text_record(b.prim, s))   # hug round the value, then bind it
         rec["text"] = s
         item = TextItem.from_dict(rec)
@@ -306,7 +384,7 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
         op = RenderOp(TEXT, path, colour=item.data.color,
                       text_frame=(centre.x(), centre.y(), float(item._angle)),
                       readable=bool(rec.get("keep_upright", False)))
-        t = b.transform * sm
+        t = b.transform * QTransform.fromTranslate(0.0, dy) * sm
         under, over = text_box_ops(item, QTransform())
         out += [o.mapped(t) for o in under]
         out.append(op.mapped(t))

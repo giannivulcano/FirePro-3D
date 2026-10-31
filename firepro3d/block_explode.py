@@ -10,7 +10,8 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
-from .block_attributes import hugged_text_record, resolve_fields, resolve_values
+from .block_attributes import (blank_keys, has_fields, hide_empty_shifts,
+                               hugged_text_record, resolve_fields, resolve_values)
 from .block_definition import _nested_pose, is_scaffold
 from .annotative import model_factor
 from .block_pose import is_upright, pose_matrix, valid_scale
@@ -242,6 +243,13 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                                   inst.host_values())
         else:
             vals = values
+        # Hide when empty (D6/D7): the drawn rule, over the top-level bound texts.
+        bound_i = [i for i, r in enumerate(d.primitives)
+                   if r.get("type") == _TEXT_TYPE
+                   and (has_fields(str(r.get("text", ""))) or r.get("keep_upright"))]
+        shift_of = dict(zip(bound_i, hide_empty_shifts(
+            [(d.primitives[i], QTransform.fromTranslate(-ox, -oy)) for i in bound_i],
+            blank_keys(d.effective_attributes(), inst.attributes, inst.host_values()))))
         for i, rec in enumerate(d.primitives):
             key = record_key(rec, i)
             if rec.get("type") == _NESTED_TYPE:
@@ -278,8 +286,12 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 # Bound text explodes to the box it was drawn in: the hugged
                 # record (box re-fit round the value, re-anchored), then the
                 # value substituted -- the same shape bound_text_ops renders.
+                dy = shift_of.get(i, 0.0)
+                if dy is None:
+                    continue                  # Hide when empty: dropped, as drawn
                 value = resolve_fields(str(rec.get("text", "")), vals)[0]
                 rec = dict(hugged_text_record(rec, value))
+                rec["y"] = rec.get("y", 0.0) + dy
                 rec["text"] = value
                 keep = bool(rec.pop("keep_upright", False))
                 c_def = _text_centre(rec)
