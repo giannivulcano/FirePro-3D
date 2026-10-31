@@ -1111,8 +1111,6 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: found 2026-09-24 (snap-polish G2 review S2). `paint_snap_indicator` trace (snapping-engine §9.2.1) has no TextItem branch, so snapping to a text corner/mid/centre shows the marker but no box trace. Add a branch drawing the rotated frame polygon. `snap_engine.py`.
 - [ ] [type:feature] ALIGN crossings dwell-acquirable [P3] [subject:CAD]
   - Details: found 2026-09-24 (snap-polish 1b, S5) — the dwell machine is fed only the real snap result, so an ALIGN crossing (align_intersection) can't itself be acquired. `align_controller.py`, `model_space.py`. ref: align-placement.
-- [ ] [type:bug] `_align_snap_dict` id collision for source-less points [P3] [subject:CAD]
-  - Details: found 2026-09-24 (snap-polish 1b, S5) — points with no source item get `hash(snap_type)` as id, so two of the same type collide (acquire/hysteresis identity). `model_space.py`.
 - [ ] [type:design] Roof placement has no governing spec section [P3] [subject:Docs]
   - Details: found 2026-09-24 (snap-polish Task 13). Roof polygon/rect placement (click flow, close → RoofDialog, Ctrl, HUD absence — `_move_roof` publishes no placement state) is described nowhere; forge a section in `wall-room-floor-system.md` (orphan-gate on next roof touch).
 - [ ] [type:bug] Spline endpoint snaps include off-curve interior control points [P3] [subject:CAD]

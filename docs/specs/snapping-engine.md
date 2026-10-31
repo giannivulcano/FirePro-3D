@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-24  # wall polish Account (s5 WallSegment row + notes 3/4, s5 eligibility rule z-exemption, s8.3 WallSegment row: walls supply targets via the snap_geometry() hook); prior 2026-10-20  # HF3 Account (s5 FilledRegionItem row + note 13: _collect walks the region's pieces); prior 2026-10-16 AC1 Account (§3 "Snaps as constraints" pointer only -- engine unchanged); prior 2026-10-15 NB Account (note 12 pointer: posed_primitives paths=True consumer); prior block-primitive-snap Account: §4 END/CEN rows + §5 BlockInstance row (full parity) + note 12 (posed stand-ins, block = source, coincident-origin ruling) + §6.1 phase 1 / phase 4 block branches + _item_segments; prior block-origin snap Account: §6.1 Phase 1 block-origin registry pass + §5 BlockInstance row; prior block mirror/scale Account (pointer only: §5 BlockInstance row reads the posed render_ops() + full_pose_transform() text boxes); prior CS4 Account: §3.3 pick modes (Flip/Mirror, constrain_*) take no cursor snap; prior CS1 Account: origin snap source = the fixed (0,0) cross only (Block Editor red insertion marker + block_origin_marker tag retired, D4); prior 2026-10-01 scene-tools P1 batch Account: one eligibility rule (is_snap_target), origin snap kind, periodic-spline endpoints; prior 2026-09-30 (blockquote impl notes below)
-verified-commit: 63a86f02   # wall polish (feature/wall-polish code tip); prior 66880197   # merge feat/hf3-filled-region (HF3 region branch); prior ebd7dc0c AC1 Account (pointer only); prior b62aab92 NB Account (pointer only); prior 5e4948d6 merge feat/block-primitive-snap; prior 485b6ee0 fix(snap) block origin off-geometry (main); prior fb928260 feat/block-instance-mirror-scale (pointer only); prior 8c36a10 feat/cs4-smart-dimension; prior 2a22ba9 feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 345f1b7
+last-verified: 2026-10-31  # axis-snap Account (s4 intro, new s4.2 Block Editor axes, s5 axis row); prior 2026-10-24  # wall polish Account (s5 WallSegment row + notes 3/4, s5 eligibility rule z-exemption, s8.3 WallSegment row: walls supply targets via the snap_geometry() hook); prior 2026-10-20  # HF3 Account (s5 FilledRegionItem row + note 13: _collect walks the region's pieces); prior 2026-10-16 AC1 Account (§3 "Snaps as constraints" pointer only -- engine unchanged); prior 2026-10-15 NB Account (note 12 pointer: posed_primitives paths=True consumer); prior block-primitive-snap Account: §4 END/CEN rows + §5 BlockInstance row (full parity) + note 12 (posed stand-ins, block = source, coincident-origin ruling) + §6.1 phase 1 / phase 4 block branches + _item_segments; prior block-origin snap Account: §6.1 Phase 1 block-origin registry pass + §5 BlockInstance row; prior block mirror/scale Account (pointer only: §5 BlockInstance row reads the posed render_ops() + full_pose_transform() text boxes); prior CS4 Account: §3.3 pick modes (Flip/Mirror, constrain_*) take no cursor snap; prior CS1 Account: origin snap source = the fixed (0,0) cross only (Block Editor red insertion marker + block_origin_marker tag retired, D4); prior 2026-10-01 scene-tools P1 batch Account: one eligibility rule (is_snap_target), origin snap kind, periodic-spline endpoints; prior 2026-09-30 (blockquote impl notes below)
+verified-commit: f813c90e   # axis-snap (feat/axis-snap tip, fast-forwarded to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior 66880197   # merge feat/hf3-filled-region (HF3 region branch); prior ebd7dc0c AC1 Account (pointer only); prior b62aab92 NB Account (pointer only); prior 5e4948d6 merge feat/block-primitive-snap; prior 485b6ee0 fix(snap) block origin off-geometry (main); prior fb928260 feat/block-instance-mirror-scale (pointer only); prior 8c36a10 feat/cs4-smart-dimension; prior 2a22ba9 feat/cs1-constraint-foundation; prior c8ff4f4 feat/scene-tools-p1-batch; prior 345f1b7
 applies-to:
   - firepro3d/snap_engine.py
   - firepro3d/model_view.py
@@ -132,7 +132,7 @@ Revit solves this by making targets **named** ("centerline-end-A", "face-left-co
 
 ## 4. Snap type catalog
 
-Eight **toggleable** snap types are defined today, plus the non-toggle `origin` kind (§4.1). Status reflects the engine's current behavior, not the target.
+Eight **toggleable** snap types are defined today, plus the non-toggle `origin` kind (§4.1); the Block Editor's X / Y axes produce `nearest` / `perpendicular` candidates of their own (§4.2). Status reflects the engine's current behavior, not the target.
 
 | Type | Marker | Color | AutoCAD short | Priority | Produced by | Status |
 |---|---|---|---|---|---|---|
@@ -156,6 +156,15 @@ Eight **toggleable** snap types are defined today, plus the non-toggle `origin` 
 - **Handle snap.** `HandleSnapSession` adds the origin points as `origin` targets (`HANDLE_TYPES` includes the kind) — behaviour owned by [`selection-manipulator.md`](selection-manipulator.md) "Move — handle snap".
 - **Known gap (filed):** with vertex 0 of a closing polyline/spline 8–12 px from (0,0) the origin snap beats the close ring, so the click adds a vertex at the origin instead of closing.
 
+### 4.2 Block Editor X / Y axes (axis-snap, 2026-10-31)
+
+- **Sources.** In a scene with `scene_role == "block_editor"` only (Block Editor and Schematic tabs; the plan scene paints no axes, `parametric-constraint-system.md` design §2), the X and Y axes through each §4.1 origin point are **infinite edges** (`SnapEngine._axis_lines`). `x_axis` is the scene line y = origin.y, `y_axis` the line x = origin.x (names = `sketch_model.AXIS_DIRS` keys).
+- **Kinds — no new kind.** Each axis offers a `nearest` cursor foot (unclamped) and, with a placement start point (`find(from_point=)`), a `perpendicular` foot from that point (omitted when the start lies on the axis) — `SnapEngine._axis_feet`. They obey the NEA / PER toggles and F3, ride the normal priority-band picker, and are checked right after the origin pass. A result is **source-less**, `name` = the axis; `snap_engine.axis_snap_name(result)` is the one test for "this snap lies on an axis".
+- **Real geometry wins.** An axis foot on a point the current best real (item-sourced) candidate already holds (within `_ORIGIN_COINCIDE_EPS`) is skipped (`_real_at`), so geometry drawn on an axis keeps the snap and its trace.
+- **Offset (scene-tools D9).** `find(axis_source=)` names Offset's armed source; an axis the source is collinear with (every point snap of it, gathered with all point toggles forced on, lies on the axis — `_collinear_axes`) gives no snap there, since it *is* the source. Passed only in mode `offset_side` (user ruling 2026-10-31).
+- **Cue.** The standard NEA ✕ / PER ∟ marker, oriented along the axis (`snap_tangent_deg`), and the snapped axis is drawn solid in that snap type's `SNAP_COLORS` colour by `constraint_paint._paint_axes` (the other axis stays muted dashed); no source-item trace.
+- **Consumers.** `auto_constrain.resolve_snap` → an edge target on the axis ground (`parametric-constraint-system.md` §13); `Model_Space._align_snap_dict` → one ALIGN dwell identity + direction per axis. `HandleSnapSession` (Move destination) stays point-only, as it is for edges; grip drags and the Move base click get axis snaps through `find()`.
+
 ---
 
 ## 5. Item type × snap type matrix
@@ -171,6 +180,7 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 |---|---|---|---|---|---|---|---|---|
 | `LineItem` | ✓ | ✓ | ✓ (via phase 4) | N/A | N/A | ✓ | N/A | ✓¹ |
 | `GridlineItem` | ✓ | ✓ | ✓ (phase 2 + 4) | N/A | N/A | ✓ | N/A | ✓¹ |
+| Block Editor X / Y axis (source-less, §4.2) | N/A | N/A | N/A | N/A | N/A | ✓ (from a start point) | N/A | ✓ (unclamped) |
 | Generic `QGraphicsLineItem` (`Pipe`) | ✓ | ✓ | ✓ (phase 4) | N/A | N/A | ✓ | N/A | ✓¹ |
 | `RectangleItem` | ✓ (corners) | ✓ (edge centers) | ✓ (phase 4) | ✓ | N/A | ✓ | N/A | ✓¹ |
 | `QGraphicsEllipseItem` (full circle — `CircleItem`) | N/A | N/A | ✓ (phase 4 vs segments) | ✓ | ✓ | ✓ | ✓ | ✓¹ |
