@@ -46,6 +46,7 @@ from .block_instance import BlockInstance
 from .render_op import STROKE
 from .capability_frame import CAPABILITY_FRAME_TAG
 from .constants import ELEV_Z_SNAPPABLE_CLASSES
+from .sketch_model import AXIS_DIRS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -199,6 +200,20 @@ def snap_glyph_type(snap_result) -> str:
     return t
 
 
+def axis_snap_name(snap_result) -> str | None:
+    """The block-origin axis a snap lies on (``"x_axis"`` / ``"y_axis"``), else None.
+
+    Axis snaps (§4.2, Block Editor / Schematic scenes only) are source-less
+    ``nearest`` / ``perpendicular`` results named after the axis.
+    """
+    if snap_result is None or getattr(snap_result, "source_item", None) is not None:
+        return None
+    name = getattr(snap_result, "name", None)
+    if snap_result.snap_type in ("nearest", "perpendicular") and name in AXIS_DIRS:
+        return name
+    return None
+
+
 def _seg_dist_sq(p: QPointF, a: QPointF, b: QPointF) -> float:
     """Squared distance from *p* to segment a→b."""
     dx, dy = b.x() - a.x(), b.y() - a.y()
@@ -244,6 +259,10 @@ def snap_tangent_deg(snap_result) -> float | None:
     lines = getattr(snap_result, "source_lines", None)
     if lines:
         return _nearest_seg_deg(p, ((ln.p1(), ln.p2()) for ln in lines))
+    axis = axis_snap_name(snap_result)
+    if axis is not None:
+        dx, dy = AXIS_DIRS[axis]
+        return math.degrees(math.atan2(dy, dx))
     src = getattr(snap_result, "source_item", None)
     if src is None:
         return None
@@ -907,6 +926,15 @@ class SnapEngine:
         for p in ctx.origin_pts:
             ctx.check("origin", p, None)
 
+        # Block-origin axes (§4.2): the editor's X / Y axes through the origin
+        # as infinite edges -- NEA cursor foot and PER-from foot, gated by those
+        # toggles; source-less, named "x_axis" / "y_axis". A foot on a point a
+        # real candidate already holds is skipped (geometry on an axis keeps it).
+        for name, o in self._axis_lines(scene, ctx.origin_pts):
+            for kind, p in self._axis_feet(name, o, cursor_scene, from_point):
+                if not self._real_at(ctx, p):
+                    ctx.check(kind, p, None, name)
+
         # Phase 2 — Gridline-to-gridline intersections
         gl_items = [gl for gl in getattr(scene, "_gridlines", [])
                      if gl.isVisible() and (exclude is None or gl is not exclude)
@@ -1116,6 +1144,42 @@ class SnapEngine:
                        for q in pts):
                 pts.append(QPointF(p))
         return pts
+
+    @staticmethod
+    def _axis_lines(scene: QGraphicsScene, origin_pts) -> list[tuple[str, QPointF]]:
+        """``(axis name, origin)`` pairs offered as axis snaps (§4.2): the X / Y
+        axes through each origin point, in Block Editor scenes only (the plan
+        scene paints no axes -- parametric-constraint-system design §2)."""
+        if getattr(scene, "scene_role", None) != "block_editor":
+            return []
+        return [(name, o) for o in origin_pts for name in AXIS_DIRS]
+
+    def _axis_feet(self, name: str, o: QPointF, cursor: QPointF,
+                   from_point: QPointF | None) -> list[tuple[str, QPointF]]:
+        """NEA (cursor foot) and PER (foot from *from_point*) on axis *name*
+        through *o*. The axis is infinite, so neither foot is clamped; PER is
+        omitted when *from_point* lies on the axis (undefined)."""
+        horiz = name == "x_axis"
+
+        def foot(p: QPointF) -> QPointF:
+            return QPointF(p.x(), o.y()) if horiz else QPointF(o.x(), p.y())
+
+        out: list[tuple[str, QPointF]] = []
+        if self.snap_perpendicular and from_point is not None:
+            off = abs(from_point.y() - o.y()) if horiz else abs(from_point.x() - o.x())
+            if off >= _EPS_COINCIDENT:
+                out.append(("perpendicular", foot(from_point)))
+        if self.snap_nearest:
+            out.append(("nearest", foot(cursor)))
+        return out
+
+    @staticmethod
+    def _real_at(ctx: "_SnapCtx", p: QPointF) -> bool:
+        """Whether the current best is a real (item-sourced) candidate on *p*."""
+        b = ctx.best_result
+        return (b is not None and b.source_item is not None
+                and abs(b.point.x() - p.x()) <= _ORIGIN_COINCIDE_EPS
+                and abs(b.point.y() - p.y()) <= _ORIGIN_COINCIDE_EPS)
 
     def _check_gridline_intersections(self, ctx: "_SnapCtx",
                                        gl_items: list):
