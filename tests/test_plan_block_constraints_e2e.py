@@ -132,3 +132,26 @@ def test_g6_hosted_block_takes_no_part_rides_its_gridline_and_drops_on_load(
     ids = [c.id for c in mw.scene.constraint_ctl.constraints]
     assert "on_hosted" not in ids and len(ids) == n_saved
     assert any("Clean-drop: discarded 1 " in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("screen", ["scale", "fixed"])
+def test_g7_annotative_block_offers_ins_only(mw, pb, qapp, screen):
+    """PB2 / AC1: Scale with zoom and Fixed size alike -> pick offers ``ins``
+    only; a child-handle record is refused, an ``ins`` record solves.
+    RED: ``_ins_only`` returning False (``return False`` for its last line)."""
+    sc, _view = pb
+    d = snap_def(sc)
+    d.scale_mode, d.annotative_screen = "annotative", screen
+    inst = _block(sc, d, (1000.0, 0.0))
+    qapp.processEvents()
+    ctl = sc.constraint_ctl
+    ctl.begin_pick("coincident")
+    got = sorted(r["h"] for _k, r, _a, _b in ctl.pick._candidates()
+                 if isinstance(r, dict) and r.get("uid") == inst._uid)
+    ctl.cancel_pick()
+    assert got == ["ins"]
+    w = _wall(sc, (0.0, -1500.0), (4000.0, -1500.0))
+    assert ctl.add("coincident", [{"uid": inst._uid, "h": "u0:p1"},
+                                  {"uid": w._uid, "h": "p1"}]) is None
+    c = ctl.add("coincident", [{"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "p1"}])
+    assert c is not None and c.id in {x.id for x in ctl.active()}

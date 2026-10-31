@@ -3142,7 +3142,8 @@ class ConstraintController:
         if (self.ref_types is not None
                 and not isinstance(target, ConstraintAdapter)
                 and not self.can_ref(target)):
-            return None                  # plan: only adapted walls / gridlines carry a section
+            return None                  # plan: only adapted walls / gridlines /
+            #                              unhosted blocks carry a section
         if isinstance(target, ConstraintAdapter):
             c = target.c
             if c is None:

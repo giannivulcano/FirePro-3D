@@ -127,3 +127,42 @@ def test_load_keeps_block_records_and_drops_hosted_ones(sc, tmp_path, caplog):
         assert any("Clean-drop: discarded 1 " in r.getMessage() for r in caplog.records)
     finally:
         b.cleanup()
+
+
+# ── Task 3: annotative = ins only (PB2) ─────────────────────────────────────
+
+def _cands(ctl, uid):
+    from firepro3d.constraint_controller import PickState
+    pk = PickState(ctl, "coincident")
+    return sorted(r["h"] for _k, r, _a, _b in pk._candidates()
+                  if isinstance(r, dict) and r.get("uid") == uid)
+
+
+def test_a_definition_turning_annotative_makes_child_handle_records_inert(sc):
+    d = snap_def(sc)
+    w = wall(sc, (0, -1500), (4000, -1500))
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("dim_point_line", [{"uid": inst._uid, "h": "u0:p1"}, {"uid": w._uid, "h": "edge"}])
+    k = ctl.add("dim_point_line", [{"uid": inst._uid, "h": "ins"}, {"uid": w._uid, "h": "edge"}])
+    assert c is not None and k is not None
+    assert "u0:p1" in _cands(ctl, inst._uid)
+    d.scale_mode = "annotative"
+    ids = [x.id for x in ctl.active()]
+    assert c.inert and c.invalid and c.id not in ids
+    assert k.id in ids and not k.inert
+    assert _cands(ctl, inst._uid) == ["ins"]
+    recs = [r for r in ctl.to_records() if r["id"] == c.id]
+    assert recs[0]["refs"][0] == {"uid": inst._uid, "h": "u0:p1"}   # verbatim
+
+
+def test_annotative_nested_instance_in_the_block_editor_keeps_its_handles(qapp):
+    be = Model_Space(scene_role="block_editor")
+    try:
+        d = snap_def(be)
+        d.scale_mode = "annotative"
+        inst = be.place_block_instance(d.id, (40.0, 20.0))
+        hs = _cands(be.constraint_ctl, inst._uid)
+        assert "ins" in hs and "u0:p1" in hs
+    finally:
+        be.cleanup()

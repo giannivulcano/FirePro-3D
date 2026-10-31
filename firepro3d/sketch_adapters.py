@@ -858,6 +858,18 @@ def _nested_table(inst) -> _NestedHandles:
     return t
 
 
+def _ins_only(it) -> bool:
+    """PB2: a block placed in the plan scene whose definition is annotative
+    (Scale with zoom and Fixed size alike) offers its insertion point only --
+    its printed size follows the drawing scale / zoom, so a child handle has
+    no stable model position. Block Editor nested instances never (k = 1)."""
+    sc = it.scene()
+    if sc is None or getattr(sc, "scene_role", None) != "plan":
+        return False
+    from .annotative import is_annotative
+    return is_annotative(it.definition())   # PB2
+
+
 class _NestedAdapter(_Adapter):
     """Nested block instance: vars x y th (th = Y-up CCW radians, an angle
     var -- NB1); ``ins`` raw + every child handle of the local table posed
@@ -880,9 +892,10 @@ class _NestedAdapter(_Adapter):
         return "ins"
 
     def struct_key(self, it):
-        # id(ops) is stable because _nested_handles_cache holds the ops list alive
+        # id(ops) is stable because _nested_handles_cache holds the ops list alive;
+        # _ins_only (PB2) changes the handle set without changing the ops
         return (self.type_key, 3, id(it.render_ops()),
-                bool(it.block_mirrored()), float(it.block_scale()))
+                bool(it.block_mirrored()), float(it.block_scale()), _ins_only(it))
 
     @staticmethod
     def _posed(off, uv):
@@ -892,30 +905,38 @@ class _NestedAdapter(_Adapter):
 
     def points(self, it, off):
         out = {"ins": raw_point(off, off + 1)}
+        if _ins_only(it):
+            return out
         for name, uv in _nested_table(it).points.items():
             out[name] = self._posed(off, uv)
         return out
 
     def edges(self, it, off):
+        if _ins_only(it):
+            return {}
         return {name: (self._posed(off, a), self._posed(off, b))
                 for name, (a, b) in _nested_table(it).edges.items()}
 
     def curves(self, it, off):
+        if _ins_only(it):
+            return {}
         return {name: CurveExpr(center=self._posed(off, c), r=None, r_const=r)
                 for name, (c, r) in _nested_table(it).curves.items()}
 
     def mid_names(self, it):
-        return frozenset(_nested_table(it).mids)
+        return frozenset() if _ins_only(it) else frozenset(_nested_table(it).mids)
 
     def hidden_names(self, it):
-        return frozenset(_nested_table(it).hidden)
+        return frozenset() if _ins_only(it) else frozenset(_nested_table(it).hidden)
 
     def circle_curves(self, it):
-        return frozenset(_nested_table(it).circles)
+        return frozenset() if _ins_only(it) else frozenset(_nested_table(it).circles)
 
     def handle_kind(self, it, h):
         if h == "ins":
             return "point"
+        if _ins_only(it):
+            return None
         t = _nested_table(it)
         if h in t.points:
             return "point"
