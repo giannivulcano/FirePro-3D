@@ -118,3 +118,25 @@ def test_paste_reattaches_and_translates_voids(qapp, shown_model_view):
     assert cop is not op and cop.host is copy and cop.scene() is scene
     assert _xy(cop.points) == [(x, y + 5000) for x, y in _VOID]     # rides the offset
     assert _xy(op.points) == _VOID and slab.openings == [op]        # source untouched
+
+
+def _holes(slab):
+    return [len(holes) for _outer, holes in slab.cut_region()]
+
+
+def test_delete_lone_void_then_undo_restores_the_hole(qapp, model_scene):
+    scene = model_scene()
+    slab, op = _slab_with_void(scene)
+    assert _holes(slab) == [1]
+    scene.push_undo_state()
+    scene.delete_items([op])
+    assert slab.openings == [] and op.scene() is None
+    assert _voids_in(scene) == []
+    # region equals the void-less slab: one ring, no holes, the slab outline
+    (outer, holes), = slab.cut_region()
+    assert holes == [] and _xy(outer) == _xy(_rect(0, 0, 4000, 3000))
+    scene.undo()
+    (s,) = scene._floor_slabs
+    (o,) = s.openings
+    assert o.host is s and o.scene() is scene and o in _voids_in(scene)
+    assert _holes(s) == [1]
