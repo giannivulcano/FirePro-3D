@@ -34,7 +34,8 @@ from .geometry_2d import (
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
-from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult
+from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult, axis_snap_name
+from .sketch_model import AXIS_DIRS
 from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
@@ -4381,6 +4382,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """
         if res is None:
             return None
+        axis = axis_snap_name(res)
+        if axis is not None:        # §4.2: one identity + direction per axis, wherever the foot slides
+            return {"point": (res.point.x(), res.point.y()),
+                    "snap_type": res.snap_type,
+                    "source_id": hash(("axis", axis)),
+                    "direction": AXIS_DIRS[axis]}
         src = getattr(res, "source_item", None)
         source_id = (id(src) if src is not None else
                      hash((res.snap_type, round(res.point.x(), 3),

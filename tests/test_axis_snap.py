@@ -181,3 +181,40 @@ def test_line_and_axis_record_are_one_undo_step(vs):
     assert len(sc.constraint_ctl.constraints) == 1
     sc.undo(); QApplication.processEvents()
     assert len(sc._draw_lines) == n_lines and sc.constraint_ctl.constraints == []
+
+
+# ── Task 3: cue + ALIGN identity ─────────────────────────────────────────
+
+def _count_colour(view, scene_pt, hexcol, half=3):
+    """Pixels of exactly *hexcol* in a box around *scene_pt* (device px)."""
+    view.viewport().repaint()
+    img = view.viewport().grab().toImage()
+    dpr = img.devicePixelRatio()
+    vp = view.viewportTransform().map(scene_pt)
+    want = QColor(hexcol).rgb()
+    cx, cy = int(round(vp.x() * dpr)), int(round(vp.y() * dpr))
+    h = int(math.ceil(half * dpr))
+    return sum(1 for x in range(cx - h, cx + h + 1) for y in range(cy - h, cy + h + 1)
+               if 0 <= x < img.width() and 0 <= y < img.height()
+               and img.pixel(x, y) == want)
+
+
+def test_snapped_axis_draws_solid_in_the_snap_colour(vs):
+    view, sc = vs
+    sc.set_mode("draw_line")
+    move(view, QPointF(150, 200)); click(view, QPointF(150, 200))
+    move(view, QPointF(3, 196))                         # PER on the Y axis (magenta)
+    assert sc._snap_result.name == "y_axis"
+    far = QPointF(0, -200)                              # on the Y axis, far from the marker
+    assert _count_colour(view, far, SNAP_COLORS["perpendicular"]) > 0
+    move(view, QPointF(200, -150))                      # off every snap
+    assert _count_colour(view, far, SNAP_COLORS["perpendicular"]) == 0
+
+
+def test_align_dwell_identity_is_one_per_axis(vs):
+    view, sc = vs
+    a = sc._align_snap_dict(OsnapResult(QPointF(100, 0), "nearest", name="x_axis"))
+    b = sc._align_snap_dict(OsnapResult(QPointF(250, 0), "nearest", name="x_axis"))
+    y = sc._align_snap_dict(OsnapResult(QPointF(0, 40), "nearest", name="y_axis"))
+    assert a["source_id"] == b["source_id"] != y["source_id"]
+    assert a["direction"] == (1.0, 0.0) and y["direction"] == (0.0, 1.0)

@@ -499,15 +499,27 @@ def _add_geom(path, view, kind, val, vp, o) -> None:
 
 
 def _paint_axes(painter, view, t) -> None:
+    """The X / Y axes, muted dashed; the axis the live snap lies on
+    (snapping-engine §4.2) is drawn solid in that snap type's colour."""
+    from PyQt6.QtGui import QColor
+    from .snap_engine import SNAP_COLORS, axis_snap_name, snap_glyph_type
     o = QPointF(view.mapFromScene(QPointF(0.0, 0.0)))
     vp = QRectF(view.viewport().rect())
     pen = QPen(t.color("muted", int(round(255 * M.CONSTRAINT_AXES_ALPHA))), 1.0)
     pen.setCosmetic(True)
     pen.setDashPattern(list(M.CONSTRAINT_AXES_DASH))
-    painter.setPen(pen)
+    res = getattr(view.scene(), "_snap_result", None)
+    hot = axis_snap_name(res)
+    hot_pen = None
+    if hot is not None:
+        hot_pen = QPen(QColor(SNAP_COLORS.get(snap_glyph_type(res), "#aaaaaa")), 1.0)
+        hot_pen.setCosmetic(True)
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawLine(QPointF(vp.left(), o.y() + 0.5), QPointF(vp.right() + 1, o.y() + 0.5))
-    painter.drawLine(QPointF(o.x() + 0.5, vp.top()), QPointF(o.x() + 0.5, vp.bottom() + 1))
+    for name, a, b in (
+            ("x_axis", QPointF(vp.left(), o.y() + 0.5), QPointF(vp.right() + 1, o.y() + 0.5)),
+            ("y_axis", QPointF(o.x() + 0.5, vp.top()), QPointF(o.x() + 0.5, vp.bottom() + 1))):
+        painter.setPen(hot_pen if name == hot else pen)
+        painter.drawLine(a, b)
 
 
 def paint(painter: QPainter, view, ctl) -> None:
