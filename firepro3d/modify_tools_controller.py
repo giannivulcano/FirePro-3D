@@ -328,9 +328,7 @@ class ModifyToolsController:
         s._selected_items = []
         s.set_mode(None)
         if not was_cut:
-            for it in items:
-                if it.scene() is s:
-                    it.setSelected(True)
+            s.select_items(items, clear=False)    # one emit (selection-mode §5.9)
 
     # ── Paste (D5, D13) ─────────────────────────────────────────────────────
 
@@ -390,8 +388,7 @@ class ModifyToolsController:
         if not new_items:
             s._show_status("Nothing pasted", 3000)
             return
-        for it in new_items:
-            it.setSelected(True)
+        s.select_items(new_items, clear=False)    # one emit (selection-mode §5.9)
         msg = f"Pasted {len(new_items)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
 
@@ -883,12 +880,11 @@ class ModifyToolsController:
         """Re-select *items* after ``set_mode(None)`` auto-deselected them (D3).
 
         Skips items that were deleted (sip) or are no longer in this scene.
+        One ``selectionChanged`` (selection-mode §5.9).
         """
         from PyQt6 import sip
-        s = self._scene
-        for it in items:
-            if not sip.isdeleted(it) and it.scene() is s:
-                it.setSelected(True)
+        self._scene.select_items(
+            [it for it in items if not sip.isdeleted(it)], clear=False)
 
     # ── Duplicate (D6) ──────────────────────────────────────────────────────
 
@@ -918,8 +914,7 @@ class ModifyToolsController:
         if not new_items:
             s._show_status("Nothing duplicated", 3000)
             return
-        for new in new_items:
-            new.setSelected(True)
+        s.select_items(new_items, clear=False)    # one emit (selection-mode §5.9)
         skipped = len(records) - len(new_items)
         msg = f"Duplicated {len(new_items)} item(s)"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
@@ -1060,9 +1055,7 @@ class ModifyToolsController:
             s.clear_placement_state()
             s._selected_items = []
             s.set_mode(None)
-            for it in items:
-                if it.scene() is s:
-                    it.setSelected(True)
+            s.select_items(items, clear=False)    # one emit (selection-mode §5.9)
             s._show_status("Nothing to rotate", 3000)
             return False
         if s.constraint_ctl.refuse_grounded(targets):          # D17 (CS3)
@@ -1083,9 +1076,7 @@ class ModifyToolsController:
         s.clear_placement_state()
         s._selected_items = []
         s.set_mode(None)
-        for it in items:
-            if it.scene() is s:
-                it.setSelected(True)
+        s.select_items(items, clear=False)    # one emit (selection-mode §5.9)
         skipped = len(items) - len(targets)
         msg = f"Rotated {len(targets)} item(s) {delta_deg:.1f}°"
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
@@ -1825,11 +1816,9 @@ class ModifyToolsController:
         s.clear_placement_state()
         s._selected_items = []
         s.set_mode(None)
-        # paste_items selects what it creates; D10 keeps the ORIGINALS.
-        s.clearSelection()
-        for it in src:
-            if it.scene() is s:
-                it.setSelected(True)
+        # paste_items selects what it creates; D10 keeps the ORIGINALS --
+        # one batched clear + reselect, one emit (selection-mode §5.9).
+        s.select_items(src)
         if not created:
             s._show_status(why_empty or "Nothing arrayed", 3000)
             return False
