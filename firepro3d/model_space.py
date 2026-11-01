@@ -4638,6 +4638,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # variant (array_linear / array_grid / array_polar, P1 DD5) like
         # draw_rectangle; _APPLIER_FOR_MODE keeps the one router.
         "offset_side": "offset_distance",
+        "fillet": "fillet_radius",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -4676,6 +4677,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "scale": "_apply_scale_factor",
         "array": "_apply_array_dynamic_input",
         "offset_side": "_apply_offset_distance",
+        "fillet": "_apply_fillet_radius",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -7109,6 +7111,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_fillet(self, *args, **kwargs):  # shell → ModifyToolsController
         return self._modify_ctl.move_fillet(*args, **kwargs)
+
+    def _apply_fillet_radius(self, *args, **kwargs):  # shell → ModifyToolsController
+        return self._modify_ctl.apply_fillet_radius(*args, **kwargs)
 
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):

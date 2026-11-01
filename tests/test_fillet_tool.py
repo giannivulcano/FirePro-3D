@@ -6,7 +6,8 @@ from __future__ import annotations
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtTest import QTest
 
 from firepro3d.geometry_2d import CircleItem, LineItem
 from firepro3d.modify_tools_controller import ModifyToolsController as MTC
@@ -310,5 +311,96 @@ def test_polyline_end_vertex_tangent_point_on_the_far_vertex_makes_one_piece(qap
         move(view, QPointF(100, 0))
         click(view, QPointF(100, 0))
         assert scene._polylines == [] and len(scene._draw_arcs) == 1   # both pieces degenerate
+    finally:
+        close_view(view, scene)
+
+
+def _type_radius(scene, text):
+    assert scene.begin_dynamic_input() is True
+    scene.dynamic_input.editor("Radius").setText(text)
+    scene.dynamic_input._accept()
+
+
+def test_hud_shows_the_sticky_radius_default_then_a_typed_commit_sticks(qapp):
+    """AC-F5: typed radius commits at the hovered corner; the next fillet is pre-filled with it."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        l3 = _add(scene, LineItem(QPointF(400, -300), QPointF(300, -300)), "_draw_lines")
+        l4 = _add(scene, LineItem(QPointF(300, -400), QPointF(300, -300)), "_draw_lines")
+        p0 = _baseline(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        assert scene.dynamic_input.editor("Radius").value_mm() == pytest.approx(152.4)   # default, 6 in
+        _type_radius(scene, "20")
+        assert len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        assert _xy(arc._center) == pytest.approx((20.0, -20.0), abs=1e-4)
+        assert arc._radius == pytest.approx(20.0)
+        assert scene._fillet_radius == pytest.approx(20.0)           # [RED] not sticky
+        assert scene._undo_pos == p0 + 1
+        assert scene.mode == "fillet"                                # F2: still live, radius sticky
+        move(view, QPointF(300, -300))
+        assert scene.dynamic_input.editor("Radius").value_mm() == pytest.approx(20.0)
+        click(view, QPointF(300, -300))
+        arc2 = scene._draw_arcs[-1]
+        assert arc2._radius == pytest.approx(20.0)
+        assert _xy(arc2._center) == pytest.approx((320.0, -320.0), abs=1e-4)
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_radius_without_a_corner_only_sets_the_sticky(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        p0 = _baseline(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(500, 500))
+        _type_radius(scene, "30")
+        assert scene._fillet_radius == pytest.approx(30.0)
+        assert scene.mode == "fillet" and scene._draw_arcs == [] and scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_oversize_radius_keeps_the_hud_open_and_changes_nothing(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        p0 = _baseline(scene)
+        log = _statuses(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        _type_radius(scene, "150")
+        assert scene.dynamic_input is not None and scene.dynamic_input.has_invalid_field()
+        assert TOO_LARGE in log and scene._draw_arcs == [] and scene._undo_pos == p0
+    finally:
+        close_view(view, scene)
+
+
+def test_real_keystrokes_type_the_radius(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        QTest.keyClick(view.viewport(), Qt.Key.Key_2)               # engages, seeds "2"
+        ed = scene.dynamic_input.editor("Radius")
+        QTest.keyClicks(ed, "0")
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+        assert scene._draw_arcs[0]._radius == pytest.approx(20.0)
+    finally:
+        close_view(view, scene)
+
+
+def test_enter_commits_the_hovered_corner_like_a_click(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert len(scene._draw_arcs) == 1                            # [RED] Enter branch removed
     finally:
         close_view(view, scene)

@@ -1706,8 +1706,32 @@ class ModifyToolsController:
         s.preview_node.hide()
         s.preview_pipe.hide()
         self._fillet_aim(event.scenePos())
+        s.publish_placement_state(snapped, snapped)      # feeds the HUD seed
         for v in s.views():
             v.viewport().update()
+
+    FILLET_RADIUS_HINT = "Fillet radius must be greater than zero"
+
+    def apply_fillet_radius(self, params: dict) -> bool:
+        """Typed Radius (``fillet_radius`` schema): store it (sticky for the
+        session) and, with a corner under the cursor, fillet it.
+
+        Returns:
+            True when the HUD may close (committed, or stored with no corner);
+            False when refused with the tool live, which keeps the HUD open
+            with a red field (``reject_commit``).
+        """
+        s = self._scene
+        r = float(params["radius"])
+        if not math.isfinite(r) or r <= 0.0:
+            s._show_status(self.FILLET_RADIUS_HINT, 3000)
+            return False
+        s._fillet_radius = r
+        if s._fillet_corner is None:
+            s._show_status(f"Fillet radius {self._fmt_len(r)} \u2014 "
+                           f"hover a corner and click", 3000)
+            return True
+        return self.commit_fillet()
 
     def press_fillet(self, event, pos, snapped, *_):
         """``fillet`` click: commit the hovered corner; else arm Line 1."""

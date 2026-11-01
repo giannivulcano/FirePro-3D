@@ -1102,6 +1102,9 @@ class PlacementInputCoordinator:
             # the same value the ghost and the status readout show.
             return {"Angle": self._scene._modify_ctl.rotate_delta_to(
                 self.get_resolved_point())}
+        if schema.name == "fillet_radius":
+            # DS4.4: the sticky session radius (default FILLET_DEFAULT_RADIUS_MM).
+            return {"Radius": self._scene._fillet_radius}
         if schema.name == "scale_factor":
             # P1 DD4: the live factor (1.0 until the reference is picked) —
             # the same value the ghost and the status readout show.
