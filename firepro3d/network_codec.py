@@ -149,8 +149,7 @@ def deserialize_note(scene, entry):
     A later containment task (C1/C8) replaces this with a clean drop; until
     then this keeps legacy projects loading.  Returns the created ``TextItem``.
     """
-    from .text_item import TextItem, TextAnnotationData
-    from .paper_space import _mm_from_font_pt
+    from .text_item import TextItem, TextAnnotationData, _mm_from_font_pt
 
     props = entry.get("properties", {}) or {}
     tw = entry.get("text_width", 0) or 0

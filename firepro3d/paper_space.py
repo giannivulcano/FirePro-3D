@@ -27,6 +27,10 @@ from .constants import (
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
 from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
+from .text_item import (  # text-height pt/mm helpers -- one home in text_item (D2); re-exported for callers
+    MM_PER_PT, _font_pt_from_mm, _format_height_pt, _mm_from_font_pt,
+    _parse_height_pt, _parse_text_height_mm, _text_cap_ratio,
+)
 from .house_dialog import HouseDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
@@ -1503,94 +1507,8 @@ class SheetViewPropertiesDialog(QDialog):
 # Sheet-text panel helpers (spec property-panel.md §3.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _parse_text_height_mm(text: str) -> float | None:
-    """Parse a paper text height string to mm.
-
-    Delegates to ``ScaleManager.parse_dimension`` after pre-processing a bare
-    leading fraction such as ``1/8"`` (which parse_dimension rejects) by
-    inserting a ``0 `` prefix to produce ``0 1/8"``.
-
-    Args:
-        text: A dimension string, e.g. ``'1/8"'``, ``'3mm'``, ``'3.175 mm'``.
-
-    Returns:
-        The equivalent value in millimetres, or ``None`` if unparseable.
-    """
-    import re as _re
-    t = text.strip()
-    # Pre-process a bare leading fraction like "1/8"" → "0 1/8""
-    if _re.match(r'^\d+\s*/\s*\d+\s*"?$', t):
-        t = "0 " + t
-    return ScaleManager.parse_dimension(t, fallback_unit="mm")
-
-
 _PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
 _PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
-
-
-MM_PER_PT = 25.4 / 72.0   # 1 typographic point in paper mm
-
-
-def _text_cap_ratio(data: "TextAnnotationData") -> float:
-    """Return the cap-height / em-size ratio for *data*'s font.
-
-    Word-style font sizes ("12 pt") measure the em body; stored height_mm is
-    cap height (§5.3). This ratio converts between the two for the panel's
-    pt display. Computed at TEXT_METRIC_REF_PX for metric precision (§9.4).
-
-    Args:
-        data: The TextAnnotationData whose font (family/bold/italic) applies.
-
-    Returns:
-        capHeight / em ratio (e.g. ~0.716 for Arial); 0.7 fallback if the
-        metric degenerates.
-    """
-    f = QFont(data.font_family) if data.font_family else QFont("Arial")
-    f.setBold(data.bold)
-    f.setItalic(data.italic)
-    f.setPixelSize(TEXT_METRIC_REF_PX)
-    ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
-    return ratio if ratio > 0 else 0.7
-
-
-def _font_pt_from_mm(data: "TextAnnotationData", mm: float) -> float:
-    """Convert a stored cap height (mm) to the Word-style font pt size."""
-    return mm / (MM_PER_PT * _text_cap_ratio(data))
-
-
-def _mm_from_font_pt(data: "TextAnnotationData", pt: float) -> float:
-    """Convert a Word-style font pt size to the stored cap height (mm)."""
-    return pt * MM_PER_PT * _text_cap_ratio(data)
-
-
-def _format_height_pt(data: "TextAnnotationData", mm: float) -> str:
-    """Format a cap height for the panel: Word-style pt, e.g. ``"12 pt"``."""
-    pt = round(_font_pt_from_mm(data, mm), 1)
-    return f"{pt:g} pt"
-
-
-def _parse_height_pt(data: "TextAnnotationData", text: str) -> float | None:
-    """Parse the panel height field: bare numbers / ``pt`` mean font points.
-
-    ``"12"`` and ``"12 pt"`` parse as a Word-style 12 pt font size (converted
-    to cap-height mm via the font's metrics). Explicit dimension strings such
-    as ``'1/8"'`` or ``"3mm"`` still parse as literal cap heights through
-    :func:`_parse_text_height_mm`.
-
-    Args:
-        data: The TextAnnotationData whose font drives the pt conversion.
-        text: The user's input string.
-
-    Returns:
-        Cap height in mm, or None if unparseable.
-    """
-    t = text.strip().lower()
-    if t.endswith("pt"):
-        t = t[:-2].strip()
-    try:
-        return _mm_from_font_pt(data, float(t))
-    except ValueError:
-        return _parse_text_height_mm(text)
 
 
 def _text_panel_properties(data: "TextAnnotationData") -> dict:
