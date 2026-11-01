@@ -8,6 +8,7 @@ imports — and never called from paint paths.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -176,3 +177,42 @@ def scan_tiered(folder: str, capability: str) -> list:
             seen.add(row[1])
             out.append(row)
     return out
+
+
+#: Per-UI-pass memo of ``scan_tiered`` results by capability, or None outside
+#: a :func:`scan_memo` block (property-panel §3.5: one show, one scan).
+_PASS_MEMO: dict | None = None
+
+
+@contextlib.contextmanager
+def scan_memo():
+    """Memo the capability folder scans for one UI pass.
+
+    A multi-select property show builds one stroke-row set per target, each
+    listing the linetype / end-type folders; inside this block each
+    capability is scanned once. The memo ends with the block, so a block
+    saved mid-session appears on the next pass. Re-entrant: an inner block
+    shares the outer memo.
+    """
+    global _PASS_MEMO
+    outer = _PASS_MEMO is None
+    if outer:
+        _PASS_MEMO = {}
+    try:
+        yield
+    finally:
+        if outer:
+            _PASS_MEMO = None
+
+
+def memo_scan(capability: str, folder_fn) -> list:
+    """``scan_tiered(folder_fn(), capability)``, memoed inside :func:`scan_memo`.
+
+    Keyed by capability alone: each capability has one user folder
+    (``folder_fn`` is the app_data accessor, itself a settings read).
+    """
+    if _PASS_MEMO is None:
+        return scan_tiered(folder_fn(), capability)
+    if capability not in _PASS_MEMO:
+        _PASS_MEMO[capability] = scan_tiered(folder_fn(), capability)
+    return list(_PASS_MEMO[capability])

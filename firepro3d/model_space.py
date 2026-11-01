@@ -3079,8 +3079,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             [(i, maps[i._uid]) for i in insts if i.scene() is not self])
         n += self.constraint_ctl.on_items_removed(
             [i for i in insts if i.scene() is not self])
-        for it in new:
-            it.setSelected(True)
+        self.select_items(new, clear=False)       # one emit (selection-mode §5.9)
         self.push_undo_state()
         self.blockInstancesChanged.emit()
         if n:

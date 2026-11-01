@@ -663,7 +663,7 @@ class WallPlacementController:
         recs = []
         for wall in walls_created:
             recs += self._auto_join_wall(wall)
-            wall.setSelected(True)
+        self._scene.select_items(walls_created, clear=False)   # one emit (§5.9)
         ac.plan_commit(self._scene, recs + ac.plan_wall_rect(walls_created), modifiers)
         for v in self._scene.views():
             v.viewport().update()
