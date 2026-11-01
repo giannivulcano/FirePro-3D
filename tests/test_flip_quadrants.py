@@ -372,3 +372,74 @@ def test_every_primitive_flips_in_place_about_its_centre(qapp, name):
         assert grips(getattr(scene, attr)[0]) == before_grips
     finally:
         close_view(view, scene)
+
+
+# ── crosshair paint (DS3.3) ──────────────────────────────────────────────────
+V_BAND = [QPointF(CX, y) for y in range(-280, -110)]       # vertical line x = CX
+H_BAND = [QPointF(x, CY) for x in range(130, 300)]         # horizontal line y = CY
+
+
+def _dist(a: QColor, b: QColor) -> int:
+    return abs(a.red() - b.red()) + abs(a.green() - b.green()) + abs(a.blue() - b.blue())
+
+
+def _band(view, img, bg, pts):
+    return sum(_dist(_px(view, img, p), bg) for p in pts)
+
+
+
+def test_crosshair_paints_both_lines_with_active_axes_stronger(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        bg = _px(view, _grab(view), QPointF(300, -200))
+        img0 = _grab(view)
+        v0, h0 = _band(view, img0, bg, V_BAND), _band(view, img0, bg, H_BAND)
+        assert v0 > 0 and h0 > 0                       # entry: both lines drawn, idle
+        assert 0.67 < v0 / h0 < 1.5                    # ... and equally faint
+        move(view, QUADS["UL"][0])                 # lr active only
+        img1 = _grab(view)
+        v, h = _band(view, img1, bg, V_BAND), _band(view, img1, bg, H_BAND)
+        assert h > 0                                                  # idle line still drawn
+        assert sum(_dist(_px(view, img1, p), bg) > 0 for p in V_BAND) >= 50   # [RED] dash-dot present
+        assert v > 1.5 * h                                            # [RED] active = accent
+        move(view, QUADS["LR"][0])                 # ud active only
+        img2 = _grab(view)
+        v2, h2 = _band(view, img2, bg, V_BAND), _band(view, img2, bg, H_BAND)
+        assert h2 > 1.5 * v2                                          # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_crosshair_is_gone_after_the_tool_ends(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        bg = _px(view, _grab(view), QPointF(300, -200))
+        move(view, QUADS["LL"][0])
+        assert _band(view, _grab(view), bg, V_BAND) > 0
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Escape)
+        img = _grab(view)
+        assert _band(view, img, bg, V_BAND) == 0 and _band(view, img, bg, H_BAND) == 0   # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_flip_ghost_is_painted_at_the_reflected_position(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        img0 = _grab(view)
+        # The polyline's vertical leg is x = 100, y -100..0; its lr image is
+        # x = 0. The Block Editor's non-printing Y axis runs through x = 0, so
+        # probe beside it (x = 2) and compare the SAME point before / after:
+        # the axis is identical in both grabs, only the ghost differs.
+        probe = QPointF(2.0, -70.0)
+        move(view, QUADS["UL"][0])
+        img1 = _grab(view)
+        assert _dist(_px(view, img1, probe), _px(view, img0, probe)) > 0   # [RED]
+    finally:
+        close_view(view, scene)

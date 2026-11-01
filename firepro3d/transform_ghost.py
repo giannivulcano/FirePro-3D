@@ -17,7 +17,8 @@ import math
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QTransform
 
-from .constants import (GHOST_GLOW_CACHE_MAX_PX, HALO_GLOW_PX, HALO_TRACE_COLOR,
+from .constants import (FLIP_CROSSHAIR_IDLE_ALPHA, GHOST_GLOW_CACHE_MAX_PX,
+                        HALO_GLOW_PX, HALO_TRACE_COLOR,
                         HALO_TRACE_WIDTH_PX, TRANSFORM_GHOST_DIM_OPACITY,
                         TRANSFORM_GHOST_TRACE_ALPHA, TRANSFORM_GHOST_TRACE_WIDTH_PX)
 from .geometry_2d import _degenerate_axis
@@ -323,6 +324,41 @@ def paint_axis(painter, p1, p2, view_rect, theme) -> None:
     painter.setPen(pen)
     painter.drawLine(QPointF(p1.x() - ux * reach, p1.y() - uy * reach),
                      QPointF(p1.x() + ux * reach, p1.y() + uy * reach))
+    painter.restore()
+
+
+def paint_flip_crosshair(painter, center, lr, ud, view_rect, theme) -> None:
+    """Paint the Flip crosshair (DS3.3): a vertical and a horizontal dash-dot
+    line through *center*, spanning the visible *view_rect*.
+
+    The ``lr`` axis is the vertical line, ``ud`` the horizontal one. Active
+    axes use the accent trace pen; idle ones the same pen at low alpha so the
+    quadrant structure stays readable.
+
+    Args:
+        painter: Active QPainter in scene coordinates.
+        center: Crosshair centre (scene).
+        lr: Whether the vertical (left-right) reflection is active.
+        ud: Whether the horizontal (up-down) reflection is active.
+        view_rect: The view's visible scene rect.
+        theme: Theme providing ``color(token)``.
+    """
+    cx, cy = center.x(), center.y()
+    c = view_rect.center()
+    reach = (math.hypot(view_rect.width(), view_rect.height())
+             + math.hypot(c.x() - cx, c.y() - cy))
+    active = _trace_pen(theme)
+    active.setStyle(Qt.PenStyle.DashDotLine)
+    idle = QPen(active)
+    col = QColor(idle.color())
+    col.setAlpha(FLIP_CROSSHAIR_IDLE_ALPHA)
+    idle.setColor(col)
+    painter.save()
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for is_active, (ux, uy) in ((lr, (0.0, 1.0)), (ud, (1.0, 0.0))):
+        painter.setPen(active if is_active else idle)
+        painter.drawLine(QPointF(cx - ux * reach, cy - uy * reach),
+                         QPointF(cx + ux * reach, cy + uy * reach))
     painter.restore()
 
 

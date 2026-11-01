@@ -292,6 +292,8 @@ WALL_OUTLINE_SNAP = 1e-6
 # Flip (scene-tools D16): a cursor within this scene distance of a crosshair
 # line is "on the line" and keeps the previous quadrant (float-noise guard).
 FLIP_LINE_EPS_MM = 1e-6
+# Flip crosshair: alpha (0-255) of the idle (inactive) axis line.
+FLIP_CROSSHAIR_IDLE_ALPHA = 70
 AUTO_JOIN_TOLERANCE = 20.0    # snap radius for endpoint-to-endpoint wall joins
 TEE_TOLERANCE = 40.0          # snap radius for tee (mid-wall) joins
 

@@ -549,6 +549,18 @@ class Model_View(QGraphicsView):
                        th.detect())
             painter.restore()
 
+        # ── 8b. Flip crosshair (DS3.3): dash-dot lines through the selection
+        # centre, active axes in accent; the reflected ghost (8) paints on top.
+        fc = getattr(scene, "_flip_center", None)
+        if fc is not None and getattr(scene, "mode", None) == "flip":
+            from .transform_ghost import paint_flip_crosshair
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            paint_flip_crosshair(painter, fc, scene._flip_lr, scene._flip_ud,
+                                 self.mapToScene(self.viewport().rect()).boundingRect(),
+                                 th.detect())
+            painter.restore()
+
         # ── 8. Move/paste ghost (D11: HALO glow + 1 px accent trace) ──
         mghost = getattr(scene, "_move_ghost", None)
         if mghost:
