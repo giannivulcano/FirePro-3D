@@ -552,3 +552,50 @@ def test_legacy_note_maps_wrap_from_its_text_width(qapp, tw, wrap):
     assert (item.wrap_on(), item.shrink_on()) == (wrap, False)
     out = item.to_dict()
     assert "wrap" not in out and "shrink" not in out
+
+
+# ── T32: model / Block Editor panel toggles (D7) ────────────────────────────
+
+@pytest.mark.parametrize("role", ["plan", "block_editor"])
+def test_model_panel_wrap_and_shrink_rows_are_undo_routed(qapp, role):
+    """AC9 model + Block Editor: bool rows, one undo step per commit."""
+    ms = _model(role)
+    t = _add(ms, wrap_width_mm=20.0)
+    props = t.get_properties()
+    assert props["Wrap"] == {"type": "bool", "value": True}
+    assert props["Shrink to fit"] == {"type": "bool", "value": False}
+    p0 = ms._undo_pos
+    t.set_property("Wrap", False)
+    assert ms._undo_pos == p0 + 1 and t.data.wrap is False
+    t.set_property("Shrink to fit", True)
+    assert ms._undo_pos == p0 + 2 and t.data.shrink is True
+    t.set_property("Shrink to fit", True)                     # no-op: no step
+    assert ms._undo_pos == p0 + 2
+    ms.undo()
+    ms.undo()
+    t = ms._texts[0]
+    assert (t.data.wrap, t.data.shrink) == (None, None)
+    assert t.get_properties()["Wrap"]["value"] is True
+
+
+def test_wrap_on_seeds_the_width_from_the_drawn_box(qapp):
+    """D7: Wrap ON on a box with no authored width wraps at the width it is
+    drawn at -- nothing moves."""
+    ms = _model()
+    t = _add(ms, wrap_width_mm=0.0)
+    w0 = _box(t).width()
+    t.set_property("Wrap", True)
+    assert t.data.wrap is True
+    assert t.data.wrap_width_mm == pytest.approx(w0, abs=1e-6)
+    assert _box(t).width() == pytest.approx(w0, abs=1e-6)
+    assert _lines(t.document()) == 1
+
+
+def test_shrink_on_keeps_the_wrap_it_hugs(qapp):
+    """G3: Shrink ON on a wrapping box freezes Wrap ON -- it hugs the wrapped
+    lines rather than unwrapping."""
+    ms = _model()
+    t = _add(ms, wrap_width_mm=20.0, box_height_mm=30.0)
+    t.set_property("Shrink to fit", True)
+    assert (t.data.wrap, t.data.shrink) == (True, True)
+    assert _lines(t.document()) > 1

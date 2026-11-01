@@ -626,6 +626,35 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         c2 = self.mapToScene(self._box_rect_local().center())
         self.moveBy(c.x() - c2.x(), c.y() - c2.y())
 
+    def _toggle_change(self, key: str, value) -> dict:
+        """The field writes of a Wrap / Shrink to fit panel toggle (D7).
+
+        Wrap ON on a box with no authored width seeds it from the drawn box
+        (nothing moves); Shrink ON freezes a legacy Wrap at its effective
+        value so the box hugs what it shows (G3); Shrink OFF leaves Wrap as
+        is, restoring the authored box (D4).
+
+        Returns:
+            ``{field: value}`` (empty when the toggle is already in that state).
+        """
+        on = bool(value)
+        d = self._data
+        if key == "Wrap":
+            if on == self.wrap_on():
+                return {}
+            change = {"wrap": on}
+            if on and d.wrap_width_mm <= 0:
+                s = self.scale() or 1.0
+                change["wrap_width_mm"] = max(self._box_rect_local().width() * s,
+                                              MIN_TEXT_WRAP_WIDTH_MM)
+            return change
+        if on == self.shrink_on():
+            return {}
+        change = {"shrink": on}
+        if on and d.wrap is None:
+            change["wrap"] = self.wrap_on()
+        return change
+
     def on_theme_changed(self) -> None:
         """Re-latch the document's default text colour after a theme switch
         (HF1 theme bus) -- only a token colour changes.
@@ -1466,6 +1495,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "V Align":  {"type": "icon_enum", "value": d.valign,
                          "options": [("T", "align_top.svg"), ("M", "align_middle.svg"),
                                      ("B", "align_bottom.svg")]},
+            "Wrap":     {"type": "bool", "value": self.wrap_on()},              # D7
+            "Shrink to fit": {"type": "bool", "value": self.shrink_on()},      # D7
             "Font Color": {"type": "color", "value": TOKEN_AUTO if d.color is None else d.color},
             "Frame":    {"type": "header", "value": "Frame"},
             "Line Type": {"type": "enum",
@@ -1557,6 +1588,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._data.keep_upright = bool(value)
         elif key == "Hide when empty":
             self._data.hide_empty = bool(value)
+        elif key in ("Wrap", "Shrink to fit"):
+            change = self._toggle_change(key, value)
+            if not change:
+                return
+            for f, v in change.items():
+                setattr(self._data, f, v)
         elif key == "Font":
             self._data.font_family = str(value)
         elif key == "Font Color":
