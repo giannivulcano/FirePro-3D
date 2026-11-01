@@ -650,3 +650,45 @@ def test_field_text_off_the_block_editor_is_not_seeded(qapp):
     ms = _model("plan")
     t = _add(ms, text="@[Name]", wrap_width_mm=13.9)
     assert (t.wrap_on(), t.shrink_on()) == (True, False)
+
+
+# ── T35: copy / paste and save / load keep the flags (AC16) ─────────────────
+
+def test_copy_paste_keeps_both_flags(qapp):
+    """AC16 copy/paste: the pasted text carries Wrap OFF + Shrink ON and the
+    same hugged box size."""
+    from tests._snap_polish_helpers import click, close_view, make_view, move
+    view, ms = make_view(role="block_editor", scale=1.0)   # loose model text pastes in the editor
+    try:
+        t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+                 align="C", valign="M", wrap=False, shrink=True)
+        t.setSelected(True)
+        ms._modify_ctl.write_clipboard([t], QPointF(0, 0))
+        assert ms._modify_ctl.start("paste") is True
+        move(view, QPointF(400, 300))
+        click(view, QPointF(400, 300))
+        assert len(ms._texts) == 2
+        new = ms._texts[-1]
+        assert (new.data.wrap, new.data.shrink) == (False, True)
+        assert (_box(new).width(), _box(new).height()) == pytest.approx(
+            (_box(t).width(), _box(t).height()), abs=1e-6)
+    finally:
+        close_view(view, ms)
+
+
+def test_sheet_and_block_definition_save_load_keep_the_flags(qapp):
+    """AC16 save/load: sheet annotations and block-definition text records
+    round-trip both flags through JSON; a legacy record stays flagless."""
+    import json
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.paper_space import Sheet
+    sh = Sheet.create_default()
+    sh.annotations.append(TextAnnotationData(text="A", wrap=False, shrink=True))
+    sh.annotations.append(TextAnnotationData(text="B", wrap_width_mm=50.0))
+    back = Sheet.from_dict(json.loads(json.dumps(sh.to_dict())))
+    assert [(a.wrap, a.shrink) for a in back.annotations] == [(False, True), (None, None)]
+    d = BlockDefinition.new(name="T", library="", series="", origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "x",
+                                         "wrap": True, "shrink": False}])
+    d2 = BlockDefinition.from_dict(json.loads(json.dumps(d.to_dict())))
+    assert (d2.primitives[0]["wrap"], d2.primitives[0]["shrink"]) == (True, False)
