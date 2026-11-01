@@ -8888,6 +8888,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "h" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "v")
             event.accept()
             return
+        # ── Flip arrows (scene-tools D16 / DS3.2) ────────────────────────────
+        # Same gate as the placement flips above: no modifier (KeypadModifier
+        # masked), not in input mode, auto-repeat accepted but ignored.
+        # <-/-> toggle the left-right reflection, up/down the top-bottom one.
+        if (self.mode == "flip" and not self.is_input_mode()
+                and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
+                == Qt.KeyboardModifier.NoModifier
+                and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                                    Qt.Key.Key_Up, Qt.Key.Key_Down)):
+            if not event.isAutoRepeat():
+                self._modify_ctl.toggle_flip(
+                    "lr" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "ud")
+            event.accept()
+            return
         # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:

@@ -443,3 +443,153 @@ def test_flip_ghost_is_painted_at_the_reflected_position(qapp):
         assert _dist(_px(view, img1, probe), _px(view, img0, probe)) > 0   # [RED]
     finally:
         close_view(view, scene)
+
+
+# ── AC-X2 (keys): arrows toggle lr / ud ──────────────────────────────────────
+
+def _key(view, key, mods=Qt.KeyboardModifier.NoModifier):
+    QTest.keyClick(view.viewport(), key, mods)
+    QApplication.processEvents()
+
+
+def _xform_state(scene):
+    f = scene._move_ghost
+    return (f.xform.map(QPointF(0, 0)).x(), f.xform.map(QPointF(0, 0)).y())
+
+
+def test_left_right_toggle_lr_and_up_down_toggle_ud(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        move(view, QUADS["UR"][0])                       # none active
+        _key(view, Qt.Key.Key_Right)
+        assert (scene._flip_lr, scene._flip_ud) == (True, False)      # [RED]
+        assert _xform_state(scene) == pytest.approx((100.0, 0.0), abs=1e-6)
+        _key(view, Qt.Key.Key_Left)                      # either arrow toggles
+        assert (scene._flip_lr, scene._flip_ud) == (False, False)
+        _key(view, Qt.Key.Key_Up)
+        assert (scene._flip_lr, scene._flip_ud) == (False, True)      # [RED]
+        assert _xform_state(scene) == pytest.approx((0.0, -100.0), abs=1e-6)
+        _key(view, Qt.Key.Key_Down)
+        assert (scene._flip_lr, scene._flip_ud) == (False, False)
+    finally:
+        close_view(view, scene)
+
+
+def test_a_toggle_holds_until_the_cursor_crosses_into_a_different_quadrant(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        move(view, QUADS["UR"][0])
+        _key(view, Qt.Key.Key_Right)                     # lr on, in UR
+        move(view, QPointF(CX + 2 * OFF, CY - 2 * OFF))  # still UR: holds
+        assert (scene._flip_lr, scene._flip_ud) == (True, False)      # [RED]
+        move(view, QUADS["LR"][0])                       # new quadrant: LR = ud only
+        assert (scene._flip_lr, scene._flip_ud) == (False, True)      # [RED]
+        _key(view, Qt.Key.Key_Left)                      # last input wins
+        assert (scene._flip_lr, scene._flip_ud) == (True, True)
+        move(view, QPointF(CX + OFF, CY + 2 * OFF))      # same quadrant: holds
+        assert (scene._flip_lr, scene._flip_ud) == (True, True)
+        move(view, QUADS["UL"][0])                       # UL = lr only
+        assert (scene._flip_lr, scene._flip_ud) == (True, False)
+    finally:
+        close_view(view, scene)
+
+
+def test_arrow_toggled_state_commits_once_per_active_axis(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item = _poly(scene)
+        p0 = scene._undo_pos
+        scene._modify_ctl.start("flip")
+        move(view, QUADS["UR"][0])
+        _key(view, Qt.Key.Key_Left)
+        _key(view, Qt.Key.Key_Down)
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        assert grips(item) == POLY_BOTH                               # [RED]
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)
+
+
+def test_key_toggle_repaints_every_view(qapp):
+    from firepro3d.model_view import Model_View
+    view, scene = make_view(scale=1.0)
+    other = Model_View(scene)
+    try:
+        ignore_os_mouse(other)
+        other.resize(400, 300)
+        other.show()
+        QTest.qWaitForWindowExposed(other)
+        other.resetTransform()
+        other.centerOn(CX, -200.0)
+        QApplication.processEvents()
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        move(view, QUADS["UR"][0])
+        QApplication.processEvents()
+        spy = _PaintSpy(other.viewport())
+        band = other.mapFromScene(QPointF(CX, -200.0))
+        _key(view, Qt.Key.Key_Right)          # no mouse move: only the key path
+        assert spy.repainted(band)                                    # [RED]
+    finally:
+        other.close()
+        other.deleteLater()
+        close_view(view, scene)
+
+
+def test_arrow_gating_matches_block_placement(qapp):
+    """An arrow the Flip branch declines falls through to the view's default
+    scroll, whose scrollContentsBy re-sends a mouse move and so re-aims the
+    quadrant from the cursor. The gate is therefore asserted on the
+    ``toggle_flip`` calls (the branch's own effect), not on the toggles."""
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("flip")
+        move(view, QUADS["UR"][0])
+        calls = []
+        real = scene._modify_ctl.toggle_flip
+        scene._modify_ctl.toggle_flip = lambda a: (calls.append(a), real(a))
+        # a real modifier makes the arrow some other chord
+        _key(view, Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
+        _key(view, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+        assert calls == []                                            # [RED]
+        move(view, QUADS["UR"][0])                      # undo any scroll re-aim
+        move(view, QUADS["LL"][0])
+        move(view, QUADS["UR"][0])
+        assert (scene._flip_lr, scene._flip_ud) == (False, False)
+        # KeypadModifier alone is masked off (Qt sets it on arrows)
+        _key(view, Qt.Key.Key_Left, Qt.KeyboardModifier.KeypadModifier)
+        assert calls == ["lr"]                                        # [RED]
+        assert (scene._flip_lr, scene._flip_ud) == (True, False)
+        _key(view, Qt.Key.Key_Left)
+        assert scene._flip_lr is False and calls == ["lr", "lr"]
+        # auto-repeat is accepted (no view scroll) but ignored
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Left,
+                       Qt.KeyboardModifier.NoModifier, "", True, 1)
+        ev.setAccepted(False)
+        QApplication.sendEvent(view, ev)
+        assert ev.isAccepted()
+        assert calls == ["lr", "lr"] and scene._flip_lr is False      # [RED]
+        # input mode (HUD typing) owns the arrows
+        scene.is_input_mode = lambda: True
+        _key(view, Qt.Key.Key_Left)
+        assert calls == ["lr", "lr"]                                  # [RED]
+    finally:
+        scene.__dict__.pop("is_input_mode", None)
+        close_view(view, scene)
+
+
+def test_arrows_do_nothing_outside_flip(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _poly(scene)
+        scene._modify_ctl.start("mirror")
+        _key(view, Qt.Key.Key_Left)
+        assert (scene._flip_lr, scene._flip_ud, scene._flip_center) == (False, False, None)
+        scene.set_mode(None)
+    finally:
+        close_view(view, scene)
