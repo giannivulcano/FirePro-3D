@@ -1785,7 +1785,53 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self.begin_edit()
             event.accept()
             return
+        if self._offset_paper_edit():
+            from PyQt6.QtGui import QTextCursor
+            self._place_caret(event, keep_anchor=False)
+            cur = self.textCursor()
+            cur.select(QTextCursor.SelectionType.WordUnderCursor)
+            self.setTextCursor(cur)
+            return
         super().mouseDoubleClickEvent(event)
+
+    # Paper inline edit of a Shrink box (D5): the native text control maps a
+    # press straight to document coordinates, so with the document painted at
+    # the Shrink offset it would land beside the click.  QGraphicsSceneMouseEvent
+    # .setPos() kills the process under PyQt6 (T20 P4), so these place the
+    # caret through the offset-aware cursor_position_at instead.
+
+    def _offset_paper_edit(self) -> bool:
+        """True while paper-editing a box painted at a non-zero Shrink offset."""
+        return (self._editing and self.is_device_independent()
+                and not self._shrink_off.isNull())
+
+    def _place_caret(self, event, keep_anchor: bool) -> None:
+        from PyQt6.QtGui import QTextCursor
+        cur = self.textCursor()
+        cur.setPosition(self.cursor_position_at(self.mapFromScene(event.scenePos())),
+                        QTextCursor.MoveMode.KeepAnchor if keep_anchor
+                        else QTextCursor.MoveMode.MoveAnchor)
+        self.setTextCursor(cur)
+        event.accept()
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if self._offset_paper_edit() and event.button() == Qt.MouseButton.LeftButton:
+            self._place_caret(event, keep_anchor=False)
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._offset_paper_edit() and event.buttons() & Qt.MouseButton.LeftButton:
+            self._place_caret(event, keep_anchor=True)
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._offset_paper_edit() and event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _request_commit(self) -> None:
         """Model surface: end the session through the scene's commit funnel."""
@@ -1864,6 +1910,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 event.accept()
                 return
             super().keyPressEvent(event)   # Enter=newline, Delete=char
+            if not self._shrink_off.isNull():
+                self.update()   # Qt dirties document rects, not the shifted paint (D5)
             return
         if event.key() == Qt.Key.Key_Delete:
             self.delete_requested.emit(self)

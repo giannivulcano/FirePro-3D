@@ -280,3 +280,33 @@ def test_paper_shrink_paints_the_glyphs_centred_on_the_authored_box(qapp):
     _paper_text(ref, align="L", valign="T", wrap=False, shrink=False)
     r0, _t, r1, _b = _ink(ref, src)
     assert x1 - x0 == pytest.approx(r1 - r0, abs=0.13)
+
+
+# ── T26: paper inline edit through the offset (D5) ──────────────────────────
+
+def test_paper_edit_click_on_the_first_glyph_puts_the_caret_first(qapp):
+    """D5 paper edit: a click on the shifted first glyph lands at position 0
+    (the native control would map it to the unshifted document)."""
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QGraphicsView
+    sc = _paper()
+    data, it = _paper_text(sc, text="Shift me")
+    view = QGraphicsView(sc)
+    view.resize(600, 600)
+    view.show()
+    QTest.qWaitForWindowExposed(view)
+    try:
+        view.scale(5.0, 5.0)
+        view.centerOn(it)
+        it.begin_edit()
+        cur = it.textCursor()
+        cur.setPosition(len(it.toPlainText()))
+        it.setTextCursor(cur)
+        r0 = it.content_rects_local()[0]
+        first = it.mapToScene(QPointF(r0.left() + 0.2 / it.scale(), r0.center().y()))
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, view.mapFromScene(first))
+        assert it.textCursor().position() == 0
+    finally:
+        it.commit_edit()
+        view.close()
