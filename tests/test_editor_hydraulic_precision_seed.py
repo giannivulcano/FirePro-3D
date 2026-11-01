@@ -1,6 +1,6 @@
 """VC9 M2 -- the project's pressure / flow / velocity precision reach a Block
 Editor scene (opened or already open), so hydraulic tags print with it.
-Runs in its OWN pytest process (module-scoped MainWindow)."""
+Uses the module-scoped MainWindow fixture from test_constraint_pick_ribbon."""
 from tests.test_constraint_pick_ribbon import mw, win_with_editor  # noqa: F401
 
 _HYD = ("pressure_precision", "flow_precision", "velocity_precision")

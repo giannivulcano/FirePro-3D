@@ -98,6 +98,14 @@
   - +1 occurrence 2026-11-01 (SB4a smoke, PipeLabel in the Block Editor; user raised to P1): "m" and "e" of `@[Diameter]` touch and the general glyph spacing is uneven; the user had to set text height 2 and padding 0 to get a reasonable label size, "which doesn't make sense" — check whether the authored height maps to the drawn size once the font is sized at `TEXT_METRIC_REF_PX` + `setScale`.
 - [ ] [type:maint] Diagnose why the QGraphicsTextItem document renderer hits an engine-less device on the live model viewport [P3] [subject:Architecture]
   - Details: the model surface now sidesteps it entirely (glyph outlines #62 + self-painted caret/selection, 2026-09-23), so this is diagnostic only — relevant if a model-surface text item ever needs Qt's own document rendering. Memory `project_qpainter_engineless_qgraphicstextitem`: never band-aid via `QWidget.paintEngine()`. Needs a live readout at the paint device.
+- [ ] [type:bug] Paper inline edit of a Shrink-offset text: Shift+click doesn't extend the selection, and a non-left press lands at the unshifted spot [P3] [subject:UX]
+  - Details: text-sizing-wrap C1 review 2026-11-01 (M2/M3). `TextItem._place_caret` (T26 variant A) maps only a plain left press through `_shrink_off`. Shift+click extension is ignored, and a right or middle press falls back to the native mapping at the unshifted position. Drag-select (`mouseMoveEvent`), release, double-click word-select and the zero-offset paper edit path also have no direct guard. Add guards in `tests/test_text_wrap_shrink.py`, then fix `firepro3d/text_item.py` `_place_caret` / `mouseMoveEvent`.
+- [ ] [type:maint] `TextItem._bound_seed` runs up to 3 times per `_apply_format` (a regex plus a local import each time) [P4] [subject:Architecture]
+  - Details: text-sizing-wrap C1 review 2026-11-01 (M5). Compute it once per layout and pass it to `TextAnnotationData.wrap_on` / `shrink_on`. `firepro3d/text_item.py`.
+- [ ] [type:maint] `TextItem._freeze_shrink` runs before the grip index is validated, and on an identity (1, 1) `manip_scale` [P4] [subject:Architecture]
+  - Details: text-sizing-wrap C2 review 2026-11-01 (M2). The shipped handles can't reach it (the plan's code order). Hardening only: validate the grip and skip a no-op scale before freezing, in `firepro3d/text_item.py` `apply_grip` / `manip_scale`.
+- [ ] [type:bug] Sheet Add-Text template: Border, Line Type, Weight and Corner aren't copied onto the placed text, and no template toggle persists across sessions [P3] [subject:UX]
+  - Details: text-sizing-wrap VC9 fix-round reviews 2026-11-01. `PaperScene.begin_place_text` copies a field whitelist; Wrap / Shrink to fit were added there (50581eed), but Border / Line Type / Weight / Corner were already missing before this branch. `text_template_to_settings` / `_TEMPLATE_FIELDS` persist neither those fields nor `wrap` / `shrink`, so the template resets every session. `firepro3d/paper_space.py`.
 
 ## UI follow-ups
 
