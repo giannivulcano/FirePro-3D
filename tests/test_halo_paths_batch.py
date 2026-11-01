@@ -46,8 +46,10 @@ def _max_diff(a, b):
 def _frozen_per_path(pt, paths, theme):
     """The pre-L1068 paint_halo_path loop, frozen here as the look's reference.
 
-    Independent of firepro3d.halo (which now delegates to the batch), so a
-    dropped glow layer or a changed width/alpha turns the guard RED.
+    Independent of firepro3d.halo's code (which now delegates to the batch),
+    so a dropped glow layer or a changed per-layer width/alpha formula turns
+    the guard RED. It reads the same HALO_* constants, so a constant change
+    is not caught here.
     """
     base = theme.color(HALO_TRACE_COLOR)
     for path in paths:

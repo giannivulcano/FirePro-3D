@@ -1,4 +1,6 @@
 """Cached ghost glow (L1068): GhostFrame paints like the live glow."""
+import pytest
+from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QImage, QPainter, QPainterPath, QTransform
 
 from firepro3d import theme as th
@@ -52,7 +54,7 @@ def test_translate_frame_matches_live(qapp):
     frame = tg.GhostFrame(base, QTransform.fromTranslate(40, 20))
     live = _render(list(frame), W)                  # plain list -> live glow
     got = _render(frame, W)
-    assert tg._GLOW_CACHE._base is base             # the cache was used
+    assert tg._GLOW_CACHE.cached_base(got) is base  # the cache was used
     assert _alpha_sum(got) > 0
     assert _stats(live, got) < 1.0
 
@@ -63,7 +65,7 @@ def test_rotate_frame_matches_live(qapp):
     x = QTransform().translate(200, 200).rotate(30).translate(-200, -200)
     frame = tg.GhostFrame(base, x)
     live, got = _render(list(frame), W), _render(frame, W)
-    assert tg._GLOW_CACHE._base is base
+    assert tg._GLOW_CACHE.cached_base(got) is base
     assert _stats(live, got) < 3.0                  # soft glow resampled
     assert abs(_alpha_sum(got) - _alpha_sum(live)) / _alpha_sum(live) < 0.05
 
@@ -79,8 +81,97 @@ def test_zoom_change_rebuilds(qapp):
 def test_non_rigid_uses_live_glow(qapp):
     tg.release_glow_cache()
     frame = tg.GhostFrame(_base(), QTransform.fromScale(2.0, 2.0))
-    assert _stats(_render(list(frame), W), _render(frame, W)) == 0
-    assert tg._GLOW_CACHE._base is None
+    got = _render(frame, W)
+    assert _stats(_render(list(frame), W), got) == 0
+    assert tg._GLOW_CACHE.cached_base(got) is None
+
+
+def _render_dpr(paths, world, dpr):
+    img = QImage(round(600 * dpr), round(500 * dpr),
+                 QImage.Format.Format_ARGB32_Premultiplied)
+    img.setDevicePixelRatio(dpr)
+    img.fill(0)
+    pt = QPainter(img)
+    pt.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pt.setWorldTransform(world)
+    tg.paint_ghost(pt, paths, th.detect())
+    pt.end()
+    return img
+
+
+_XFORMS = {
+    "translate": QTransform.fromTranslate(40, 20),
+    "rotate": QTransform().translate(200, 200).rotate(30).translate(-200, -200),
+    "reflect": tg.reflect_transform(QPointF(150, 0), QPointF(250, 400)),
+}
+
+
+@pytest.mark.parametrize("dpr", [1.0, 1.25, 2.0])
+@pytest.mark.parametrize("kind", list(_XFORMS))
+def test_cached_glow_matches_live_across_dpr(qapp, kind, dpr):
+    """Review I2: the cache math holds on HiDPI devices and under reflection."""
+    tg.release_glow_cache()
+    base = _base()
+    frame = tg.GhostFrame(base, _XFORMS[kind])
+    live, got = _render_dpr(list(frame), W, dpr), _render_dpr(frame, W, dpr)
+    assert tg._GLOW_CACHE.cached_base(got) is base
+    assert _stats(live, got) < 3.0
+    assert abs(_alpha_sum(got) - _alpha_sum(live)) / _alpha_sum(live) < 0.05
+
+
+def test_release_is_per_device(qapp):
+    """Review I1: a view with no ghost releases only its own image."""
+    tg.release_glow_cache()
+    frame = tg.GhostFrame(_base(), QTransform.fromTranslate(40, 20))
+    a = _render(frame, W)
+    other = QImage(10, 10, QImage.Format.Format_ARGB32_Premultiplied)
+    tg.release_glow_cache(other)
+    assert tg._GLOW_CACHE.cached_base(a) is frame.base
+    tg.release_glow_cache(a)
+    assert tg._GLOW_CACHE.cached_base(a) is None
+
+
+def test_two_devices_at_two_zooms_build_once_each(qapp, monkeypatch):
+    """Review I1: two views of one gesture don't evict each other per paint."""
+    tg.release_glow_cache()
+    builds = []
+    orig = tg._GlowCache._build
+    monkeypatch.setattr(tg._GlowCache, "_build", staticmethod(
+        lambda *a: builds.append(1) or orig(*a)))
+    frame = tg.GhostFrame(_base(), QTransform.fromTranslate(40, 20))
+    w2 = QTransform.fromTranslate(10, 5)
+    imgs = [QImage(600, 500, QImage.Format.Format_ARGB32_Premultiplied) for _ in range(2)]
+    for _ in range(3):
+        for img, world in zip(imgs, (W, w2)):
+            img.fill(0)
+            pt = QPainter(img)
+            pt.setWorldTransform(world)
+            tg.paint_ghost(pt, frame, th.detect())
+            pt.end()
+    assert len(builds) == 2
+    assert all(tg._GLOW_CACHE.cached_base(img) is frame.base for img in imgs)
+
+
+def test_oversize_verdict_is_kept(qapp, monkeypatch):
+    """Too big to cache: live glow, and the size check doesn't re-run per paint."""
+    tg.release_glow_cache()
+    monkeypatch.setattr(tg, "GHOST_GLOW_CACHE_MAX_PX", 1)
+    builds = []
+    orig = tg._GlowCache._build
+    monkeypatch.setattr(tg._GlowCache, "_build", staticmethod(
+        lambda *a: builds.append(1) or orig(*a)))
+    frame = tg.GhostFrame(_base(), QTransform.fromTranslate(40, 20))
+    img = QImage(600, 500, QImage.Format.Format_ARGB32_Premultiplied)
+    for _ in range(3):
+        img.fill(0)
+        pt = QPainter(img)
+        pt.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pt.setWorldTransform(W)
+        tg.paint_ghost(pt, frame, th.detect())
+        pt.end()
+    assert len(builds) == 1
+    assert tg._GLOW_CACHE.cached_base(img) is None
+    assert _stats(_render(list(frame), W), img) == 0          # the live glow
 
 
 def test_frame_is_the_mapped_list(qapp):
@@ -143,7 +234,7 @@ def test_editor_rotate_cached_glow_matches_live(qapp, tmp_path):
             view.viewport().repaint()
             QApplication.processEvents()
             got = view.viewport().grab().toImage()
-            assert tg._GLOW_CACHE._base is ghost.base          # drawn from the cache
+            assert tg._GLOW_CACHE.cached_base(view.viewport()) is ghost.base
             mp.setattr(tg._GLOW_CACHE, "paint", lambda *a: False)   # live glow
             view.viewport().repaint()
             QApplication.processEvents()

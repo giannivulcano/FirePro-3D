@@ -559,7 +559,7 @@ class Model_View(QGraphicsView):
             painter.restore()
         else:
             from .transform_ghost import release_glow_cache
-            release_glow_cache()
+            release_glow_cache(self.viewport())
         # Rotate (D8): the thin pivot->cursor ray, in the ghost trace pen.
         ray = getattr(scene, "_rotate_ray", None)
         if ray:

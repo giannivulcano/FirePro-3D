@@ -91,25 +91,48 @@ def _xf_key(t: QTransform) -> tuple:
     return (t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy())
 
 
-class _GlowCache:
-    """The HALO glow of one ghost base, rendered once in device pixels.
+class _GlowEntry:
+    """One paint device's cached glow: the image and what it was built for.
 
-    Keyed on the base list's identity (held, so the id cannot be reused),
-    the painter's world transform (zoom / pan), the device pixel ratio and
-    the accent colour; a miss re-renders. Bench 2026-11-01: blit ~1 ms
-    (move) / ~3 ms (rotate) vs. 55-470 ms of live glow per move.
+    ``img`` is ``None`` when the base was too large to cache at that key
+    (the verdict is kept so the oversize check doesn't re-run every paint).
     """
 
-    def __init__(self):
-        self._base = None
-        self._key = None
-        self._img = None
-        self._origin = QPointF()
-        self._w0 = QTransform()
+    __slots__ = ("base", "key", "img", "origin", "w0_inv")
 
-    def release(self) -> None:
-        """Drop the cached image and its base."""
-        self._base = self._key = self._img = None
+    def __init__(self, base, key, img, origin, w0_inv):
+        self.base, self.key, self.img = base, key, img
+        self.origin, self.w0_inv = origin, w0_inv
+
+
+class _GlowCache:
+    """The HALO glow of a ghost base, rendered once in device pixels.
+
+    One entry per paint device (a view's viewport), so a second view of the
+    scene, or another view with no ghost, never evicts this one's image.
+    An entry is keyed on the base list's identity (held, so the id cannot
+    be reused), the painter's world transform (zoom / pan), the device pixel
+    ratio and the accent colour; a miss re-renders. Bench 2026-11-01: blit
+    ~1 ms (move) / ~3 ms (rotate) vs. 55-470 ms of live glow per move.
+    """
+
+    # Paint devices kept at once; the oldest is dropped past this.
+    _MAX_ENTRIES = 4
+
+    def __init__(self):
+        self._entries: dict[int, _GlowEntry] = {}
+
+    def release(self, device=None) -> None:
+        """Drop *device*'s cached image (every device's when ``None``)."""
+        if device is None:
+            self._entries.clear()
+        else:
+            self._entries.pop(id(device), None)
+
+    def cached_base(self, device):
+        """The base *device*'s image was built from (``None`` if none)."""
+        e = self._entries.get(id(device))
+        return e.base if e is not None and e.img is not None else None
 
     def paint(self, painter, frame: GhostFrame, theme) -> bool:
         """Draw *frame*'s glow from the cache.
@@ -120,29 +143,39 @@ class _GlowCache:
         """
         if not _is_rigid(frame.xform):
             return False
+        device = painter.device()
         w = painter.worldTransform()
-        dpr = painter.device().devicePixelRatioF()
+        dpr = device.devicePixelRatioF()
         key = (_xf_key(w), dpr, theme.color(HALO_TRACE_COLOR).rgba())
-        if frame.base is not self._base or key != self._key:
-            if not self._build(frame.base, w, dpr, theme):
-                self.release()
+        dev_id = id(device)
+        e = self._entries.get(dev_id)
+        if e is None or e.base is not frame.base or e.key != key:
+            e = self._build(frame.base, key, w, dpr, theme)
+            if e is None:
                 return False
-            self._base, self._key = frame.base, key
-        inv, ok = self._w0.inverted()
-        if not ok:
+            self._entries.pop(dev_id, None)
+            self._entries[dev_id] = e
+            while len(self._entries) > self._MAX_ENTRIES:
+                del self._entries[next(iter(self._entries))]
+        if e.img is None:
             return False
         # Qt composes a * b as "a, then b": image px -> device (+origin) ->
         # scene (W0^-1) -> this frame (xform) -> device (current W).
-        m = (QTransform.fromTranslate(self._origin.x(), self._origin.y())
-             * inv * frame.xform * w)
+        m = (QTransform.fromTranslate(e.origin.x(), e.origin.y())
+             * e.w0_inv * frame.xform * w)
         painter.save()
         painter.setWorldTransform(m)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        painter.drawImage(QPointF(0.0, 0.0), self._img)
+        painter.drawImage(QPointF(0.0, 0.0), e.img)
         painter.restore()
         return True
 
-    def _build(self, base, w: QTransform, dpr: float, theme) -> bool:
+    @staticmethod
+    def _build(base, key, w: QTransform, dpr: float, theme):
+        """A new entry for *base* under *w*, or ``None`` if *w* is singular."""
+        w0_inv, ok = w.inverted()
+        if not ok:
+            return None
         bounds = QRectF()
         for p in base:
             bounds = bounds.united(p.boundingRect())
@@ -150,7 +183,7 @@ class _GlowCache:
         r = w.mapRect(bounds).adjusted(-pad, -pad, pad, pad)
         pw, ph = math.ceil(r.width() * dpr), math.ceil(r.height() * dpr)
         if pw <= 0 or ph <= 0 or pw * ph > GHOST_GLOW_CACHE_MAX_PX:
-            return False
+            return _GlowEntry(base, key, None, r.topLeft(), w0_inv)
         img = QImage(pw, ph, QImage.Format.Format_ARGB32_Premultiplied)
         img.setDevicePixelRatio(dpr)
         img.fill(0)
@@ -159,16 +192,19 @@ class _GlowCache:
         pt.setWorldTransform(w * QTransform.fromTranslate(-r.x(), -r.y()))
         paint_halo_paths(pt, base, theme)
         pt.end()
-        self._img, self._origin, self._w0 = img, r.topLeft(), QTransform(w)
-        return True
+        return _GlowEntry(base, key, img, r.topLeft(), w0_inv)
 
 
 _GLOW_CACHE = _GlowCache()
 
 
-def release_glow_cache() -> None:
-    """Drop the cached ghost glow (called when no ghost is showing)."""
-    _GLOW_CACHE.release()
+def release_glow_cache(device=None) -> None:
+    """Drop the cached ghost glow of *device* (every device's when ``None``).
+
+    A view calls this with its viewport when it paints no ghost, so another
+    view's live gesture keeps its image.
+    """
+    _GLOW_CACHE.release(device)
 
 
 def paint_ghost(painter, paths, theme) -> None:
