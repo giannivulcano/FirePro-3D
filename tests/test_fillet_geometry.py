@@ -143,10 +143,39 @@ def test_closed_polyline_every_vertex_is_a_corner():
     assert c.len1 == pytest.approx(math.hypot(100, 100))
 
 
-def test_corner_aperture_is_inclusive_and_nearest_wins():
+def test_corner_aperture_is_inclusive():
     sh = _poly([(0, 0), (100, 0), (100, -100)])
     assert fh.find_corner([sh], (100.0, 14.9), 15.0) is not None
     assert fh.find_corner([sh], (100.0, 15.1), 15.0) is None
+
+
+def test_two_corners_in_the_aperture_the_nearer_one_wins():
+    a, b = _line((100, 0), (0, 0), "A"), _line((0, -100), (0, 0), "B")       # corner at (0, 0)
+    c_, d_ = _line((200, 10), (10, 10), "C"), _line((10, -90), (10, 10), "D")  # corner at (10, 10)
+    for cursor, want in (((2.0, 2.0), (0.0, 0.0)), ((9.0, 9.0), (10.0, 10.0))):
+        got = fh.find_corner([a, b, c_, d_], cursor, 15.0)
+        assert got.vertex == pytest.approx(want)
+
+
+def test_cursor_exactly_at_a_crossing_picks_the_corner_with_the_longest_halves():
+    # + crossing at the origin: the right half of A is 300 long, the up half of B is 200,
+    # every other half is 50 -> the (right, up) quadrant has the largest la + lb.
+    a, b = _line((-50, 0), (300, 0), "A"), _line((0, -200), (0, 50), "B")
+    c = fh.find_corner([a, b], (0.0, 0.0), 15.0)                     # rn == 0: no quadrant hint
+    assert (c.len1, c.len2) == pytest.approx((300.0, 200.0))
+    assert c.u1 == pytest.approx((1.0, 0.0)) and c.u2 == pytest.approx((0.0, -1.0))
+
+
+def test_far_lines_are_not_paired_and_the_corner_is_unchanged(monkeypatch):
+    near = [_line((100, 0), (0, 0), "A"), _line((0, -100), (0, 0), "B")]
+    far = [_line((1000 + 10 * i, 500), (1000 + 10 * i, 900 + i), f"F{i}") for i in range(40)]
+    want = fh.find_corner(near, (0.0, 0.0), 15.0)
+    calls = []
+    real = fh._pair_corner
+    monkeypatch.setattr(fh, "_pair_corner", lambda a, b, p, tol: (calls.append((a.ref, b.ref)), real(a, b, p, tol))[1])
+    got = fh.find_corner(far + near + far[::-1], (0.0, 0.0), 15.0)
+    assert got == want
+    assert calls == [("A", "B")]                                     # no far line is ever paired
 
 
 def test_lines_whose_ends_meet_form_a_corner():

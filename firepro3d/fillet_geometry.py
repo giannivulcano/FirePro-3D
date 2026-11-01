@@ -16,6 +16,10 @@ Pt = tuple
 
 LEN_TOL = 1e-6          # mm: a tangent point within this of a far end is "at" it
 PARALLEL_SIN = 1e-9     # |sin(theta)| at or below this: parallel / collinear edges
+SAME_SIDE_DOT = 1.0 - 1e-9   # unit-direction dot above this: two ends on one side of a point
+ZERO_LEN_SQ = 1e-18     # squared length at or below this: a degenerate (point) segment
+BISECTOR_MIN = 1e-12    # |u1 + u2| below this: opposite directions, no bisector
+LINE_PAIR_REACH = 2.0   # a hover corner lies within tol of the cursor AND of both segments
 
 REFUSE_PARALLEL = "Edges are parallel \u2014 no corner to fillet"
 REFUSE_TOO_LARGE = "Radius too large for these edges"
@@ -145,7 +149,7 @@ def seg_distance(p, a, b) -> float:
     """Distance from point *p* to segment *a*-*b*."""
     ab = _sub(b, a)
     ab2 = _dot(ab, ab)
-    if ab2 < 1e-18:
+    if ab2 < ZERO_LEN_SQ:
         return _norm(_sub(p, a))
     t = max(0.0, min(1.0, _dot(_sub(p, a), ab) / ab2))
     return _norm(_sub(p, (a[0] + t * ab[0], a[1] + t * ab[1])))
@@ -183,7 +187,7 @@ def _halves(x, e0, e1):
         n = _norm(d)
         if n > LEN_TOL:
             out.append((k, (d[0] / n, d[1] / n), n))
-    if len(out) == 2 and _dot(out[0][1], out[1][1]) > 1.0 - 1e-9:
+    if len(out) == 2 and _dot(out[0][1], out[1][1]) > SAME_SIDE_DOT:
         out = [max(out, key=lambda h: h[2])]
     return out
 
@@ -208,7 +212,7 @@ def _pair_corner(a: Shape, b: Shape, p, tol):
         for kb, ub, lb in _halves(x, *b.pts):
             bis = (ua[0] + ub[0], ua[1] + ub[1])
             bn = _norm(bis)
-            if bn < 1e-12:
+            if bn < BISECTOR_MIN:
                 continue
             score = _dot(bis, r) / (bn * rn) if rn > LEN_TOL else la + lb
             if best is None or score > best[0]:
@@ -250,7 +254,11 @@ def find_corner(shapes, p, tol):
                 c = _vertex_corner(sh, i)
                 if c is not None:
                     offer(c)
-    for a, b in combinations(lines, 2):
+    # A hover corner is within tol of p and of both segments, so a segment
+    # farther than LINE_PAIR_REACH * tol from p can't contribute: skip it
+    # before the O(n^2) pairing (runs on every mouse move).
+    near = [sh for sh in lines if seg_distance(p, *sh.pts) <= LINE_PAIR_REACH * tol]
+    for a, b in combinations(near, 2):
         c = _pair_corner(a, b, p, tol)
         if c is not None:
             offer(c)
