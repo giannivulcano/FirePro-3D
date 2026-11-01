@@ -339,6 +339,16 @@ def resolve_scale_factor(anchor, values: dict) -> dict:
     return {"factor": values["Factor"]}
 
 
+def resolve_scale_length(anchor, values: dict) -> dict:
+    """Return the Scale tool's typed new length (DS1), in scene units.
+
+    A transform: base and reference live in scene state. The field's strict
+    ``minimum`` (> 0) refuses zero / negatives; the applier divides by
+    |ref - base| and re-checks the resulting factor.
+    """
+    return {"length": values["Length"]}
+
+
 # ── Track (ALIGN distance-along-path) ───────────────────────────────────────
 
 def resolve_track(anchor: QPointF, values: dict) -> QPointF:
@@ -549,6 +559,16 @@ SCHEMAS: dict[str, Schema] = {
         name="scale_factor",
         fields=(FieldSpec("Factor", "F", FieldKind.FACTOR, minimum=0.0),),
         resolve=resolve_scale_factor,
+        returns_point=False,
+        needs_anchor=True,
+    ),
+    # Scale tool (DS1): once the reference point is picked the HUD types the
+    # NEW LENGTH of the base->reference span; left/right swaps it with
+    # ``scale_factor``.
+    "scale_length": Schema(
+        name="scale_length",
+        fields=(FieldSpec("Length", "L", FieldKind.DIMENSION, minimum=0.0),),
+        resolve=resolve_scale_length,
         returns_point=False,
         needs_anchor=True,
     ),
