@@ -105,3 +105,32 @@ def test_flags_round_trip_sparse(qapp, wrap, shrink):
     assert (back.wrap, back.shrink) == (wrap, shrink)
     item = TextItem.from_dict(out)
     assert (item.to_dict()["wrap"], item.to_dict()["shrink"]) == (wrap, shrink)
+
+
+# ── T22: Wrap OFF layout (D5, G2) ───────────────────────────────────────────
+
+def test_wrap_off_lays_out_one_line_and_wrap_on_restores_the_width(qapp):
+    """AC10 / T-wrap-off: Wrap OFF -> one line, width = longest line + 2 pad;
+    the authored wrap width is kept and Wrap ON restores it."""
+    ms = _model()
+    t = _add(ms, wrap_width_mm=20.0)
+    wrapped, _s = _raw_doc(LONG, wrap_mm=20.0)
+    assert _lines(t.document()) == _lines(wrapped) > 1
+    assert _box(t).width() == pytest.approx(20.0, abs=1e-6)
+    t.data.wrap = False
+    _reformat(t)
+    one, s = _raw_doc(LONG)
+    assert _lines(t.document()) == 1
+    assert _box(t).width() == pytest.approx(one.idealWidth() * s, abs=1e-6)
+    assert t.data.wrap_width_mm == 20.0
+    t.data.wrap = True
+    _reformat(t)
+    assert _box(t).width() == pytest.approx(20.0, abs=1e-6)
+    assert _lines(t.document()) == _lines(wrapped)
+
+
+def test_wrap_off_breaks_only_at_a_typed_enter(qapp):
+    """G2: with Wrap OFF the only line breaks are the typed ones."""
+    ms = _model()
+    t = _add(ms, text="alpha beta gamma\ndelta", wrap_width_mm=6.0, wrap=False)
+    assert _lines(t.document()) == 2

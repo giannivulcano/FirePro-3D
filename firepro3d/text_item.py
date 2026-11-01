@@ -528,11 +528,34 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
         if scale > 0:
             self.document().setDocumentMargin(self._data.cell_padding_mm / scale)
-        if d.wrap_width_mm > 0 and scale > 0:
+        if self.wrap_on() and d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
         else:
+            # Wrap OFF (G2): breaks only at a typed Enter; the authored
+            # wrap_width_mm is kept for Wrap ON.
             self.setTextWidth(-1)
             self.setTextWidth(self.document().idealWidth())
+
+    # ── Wrap / Shrink to fit (text-sizing D4/D5) ────────────────────────────
+
+    def _bound_seed(self) -> bool:
+        """True for bound (``@[Field]``) text on the Block Editor surface,
+        whose absent Wrap / Shrink flags default to the seeded hug (G12).
+        Placed and exploded bound text get the seed through
+        ``block_attributes.hugged_text_record``."""
+        sc = self.scene()
+        if sc is None or getattr(sc, "scene_role", "") != "block_editor":
+            return False
+        from .block_attributes import has_fields
+        return has_fields(self._data.text)
+
+    def wrap_on(self) -> bool:
+        """Effective Wrap for this item (``TextAnnotationData.wrap_on``)."""
+        return self._data.wrap_on(self._bound_seed())
+
+    def shrink_on(self) -> bool:
+        """Effective Shrink to fit for this item (``TextAnnotationData.shrink_on``)."""
+        return self._data.shrink_on(self._bound_seed())
 
     def on_theme_changed(self) -> None:
         """Re-latch the document's default text colour after a theme switch
