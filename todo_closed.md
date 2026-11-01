@@ -2,6 +2,21 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Scene tool polish -- Scale Length, Array 0 deg lock, Flip quadrants, new Fillet -- 2026-11-01
+
+- [x] [done:2026-11-01] [type:feature] Scale: type the new value (not a factor) or cycle the input with ←/→ [P2] [subject:CAD]
+  - Details: user 2026-11-01: "don't use a factor use the actual new value or provide an option to cycle <>". Today D17: base → reference point → cursor factor; HUD is one `scale_factor` Factor field. `modify_tools_controller.py`, `dynamic_input.py`, `docs/specs/scene-tools.md` D17.
+  - Built 2026-11-01 on `feat/scene-tool-polish` (feature/Large batch, design `docs/superpowers/specs/2026-11-01-scene-tool-polish-design.md` DS1): after the reference the HUD opens on Length (`scale_length`, factor = L / |ref - base|); left/right swaps Length <-> Factor; Tab previews either (smoke fix 7d64db60).
+- [x] [done:2026-11-01] [type:bug] Array HUD: a typed Angle of 0 doesn't update the copies' position [P2] [subject:CAD]
+  - Details: user 2026-11-01: "HUD trips up over the angle 0 angle doesn't update the position". Suspects (unverified): `array_angle_lock` skips the lock when the typed angle equals the seed; `self._scene._array_angle_locked or 0.0` treats a 0° lock as falsy. `modify_tools_controller.py` `array_seed_angle` / `array_angle_lock`.
+  - Built 2026-11-01 (same run, DS2): a typed Angle 0 locks to 0 deg (no longer releases the lock); the lock ends with the tool.
+- [x] [done:2026-11-01] [type:feature] Fillet (new): detect a corner at any angle and join it with a fillet whose end points are constrained [P2] [subject:CAD]
+  - Details: user 2026-11-01: "detects a corner at any angle and creates a joints ellipse, with end points constrained to collinear". Legacy unreachable fillet: `model_space._press_fillet`, `scene_tools._compute_fillet` / `_commit_fillet` (D14). Constraint relations → `parametric-constraint-system.md`.
+  - Built 2026-11-01 (same run, DS4): new Fillet tool (Shift+E + Modify-group button): hover corner (polyline vertex, Rect / RegularPolygon corner, two Lines that meet / cross; fallback Line 1 then Line 2), sticky Radius HUD (Tab previews), tangent ArcItem; shapes split to open polyline(s) + arc (fill dropped); Block Editor coincident + tangent relations follow Auto Constrain; trimmed-end relations dropped, restore + refuse if a constraint resists; snap off in fillet mode. Legacy `_press_fillet` body / `_compute_fillet` / `_commit_fillet` / `compute_fillet` retired.
+- [x] [done:2026-11-01] [type:feature] Flip: axis at the selection's centroid; the cursor's quadrant picks the flip direction; live ghost [P2] [subject:CAD]
+  - Details: user 2026-11-01: "create axis at selected items centroid and flip geometry according to which quadrant we are in. Ghost live updates to indicate." Today D16 picks an existing straight edge as the axis (no two-point fallback). `axis_picker.py`, `modify_tools_controller.py`, `docs/specs/scene-tools.md` D16.
+  - Built 2026-11-01 (same run, DS3): crosshair at the selection's bounding-box centre; cursor quadrant sets lr / ud, arrows toggle until the next quadrant change; live ghost; Mirror unchanged.
+
 ## Performance -- transform per-move: cached ghost glow + per-find snap memo (L1068/L1070) -- 2026-11-01
 
 - [x] [done:2026-11-01] [type:feature] Batch/cache the HALO glow for large transform ghosts (Array Count 200 ≈ 0.7–0.9 s/move) [P1] [subject:Performance]
