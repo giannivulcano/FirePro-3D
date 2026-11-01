@@ -376,3 +376,33 @@ def test_width_drag_on_wrap_off_box_turns_wrap_on_at_the_width(qapp):
         assert ms._texts[0].data.wrap is False
     finally:
         close_view(view, ms)
+
+
+# ── T28: sheet resize (ResizeTextBoxCommand carries the flags) ──────────────
+
+def test_sheet_resize_on_shrink_box_one_command_restores_flags(qapp):
+    """AC12 sheet: a manipulator resize gesture on a Shrink sheet text ->
+    one ResizeTextBoxCommand; Shrink OFF + Wrap ON; undo restores both."""
+    from PyQt6.QtWidgets import QGraphicsView
+    from firepro3d.manip_handle import HandleRole
+    sc = _paper()
+    data, it = _paper_text(sc)
+    it.setSelected(True)
+    _view = QGraphicsView(sc)
+    manip = sc._manipulator
+    manip.rebake()
+    assert it in manip.selection_items()
+    idx0 = sc.undo_stack.index()
+    r0 = QRectF(manip._rect)
+    start = r0.bottomRight()
+    manip._begin("resize", start, QPointF(0, 0), HandleRole.BOTTOM_RIGHT)
+    manip._moved = True
+    manip._last_factors = ((r0.width() + 10.0) / r0.width(),
+                           (r0.height() + 5.0) / r0.height())
+    manip._finish(QPointF(start.x() + 10, start.y() + 5), Qt.KeyboardModifier.NoModifier)
+    assert sc.undo_stack.index() == idx0 + 1
+    assert data.shrink is False and data.wrap is True
+    assert data.wrap_width_mm == pytest.approx(r0.width() + 10.0, abs=1e-3)
+    sc.undo_stack.undo()
+    assert (data.wrap, data.shrink) == (False, True)
+    assert (data.x, data.y) == pytest.approx((100.0, 100.0), abs=1e-9)

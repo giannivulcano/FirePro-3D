@@ -2569,8 +2569,9 @@ class _MoveTextBoxAdapter(ResizeTextBoxCommand):
     """A text-box move committed by the SelectionManipulator.
 
     A manipulator translate bakes only ``x`` / ``y`` (wrap/box unchanged), but
-    the generic commit path snapshots the full 4-tuple ``(x, y, wrap, box_h)``.
-    Reusing ResizeTextBoxCommand's atomic 4-field restore keeps the undo path in
+    the generic commit path snapshots the full 6-tuple
+    ``(x, y, wrap_width, box_h, wrap, shrink)``.
+    Reusing ResizeTextBoxCommand's atomic box restore keeps the undo path in
     one home; only the visible label differs ("Move Text"), so the move reads
     correctly in the undo history — the spec's "existing move command for a
     translate" without a second serializer.
@@ -3013,7 +3014,7 @@ class PaperScene(QGraphicsScene):
 
         SheetViewport always uses ViewportGeometryCommand.  TextItem
         uses ``_MoveTextBoxAdapter`` for a manipulator translate and
-        ResizeTextBoxCommand for a resize — both consume the same 4-tuple
+        ResizeTextBoxCommand for a resize — both consume the same 6-tuple
         snapshot (:meth:`_text_box_geom`), so an x/y-only move reuses the
         atomic box-restore without a second serializer (spec "Undo & domains").
         """
@@ -3027,8 +3028,10 @@ class PaperScene(QGraphicsScene):
     @staticmethod
     def _text_box_geom(data) -> tuple:
         """Snapshot tuple of a TextAnnotationData box state (matches the
-        ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm))."""
-        return (data.x, data.y, data.wrap_width_mm, data.box_height_mm)
+        ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm,
+        wrap, shrink))."""
+        return (data.x, data.y, data.wrap_width_mm, data.box_height_mm,
+                data.wrap, data.shrink)
 
     def _manip_capture_press(self, items) -> None:
         """SelectionManipulator press_hook: snapshot pre-drag record state.
