@@ -543,6 +543,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # reference point (|ref - base| = 1x); both None outside the tool.
         self._scale_base: "QPointF | None" = None
         self._scale_ref: "QPointF | None" = None
+        # DS1: which field the post-reference Scale HUD types — "length"
+        # (default; reset on every set_mode by ModifyToolsController.clear) or
+        # "factor" (←/→). Per run, never session-sticky.
+        self._scale_variant: str = "length"
         # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
         # the hovered axis_picker.AxisPick painted by Model_View, or None.
         self._mirror_axis = None
@@ -1558,7 +1562,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # this mode's state reset (above) so the variant flag it sets is not
         # clobbered.  No-op for non-variant modes, so their plain instruction
         # stands.
-        if mode in self._plc._PLACEMENT_VARIANTS:
+        # Scale is exempt: its ←/→ cycle only opens after the reference point
+        # (DS1), so the entry readout keeps the plain "Pick base point" instead
+        # of advertising a cycle that does not work yet.
+        if mode in self._plc._PLACEMENT_VARIANTS and mode != "scale":
             self._apply_current_variant()
 
         # Populate the Properties dock with the gridline placement template so
@@ -4619,6 +4626,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "displacement",
         "duplicate": "displacement",
         "rotate": "rotate_by",
+        # scale keeps this row for the forward-declaration tables, but
+        # active_schema overrides it after the reference point (DS1:
+        # scale_length / scale_factor by ``_scale_variant``).
         "scale": "scale_factor",
         # array is intentionally absent — active_schema follows its ←/→
         # variant (array_linear / array_grid / array_polar, P1 DD5) like

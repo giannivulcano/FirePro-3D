@@ -96,6 +96,14 @@ class PlacementInputCoordinator:
                 ("Polar Array", "Pick centre point",
                  lambda s: setattr(s, "_array_variant", "polar")),
             ],
+            # Scale (scene-tools D17 / DS1): ←/→ swaps the typed field once the
+            # reference point is picked; the variant sets ``_scale_variant``.
+            "scale": [
+                ("Length", "Pick new size (or type a length)",
+                 lambda s: setattr(s, "_scale_variant", "length")),
+                ("Factor", "Pick new size (or type a factor)",
+                 lambda s: setattr(s, "_scale_variant", "factor")),
+            ],
         }
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
 
@@ -126,6 +134,17 @@ class PlacementInputCoordinator:
             return s._array_base is None
         return False
 
+    def _variant_cycle_open(self) -> bool:
+        """Whether ←/→ may cycle the current tool's variant right now.
+
+        Step zero for every placement tool; Scale is the exception (DS1) — its
+        variants swap the typed field, so the cycle opens once the reference
+        point is picked and stays shut before it.
+        """
+        if self._scene.mode == "scale":
+            return self._scene._scale_ref is not None
+        return self._at_placement_step_zero()
+
     def _apply_current_variant(self) -> None:
         """Apply the sticky variant's state and emit the hinted step-0 readout.
 
@@ -142,7 +161,8 @@ class PlacementInputCoordinator:
     def cycle_placement_variant(self, direction: int) -> bool:
         """←/→ cycle the placement variant; return False to fall through.
 
-        Only cycles at step 0 of a multi-variant tool while no HUD field holds
+        Only cycles at step 0 of a multi-variant tool (Scale: after its
+        reference point) while no HUD field holds
         focus.  Returns False otherwise so the arrow key reaches the view's
         default scroll.
 
@@ -154,13 +174,17 @@ class PlacementInputCoordinator:
             False when cycling is not applicable.
         """
         if (self._scene.mode not in self._PLACEMENT_VARIANTS
-                or not self._at_placement_step_zero()
+                or not self._variant_cycle_open()
                 or self._scene.is_input_mode()):
             return False
         n = len(self._PLACEMENT_VARIANTS[self._scene.mode])
         self._variant_index[self._scene.mode] = (
             self._variant_index[self._scene.mode] + direction) % n
         self._apply_current_variant()
+        if self._scene.mode == "scale":
+            # A live passive HUD exists at this step (unlike every step-0
+            # tool): rebuild it on the new schema now, not on the next move.
+            self._sync_dynamic_input()
         return True
 
     # -------------------------------------------------------------------------
@@ -743,6 +767,13 @@ class PlacementInputCoordinator:
             return self._wall_schema_for_primitive()
         if self._scene.mode in FLOOR_SKETCH_MODES:
             return self._floor_schema_for_primitive()
+        if self._scene.mode == "scale":
+            # DS1: Factor between base and reference; after the reference the
+            # ←/→ variant picks Length (default) or Factor.
+            if (self._scene._scale_ref is not None
+                    and self._scene._scale_variant == "length"):
+                return SCHEMAS["scale_length"]
+            return SCHEMAS["scale_factor"]
         if self._scene.mode == "array":
             # P1 DD5: the HUD follows the ←/→ variant.
             ctl = self._scene._modify_ctl
@@ -1077,6 +1108,15 @@ class PlacementInputCoordinator:
             # the same value the ghost and the status readout show.
             return {"Factor": self._scene._modify_ctl.scale_factor_to(
                 self.get_resolved_point())}
+        if schema.name == "scale_length":
+            # DS1: the live |cursor - base| in scene units (set_values converts
+            # a DIMENSION to mm) — the new length a click would commit.
+            base = self._scene._scale_base
+            point = self.get_resolved_point()
+            if base is None or point is None:
+                return {"Length": 0.0}
+            return {"Length": math.hypot(point.x() - base.x(),
+                                         point.y() - base.y())}
         if schema.name == "arc_radius":
             # End Points step 3: the live radius of the arc the resolved point
             # (projected onto the chord bisector) would commit.

@@ -655,6 +655,10 @@ class ModifyToolsController:
         if new_mode != "scale":
             s._scale_base = None
             s._scale_ref = None
+        # DS1: the Length/Factor variant is per run, not session-sticky — every
+        # mode change (so every Scale entry) restarts on Length.
+        s._scale_variant = "length"
+        s._plc._variant_index["scale"] = 0
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
             s._offset_dist = 0.0
@@ -1305,7 +1309,7 @@ class ModifyToolsController:
                 s._show_status(self.SCALE_REF_HINT, 3000)
                 return
             s._scale_ref = QPointF(snapped)
-            s.instructionChanged.emit("Pick new size (or type a factor)")
+            s.instructionChanged.emit("Pick new size (or type a length)")
             return
         self.commit_scale(self.scale_factor_to(snapped))
 
