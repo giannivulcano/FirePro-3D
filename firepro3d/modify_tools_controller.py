@@ -202,6 +202,10 @@ class ModifyToolsController:
             # refined 2026-10-12): no mode entered, nothing armed.
             s._selected_items = []
             return False
+        if tool == "array":
+            # DS2.2: a new Array starts unlocked -- clear() only drops the
+            # lock on leaving array, which a mid-tool restart never does.
+            s._array_angle_locked = None
         # D11: dim the originals. After set_mode — its clear() restores any
         # previous dim first, so entering a mode never undoes its own dim.
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:

@@ -253,6 +253,24 @@ def test_zero_lock_also_ends_with_the_tool(qapp):
         close_view(view, scene)
 
 
+def test_restarting_array_mid_tool_drops_the_lock(qapp):
+    """DS2.2 'on Array entry': pressing Array again while Array is live
+    starts a new Array -- set_mode('array') -> clear('array') does not leave
+    the mode, so the entry itself must drop the lock."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _tab_angle(scene, "30")
+        assert scene._array_angle_locked == 30.0
+        item.setSelected(True)
+        assert scene._modify_ctl.start("array")               # restart
+        assert scene._array_angle_locked is None              # [RED]
+    finally:
+        close_view(view, scene)
+
+
 def _ghost_centres(paths):
     return sorted((round(p.boundingRect().center().x(), 1),
                    round(p.boundingRect().center().y(), 1)) for p in paths)
@@ -789,7 +807,8 @@ def test_polar_ghost_matches_the_commit_full_rects_of_a_rotated_rect(qapp):
 
 
 def test_status_readout_shows_an_active_angle_lock(qapp):
-    """Review S4 / DS2.1: a session-sticky Angle lock -- including a locked 0 deg -- is visible in the readout."""
+    """Review S4 / DS2.1: an active Angle lock -- including a locked 0 deg --
+    is visible in the readout."""
     from firepro3d.scale_manager import ScaleManager
     view, scene = make_view(scale=1.0)
     try:
