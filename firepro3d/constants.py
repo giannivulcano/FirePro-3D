@@ -38,6 +38,7 @@ Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset
 Z_ELEV_SCALE     = 1.0 / 100.0  # mm → Z units (keeps values manageable)
+Z_LABEL_ABOVE_PIPE = 1.0  # a pipe label sits this far above its pipe (clears the node category offset)
 Z_CAT_FLOOR      = 0.0    # FloorSlab
 Z_CAT_UNDERLAY   = 0.05   # DXF/PDF imports
 Z_CAT_ROOF       = 0.1    # RoofItem

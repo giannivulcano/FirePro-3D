@@ -254,3 +254,86 @@ def test_ac7_dm_pipe_colour_does_not_tint_the_label(qapp):
     before = [op.colour for op in p.label._ops(1.0)]
     _apply_pipe(p, "#ff00ff", 1.0, 100, True)
     assert [op.colour for op in p.label._ops(1.0)] == before
+
+
+# ── VC9 fix round ────────────────────────────────────────────────────────────
+
+def _alt_def(ms):
+    d = BlockDefinition.new(name="AltPipeLabel", library="", series="", origin=(0.0, 0.0),
+                            primitives=[{"type": "text", "text": "@[Diameter]", "x": -10.0,
+                                         "y": -4.0, "height_mm": 3.0, "wrap_width_mm": 20.0,
+                                         "box_height_mm": 3.0, "align": "C", "valign": "M"}])
+    d.scale_mode = "annotative"
+    d.host_category = "Pipe"
+    d.attributes = [normalise_attr({"key": "Diameter", "source": "host", "host_key": "Diameter"})]
+    ms.register_block_definition(d)
+    return d
+
+
+def _tagged_pipe(ms, **kw):
+    _pipe_def(ms)
+    alt = _alt_def(ms)
+    p = _pipe(ms, **kw)
+    pick = next(o for o in p.get_properties()["Tag"]["options"] if o.startswith("AltPipeLabel"))
+    p.set_property("Tag", pick)
+    assert p.tag_block == alt.id
+    return p, alt
+
+
+def test_vc9_i1_horizontal_split_keeps_the_per_pipe_tag(qapp):
+    ms = _scene()
+    p, alt = _tagged_pipe(ms)
+    ms.split_pipe(p, QPointF(1500.0, 0.0))
+    pipes = list(ms.sprinkler_system.pipes)
+    assert len(pipes) == 2
+    assert [q.tag_block for q in pipes] == [alt.id, alt.id]
+    assert all(q.label.definition().id == alt.id for q in pipes)
+
+
+def test_vc9_i1_vertical_split_keeps_the_per_pipe_tag(qapp):
+    ms = _scene()
+    p, alt = _tagged_pipe(ms)
+    p.node2.setPos(0.0, 0.0)                           # same XY: a riser
+    p.node2.z_pos = 3000.0
+    p.update_geometry()
+    assert p._is_vertical()
+    ms._split_vertical_pipe(p, 1500.0, p) if hasattr(ms, "_split_vertical_pipe") \
+        else ms.pipe_network._split_vertical_pipe(p, 1500.0, p)
+    pipes = list(ms.sprinkler_system.pipes)
+    assert len(pipes) == 2
+    assert [q.tag_block for q in pipes] == [alt.id, alt.id]
+
+
+@pytest.mark.parametrize("z_mm", [0.0, 25000.0])
+def test_vc9_i2_label_paints_above_its_pipe_and_a_node_after_the_level_z_pass(qapp, z_mm):
+    ms = _scene()
+    _pipe_def(ms)
+    p = _pipe(ms)
+    mid_node = ms.add_node(1500.0, 0.0)
+    for n in (p.node1, p.node2, mid_node):
+        n.z_pos = z_mm
+    ms._level_manager.apply_to_scene(ms)
+    assert p.label.zValue() > p.zValue()
+    assert p.label.zValue() > mid_node.zValue()
+    mid = p.node1.scenePos() * 0.5 + p.node2.scenePos() * 0.5
+    assert ms.items(mid)[0] is p.label
+
+
+def test_vc9_m3_reprepare_annotative_resizes_pipe_labels(qapp):
+    from firepro3d.annotative import reprepare_annotative
+    from firepro3d.bound_label import PEN_MARGIN
+    ms = _scene()
+    _pipe_def(ms)
+    p = _pipe(ms)
+    h = p.label.boundingRect().height() - 2 * PEN_MARGIN
+    ms.scale_manager.drawing_scale = 2 * ms.scale_manager.drawing_scale
+    reprepare_annotative(ms)
+    assert p.label.boundingRect().height() - 2 * PEN_MARGIN == pytest.approx(2 * h, rel=1e-6)
+
+
+def test_vc9_m7_ac9_pipe_shorter_than_its_label_is_still_labelled(qapp):
+    ms = _scene()
+    _pipe_def(ms)
+    p = _pipe(ms, 0.0, 0.0, 40.0, 0.0)                  # 40 mm: far shorter than the label
+    assert p.label.isVisible()
+    assert p.label.paints()

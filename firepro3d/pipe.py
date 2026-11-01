@@ -7,7 +7,7 @@ from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
 from .bound_label import BoundLabelItem, TagBlockHost
 
-from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY
+from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_LABEL_ABOVE_PIPE
 from .displayable_item import DisplayableItemMixin
 from .assets import asset_path
 from .view_scale import scene_hit_width
@@ -245,6 +245,14 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                         break
             self._riser_symbol.setVisible(show)
 
+    def sync_label_z(self) -> None:
+        """Keep the top-level label above its pipe at any elevation: the level
+        manager's elevation z pass lifts the pipe (and nodes) past Z_OVERLAY on
+        high levels (AC6)."""
+        lab = getattr(self, "label", None)
+        if lab is not None:
+            lab.setZValue(max(Z_OVERLAY, self.zValue() + Z_LABEL_ABOVE_PIPE))
+
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:
             return  # cannot position label yet
@@ -256,7 +264,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         sc = self.scene()
         if sc is not None and self.label.scene() is None:
             sc.addItem(self.label)
-            self.label.setZValue(Z_OVERLAY)
+        self.sync_label_z()
 
         # Sync label visibility with pipe visibility
         if not self.isVisible():
@@ -511,7 +519,10 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     def set_properties(self, template: "Pipe"):
         """Copy property values from a template pipe."""
         for key, meta in template.get_properties().items():
+            if key == "Tag":      # a label text _set_tag cannot map off-scene; carry the id below
+                continue
             self.set_property(key, meta["value"])
+        self._tag_block = getattr(template, "_tag_block", None)
 
     def z_range_mm(self) -> tuple[float, float] | None:
         """Return (z_bottom, z_top) spanning the full storey range of both nodes.

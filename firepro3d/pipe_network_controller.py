@@ -250,6 +250,7 @@ class PipeNetworkController:
         for (na, nb) in ((node_a, mid), (mid, node_b)):
             seg = Pipe(na, nb)
             seg.level = pipe.level
+            seg._tag_block = pipe._tag_block
             for key in ("Diameter", "Schedule", "C-Factor",
                         "Material", "Colour", "Phase", "Line Type"):
                 seg._properties[key]["value"] = pipe._properties[key]["value"]
