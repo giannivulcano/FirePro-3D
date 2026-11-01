@@ -1674,7 +1674,22 @@ class ModifyToolsController:
                 s._show_status(self.FILLET_HINT if line1 is None
                                else self.FILLET_LINE2_HINT, 0)
             return
-        arc = fh.tangent_arc(corner, s._fillet_radius)
+        self._fillet_show(corner, s._fillet_radius)
+
+    def preview_fillet_radius(self, radius: float) -> None:
+        """Typed Radius field commit (Tab): re-ghost the aimed corner at *radius*.
+
+        Preview only — the sticky radius changes on Enter (``apply_fillet_radius``).
+        """
+        corner = self._scene._fillet_corner
+        if corner is not None:
+            self._fillet_show(corner, radius)
+
+    def _fillet_show(self, corner, radius) -> None:
+        """Arc at *radius* on *corner*: ghost + status, or the refusal."""
+        s = self._scene
+        arc = fh.tangent_arc(corner, radius)
+        s._fillet_arc = None
         if isinstance(arc, fh.Refused):
             s._move_ghost = []
             s._show_status(arc.message, 0)

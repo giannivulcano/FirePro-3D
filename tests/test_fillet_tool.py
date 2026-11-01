@@ -394,6 +394,46 @@ def test_real_keystrokes_type_the_radius(qapp):
         close_view(view, scene)
 
 
+def test_tab_reghosts_the_hovered_corner_at_the_typed_radius(qapp):
+    """Smoke 2026-11-01: a typed Radius + Tab (field commit) re-ghosts the arc
+    at the typed radius; nothing commits and the sticky radius is unchanged."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene._fillet_radius = 10.0
+        p0 = _baseline(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        assert _path_ends_match(scene._move_ghost[0], (10.0, 0.0), (0.0, -10.0))
+        assert scene.begin_dynamic_input() is True
+        ed = scene.dynamic_input.editor("Radius")
+        ed.setText("20")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        assert _path_ends_match(scene._move_ghost[0], (20.0, 0.0), (0.0, -20.0))
+        assert scene._draw_arcs == [] and scene._undo_pos == p0
+        assert scene._fillet_radius == pytest.approx(10.0)
+    finally:
+        close_view(view, scene)
+
+
+def test_tab_with_an_oversize_radius_drops_the_ghost_and_says_so(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene._fillet_radius = 10.0
+        log = _statuses(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        assert scene.begin_dynamic_input() is True
+        ed = scene.dynamic_input.editor("Radius")
+        ed.setText("150")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        assert scene._move_ghost == [] and log[-1] == TOO_LARGE
+        assert scene._draw_arcs == []
+    finally:
+        close_view(view, scene)
+
+
 def test_enter_commits_the_hovered_corner_like_a_click(qapp):
     view, scene = make_view(scale=1.0, mode=None)
     try:

@@ -316,6 +316,10 @@ class PlacementInputCoordinator:
             # D10 / DD5: typed fields re-ghost every copy (a dict, not a
             # point — like ``rotation`` above).
             self._scene._modify_ctl.preview_array(resolved, typed=True)
+        elif schema.name == "fillet_radius":
+            # DS4.4: re-ghost the aimed corner at the typed radius (a scalar,
+            # not a point — like ``rotation`` above).
+            self._scene._modify_ctl.preview_fillet_radius(resolved["radius"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
