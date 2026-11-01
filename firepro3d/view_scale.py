@@ -10,6 +10,36 @@ at the current zoom, thin items are unclickable zoomed out and fat zoomed in.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
+# Zoom pinned per scene id while a held_view_scale block runs (one snap find).
+_HELD: dict[int, float] = {}
+
+
+@contextmanager
+def held_view_scale(scene):
+    """Pin :func:`scene_view_scale` for *scene* for the duration of the block.
+
+    One ``SnapEngine.find`` asks every primitive's ``boundingRect()`` for the
+    zoom thousands of times, and the zoom cannot change mid-call (L1070).
+
+    Args:
+        scene: The scene to pin (``None`` pins nothing).
+    """
+    if scene is None:
+        yield
+        return
+    key = id(scene)
+    prev = _HELD.get(key)
+    _HELD[key] = scene_view_scale(scene)
+    try:
+        yield
+    finally:
+        if prev is None:
+            _HELD.pop(key, None)
+        else:
+            _HELD[key] = prev
+
 
 def scene_view_scale(scene) -> float:
     """On-screen zoom for *scene*: its active view's ``|m11|``; 1.0 with no view.
@@ -26,6 +56,9 @@ def scene_view_scale(scene) -> float:
     """
     if scene is None:
         return 1.0
+    held = _HELD.get(id(scene))
+    if held is not None:
+        return held
     fn = getattr(scene, "_active_view_scale", None)
     if callable(fn):
         try:

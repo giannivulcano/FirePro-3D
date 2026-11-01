@@ -7556,7 +7556,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         g.set_block_mirrored(self._place_block_mirrored)
         self._move_ghost_base = ghost_base_paths([g])
         at = self._place_block_at
-        self._move_ghost = ([p.translated(at.x(), at.y()) for p in self._move_ghost_base]
+        from .transform_ghost import GhostFrame
+        self._move_ghost = (GhostFrame(self._move_ghost_base,
+                                       QTransform.fromTranslate(at.x(), at.y()))
                             if at is not None else [])
         for v in self.views():
             v.viewport().update()
@@ -7630,8 +7632,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if self._place_block_ghost is None:
             return
         self._place_block_at = QPointF(snapped)
-        self._move_ghost = [p.translated(snapped.x(), snapped.y())
-                            for p in self._move_ghost_base]
+        from .transform_ghost import GhostFrame
+        self._move_ghost = GhostFrame(
+            self._move_ghost_base, QTransform.fromTranslate(snapped.x(), snapped.y()))
         for v in self.views():
             v.viewport().update()
 

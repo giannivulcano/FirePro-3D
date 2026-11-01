@@ -713,8 +713,9 @@ class ModifyToolsController:
             return
         offset = QPointF(target.x() - s.node_start_pos.x(),
                          target.y() - s.node_start_pos.y())
-        s._move_ghost = [p.translated(offset.x(), offset.y())
-                         for p in s._move_ghost_base]
+        from .transform_ghost import GhostFrame
+        s._move_ghost = GhostFrame(
+            s._move_ghost_base, QTransform.fromTranslate(offset.x(), offset.y()))
         for v in s.views():
             v.viewport().update()
 
@@ -1023,7 +1024,8 @@ class ModifyToolsController:
             return
         t = (QTransform().translate(p.x(), p.y()).rotate(-delta_deg)
              .translate(-p.x(), -p.y()))
-        s._move_ghost = [t.map(path) for path in s._move_ghost_base]
+        from .transform_ghost import GhostFrame
+        s._move_ghost = GhostFrame(s._move_ghost_base, t)
         for v in s.views():
             v.viewport().update()
 
@@ -1121,11 +1123,11 @@ class ModifyToolsController:
 
     def _reflected_ghost(self, axis) -> list:
         """The ghost base reflected across *axis* ([] without an axis)."""
-        from .transform_ghost import reflect_transform
+        from .transform_ghost import GhostFrame, reflect_transform
         if axis is None:
             return []
         t = reflect_transform(axis.p1, axis.p2)
-        return [t.map(p) for p in self._scene._move_ghost_base]
+        return GhostFrame(self._scene._move_ghost_base, t)
 
     @staticmethod
     def _same_axis(a, b) -> bool:
