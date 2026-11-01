@@ -134,3 +134,32 @@ def test_wrap_off_breaks_only_at_a_typed_enter(qapp):
     ms = _model()
     t = _add(ms, text="alpha beta gamma\ndelta", wrap_width_mm=6.0, wrap=False)
     assert _lines(t.document()) == 2
+
+
+# ── T23: Shrink sizing (D5, G3) ─────────────────────────────────────────────
+
+def test_shrink_hugs_both_axes_wrap_off(qapp):
+    """AC11 / T-shrink: Shrink ON + Wrap OFF -> box = one-line content + pad
+    on both axes; the authored 12 mm height floor is ignored."""
+    ms = _model()
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             wrap=False, shrink=True)
+    doc, s = _raw_doc("Short")
+    b = _box(t)
+    assert b.width() == pytest.approx(doc.idealWidth() * s, abs=1e-6)
+    assert b.height() == pytest.approx(doc.size().height() * s, abs=1e-6)
+
+
+def test_shrink_with_wrap_hugs_the_widest_wrapped_line(qapp):
+    """G3: Shrink ON + Wrap ON -> the lines break at the wrap width and the
+    box is as wide as the widest of them (idealWidth of the wrapped raw doc);
+    the authored 60 mm height floor is ignored."""
+    ms = _model()
+    t = _add(ms, wrap_width_mm=20.0, box_height_mm=60.0, wrap=True, shrink=True)
+    doc, s = _raw_doc(LONG, wrap_mm=20.0)
+    b = _box(t)
+    assert _lines(t.document()) == _lines(doc) > 1
+    assert b.width() == pytest.approx(doc.idealWidth() * s, abs=1e-6)
+    assert b.width() < 20.0
+    assert b.height() == pytest.approx(doc.size().height() * s, abs=1e-6)
+    assert b.height() < 60.0

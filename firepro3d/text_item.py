@@ -455,6 +455,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # The border frame's crisp axis-split (MW-7); its own name -- the
         # Geometry2DMixin stroke cache is a separate base-class attr.
         self._frame_split_cache = _cs.SplitCache()
+        # Shrink to fit (text-sizing D5), latched by _apply_format: the
+        # effective flag and the LOCAL offset of the hugged box that keeps the
+        # authored box's alignment point fixed.  Read by the box rect, the
+        # line origin and the paper paint -- never applied through setPos
+        # (itemChange live-syncs data.x/y from pos).
+        self._shrink_eff = False
+        self._shrink_off = QPointF(0.0, 0.0)
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -528,13 +535,22 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
         if scale > 0:
             self.document().setDocumentMargin(self._data.cell_padding_mm / scale)
+        shrink = self.shrink_on()
         if self.wrap_on() and d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
+            if shrink and self.document().idealWidth() < self.textWidth():
+                # Shrink + Wrap (G3): hug the widest wrapped line.  idealWidth()
+                # is that line + margins, and a re-layout at it keeps every
+                # break (T20 probe); an overflowing word keeps the wrap width
+                # (re-laying out wider could merge lines).
+                self.setTextWidth(self.document().idealWidth())
         else:
             # Wrap OFF (G2): breaks only at a typed Enter; the authored
             # wrap_width_mm is kept for Wrap ON.
             self.setTextWidth(-1)
             self.setTextWidth(self.document().idealWidth())
+        self._shrink_eff = shrink
+        self._shrink_off = QPointF(0.0, 0.0)
 
     # ── Wrap / Shrink to fit (text-sizing D4/D5) ────────────────────────────
 
@@ -611,9 +627,21 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def _box_rect_local(self) -> QRectF:
         """The box bounding rect in item-local UNSCALED coordinates.
 
+        Size from :meth:`_box_size_local`; the top-left is the Shrink offset
+        (D5) -- the local origin unless Shrink to fit moved the hugged box.
+        """
+        w, h = self._box_size_local()
+        o = self._shrink_off
+        return QRectF(o.x(), o.y(), w, h)
+
+    def _box_size_local(self) -> tuple[float, float]:
+        """``(width, height)`` of the box, LOCAL unscaled.
+
         Width comes from the text layout (``textWidth`` already reflects wrap);
         height is ``max(content height, box_height_mm / scale)`` so the box
         auto-grows with content but never shrinks below the stored height.
+        A Shrink box (D5, G3) hugs both axes: height = content (the authored
+        floor ignored), width never narrower than an overflowing line.
         """
         content = super().boundingRect()
         # The exact wrap width (CS3c): the document lays out on a 1/64 grid
@@ -621,13 +649,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # box edge off its target. textWidth() is always set (_apply_format).
         tw = self.textWidth()
         width = tw if tw > 0 else content.width()
+        if self._shrink_eff:
+            return max(width, content.width()), content.height()
         scale = self.scale() or 1.0
         box_h_mm = self._data.box_height_mm
         if box_h_mm > 0 and scale > 0:
             height = max(content.height(), box_h_mm / scale)
         else:
             height = content.height()
-        return QRectF(0, 0, width, height)
+        return width, height
 
     def _frame_path(self) -> "QPainterPath":
         """Border path for the box rect, honoring the corner style (local frame)."""
