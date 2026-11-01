@@ -36,7 +36,7 @@ class TestRegistry:
             "displacement", "distance", "offset_distance", "spacing_count",
             "array_linear", "array_grid", "array_polar",
             "arc_span", "arc_radius", "rotation", "rotate_by", "track",
-            "scale_factor", "scale_length",
+            "scale_factor", "scale_length", "fillet_radius",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
@@ -54,6 +54,15 @@ class TestRegistry:
                  if s.name == "Count"][0]
         assert count.kind is FieldKind.COUNT
         assert count.minimum == 0.0     # DimensionEdit uses strict >, so >= 1
+
+    def test_fillet_radius_schema(self):
+        s = SCHEMAS["fillet_radius"]
+        assert [f.name for f in s.fields] == ["Radius"]
+        f = s.fields[0]
+        assert f.kind is FieldKind.DIMENSION
+        assert f.minimum == 0.0                      # strict > 0: a zero radius is a red field
+        assert s.is_placement is False and s.requires_anchor is False
+        assert s.resolve(None, {"Radius": 25.4}) == {"radius": 25.4}
 
     def test_placement_flag_matches_resolve_return_type(self):
         """``is_placement`` must agree with what ``resolve`` actually returns.

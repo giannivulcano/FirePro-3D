@@ -339,6 +339,15 @@ def resolve_scale_factor(anchor, values: dict) -> dict:
     return {"factor": values["Factor"]}
 
 
+def resolve_fillet_radius(anchor, values: dict) -> dict:
+    """Return the Fillet tool's typed radius (scene-tools.md D14 Fillet).
+
+    A transform: the corner under the cursor lives in scene state. The field's
+    strict ``minimum`` (> 0) refuses zero / negatives; the applier re-checks.
+    """
+    return {"radius": values["Radius"]}
+
+
 def resolve_scale_length(anchor, values: dict) -> dict:
     """Return the Scale tool's typed new length (DS1), in scene units.
 
@@ -571,6 +580,14 @@ SCHEMAS: dict[str, Schema] = {
         resolve=resolve_scale_length,
         returns_point=False,
         needs_anchor=True,
+    ),
+    # Fillet tool (design 2026-11-01 DS4.4): one radius, strictly > 0, anchorless
+    # (the HUD opens as soon as the tool is live and is sticky for the session).
+    "fillet_radius": Schema(
+        name="fillet_radius",
+        fields=(FieldSpec("Radius", "R", FieldKind.DIMENSION, minimum=0.0),),
+        resolve=resolve_fillet_radius,
+        returns_point=False,
     ),
     # ── Selection-manipulator transforms ─────────────────────────────────
     # The manipulator's live readout + typed-input surface.  Like ``move``
