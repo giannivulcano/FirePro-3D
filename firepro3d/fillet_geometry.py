@@ -129,3 +129,175 @@ def tangent_arc(corner: Corner, radius: float):
     if signed >= 0.0:
         return TangentArc((cx, cy), radius, sa % 360.0, signed, t1, t2, True)
     return TangentArc((cx, cy), radius, ea % 360.0, -signed, t1, t2, False)
+
+
+@dataclass(frozen=True)
+class PolyPiece:
+    """One open polyline of a fillet result: its points, and which tangent
+    point ends it (``"prev"`` = on the previous-vertex edge = ``t1``;
+    ``"next"`` = ``t2``; None = an original end)."""
+    pts: tuple
+    start_tp: Any
+    end_tp: Any
+
+
+def seg_distance(p, a, b) -> float:
+    """Distance from point *p* to segment *a*-*b*."""
+    ab = _sub(b, a)
+    ab2 = _dot(ab, ab)
+    if ab2 < 1e-18:
+        return _norm(_sub(p, a))
+    t = max(0.0, min(1.0, _dot(_sub(p, a), ab) / ab2))
+    return _norm(_sub(p, (a[0] + t * ab[0], a[1] + t * ab[1])))
+
+
+def _vertex_corner(shape: Shape, i: int):
+    pts = shape.pts
+    n = len(pts)
+    v, prev, nxt = pts[i], pts[(i - 1) % n], pts[(i + 1) % n]
+    d1, d2 = _sub(prev, v), _sub(nxt, v)
+    l1, l2 = _norm(d1), _norm(d2)
+    if l1 < LEN_TOL or l2 < LEN_TOL:
+        return None
+    return Corner("vertex", v, (d1[0] / l1, d1[1] / l1), (d2[0] / l2, d2[1] / l2),
+                  l1, l2, shape.ref, shape.ref, i, i)
+
+
+def _line_x(a: Shape, b: Shape):
+    p, p2 = a.pts
+    q, q2 = b.pts
+    d1, d2 = _sub(p2, p), _sub(q2, q)
+    den = _cross(d1, d2)
+    if abs(den) <= PARALLEL_SIN * _norm(d1) * _norm(d2):
+        return None
+    t = _cross(_sub(q, p), d2) / den
+    return (p[0] + t * d1[0], p[1] + t * d1[1])
+
+
+def _halves(x, e0, e1):
+    """Candidate half-lines from *x*: ``(end index, unit dir, length)`` per end
+    not at *x*; two ends on the same side collapse to the farther one."""
+    out = []
+    for k, e in enumerate((e0, e1)):
+        d = _sub(e, x)
+        n = _norm(d)
+        if n > LEN_TOL:
+            out.append((k, (d[0] / n, d[1] / n), n))
+    if len(out) == 2 and _dot(out[0][1], out[1][1]) > 1.0 - 1e-9:
+        out = [max(out, key=lambda h: h[2])]
+    return out
+
+
+def _pair_corner(a: Shape, b: Shape, p, tol):
+    """Corner of two lines at their intersection nearest the cursor's quadrant.
+
+    *tol* None accepts an intersection anywhere on the infinite lines (the
+    fallback click-Line-1-then-Line-2 path); a number requires it on both
+    segments within *tol* (the hover path: ends meet or cross).
+    """
+    x = _line_x(a, b)
+    if x is None:
+        return None
+    if tol is not None and (seg_distance(x, *a.pts) > tol
+                            or seg_distance(x, *b.pts) > tol):
+        return None
+    r = _sub(p, x)
+    rn = _norm(r)
+    best = None
+    for ka, ua, la in _halves(x, *a.pts):
+        for kb, ub, lb in _halves(x, *b.pts):
+            bis = (ua[0] + ub[0], ua[1] + ub[1])
+            bn = _norm(bis)
+            if bn < 1e-12:
+                continue
+            score = _dot(bis, r) / (bn * rn) if rn > LEN_TOL else la + lb
+            if best is None or score > best[0]:
+                best = (score, Corner("lines", x, ua, ub, la, lb,
+                                      a.ref, b.ref, ka, kb))
+    return None if best is None else best[1]
+
+
+def find_corner(shapes, p, tol):
+    """The corner nearest the cursor *p* within *tol* (the snap aperture), or None.
+
+    Candidates: a polyline vertex (interior vertices of an open one, any vertex
+    of a closed one -- a Rect / RegularPolygon is a closed ``"poly"``), and the
+    meeting / crossing of two ``"line"`` shapes.
+
+    Args:
+        shapes: Iterable of :class:`Shape`.
+        p: Cursor, scene units.
+        tol: Aperture radius, scene units.
+    """
+    best = None
+
+    def offer(c):
+        nonlocal best
+        d = _norm(_sub(c.vertex, p))
+        if d <= tol and (best is None or d < best[0]):
+            best = (d, c)
+
+    lines = []
+    for sh in shapes:
+        if sh.kind == "line":
+            lines.append(sh)
+            continue
+        n = len(sh.pts)
+        if n < 3:
+            continue
+        for i in (range(n) if sh.closed else range(1, n - 1)):
+            if _norm(_sub(sh.pts[i], p)) <= tol:
+                c = _vertex_corner(sh, i)
+                if c is not None:
+                    offer(c)
+    for a, b in combinations(lines, 2):
+        c = _pair_corner(a, b, p, tol)
+        if c is not None:
+            offer(c)
+    return None if best is None else best[1]
+
+
+def corner_between_lines(a: Shape, b: Shape, p):
+    """The fallback corner of two picked lines at their (extended) intersection,
+    the quadrant chosen by the cursor *p*; :class:`Refused` (``parallel``) when
+    the lines are parallel / collinear."""
+    c = _pair_corner(a, b, p, None)
+    return c if c is not None else Refused("parallel", REFUSE_PARALLEL)
+
+
+def _dedupe(seq):
+    out = []
+    for q in seq:
+        if not out or _norm(_sub(q, out[-1])) > LEN_TOL:
+            out.append(q)
+    return out
+
+
+def poly_pieces(pts, closed: bool, i: int, t_prev, t_next) -> list:
+    """The open polyline(s) a fillet at vertex *i* leaves behind.
+
+    An open polyline splits in two (a piece with fewer than two points -- a
+    tangent point exactly on the far vertex -- is not created); a closed ring
+    (Rect / polygon too) becomes one open polyline from ``t_next`` around to
+    ``t_prev``.
+
+    Args:
+        pts: The vertices (scene units).
+        closed: Whether the ring is closed.
+        i: The filleted vertex.
+        t_prev: Tangent point on the edge toward vertex ``i - 1``.
+        t_next: Tangent point on the edge toward vertex ``i + 1``.
+    """
+    n = len(pts)
+    if closed:
+        seq = [t_next] + [pts[(i + k) % n] for k in range(1, n)] + [t_prev]
+        d = _dedupe(seq)
+        return [PolyPiece(tuple(d), "next", "prev")] if len(d) >= 2 else []
+    a = _dedupe([pts[k] for k in range(0, i)] + [t_prev])
+    b = _dedupe([t_next] + [pts[k] for k in range(i + 1, n)])
+    out = []
+    if len(a) >= 2:
+        out.append(PolyPiece(tuple(a), None, "prev"))
+    if len(b) >= 2:
+        out.append(PolyPiece(tuple(b), "next", None))
+    return out

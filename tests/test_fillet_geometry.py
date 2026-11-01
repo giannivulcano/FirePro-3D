@@ -112,3 +112,101 @@ def test_tangent_point_exactly_at_the_far_end_is_allowed():
 def test_non_positive_radius_is_refused(r):
     res = fh.tangent_arc(_corner(_u(0), _u(90)), r)
     assert isinstance(res, fh.Refused) and res.reason == "radius"
+
+# -- find_corner -------------------------------------------------------------
+
+def _poly(pts, closed=False, ref="P"):
+    return fh.Shape("poly", tuple(pts), closed, ref)
+
+
+def _line(a, b, ref):
+    return fh.Shape("line", (tuple(a), tuple(b)), False, ref)
+
+
+def test_open_polyline_interior_vertex_is_a_corner_ends_are_not():
+    sh = _poly([(0, 0), (100, 0), (100, -100)])
+    c = fh.find_corner([sh], (100.0, 0.0), 15.0)
+    assert c.kind == "vertex" and c.vertex == (100, 0) and c.idx1 == c.idx2 == 1
+    assert c.u1 == pytest.approx((-1.0, 0.0)) and c.u2 == pytest.approx((0.0, -1.0))
+    assert (c.len1, c.len2) == pytest.approx((100.0, 100.0))
+    assert fh.find_corner([sh], (0.0, 0.0), 15.0) is None            # free end
+    assert fh.find_corner([sh], (100.0, -100.0), 15.0) is None
+
+
+def test_closed_polyline_every_vertex_is_a_corner():
+    sh = _poly([(0, 0), (100, 0), (100, -100)], closed=True)
+    c = fh.find_corner([sh], (0.0, 0.0), 15.0)
+    # vertex 0: previous vertex (100,-100), next (100,0)
+    assert c.idx1 == 0
+    assert c.u1 == pytest.approx((1 / math.sqrt(2), -1 / math.sqrt(2)))
+    assert c.u2 == pytest.approx((1.0, 0.0))
+    assert c.len1 == pytest.approx(math.hypot(100, 100))
+
+
+def test_corner_aperture_is_inclusive_and_nearest_wins():
+    sh = _poly([(0, 0), (100, 0), (100, -100)])
+    assert fh.find_corner([sh], (100.0, 14.9), 15.0) is not None
+    assert fh.find_corner([sh], (100.0, 15.1), 15.0) is None
+
+
+def test_lines_whose_ends_meet_form_a_corner():
+    a, b = _line((100, 0), (0, 0), "A"), _line((0, -100), (0, 0), "B")
+    c = fh.find_corner([a, b], (0.0, 0.0), 15.0)
+    assert c.kind == "lines" and c.vertex == pytest.approx((0.0, 0.0))
+    assert (c.ref1, c.ref2, c.idx1, c.idx2) == ("A", "B", 0, 0)       # far ends kept
+    assert c.u1 == pytest.approx((1.0, 0.0)) and c.u2 == pytest.approx((0.0, -1.0))
+    assert (c.len1, c.len2) == pytest.approx((100.0, 100.0))
+
+
+def test_crossing_lines_cursor_quadrant_picks_the_corner():
+    a, b = _line((-100, 0), (100, 0), "A"), _line((0, -100), (0, 100), "B")
+    c = fh.find_corner([a, b], (5.0, -5.0), 15.0)          # visual upper-right
+    assert (c.idx1, c.idx2) == (1, 0)
+    assert c.u1 == pytest.approx((1.0, 0.0)) and c.u2 == pytest.approx((0.0, -1.0))
+    c = fh.find_corner([a, b], (-5.0, 5.0), 15.0)          # visual lower-left
+    assert (c.idx1, c.idx2) == (0, 1)
+    assert c.u1 == pytest.approx((-1.0, 0.0)) and c.u2 == pytest.approx((0.0, 1.0))
+
+
+def test_lines_that_only_meet_when_extended_are_not_hover_corners():
+    # NEAR end listed first in each line: without the same-side collapse in _halves the
+    # tie goes to the first-listed (near) end and idx would be (0, 0). (Dry run: with
+    # the far end listed first the collapse mutation stayed GREEN.)
+    a, b = _line((50, 0), (0, 0), "A"), _line((100, -30), (100, -100), "B")
+    assert fh.find_corner([a, b], (100.0, 0.0), 15.0) is None
+    c = fh.corner_between_lines(a, b, (100.0, -5.0))
+    assert c.vertex == pytest.approx((100.0, 0.0))
+    assert (c.idx1, c.idx2) == (1, 1)                      # the far ends (0,0) and (100,-100)
+    assert c.u1 == pytest.approx((-1.0, 0.0)) and c.u2 == pytest.approx((0.0, -1.0))
+    assert (c.len1, c.len2) == pytest.approx((100.0, 100.0))
+
+
+def test_parallel_lines_have_no_corner():
+    a, b = _line((0, 0), (100, 0), "A"), _line((0, -50), (100, -50), "B")
+    assert fh.find_corner([a, b], (0.0, 0.0), 15.0) is None
+    res = fh.corner_between_lines(a, b, (50.0, -25.0))
+    assert isinstance(res, fh.Refused) and res.message == PARALLEL
+
+
+# -- poly_pieces -------------------------------------------------------------
+
+def test_open_polyline_splits_in_two():
+    pts = [(0, 0), (100, 0), (100, -100)]
+    pcs = fh.poly_pieces(pts, False, 1, (90.0, 0.0), (100.0, -10.0))
+    assert [p.pts for p in pcs] == [((0, 0), (90.0, 0.0)), ((100.0, -10.0), (100, -100))]
+    assert [(p.start_tp, p.end_tp) for p in pcs] == [(None, "prev"), ("next", None)]
+
+
+def test_zero_length_remainder_is_not_created():
+    pts = [(0, 0), (100, 0), (100, -100)]
+    pcs = fh.poly_pieces(pts, False, 1, (0.0, 0.0), (100.0, -10.0))   # t_prev == P0
+    assert [p.pts for p in pcs] == [((100.0, -10.0), (100, -100))]
+
+
+def test_closed_ring_becomes_one_open_polyline():
+    # rect (0,0)-(100,-50): TL (0,-50), TR (100,-50), BR (100,0), BL (0,0); corner BR (i = 2)
+    ring = [(0, -50), (100, -50), (100, 0), (0, 0)]
+    pcs = fh.poly_pieces(ring, True, 2, (100.0, -10.0), (90.0, 0.0))
+    assert len(pcs) == 1
+    assert pcs[0].pts == ((90.0, 0.0), (0, 0), (0, -50), (100, -50), (100.0, -10.0))
+    assert (pcs[0].start_tp, pcs[0].end_tp) == ("next", "prev")
