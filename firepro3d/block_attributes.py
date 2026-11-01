@@ -10,12 +10,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .constants import DISPLAY_PRECISION_MAX
 from .element_params import HostValue
+from .scale_manager import DisplayUnit
 from .titleblock_template import TOKEN_RE, resolve_text
 
 ATTR_TYPES = ("text", "number")
 ATTR_SOURCES = ("instance", "host")
 _TEXT_TYPE = "text"
+_UNIT_VALUES = frozenset(u.value for u in DisplayUnit)
+
+
+def _whole(value):
+    """*value* as an int when it is a whole number -- an int, an integral
+    float or an ASCII digit string with an optional sign -- else None. A
+    malformed precision is dropped, never raised (design D8, AC8)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        s = value.strip()
+        body = s[1:] if s[:1] in ("+", "-") else s
+        return int(s) if body.isascii() and body.isdigit() else None
+    return None
 
 
 def normalise_attr(rec: dict) -> dict:
@@ -27,7 +47,11 @@ def normalise_attr(rec: dict) -> dict:
     Returns:
         ``{key, label, type, source, host_key, default, prefix, suffix,
         precision, placeholder}`` with defaults filled (label = key,
-        type text, source instance, placeholder "?").
+        type text, source instance, placeholder "?"; a precision that is
+        not a whole number reads 0, a negative one 0), plus the optional D8
+        override keys ``unit`` (a ``DisplayUnit`` value) and
+        ``display_precision`` (0-5, clamped), kept only when valid -- absent
+        = "Per project settings".
 
     Raises:
         ValueError: Empty key, or an unknown ``type`` / ``source``.
@@ -41,7 +65,8 @@ def normalise_attr(rec: dict) -> dict:
     src = str(rec.get("source", "instance"))
     if src not in ATTR_SOURCES:
         raise ValueError(f"unknown attribute source {src!r}")
-    return {
+    prec = _whole(rec.get("precision", 0))
+    out = {
         "key": key,
         "label": str(rec.get("label") or key),
         "type": typ,
@@ -50,9 +75,17 @@ def normalise_attr(rec: dict) -> dict:
         "default": "" if rec.get("default") is None else str(rec.get("default")),
         "prefix": str(rec.get("prefix", "")),
         "suffix": str(rec.get("suffix", "")),
-        "precision": max(0, int(rec.get("precision", 0) or 0)),
+        "precision": 0 if prec is None else max(0, prec),
         "placeholder": str(rec.get("placeholder", "?")),
     }
+    # D8 override, sparse: absent = "Per project settings"; a bad value is dropped.
+    unit = rec.get("unit")
+    if isinstance(unit, str) and unit in _UNIT_VALUES:
+        out["unit"] = unit
+    dp = _whole(rec.get("display_precision"))
+    if dp is not None:
+        out["display_precision"] = max(0, min(DISPLAY_PRECISION_MAX, dp))
+    return out
 
 
 def format_value(rec: dict, raw) -> str:
