@@ -599,3 +599,25 @@ def test_shrink_on_keeps_the_wrap_it_hugs(qapp):
     t.set_property("Shrink to fit", True)
     assert (t.data.wrap, t.data.shrink) == (True, True)
     assert _lines(t.document()) > 1
+
+
+# ── T33: sheet panel toggles (D7) ───────────────────────────────────────────
+
+def test_sheet_panel_wrap_and_shrink_rows_are_undo_routed(qapp):
+    """AC9 sheet: bool rows; a commit is one FormatTextCommand and undo
+    restores every field it wrote (Wrap ON also seeds the width)."""
+    sc = _paper()
+    data, it = _paper_text(sc, wrap=None, shrink=None, wrap_width_mm=0.0,
+                           box_height_mm=0.0, align="L", valign="T")
+    props = it.get_properties()
+    assert props["Wrap"] == {"type": "bool", "value": False}
+    assert props["Shrink to fit"] == {"type": "bool", "value": False}
+    w0 = _box(it).width()
+    i0 = sc.undo_stack.index()
+    it.set_property("Wrap", True)
+    assert sc.undo_stack.index() == i0 + 1
+    assert data.wrap is True and data.wrap_width_mm == pytest.approx(w0, abs=1e-6)
+    sc.undo_stack.undo()
+    assert (data.wrap, data.wrap_width_mm) == (None, 0.0)
+    it.set_property("Shrink to fit", True)
+    assert sc.undo_stack.index() == i0 + 1 and data.shrink is True

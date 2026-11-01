@@ -1661,14 +1661,16 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         from .paper_space import _text_panel_change
         from .paper_commands import FormatTextCommand
-        change = _text_panel_change(self._data, key, value)
+        if key in ("Wrap", "Shrink to fit"):
+            change = self._toggle_change(key, value) or None     # D7: may be 2 fields
+        else:
+            change = _text_panel_change(self._data, key, value)
         if change is None:
             return
         scene = self.scene()
         stack = getattr(scene, "undo_stack", None) if scene is not None else None
         if stack is not None and not getattr(scene, "_applying_command", False):
-            field = next(iter(change))
-            old = {field: getattr(self._data, field)}
+            old = {f: getattr(self._data, f) for f in change}
             stack.push(FormatTextCommand(scene, self._data, old, change))
         else:
             for f, v in change.items():

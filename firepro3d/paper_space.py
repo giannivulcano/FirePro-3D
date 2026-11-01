@@ -1515,7 +1515,8 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
     """Property-panel form dict for a sheet text annotation (§9.6 panel path).
 
     Formatting only — content is edited inline on the canvas and wrap width
-    via the drag grip. Height displays/parses as a Word-style pt font size
+    via the drag grip; Wrap / Shrink to fit toggle the box (text-sizing D7).
+    Height displays/parses as a Word-style pt font size
     (storage stays cap-height mm). The trailing "Leader" label row is a
     placeholder for the leader follow-up task (real leader rows will replace
     it).
@@ -1551,6 +1552,8 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
                           "options": weight_names()},
         "Corner": {"type": "enum", "value": data.border_corner,
                    "options": ["square", "round", "chamfer"]},
+        "Wrap": {"type": "bool", "value": data.wrap_on()},                   # D7
+        "Shrink to fit": {"type": "bool", "value": data.shrink_on()},       # D7
         "Leader": {"type": "label", "value": "None"},
     }
 
