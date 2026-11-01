@@ -640,6 +640,10 @@ class ModifyToolsController:
             s._array_row_spacing = 0.0
             s._array_total = None
             s._array_start_deg = None
+            # DS2.2: the typed Angle lock ends with the tool (it no longer
+            # carries to the next Array); _array_variant / _array_memory stay
+            # session-sticky.
+            s._array_angle_locked = None
         if new_mode not in ("flip", "mirror"):
             # The axis paints in drawForeground; set_mode repaints every view
             # (detail views share the scene) right after this clear().
@@ -1396,8 +1400,9 @@ class ModifyToolsController:
     # types the variant's fields. Counts are TOTALS incl. the original. Copies
     # are independent (not associative); one undo step; back to Select with
     # the ORIGINAL selection. Transient scene state (_array_base, _array_dir,
-    # _array_spacing) is cleared on leaving the mode; the session-sticky
-    # _array_variant / _array_memory are never cleared (per canvas tab).
+    # _array_spacing, _array_angle_locked) is cleared on leaving the mode; the
+    # session-sticky _array_variant / _array_memory are never cleared (per
+    # canvas tab).
 
     # HUD fields remembered per variant after a typed commit: (field, param).
     # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim
@@ -1836,7 +1841,7 @@ class ModifyToolsController:
 
         On success the variant's non-cursor fields are remembered for the
         next Array on this canvas. A typed Angle locks / releases the
-        direction first (it stays locked for the next Array).
+        direction first (the lock ends with the tool).
 
         Args:
             params: The active array schema's resolver output.

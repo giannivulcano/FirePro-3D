@@ -534,7 +534,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Session-sticky per canvas tab (never cleared by clear()): the ←/→
         # variant and the last typed non-cursor HUD fields per variant.
         self._array_variant: str = "linear"
-        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims.
+        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims; cleared by clear() when Array ends (DS2.2).
         self._array_angle_locked: "float | None" = None
         self._array_memory: dict = {v: dict(f) for v, f
                                     in ARRAY_DEFAULT_MEMORY.items()}
