@@ -489,6 +489,9 @@ ARRAY_DEFAULT_MEMORY = {
 # preview drops the HALO glow and paints one merged 1 px trace
 # (transform_ghost.LiteGhostPath); the commit itself stays uncapped (D11).
 ARRAY_GHOST_FULL_MAX = 200
+# Largest cached ghost-glow image (device px, width x height) before
+# paint_ghost falls back to the live glow (transform_ghost._GlowCache, L1068).
+GHOST_GLOW_CACHE_MAX_PX = 4 * 1920 * 1080
 
 # ── Hatch renderer (hatch-and-fill.md D-A30 / D-A35) ──────────────────────────
 DRAFTING_CANVAS_SCALE = 100.0   # assumed plan scale (1:N) for Drafting tiles on the model canvas until SB1c

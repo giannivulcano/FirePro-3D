@@ -219,7 +219,32 @@ def paint_halo_path(painter, path, theme, *, token=HALO_TRACE_COLOR,
         alpha: Core stroke alpha (0-255).
         glow_px: Outer glow extent in device px; 0 disables the glow.
     """
-    if path is None or path.isEmpty():
+    paint_halo_paths(painter, [path], theme, token=token, width=width,
+                     alpha=alpha, glow_px=glow_px)
+
+
+def paint_halo_paths(painter, paths, theme, *, token=HALO_TRACE_COLOR,
+                     width=HALO_TRACE_WIDTH_PX, alpha=HALO_TRACE_ALPHA,
+                     glow_px=HALO_GLOW_PX):
+    """Draw the HALO trace along every path, building each pass's pen once.
+
+    Pass-major (each glow layer over all paths, then the core). Every stroke
+    is the same colour, so src-over compositing is order-independent: the
+    pixels match a per-path :func:`paint_halo_path` loop. The per-path loop
+    built 5 ``QPen``s per path per frame, ~40 % of a transform ghost's paint
+    (L1068 profile).
+
+    Args:
+        painter: Active QPainter.
+        paths: QPainterPaths; ``None`` / empty entries are skipped.
+        theme: Theme providing ``color(token)``.
+        token: Theme color token for the trace.
+        width: Core stroke width in device px (cosmetic).
+        alpha: Core stroke alpha (0-255).
+        glow_px: Outer glow extent in device px; 0 disables the glow.
+    """
+    live = [p for p in paths if p is not None and not p.isEmpty()]
+    if not live:
         return
     base = theme.color(token)
     painter.save()
@@ -234,17 +259,19 @@ def paint_halo_path(painter, path, theme, *, token=HALO_TRACE_COLOR,
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         return pen
 
+    pens = []
     if glow_px > 0:
         layers = 4
         for i in range(layers, 0, -1):
             frac = i / layers                       # 1.0 (outer) .. 0.25 (inner)
             w = width + glow_px * 2.0 * frac
             a = alpha * (0.05 + 0.20 * (1.0 - frac))
-            painter.setPen(_pen(w, a))
-            painter.drawPath(path)
-
-    painter.setPen(_pen(width, alpha))
-    painter.drawPath(path)
+            pens.append(_pen(w, a))
+    pens.append(_pen(width, alpha))
+    for pen in pens:
+        painter.setPen(pen)
+        for p in live:
+            painter.drawPath(p)
     painter.restore()
 
 

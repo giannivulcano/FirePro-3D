@@ -46,6 +46,7 @@ from .block_instance import BlockInstance
 from .render_op import STROKE
 from .capability_frame import CAPABILITY_FRAME_TAG
 from .constants import ELEV_Z_SNAPPABLE_CLASSES
+from .view_scale import held_view_scale
 from .sketch_model import AXIS_DIRS
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -830,6 +831,7 @@ class SnapEngine:
         self.snap_nearest:       bool = True
         self.snap_perpendicular: bool = True
         self.snap_tangent:       bool = True
+        self._items_memo: dict | None = None   # live only inside find()
 
     # ── Public ───────────────────────────────────────────────────────────────
 
@@ -888,7 +890,41 @@ class SnapEngine:
             axis_source: Optional item (Offset's armed source, D9) whose
                 collinear Block Editor axis offers no axis snap (§4.2) — that
                 axis is the source too. ``None`` (default) keeps both axes.
+
+        Per call, ``scene.items(rect, mode)`` is memoized and the view zoom is
+        pinned (L1070): every primitive's ``boundingRect()`` re-reads the zoom
+        on each query. Both are dropped when the call returns.
         """
+        prev = self._items_memo
+        self._items_memo = {}
+        try:
+            with held_view_scale(scene):
+                return self._find_uncached(
+                    cursor_scene, scene, view_transform, exclude, only_types,
+                    item_filter, held, align_paths, align_aperture_px,
+                    from_point, axis_source)
+        finally:
+            self._items_memo = prev
+
+    def _scene_items(self, scene: QGraphicsScene, rect: QRectF, mode) -> list:
+        """``scene.items(rect, mode)``, memoized while :meth:`find` runs.
+
+        Callers only iterate the list (never mutate it). Outside ``find``
+        (the axis picker's direct ``_iter_geometry_segments``) there is no memo.
+        """
+        memo = self._items_memo
+        if memo is None:
+            return scene.items(rect, mode)
+        key = (rect.x(), rect.y(), rect.width(), rect.height(), mode)
+        hit = memo.get(key)
+        if hit is None:
+            hit = memo[key] = scene.items(rect, mode)
+        return hit
+
+    def _find_uncached(self, cursor_scene, scene, view_transform, exclude,
+                       only_types, item_filter, held, align_paths,
+                       align_aperture_px, from_point, axis_source):
+        """:meth:`find` body, run inside its per-call memo; see ``find``."""
         if not self.enabled:
             return None
 
@@ -1045,7 +1081,7 @@ class SnapEngine:
                            item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
         _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
-        _items = scene.items(search_rect, _bbox)
+        _items = self._scene_items(scene, search_rect, _bbox)
 
         _queried_underlays: set[int] = set()
         _collected: set[int] = set()
@@ -1361,7 +1397,7 @@ class SnapEngine:
         def _phase4_items():
             """Yield items for segment extraction — skip underlay groups entirely."""
             _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
-            for item in scene.items(search_rect, _bbox):
+            for item in self._scene_items(scene, search_rect, _bbox):
                 if exclude is not None and item is exclude:
                     continue
                 parent = item.parentItem()
@@ -1410,7 +1446,7 @@ class SnapEngine:
         # Extract segments from underlay snap indices
         _queried_groups: set[int] = set()
         _bbox_mode = Qt.ItemSelectionMode.IntersectsItemBoundingRect
-        for item in scene.items(search_rect, _bbox_mode):
+        for item in self._scene_items(scene, search_rect, _bbox_mode):
             parent = item.parentItem()
             grp = None
             if parent is not None and isinstance(parent, QGraphicsItemGroup):
