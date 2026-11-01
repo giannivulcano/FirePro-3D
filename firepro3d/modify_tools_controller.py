@@ -1392,15 +1392,46 @@ class ModifyToolsController:
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return bool(targets)
 
+    def scale_factor_for_length(self, length: float) -> float:
+        """Factor that makes the base→reference span *length* long (DS1).
+
+        Both operands are in scene units: the HUD hands a DIMENSION field's
+        value back converted from mm to scene units
+        (``DynamicInputHud._value_of``), so ``length ÷ |ref − base|`` is the
+        same ratio as ``L_mm ÷ scene_to_mm(|ref − base|)`` on a calibrated
+        scene. Converting only one side would be off by ``pixels_per_mm``.
+
+        Returns:
+            The factor, or NaN when there is no measurable reference
+            (``commit_scale`` refuses non-finite factors).
+        """
+        s = self._scene
+        base, ref = s._scale_base, s._scale_ref
+        if base is None or ref is None:
+            return float("nan")
+        d_ref = math.hypot(ref.x() - base.x(), ref.y() - base.y())
+        if d_ref < 1e-9:
+            return float("nan")
+        return float(length) / d_ref
+
     def apply_scale_factor(self, params: dict) -> bool:
-        """Typed Factor (``scale_factor``): commit about the base.
+        """Typed Factor (``scale_factor``) or Length (``scale_length``): commit
+        about the base.
+
+        A Length becomes factor = L ÷ |ref − base| (:meth:`scale_factor_for_length`);
+        factor 1 (no-op) and ≤ 0 / non-finite (refusal) are decided by
+        :meth:`commit_scale`, unchanged.
 
         Returns:
             True when the tool ended (scaled, or a factor-1 no-op); False
             when refused and still live, which keeps the HUD open with a red
             field (``reject_commit``).
         """
-        self.commit_scale(float(params["factor"]))
+        if "length" in params:
+            factor = self.scale_factor_for_length(params["length"])
+        else:
+            factor = float(params["factor"])
+        self.commit_scale(factor)
         return self._scene.mode != "scale"
 
     # ── Array (D10 + P1 DD5) ────────────────────────────────────────────────

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 
 from tests._modify_tools_helpers import add_primitive, grips
 from tests._snap_polish_helpers import click, close_view, make_view, move
+from tests.test_modify_tools_scale import _capture_status
 
 REF_MM = 914.4              # 3 ft
 LINE0 = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]
@@ -199,5 +200,81 @@ def test_typed_factor_after_swapping_to_factor_still_commits(qapp):
         assert grips(item) == [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
         assert scene._undo_pos == p0 + 1
         assert scene.mode in (None, "select")
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_length_scales_by_length_over_reference_distance(qapp):
+    """AC-S1: reference 914.4 mm (3 ft, = 100 scene units), typed 1371.6 mm
+    (4.5 ft) -> x1.5 about the base: (0,50,100) -> (0,75,150)."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        p0 = scene._undo_pos
+        _at_cursor_step(view, scene, calibrated=True)
+        move(view, QPointF(120, 0))
+        _type_into_field(view, scene, "Length", "1371.6mm")
+        assert grips(item) == [(0.0, 0.0), (75.0, 0.0), (150.0, 0.0)]  # [RED]
+        assert scene._undo_pos == p0 + 1
+        assert scene.mode in (None, "select") and item.isSelected()
+        scene.undo()
+        assert grips(scene._draw_lines[0]) == LINE0
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_length_uncalibrated_is_millimetres_per_scene_unit(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        _at_cursor_step(view, scene)                   # reference 100 = 100 mm
+        _type_into_field(view, scene, "Length", "150")
+        assert grips(item) == [(0.0, 0.0), (75.0, 0.0), (150.0, 0.0)]
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_length_equal_to_the_reference_is_a_no_op(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        msgs = _capture_status(scene)
+        p0, n0 = scene._undo_pos, len(scene._undo_stack)
+        _at_cursor_step(view, scene, calibrated=True)
+        _type_into_field(view, scene, "Length", "914.4mm")   # == |ref - base|
+        assert grips(item) == LINE0
+        assert (scene._undo_pos, len(scene._undo_stack)) == (p0, n0)  # [RED]
+        assert "Scale factor is 1 — nothing changed" in msgs
+        assert scene.mode in (None, "select")
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("text", ["0", "-5"])
+def test_non_positive_length_is_refused(qapp, text):
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        p0 = scene._undo_pos
+        _at_cursor_step(view, scene)
+        _type_into_field(view, scene, "Length", text)
+        assert grips(item) == LINE0                                  # [RED]
+        assert scene._undo_pos == p0
+        assert scene.mode == "scale"
+        assert scene.dynamic_input.has_invalid_field()
+        scene.set_mode(None)
+    finally:
+        close_view(view, scene)
+
+
+def test_click_at_the_cursor_still_commits_by_distance_ratio(qapp):
+    """The mouse path is unchanged: |cursor - base| / |ref - base|."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, _ = add_primitive(scene, "line")
+        _at_cursor_step(view, scene)
+        move(view, QPointF(200, 0))
+        click(view, QPointF(200, 0))
+        assert grips(item) == [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
     finally:
         close_view(view, scene)
