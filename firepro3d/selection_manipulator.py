@@ -176,6 +176,16 @@ def manip_bounds(item) -> QRectF:
     return item.sceneBoundingRect()
 
 
+def union_manip_bounds(items) -> QRectF:
+    """Union of :func:`manip_bounds` over *items*: the frame the selection
+    manipulator draws, and Flip's centre (scene-tools D16). A null rect for no
+    items."""
+    r = QRectF()
+    for it in items:
+        r = r.united(manip_bounds(it))
+    return r
+
+
 def _painting_into_clip_view(widget) -> bool:
     """True when *widget* is the viewport of a detail/clip view (a ``Model_View``
     with a ``_clip_rect``). The manipulator's own handle paint short-circuits
@@ -486,9 +496,7 @@ class SelectionManipulator(QGraphicsObject):
         if not self._items:
             self.hide()
             return
-        r = QRectF()
-        for it in self._items:
-            r = r.united(manip_bounds(it))
+        r = union_manip_bounds(self._items)
         if r.width() < 1e-9:
             r.setWidth(1e-9)
         if r.height() < 1e-9:
@@ -769,9 +777,7 @@ class SelectionManipulator(QGraphicsObject):
         points during a live-apply drag (geometry mutates every move, so the
         frame and sibling handles must follow). Reuses the hosts' current
         handle objects — does NOT rebuild the handle list mid-drag."""
-        r = QRectF()
-        for it in self._items:
-            r = r.united(manip_bounds(it))
+        r = union_manip_bounds(self._items)
         if r.width() < 1e-9:
             r.setWidth(1e-9)
         if r.height() < 1e-9:
