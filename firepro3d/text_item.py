@@ -600,6 +600,32 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         fy = {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0)
         return QPointF(fx * (a.width() - w), fy * (a.height() - h))
 
+    def _freeze_shrink(self) -> None:
+        """D6: before a resize, write a Shrink box's drawn extent as an
+        explicit authored box and turn Shrink OFF, leaving the box where it
+        is drawn (its scene centre and size unchanged).
+
+        No-op when Shrink is off.  The untouched axes keep their hugged
+        extent: a wrapping box freezes its hugged width as the wrap width, a
+        non-wrapping one stays Wrap OFF; the height becomes the box height.
+        """
+        if not self._shrink_eff:
+            return
+        d = self._data
+        s = self.scale() or 1.0
+        r = self._box_rect_local()
+        c = self.mapToScene(r.center())
+        wrap = self.wrap_on()
+        if wrap:
+            d.wrap_width_mm = r.width() * s
+        d.wrap = wrap
+        d.box_height_mm = r.height() * s
+        d.shrink = False
+        self.prepareGeometryChange()
+        self._apply_format()
+        c2 = self.mapToScene(self._box_rect_local().center())
+        self.moveBy(c.x() - c2.x(), c.y() - c2.y())
+
     def on_theme_changed(self) -> None:
         """Re-latch the document's default text colour after a theme switch
         (HF1 theme bus) -- only a token colour changes.
@@ -1238,7 +1264,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         ``wrap_width_mm`` and a top/bottom mid-edge writes ONLY
         ``box_height_mm`` — the untouched axis' stored field is left exactly as
         it was (so an auto-height 0 box stays 0 after a horizontal drag).
+        A resize on a Shrink box first freezes its drawn box (D6,
+        :meth:`_freeze_shrink`); the centre move keeps Shrink.
         """
+        if index != self.MOVE_GRIP_INDEX:
+            self._freeze_shrink()      # D6: a resize grip; the centre move keeps Shrink
         local = self.mapFromScene(pos)
         r = self._box_rect_local()
         # First horizontal resize from auto-width: seed wrap from content width.
@@ -1283,12 +1313,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         wrap, content-height for the box) — NOT local units — so a paper item
         (scale != 1) clamps to the same physical minimum the retired paper
         ``_resize_box_on_paper`` used.  Font ``height_mm`` is never touched.
+        A width write turns Wrap ON at that width (G14); callers freeze a
+        Shrink box first (:meth:`_freeze_shrink`, D6).
         """
         scale = self.scale() or 1.0
         if local_w is not None:
             new_w_mm = max(local_w * scale, MIN_TEXT_WRAP_WIDTH_MM)
             self.setTextWidth(new_w_mm / scale)
             self._data.wrap_width_mm = new_w_mm
+            self._data.wrap = True
         if local_h is not None:
             new_h_mm = max(local_h * scale, self._content_height_mm())
             self._data.box_height_mm = new_h_mm
@@ -1360,7 +1393,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
         """Baked resize about a scene *anchor* by (fx, fy) in the box's own
         frame — reproduces the manipulator preview for any handle.  Font
-        untouched."""
+        untouched.  A Shrink box is frozen first (D6)."""
+        self._freeze_shrink()          # D6: a manipulator resize turns Shrink OFF
         r = self._box_rect_local()
         a = self.mapFromScene(anchor)
         left   = a.x() + (r.left()   - a.x()) * fx

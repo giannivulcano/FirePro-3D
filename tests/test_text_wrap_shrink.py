@@ -312,3 +312,67 @@ def test_paper_edit_click_on_the_first_glyph_puts_the_caret_first(qapp):
     finally:
         it.commit_edit()
         view.close()
+
+
+# ── T27: a grip drag on a Shrink box (D6, G4, G14) ──────────────────────────
+
+def test_grip_drag_on_shrink_box_sets_size_turns_shrink_off_one_undo(qapp):
+    """AC12 / T-drag-off: a posted BR-grip drag on a Shrink box -> Shrink
+    OFF, the dragged size, one undo step that restores both."""
+    from tests._snap_polish_helpers import close_view, drag, make_view
+    view, ms = make_view(role="plan", scale=10.0)
+    try:
+        ms._snap_engine.enabled = False
+        t = _add(ms, text="Short", x=-20.0, y=-10.0, wrap_width_mm=40.0,
+                 box_height_mm=12.0, align="C", valign="M", wrap=False, shrink=True)
+        b0 = _box(t)
+        t.setSelected(True)
+        _process()
+        p0 = ms._undo_pos
+        br = t.grip_points()[4]
+        # The drag lands on the editor's whole-mm input grid: aim at a grid point.
+        target = QPointF(round(br.x() + 6.0), round(br.y() + 4.0))
+        drag(view, br, target)
+        _process()
+        t = ms._texts[0]
+        assert t.data.shrink is False and t.data.wrap is True
+        b1 = _box(t)
+        assert (b1.left(), b1.top()) == pytest.approx((b0.left(), b0.top()), abs=1e-6)
+        assert (b1.right(), b1.bottom()) == pytest.approx((target.x(), target.y()), abs=1e-6)
+        assert ms._undo_pos == p0 + 1
+        ms.undo()
+        t = ms._texts[0]
+        assert t.data.shrink is True and t.data.wrap is False
+        assert (_box(t).left(), _box(t).top()) == pytest.approx((b0.left(), b0.top()), abs=1e-6)
+        assert (_box(t).width(), _box(t).height()) == pytest.approx((b0.width(), b0.height()), abs=1e-6)
+    finally:
+        close_view(view, ms)
+
+
+def test_width_drag_on_wrap_off_box_turns_wrap_on_at_the_width(qapp):
+    """AC13 / G14: a right-mid width drag on a Wrap-OFF box -> Wrap ON at the
+    dragged width, one undo step."""
+    from tests._snap_polish_helpers import close_view, drag, make_view
+    view, ms = make_view(role="plan", scale=10.0)
+    try:
+        ms._snap_engine.enabled = False
+        t = _add(ms, x=-30.0, y=-5.0, wrap_width_mm=20.0, wrap=False)
+        w0 = _box(t).width()
+        t.setSelected(True)
+        _process()
+        p0 = ms._undo_pos
+        rm = t.grip_points()[3]
+        target = QPointF(round(rm.x() - w0 / 2.0), rm.y())     # whole-mm input grid
+        want = target.x() - _box(t).left()
+        drag(view, rm, target)
+        _process()
+        t = ms._texts[0]
+        assert t.data.wrap is True
+        assert t.data.wrap_width_mm == pytest.approx(want, abs=1e-6)
+        assert _box(t).width() == pytest.approx(want, abs=1e-6)
+        assert _lines(t.document()) > 1
+        assert ms._undo_pos == p0 + 1
+        ms.undo()
+        assert ms._texts[0].data.wrap is False
+    finally:
+        close_view(view, ms)
