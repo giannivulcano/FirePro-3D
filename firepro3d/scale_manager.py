@@ -41,6 +41,16 @@ class DisplayUnit(Enum):
     METRIC_M = "m"
 
 
+# (label, DisplayUnit value) in menu order: the project's display-unit choices,
+# one home for the Units & Precision pane and the Attributes editor's Unit
+# override (D8 / G7). Mirrors ``MainWindow._build_units_menu``.
+DISPLAY_UNIT_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Imperial (ft-in)", "imperial"),
+    ("Metric (m)",       "m"),
+    ("Metric (mm)",      "mm"),
+)
+
+
 class ScaleManager:
     """Converts between scene pixels and real-world millimeters."""
 

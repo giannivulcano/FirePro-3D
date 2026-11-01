@@ -90,3 +90,12 @@ def test_with_overrides_area_volume_follow_the_length_family(unit, area, vol):
     c = _sm(DisplayUnit.METRIC_MM).with_overrides(unit=unit, precision=2)
     assert c.format_area_mm2(12e6) == area
     assert c.format_volume_mm3(3.24e10) == vol
+
+
+def test_display_unit_options_have_one_home():
+    from firepro3d.scale_manager import DISPLAY_UNIT_OPTIONS
+    from firepro3d.settings import panes
+    assert DISPLAY_UNIT_OPTIONS == (("Imperial (ft-in)", "imperial"),
+                                    ("Metric (m)", "m"), ("Metric (mm)", "mm"))
+    assert panes._UNIT_OPTIONS is DISPLAY_UNIT_OPTIONS
+    assert {v for _label, v in DISPLAY_UNIT_OPTIONS} == {u.value for u in DisplayUnit}

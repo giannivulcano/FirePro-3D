@@ -35,6 +35,7 @@ from firepro3d.app_data import (
 )
 from firepro3d.ui_kit import ToggleSwitch
 from firepro3d.theme import M
+from firepro3d.scale_manager import DISPLAY_UNIT_OPTIONS
 
 log = logging.getLogger(__name__)
 
@@ -658,13 +659,9 @@ class UXPane(SettingsPane):
 SnappingPane = UXPane
 
 
-# Ordered list of (label, DisplayUnit value-string) for the unit combo.
-# Mirrors _build_units_menu in main.py exactly.
-_UNIT_OPTIONS: list[tuple[str, str]] = [
-    ("Imperial (ft-in)", "imperial"),
-    ("Metric (m)",       "m"),
-    ("Metric (mm)",      "mm"),
-]
+# (label, DisplayUnit value-string) for the unit combo -- one home in
+# scale_manager (the Attributes editor's Unit override reads it too, D8).
+_UNIT_OPTIONS = DISPLAY_UNIT_OPTIONS
 
 
 class UnitsPane(SettingsPane):
