@@ -311,6 +311,11 @@ DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (pape
 # the block scale_mode="annotative" (authored in printed mm; SB1c, annotative.py).
 DEFAULT_MODEL_TEXT_HEIGHT_MM = 100.0  # model/Block-Editor default CAP height (scene mm)
 DEFAULT_MODEL_TEXT_PADDING_MM = 15.0  # model/Block-Editor default cell padding (scene mm)
+# Text placed in an ANNOTATIVE Block Editor block is authored in printed mm
+# (SB1c), so it seeds a printed default instead: 3 mm cap ~= 12 pt Arial
+# (text-sizing-wrap D3; the shipped PipeLabel / RoomTag size).
+DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM = 3.0   # annotative-block default CAP height (printed mm)
+DEFAULT_ANNOTATIVE_TEXT_PADDING_MM = 1.0  # annotative-block default cell padding (printed mm)
 PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
 TEXT_METRIC_REF_PX = 1000        # reference px size of every TextItem font; setScale(h / cap) sizes it (L96)
 GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)

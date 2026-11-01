@@ -89,3 +89,25 @@ def test_real_size_height_row_takes_decimal_mm(qapp, role):
     w.setText("2.5")
     w.editingFinished.emit()
     assert it.data.height_mm == 2.5
+
+
+def _place_text(scene) -> TextItem:
+    scene.set_mode("text")
+    scene._press_text(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    scene._press_text(None, QPointF(50, 20), QPointF(50, 20), None, None, None)
+    texts = [i for i in scene._texts if type(i).__name__ == "TextItem"]
+    assert len(texts) == 1
+    return texts[0]
+
+
+def test_annotative_block_text_seeds_printed_defaults(qapp):
+    t = _place_text(_scene("block_editor", "annotative"))
+    assert t.data.height_mm == 3.0
+    assert t.data.cell_padding_mm == 1.0
+
+
+@pytest.mark.parametrize("role", ["plan", "block_editor"])
+def test_real_size_text_keeps_model_defaults(qapp, role):
+    t = _place_text(_scene(role))
+    assert t.data.height_mm == 100.0
+    assert t.data.cell_padding_mm == 15.0
