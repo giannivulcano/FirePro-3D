@@ -1441,8 +1441,10 @@ class ModifyToolsController:
 
         The HUD never reports an empty field — a blank ``DimensionEdit``
         keeps its seeded value — so typed-vs-untouched is decided against the
-        seed: 0 releases the lock; a value equal to the unlocked seed is the
-        untouched readout and changes nothing; any other value locks.
+        seed: a value equal to the unlocked seed is the untouched readout and
+        changes nothing; any other value — including 0, and any multiple of
+        360 (``ScaleManager.parse_angle`` normalises those to 0) — locks the
+        direction (scene-tools DS2). The lock ends with the tool (``clear``).
 
         Args:
             angle: The resolved ``angle`` param, or None (Polar has none).
@@ -1451,12 +1453,6 @@ class ModifyToolsController:
         if angle is None:
             return
         angle = float(angle)
-        if abs(angle) < 1e-9:
-            # 0 releases the lock — and so does any multiple of 360 (360,
-            # -360, 720 …), which ScaleManager.parse_angle normalises to 0
-            # (review S5).
-            s._array_angle_locked = None
-            return
         if (s._array_angle_locked is None
                 and abs(self._norm(angle - self.array_seed_angle())) < 1e-6):
             return
@@ -1474,7 +1470,8 @@ class ModifyToolsController:
     def _array_grid_axes(self):
         """2D axes in scene coords: û along the lock (else +X) and v̂ = û
         turned +90° CCW in Y-up, i.e. scene ``(û.y, −û.x)`` — rows go UP."""
-        u = self._unit(self._scene._array_angle_locked or 0.0)
+        lock = self._scene._array_angle_locked
+        u = self._unit(0.0 if lock is None else lock)
         return u, QPointF(u.y(), -u.x())
 
     @staticmethod
