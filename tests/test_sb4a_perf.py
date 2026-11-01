@@ -4,7 +4,7 @@ user 2026-11-01, measured at base f20268e1). Full-view headless render, best of 
     (<= 1600 ms); (b) 400 long 10,000 mm pipes, solved (4-line labels): <= 0.30 ms per
     labelled pipe (<= 120 ms); (c) zoomed to 20 of the (b) pipes: <= 25 ms.
 Runs under -m perf only, interleaved base / HEAD (suite runner PerfMarker): the same file
-runs on both trees, branching on hasattr(ms, "annotation_defaults"); each run appends raw
+runs on both trees, branching on hasattr(bound_label, "TagBlockHost"); each run appends raw
 lines "<shape>,<pipes>,<ms>,<tree>" to the file named by SB4A_BENCH_OUT. HEAD draws the label
 through an explicitly registered Pipe label block (Diameter, Length, Flow, FrictionLoss; Flow
 and FrictionLoss hide_empty) mapped as the project default -- the shipped System PipeLabel
@@ -34,7 +34,10 @@ ROW_MM = 2000.0
 
 
 def _is_head(ms):
-    return hasattr(ms, "annotation_defaults")
+    # SB3 already shipped Model_Space.annotation_defaults at base f20268e1;
+    # TagBlockHost is SB4a's (D4), so it marks the HEAD tree.
+    from firepro3d import bound_label
+    return hasattr(bound_label, "TagBlockHost")
 
 
 def _register_label(ms):
