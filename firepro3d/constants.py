@@ -289,6 +289,9 @@ WALL_OUTLINE_MIN_SEG = MITER_TOL
 # ~1e-12 mm; Qt's path clipper then drops a whole body.  Union operand
 # vertices are snapped to this grid (mm) so such pairs weld exactly.
 WALL_OUTLINE_SNAP = 1e-6
+# Flip (scene-tools D16): a cursor within this scene distance of a crosshair
+# line is "on the line" and keeps the previous quadrant (float-noise guard).
+FLIP_LINE_EPS_MM = 1e-6
 AUTO_JOIN_TOLERANCE = 20.0    # snap radius for endpoint-to-endpoint wall joins
 TEE_TOLERANCE = 40.0          # snap radius for tee (mid-wall) joins
 

@@ -223,12 +223,15 @@ class ModifyToolsController:
             # DD3: the acted-on silhouettes, mirrored per hovered axis.
             s._move_ghost_base = self._shape_paths_for_move(
                 self._reflectable(sel))
-            # Re-entry (Shift+F twice, Flip <-> Mirror) keeps the hovered
-            # axis (clear() spares it), so its ghost is rebuilt here — the
-            # next aim at the same segment is a no-op.
-            if not self._axis_live(s._mirror_axis):
-                s._mirror_axis = None
-            s._move_ghost = self._reflected_ghost(s._mirror_axis)
+            if tool == "flip":
+                self._begin_flip(self._reflectable(sel))
+            else:
+                # Mirror re-entry (Shift+I twice) keeps the hovered axis
+                # (clear() spares it), so its ghost is rebuilt here — the
+                # next aim at the same segment is a no-op.
+                if not self._axis_live(s._mirror_axis):
+                    s._mirror_axis = None
+                s._move_ghost = self._reflected_ghost(s._mirror_axis)
         return True
 
     _PAST = {"flip": "flipped", "mirror": "mirrored", "scale": "scaled"}
@@ -648,10 +651,14 @@ class ModifyToolsController:
             # carries to the next Array); _array_variant / _array_memory stay
             # session-sticky.
             s._array_angle_locked = None
-        if new_mode not in ("flip", "mirror"):
+        if new_mode != "mirror":
             # The axis paints in drawForeground; set_mode repaints every view
             # (detail views share the scene) right after this clear().
             s._mirror_axis = None
+        if new_mode != "flip":
+            s._flip_center = None
+            s._flip_lr = s._flip_ud = False
+            s._flip_quad = None
         if new_mode != "scale":
             s._scale_base = None
             s._scale_ref = None
@@ -1105,8 +1112,12 @@ class ModifyToolsController:
     # straight segment (axis_picker.pick_axis; cursor SNAP + ALIGN are off in
     # get_effective_position — snapping-engine §3); click / Enter commits.
     # Flip reflects the originals in place; Mirror reflects copies. No HUD.
+    # Flip (D16 as amended): centre-based, no axis pick; Mirror picks an edge.
 
     NO_AXIS_HINT = "Pick a straight edge or reference line"
+    NOTHING_FLIPPED = "Nothing flipped"
+    FLIP_HINT = ("Move into a quadrant or ←→ / ↑↓ to flip "
+                 "· click/Enter applies")
 
     def _reflectable(self, items) -> list:
         """The transformable *items* with a per-item ``manip_reflect`` (DD1).
@@ -1175,22 +1186,108 @@ class ModifyToolsController:
             v.viewport().update()
         return axis
 
+    def _begin_flip(self, targets) -> None:
+        """Flip entry: centre = bbox centre of the reflectable *targets*;
+        nothing active until the cursor enters a quadrant or an arrow toggles."""
+        from .selection_manipulator import union_manip_bounds
+        s = self._scene
+        s._flip_center = QPointF(union_manip_bounds(targets).center())
+        s._flip_lr = s._flip_ud = False
+        s._flip_quad = None
+        s._mirror_axis = None
+        s._move_ghost = []
+
+    def _flip_axes(self, c) -> list:
+        """The (p1, p2) reflection axes through centre *c* for the active
+        toggles: vertical line for lr, horizontal for ud."""
+        s = self._scene
+        c = QPointF(c)
+        axes = []
+        if s._flip_lr:
+            axes.append((c, QPointF(c.x(), c.y() + 1.0)))
+        if s._flip_ud:
+            axes.append((c, QPointF(c.x() + 1.0, c.y())))
+        return axes
+
+    def _flip_ghost(self):
+        """GhostFrame of the ghost base under the composed active
+        reflections (identity when none is active)."""
+        from .transform_ghost import GhostFrame, reflect_transform
+        s = self._scene
+        t = QTransform()
+        for p1, p2 in self._flip_axes(s._flip_center):
+            t = t * reflect_transform(p1, p2)
+        return GhostFrame(s._move_ghost_base, t)
+
+    def _flip_refresh(self) -> None:
+        """Rebuild the ghost and repaint EVERY view (the crosshair lives in
+        drawForeground; MinimalViewportUpdate leaves detail views stale)."""
+        s = self._scene
+        s._move_ghost = self._flip_ghost()
+        for v in s.views():
+            v.viewport().update()
+
+    def aim_flip(self, point) -> None:
+        """Cursor quadrant -> toggles (DS3.2). Crossing into a NEW quadrant
+        overwrites both toggles (last input wins); a cursor on a crosshair
+        line, or staying in the same quadrant, changes nothing."""
+        from .constants import FLIP_LINE_EPS_MM
+        s = self._scene
+        c = s._flip_center
+        if c is None:
+            return
+        dx, dy = point.x() - c.x(), point.y() - c.y()
+        if abs(dx) < FLIP_LINE_EPS_MM or abs(dy) < FLIP_LINE_EPS_MM:
+            return
+        quad = ("U" if dy < 0 else "D") + ("L" if dx < 0 else "R")
+        if quad == s._flip_quad:
+            return
+        s._flip_quad = quad
+        s._flip_lr = dx < 0
+        s._flip_ud = dy > 0
+        self._flip_refresh()
+
+    def toggle_flip(self, axis: str) -> None:
+        """Arrow key: ``"lr"`` (←/→) or ``"ud"`` (↑/↓) toggles that axis; it
+        holds until the cursor crosses into a different quadrant."""
+        s = self._scene
+        if s.mode != "flip" or s._flip_center is None:
+            return
+        if axis == "lr":
+            s._flip_lr = not s._flip_lr
+        else:
+            s._flip_ud = not s._flip_ud
+        self._flip_refresh()
+
     def move_reflect(self, event, snapped):
-        """Flip / Mirror cursor: detect the axis under the (raw) cursor."""
+        """Flip / Mirror cursor: Flip aims the quadrant, Mirror detects the
+        axis under the (raw) cursor."""
         s = self._scene
         s.preview_pipe.hide()
         s.preview_node.hide()
+        if s.mode == "flip":
+            self.aim_flip(snapped)
+            return
         self.aim_axis(snapped)
 
     def press_reflect(self, event, pos, snapped, *_):
-        """Flip / Mirror click: commit on the axis under the click."""
+        """Flip / Mirror click: Flip commits in the clicked quadrant, Mirror on
+        the axis under the click."""
+        if self._scene.mode == "flip":
+            self.aim_flip(snapped)
+            self.commit_reflect()
+            return
         if self.aim_axis(snapped) is None:
             self._scene._show_status(self.NO_AXIS_HINT, 3000)
             return
         self.commit_reflect()
 
     def commit_reflect(self) -> bool:
-        """Reflect across the hovered axis: Flip in place, Mirror as copies.
+        """Reflect: Flip about the active centre axes (quadrant / arrows), Mirror
+        across the hovered axis; Flip with no active axis posts 'Nothing
+        flipped' (False, no undo step, tool stays live).
+
+        Flip reflects in place, Mirror as copies.
 
         One undo step; returns to Select with the originals (Flip) or the
         copies (Mirror) selected (D3). Text (no manip_reflect) is skipped with a
@@ -1203,22 +1300,36 @@ class ModifyToolsController:
             hint, the tool stays live) or nothing reflectable (no undo step).
         """
         s = self._scene
-        axis = s._mirror_axis
-        if axis is not None and not self._axis_live(axis):
-            # The source segment was removed (or hidden) since the last aim:
-            # never reflect across a vanished edge — drop the stale axis.
-            s._mirror_axis = axis = None
-            s._move_ghost = []
-            for v in s.views():
-                v.viewport().update()
-        if axis is None:
-            s._show_status(self.NO_AXIS_HINT, 3000)
-            return False
         mirror = s.mode == "mirror"
-        p1, p2 = QPointF(axis.p1), QPointF(axis.p2)
+        axes = []
+        if mirror:
+            axis = s._mirror_axis
+            if axis is not None and not self._axis_live(axis):
+                # The source segment was removed (or hidden) since the last aim:
+                # never reflect across a vanished edge — drop the stale axis.
+                s._mirror_axis = axis = None
+                s._move_ghost = []
+                for v in s.views():
+                    v.viewport().update()
+            if axis is None:
+                s._show_status(self.NO_AXIS_HINT, 3000)
+                return False
+            axes = [(QPointF(axis.p1), QPointF(axis.p2))]
         items = [it for it in (s._selected_items or []) if it.scene() is s]
         targets = self._reflectable(items)
+        if not mirror:
+            if s._flip_center is not None:
+                c = s._flip_center
+            else:
+                from .selection_manipulator import union_manip_bounds
+                c = union_manip_bounds(targets).center()
+            axes = self._flip_axes(c) if targets else []
+            if not axes:
+                # No quadrant / arrow active: not an undo step, tool stays live.
+                s._show_status(self.NOTHING_FLIPPED, 3000)
+                return False
         if mirror:
+            p1, p2 = axes[0]
             result = []
             uid_map = {}
             for it in targets:
@@ -1241,10 +1352,15 @@ class ModifyToolsController:
             if s.constraint_ctl.refuse_grounded(flip_refusal_targets(targets)):
                 self._end_refused(items)
                 return False
-            with s.constraint_ctl.edit(targets, point_map=point_map_like(   # CS4b D65
-                    lambda it: it.manip_reflect(p1, p2))):
+
+            def _apply(it):
+                # DS3.4: one manip_reflect per active axis (lr then ud).
+                for a1, a2 in axes:
+                    it.manip_reflect(a1, a2)
+
+            with s.constraint_ctl.edit(targets, point_map=point_map_like(_apply)):  # CS4b D65
                 for it in targets:
-                    it.manip_reflect(p1, p2)
+                    _apply(it)
             result = list(targets)
         if result:
             s.push_undo_state()

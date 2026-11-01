@@ -550,6 +550,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
         # the hovered axis_picker.AxisPick painted by Model_View, or None.
         self._mirror_axis = None
+        # Flip (DS3): bbox centre of the reflectable selection (set at entry,
+        # None outside Flip), the two toggles, and the last quadrant ("UL" ..).
+        self._flip_center = None
+        self._flip_lr = False
+        self._flip_ud = False
+        self._flip_quad = None
         # Break / Break at Point
         self._break_target = None
         self._break_highlight = None
@@ -1521,7 +1527,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "rotate":          "Pick pivot point",
             "array":           "Pick base point",
             "scale":           "Pick base point",
-            "flip":            "Pick mirror axis",
+            "flip":            ModifyToolsController.FLIP_HINT,
             "mirror":          "Pick mirror axis",
             "break":           "Select object to break",
             "break_at_point":  "Select object to split",
