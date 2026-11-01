@@ -25,6 +25,8 @@ from firepro3d.constants import (
     ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
     HALO_APERTURE_PX, HALO_PRIORITY_BAND_PX, GRIP_OBJECT_LIMIT,
     MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN, MODEL_WEIGHT_FACTOR_MAX,
+    DEFAULT_PRESSURE_PRECISION, DEFAULT_FLOW_PRECISION, DEFAULT_VELOCITY_PRECISION,
+    DISPLAY_PRECISION_MAX,
 )
 from firepro3d.app_data import (
     default_root, ROOT_KEY as _DATA_ROOT_KEY,
@@ -663,9 +665,17 @@ SnappingPane = UXPane
 # scale_manager (the Attributes editor's Unit override reads it too, D8).
 _UNIT_OPTIONS = DISPLAY_UNIT_OPTIONS
 
+# Project hydraulic precision rows (D9): (row label, ScaleManager attribute, default).
+_HYDRAULIC_PRECISION_ROWS: tuple[tuple[str, str, int], ...] = (
+    ("Pressure precision:", "pressure_precision", DEFAULT_PRESSURE_PRECISION),
+    ("Flow precision:",     "flow_precision",     DEFAULT_FLOW_PRECISION),
+    ("Velocity precision:", "velocity_precision", DEFAULT_VELOCITY_PRECISION),
+)
+
 
 class UnitsPane(SettingsPane):
-    """Preferences pane for display unit and decimal precision.
+    """Preferences pane for display unit, decimal precision and the project
+    pressure / flow / velocity precisions (text-sizing-wrap D9).
 
     Mirrors the Units / Precision ribbon menus (``_build_units_menu`` /
     ``_build_precision_menu`` in ``main.py``) as an editable pane.
@@ -717,6 +727,14 @@ class UnitsPane(SettingsPane):
         self._precision_spin.setSuffix(" decimal places")
         form.addRow("Precision:", self._precision_spin)
 
+        self._hydraulic_spins: dict[str, QSpinBox] = {}
+        for label, attr, _default in _HYDRAULIC_PRECISION_ROWS:
+            spin = QSpinBox()
+            spin.setRange(0, DISPLAY_PRECISION_MAX)
+            spin.setSuffix(" decimal places")
+            form.addRow(label, spin)
+            self._hydraulic_spins[attr] = spin
+
         outer.addWidget(form_group)
         outer.addStretch()
 
@@ -730,12 +748,15 @@ class UnitsPane(SettingsPane):
         if self._sm is not None:
             unit_str = self._sm.display_unit.value if self._sm.display_unit is not None else "mm"
             precision = int(self._sm.precision)
+            hydraulic = {attr: int(getattr(self._sm, attr, default))
+                         for _label, attr, default in _HYDRAULIC_PRECISION_ROWS}
         else:
             s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
             unit_str  = s.value("display/unit", "mm", type=str)
             precision = s.value("display/precision", 3, type=int)
+            hydraulic = {attr: default for _label, attr, default in _HYDRAULIC_PRECISION_ROWS}
 
-        self._snapshot = {"unit_str": unit_str, "precision": precision}
+        self._snapshot = {"unit_str": unit_str, "precision": precision, **hydraulic}
 
         # Populate combo — fall back to last item if value not found
         idx = next(
@@ -744,6 +765,8 @@ class UnitsPane(SettingsPane):
         )
         self._unit_combo.setCurrentIndex(idx)
         self._precision_spin.setValue(precision)
+        for attr, spin in self._hydraulic_spins.items():
+            spin.setValue(hydraulic[attr])
 
     def apply(self) -> None:
         """Write widget values to live ScaleManager only (units are project-scoped).
@@ -762,6 +785,8 @@ class UnitsPane(SettingsPane):
         if self._sm is not None:
             self._sm.display_unit = DisplayUnit(unit_str)
             self._sm.precision    = precision
+            for attr, spin in self._hydraulic_spins.items():
+                setattr(self._sm, attr, spin.value())
 
         if self._on_changed is not None:
             self._on_changed()
@@ -779,6 +804,8 @@ class UnitsPane(SettingsPane):
         if self._sm is not None:
             self._sm.display_unit = DisplayUnit(unit_str)
             self._sm.precision    = precision
+            for attr in self._hydraulic_spins:
+                setattr(self._sm, attr, self._snapshot[attr])
 
         idx = next(
             (i for i, (_, v) in enumerate(_UNIT_OPTIONS) if v == unit_str),
@@ -786,6 +813,8 @@ class UnitsPane(SettingsPane):
         )
         self._unit_combo.setCurrentIndex(idx)
         self._precision_spin.setValue(precision)
+        for attr, spin in self._hydraulic_spins.items():
+            spin.setValue(self._snapshot[attr])
 
 
 # Dock defaults as used in MainWindow.restore_settings.
