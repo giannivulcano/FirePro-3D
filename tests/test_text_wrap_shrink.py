@@ -438,6 +438,8 @@ def test_constraint_move_of_shrink_box_keeps_shrink(qapp):
     assert t.data.shrink is True
     assert a.read(t) == pytest.approx([cx + 5.0, cy - 3.0, w, h], abs=1e-6)
     assert (t.data.x, t.data.y) == pytest.approx((15.0, 17.0), abs=1e-6)
+
+
 # ── T30: bound text seeds the hug through the record (D5, G12) ──────────────
 
 def test_hugged_record_freezes_the_seeded_flags_and_keeps_the_authored_box(qapp):
@@ -476,7 +478,6 @@ def test_bound_text_with_shrink_off_wraps_in_the_authored_box(qapp):
     assert f.height() == pytest.approx(max(7.0, doc.size().height() * s), abs=0.05)
 
 
-
 def test_hide_empty_collapse_reads_the_authored_box(qapp):
     """SB4a D7 kept: the Hide-when-empty collapse measures each bound line's
     AUTHORED box, not its hug -- even with Shrink ON stored on the record.
@@ -492,6 +493,10 @@ def test_hide_empty_collapse_reads_the_authored_box(qapp):
     got = hide_empty_shifts([(a, QTransform()), (b, QTransform())], frozenset({"A"}))
     assert got[0] is None
     assert got[1] == pytest.approx(-12.0, abs=1e-6)
+
+
+# ── T31: explode / legacy note map (D6) ─────────────────────────────────────
+
 def test_explode_copies_the_flags_and_scales_the_sizes(qapp, make_model_space):
     """AC16 explode: a static text's authored flags survive explode, and the
     scaled record (DD9) keeps them while its sizes scale x2."""
