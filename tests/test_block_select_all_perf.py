@@ -77,6 +77,7 @@ def test_select_all_and_rotate_commit_within_1ms_per_primitive(qapp, tmp_path, s
                 QTest.mouseMove(view.viewport(), c)
                 QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=c)
                 QApplication.processEvents()
+                before = {it: it.sceneBoundingRect() for it in scene.selectedItems()}
 
                 def _commit():
                     assert scene.begin_dynamic_input() is True
@@ -84,6 +85,10 @@ def test_select_all_and_rotate_commit_within_1ms_per_primitive(qapp, tmp_path, s
                     scene.dynamic_input._accept()
                 rot_t.append(_timed(_commit))
                 assert len(scene.selectedItems()) == n     # D3: rotated items reselected
+                # The timed commit really rotated the geometry, not only reselected.
+                moved = sum(1 for it, r in before.items() if it.sceneBoundingRect() != r)
+                print(f"rep={rep} moved={moved}/{n}")
+                assert moved >= 0.9 * n, f"rotate moved only {moved}/{n} items"
             bar = 0.001 * n
             line = f"shape={shape.__name__} n={n} bar={bar:.3f} select={sel_t} rotate={rot_t}\n"
             with open(tmp_path / "bench.txt", "w") as fh:  # raw lines for the record
