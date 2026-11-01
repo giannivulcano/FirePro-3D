@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QTransform
 
-from .constants import (HALO_TRACE_COLOR, TRANSFORM_GHOST_DIM_OPACITY,
+from .constants import (GHOST_GLOW_CACHE_MAX_PX, HALO_GLOW_PX, HALO_TRACE_COLOR,
+                        HALO_TRACE_WIDTH_PX, TRANSFORM_GHOST_DIM_OPACITY,
                         TRANSFORM_GHOST_TRACE_ALPHA, TRANSFORM_GHOST_TRACE_WIDTH_PX)
 from .geometry_2d import _degenerate_axis
 from .halo import halo_scene_path, paint_halo_path, paint_halo_paths
@@ -58,10 +59,124 @@ class LiteGhostPath(QPainterPath):
     """
 
 
+class GhostFrame(list):
+    """One rigid-transform frame of a shared ghost base (L1068).
+
+    Still the list of mapped paths every reader expects, plus ``base`` (the
+    unmoved scene-coord paths, shared across a gesture's frames) and
+    ``xform``, so :func:`paint_ghost` can draw the cached glow of ``base``
+    under ``xform`` instead of re-stroking every path.
+
+    Args:
+        base: The gesture's unmoved scene-coord ``QPainterPath``s.
+        xform: This frame's scene transform (base -> frame).
+    """
+
+    def __init__(self, base, xform: QTransform):
+        super().__init__(xform.map(p) for p in base)
+        self.base = base
+        self.xform = xform
+
+
+def _is_rigid(t: QTransform, tol: float = 1e-6) -> bool:
+    """True for a rotation / reflection / translation (no scale or shear)."""
+    if not t.isAffine():
+        return False
+    a, b, c, d = t.m11(), t.m12(), t.m21(), t.m22()
+    return (abs(a * a + b * b - 1.0) < tol and abs(c * c + d * d - 1.0) < tol
+            and abs(a * c + b * d) < tol)
+
+
+def _xf_key(t: QTransform) -> tuple:
+    return (t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy())
+
+
+class _GlowCache:
+    """The HALO glow of one ghost base, rendered once in device pixels.
+
+    Keyed on the base list's identity (held, so the id cannot be reused),
+    the painter's world transform (zoom / pan), the device pixel ratio and
+    the accent colour; a miss re-renders. Bench 2026-11-01: blit ~1 ms
+    (move) / ~3 ms (rotate) vs. 55-470 ms of live glow per move.
+    """
+
+    def __init__(self):
+        self._base = None
+        self._key = None
+        self._img = None
+        self._origin = QPointF()
+        self._w0 = QTransform()
+
+    def release(self) -> None:
+        """Drop the cached image and its base."""
+        self._base = self._key = self._img = None
+
+    def paint(self, painter, frame: GhostFrame, theme) -> bool:
+        """Draw *frame*'s glow from the cache.
+
+        Returns:
+            False when the frame can't use the cache (non-rigid transform,
+            oversized image); the caller then paints the live glow.
+        """
+        if not _is_rigid(frame.xform):
+            return False
+        w = painter.worldTransform()
+        dpr = painter.device().devicePixelRatioF()
+        key = (_xf_key(w), dpr, theme.color(HALO_TRACE_COLOR).rgba())
+        if frame.base is not self._base or key != self._key:
+            if not self._build(frame.base, w, dpr, theme):
+                self.release()
+                return False
+            self._base, self._key = frame.base, key
+        inv, ok = self._w0.inverted()
+        if not ok:
+            return False
+        # Qt composes a * b as "a, then b": image px -> device (+origin) ->
+        # scene (W0^-1) -> this frame (xform) -> device (current W).
+        m = (QTransform.fromTranslate(self._origin.x(), self._origin.y())
+             * inv * frame.xform * w)
+        painter.save()
+        painter.setWorldTransform(m)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawImage(QPointF(0.0, 0.0), self._img)
+        painter.restore()
+        return True
+
+    def _build(self, base, w: QTransform, dpr: float, theme) -> bool:
+        bounds = QRectF()
+        for p in base:
+            bounds = bounds.united(p.boundingRect())
+        pad = HALO_GLOW_PX + HALO_TRACE_WIDTH_PX + 2.0
+        r = w.mapRect(bounds).adjusted(-pad, -pad, pad, pad)
+        pw, ph = math.ceil(r.width() * dpr), math.ceil(r.height() * dpr)
+        if pw <= 0 or ph <= 0 or pw * ph > GHOST_GLOW_CACHE_MAX_PX:
+            return False
+        img = QImage(pw, ph, QImage.Format.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(0)
+        pt = QPainter(img)
+        pt.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pt.setWorldTransform(w * QTransform.fromTranslate(-r.x(), -r.y()))
+        paint_halo_paths(pt, base, theme)
+        pt.end()
+        self._img, self._origin, self._w0 = img, r.topLeft(), QTransform(w)
+        return True
+
+
+_GLOW_CACHE = _GlowCache()
+
+
+def release_glow_cache() -> None:
+    """Drop the cached ghost glow (called when no ghost is showing)."""
+    _GLOW_CACHE.release()
+
+
 def paint_ghost(painter, paths, theme) -> None:
     """Paint each scene-coord path: HALO (defaults) then a 1 px solid trace.
 
-    A :class:`LiteGhostPath` gets the trace only (no HALO glow).
+    A :class:`LiteGhostPath` gets the trace only (no HALO glow). A
+    :class:`GhostFrame` under a rigid transform draws its glow from the
+    device-pixel cache (L1068).
 
     Args:
         painter: Active QPainter in scene coordinates.
@@ -71,8 +186,10 @@ def paint_ghost(painter, paths, theme) -> None:
     if not paths:
         return
     pen = _trace_pen(theme)
-    paint_halo_paths(painter, [p for p in paths
-                               if not isinstance(p, LiteGhostPath)], theme)
+    if not (isinstance(paths, GhostFrame)
+            and _GLOW_CACHE.paint(painter, paths, theme)):
+        paint_halo_paths(painter, [p for p in paths
+                                   if not isinstance(p, LiteGhostPath)], theme)
     painter.save()
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(pen)

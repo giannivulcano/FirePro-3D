@@ -557,6 +557,9 @@ class Model_View(QGraphicsView):
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             paint_ghost(painter, mghost, th.detect())
             painter.restore()
+        else:
+            from .transform_ghost import release_glow_cache
+            release_glow_cache()
         # Rotate (D8): the thin pivot->cursor ray, in the ghost trace pen.
         ray = getattr(scene, "_rotate_ray", None)
         if ray:
