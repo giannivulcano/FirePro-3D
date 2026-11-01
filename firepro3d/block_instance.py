@@ -100,7 +100,7 @@ class BlockInstance(QGraphicsObject):
         # keyed values feed host-sourced attributes. Code-set only (SB3 / SB6
         # set it), never serialized (ledger D3). Distinct from ``host`` above.
         self._element_host = None
-        self._bound_values: Optional[dict] = None   # last refresh_bound() strings
+        self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
         # Placement Weight / Linetype override (linetypes.md WM2): As
@@ -184,9 +184,10 @@ class BlockInstance(QGraphicsObject):
         d = self.definition()
         if d is None:
             return
-        from .block_attributes import resolve_values
-        values = resolve_values(d.effective_attributes(), self.attributes,
-                                self.host_values())
+        from .block_attributes import blank_keys, resolve_values
+        hv = self.host_values()
+        values = (resolve_values(d.effective_attributes(), self.attributes, hv),
+                  blank_keys(d.effective_attributes(), self.attributes, hv))
         if values == self._bound_values:
             return
         self._bound_values = values

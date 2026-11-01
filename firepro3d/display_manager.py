@@ -257,7 +257,7 @@ def _fill_qcolor(value) -> QColor:
 # ---------------------------------------------------------------------------
 
 _CATEGORIES: list[dict] = [
-    {"key": "Pipe",             "color": "#4488ff", "fill": None,      "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Pipe",             "color": "#4488ff", "fill": None,      "section": None,      "section_pattern": None,        "font": None,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Sprinkler",        "color": "#ff4444", "fill": "#000000", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Fitting",          "color": "#44cc44", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Water Supply",     "color": "#00cccc", "fill": "#2b2b2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
@@ -621,16 +621,12 @@ def apply_display_to_item(item, color: str | None, scale: float,
 def _apply_pipe(pipe, color, scale, opacity, visible, font_size=None):
     pipe._display_color = color  # override pen colour (None falls back to property)
     pipe._display_scale = scale
-    if font_size is not None:
-        pipe._properties["Label Size"]["value"] = str(font_size)
     pipe.set_pipe_display()
     pipe.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     pipe.setVisible(visible)
     # Also hide/show the label child if present
     for child in pipe.childItems():
         child.setVisible(visible)
-    if font_size is not None:
-        pipe.update_label()
 
 
 def _apply_svg_item(item, color, scale, opacity, visible, fill_color=None):
@@ -1335,12 +1331,7 @@ class DisplayManager(QDialog):
             color = _fill_or(getattr(item, "_display_color", None),
                              item.pen().color().name())
             fill = None
-            font_val = item._properties.get(
-                "Label Size", {}).get("value", 12)
-            try:
-                font = int(font_val)
-            except (ValueError, TypeError):
-                font = 12
+            font = None        # the label is an annotation block (SB4a D9)
         elif isinstance(item, Fitting):
             color = _fill_or(getattr(item, "_display_color", None),
                              cat_def["color"])

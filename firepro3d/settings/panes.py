@@ -1897,7 +1897,7 @@ class AnnotationPane(SettingsPane):
         self._scene._annot_memo.clear()
         for cat in ANNOTATION_CATEGORIES:
             self._scene.annotation_block(cat)
-        self._scene.refresh_room_tags()
+        self._scene.refresh_annotation_tags()
 
     def apply(self) -> None:
         from firepro3d.system_blocks import SYSTEM_DEFAULTS

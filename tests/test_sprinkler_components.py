@@ -391,7 +391,7 @@ class TestPipeSerialization:
         expected_keys = {
             "Diameter", "Schedule", "C-Factor", "Material",
             "Line Type",
-            "Colour", "Phase", "Show Label", "Label Size",
+            "Colour", "Phase", "Show Label",
         }
         actual = {k for k in pipe._properties if not k.startswith("──")}
         assert expected_keys.issubset(actual)

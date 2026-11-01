@@ -277,17 +277,20 @@ class TestApplyRestore:
         assert getattr(pipe, "_paper_pen_width", None) is None  # restored to model
 
     def test_pipe_label_recolored_for_paper_and_restored(self, scene_with_pipe):
-        # The label text has no authored colour, so on the dark canvas it renders
-        # in the palette default (light) — invisible on white paper. Paper mode
-        # must force it to the category colour, then restore the original.
-        from PyQt6.QtGui import QColor
+        # SB4a D10: the label is an annotation block (BoundLabelItem); the
+        # paper pass routes it through _apply_block (paper hooks set) and
+        # restore_model_display puts the model values (None) back.
         scene, pipe = scene_with_pipe
-        pipe.label.setDefaultTextColor(QColor("#ffffff"))  # model: light on dark
+        lab = pipe.label
+        assert lab._paper_scale is None and lab._paper_pen_color is None
         save_paper_color_mode(PaperColorMode.BW)
         saved = apply_paper_overrides(scene, QRectF(0, 0, 200, 200))
-        assert pipe.label.defaultTextColor() == QColor("#000000")  # reads on paper
+        assert lab._paper_scale is not None            # plots at printed size
+        assert lab._paper_pen_color is not None        # BW recolour, reads on paper
         restore_model_display(saved)
-        assert pipe.label.defaultTextColor() == QColor("#ffffff")  # restored
+        assert lab._paper_scale is None
+        assert lab._paper_pen_color is None
+        assert lab._paper_pen_width is None
 
 
 class TestRoomPaperNoFill:

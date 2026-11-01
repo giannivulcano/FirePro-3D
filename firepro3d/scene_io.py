@@ -576,7 +576,7 @@ class SceneIOMixin:
         from .system_blocks import ANNOTATION_CATEGORIES
         for _cat in ANNOTATION_CATEGORIES:
             self.annotation_block(_cat)
-        self.refresh_room_tags()          # tags built before the mapping existed drop their cached rect
+        self.refresh_annotation_tags()          # tags built before the mapping existed drop their cached rect
 
     # ------------------------------------------------------------------
     # CLEAR

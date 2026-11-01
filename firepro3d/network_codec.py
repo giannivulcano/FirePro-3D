@@ -66,6 +66,8 @@ def serialize_pipe(pipe, node_id: dict) -> dict:
     pipe_ovr = getattr(pipe, "_display_overrides", {})
     if pipe_ovr:
         entry["display_overrides"] = pipe_ovr
+    if pipe.tag_block:
+        entry["tag_block"] = pipe.tag_block   # SB4a D5: sparse, absent = project default
     return entry
 
 
@@ -283,6 +285,9 @@ def deserialize_pipe(scene, entry, id_to_node):
             "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch")
         pipe.set_pipe_display()
     pipe._display_overrides = entry.get("display_overrides", {})
+    tb = entry.get("tag_block")
+    pipe._tag_block = tb if isinstance(tb, str) and tb else None
+    pipe.update_label()
     return pipe
 
 

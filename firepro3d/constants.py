@@ -38,6 +38,7 @@ Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset
 Z_ELEV_SCALE     = 1.0 / 100.0  # mm → Z units (keeps values manageable)
+Z_LABEL_ABOVE_PIPE = 1.0  # a pipe label sits this far above its pipe (clears the node category offset)
 Z_CAT_FLOOR      = 0.0    # FloorSlab
 Z_CAT_UNDERLAY   = 0.05   # DXF/PDF imports
 Z_CAT_ROOF       = 0.1    # RoofItem
@@ -310,6 +311,7 @@ DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (pape
 # the block scale_mode="annotative" (authored in printed mm; SB1c, annotative.py).
 DEFAULT_MODEL_TEXT_HEIGHT_MM = 100.0  # model/Block-Editor default CAP height (scene mm)
 DEFAULT_MODEL_TEXT_PADDING_MM = 15.0  # model/Block-Editor default cell padding (scene mm)
+PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
 GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width

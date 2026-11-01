@@ -55,7 +55,7 @@ from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
-from .bound_label import eligible_definition, resolve_annotation_block
+from .bound_label import BoundLabelItem, eligible_definition, resolve_annotation_block
 from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
@@ -1820,19 +1820,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _on_block_definitions_changed(self) -> None:
         """Registry version = the annotation memo's life: drop the memo and
-        re-shape every room tag (their bounds rect is cached, so a changed
+        re-shape every intrinsic label (their bounds rect is cached, so a changed
         resolution needs ``refresh()``). Skipped while a resolve is embedding
         a file (that resolve writes the memo itself)."""
         self._annot_memo.clear()
         if not self._annot_resolving:
-            self.refresh_room_tags()
+            self.refresh_annotation_tags()
 
-    def refresh_room_tags(self) -> None:
-        """Re-shape every room tag (its bounds rect is cached: a mapping,
-        registry, units or scale change needs ``refresh()``)."""
-        for room in list(self._rooms):
+    def refresh_annotation_tags(self) -> None:
+        """Re-shape every intrinsic label (room tags, pipe labels): its bounds
+        rect is cached, so a mapping, registry, units or scale change needs
+        ``refresh()``."""
+        labels = [r._tag for r in list(self._rooms)]
+        labels += [p.label for p in list(self.sprinkler_system.pipes)
+                   if isinstance(getattr(p, "label", None), BoundLabelItem)]
+        for lab in labels:
             try:
-                room._tag.refresh()
+                lab.refresh()
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
 
@@ -4116,7 +4120,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for inst in self._block_instances:
             if inst.element_host is not None:
                 inst.refresh_bound()
-        self.refresh_room_tags()          # SB3: room tags pull at paint; re-shape now
+        self.refresh_annotation_tags()          # SB3: room tags pull at paint; re-shape now
         # Selection dimension readouts format at paint time; a units/precision
         # change touches no item, so force the repaint (selection-mode §15).
         self.readouts.refresh()

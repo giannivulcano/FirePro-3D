@@ -1,23 +1,27 @@
 ---
-status: partial          # SB3 (room tag, the first vertical slice) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-10-30  # SB3b Account: s2/s3/s7/s8/s10 + the status/ownership lines re-audited against 7e5d3b15; prior 2026-10-29  # SB3 Account: promoted from the concept (consolidating contract for what is built; the concept stays as history)
-verified-commit: 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 landing on main (feat/sb3-room-tag 409afacb..8be9034a, ff)
+status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
+last-verified: 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
-  - firepro3d/bound_label.py          # BoundLabelItem, eligible_definition, resolve_annotation_block
+  - firepro3d/bound_label.py          # BoundLabelItem, TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
   - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD
-  - firepro3d/system_blocks/Tags/     # the shipped RoomTag .fpdb
-  - firepro3d/block_attributes.py     # bound_text_ops, hugged_text_record (lifted/added for the tag)
+  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel .fpdb
+  - firepro3d/block_attributes.py     # bound_text_ops, hugged_text_record, blank_keys / collapse_shifts / hide_empty_shifts (Hide when empty)
+  - firepro3d/pipe.py                 # the Pipe owns its label, tag_block, update_label / sync_label_z
+  - firepro3d/network_codec.py        # sparse pipe tag_block (serialize_pipe / deserialize_pipe)
+  - firepro3d/text_item.py            # TextData.hide_empty + the Block Editor checkbox
   - firepro3d/render_op.py            # paint_ops (lifted from BlockInstance.paint)
   - firepro3d/room.py                 # the Room owns its tag, show_label, label_offset
-  - firepro3d/model_space.py          # annotation_defaults, annotation_block, refresh_room_tags
+  - firepro3d/model_space.py          # annotation_defaults, annotation_block, refresh_annotation_tags
   - firepro3d/scene_io.py             # annotation_defaults key
   - firepro3d/settings/panes.py       # AnnotationPane
   - firepro3d/settings/template.py    # annotation_defaults in the .fpdt
   - firepro3d/paper_display.py        # the tag through _apply_block
-  - firepro3d/block_explode.py        # explode hugs bound text before substituting
-  - firepro3d/display_manager.py      # Room row: font None (rest under display-manager's own spec)
+  - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
+  - firepro3d/display_manager.py      # Room + Pipe rows: font None (rest under display-manager's own spec)
 source-tasks:
+  - "SB4a -- Convert the pipe label to a System block (todo_closed.md; design record superpowers/specs/2026-10-31-sb4a-pipe-label-design.md)"
   - "SB3 -- First vertical slice: room tag drawn by a System block via BoundLabelItem + the Project Settings Annotation defaults pane (todo_closed.md)"
   - "System Blocks -- author the app's own 2D annotation graphics ... (concept, 2026-09-29)"
 ---
@@ -27,15 +31,20 @@ source-tasks:
 > **Status: partial.** This spec is the consolidating contract for what is **built**:
 > the host-bound label seam (`BoundLabelItem`), block resolution with a guaranteed
 > fallback (`annotation_block`), the Project Settings Annotation pane, and the first
-> conversion (the Room tag). It was promoted from the concept
+> conversion (the Room tag) and the second (the Pipe label, SB4a). It was promoted from the concept
 > [`2026-09-29-system-blocks-concept-design.md`](../superpowers/specs/2026-09-29-system-blocks-concept-design.md)
 > on 2026-10-29; that document is kept as **history** (the grill Q1-Q16, the
 > architecture F1-F8, the not-yet-built phases 4-7). The slice's own design record is
 > [`2026-10-28-sb3-room-tag-slice-design.md`](../superpowers/specs/2026-10-28-sb3-room-tag-slice-design.md)
 > (ratified decisions Q1-Q13, D-A..D-E). Not built: the remaining intrinsic labels
-> (SB4a-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
+> (SB4b-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
 > 2026-10-30)** adds the per-room tag block (`Room.tag_block`, sections 3 / 8) and the
 > shared picker list that also widens the Annotation pane to the user library (section 7).
+> **SB4a (built 2026-11-01)** converts the pipe label (section 8a): a top-level
+> host-bound label, the `TagBlockHost` mixin shared with Room, and the generic
+> *Hide when empty* text option (section 6a). Its design record is
+> [`2026-10-31-sb4a-pipe-label-design.md`](../superpowers/specs/2026-10-31-sb4a-pipe-label-design.md)
+> (D1-D11).
 
 ## Ownership (Rule A)
 
@@ -53,15 +62,17 @@ checkpoint. It links, never restates:
 - Paper pass: [`paper-space.md`](paper-space.md) 9.9. Units: [`units-and-formatting.md`](units-and-formatting.md).
 - Containment: [`model-space-containment-contract.md`](model-space-containment-contract.md) C9.
 - Room fields and persistence: [`wall-room-floor-system.md`](wall-room-floor-system.md).
+- Pipe fields, geometry and the placement preview: [`pipe-placement-methodology.md`](pipe-placement-methodology.md).
 - Selection: [`selection-mode.md`](selection-mode.md). Z-order: `view-relationships.md` 7.3 + `constants.py`.
 
 ## 1. Two kinds of annotation, one graphic source
 
 An **intrinsic label** is owned by its element, automatic, toggled per element, and
-needs no persisted reference: it is drawn by a `BoundLabelItem` child of the host.
+needs no persisted reference: it is drawn by a `BoundLabelItem` the host owns (a child
+for Room, a top-level item for Pipe -- section 2).
 A **placed tag** is a standalone hosted instance (concept F7) and is **not built**.
-Both are drawn by blocks authored in the one Block Editor. Today exactly one category
-is converted: `Room` (`system_blocks.ANNOTATION_CATEGORIES == ("Room",)`).
+Both are drawn by blocks authored in the one Block Editor. Today two categories
+are converted: `Room` and `Pipe` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe")`).
 
 ## 2. `BoundLabelItem` (`bound_label.py`)
 
@@ -69,7 +80,9 @@ A lightweight `QGraphicsItem`, **not** a `BlockInstance` subclass (SB3 D-A: no
 `isinstance(BlockInstance)` leakage into HALO, snaps, the level filter or the
 block-instance list).
 
-- **Host and data.** A child of the host (`host = parentItem()`); the host is the data
+- **Host and data.** `BoundLabelItem(host, *, child=True)`: a child of the host by
+  default (Room); `child=False` makes a **top-level** item (Pipe, SB4a D1). Either way
+  `host` is the explicit `_host`, never `parentItem()`. The host is the data
   source through the `element_params` getters (`host_values`, asked only for the keys the
   block binds plus the category's label field -- the keyed form is owned by
   `element-parameters.md`). The pull happens at paint; there is no per-element change signal.
@@ -87,13 +100,14 @@ block-instance list).
   `_paper_scale` setter drop it. With no scene the rect is empty and not cached.
 - **Paints nothing** when (a) every host-bound string resolves to raw `None` (a nameless
   room), or (b) the host hides it -- the Room does so when its centroid is degenerate
-  (no boundary included; `Room._update_label`). A tag whose block resolves nowhere draws the red orphan placeholder
+  (no boundary included; `Room._update_label`), or the Pipe when Show Label is off, the
+  pipe is vertical or hidden (section 8a). A tag whose block resolves nowhere draws the red orphan placeholder
   **only** when the scene has a resolver **and** the host has a label to lose
   (`LABEL_FIELD[category]` present with a non-None raw value); a nameless room with no
   resolvable block draws nothing (ratified 2026-10-28, checkpoint contradiction (a)).
 - **Not** selectable, movable or snappable; invisible to HALO, snaps, the level filter
-  and the block-instance list; **never serialized** (the host owns `show_label` and
-  `label_offset`).
+  and the block-instance list; **never serialized** (the host owns `show_label`,
+  `label_offset` and `tag_block`).
 - **Paper hooks.** `_paper_scale`, `_paper_pen_width`, `_paper_pen_color` are set by
   `paper_display._apply_block` during a viewport pass (section 8).
 - **One implementation of bound text and op painting.** `block_attributes.bound_text_ops`
@@ -102,6 +116,9 @@ block-instance list).
 - **Static-geometry reuse (F1).** The tag paints `defn.render_ops_variant(False, k)` (the
   shared static list) plus the `bound_text_ops` glyphs, rebuilt only when a resolved
   string changes. `_state()` resolves the definition and host values once per paint.
+- **Hide when empty.** A bound text carrying `hide_empty` is dropped from the ops (glyphs,
+  border, fill) when every host field it names is blank, and the bound texts beyond it
+  close the slot (section 6a).
 
 ## 3. Block resolution (`Model_Space.annotation_block(category, mapped=None)`)
 
@@ -123,7 +140,8 @@ The resolver step lives in `Model_Space._resolve_mapped`. Its result is memoised
 `_annot_memo`, keyed `(category, mapped id, fallback)` -- the same id resolves differently
 as a per-element id (`fallback=False`) and as the project default (`fallback=True`) -- and
 cleared on `blockDefinitionsChanged` (`_on_block_definitions_changed`); the same handler
-re-shapes every room tag through `refresh_room_tags()`, except while `_annot_resolving`
+re-shapes every intrinsic label (room tags and pipe labels) through
+`refresh_annotation_tags()`, except while `_annot_resolving`
 (the resolver itself embedding a file) -- the memo clear always runs.
 
 A mapped id that is missing, not annotative, not Scale-with-zoom, or of the wrong
@@ -140,11 +158,13 @@ Known gap, filed: the notice is lost when no window has a status bar yet.
 
 ## 4. `SYSTEM_DEFAULTS` and ids
 
-`system_blocks.SYSTEM_DEFAULTS = {"Room": "system-tags-roomtag"}` guarantees a fallback
+`system_blocks.SYSTEM_DEFAULTS` (`"Room"` -> `"system-tags-roomtag"`, `"Pipe"` ->
+`"system-tags-pipelabel"`) guarantees a fallback
 for every converted category. Shipped ids are frozen **slugs**
 (`system-<series>-<name>`, minted by `system_promote`; a re-promote keeps the id), **not
 uuids** -- the concept's F4 wording "frozen uuids" is corrected by this pointer.
-`LABEL_FIELD = {"Room": "Name"}` names the host field whose empty raw value means
+`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`; a pipe's Diameter is never
+`None`, so a pipe whose block resolves nowhere draws the red placeholder) names the host field whose empty raw value means
 "nothing to show". The shipped System file is never written by the app outside the
 dev-gated Promote path (`block-system.md`).
 
@@ -159,6 +179,16 @@ Mark or Area is a Block Editor edit of a copy, then a mapping change. The tag dr
 the block's **authored colours** (Automatic = theme ink); the Display Manager Room row
 colour no longer tints it.
 
+## 5a. The shipped PipeLabel (`firepro3d/system_blocks/Tags/PipeLabel.fpdb`)
+
+Id `system-tags-pipelabel`; host category Pipe, Scale mode Annotative, On screen Scale
+with zoom; four host attributes bound to the Pipe's `Diameter`, `Length`, `Flow` and
+`FrictionLoss`, one text each (`@[Diameter]` above the origin, `@[Length]` below, then
+`@[Flow]` and `@[FrictionLoss]`, the last two *Hide when empty*). Colours are authored
+(Diameter / Length Automatic; Flow and FrictionLoss fixed colours); the Display Manager
+Pipe colour tints the pipe only. Field keys, raw units and the 3D `Length`:
+`element-parameters.md`.
+
 ## 6. The hug rule for host-bound text (2026-10-29)
 
 An author sizes a bound text box round the placeholder, so a wider value would wrap and a
@@ -172,6 +202,23 @@ axis authored 0 keeps its position on that axis. The gate is "the record has fie
 `bound_text_ops` hugs before binding, and `block_explode` hugs before substituting, so an
 exploded tag lands in the same box it was drawn in (explode parity). Guards:
 `tests/test_sb3_bound_label.py` (`test_bound_text_box_*`, `test_exploded_bound_text_lands_in_the_hugged_box`).
+
+## 6a. Hide when empty (SB4a)
+
+`TextAnnotationData.hide_empty` (default `False`, serialized sparse like `keep_upright`)
+is a Block-Editor-only checkbox ("Hide when empty", beside *Keep upright* in
+`TextItem.get_properties`); a plan-view text ignores it. A host-bound text with
+`hide_empty` whose every `@[key]` is **blank** is dropped by `bound_text_ops`. Blank = a
+host-sourced attribute with no instance override whose host value is `None` or has raw
+`None` (`block_attributes.blank_keys`; `BlockInstance._bound_values` keys on values plus
+blanks, so a blank change re-shapes). Each remaining bound text **on the same side of the
+block origin (block y axis; a box's side is its centre's) beyond a dropped box moves
+toward the origin by the dropped box's slot** (its near edge to the near edge of the next
+box beyond it); a dropped box centred on the origin closes nothing; static primitives
+never move (`collapse_shifts` / `hide_empty_shifts` -- the one rule). `block_explode`
+applies the same rule, so an exploded label lands where it was drawn (explode parity);
+it threads the outermost host's blanks through the flatten recursion. Bounds shrink
+through `_compute_rect`.
 
 ## 7. `annotation_defaults`: model, persistence, pane
 
@@ -191,7 +238,7 @@ exploded tag lands in the same box it was drawn in (explode parity). Guards:
   project's eligible blocks, labelled "(Project)" (or "(System)" when the embedded block's
   library is System), then eligible shipped blocks the project has not embedded,
   "(System)", then eligible user-library `.fpdb` files the project has not embedded,
-  "(Library)" (SB3b). The default row reads "RoomTag (System)". A current mapping that is
+  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)". A current mapping that is
   missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry appended
   by the shared list. A "(Library)" pick is embedded outside history by the resolver
   (section 3) when the mapping is applied; the pane's apply stays non-undoable.
@@ -204,10 +251,10 @@ exploded tag lands in the same box it was drawn in (explode parity). Guards:
   modified flag) **only when the effective mapping changed** (compared with
   `SYSTEM_DEFAULTS` applied); **no undo step** (project settings are not undoable).
   `revert()` restores the snapshot and refreshes the tags. Apply and revert drop the
-  memo, embed the mapped blocks eagerly, then `refresh_room_tags()`.
+  memo, embed the mapped blocks eagerly, then `refresh_annotation_tags()`.
   The Marks pane's matching modified-flag rule (Q5b) is owned by `settings-dialog.md`.
 
-## 8. The Room tag
+## 8. The Room tag (and the shared Tag row)
 
 - **Ownership.** `Room` creates its tag (`self._tag = BoundLabelItem(self)`, Z_OVERLAY) and
   owns `show_label`, `label_offset` and persistence (fields:
@@ -223,11 +270,14 @@ exploded tag lands in the same box it was drawn in (explode parity). Guards:
   `None`), on both serialization paths ([`wall-room-floor-system.md`](wall-room-floor-system.md)
   12.3; [`scene-io.md`](scene-io.md) 2). Copy/paste and Duplicate Level carry it (both
   rebuild rooms from `to_dict` through `paste_items`).
-- **Tag row (SB3b).** The Room panel has a "Tag" enum row under Show Label. Its first entry
+- **Tag row (SB3b; shared since SB4a).** The `TagBlockHost` mixin (`bound_label.py`) owns
+  `tag_block`, `_tag_row()` and `_set_tag()` for every host with a tag (Room, Pipe); a
+  host sets `_TAG_CATEGORY` and implements `_tag_changed()` (Room: `tag.refresh()`; Pipe:
+  `update_label()`). The Room panel has a "Tag" enum row under Show Label. Its first entry
   is "Project default (<resolved block name>)" (= `None`); the rest are the shared list
   (`annotation_choices.choices`, section 7) including "(Library)" entries and the kept
   "(missing)" / "(not eligible)" entry for a pinned id that no longer resolves. The setter
-  (`Room._set_tag`) maps the label back to a choice, embeds a "(Library)" file first
+  (`TagBlockHost._set_tag`) maps the label back to a choice, embeds a "(Library)" file first
   (`blocks_browser.ensure_block_loaded`), assigns, and requests **one undo step**
   (`Model_Space.request_undo_push`; embed and assignment are the same step). A multi-room
   selection uses the first-target form with `< mixed >`; committing `< mixed >` (or any
@@ -244,13 +294,50 @@ exploded tag lands in the same box it was drawn in (explode parity). Guards:
   SB4b ([`paper-space.md`](paper-space.md) 9.9).
 - **Visibility.** The Room row's visibility / opacity hide the tag with the room.
 - **Refresh hooks.** `_refresh_all_labels` (units), `annotative.reprepare_annotative`
-  (drawing scale) and the pane apply/revert walk the room tags through
-  `refresh_room_tags()`.
+  (drawing scale) and the pane apply/revert walk every intrinsic label (room tags, pipe
+  labels) through `Model_Space.refresh_annotation_tags()` (the former `refresh_room_tags`).
 - **Retired** (guard `tests/test_sb3_retired_strings.py`, AC11): the HTML room label,
   `_RoundedRectBgItem`, `_label_font_size`, `_label_font_color`, `label_scene_rect`, the
   HALO label-rect click and rubber-band special cases, `ROOM_LABEL_PAPER_CAP_MM`,
   `_apply_room_label_paper_height`, and the Display Manager Room row's font (the row
   carries `font: None`; `_category_has_font("Room")` is false).
+
+## 8a. The Pipe label (SB4a)
+
+- **Ownership.** `Pipe` creates its label (`self.label = BoundLabelItem(self, child=False)`)
+  and owns `Show Label`, `tag_block` and the lifecycle; the label is a **top-level** scene
+  item (a child cannot draw above an item stacked above its parent, so a child would hide
+  under nodes). `Pipe.update_label()` is the single entry (solve, clear, Diameter,
+  geometry, Display Manager all call it): adds the label to the pipe's scene, hides it
+  when the pipe is hidden, Show Label is off or the pipe is vertical, else anchors it at
+  the pipe midpoint and rotates the **whole label** to the pipe angle kept in [-90, 90)
+  (`label._pose_rot`, so an authored `keep_upright` text still reads upright). The
+  removal sites remove `pipe.label` with the pipe.
+- **Z.** `Pipe.sync_label_z()` sets the label to `max(Z_OVERLAY, pipe z + Z_LABEL_ABOVE_PIPE)`
+  (`constants.py`); the level manager's elevation z pass re-syncs it, so the label stays
+  above its pipe, nodes, sprinklers and fittings at any elevation. Z ladder:
+  `view-relationships.md` 7.3.
+- **Content.** Drawn by the block mapped for Pipe (section 3, default PipeLabel, section
+  5a). Pipe `Flow` / `Velocity` / `FrictionLoss` read `None` when the solve did not reach
+  the pipe or gave it zero flow (`element-parameters.md` E7), which is what *Hide when
+  empty* keys on; `Length` is the 3D length.
+- **Tag row / persistence.** The Pipe panel's "Tag" enum row sits under Show Label
+  (`TagBlockHost`, section 8; one undo step, `< mixed >` no-op). `tag_block` is a sparse
+  key in `network_codec.serialize_pipe` / `deserialize_pipe` (the one codec for `.fpd` and
+  the undo snapshot; missing / non-str / empty -> `None`); no `SAVE_VERSION` bump. Pipe
+  split (`pipe_network_controller`) and `Pipe.set_properties` (template) carry the id.
+  Copy/paste of a pipe carries **no** pipe properties at all (pre-existing, filed) --
+  `tag_block` included.
+- **Paper.** The paper walk's Pipe branch routes a visible label through
+  `paper_display._apply_block(...)` with opacity 1 (the one annotative path, as Room);
+  `restore_model_display` restores the label's paper hooks. The old forced label colour
+  (`pipe_label_color`) is gone ([`paper-space.md`](paper-space.md) 9.9).
+- **Retired** (guard `tests/test_sb4a_retired_strings.py`): the HTML pipe label,
+  `QGraphicsTextItem` label, `Pipe.set_label_position`, the `Label Size` property (a legacy
+  file's key is dropped by `Pipe.set_property`'s unknown-key skip), the fixed
+  `#00aaff` / `#ffaa00` colours, and the Display Manager Pipe row's font (`font: None`;
+  `_apply_pipe` has no `font_size` path). The placement preview label keeps a fixed
+  `constants.PIPE_PREVIEW_LABEL_IN` ([`pipe-placement-methodology.md`](pipe-placement-methodology.md)).
 
 ## 9. Performance (G6)
 
@@ -279,6 +366,10 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB3b G6 / AC3 the pane lists the eligible library tag and embeds a pick outside history (`test_g6_pane_*`); the shared list keeps a missing / ineligible current (`test_shared_choices_keep_*`) | `test_sb3b_room_tag_style.py` |
 | SB3b G3 / AC1 / AC2 Room Tag row: one undo step for two rooms, `< mixed >` no-op, undo / redo swap (`test_g3_*`); the "(Library)" pick embeds and assigns in one step (`test_g6_room_row_*`); the row shows "(missing)" / "(not eligible)" (`test_tag_row_shows_missing_*`) | `test_sb3b_room_tag_style.py` |
 | SB3b review-fix guards: a room pinned to the same missing id as the default, both orders, two distinct notices (`test_i1_*`); the choice list walks the disk once per panel build and sees new library files (`test_i2_*`); `parsed_file` re-parses a same-mtime rewrite of a different size (`test_m1_*`); a failed library embed names the bare block and assigns nothing (`test_m2_*`); an ineligible per-room id falls back with one notice and the row says "(not eligible)" (`test_m4_*`) | `test_sb3b_room_tag_style.py` |
+| SB4a pipe label: Ø / 3D Length / Flow / FrictionLoss content, same angle for left- and right-pointing pipes, above a node, vertical / Show Label off hidden, short pipes labelled, legacy `Label Size` loads clean, `tag_block` round-trips the codec + one-undo-step Tag row, paper mm at two scales, DM Pipe colour does not tint the label, split keeps the tag, z after the level pass, `reprepare_annotative` resizes pipe labels | `test_sb4a_pipe_label.py` |
+| SB4a Hide when empty: `collapse_shifts`, drop + slot close in the drawn ops, zero flow collapses, explode parity (incl. flattened nested) | `test_sb4a_hide_empty.py` |
+| SB4a retired pipe-label strings | `test_sb4a_retired_strings.py` |
+| SB4a G8 perf bar (pipes; `-m perf`) | `test_sb4a_perf.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
 
 **Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**
@@ -325,6 +416,6 @@ Contradictions found during the build, and their resolution:
 
 Phase 3 (this slice) is **done**, as is SB3b (per-room tag style, library-folder picker;
 2026-10-30). Phase 4 is the follow-up per remaining intrinsic
-conversion, SB4a-e (todo lines; each user-designed and visually gated, G7). Phases 5-7
+conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; todo lines; each user-designed and visually gated, G7). Phases 5-7
 (uids and hosting, placed tags, sheet tags) are gated on phase 4 and described in the
 concept.

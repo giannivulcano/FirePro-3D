@@ -38,7 +38,7 @@ Categories are defined in `_CATEGORIES` in `display_manager.py`, organized into 
 
 | Category | Default Colour | Default Fill | Notes |
 |----------|---------------|-------------|-------|
-| Pipe | `#4488ff` | -- | Label font size 12 |
+| Pipe | `#4488ff` | -- | Label drawn by the PipeLabel System block, no font column ([`system-blocks.md`](../specs/system-blocks.md) section 8a) |
 | Sprinkler | `#ff4444` | `#000000` | |
 | Fitting | `#44cc44` | -- | |
 | Water Supply | `#00cccc` | `#2b2b2e` | |
