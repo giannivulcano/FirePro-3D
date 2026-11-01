@@ -713,6 +713,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             "Shift+D": "duplicate", "Shift+M": "move", "Shift+R": "rotate",
             "Shift+O": "offset", "Shift+A": "array",
             "Shift+F": "flip", "Shift+I": "mirror", "Shift+S": "scale",
+            "Shift+E": "fillet",
             "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
         }
         for _seq, _tool in _TOOL_KEYS.items():
@@ -3107,14 +3108,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 (nested-blocks D10; containment C1).
 
         Returns:
-            ``{label: button}`` for the seven buttons (eight with *explode*).
+            ``{label: button}`` for the eight buttons (nine with *explode*), Fillet last.
         """
         return self._add_modify_buttons(page.add_group("Modify"), scene_getter,
                                         mode_registry, explode=explode)
 
     def _add_modify_buttons(self, g, scene_getter, mode_registry, *,
                             explode: bool = False) -> dict:
-        """Move ... Array (and Explode when *explode*) into group *g* (scene-tools.md D2)."""
+        """Move ... Array, Fillet (and Explode when *explode*) into group *g* (scene-tools.md D2)."""
         spec = (
             ("Move", "move_icon.svg", "move", "Move — base point, then destination (Shift+M)"),
             ("Rotate", "rotate_icon.svg", "rotate", "Rotate — pivot, start ray, end ray; type an angle (Shift+R)"),
@@ -3123,6 +3124,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             ("Mirror", "mirror_icon.svg", "mirror", "Mirror — pick a straight edge as the mirror axis; adds mirrored copies (Shift+I)"),
             ("Offset", "offset_icon.svg", "offset", "Offset — pick an object, cursor sets side + distance (Shift+O)"),
             ("Array", "array_icon.svg", "array", "Array — base point, cursor sets direction + spacing (Shift+A)"),
+            ("Fillet", "fillet_icon.svg", "fillet", "Fillet — hover a corner and click; type a radius (Shift+E)"),
         )
         buttons = {}
         for label, icon, tool, tip in spec:
@@ -4597,7 +4599,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
                       "Duplicate": "duplicate", "Move": "move",
                       "Rotate": "rotate", "Scale": "scale", "Flip": "flip",
-                      "Mirror": "mirror", "Offset": "offset", "Array": "array"}
+                      "Mirror": "mirror", "Offset": "offset", "Array": "array",
+                      "Fillet": "fillet"}
 
     def _init_build_tab(self, _I):
         """Build Tab 6: **Build** -- Block, Definition, 2D Geometry (design §1).
