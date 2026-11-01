@@ -207,12 +207,13 @@ from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
-    TEXT_CARET_WIDTH_PX, TEXT_METRIC_REF_PX, TEXT_SELECTION_ALPHA,
+    TEXT_CARET_WIDTH_PX, TEXT_HEIGHT_MM_PRECISION, TEXT_METRIC_REF_PX,
+    TEXT_SELECTION_ALPHA,
 )
 from .colour_tokens import is_token, normalize_colour, resolve_colour  # noqa: E402
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
-from .scale_manager import ScaleManager                             # noqa: E402
+from .scale_manager import DisplayUnit, ScaleManager                # noqa: E402
 
 
 # ── Height display / parse helpers (one home; text-sizing-wrap D2) ─────────
@@ -305,6 +306,20 @@ def _parse_height_pt(data: "TextAnnotationData", text: str) -> float | None:
         return _mm_from_font_pt(data, float(t))
     except ValueError:
         return _parse_text_height_mm(text)
+
+
+def _format_height_mm(mm: float) -> str:
+    """Format a real-size cap height for the panel in decimal mm (``"2.50 mm"``).
+
+    Goes through ``ScaleManager.format_length`` (the owned length formatter,
+    units-and-formatting) pinned to mm at ``TEXT_HEIGHT_MM_PRECISION``
+    decimals whatever the project unit: real-size text height always shows in
+    mm (D2). Bare numbers typed back parse as mm (:func:`_parse_text_height_mm`).
+    """
+    sm = ScaleManager()
+    sm.display_unit = DisplayUnit.METRIC_MM
+    sm.precision = TEXT_HEIGHT_MM_PRECISION
+    return sm.format_length(mm)
 
 
 def editing_text_item(scene) -> "TextItem | None":
@@ -1245,7 +1260,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Content":  {"type": "multiline", "value": d.text},
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
-            "Height":   {"type": "number", "value": int(round(d.height_mm)), "minimum": 1},
+            "Height":   self._height_row(),
             "Padding":  {"type": "number", "value": int(round(d.cell_padding_mm)), "minimum": 0},
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
@@ -1290,6 +1305,26 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
             props["Hide when empty"] = {"type": "bool", "value": d.hide_empty}
         return props
+
+    def _height_row(self) -> dict:
+        """The model-surface Height row (text-sizing-wrap D2).
+
+        Text in an annotative Block Editor block is printed text: Height shows
+        and parses as a Word-style pt font size (``10.5 pt``), like sheet
+        text. Real-size model / block text shows decimal mm (``2.50 mm``).
+        Storage stays cap height in mm either way; the row commits mm.
+        """
+        from .annotative import editor_is_annotative
+        d = self._data
+        if editor_is_annotative(self.scene()):
+            return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
+                    "parser": lambda text, dd=d: _parse_height_pt(dd, text),
+                    "formatter": lambda mm, dd=d: _format_height_pt(dd, mm),
+                    "minimum": 0.0}
+        return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
+                "parser": _parse_text_height_mm,
+                "formatter": _format_height_mm,
+                "minimum": 0.0}
 
     def set_property(self, key: str, value) -> None:
         if self._on_paper():

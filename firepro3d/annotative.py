@@ -20,6 +20,22 @@ def is_annotative(defn) -> bool:
     return defn is not None and getattr(defn, "scale_mode", None) == SCALE_MODE_ANNOTATIVE
 
 
+def editor_is_annotative(scene) -> bool:
+    """True when *scene* is a Block Editor whose edited definition is Scale
+    mode Annotative -- its text is authored in printed mm (SB1c D1).
+
+    The Block Editor holds the edited definition's fields in its
+    ``block_meta`` dict (Block Properties edits it live, before any save), so
+    this reads that dict rather than a ``BlockDefinition`` (``is_annotative``
+    takes a definition). Any other scene (the plan, a section, paper,
+    ``None``) is False.
+    """
+    if scene is None or getattr(scene, "scene_role", None) != "block_editor":
+        return False
+    meta = getattr(scene, "block_meta", None) or {}
+    return meta.get("scale_mode") == SCALE_MODE_ANNOTATIVE
+
+
 def screen_mode(defn) -> str:
     """The definition's On screen mode: ``SCREEN_FIXED`` or ``SCREEN_SCALE``
     (missing / unknown -> Scale with zoom, D2)."""

@@ -315,6 +315,7 @@ PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed la
 TEXT_METRIC_REF_PX = 1000        # reference px size of every TextItem font; setScale(h / cap) sizes it (L96)
 GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
+TEXT_HEIGHT_MM_PRECISION = 2     # decimals of the real-size text Height row (mm; text-sizing-wrap D2)
 
 # ── App-wide selection / grip style (owned by docs/architecture/theming.md) ──
 # Selection colour comes from the theme `selection` tokens (selection
