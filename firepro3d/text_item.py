@@ -1286,7 +1286,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def apply_grip(self, index: int, pos: QPointF):
         """Resize (edges/corners) or translate (centre) by dragging a grip.
 
-        Reproduces the box-native resize: horizontal drags set wrap width,
+        Reproduces the box-native resize: horizontal drags set the wrap width
+        and turn Wrap ON (G14),
         vertical drags set box height (content-min clamped); the opposite edge
         stays fixed.  Font (``height_mm``) is never touched.  A mid-edge drag is
         axis-isolated (review I2): a left/right mid-edge writes ONLY
@@ -1300,7 +1301,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._freeze_shrink()      # D6: a resize grip; the centre move keeps Shrink
         local = self.mapFromScene(pos)
         r = self._box_rect_local()
-        # First horizontal resize from auto-width: seed wrap from content width.
+        # Legacy seed for a never-laid-out box (textWidth <= 0); _apply_format
+        # always sets a positive width, so a Wrap OFF box resizes through the
+        # G14 write in _commit_box_size instead.
         if self.textWidth() <= 0 and index in (0, 2, 3, 4, 6, 7):
             self.setTextWidth(r.width())
             r = self._box_rect_local()

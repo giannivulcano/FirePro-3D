@@ -137,7 +137,8 @@ def deserialize_note(scene, entry):
     read into a ``TextAnnotationData`` and built as a ``TextItem`` rather than
     the retired ``NoteAnnotation``.  The legacy fields map as:
 
-      * ``text_width`` → ``wrap_width_mm`` (0 = auto-width, the old contract),
+      * ``text_width`` → ``wrap_width_mm`` (0 = none; Wrap is derived from it,
+        text-sizing D4 -- no flag is stored),
       * ``box_height`` → ``box_height_mm`` (0 = auto-fit),
       * ``angle``      → ``angle``,
       * property ``Text`` → ``text``,
