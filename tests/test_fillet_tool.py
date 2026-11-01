@@ -214,3 +214,101 @@ def test_undo_mid_fillet_drops_the_picked_line_and_ghost(qapp):
         assert scene._fillet_item1 is None and scene._move_ghost == []      # [RED]
     finally:
         close_view(view, scene)
+
+
+from firepro3d.fill_layers import BackgroundLayer, FillLayers
+from firepro3d.geometry_2d import PolylineItem, RectangleItem, RegularPolygonItem
+
+
+def _pts(pl):
+    """Flat coordinate list: pytest.approx does NOT recurse into nested tuples (dry run: it compared exactly)."""
+    return [c for p in pl._points for c in _xy(p)]
+
+
+def _flat(pts):
+    return [c for p in pts for c in p]
+
+
+def test_open_polyline_vertex_splits_into_two_polylines_and_an_arc(qapp):
+    """AC-F2: open polyline -> two open polylines + arc; the original is gone."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        pl = PolylineItem(QPointF(0, 0)); pl.append_point(QPointF(100, 0)); pl.append_point(QPointF(100, -100))
+        _add(scene, pl, "_polylines")
+        p0 = _baseline(scene)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(100, 0))
+        assert len(scene._move_ghost) == 3                          # arc + two pieces
+        click(view, QPointF(100, 0))
+        assert pl not in scene._polylines and len(scene._polylines) == 2
+        a, b = sorted(scene._polylines, key=lambda q: q._points[0].x())
+        assert _pts(a) == pytest.approx(_flat([(0.0, 0.0), (90.0, 0.0)]), abs=1e-4)
+        assert _pts(b) == pytest.approx(_flat([(100.0, -10.0), (100.0, -100.0)]), abs=1e-4)
+        arc = scene._draw_arcs[0]
+        assert _xy(arc._center) == pytest.approx((90.0, -10.0), abs=1e-4) and arc._radius == 10.0
+        assert _ends_match(arc, (90.0, 0.0), (100.0, -10.0))
+        assert scene._undo_pos == p0 + 1
+        scene.undo()
+        assert len(scene._polylines) == 1 and scene._draw_arcs == []
+    finally:
+        close_view(view, scene)
+
+
+def test_rect_corner_becomes_one_open_polyline_and_drops_the_fill(qapp):
+    """AC-F2: closed shape becomes open, fill dropped."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        r = RectangleItem(QPointF(0, 0), QPointF(100, -50))
+        r.fill_layers = FillLayers(background=BackgroundLayer("#ff0000", 1.0))
+        assert r._draws_fill()                                      # precondition
+        _add(scene, r, "_draw_rects")
+        p0 = _baseline(scene)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(100, 0))                                 # the bottom-right corner
+        click(view, QPointF(100, 0))
+        assert scene._draw_rects == [] and len(scene._polylines) == 1
+        pl = scene._polylines[0]
+        assert not pl.is_closed()
+        assert _pts(pl) == pytest.approx(_flat([(90.0, 0.0), (0.0, 0.0), (0.0, -50.0),
+                                          (100.0, -50.0), (100.0, -10.0)]), abs=1e-4)
+        assert pl.fill_layers.is_empty and not pl._draws_fill()      # [RED] fill carried over
+        arc = scene._draw_arcs[0]
+        assert _xy(arc._center) == pytest.approx((90.0, -10.0), abs=1e-4)
+        assert _ends_match(arc, (100.0, -10.0), (90.0, 0.0))
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)
+
+
+def test_regular_polygon_corner_is_filleted_to_an_open_polyline(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        pg = RegularPolygonItem(QPointF(0, 0), sides=6, radius_mm=100.0)
+        _add(scene, pg, "_draw_polygons")
+        v0 = pg.vertices()[0]                                       # (100, 0)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        move(view, v0)
+        click(view, v0)
+        assert scene._draw_polygons == [] and len(scene._polylines) == 1
+        assert len(scene._polylines[0]._points) == 7                # 6 vertices + 2 tangent points - 1
+        assert len(scene._draw_arcs) == 1
+    finally:
+        close_view(view, scene)
+
+
+def test_polyline_end_vertex_tangent_point_on_the_far_vertex_makes_one_piece(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        pl = PolylineItem(QPointF(0, 0)); pl.append_point(QPointF(100, 0)); pl.append_point(QPointF(100, -100))
+        _add(scene, pl, "_polylines")
+        _baseline(scene)
+        scene._fillet_radius = 100.0                                # t == both segment lengths
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(100, 0))
+        click(view, QPointF(100, 0))
+        assert scene._polylines == [] and len(scene._draw_arcs) == 1   # both pieces degenerate
+    finally:
+        close_view(view, scene)

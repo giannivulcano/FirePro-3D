@@ -1814,10 +1814,57 @@ class ModifyToolsController:
             v.viewport().update()
         return True
 
+    def _fillet_piece_item(self, src, piece):
+        """One open PolylineItem for a ``PolyPiece``, styled from *src* (fill
+        dropped by construction; a cut end is fresh)."""
+        from .geometry_2d import PolylineItem
+        from .scene_tools import _fresh_end
+        from .stroke_style import copy_style
+        pl = PolylineItem(QPointF(*piece.pts[0]), color=src.pen().color().name(),
+                          lineweight=src.pen().widthF())
+        for q in piece.pts[1:]:
+            pl.append_point(QPointF(*q))
+        copy_style(src, pl)
+        if piece.start_tp:
+            _fresh_end(pl, "start")
+        if piece.end_tp:
+            _fresh_end(pl, "finish")
+        return pl
+
     def _fillet_apply_poly(self, corner, arc, arc_item):
-        """Polyline / Rect / RegularPolygon corner (D5) -- not built yet."""
-        self._scene._show_status("Not built yet", 3000)
-        return None
+        """Polyline / Rect / RegularPolygon corner: the source is replaced by
+        open polyline(s) + the arc; relations on it drop via the normal delete
+        cascade (``on_items_removed``).
+
+        Returns:
+            The relation edges for ``plan_fillet``, or None when refused
+            (fully defined source).
+        """
+        s = self._scene
+        ctl = s.constraint_ctl
+        src = corner.ref1
+        if ctl.refuse_grounded([src]):                              # D17 (CS3)
+            return None
+        pieces = self._fillet_pieces(corner, arc)
+        new = [self._fillet_piece_item(src, pc) for pc in pieces]
+        s._remove_item_from_lists(src)
+        ctl.on_items_removed([src])
+        for pl in new:
+            s.addItem(pl)
+            s._polylines.append(pl)
+        s.addItem(arc_item)
+        s._draw_arcs.append(arc_item)
+
+        def arc_h(is_t1):
+            return "start" if arc.start_is_t1 == is_t1 else "end"
+        edges = []
+        for pc, pl in zip(pieces, new):
+            m = len(pc.pts)
+            if pc.start_tp:
+                edges.append((pl, "s0", "v0", arc_h(pc.start_tp == "prev")))
+            if pc.end_tp:
+                edges.append((pl, f"s{m - 2}", f"v{m - 1}", arc_h(pc.end_tp == "prev")))
+        return edges
 
     # ── Array (D10 + P1 DD5) ────────────────────────────────────────────────
     # Base point, then the cursor aims and a click / Enter commits; the HUD
