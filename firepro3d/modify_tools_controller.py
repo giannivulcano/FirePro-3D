@@ -587,6 +587,19 @@ class ModifyToolsController:
         from . import auto_constrain as ac
         ctl.auto_join(ac.plan_offset(src, item))
 
+    def _auto_constrain_fillet(self, arc_item, edges, event) -> None:
+        """DS4.5 + F3: tie the Fillet arc to the trimmed edges (tangent +
+        coincident), clean-only through ``auto_join``. Same gate as Offset AC4:
+        ``_hv_on`` (a click is toggle XOR Shift; Enter / a typed Radius, *event*
+        None, the toggle alone); Block Editor only."""
+        s = self._scene
+        ctl = getattr(s, "constraint_ctl", None)
+        geom = getattr(s, "_geom_ctl", None)
+        if ctl is None or not ctl.block_editor or geom is None or not geom._hv_on(event):
+            return
+        from . import auto_constrain as ac
+        ctl.auto_join(ac.plan_fillet(arc_item, edges))
+
     def press_offset_side(self, event, pos, snapped, *_):
         """``offset_side`` click: commit on the cursor's side."""
         self.commit_offset(event)
@@ -1827,6 +1840,7 @@ class ModifyToolsController:
             edges = self._fillet_apply_poly(corner, arc, arc_item)
         if edges is None:
             return False
+        self._auto_constrain_fillet(arc_item, edges, event)
         s.push_undo_state()
         s._show_status(f"Filleted \u2014 radius {self._fmt_len(arc.radius)}", 3000)
         # F2: the tool stays live for the next corner at the same sticky radius
