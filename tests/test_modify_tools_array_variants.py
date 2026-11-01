@@ -266,6 +266,7 @@ def test_restarting_array_mid_tool_drops_the_lock(qapp):
         assert scene._array_angle_locked == 30.0
         item.setSelected(True)
         assert scene._modify_ctl.start("array")               # restart
+        assert scene.mode == "array"                          # re-entered
         assert scene._array_angle_locked is None              # [RED]
     finally:
         close_view(view, scene)
