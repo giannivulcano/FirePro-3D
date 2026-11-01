@@ -22,13 +22,23 @@ _X = {"end": "end-x", "visible": True}
 _Y = {"end": "end-y", "visible": False}
 
 
-def _vertical_axis_x(before, after):
+def _bbox_cx(item):
+    """The item's pre-flip manip-bounds centre x -- Flip's expected axis."""
+    from firepro3d.selection_manipulator import manip_bounds
+    return manip_bounds(item).center().x()
+
+
+def _vertical_axis_x(before, after, expect_x=None):
     """The x of the vertical line that maps each *before* point to its *after*
-    point (same y, constant x-sum) -- asserts it is one consistent line."""
+    point (same y, constant x-sum) -- asserts it is one consistent line (and,
+    for Flip, that it is the item's bbox-centre x when *expect_x* is given)."""
     sums = {round(a.x() + b.x(), 4) for a, b in zip(before, after)}
     assert len(sums) == 1
     assert all(abs(a.y() - b.y()) < 1e-6 for a, b in zip(before, after))
-    return next(iter(sums)) / 2.0
+    x = next(iter(sums)) / 2.0
+    if expect_x is not None:
+        assert x == pytest.approx(expect_x, abs=1e-3)
+    return x
 
 
 def _ends(item):
@@ -57,11 +67,13 @@ def test_e5_arc_end_records_stay_on_their_physical_ends(qapp, tool):
         arc.style["start"], arc.style["finish"] = dict(_X), dict(_Y)
         scene.push_undo_state()
         _, s_pt, f_pt = arc.grip_points()                 # centre, start, end
+        pre_cx = _bbox_cx(arc)
         res = _reflect(scene, view, tool, arc, attr, axis_d)
         _, s2, f2 = res.grip_points()
         # Ground truth: reflection reverses the arc -- the old start's image
         # is the new FINISH grip, the old finish's image the new START.
-        cx = _vertical_axis_x([s_pt, f_pt], [f2, s2])
+        cx = _vertical_axis_x([s_pt, f_pt], [f2, s2],
+                              pre_cx if tool == "flip" else None)
         if tool == "mirror":
             assert cx == pytest.approx(AXIS_X)
         start, finish = _ends(res)
@@ -82,10 +94,11 @@ def test_open_strokes_keep_their_ends_and_toggle_mirrored(qapp, name):
         item.style["start"], item.style["finish"] = dict(_X), dict(_Y)
         scene.push_undo_state()
         g0 = item.grip_points()
+        pre_cx = _bbox_cx(item)
         _reflect(scene, view, "flip", item, attr, axis_d)
         g1 = item.grip_points()
         # Vertex order is kept: grip i is the image of grip i.
-        _vertical_axis_x(g0, g1)
+        _vertical_axis_x(g0, g1, pre_cx)
         assert _ends(item) == ({**_X, "mirrored": True}, {**_Y, "mirrored": True})
         _reflect(scene, view, "flip", item, attr, axis_d)   # flip back
         assert _ends(item) == (_X, _Y)            # toggled off: key omitted

@@ -18,7 +18,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QPainterPath, QTransform
 
 from .cad_math import CAD_Math
-from .constants import ARRAY_GHOST_FULL_MAX
+from .constants import ARRAY_GHOST_FULL_MAX, FLIP_LINE_EPS_MM
 from .constraint_dims import point_map_like
 from .design_area import DesignArea
 from .gridline import GridlineItem
@@ -1231,7 +1231,6 @@ class ModifyToolsController:
         """Cursor quadrant -> toggles (DS3.2). Crossing into a NEW quadrant
         overwrites both toggles (last input wins); a cursor on a crosshair
         line, or staying in the same quadrant, changes nothing."""
-        from .constants import FLIP_LINE_EPS_MM
         s = self._scene
         c = s._flip_center
         if c is None:
@@ -1321,6 +1320,8 @@ class ModifyToolsController:
             if s._flip_center is not None:
                 c = s._flip_center
             else:
+                # Headless-only seam: the real path always sets _flip_center
+                # in _begin_flip, so ghost and commit read the same value.
                 from .selection_manipulator import union_manip_bounds
                 c = union_manip_bounds(targets).center()
             axes = self._flip_axes(c) if targets else []
