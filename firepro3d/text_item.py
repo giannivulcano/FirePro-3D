@@ -52,9 +52,14 @@ class TextAnnotationData:
     height_mm:
         CAP height of the rendered text, in paper mm.
     wrap_width_mm:
-        Word-wrap column width; 0 = auto (no wrap).
+        The AUTHORED word-wrap column width; 0 = none authored.  Whether
+        the text wraps at it is ``wrap_on()`` (text-sizing D4).
     box_height_mm:
-        Explicit box height; 0 = auto-fit content.
+        The AUTHORED box height; 0 = auto-fit content.  Ignored while
+        ``shrink_on()`` (the box hugs its content, D5).
+    wrap, shrink:
+        Wrap / Shrink to fit toggles; ``None`` = not authored, the legacy
+        default (``wrap_on`` / ``shrink_on``).  Written only when authored.
     font_family:
         Font family name; empty string → Arial default.
     bold, italic, underline:
@@ -88,8 +93,8 @@ class TextAnnotationData:
     x: float = 0.0
     y: float = 0.0
     height_mm: float = DEFAULT_TEXT_HEIGHT_MM   # CAP height
-    wrap_width_mm: float = 0.0                   # 0 = auto-width; >0 = word-wrap width
-    box_height_mm: float = 0.0                   # 0 = auto-fit content; >0 = stored box height
+    wrap_width_mm: float = 0.0                   # authored wrap width; wrap_on() decides
+    box_height_mm: float = 0.0                   # authored box height; 0 = auto-fit
     font_family: str = ""                        # "" => Arial default
     bold: bool = False
     italic: bool = False
@@ -108,7 +113,35 @@ class TextAnnotationData:
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     keep_upright: bool = False                   # SB1a A5: always readable in a block
     hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
+    wrap: bool | None = None                     # D4: None = legacy (see wrap_on)
+    shrink: bool | None = None                   # D4: None = legacy (see shrink_on)
     type: str = "text"                           # discriminator for future annotation types
+
+    def shrink_on(self, bound: bool = False) -> bool:
+        """Effective Shrink to fit (text-sizing D4).
+
+        Args:
+            bound: True for bound (``@[Field]``) block text, whose legacy
+                default is the SB3 U4 hug (G12/G13).
+
+        Returns:
+            The authored flag, else the legacy default (on only when *bound*).
+        """
+        return bool(self.shrink) if self.shrink is not None else bool(bound)
+
+    def wrap_on(self, bound: bool = False) -> bool:
+        """Effective Wrap (text-sizing D4).
+
+        Args:
+            bound: As :meth:`shrink_on`.
+
+        Returns:
+            The authored flag, else the legacy default: an authored wrap
+            width wraps unless the box hugs (a seeded bound tag never wraps).
+        """
+        if self.wrap is not None:
+            return bool(self.wrap)
+        return self.wrap_width_mm > 0 and not self.shrink_on(bound)
 
     def to_dict(self) -> dict:
         # Saves canonical weight names (linetypes.md LT2-8 / H-g): a name an
@@ -134,6 +167,10 @@ class TextAnnotationData:
             d["keep_upright"] = True             # sparse (the `mirrored` convention)
         if self.hide_empty:
             d["hide_empty"] = True               # sparse, same convention
+        if self.wrap is not None:
+            d["wrap"] = bool(self.wrap)          # sparse: absent = legacy default (D4)
+        if self.shrink is not None:
+            d["shrink"] = bool(self.shrink)      # sparse, same rule
         return d
 
     @classmethod
@@ -163,6 +200,8 @@ class TextAnnotationData:
             angle=float(d.get("angle", 0.0)),
             keep_upright=bool(d.get("keep_upright", False)),
             hide_empty=bool(d.get("hide_empty", False)),
+            wrap=None if d.get("wrap") is None else bool(d["wrap"]),
+            shrink=None if d.get("shrink") is None else bool(d["shrink"]),
             type=d.get("type", "text"),
         )
 
