@@ -8,7 +8,7 @@ resolution (instance value / override / host provider).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .constants import DISPLAY_PRECISION_MAX
 from .element_params import HostValue
@@ -88,6 +88,26 @@ def normalise_attr(rec: dict) -> dict:
     return out
 
 
+# Kinds a definition's Unit / Precision override reaches (D8, G7): area and
+# volume follow the length family; hydraulic kinds take a precision only.
+OVERRIDE_UNIT_KINDS = ("length", "area", "volume")
+OVERRIDE_PRECISION_KINDS = OVERRIDE_UNIT_KINDS + ("pressure", "flow", "velocity")
+
+
+def _overridden(rec: dict, hv: HostValue) -> HostValue:
+    """*hv* re-pointed at a ``ScaleManager.with_overrides`` clone carrying
+    the record's ``unit`` / ``display_precision`` (D8), each only for a kind
+    it reaches; *hv* itself when nothing applies (= per project settings).
+    A ``number`` attribute takes the unit only: it prints at its own
+    ``precision`` (A8)."""
+    unit = (rec.get("unit") or None) if hv.kind in OVERRIDE_UNIT_KINDS else None
+    prec = (rec.get("display_precision")
+            if hv.kind in OVERRIDE_PRECISION_KINDS and rec.get("type") != "number" else None)
+    if unit is None and prec is None:
+        return hv
+    return replace(hv, sm=hv._sm().with_overrides(unit=unit, precision=prec))
+
+
 def format_value(rec: dict, raw) -> str:
     """The display string of *raw* for attribute *rec* (A8).
 
@@ -95,11 +115,13 @@ def format_value(rec: dict, raw) -> str:
     with ``precision`` digits; a non-numeric value -> ``placeholder``.
     The prefix / suffix wrap a real value, never the placeholder. A host
     value (element-parameters.md E8) prints its unit-formatted ``text`` for
-    a text attribute and its display-unit ``number`` for a number attribute.
+    a text attribute and its display-unit ``number`` for a number attribute,
+    through the record's Unit / Precision override when it has one (D8).
     """
     if isinstance(raw, HostValue):
         if raw.raw is None:
             return rec.get("placeholder", "?")
+        raw = _overridden(rec, raw)
         if rec.get("type") == "number":
             if raw.number is None:
                 return rec.get("placeholder", "?")

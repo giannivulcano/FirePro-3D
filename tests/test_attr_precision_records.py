@@ -71,3 +71,35 @@ def test_corrupt_precision_record_no_longer_aborts_a_block_load(qapp, tmp_path):
     assert d is not None
     assert [a["precision"] for a in d.attributes] == [0, 0, 0, 0]
     assert all("display_precision" not in a for a in d.attributes)
+
+
+def test_format_value_applies_the_override_through_a_clone():
+    sm = _sm(DisplayUnit.METRIC_M, 3)
+    hv = HostValue(914.0, "length", sm)
+    assert format_value(_host(), hv) == "0.914 m"                       # absent = per project
+    assert format_value(_host(display_precision=1), hv) == "0.9 m"
+    assert format_value(_host(unit="mm"), hv) == "914.000 mm"
+    assert format_value(_host(unit="mm", display_precision=0), hv) == "914 mm"
+    assert format_value(_host(prefix="W=", display_precision=1), hv) == "W=0.9 m"
+    assert (sm.display_unit, sm.precision) == (DisplayUnit.METRIC_M, 3)  # project untouched
+    # number: the unit reaches .number, its own precision (A8) prints it
+    assert format_value(_host(type="number", precision=1, unit="mm",
+                              display_precision=0), hv) == "914.0"
+    assert format_value(_host(display_precision=2), HostValue(None, "length", sm)) == "?"
+
+
+def test_format_value_override_reaches_only_the_kinds_it_formats():
+    sm = _sm(DisplayUnit.METRIC_M, 3)
+    assert format_value(_host(unit="imperial", display_precision=0),
+                        HostValue(12e6, "area", sm)) == "129 sq ft"
+    assert format_value(_host(unit="mm"), HostValue(3.24e10, "volume", sm)) == "32400000000 mm\u00b3"
+    p = HostValue(12.34, "pressure", sm)
+    assert format_value(_host(), p) == "12.3 psi"
+    assert format_value(_host(display_precision=2), p) == "12.34 psi"
+    assert format_value(_host(unit="mm", display_precision=2), p) == "12.34 psi"   # unit ignored
+    assert format_value(_host(display_precision=1), HostValue(52.5, "flow", sm)) == "52.5 gpm"
+    assert format_value(_host(display_precision=2), HostValue(5.556, "velocity", sm)) == "5.56 ft/s"
+    # outside the override families: printed as the project prints them
+    assert format_value(_host(unit="imperial", display_precision=0),
+                        HostValue(1.049, "pipe_id", sm)) == "26.6 mm"
+    assert format_value(_host(display_precision=0), HostValue("Oak", "text", sm)) == "Oak"
