@@ -6,6 +6,11 @@ A = Floor Control Valve (394 prims), B = synthetic 2,000-line block.
 Base 972c0025 (ms/move, levers.txt): A rotate snap 57-62 + ghost 58,
 A move ghost 67-77; B rotate snap 163-188 + ghost 464-474, B move ghost
 462-473.
+
+What this bar guards (red-proof, 2026-11-01): dropping the cached ghost glow
+turns all three gating cases RED. Dropping the per-find snap memo does NOT --
+on B the unmemoized snap (~165-190 ms) still fits under 200 ms, and A-valve-
+rotate is xfail -- so the memo is guarded by tests/test_snap_find_memo.py.
 """
 import math
 import os
