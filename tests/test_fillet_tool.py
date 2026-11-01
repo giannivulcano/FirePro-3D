@@ -1,0 +1,216 @@
+"""Fillet tool (scene-tools.md D14 Fillet; design 2026-11-01 DS4): a shown
+Block Editor view, posted mouse events, scene ground truth (items, arc
+centre / radius / angles, undo depth)."""
+from __future__ import annotations
+
+import math
+
+import pytest
+from PyQt6.QtCore import QPointF
+
+from firepro3d.geometry_2d import CircleItem, LineItem
+from firepro3d.modify_tools_controller import ModifyToolsController as MTC
+from tests._snap_polish_helpers import click, close_view, make_view, move
+from tests.test_arc_convention_tools import _add, _baseline, _ends_match
+from tests.test_fillet_geometry import CASES
+
+PARALLEL = "Edges are parallel \u2014 no corner to fillet"
+TOO_LARGE = "Radius too large for these edges"
+
+
+def _xy(p):
+    return (p.x(), p.y())
+
+
+def _corner_lines(scene, theta, length=100.0):
+    """Two lines meeting at the origin: edge 1 along +X, edge 2 theta CCW (Y-up)."""
+    a = math.radians(theta)
+    l1 = _add(scene, LineItem(QPointF(length, 0.0), QPointF(0.0, 0.0)), "_draw_lines")
+    l2 = _add(scene, LineItem(QPointF(length * math.cos(a), -length * math.sin(a)),
+                              QPointF(0.0, 0.0)), "_draw_lines")
+    return l1, l2
+
+
+def _statuses(scene):
+    log = []
+    real = scene._show_status
+    scene._show_status = lambda m, *a, **k: (log.append(m), real(m, *a, **k))
+    return log
+
+
+def _path_ends_match(path, a, b, tol=1e-2):     # Qt's arcMoveTo / Bezier start is ~2e-3 off the exact point (dry run)
+    s, e = path.pointAtPercent(0.0), path.pointAtPercent(1.0)
+
+    def near(p, q):
+        return math.hypot(p.x() - q[0], p.y() - q[1]) <= tol
+    return (near(s, a) and near(e, b)) or (near(s, b) and near(e, a))
+
+
+def test_entry_needs_no_selection_and_hints(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        scene.clearSelection()
+        assert scene._modify_ctl.can_start("fillet", []) is True
+        assert scene._modify_ctl.start("fillet") is True
+        assert scene.mode == "fillet"
+        assert seen[-1] == MTC.FILLET_HINT                            # [RED]
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("theta, center, t1, t2, start, span", CASES)
+def test_hover_ghosts_then_click_fillets_two_lines(qapp, theta, center, t1, t2, start, span):
+    """AC-F1: arc of radius r whose ends equal the tangent points (Y-up); the
+    lines end at t1 / t2; one undo step."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        l1, l2 = _corner_lines(scene, theta)
+        far2 = _xy(l2._pt1)
+        p0 = _baseline(scene)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))                                    # hover the corner
+        ghost = scene._move_ghost
+        assert len(ghost) == 3                                       # arc + two trimmed edges
+        assert _path_ends_match(ghost[0], t1, t2)
+        click(view, QPointF(0, 0))
+        assert len(scene._draw_arcs) == 1
+        arc = scene._draw_arcs[0]
+        assert _xy(arc._center) == pytest.approx(center, abs=1e-4)
+        assert arc._radius == pytest.approx(10.0)
+        assert arc._start_deg == pytest.approx(start, abs=1e-4)      # [RED] Y-down revert
+        assert arc._span_deg == pytest.approx(span, abs=1e-4)
+        assert _ends_match(arc, t1, t2)                              # painted ends
+        assert _xy(l1._pt1) == pytest.approx((100.0, 0.0)) and _xy(l1._pt2) == pytest.approx(t1, abs=1e-4)
+        assert _xy(l2._pt1) == pytest.approx(far2) and _xy(l2._pt2) == pytest.approx(t2, abs=1e-4)
+        assert scene._undo_pos == p0 + 1
+        assert scene.mode == "fillet" and scene._move_ghost == []   # F2: stays live, nothing left armed
+        assert scene._fillet_item1 is None and scene._fillet_corner is None
+        scene.undo()
+        assert scene._draw_arcs == []
+        assert sorted(_xy(ln._pt2) for ln in scene._draw_lines) == pytest.approx(
+            sorted([(0.0, 0.0), (0.0, 0.0)]))
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.25])
+def test_hover_aperture_is_screen_pixels_at_the_view_zoom(qapp, scale):
+    view, scene = make_view(scale=scale, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(12.0 / scale, 0.0))                       # 12 px from the vertex
+        assert scene._fillet_corner is not None                      # [RED] fixed-mm aperture
+        move(view, QPointF(18.0 / scale, 0.0))                       # 18 px: outside the 15 px aperture
+        assert scene._fillet_corner is None
+    finally:
+        close_view(view, scene)
+
+
+def test_fallback_click_line1_then_hover_line2_extends_to_the_intersection(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        a = _add(scene, LineItem(QPointF(50, 0), QPointF(0, 0)), "_draw_lines")      # near end first (see D2)
+        b = _add(scene, LineItem(QPointF(100, -30), QPointF(100, -100)), "_draw_lines")
+        p0 = _baseline(scene)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        click(view, QPointF(25, 0))                                  # Line 1 (no corner near)
+        assert scene._fillet_item1 is a and seen[-1] == MTC.FILLET_LINE2_HINT
+        assert len(scene._move_ghost) == 1                           # Line 1 lit
+        move(view, QPointF(100, -60))                                # hover Line 2
+        assert len(scene._move_ghost) == 3
+        click(view, QPointF(100, -60))
+        arc = scene._draw_arcs[0]
+        assert _xy(arc._center) == pytest.approx((90.0, -10.0), abs=1e-4)
+        assert _xy(a._pt1) == pytest.approx((90.0, 0.0), abs=1e-4)   # extended 50 -> 90
+        assert _xy(b._pt1) == pytest.approx((100.0, -10.0), abs=1e-4)
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)
+
+
+def test_parallel_edges_are_refused_and_nothing_changes(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, LineItem(QPointF(0, 0), QPointF(100, 0)), "_draw_lines")
+        _add(scene, LineItem(QPointF(0, -50), QPointF(100, -50)), "_draw_lines")
+        p0 = _baseline(scene)
+        log = _statuses(scene)
+        scene._modify_ctl.start("fillet")
+        click(view, QPointF(50, 0))
+        move(view, QPointF(50, -50))
+        assert PARALLEL in log                                       # [RED]
+        log.clear()
+        click(view, QPointF(50, -50))
+        assert PARALLEL in log
+        assert scene._draw_arcs == [] and scene._undo_pos == p0 and scene.mode == "fillet"
+    finally:
+        close_view(view, scene)
+
+
+def test_oversize_radius_is_refused_and_nothing_changes(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        l1, l2 = _corner_lines(scene, 90.0)
+        p0 = _baseline(scene)
+        scene._fillet_radius = 150.0                                 # t = 150 > 100
+        log = _statuses(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        assert TOO_LARGE in log and scene._move_ghost == []
+        log.clear()
+        click(view, QPointF(0, 0))
+        assert TOO_LARGE in log
+        assert scene._draw_arcs == [] and scene._undo_pos == p0 and scene.mode == "fillet"
+        assert _xy(l1._pt2) == (0.0, 0.0) and _xy(l2._pt2) == (0.0, 0.0)
+    finally:
+        close_view(view, scene)
+
+
+def test_a_tangent_point_exactly_at_the_far_end_removes_the_zero_length_lines(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        p0 = _baseline(scene)
+        scene._fillet_radius = 100.0                                 # t = 100 == both lengths
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        click(view, QPointF(0, 0))
+        assert scene._draw_lines == [] and len(scene._draw_arcs) == 1
+        assert _ends_match(scene._draw_arcs[0], (100.0, 0.0), (0.0, -100.0))
+        assert scene._undo_pos == p0 + 1
+    finally:
+        close_view(view, scene)
+
+
+def test_circle_is_not_a_corner_candidate(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, LineItem(QPointF(100, 0), QPointF(0, 0)), "_draw_lines")
+        _add(scene, CircleItem(QPointF(0, 0), 50.0), "_draw_circles")
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        assert scene._fillet_corner is None
+    finally:
+        close_view(view, scene)
+
+
+def test_undo_mid_fillet_drops_the_picked_line_and_ghost(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _add(scene, LineItem(QPointF(0, 0), QPointF(50, 0)), "_draw_lines")
+        _baseline(scene)
+        scene._modify_ctl.start("fillet")
+        click(view, QPointF(25, 0))
+        assert scene._fillet_item1 is not None
+        scene.undo()
+        assert scene.mode in (None, "select")
+        assert scene._fillet_item1 is None and scene._move_ghost == []      # [RED]
+    finally:
+        close_view(view, scene)

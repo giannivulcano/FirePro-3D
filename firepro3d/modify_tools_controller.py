@@ -57,7 +57,8 @@ class ModifyToolsController:
     _TOOL_MODE = {"copy": "copy_base", "cut": "copy_base", "paste": "paste",
                   "duplicate": "duplicate", "move": "move", "rotate": "rotate",
                   "offset": "offset", "array": "array",
-                  "flip": "flip", "mirror": "mirror", "scale": "scale"}
+                  "flip": "flip", "mirror": "mirror", "scale": "scale",
+                  "fillet": "fillet"}
     _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array",
                      "flip", "mirror", "scale"}
     # Cut shares Copy's ``copy_base`` mode (``_copy_is_cut`` tells them
@@ -70,7 +71,7 @@ class ModifyToolsController:
     # point, captured selection, armed payload) would outlive the restore.
     CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
                                       "rotate", "offset", "offset_side",
-                                      "array", "flip", "mirror", "scale"})
+                                      "array", "flip", "mirror", "scale", "fillet"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -193,6 +194,8 @@ class ModifyToolsController:
             return self.begin_paste()
         if tool == "offset":
             return self.begin_offset(sel)      # Task 12
+        if tool == "fillet":
+            return self.begin_fillet()
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
@@ -1550,6 +1553,271 @@ class ModifyToolsController:
             factor = float(params["factor"])
         self.commit_scale(factor)
         return self._scene.mode != "scale"
+
+    # ── Fillet (scene-tools.md D14 Fillet; design 2026-11-01 DS4) ──────────
+    # Not select-first. Hover a corner (polyline vertex, Rect / RegularPolygon
+    # corner, two Lines that meet or cross) within the snap aperture at the
+    # active view's zoom and click / Enter; or click Line 1 and hover Line 2
+    # (extended intersection). Pure maths: fillet_geometry. Transients on the
+    # scene: _fillet_item1 (Line 1), _fillet_corner, _fillet_arc; the radius
+    # _fillet_radius is session-sticky (never cleared).
+    FILLET_HINT = "Hover a corner and click (or click Line 1, then Line 2)"
+    FILLET_LINE2_HINT = "Hover Line 2 and click"
+    FILLET_NO_CORNER = "Hover a corner (or click Line 1) first"
+
+    def begin_fillet(self) -> bool:
+        """Enter Fillet (never needs a selection).
+
+        Returns:
+            True when the mode was entered.
+        """
+        s = self._scene
+        s.set_mode("fillet")
+        return s.mode == "fillet"
+
+    def fillet_shapes(self) -> list:
+        """The fillet candidates in the scene as ``fillet_geometry.Shape``s."""
+        from . import fillet_geometry as fh
+        s = self._scene
+        out = []
+
+        def alive(it):
+            return it.scene() is s and it.isVisible()
+        for ln in s._draw_lines:
+            if alive(ln):
+                out.append(fh.Shape("line", ((ln._pt1.x(), ln._pt1.y()),
+                                             (ln._pt2.x(), ln._pt2.y())), False, ln))
+        for pl in s._polylines:
+            if alive(pl) and len(pl._points) >= 3:
+                out.append(fh.Shape("poly", tuple((p.x(), p.y()) for p in pl._points),
+                                    pl.is_closed(), pl))
+        for rc in s._draw_rects:
+            if alive(rc):
+                ring = tuple((g.x(), g.y()) for g in rc.grip_points()[0:8:2])   # TL TR BR BL
+                out.append(fh.Shape("poly", ring, True, rc))
+        for pg in s._draw_polygons:
+            if alive(pg):
+                out.append(fh.Shape("poly", tuple((p.x(), p.y()) for p in pg.vertices()),
+                                    True, pg))
+        return out
+
+    @staticmethod
+    def _fillet_line_shape(ln):
+        from . import fillet_geometry as fh
+        return fh.Shape("line", ((ln._pt1.x(), ln._pt1.y()), (ln._pt2.x(), ln._pt2.y())),
+                        False, ln)
+
+    @staticmethod
+    def _fillet_points(item):
+        """``(points, closed)`` of a polyline-like fillet source."""
+        from .geometry_2d import PolylineItem, RectangleItem
+        if isinstance(item, PolylineItem):
+            return [(p.x(), p.y()) for p in item._points], item.is_closed()
+        if isinstance(item, RectangleItem):
+            return [(g.x(), g.y()) for g in item.grip_points()[0:8:2]], True
+        return [(p.x(), p.y()) for p in item.vertices()], True
+
+    def _fillet_line_at(self, pos, exclude):
+        """The visible Line within the pick aperture of *pos* (nearest), not *exclude*."""
+        from . import fillet_geometry as fh
+        s = self._scene
+        tol = self._pick_tolerance()
+        p = (pos.x(), pos.y())
+        best = None
+        for ln in s._draw_lines:
+            if ln is exclude or ln.scene() is not s or not ln.isVisible():
+                continue
+            d = fh.seg_distance(p, (ln._pt1.x(), ln._pt1.y()), (ln._pt2.x(), ln._pt2.y()))
+            if d <= tol and (best is None or d < best[0]):
+                best = (d, ln)
+        return None if best is None else best[1]
+
+    def _fillet_aim(self, pos) -> None:
+        """Re-aim at *pos*: corner, arc at the sticky radius, ghost, status."""
+        from . import fillet_geometry as fh
+        from .transform_ghost import ghost_base_paths
+        s = self._scene
+        p = (pos.x(), pos.y())
+        s._fillet_corner = None
+        s._fillet_arc = None
+        line1 = s._fillet_item1
+        lit = ghost_base_paths([line1]) if line1 is not None else []
+        corner = None
+        if line1 is None:
+            corner = fh.find_corner(self.fillet_shapes(), p, self._pick_tolerance())
+        else:
+            line2 = self._fillet_line_at(pos, line1)
+            if line2 is not None:
+                res = fh.corner_between_lines(self._fillet_line_shape(line1),
+                                              self._fillet_line_shape(line2), p)
+                if isinstance(res, fh.Refused):
+                    s._move_ghost = lit
+                    s._show_status(res.message, 0)
+                    return
+                corner = res
+        s._fillet_corner = corner
+        if corner is None:
+            s._move_ghost = lit
+            return
+        arc = fh.tangent_arc(corner, s._fillet_radius)
+        if isinstance(arc, fh.Refused):
+            s._move_ghost = []
+            s._show_status(arc.message, 0)
+            return
+        s._fillet_arc = arc
+        s._move_ghost = self._fillet_ghost(corner, arc)
+        s._show_status(f"Fillet radius {self._fmt_len(arc.radius)} \u2014 "
+                       f"click or Enter to fillet (or type a radius)", 0)
+
+    def _fillet_pieces(self, corner, arc) -> list:
+        from . import fillet_geometry as fh
+        pts, closed = self._fillet_points(corner.ref1)
+        return fh.poly_pieces(pts, closed, corner.idx1, arc.t1, arc.t2)
+
+    def _fillet_ghost(self, corner, arc) -> list:
+        """Scene-coord ghost paths: the arc, then each trimmed edge / piece."""
+        from . import fillet_geometry as fh
+        r = arc.radius
+        cx, cy = arc.center
+        rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+        arc_path = QPainterPath()
+        arc_path.arcMoveTo(rect, arc.start_deg)             # Y-up CCW, as ArcItem._rebuild_path
+        arc_path.arcTo(rect, arc.start_deg, arc.span_deg)
+        paths = [arc_path]
+        if corner.kind == "lines":
+            for ln, idx, t in ((corner.ref1, corner.idx1, arc.t1),
+                               (corner.ref2, corner.idx2, arc.t2)):
+                far = ln._pt1 if idx == 0 else ln._pt2
+                if math.hypot(far.x() - t[0], far.y() - t[1]) > fh.LEN_TOL:
+                    e = QPainterPath(QPointF(*t))
+                    e.lineTo(far)
+                    paths.append(e)
+        else:
+            for pc in self._fillet_pieces(corner, arc):
+                e = QPainterPath(QPointF(*pc.pts[0]))
+                for q in pc.pts[1:]:
+                    e.lineTo(QPointF(*q))
+                paths.append(e)
+        return paths
+
+    def move_fillet(self, event, snapped):
+        """``fillet`` cursor: re-aim at the cursor (corner + ghost)."""
+        s = self._scene
+        s.preview_node.hide()
+        s.preview_pipe.hide()
+        self._fillet_aim(event.scenePos())
+        for v in s.views():
+            v.viewport().update()
+
+    def press_fillet(self, event, pos, snapped, *_):
+        """``fillet`` click: commit the hovered corner; else arm Line 1."""
+        from .geometry_2d import LineItem
+        from .transform_ghost import ghost_base_paths
+        s = self._scene
+        self._fillet_aim(pos)                  # the press re-aims at the click point
+        if s._fillet_corner is not None:
+            self.commit_fillet(event)
+            return
+        if s._fillet_item1 is not None:
+            return                             # Line 2 not under the cursor / refused: stay live
+        hit = s._tools._find_tool_target(pos, "filleted")    # a Filled Region says so (F7)
+        if isinstance(hit, LineItem):
+            s._fillet_item1 = hit
+            s._move_ghost = ghost_base_paths([hit])
+            s.instructionChanged.emit(self.FILLET_LINE2_HINT)
+        for v in s.views():
+            v.viewport().update()
+
+    def _fillet_arc_item(self, src, arc):
+        """The new ArcItem, styled from *src* (a fresh arc has fresh ends)."""
+        from .geometry_2d import ArcItem
+        from .stroke_style import copy_style
+        item = ArcItem(QPointF(*arc.center), arc.radius, arc.start_deg, arc.span_deg,
+                       color=src.pen().color().name(), lineweight=src.pen().widthF())
+        copy_style(src, item, fresh_ends=("start", "finish"))
+        return item
+
+    def _fillet_apply_lines(self, corner, arc, arc_item):
+        """Line ∠ Line: trim / extend both lines to t1 / t2 inside
+        ``constraint_ctl.edit``; a line left with zero length is removed.
+
+        Returns:
+            The relation edges ``[(item, edge_h, end_h, arc_h)]`` for
+            ``auto_constrain.plan_fillet``, or None when refused (fully defined).
+        """
+        from . import fillet_geometry as fh
+        from .scene_tools import _fresh_end
+        s = self._scene
+        ctl = s.constraint_ctl
+        plan = []        # (line, trimmed end index, tangent QPointF, remaining length)
+        for ln, idx, t in ((corner.ref1, corner.idx1, arc.t1),
+                           (corner.ref2, corner.idx2, arc.t2)):
+            far = ln._pt1 if idx == 0 else ln._pt2
+            plan.append((ln, 1 - idx, QPointF(*t),
+                         math.hypot(far.x() - t[0], far.y() - t[1])))
+        if ctl.refuse_grounded([p[0] for p in plan]):                # D17 (CS3)
+            return None
+        trims = [p for p in plan if p[3] > fh.LEN_TOL]
+        gone = [p[0] for p in plan if p[3] <= fh.LEN_TOL]
+        with ctl.edit([p[0] for p in trims]):
+            for ln, e, t, _r in trims:
+                ln.apply_grip(0 if e == 0 else 2, QPointF(t))
+                _fresh_end(ln, "start" if e == 0 else "finish")
+        for ln in gone:
+            s._remove_item_from_lists(ln)
+        if gone:
+            ctl.on_items_removed(gone)
+        s.addItem(arc_item)
+        s._draw_arcs.append(arc_item)
+
+        def arc_h(is_t1):
+            return "start" if arc.start_is_t1 == is_t1 else "end"
+        return [(ln, "edge", "p1" if e == 0 else "p2", arc_h(i == 0))
+                for i, (ln, e, _t, r) in enumerate(plan) if r > fh.LEN_TOL]
+
+    def commit_fillet(self, event=None) -> bool:
+        """Fillet the hovered corner at the sticky radius (one undo step).
+
+        Args:
+            event: The click's mouse event (None for Enter / a typed radius);
+                feeds the Auto Constrain gate (F3, D7).
+
+        Returns:
+            True when committed; False (status posted, tool stays live, nothing
+            changed) for no corner, a refusal, or a fully defined edge.
+        """
+        from . import fillet_geometry as fh
+        s = self._scene
+        corner = s._fillet_corner
+        if corner is None:
+            s._show_status(self.FILLET_NO_CORNER, 3000)
+            return False
+        arc = fh.tangent_arc(corner, s._fillet_radius)
+        if isinstance(arc, fh.Refused):
+            s._show_status(arc.message, 3000)
+            return False
+        arc_item = self._fillet_arc_item(corner.ref1, arc)
+        if corner.kind == "lines":
+            edges = self._fillet_apply_lines(corner, arc, arc_item)
+        else:
+            edges = self._fillet_apply_poly(corner, arc, arc_item)
+        if edges is None:
+            return False
+        s.push_undo_state()
+        s._show_status(f"Filleted \u2014 radius {self._fmt_len(arc.radius)}", 3000)
+        # F2: the tool stays live for the next corner at the same sticky radius
+        # (Esc exits); the picked-line / corner / ghost transients are spent.
+        s._fillet_item1 = s._fillet_corner = s._fillet_arc = None
+        s._move_ghost = []
+        s.instructionChanged.emit(self.FILLET_HINT)
+        for v in s.views():
+            v.viewport().update()
+        return True
+
+    def _fillet_apply_poly(self, corner, arc, arc_item):
+        """Polyline / Rect / RegularPolygon corner (D5) -- not built yet."""
+        self._scene._show_status("Not built yet", 3000)
+        return None
 
     # ── Array (D10 + P1 DD5) ────────────────────────────────────────────────
     # Base point, then the cursor aims and a click / Enter commits; the HUD

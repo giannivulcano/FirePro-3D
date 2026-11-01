@@ -5,6 +5,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsRectItem
 
 from firepro3d.geometry_2d import LineItem, RectangleItem
+from firepro3d.modify_tools_controller import ModifyToolsController as MTC
 from tests._snap_polish_helpers import click, close_view, make_view
 
 
@@ -61,7 +62,7 @@ def test_no_false_tab_hints_for_hudless_tools(qapp):
     try:
         seen = []
         scene.instructionChanged.connect(seen.append)
-        for mode in ("scale", "fillet", "chamfer", "mirror", "break",
+        for mode in ("scale", "chamfer", "mirror", "break",
                      "break_at_point", "stretch", "trim", "extend"):
             if mode in scene._SCHEMA_FOR_MODE or mode in scene._APPLIER_FOR_MODE:
                 continue
@@ -91,11 +92,19 @@ def _drive_two_line_pick(mode):
         close_view(view, scene)
 
 
-def test_fillet_mid_flow_hints_do_not_promise_tab(qapp):
-    first, second = _drive_two_line_pick("fillet")
-    assert first == ["Click second line"]                          # [RED]
-    assert second and second[-1].startswith("Radius:")
-    assert all("Tab" not in s for s in first + second), first + second
+def test_fillet_hints_do_not_promise_tab(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        _add_line(scene, (0, 0), (200, 0))
+        _add_line(scene, (300, -100), (300, -300))
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        scene.set_mode("fillet")
+        click(view, QPointF(100, 0))                    # Line 1 (the lines do not meet)
+        assert seen == [MTC.FILLET_HINT, MTC.FILLET_LINE2_HINT]        # [RED]
+        assert all("Tab" not in s for s in seen), seen
+    finally:
+        close_view(view, scene)
 
 
 def test_chamfer_mid_flow_hints_do_not_promise_tab(qapp):

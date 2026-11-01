@@ -2,7 +2,7 @@
 
 Covers:
 - Offset algorithm (line intersection, polyline offset, distance_to_item)
-- Fillet / chamfer geometry computation
+- Chamfer geometry computation
 - Break / break-at-point logic
 - extract_edges helper
 - _get_item_segments
@@ -331,52 +331,8 @@ class TestOffsetSignedDist:
 
 
 # =========================================================================
-# 2. FILLET / CHAMFER
+# 2. CHAMFER
 # =========================================================================
-
-
-class TestComputeFillet:
-    """SceneTools._compute_fillet — arc data between two lines."""
-
-    def test_perpendicular_lines_radius_10(self, scene):
-        l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
-        l2 = LineItem(QPointF(0, 0), QPointF(0, 100))
-        scene.addItem(l1)
-        scene.addItem(l2)
-
-        data = scene._tools._compute_fillet(l1, l2, 10.0)
-        assert data is not None
-        assert abs(data["radius"] - 10.0) < 1e-6
-        # Center should be at (10, 10) — 10 away from both axes
-        assert abs(data["center"].x() - 10.0) < 1e-3
-        assert abs(data["center"].y() - 10.0) < 1e-3
-        # Tangent points
-        assert abs(data["tp1"].y()) < 1e-3   # on x-axis
-        assert abs(data["tp2"].x()) < 1e-3   # on y-axis
-
-    def test_parallel_lines_returns_none(self, scene):
-        l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
-        l2 = LineItem(QPointF(0, 50), QPointF(100, 50))
-        scene.addItem(l1)
-        scene.addItem(l2)
-        assert scene._tools._compute_fillet(l1, l2, 10.0) is None
-
-    def test_non_line_items_returns_none(self, scene):
-        l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
-        c1 = CircleItem(QPointF(50, 50), 30)
-        scene.addItem(l1)
-        scene.addItem(c1)
-        assert scene._tools._compute_fillet(l1, c1, 10.0) is None
-
-    def test_45_degree_lines(self, scene):
-        l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
-        l2 = LineItem(QPointF(0, 0), QPointF(100, 100))
-        scene.addItem(l1)
-        scene.addItem(l2)
-
-        data = scene._tools._compute_fillet(l1, l2, 10.0)
-        assert data is not None
-        assert abs(data["radius"] - 10.0) < 1e-6
 
 
 class TestComputeChamfer:

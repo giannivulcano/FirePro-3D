@@ -6,18 +6,17 @@ geometry — the arc's own ``path()`` sampled and mapped to the scene — compar
 against points defined independently here by their *visual* angle (screen up
 = scene -y). Real path: a shown Model_View over a real
 ``Model_Space(scene_role="block_editor")``, the tool entered with ``set_mode``,
-real posted clicks (and a real Return for Fillet).
+real posted clicks (and a real hover + click for Fillet).
 """
 from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtTest import QTest
+from PyQt6.QtCore import QPointF
 
 from firepro3d import geometry_intersect as gi
 from firepro3d.geometry_2d import ArcItem, CircleItem, LineItem, PolylineItem
-from tests._snap_polish_helpers import click, close_view, make_view
+from tests._snap_polish_helpers import click, close_view, make_view, move
 
 R = 100.0
 TOL = 0.05     # mm
@@ -218,11 +217,10 @@ def test_fillet_arc_ends_on_the_tangent_points(qapp):
         _add(scene, LineItem(QPointF(100, 0), QPointF(0, 0)), "_draw_lines")
         _add(scene, LineItem(QPointF(0, -100), QPointF(0, 0)), "_draw_lines")
         p0 = _baseline(scene)
-        scene.set_mode("fillet")
         scene._fillet_radius = 10.0
-        click(view, QPointF(60, 0))                # first line (interior)
-        click(view, QPointF(0, -60))               # second line (interior)
-        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))                  # hover the corner
+        click(view, QPointF(0, 0))
         assert len(scene._draw_arcs) == 1
         arc = scene._draw_arcs[0]
         # tangent points (10,0) / (0,-10); bulge toward the corner
@@ -246,18 +244,14 @@ def test_fillet_rotated_corner_ends_on_the_tangent_points(qapp):
         _add(scene, LineItem(_vis(30), corner), "_draw_lines")
         _add(scene, LineItem(_vis(120), corner), "_draw_lines")
         p0 = _baseline(scene)
-        scene.set_mode("fillet")
         scene._fillet_radius = 10.0
-        click(view, _vis(30, r=60.0))              # first line (interior)
-        click(view, _vis(120, r=60.0))             # second line (interior)
-        QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        scene._modify_ctl.start("fillet")
+        move(view, corner)
+        click(view, corner)
         assert len(scene._draw_arcs) == 1
         arc = scene._draw_arcs[0]
-        # 90 deg corner, r = 10 -> tangent points 10 mm along each line.
         tp1, tp2 = _vis(30, r=10.0), _vis(120, r=10.0)
         assert _ends_match(arc, tp1, tp2)                               # [RED]
-        # Bulge toward the corner: the arc passes the point r from the
-        # centre on the corner side, not the diametrically opposite one.
         cx, cy = tp1.x() + tp2.x(), tp1.y() + tp2.y()
         d = math.hypot(cx, cy)
         ux, uy = -cx / d, -cy / d                  # centre -> corner

@@ -49,7 +49,8 @@ from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES)
+                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES,
+                       FILLET_DEFAULT_RADIUS_MM)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -562,13 +563,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._break_p1: "QPointF | None" = None
         self._break_at_target = None
         self._break_at_highlight = None
-        # Fillet / Chamfer
-        self._fillet_radius: float = 5.0
-        self._fillet_item1 = None
-        self._fillet_item2 = None
-        self._fillet_highlight1 = None
-        self._fillet_highlight2 = None
-        self._fillet_preview = None
+        # Fillet (scene-tools.md D14 Fillet; behaviour in ModifyToolsController)
+        self._fillet_radius: float = FILLET_DEFAULT_RADIUS_MM   # session-sticky: never cleared
+        self._fillet_item1 = None        # fallback Line 1 (click it, then hover Line 2)
+        self._fillet_corner = None       # fillet_geometry.Corner under the cursor
+        self._fillet_arc = None          # its TangentArc at the current radius
+        # Chamfer
         self._chamfer_dist: float = 5.0
         self._chamfer_item1 = None
         self._chamfer_item2 = None
@@ -1458,10 +1458,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             _remove_preview("_break_at_highlight")
         if mode != "fillet":
             self._fillet_item1 = None
-            self._fillet_item2 = None
-            _remove_preview("_fillet_highlight1")
-            _remove_preview("_fillet_highlight2")
-            _remove_preview("_fillet_preview")
+            self._fillet_corner = None
+            self._fillet_arc = None
         if mode != "chamfer":
             self._chamfer_item1 = None
             self._chamfer_item2 = None
@@ -1531,7 +1529,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "mirror":          "Pick mirror axis",
             "break":           "Select object to break",
             "break_at_point":  "Select object to split",
-            "fillet":          "Click first object",
+            "fillet":          self._modify_ctl.FILLET_HINT,
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point  ·  Space = alignment",
@@ -5532,6 +5530,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "scale":                    "_move_scale",
+        "fillet":                   "_move_fillet",
         "array":                    "_move_array",
         "flip":                     "_move_reflect",
         "mirror":                   "_move_reflect",
@@ -7104,37 +7103,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.push_undo_state()
             self.set_mode("break_at_point")
 
-    # ── Fillet ───────────────────────────────────────────────────────
-    def _press_fillet(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._fillet_item1 is None:
-            hit = self._tools._find_tool_target(pos, "filleted")
-            if hit is not None and isinstance(hit, LineItem):
-                self._fillet_item1 = hit
-                self._fillet_highlight1 = self._tools._highlight_item(hit)
-                self.instructionChanged.emit("Click second line")
-        elif self._fillet_item2 is None:
-            hit = self._tools._find_tool_target(pos, "filleted")
-            if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
-                self._fillet_item2 = hit
-                self._fillet_highlight2 = self._tools._highlight_item(hit)
-                data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                           self._fillet_radius)
-                if data is None:
-                    self._show_status("Cannot fillet these lines (parallel?)")
-                    self.set_mode("fillet")
-                else:
-                    # Show preview
-                    pp = QPainterPath()
-                    r = data["radius"]
-                    c = data["center"]
-                    pp.addEllipse(c, r, r)
-                    self._fillet_preview = self.addPath(
-                        pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                    self._fillet_preview.setPen(
-                        QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                    self._fillet_preview.pen().setCosmetic(True)
-                    self.instructionChanged.emit(
-                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit")
+    # ── Fillet (scene-tools.md D14 Fillet) ───────────────────────────
+    def _press_fillet(self, *args, **kwargs):  # shell → ModifyToolsController
+        return self._modify_ctl.press_fillet(*args, **kwargs)
+
+    def _move_fillet(self, *args, **kwargs):  # shell → ModifyToolsController
+        return self._modify_ctl.move_fillet(*args, **kwargs)
 
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8993,6 +8967,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode in ("flip", "mirror"):
                 self._modify_ctl.commit_reflect()
                 return
+            # Fillet: Enter commits the hovered corner like a click (DS4).
+            if self.mode == "fillet":
+                self._modify_ctl.commit_fillet()
+                return
             # Array: Enter commits at the cursor's aim with the remembered
             # counts, like a click (D10 / DD5); a refused aim posts
             # commit_array's reason. The typed path is the HUD.
@@ -9080,17 +9058,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first room boundary point")
-            # Commit fillet
-            elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
-                data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                            self._fillet_radius)
-                if data is not None:
-                    self._tools._commit_fillet(data)
-                    self.push_undo_state()
-                else:
-                    self._show_status("Cannot compute fillet for these objects", timeout=3000)
-                self.set_mode(None)
-                return
             # Commit chamfer
             elif self.mode == "chamfer" and self._chamfer_item1 is not None and self._chamfer_item2 is not None:
                 data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,

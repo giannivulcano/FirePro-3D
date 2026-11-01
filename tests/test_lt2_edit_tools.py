@@ -85,16 +85,17 @@ def test_fillet_new_arc_fresh_and_trimmed_ends_fresh(qapp):
     l2 = _styled(LineItem(QPointF(100, 0), QPointF(100, 100)))
     for ln in (l1, l2):
         ms.addItem(ln); ms._draw_lines.append(ln)
-    data = ms._tools._compute_fillet(l1, l2, 10.0)
-    assert data is not None
-    ms._tools._commit_fillet(data)
+    ms._fillet_radius = 10.0
+    ms.set_mode("fillet")
+    ms._modify_ctl._fillet_aim(QPointF(100, 0))           # hover the l1.pt2 / l2.pt1 corner
+    assert ms._modify_ctl.commit_fillet() is True
     (arc,) = ms._draw_arcs
     _same_body(l1, arc)
     assert arc.style["start"]["end"] == arc.style["finish"]["end"] == "by_linetype"
-    end1 = "start" if data["near1"] == "_pt1" else "finish"
-    assert l1.style[end1]["end"] == "by_linetype"
-    other = "finish" if end1 == "start" else "start"
-    assert l1.style[other]["end"] == "end-marker"
+    assert l1.style["finish"]["end"] == "by_linetype"      # l1's trimmed end is pt2 -> "finish"
+    assert l1.style["start"]["end"] == "end-marker"
+    assert l2.style["start"]["end"] == "by_linetype"       # l2's trimmed end is pt1 -> "start"
+    assert l2.style["finish"]["end"] == "end-marker"
 
 
 def test_chamfer_new_line_fresh_and_trimmed_ends_fresh(qapp):
