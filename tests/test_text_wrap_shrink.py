@@ -199,7 +199,9 @@ def test_shrink_offset_never_reaches_data_xy(qapp):
              align="C", valign="M", wrap=False, shrink=True)
     for text in ("Short", "A much longer value", "x"):
         t.set_property("Content", text)
-        t.setPos(t.pos())                    # itemChange live-sync fires
+        t.setPos(QPointF(15.0, 25.0))        # a REAL move: itemChange live-sync fires
+        assert (t.data.x, t.data.y) == pytest.approx((15.0, 25.0), abs=1e-9)
+        t.setPos(QPointF(10.0, 20.0))        # ... and back to the authored origin
         d = t.to_dict()
         assert (t.pos().x(), t.pos().y()) == pytest.approx((10.0, 20.0), abs=1e-9)
         assert (d["x"], d["y"]) == pytest.approx((10.0, 20.0), abs=1e-9)
