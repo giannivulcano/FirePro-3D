@@ -438,3 +438,57 @@ def test_constraint_move_of_shrink_box_keeps_shrink(qapp):
     assert t.data.shrink is True
     assert a.read(t) == pytest.approx([cx + 5.0, cy - 3.0, w, h], abs=1e-6)
     assert (t.data.x, t.data.y) == pytest.approx((15.0, 17.0), abs=1e-6)
+# ── T30: bound text seeds the hug through the record (D5, G12) ──────────────
+
+def test_hugged_record_freezes_the_seeded_flags_and_keeps_the_authored_box(qapp):
+    """AC14: hugged_text_record writes the bound seed (Shrink ON + Wrap OFF)
+    explicitly and keeps the authored box fields (D4) -- no geometry rewrite."""
+    from firepro3d.block_attributes import hugged_text_record
+    rec = {"type": "text", "text": "@[Name]", "x": -6.95, "y": -3.5,
+           "wrap_width_mm": 13.9, "box_height_mm": 7.0}
+    out = hugged_text_record(rec, "Office")
+    assert (out["text"], out["wrap"], out["shrink"]) == ("Office", False, True)
+    assert (out["x"], out["y"], out["wrap_width_mm"], out["box_height_mm"]) == \
+        (-6.95, -3.5, 13.9, 7.0)
+    off = hugged_text_record({**rec, "shrink": False}, "Office")
+    assert (off["wrap"], off["shrink"]) == (True, False)    # G12: Shrink OFF = fixed wrapping box
+    static = {"type": "text", "text": "Plain", "wrap_width_mm": 13.9}
+    assert hugged_text_record(static, None) is static
+
+
+def test_bound_text_with_shrink_off_wraps_in_the_authored_box(qapp):
+    """AC14: the author turned Shrink off on a bound tag -> the long value
+    wraps inside the authored 13.9 mm box (raw wrapped-doc height)."""
+    from firepro3d.block_attributes import bound_text_ops, normalise_attr
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.render_op import STROKE
+    prim = {"type": "text", "text": "@[Name]", "x": -6.95, "y": -3.5, "height_mm": 3.0,
+            "wrap_width_mm": 13.9, "box_height_mm": 7.0, "align": "C", "valign": "M",
+            "border": True, "cell_padding_mm": 1.0, "shrink": False}
+    d = BlockDefinition.new(name="FixedTag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    d.attributes = [normalise_attr({"key": "Name", "default": "Mechanical Equipment Room"})]
+    ops, _c = bound_text_ops(d, {}, None, False, 1.0, None, None)
+    f = [o for o in ops if o.kind == STROKE][0].path.boundingRect()
+    doc, s = _raw_doc("Mechanical Equipment Room", wrap_mm=13.9)
+    assert _lines(doc) > 1
+    assert f.width() == pytest.approx(13.9, abs=0.05)
+    assert f.height() == pytest.approx(max(7.0, doc.size().height() * s), abs=0.05)
+
+
+
+def test_hide_empty_collapse_reads_the_authored_box(qapp):
+    """SB4a D7 kept: the Hide-when-empty collapse measures each bound line's
+    AUTHORED box, not its hug -- even with Shrink ON stored on the record.
+    Raw source: line A authored at y 2..12 (box height 10, a 3 mm line
+    inside), line B at 14..24; A blank and dropped -> B moves in by A's slot,
+    near edge 14 to near edge 2 = -12."""
+    from PyQt6.QtGui import QTransform
+    from firepro3d.block_attributes import hide_empty_shifts
+    a = {"type": "text", "text": "@[A]", "x": 0.0, "y": 2.0, "height_mm": 3.0,
+         "wrap_width_mm": 20.0, "box_height_mm": 10.0, "align": "C", "valign": "B",
+         "hide_empty": True, "shrink": True}           # a hug would sit at the slot's bottom
+    b = {**a, "text": "@[B]", "y": 14.0, "hide_empty": False, "shrink": False}
+    got = hide_empty_shifts([(a, QTransform()), (b, QTransform())], frozenset({"A"}))
+    assert got[0] is None
+    assert got[1] == pytest.approx(-12.0, abs=1e-6)

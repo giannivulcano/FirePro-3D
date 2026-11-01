@@ -295,7 +295,8 @@ def hide_empty_shifts(entries: list, blank: frozenset) -> list:
     from .text_item import TextItem
     boxes = []
     for (prim, t), dropped in zip(entries, drop):
-        item = TextItem.from_dict(prim)
+        # The AUTHORED box (Shrink off), not the hug round the placeholder.
+        item = TextItem.from_dict({**prim, "shrink": False})
         r = t.mapRect(item.mapToParent(item._box_rect_local()).boundingRect())
         boxes.append((r.top(), r.bottom(), dropped))
     return collapse_shifts(boxes)
@@ -319,63 +320,25 @@ class BoundPrim:
     override_args: tuple = (None, None)
 
 
-# align / valign -> the fraction of the box width / height at which the
-# alignment anchor sits: the point an auto-sized box keeps when it re-fits.
-_ANCHOR_X = {"L": 0.0, "C": 0.5, "R": 1.0}
-_ANCHOR_Y = {"T": 0.0, "M": 0.5, "B": 1.0}
-
-
 def hugged_text_record(rec: dict, value: str | None = None) -> dict:
-    """*rec* (a text record carrying ``@[Field]``s) with its box hugging
-    *value*, the string it will show (its own text when None): the record
-    every path drawing or exploding bound text builds from, before it
-    substitutes the value.
+    """*rec* (a text record carrying ``@[Field]``s) with its Wrap / Shrink to
+    fit flags made explicit, and its text *value* when given: the record
+    every path drawing or exploding bound text builds from.
 
-    An author sizes a bound text's box (``wrap_width_mm`` / ``box_height_mm``)
-    round the placeholder, so a wider value would wrap and a shorter one
-    would sit in a loose box. Both are dropped (0 = auto-fit) and ``x`` /
-    ``y`` move so the auto box's alignment point (``align`` x ``valign``)
-    sits where the authored box's did -- its centre for a centred tag -- so
-    the box follows the value without moving off its host (SB3 visual gate
-    ruling, 2026-10-29). Static text (no fields, ``keep_upright`` included)
-    and a record authored auto-fit on both axes come back unchanged; an
-    axis authored 0 keeps its position on that axis.
+    A bound text's absent flags default to the seeded hug (text-sizing G12:
+    Shrink ON + Wrap OFF -- the SB3 U4 ruling, 2026-10-29), which
+    ``TextItem`` lays out round the value keeping the authored box's
+    alignment point (D5). They are written explicitly here because the
+    substituted value no longer carries the ``@[Field]`` that seeds them.
+    Static text (no fields, ``keep_upright`` included) comes back unchanged.
     """
-    from PyQt6.QtCore import QPointF, QRectF
-    from PyQt6.QtGui import QTransform
-    from .text_item import TextAnnotationData, TextItem
+    from .text_item import TextAnnotationData
     if not has_fields(str(rec.get("text", ""))):
         return rec
     data = TextAnnotationData.from_dict(rec)
-    w_mm, h_mm = data.wrap_width_mm, data.box_height_mm
-    if w_mm <= 0 and h_mm <= 0:
-        return rec
-    out = {**rec, "wrap_width_mm": 0.0, "box_height_mm": 0.0}
-    hug = TextItem.from_dict(out if value is None else {**out, "text": value})
-    s = hug.scale() or 1.0
-    hb = hug._box_rect_local()                       # the auto box, local unscaled
-    # The authored box as the editor shows it round a one-line placeholder:
-    # ``_box_rect_local`` never lets a box shrink below its content line.
-    ab = QRectF(0.0, 0.0, w_mm / s if w_mm > 0 else hb.width(),
-                max(h_mm / s, hb.height()) if h_mm > 0 else hb.height())
-    fx = _ANCHOR_X.get(data.align, 0.0)
-    fy = _ANCHOR_Y.get(data.valign, 0.0)
-
-    def _anchor(r):
-        """The alignment point of box *r*, rotated the way the item bakes its
-        angle: about the box's own centre (``TextItem._rotation_transform``)."""
-        p = QPointF(r.left() + fx * r.width(), r.top() + fy * r.height())
-        o = r.center()
-        m = QTransform()
-        m.translate(o.x(), o.y())
-        m.rotate(-hug._angle)
-        m.translate(-o.x(), -o.y())
-        return m.map(p)
-
-    delta = _anchor(ab) - _anchor(hb)                # local, rotated frame
-    shift = hug.mapToParent(delta) - hug.mapToParent(QPointF(0.0, 0.0))
-    out["x"] = data.x + shift.x()
-    out["y"] = data.y + shift.y()
+    out = {**rec, "wrap": data.wrap_on(bound=True), "shrink": data.shrink_on(bound=True)}
+    if value is not None:
+        out["text"] = value
     return out
 
 
