@@ -19,6 +19,7 @@ PARALLEL_SIN = 1e-9     # |sin(theta)| at or below this: parallel / collinear ed
 SAME_SIDE_DOT = 1.0 - 1e-9   # unit-direction dot above this: two ends on one side of a point
 ZERO_LEN_SQ = 1e-18     # squared length at or below this: a degenerate (point) segment
 BISECTOR_MIN = 1e-12    # |u1 + u2| below this: opposite directions, no bisector
+TRIMMED_END_TOL = 1e-3  # mm: a trimmed line end this far off its tangent point means a constraint resisted
 LINE_PAIR_REACH = 2.0   # a hover corner lies within tol of the cursor AND of both segments
 
 REFUSE_PARALLEL = "Edges are parallel \u2014 no corner to fillet"

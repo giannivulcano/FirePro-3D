@@ -275,7 +275,7 @@ def test_rect_corner_becomes_one_open_polyline_and_drops_the_fill(qapp):
         assert not pl.is_closed()
         assert _pts(pl) == pytest.approx(_flat([(90.0, 0.0), (0.0, 0.0), (0.0, -50.0),
                                           (100.0, -50.0), (100.0, -10.0)]), abs=1e-4)
-        assert pl.fill_layers.is_empty and not pl._draws_fill()      # [RED] fill carried over
+        assert pl.fill_layers.is_empty and not pl._draws_fill()      # the open result carries no fill layers
         arc = scene._draw_arcs[0]
         assert _xy(arc._center) == pytest.approx((90.0, -10.0), abs=1e-4)
         assert _ends_match(arc, (100.0, -10.0), (90.0, 0.0))
@@ -455,3 +455,152 @@ def test_a_dimensioned_edge_refuses_and_restores_everything(qapp):
         assert [c.type for c in sc.constraint_ctl.constraints] == ["dim_distance"]
     finally:
         close_view(view, sc)
+
+
+# -- polyline commit path: style, fresh identity, grounded refusal ---------------
+
+def _styled_open_polyline(scene):
+    """An open L polyline whose style record differs from the default everywhere."""
+    pl = PolylineItem(QPointF(0, 0)); pl.append_point(QPointF(100, 0)); pl.append_point(QPointF(100, -100))
+    pl.style["linetype"] = "dashed"
+    pl.style["colour"] = "#00aa44"
+    pl.style["start"]["end"] = "end_a"
+    pl.style["finish"]["end"] = "end_b"
+    return _add(scene, pl, "_polylines")
+
+
+def test_polyline_pieces_and_arc_copy_the_source_style_with_fresh_cut_ends(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        src = _styled_open_polyline(scene)
+        want = {k: src.style[k] for k in ("linetype", "colour", "weight")}
+        src_uid = src._uid
+        _baseline(scene)
+        scene._fillet_radius = 10.0
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(100, 0))
+        click(view, QPointF(100, 0))
+        a, b = sorted(scene._polylines, key=lambda q: q._points[0].x())
+        arc = scene._draw_arcs[0]
+        for it in (a, b, arc):
+            assert {k: it.style[k] for k in want} == want            # linetype, colour, weight
+            assert it.pen().color().name() == src.pen().color().name()
+            assert it.pen().widthF() == pytest.approx(src.pen().widthF())
+        assert (a.style["start"]["end"], a.style["finish"]["end"]) == ("end_a", "by_linetype")
+        assert (b.style["start"]["end"], b.style["finish"]["end"]) == ("by_linetype", "end_b")
+        assert (arc.style["start"]["end"], arc.style["finish"]["end"]) == ("by_linetype", "by_linetype")
+        assert a.style is not b.style and a.style is not src.style   # deep copies
+        uids = [a._uid, b._uid, arc._uid]
+        assert len(set(uids)) == 3 and src_uid not in uids
+    finally:
+        close_view(view, scene)
+
+
+def _ground_two_lines(scene, ctl):
+    """Make the +X line fully defined (p2 on the origin, horizontal, a length)."""
+    l1, l2 = _corner_lines(scene, 90.0)
+    ctl.add("coincident", [{"uid": l1._uid, "h": "p2"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": l1._uid, "h": "edge"}])
+    ctl.add("dim_distance", [{"uid": l1._uid, "h": "edge"}])
+    assert ctl.diagnostics().state(l1._uid) == "defined"
+    return l1, l2
+
+
+def test_a_fully_defined_line_is_refused_for_line_corner_fillet(qapp):
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        l1, l2 = _ground_two_lines(sc, sc.constraint_ctl)
+        before = [_xy(p) for ln in (l1, l2) for p in (ln._pt1, ln._pt2)]
+        n_cons = len(sc.constraint_ctl.constraints)
+        p0 = _baseline(sc)
+        log = _statuses(sc)
+        sc._fillet_radius = 10.0
+        sc._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        click(view, QPointF(0, 0))
+        assert GROUNDED_STATUS in log                                # [RED] refuse_grounded removed
+        assert sc._draw_arcs == [] and sc._undo_pos == p0 and sc.mode == "fillet"
+        assert [_xy(p) for ln in (l1, l2) for p in (ln._pt1, ln._pt2)] == before
+        assert len(sc.constraint_ctl.constraints) == n_cons and len(sc._draw_lines) == 2
+    finally:
+        close_view(view, sc)
+
+
+def test_a_fully_defined_polyline_is_refused_for_the_vertex_fillet(qapp):
+    from firepro3d.constraint_controller import GROUNDED_STATUS
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        pl = PolylineItem(QPointF(0, 0)); pl.append_point(QPointF(100, 0)); pl.append_point(QPointF(100, -100))
+        _add(sc, pl, "_polylines")
+        ctl = sc.constraint_ctl
+        ctl.add("coincident", [{"uid": pl._uid, "h": "v0"}, {"ref": "origin"}])
+        ctl.add("horizontal", [{"uid": pl._uid, "h": "s0"}])
+        ctl.add("vertical", [{"uid": pl._uid, "h": "s1"}])
+        ctl.add("dim_distance", [{"uid": pl._uid, "h": "s0"}])
+        ctl.add("dim_distance", [{"uid": pl._uid, "h": "s1"}])
+        assert ctl.diagnostics().state(pl._uid) == "defined"        # precondition
+        before = _pts(pl)
+        n_cons = len(ctl.constraints)
+        p0 = _baseline(sc)
+        log = _statuses(sc)
+        sc._fillet_radius = 10.0
+        sc._modify_ctl.start("fillet")
+        move(view, QPointF(100, 0))
+        click(view, QPointF(100, 0))
+        assert GROUNDED_STATUS in log                                # [RED] refuse_grounded removed
+        assert sc._polylines == [pl] and sc._draw_arcs == [] and sc._undo_pos == p0
+        assert _pts(pl) == before and len(ctl.constraints) == n_cons and sc.mode == "fillet"
+    finally:
+        close_view(view, sc)
+
+
+def test_a_corner_coincident_comes_back_when_a_dimension_refuses_the_fillet(qapp):
+    """I-A: ``drop_at`` removes the corner coincident before the trim; the refuse
+    path must bring it back with the dimension (both records, same handles)."""
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        l1, l2 = _corner_lines(sc, 90.0)
+        ctl = sc.constraint_ctl
+        ctl.add("coincident", [{"uid": l1._uid, "h": "p2"}, {"uid": l2._uid, "h": "p2"}])
+        ctl.add("dim_distance", [{"uid": l1._uid, "h": "edge"}])
+        key = lambda: sorted((c.type, tuple(sorted((r["uid"], r["h"]) for r in c.refs)))
+                             for c in ctl.constraints)
+        before = key()
+        p0 = _baseline(sc)
+        n_stack = len(sc._undo_stack)
+        log = _statuses(sc)
+        sc._fillet_radius = 10.0
+        sc._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        click(view, QPointF(0, 0))
+        assert FILLET_CONSTRAINED in log
+        assert [c.type for c in sorted(ctl.constraints, key=lambda c: c.type)] == ["coincident", "dim_distance"]
+        assert key() == before                                       # kinds AND handles back
+        got = [c for ln in sorted(sc._draw_lines, key=lambda q: q._pt1.x())
+               for pt in (ln._pt1, ln._pt2) for c in _xy(pt)]
+        assert got == pytest.approx([0.0, -100.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0], abs=1e-6)
+        assert sc._draw_arcs == [] and sc._undo_pos == p0 and len(sc._undo_stack) == n_stack
+        assert sc.mode == "fillet"
+    finally:
+        close_view(view, sc)
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+
+
+def test_losing_the_corner_replaces_a_stale_refusal_with_the_hint(qapp):
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene._fillet_radius = 150.0
+        log = _statuses(scene)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        assert log[-1] == TOO_LARGE
+        move(view, QPointF(500, 500))                                # no corner here
+        assert log[-1] == MTC.FILLET_HINT                            # [RED] stale "Radius too large"
+        n = len(log)
+        move(view, QPointF(520, 520))
+        assert len(log) == n                                         # not re-posted every move
+    finally:
+        close_view(view, scene)

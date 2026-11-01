@@ -17,6 +17,7 @@ import math
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QPainterPath, QTransform
 
+from . import fillet_geometry as fh
 from .cad_math import CAD_Math
 from .constants import ARRAY_GHOST_FULL_MAX, FLIP_LINE_EPS_MM
 from .constraint_dims import point_map_like
@@ -1591,7 +1592,6 @@ class ModifyToolsController:
 
     def fillet_shapes(self) -> list:
         """The fillet candidates in the scene as ``fillet_geometry.Shape``s."""
-        from . import fillet_geometry as fh
         s = self._scene
         out = []
 
@@ -1607,17 +1607,16 @@ class ModifyToolsController:
                                     pl.is_closed(), pl))
         for rc in s._draw_rects:
             if alive(rc):
-                ring = tuple((g.x(), g.y()) for g in rc.grip_points()[0:8:2])   # TL TR BR BL
-                out.append(fh.Shape("poly", ring, True, rc))
+                ring, _closed = self._fillet_points(rc)            # TL TR BR BL
+                out.append(fh.Shape("poly", tuple(ring), True, rc))
         for pg in s._draw_polygons:
             if alive(pg):
-                out.append(fh.Shape("poly", tuple((p.x(), p.y()) for p in pg.vertices()),
-                                    True, pg))
+                ring, _closed = self._fillet_points(pg)
+                out.append(fh.Shape("poly", tuple(ring), True, pg))
         return out
 
     @staticmethod
     def _fillet_line_shape(ln):
-        from . import fillet_geometry as fh
         return fh.Shape("line", ((ln._pt1.x(), ln._pt1.y()), (ln._pt2.x(), ln._pt2.y())),
                         False, ln)
 
@@ -1633,7 +1632,6 @@ class ModifyToolsController:
 
     def _fillet_line_at(self, pos, exclude):
         """The visible Line within the pick aperture of *pos* (nearest), not *exclude*."""
-        from . import fillet_geometry as fh
         s = self._scene
         tol = self._pick_tolerance()
         p = (pos.x(), pos.y())
@@ -1648,10 +1646,10 @@ class ModifyToolsController:
 
     def _fillet_aim(self, pos) -> None:
         """Re-aim at *pos*: corner, arc at the sticky radius, ghost, status."""
-        from . import fillet_geometry as fh
         from .transform_ghost import ghost_base_paths
         s = self._scene
         p = (pos.x(), pos.y())
+        had_corner = s._fillet_corner is not None
         s._fillet_corner = None
         s._fillet_arc = None
         line1 = s._fillet_item1
@@ -1672,6 +1670,9 @@ class ModifyToolsController:
         s._fillet_corner = corner
         if corner is None:
             s._move_ghost = lit
+            if had_corner or line1 is not None:     # drop a stale refusal / "click to fillet" status
+                s._show_status(self.FILLET_HINT if line1 is None
+                               else self.FILLET_LINE2_HINT, 0)
             return
         arc = fh.tangent_arc(corner, s._fillet_radius)
         if isinstance(arc, fh.Refused):
@@ -1684,13 +1685,11 @@ class ModifyToolsController:
                        f"click or Enter to fillet (or type a radius)", 0)
 
     def _fillet_pieces(self, corner, arc) -> list:
-        from . import fillet_geometry as fh
         pts, closed = self._fillet_points(corner.ref1)
         return fh.poly_pieces(pts, closed, corner.idx1, arc.t1, arc.t2)
 
     def _fillet_ghost(self, corner, arc) -> list:
         """Scene-coord ghost paths: the arc, then each trimmed edge / piece."""
-        from . import fillet_geometry as fh
         r = arc.radius
         cx, cy = arc.center
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
@@ -1783,7 +1782,6 @@ class ModifyToolsController:
             The relation edges ``[(item, edge_h, end_h, arc_h)]`` for
             ``auto_constrain.plan_fillet``, or None when refused (fully defined).
         """
-        from . import fillet_geometry as fh
         from .scene_tools import _fresh_end
         s = self._scene
         ctl = s.constraint_ctl
@@ -1804,7 +1802,7 @@ class ModifyToolsController:
                 _fresh_end(ln, "start" if e == 0 else "finish")
         for ln, e, t, _r in trims:       # a remaining constraint (e.g. a length dim) pulled an end off its tangent point
             end = ln._pt1 if e == 0 else ln._pt2
-            if math.hypot(end.x() - t.x(), end.y() - t.y()) > 1e-3:
+            if math.hypot(end.x() - t.x(), end.y() - t.y()) > fh.TRIMMED_END_TOL:
                 self._fillet_abandon()
                 return None
         for ln in gone:
@@ -1839,7 +1837,6 @@ class ModifyToolsController:
             True when committed; False (status posted, tool stays live, nothing
             changed) for no corner, a refusal, or a fully defined edge.
         """
-        from . import fillet_geometry as fh
         s = self._scene
         corner = s._fillet_corner
         if corner is None:
