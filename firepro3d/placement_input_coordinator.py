@@ -162,9 +162,8 @@ class PlacementInputCoordinator:
         """←/→ cycle the placement variant; return False to fall through.
 
         Only cycles at step 0 of a multi-variant tool (Scale: after its
-        reference point) while no HUD field holds
-        focus.  Returns False otherwise so the arrow key reaches the view's
-        default scroll.
+        reference point) while no HUD field holds focus.  Returns False
+        otherwise so the arrow key reaches the view's default scroll.
 
         Args:
             direction: +1 for the next variant, -1 for the previous.

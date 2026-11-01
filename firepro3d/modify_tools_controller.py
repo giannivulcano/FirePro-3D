@@ -1440,8 +1440,8 @@ class ModifyToolsController:
     # are independent (not associative); one undo step; back to Select with
     # the ORIGINAL selection. Transient scene state (_array_base, _array_dir,
     # _array_spacing, _array_angle_locked) is cleared on leaving the mode (the
-    # lock also on a restart -- start()); the session-sticky _array_variant / _array_memory are never cleared (per
-    # canvas tab).
+    # lock also on a restart -- start()); the session-sticky _array_variant /
+    # _array_memory are never cleared (per canvas tab).
 
     # HUD fields remembered per variant after a typed commit: (field, param).
     # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim
