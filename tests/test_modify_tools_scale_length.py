@@ -53,6 +53,54 @@ def _type_into_field(view, scene, field, text):
     QTest.keyClick(ed, Qt.Key.Key_Return)
 
 
+def _ghost_right(scene):
+    """Rightmost scene x of the live ghost (the 0..100 line scaled about x = 0)."""
+    assert scene._move_ghost
+    return max(p.boundingRect().right() for p in scene._move_ghost)
+
+
+def _tab_into_field(view, scene, field, text):
+    """Real keys: a digit engages the HUD, replace the text, Tab (field commit)."""
+    _key(view, Qt.Key.Key_0)
+    ed = scene.dynamic_input.editor(field)
+    ed.selectAll()
+    QTest.keyClicks(ed, text)
+    QTest.keyClick(ed, Qt.Key.Key_Tab)
+
+
+def test_tab_on_a_typed_length_reghosts_the_scale(qapp):
+    """Smoke 2026-11-01: Length + Tab re-ghosts at L / |ref - base|; no commit."""
+    view, scene = make_view(scale=1.0)
+    try:
+        add_primitive(scene, "line")
+        _at_cursor_step(view, scene)
+        move(view, QPointF(150, 0))
+        assert _ghost_right(scene) == pytest.approx(150.0, abs=3.0)
+        _tab_into_field(view, scene, "Length", "300")
+        assert _ghost_right(scene) == pytest.approx(300.0, abs=3.0)      # [RED]
+        assert scene.mode == "scale" and scene._scale_ref is not None
+        scene.set_mode(None)
+    finally:
+        close_view(view, scene)
+
+
+def test_tab_on_a_typed_factor_before_the_reference_reghosts_the_scale(qapp):
+    view, scene = make_view(scale=1.0)
+    try:
+        add_primitive(scene, "line")
+        scene.toggle_snap(False)
+        scene.set_align_enabled(False)
+        scene._modify_ctl.start("scale")
+        click(view, QPointF(0, 0))                     # base
+        move(view, QPointF(40, 40))
+        _tab_into_field(view, scene, "Factor", "2")
+        assert _ghost_right(scene) == pytest.approx(200.0, abs=3.0)      # [RED]
+        assert scene.mode == "scale" and scene._scale_ref is None
+        scene.set_mode(None)
+    finally:
+        close_view(view, scene)
+
+
 def test_hud_is_factor_until_the_reference_then_length(qapp):
     view, scene = make_view(scale=1.0)
     try:

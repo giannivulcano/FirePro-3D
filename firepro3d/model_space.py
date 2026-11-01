@@ -4198,7 +4198,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # segment through axis_picker, so cursor SNAP and ALIGN are off — no
         # snap glyph (snapping-engine §3: no contextual snap-by-tool). The
         # constraint pick modes (D21 markers, raw cursor) likewise (CS4 smoke).
-        if self.mode in ("flip", "mirror") or (
+        # Fillet hit-tests corners / lines on the raw cursor itself (DS4.2;
+        # smoke 2026-11-01: a snap glyph there disagreed with the aim).
+        if self.mode in ("flip", "mirror", "fillet") or (
                 isinstance(self.mode, str) and self.mode.startswith("constrain_")):
             self._snap_result = None
             self._align_result = None

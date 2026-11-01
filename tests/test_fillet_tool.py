@@ -412,6 +412,22 @@ def test_tab_reghosts_the_hovered_corner_at_the_typed_radius(qapp):
         assert _path_ends_match(scene._move_ghost[0], (20.0, 0.0), (0.0, -20.0))
         assert scene._draw_arcs == [] and scene._undo_pos == p0
         assert scene._fillet_radius == pytest.approx(10.0)
+        QTest.keyClick(ed, Qt.Key.Key_Escape)          # back to the cursor
+        move(view, QPointF(1, -1))
+        assert _path_ends_match(scene._move_ghost[0], (10.0, 0.0), (0.0, -10.0))
+    finally:
+        close_view(view, scene)
+
+
+def test_fillet_cursor_does_not_snap(qapp):
+    """Smoke 2026-11-01: Fillet aims on the raw cursor -- no snap / ALIGN glyph."""
+    view, scene = make_view(scale=1.0, mode=None)
+    try:
+        _corner_lines(scene, 90.0)
+        scene.toggle_snap(True)
+        scene._modify_ctl.start("fillet")
+        move(view, QPointF(2, -2))                     # near the shared endpoint
+        assert scene._snap_result is None                            # [RED]
     finally:
         close_view(view, scene)
 

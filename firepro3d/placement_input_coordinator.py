@@ -320,6 +320,9 @@ class PlacementInputCoordinator:
             # DS4.4: re-ghost the aimed corner at the typed radius (a scalar,
             # not a point — like ``rotation`` above).
             self._scene._modify_ctl.preview_fillet_radius(resolved["radius"])
+        elif schema.name in ("scale_factor", "scale_length"):
+            # DS1: re-ghost about the base at the typed factor / length.
+            self._scene._modify_ctl.preview_scale_typed(resolved)
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.

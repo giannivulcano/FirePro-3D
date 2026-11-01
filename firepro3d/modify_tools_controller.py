@@ -1474,6 +1474,22 @@ class ModifyToolsController:
         for v in s.views():
             v.viewport().update()
 
+    def preview_scale_typed(self, params: dict) -> None:
+        """Typed Factor / Length field commit (Tab): re-ghost at that factor.
+
+        Preview only — Enter commits (``apply_scale_factor``). A Length needs
+        the reference; a factor that is not finite and > 0 leaves the ghost.
+        """
+        if "length" in params:
+            factor = self.scale_factor_for_length(params["length"])
+        else:
+            factor = float(params["factor"])
+        if not math.isfinite(factor) or factor <= 0.0:
+            return
+        self.preview_scale(factor)
+        self._scene._show_status(
+            f"Factor: {ScaleManager.format_factor(factor)}", timeout=0)
+
     def commit_scale(self, factor: float) -> bool:
         """Scale the selection by *factor* about the base (one undo step).
 
