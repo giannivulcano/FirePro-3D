@@ -6,9 +6,10 @@ from __future__ import annotations
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF, QSettings, Qt
 from PyQt6.QtTest import QTest
 
+from firepro3d.constants import AUTO_CONSTRAIN_KEY
 from firepro3d.geometry_2d import CircleItem, LineItem
 from firepro3d.modify_tools_controller import ModifyToolsController as MTC
 from tests._snap_polish_helpers import click, close_view, make_view, move
@@ -404,3 +405,53 @@ def test_enter_commits_the_hovered_corner_like_a_click(qapp):
         assert len(scene._draw_arcs) == 1                            # [RED] Enter branch removed
     finally:
         close_view(view, scene)
+
+
+FILLET_CONSTRAINED = "Fillet conflicts with the constraints on these edges"
+
+
+def test_a_corner_coincident_is_dropped_so_the_lines_reach_the_tangent_points(qapp):
+    QSettings("GV", "FirePro3D").setValue(AUTO_CONSTRAIN_KEY, True)     # F3: relations follow the toggle
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        l1, l2 = _corner_lines(sc, 90.0)
+        ctl = sc.constraint_ctl
+        ctl.add("coincident", [{"uid": l1._uid, "h": "p2"}, {"uid": l2._uid, "h": "p2"}])
+        p0 = _baseline(sc)
+        sc._fillet_radius = 10.0
+        sc._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        click(view, QPointF(0, 0))
+        assert _xy(l1._pt2) == pytest.approx((10.0, 0.0), abs=1e-4)             # [RED] solver compromise (5,-5)
+        assert _xy(l2._pt2) == pytest.approx((0.0, -10.0), abs=1e-4)
+        assert sorted(c.type for c in ctl.constraints) == ["coincident", "coincident", "tangent", "tangent"]
+        assert not any({r.get("h") for r in c.refs} == {"p2"} and len(c.refs) == 2
+                       and all(r["uid"] in (l1._uid, l2._uid) for r in c.refs)
+                       for c in ctl.constraints)                                # corner coincident gone
+        assert sc._undo_pos == p0 + 1
+        sc.undo()
+        assert [c.type for c in sc.constraint_ctl.constraints] == ["coincident"]   # restored
+    finally:
+        close_view(view, sc)
+        QSettings("GV", "FirePro3D").remove(AUTO_CONSTRAIN_KEY)
+
+
+def test_a_dimensioned_edge_refuses_and_restores_everything(qapp):
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        l1, l2 = _corner_lines(sc, 90.0)
+        sc.constraint_ctl.add("dim_distance", [{"uid": l1._uid, "h": "edge"}])
+        p0 = _baseline(sc)
+        log = _statuses(sc)
+        sc._fillet_radius = 10.0
+        sc._modify_ctl.start("fillet")
+        move(view, QPointF(0, 0))
+        click(view, QPointF(0, 0))
+        assert FILLET_CONSTRAINED in log                                          # [RED] no verify
+        assert sc._draw_arcs == [] and sc._undo_pos == p0 and sc.mode == "fillet"
+        got = [c for ln in sorted(sc._draw_lines, key=lambda q: q._pt1.x())
+               for pt in (ln._pt1, ln._pt2) for c in _xy(pt)]
+        assert got == pytest.approx([0.0, -100.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0], abs=1e-6)
+        assert [c.type for c in sc.constraint_ctl.constraints] == ["dim_distance"]
+    finally:
+        close_view(view, sc)

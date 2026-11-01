@@ -1577,6 +1577,7 @@ class ModifyToolsController:
     FILLET_HINT = "Hover a corner and click (or click Line 1, then Line 2)"
     FILLET_LINE2_HINT = "Hover Line 2 and click"
     FILLET_NO_CORNER = "Hover a corner (or click Line 1) first"
+    FILLET_CONSTRAINED = "Fillet conflicts with the constraints on these edges"
 
     def begin_fillet(self) -> bool:
         """Enter Fillet (never needs a selection).
@@ -1796,10 +1797,16 @@ class ModifyToolsController:
             return None
         trims = [p for p in plan if p[3] > fh.LEN_TOL]
         gone = [p[0] for p in plan if p[3] <= fh.LEN_TOL]
+        ctl.drop_at([(ln._uid, "p1" if e == 0 else "p2") for ln, e, _t, _r in trims])
         with ctl.edit([p[0] for p in trims]):
             for ln, e, t, _r in trims:
                 ln.apply_grip(0 if e == 0 else 2, QPointF(t))
                 _fresh_end(ln, "start" if e == 0 else "finish")
+        for ln, e, t, _r in trims:       # a remaining constraint (e.g. a length dim) pulled an end off its tangent point
+            end = ln._pt1 if e == 0 else ln._pt2
+            if math.hypot(end.x() - t.x(), end.y() - t.y()) > 1e-3:
+                self._fillet_abandon()
+                return None
         for ln in gone:
             s._remove_item_from_lists(ln)
         if gone:
@@ -1811,6 +1818,15 @@ class ModifyToolsController:
             return "start" if arc.start_is_t1 == is_t1 else "end"
         return [(ln, "edge", "p1" if e == 0 else "p2", arc_h(i == 0))
                 for i, (ln, e, _t, r) in enumerate(plan) if r > fh.LEN_TOL]
+
+    def _fillet_abandon(self) -> None:
+        """Restore the pre-commit state (the last pushed one) and refuse (F1)."""
+        s = self._scene
+        if s._undo_stack and 0 <= s._undo_pos < len(s._undo_stack):
+            s._restore_network(s._undo_stack[s._undo_pos])
+        s._fillet_item1 = s._fillet_corner = s._fillet_arc = None
+        s._move_ghost = []
+        s._show_status(self.FILLET_CONSTRAINED, 3000)
 
     def commit_fillet(self, event=None) -> bool:
         """Fillet the hovered corner at the sticky radius (one undo step).

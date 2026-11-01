@@ -182,3 +182,19 @@ def test_toggle_off_enter_records_nothing_toggle_on_enter_records(qapp):
             assert len(sc._draw_arcs) == 1 and len(_recs(sc)) == n
         finally:
             close_view(view, sc)
+
+
+def test_drop_at_removes_constraints_naming_an_end_without_an_undo_step(qapp):
+    from firepro3d.model_space import Model_Space
+    sc = Model_Space(scene_role="block_editor")
+    a = LineItem(QPointF(100, 0), QPointF(0, 0)); b = LineItem(QPointF(0, -100), QPointF(0, 0))
+    for ln in (a, b):
+        sc.addItem(ln); sc._draw_lines.append(ln)
+    ctl = sc.constraint_ctl
+    ctl.add("coincident", [{"uid": a._uid, "h": "p2"}, {"uid": b._uid, "h": "p2"}])
+    ctl.add("dim_distance", [{"uid": a._uid, "h": "edge"}])
+    sc.push_undo_state()
+    pos = sc._undo_pos
+    assert ctl.drop_at([(a._uid, "p2")]) == 1
+    assert [c.type for c in ctl.constraints] == ["dim_distance"]      # the edge dim names no end handle
+    assert sc._undo_pos == pos                                       # no push
