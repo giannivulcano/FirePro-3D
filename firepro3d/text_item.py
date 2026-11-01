@@ -390,12 +390,16 @@ class _LayoutOffsets(NamedTuple):
     shift from those Qt calls directly rather than from a cached flag here.
 
     Attributes:
-        voff: Vertical-alignment offset (local, unscaled units) of the whole
-            text block within the box — ``0.0`` for top, half the box/content
-            slack for middle, and the full slack for bottom alignment.
+        voff: Vertical offset (local, unscaled units) of the whole text block:
+            the vertical-alignment slack within the box — ``0.0`` for top,
+            half the box/content slack for middle, the full slack for bottom
+            — plus the box's Shrink offset ``y`` (text-sizing D5).
+        hoff: The box's Shrink offset ``x`` (local, unscaled; D5) — ``0.0``
+            unless Shrink to fit moved the hugged box off the local origin.
     """
 
     voff: float
+    hoff: float = 0.0
 
 
 class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
@@ -550,7 +554,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self.setTextWidth(-1)
             self.setTextWidth(self.document().idealWidth())
         self._shrink_eff = shrink
-        self._shrink_off = QPointF(0.0, 0.0)
+        self._shrink_off = self._shrink_offset() if shrink else QPointF(0.0, 0.0)
 
     # ── Wrap / Shrink to fit (text-sizing D4/D5) ────────────────────────────
 
@@ -572,6 +576,29 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def shrink_on(self) -> bool:
         """Effective Shrink to fit for this item (``TextAnnotationData.shrink_on``)."""
         return self._data.shrink_on(self._bound_seed())
+
+    def _authored_rect_local(self) -> QRectF:
+        """The authored box at the local origin, LOCAL unscaled (D5).
+
+        The frame a Shrink box keeps its alignment point in: an axis authored
+        0 (auto) is the hugged extent itself, and an authored height never
+        drops below the content (SB3 U4 ruling).
+        """
+        w, h = self._box_size_local()
+        s = self.scale() or 1.0
+        d = self._data
+        aw = d.wrap_width_mm / s if d.wrap_width_mm > 0 else w
+        ah = max(d.box_height_mm / s, h) if d.box_height_mm > 0 else h
+        return QRectF(0.0, 0.0, aw, ah)
+
+    def _shrink_offset(self) -> QPointF:
+        """LOCAL offset of the hugged box: its ``align`` x ``valign`` point
+        sits on the authored box's (D5, G3)."""
+        a = self._authored_rect_local()
+        w, h = self._box_size_local()
+        fx = {"L": 0.0, "C": 0.5, "R": 1.0}.get(self._data.align, 0.0)
+        fy = {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0)
+        return QPointF(fx * (a.width() - w), fy * (a.height() - h))
 
     def on_theme_changed(self) -> None:
         """Re-latch the document's default text colour after a theme switch
@@ -774,7 +801,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.update()
 
     def _rotation_origin(self) -> QPointF:
-        return QPointF(self._pivot) if self._pivot is not None else self._box_rect_local().center()
+        if self._pivot is not None:
+            return QPointF(self._pivot)
+        if self._shrink_eff:
+            # A Shrink box turns about the AUTHORED box's centre, so its
+            # alignment point lands where the authored box's would (SB3 U4).
+            return self._authored_rect_local().center()
+        return self._box_rect_local().center()
 
     def _rotation_transform(self) -> QTransform:
         m = QTransform()
@@ -958,7 +991,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                      - super().boundingRect().height())
         voff = (vslack if self._data.valign == "B"
                 else vslack / 2.0 if self._data.valign == "M" else 0.0)
-        return _LayoutOffsets(voff)
+        o = self._shrink_off
+        return _LayoutOffsets(voff + o.y(), o.x())
 
     def _line_origin(self, block, line, offsets: _LayoutOffsets | None = None) -> QPointF:
         """Painted top-left of *line*, in the LOCAL, UNSCALED, UN-rotated,
@@ -986,9 +1020,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             QPointF: the line's unaligned top-left, in local unscaled
             coordinates. The glyph baseline is ``origin.y() + line.ascent()``.
         """
-        voff = (offsets if offsets is not None else self._layout_offsets()).voff
+        o = offsets if offsets is not None else self._layout_offsets()
         bp = block.layout().position()
-        return QPointF(bp.x() + line.x(), bp.y() + line.y() + voff)
+        return QPointF(bp.x() + line.x() + o.hoff, bp.y() + line.y() + o.voff)
 
     def _line_for_position(self, pos: int):
         """Resolve document position *pos* to its block, line, and offset.
@@ -1033,7 +1067,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             # every block has >=1 valid QTextLine afterwards and this branch
             # should be unreachable in practice.
             m = self.document().documentMargin()
-            return QRectF(m, m + offsets.voff, 0.0, QFontMetricsF(self.font()).height())
+            return QRectF(m + offsets.hoff, m + offsets.voff, 0.0,
+                          QFontMetricsF(self.font()).height())
         origin = self._line_origin(block, line, offsets)
         x, _ = line.cursorToX(rel)
         return QRectF(origin.x() + (x - line.x()), origin.y(), 0.0, line.height())

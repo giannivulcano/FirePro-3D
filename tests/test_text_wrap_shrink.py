@@ -163,3 +163,72 @@ def test_shrink_with_wrap_hugs_the_widest_wrapped_line(qapp):
     assert b.width() < 20.0
     assert b.height() == pytest.approx(doc.size().height() * s, abs=1e-6)
     assert b.height() < 60.0
+
+
+# ── T24: Shrink keeps the authored alignment point (D5) ─────────────────────
+
+@pytest.mark.parametrize("align,valign,anchor", [
+    ("L", "T", (10.0, 20.0)),               # authored top-left
+    ("C", "M", (30.0, 26.0)),               # authored centre
+    ("R", "B", (50.0, 32.0)),               # authored bottom-right
+])
+def test_shrink_keeps_the_authored_alignment_point(qapp, align, valign, anchor):
+    """AC11 / T-shrink: raw source = the authored box (10, 20, 40 x 12); the
+    hugged box's align x valign point sits on the authored box's, before and
+    after the text changes."""
+    ms = _model()
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             align=align, valign=valign, wrap=False, shrink=True)
+    fx = {"L": 0.0, "C": 0.5, "R": 1.0}[align]
+    fy = {"T": 0.0, "M": 0.5, "B": 1.0}[valign]
+    for text in ("Short", "A much longer value"):
+        t.set_property("Content", text)
+        b = _box(t)
+        doc, s = _raw_doc(text)
+        assert b.width() == pytest.approx(doc.idealWidth() * s, abs=1e-6)
+        got = (b.left() + fx * b.width(), b.top() + fy * b.height())
+        assert got == pytest.approx(anchor, abs=1e-6)
+
+
+def test_shrink_offset_never_reaches_data_xy(qapp):
+    """T-shrink-anchor-probe: the hug moves the drawn box by a LOCAL offset;
+    pos() and data.x/y stay the authored origin through value changes, a
+    save and an itemChange position sync."""
+    ms = _model()
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             align="C", valign="M", wrap=False, shrink=True)
+    for text in ("Short", "A much longer value", "x"):
+        t.set_property("Content", text)
+        t.setPos(t.pos())                    # itemChange live-sync fires
+        d = t.to_dict()
+        assert (t.pos().x(), t.pos().y()) == pytest.approx((10.0, 20.0), abs=1e-9)
+        assert (d["x"], d["y"]) == pytest.approx((10.0, 20.0), abs=1e-9)
+    assert _box(t).left() > 10.0             # the drawn box did move off the origin
+
+
+def test_shrink_glyphs_and_caret_follow_the_box(qapp):
+    """D5: glyphs, caret and hit-test ride the same offset as the box."""
+    ms = _model()
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             align="C", valign="M", wrap=False, shrink=True)
+    r = t._box_rect_local()
+    g = t._glyph_outline_local().boundingRect()
+    assert r.contains(g)
+    k = t.caret_rect_local()
+    assert r.contains(QPointF(k.x(), k.center().y()))
+    first = t.content_rects_local()[0]
+    assert t.cursor_position_at(QPointF(first.left() + 0.01 / t.scale(),
+                                        first.center().y())) == 0
+
+
+def test_rotated_shrink_box_keeps_the_rotated_authored_anchor(qapp):
+    """Edge (rotated): a right-middle anchored box rotated 90 turns about the
+    authored box's centre. Raw source: authored box (10, 20, 40 x 12), centre
+    (30, 26), right-middle (50, 26) -> rotated +90 (Y-up CCW = Qt -90) about
+    the centre = (30, 6)."""
+    ms = _model()
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             align="R", valign="M", wrap=False, shrink=True, angle=90.0)
+    t.set_angle(90.0)
+    g = t.grip_points()
+    assert (g[3].x(), g[3].y()) == pytest.approx((30.0, 6.0), abs=1e-6)   # RM grip
