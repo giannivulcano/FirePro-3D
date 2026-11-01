@@ -987,7 +987,8 @@ def _content_height_at(it, w_local: float) -> float:
 
 class _TextBoxAdapter(_Adapter):
     """CS3c: vars cx cy w h, all SCENE units (box centre; w -> wrap width,
-    h -> box height; local box size x ``scale()`` -- 1 in the editor).
+    h -> box height; local box size x ``scale()`` -- height / cap on every
+    surface since L96, so local units are reference-px font units).
     Handles = the rectangle's (``tl``..``center`` + edges) through the text's
     constant rotation, plus the hidden legacy ``ins``. Write-back
     canonicalises the pivot to the centre (identical geometry), like the

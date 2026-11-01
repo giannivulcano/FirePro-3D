@@ -589,7 +589,7 @@ def test_text_box_width_is_the_exact_wrap_width(qapp, w):
     1/64 grid (199.99 -> 199.984375), which would leave a constrained edge
     off by up to 1/64 mm. Ground truth: the item's own grip span."""
     t = _text(wrap=60.0)
-    t.setTextWidth(w)
+    t.setTextWidth(w / t.scale())           # local frame = reference-px units (L96)
     g = t.grip_points()
     assert g[2].x() - g[0].x() == pytest.approx(w, abs=1e-9)
 

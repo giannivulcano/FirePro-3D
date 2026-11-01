@@ -317,7 +317,8 @@ def _char_pt(t, pos):
     c = t.textCursor(); c.setPosition(pos); t.setTextCursor(c)
     r = t.caret_rect_local()
     t.setTextCursor(saved)
-    return t.mapToScene(QPointF(r.x() + 2.0, r.center().y()))
+    # 2 scene mm right of the slot: the local frame is reference-px units (L96).
+    return t.mapToScene(QPointF(r.x() + 2.0 / t.scale(), r.center().y()))
 
 
 def test_double_click_unselected_text_enters_with_caret_at_click(be):

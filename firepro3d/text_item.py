@@ -182,12 +182,14 @@ class TextAnnotationData:
 #     rotation (data-only ``_angle``/``_pivot`` + composed map overrides) and a
 #     translate+scale+rotate manipulator that drops scale when rotated.
 #
-# The SIZING MODE follows the scene: a PaperScene reports
-# ``device_independent_text() == True`` → the paper path; a Model_Space /
-# Block-Editor scene reports False → the font is sized so the cap height equals
-# ``height_mm`` in SCENE units (scale() == 1, scales with zoom).  The mode is
-# re-derived whenever the item is added to a scene (``itemChange``), so the same
-# data lands at the right physical size on whichever surface it is placed.
+# SIZING is one path on every surface (text-sizing-wrap D1, L96): the font
+# stays at ``TEXT_METRIC_REF_PX`` and ``setScale(height_mm / cap)`` brings the
+# cap to ``height_mm`` -- paper mm on a PaperScene (``device_independent_text()
+# == True``, zoom invariant), scene mm on a Model_Space / Block-Editor scene
+# (False; scales with zoom like every model primitive).  The local frame is
+# therefore reference-px font units everywhere.  The surface still picks the
+# paint path, the property form and the manipulator caps; it is re-derived
+# whenever the item is added to a scene (``itemChange``).
 #
 # Governing spec: docs/specs/2026-09-17-containment-implementation-design.md §A2.
 # Retirement of the two old classes and the paper repoint happen in a LATER task.
@@ -441,12 +443,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def _apply_format(self) -> None:
         """Rebuild font, colour, alignment, scale, and wrap from self._data.
 
-        In device-independent (paper) mode the font uses a large reference pixel
-        size and ``setScale`` maps cap-height units to paper mm (zoom invariant),
-        exactly like the retired ``TextAnnotationItem``.  In scene-mm (model /
-        block-editor) mode the font is sized so its cap height equals
-        ``height_mm`` in SCENE units and ``setScale`` stays 1 (the box scales
-        with zoom like every other model primitive).
+        On every surface the font uses the large reference pixel size and
+        ``setScale(height_mm / cap)`` maps cap-height units to mm -- paper mm on
+        a sheet (zoom invariant, like the retired ``TextAnnotationItem``), scene
+        mm on a model / block-editor scene (scales with zoom like every other
+        model primitive).  Margin and wrap width are divided by ``scale()`` so
+        they stay in surface mm.  (L96: a whole-pixel font sized to the cap
+        quantized small text -- 3 mm drew a 2.86 mm cap.)
         """
         d = self._data
         f = QFont(d.font_family) if d.font_family else QFont("Arial")
@@ -461,17 +464,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.document().setDefaultTextOption(opt)
         cap = QFontMetricsF(f).capHeight()
         h = d.height_mm if d.height_mm > 0 else DEFAULT_TEXT_HEIGHT_MM
-        if self.is_device_independent():
-            # Paper path: reference-px font + geometric scale to paper mm.
-            scale = h / cap if cap > 0 else 1.0
-        else:
-            # Scene-mm path: bake the cap→mm ratio into the font pixel size so a
-            # plain scene item (scale 1) has cap height == h in scene units, and
-            # scales naturally with the viewport zoom.
-            if cap > 0:
-                f.setPixelSize(max(1, round(TEXT_METRIC_REF_PX * h / cap)))
-                self.setFont(f)
-            scale = 1.0
+        # One sizing path for every surface (L96): the font stays at the
+        # reference pixel size and ``setScale`` maps cap-height units to mm --
+        # paper mm on a sheet, scene mm on a model / Block-Editor scene. A
+        # whole-pixel font sized to the cap would quantize small text (3 mm
+        # drew a 2.86 mm cap with touching glyphs).
+        scale = h / cap if cap > 0 else 1.0
         self.setScale(scale)
         # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
         if scale > 0:
@@ -782,9 +780,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         one path.
 
         The path is in the same LOCAL, unscaled coordinate frame that
-        ``_box_rect_local``/``grip_points`` use (font pixel size is baked so the
-        cap height equals ``height_mm`` in local units; ``setScale`` is 1 for a
-        model/block-editor scene — the surface a block is authored on).  The
+        ``_box_rect_local``/``grip_points`` use (reference-px font units; the
+        item's ``setScale(height_mm / cap)``, which ``mapToParent`` applies in
+        ``BlockDefinition._compile``, brings the cap to ``height_mm``).  The
         item's bake-at-rest rotation (``self._angle`` about its pivot) is applied
         to the returned path directly, because ``BlockDefinition._compile`` maps
         primitives via Qt ``mapToParent`` which does NOT see the data-baked
@@ -1030,10 +1028,6 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # ── Grip protocol (9 box grips) ─────────────────────────────────────────
     # Indices (clockwise from top-left, matching RectangleItem/NoteAnnotation):
     #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
-
-    def _content_size(self) -> tuple[float, float]:
-        r = super().boundingRect()
-        return r.width(), r.height()
 
     def grip_points(self) -> list[QPointF]:
         r = self._box_rect_local()

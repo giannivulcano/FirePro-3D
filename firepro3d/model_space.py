@@ -6549,7 +6549,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             data.cell_padding_mm = DEFAULT_MODEL_TEXT_PADDING_MM
             text = TextItem(data)
             self.addItem(text)
-            data.box_height_mm = max(rect.height(), text._content_size()[1])
+            data.box_height_mm = max(rect.height(), text._content_height_mm())
             text.prepareGeometryChange()
             text._apply_format()
             text.update()
