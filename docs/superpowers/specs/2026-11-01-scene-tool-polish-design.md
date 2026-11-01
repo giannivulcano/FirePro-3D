@@ -28,9 +28,8 @@ and the arrow keys choosing the flip, with a live ghost.
 
 - All four live in `ModifyToolsController` slices behind the `Model_Space` shells; no new
   logic in `model_space.py` beyond dispatch-table rows (`model-space-architecture.md`).
-- Geometry in mm; angles Y-up CCW+ (`arc_math.yup_angle`); length fields are `FieldKind.DIMENSION`
-  (mm) — a scene distance is converted with `scene_to_mm` before it meets a typed value
-  (`units-and-formatting.md`).
+- Geometry in mm; angles Y-up CCW+ (`arc_math.yup_angle`); length fields are `FieldKind.DIMENSION`,
+  whose resolved HUD values arrive in scene units (`units-and-formatting.md`).
 - Every commit runs inside `ConstraintController.edit` and pushes one undo step (scene-tools D30/D65).
 - Line / Arc relations exist only in the Block Editor (`constraint_controller._plan_ref_types`
   = walls, gridlines, blocks); model-space fillets add geometry only.
@@ -48,7 +47,8 @@ and the arrow keys choosing the flip, with a live ghost.
 3. **←/→** swaps Length ⇄ Factor: a `"scale"` entry in `_PLACEMENT_VARIANTS`; the cycle gate
    admits Scale at the cursor step (after the reference point), input-mode gate kept;
    `active_schema("scale")` picks by `_scale_variant`. The variant resets to Length on entry.
-4. Typed Length L → factor = L ÷ `scene_to_mm(|ref − base|)` → `commit_scale`; factor-1 no-op
+4. Typed Length L → factor = L ÷ |ref − base| → `commit_scale` (`DynamicInputHud.values()` returns
+   DIMENSION values in scene units — verified in the 2026-11-01 plan dry run — so no mm conversion); factor-1 no-op
    and ≤ 0 / non-finite refusal unchanged.
 
 ### DS2 Array angle (amends scene-tools D10 / DD5)
