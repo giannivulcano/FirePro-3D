@@ -406,3 +406,35 @@ def test_sheet_resize_on_shrink_box_one_command_restores_flags(qapp):
     sc.undo_stack.undo()
     assert (data.wrap, data.shrink) == (False, True)
     assert (data.x, data.y) == pytest.approx((100.0, 100.0), abs=1e-9)
+
+
+# ── T29: constraint write (_TextBoxAdapter, D59) ────────────────────────────
+
+def test_constraint_width_write_on_shrink_box_sets_size_shrink_off(qapp):
+    """AC12 constraint: a solved width on a Shrink box writes it as the wrap
+    width, Shrink OFF, Wrap ON; the solved centre holds."""
+    from firepro3d.sketch_adapters import _TextBoxAdapter
+    ms = _model(role="block_editor")
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             align="C", valign="M", wrap=False, shrink=True)
+    a = _TextBoxAdapter()
+    cx, cy, w, h = a.read(t)
+    a.write(t, [cx, cy, w + 8.0, h])
+    assert (t.data.shrink, t.data.wrap) == (False, True)
+    assert t.data.wrap_width_mm == pytest.approx(w + 8.0, abs=1e-6)
+    assert a.read(t) == pytest.approx([cx, cy, w + 8.0, h], abs=1e-6)
+
+
+def test_constraint_move_of_shrink_box_keeps_shrink(qapp):
+    """A pure centre move of a Shrink box translates it and keeps the hug;
+    the authored origin moves by the same delta (raw: 10 + 5, 20 - 3)."""
+    from firepro3d.sketch_adapters import _TextBoxAdapter
+    ms = _model(role="block_editor")
+    t = _add(ms, text="Short", wrap_width_mm=40.0, box_height_mm=12.0,
+             align="C", valign="M", wrap=False, shrink=True)
+    a = _TextBoxAdapter()
+    cx, cy, w, h = a.read(t)
+    a.write(t, [cx + 5.0, cy - 3.0, w, h])
+    assert t.data.shrink is True
+    assert a.read(t) == pytest.approx([cx + 5.0, cy - 3.0, w, h], abs=1e-6)
+    assert (t.data.x, t.data.y) == pytest.approx((15.0, 17.0), abs=1e-6)
