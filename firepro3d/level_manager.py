@@ -840,6 +840,7 @@ class LevelManager:
             _apply_elev_z(node)
         for pipe in scene.sprinkler_system.pipes:
             _apply_elev_z(pipe)
+            pipe.sync_label_z()          # AC6: the label stays above its pipe at any elevation
         for item in getattr(scene, "_walls", []):
             _apply_elev_z(item)
             wall_z = item.zValue()

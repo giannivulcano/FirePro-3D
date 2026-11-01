@@ -107,6 +107,7 @@ class TextAnnotationData:
     border_corner_radius_mm: float = 0.0         # 0 = auto proportional (TEXT_FRAME_CORNER_FRAC)
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     keep_upright: bool = False                   # SB1a A5: always readable in a block
+    hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
     type: str = "text"                           # discriminator for future annotation types
 
     def to_dict(self) -> dict:
@@ -131,6 +132,8 @@ class TextAnnotationData:
         }
         if self.keep_upright:
             d["keep_upright"] = True             # sparse (the `mirrored` convention)
+        if self.hide_empty:
+            d["hide_empty"] = True               # sparse, same convention
         return d
 
     @classmethod
@@ -159,6 +162,7 @@ class TextAnnotationData:
             border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
             angle=float(d.get("angle", 0.0)),
             keep_upright=bool(d.get("keep_upright", False)),
+            hide_empty=bool(d.get("hide_empty", False)),
             type=d.get("type", "text"),
         )
 
@@ -1197,6 +1201,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             keys = [a["key"] for a in getattr(sc, "block_meta", {}).get("attributes", [])]
             props["Insert field"] = {"type": "enum", "options": [""] + keys, "value": ""}
             props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
+            props["Hide when empty"] = {"type": "bool", "value": d.hide_empty}
         return props
 
     def set_property(self, key: str, value) -> None:
@@ -1233,6 +1238,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 self._set_property_model("Content", self._data.text + f"@[{value}]")
         elif key == "Keep upright":
             self._data.keep_upright = bool(value)
+        elif key == "Hide when empty":
+            self._data.hide_empty = bool(value)
         elif key == "Font":
             self._data.font_family = str(value)
         elif key == "Font Color":

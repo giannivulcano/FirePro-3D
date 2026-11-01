@@ -118,7 +118,11 @@ def reprepare_annotative(scene) -> None:
         if is_annotative(inst.definition()):
             inst.prepareGeometryChange()
             inst.update()
-    for room in getattr(scene, "_rooms", ()):     # SB3: room tags size by the drawing scale too
+    refresh_tags = getattr(scene, "refresh_annotation_tags", None)
+    if refresh_tags is not None:      # room tags + pipe labels size by the drawing scale too
+        refresh_tags()
+        return
+    for room in getattr(scene, "_rooms", ()):     # fallback for scenes without the hook
         tag = getattr(room, "_tag", None)
         if tag is not None:
             tag.refresh()          # drops the cached rect (F4) as well as repainting
