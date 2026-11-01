@@ -692,3 +692,48 @@ def test_sheet_and_block_definition_save_load_keep_the_flags(qapp):
                                          "wrap": True, "shrink": False}])
     d2 = BlockDefinition.from_dict(json.loads(json.dumps(d.to_dict())))
     assert (d2.primitives[0]["wrap"], d2.primitives[0]["shrink"]) == (True, False)
+
+
+# ── VC9fix M1: the Add-Text template's Wrap / Shrink reach the placed text ──
+
+def _template_item():
+    """The off-scene sheet-text template exactly as main.py builds it."""
+    t = TextItem(TextAnnotationData())
+    t._force_device_independent = True
+    t._apply_format()
+    return t
+
+
+def test_template_wrap_off_and_shrink_on_reach_the_placed_sheet_text(qapp):
+    """The template panel's Wrap / Shrink rows drive placement: Wrap OFF +
+    Shrink ON set through the panel path land on the placed item and lay it
+    out on one line, hugging its text."""
+    sc = _paper()
+    tpl = _template_item()
+    sc.text_template = tpl.data
+    tpl.set_property("Wrap", False)
+    tpl.set_property("Shrink to fit", True)
+    assert (tpl.data.wrap, tpl.data.shrink) == (False, True)
+    item = sc.begin_place_text(QPointF(100, 100))
+    try:
+        assert (item.data.wrap, item.data.shrink) == (False, True)
+        item.setPlainText(LONG)
+        item.prepareGeometryChange()
+        item._apply_format()
+        assert _lines(item.document()) == 1
+    finally:
+        item.cancel_edit()
+
+
+def test_untouched_template_places_a_legacy_flagless_text(qapp):
+    """Tri-state: a template whose toggles were never authored carries None,
+    so the placed text stays flagless (legacy default, sparse to_dict)."""
+    sc = _paper()
+    tpl = _template_item()
+    sc.text_template = tpl.data
+    item = sc.begin_place_text(QPointF(100, 100))
+    try:
+        assert (item.data.wrap, item.data.shrink) == (None, None)
+        assert "wrap" not in item.data.to_dict() and "shrink" not in item.data.to_dict()
+    finally:
+        item.cancel_edit()

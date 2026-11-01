@@ -3303,6 +3303,12 @@ class PaperScene(QGraphicsScene):
             data.align = t.align
             data.fill_color = t.fill_color
             data.fill_opacity = t.fill_opacity
+            # Wrap / Shrink are tri-state: carry only an authored value so an
+            # untouched template still places a legacy (flagless) text.
+            if t.wrap is not None:
+                data.wrap = t.wrap
+            if t.shrink is not None:
+                data.shrink = t.shrink
         item = TextItem(data)  # TRANSIENT: not tracked, not in sheet
         self.addItem(item)
         self._pending_text = item
