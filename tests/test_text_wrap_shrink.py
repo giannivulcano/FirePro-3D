@@ -232,3 +232,51 @@ def test_rotated_shrink_box_keeps_the_rotated_authored_anchor(qapp):
     t.set_angle(90.0)
     g = t.grip_points()
     assert (g[3].x(), g[3].y()) == pytest.approx((30.0, 6.0), abs=1e-6)   # RM grip
+
+
+# ── T25: paper paint at the offset (D5) ─────────────────────────────────────
+
+def _paper():
+    from firepro3d.paper_space import PaperScene, Sheet, ViewResolver
+    return PaperScene(Sheet.create_default(), ViewResolver(None, None, None, None))
+
+
+def _paper_text(sc, **kw):
+    from firepro3d.paper_commands import _find_text_item
+    rec = dict(text="Short", x=100.0, y=100.0, height_mm=3.0, cell_padding_mm=1.0,
+               wrap_width_mm=40.0, box_height_mm=12.0, align="C", valign="M",
+               color="#000000", wrap=False, shrink=True)
+    rec.update(kw)
+    data = TextAnnotationData(**rec)
+    sc._do_add_annotation(data)
+    return data, _find_text_item(sc, data)
+
+
+def _ink(scene, src: QRectF, px_per_mm=8):
+    w, h = int(src.width() * px_per_mm), int(src.height() * px_per_mm)
+    img = QImage(w, h, QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, w, h), src)
+    p.end()
+    xs = [x for y in range(h) for x in range(w) if QColor(img.pixel(x, y)).lightness() < 128]
+    ys = [y for y in range(h) for x in range(w) if QColor(img.pixel(x, y)).lightness() < 128]
+    return (src.left() + min(xs) / px_per_mm, src.top() + min(ys) / px_per_mm,
+            src.left() + (max(xs) + 1) / px_per_mm, src.top() + (max(ys) + 1) / px_per_mm)
+
+
+def test_paper_shrink_paints_the_glyphs_centred_on_the_authored_box(qapp):
+    """D5 paper: the native document paint lands at the Shrink offset -- the
+    inked glyphs of a centred hug are centred on the authored box centre
+    (100 + 20 = 120 mm), inside the authored box, and unclipped (same ink
+    width as the same text drawn at the origin with no hug)."""
+    sc = _paper()
+    data, it = _paper_text(sc)
+    src = QRectF(90.0, 95.0, 60.0, 22.0)
+    x0, y0, x1, y1 = _ink(sc, src)
+    assert (x0 + x1) / 2.0 == pytest.approx(120.0, abs=0.25)
+    assert 100.0 <= y0 and y1 <= 112.0
+    ref = _paper()
+    _paper_text(ref, align="L", valign="T", wrap=False, shrink=False)
+    r0, _t, r1, _b = _ink(ref, src)
+    assert x1 - x0 == pytest.approx(r1 - r0, abs=0.13)

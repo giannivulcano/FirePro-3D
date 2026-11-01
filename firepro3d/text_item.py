@@ -873,7 +873,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self.is_device_independent():
             # Paper surface: the QGraphicsTextItem document renderer works on the
             # paper viewport device (zoom-invariant, live caret) — keep it.
-            super().paint(painter, option, widget)
+            if self._shrink_off.isNull():
+                super().paint(painter, option, widget)
+            else:
+                self._paint_document_shifted(painter, option, widget)
         else:
             # Model / Block-Editor surface: EVERYTHING is drawn through direct
             # painter ops, never super().paint() — the document renderer draws
@@ -907,6 +910,37 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(box)
         painter.restore()
+
+    def _paint_document_shifted(self, painter: QPainter, option, widget) -> None:
+        """Paper document paint at the Shrink offset (D5, T20 probe).
+
+        The native renderer draws the document at the local origin and clips
+        it to ``option.exposedRect`` read as DOCUMENT coordinates, then draws
+        Qt's selection highlight round ``boundingRect()``.  So the document
+        pass runs translated by the offset with the exposed rect moved back
+        and the highlight states stripped; the highlight is then drawn
+        untranslated (its rect is already the shifted ``boundingRect``) with
+        an exposed rect that clips every glyph.
+        """
+        from PyQt6.QtWidgets import QStyle
+        hl = QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus
+        off = self._shrink_off
+        er, st = QRectF(option.exposedRect), option.state
+        try:
+            painter.save()
+            try:
+                painter.translate(off)
+                option.exposedRect = er.translated(-off)
+                option.state = st & ~hl
+                super().paint(painter, option, widget)
+            finally:
+                painter.restore()
+            if st & hl:
+                option.state = st
+                option.exposedRect = QRectF(-1e9, -1e9, 1.0, 1.0)
+                super().paint(painter, option, widget)
+        finally:
+            option.exposedRect, option.state = er, st
 
     # ── Glyph-outline path (block-content compile; containment C5.4) ────────
 
