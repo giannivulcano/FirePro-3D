@@ -498,6 +498,11 @@ ARRAY_GHOST_FULL_MAX = 200
 # paint_ghost falls back to the live glow (transform_ghost._GlowCache, L1068).
 GHOST_GLOW_CACHE_MAX_PX = 4 * 1920 * 1080
 
+# Fillet tool (scene-tools.md D14 Fillet, design 2026-11-01 DS4): the radius a
+# session starts with. 6 in x 25.4 mm/in = 152.4 mm -- the corner radius a
+# sprinkler-layout drawing typically uses; the HUD field makes it sticky.
+FILLET_DEFAULT_RADIUS_MM = 152.4
+
 # ── Hatch renderer (hatch-and-fill.md D-A30 / D-A35) ──────────────────────────
 DRAFTING_CANVAS_SCALE = 100.0   # assumed plan scale (1:N) for Drafting tiles on the model canvas until SB1c
 HATCH_LOD_MIN_CELL_PX = 2.0     # a tile cell smaller than this on the device draws the tone
