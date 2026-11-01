@@ -621,3 +621,32 @@ def test_sheet_panel_wrap_and_shrink_rows_are_undo_routed(qapp):
     assert (data.wrap, data.wrap_width_mm) == (None, 0.0)
     it.set_property("Shrink to fit", True)
     assert sc.undo_stack.index() == i0 + 1 and data.shrink is True
+
+
+# ── T34: Block Editor bound text shows the seeded hug (G12) ─────────────────
+
+def test_block_editor_bound_text_shows_the_seeded_hug(qapp):
+    """AC14 Block Editor: a bound text reads Shrink ON + Wrap OFF and hugs
+    its shown text about the authored centre (0, 0); turning Shrink off
+    restores the authored 13.9 mm box, which then wraps (Wrap reads ON)."""
+    ms = _model("block_editor")
+    t = _add(ms, text="@[Name]", x=-6.95, y=-3.5, wrap_width_mm=13.9,
+             box_height_mm=7.0, align="C", valign="M")
+    props = t.get_properties()
+    assert (props["Wrap"]["value"], props["Shrink to fit"]["value"]) == (False, True)
+    b = _box(t)
+    doc, s = _raw_doc(t.toPlainText())
+    assert b.width() == pytest.approx(doc.idealWidth() * s, abs=1e-6)
+    assert (b.center().x(), b.center().y()) == pytest.approx((0.0, 0.0), abs=1e-6)
+    t.set_property("Shrink to fit", False)
+    assert (t.data.shrink, t.data.wrap) == (False, None)
+    assert _box(t).width() == pytest.approx(13.9, abs=1e-6)
+    assert t.get_properties()["Wrap"]["value"] is True
+
+
+def test_field_text_off_the_block_editor_is_not_seeded(qapp):
+    """G12 scope: a ``@[..]`` text on a plan (or a sheet title-block token)
+    is plain text -- legacy Wrap, no hug."""
+    ms = _model("plan")
+    t = _add(ms, text="@[Name]", wrap_width_mm=13.9)
+    assert (t.wrap_on(), t.shrink_on()) == (True, False)
