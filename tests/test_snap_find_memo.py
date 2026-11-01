@@ -46,6 +46,33 @@ def test_memo_does_not_leak_between_finds(qapp):
     assert r is not None and abs(r.point.x() - 300.0) < 1e-6
 
 
+class _CountingScene(QGraphicsScene):
+    """Scene with Model_Space's zoom hook, counting every live zoom read."""
+
+    def __init__(self):
+        super().__init__()
+        self.zoom_reads = 0
+
+    def _active_view_scale(self):
+        self.zoom_reads += 1
+        return 1.0
+
+
+def test_find_reads_the_zoom_once_not_per_item(qapp):
+    sc = _CountingScene()
+    for i in range(40):                                  # crossing fan near the cursor
+        sc.addItem(LineItem(QPointF(-50 + i * 2.5, -50), QPointF(50 - i * 2.5, 50)))
+    v = QGraphicsView(sc)
+    sc.zoom_reads = 0
+    for ln in sc.items():                                # what one bounds pass costs live
+        ln.boundingRect()
+    unpinned = sc.zoom_reads
+    assert unpinned >= 40                                # bounds really read the zoom
+    sc.zoom_reads = 0
+    assert SnapEngine().find(QPointF(0.5, 0.5), sc, QTransform()) is not None
+    assert sc.zoom_reads <= 2
+
+
 def test_held_view_scale_pins_then_releases(qapp):
     sc, v, ln = _scene_with_line(qapp, (0, 0), (100, 0))
     v.setTransform(QTransform.fromScale(2.0, 2.0))
