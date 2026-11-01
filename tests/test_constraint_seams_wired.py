@@ -281,17 +281,12 @@ def test_undo_snapshot_holds_capture_and_undo_restores_it(qapp):
 
 
 def test_commit_reflect_flip_enters_edit_before_undo_push(qapp):
-    from firepro3d.axis_picker import AxisPick
-    from firepro3d.geometry_2d import LineItem
     sc, rec, ln = _editor_scene()
     try:
-        rl = LineItem(QPointF(200, -500), QPointF(200, 500))
-        rl.reference = True                   # reference axis (RG1)
-        sc.addItem(rl)
-        sc._draw_lines.append(rl)
         sc.mode = "flip"
         sc._selected_items = [ln]
-        sc._mirror_axis = AxisPick(QPointF(200, -500), QPointF(200, 500), rl, 90.0)
+        sc._flip_center = QPointF(200.0, 0.0)     # reflect across x = 200
+        sc._flip_lr, sc._flip_ud = True, False
         assert sc._modify_ctl.commit_reflect() is True
         assert ln.grip_points()[0] == QPointF(400, 0)      # flipped in place
         _assert_mutated_inside(rec, [ln])

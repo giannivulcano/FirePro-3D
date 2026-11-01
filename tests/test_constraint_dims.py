@@ -690,6 +690,14 @@ def _hx_axis(sc, y):
     return AxisPick(QPointF(-500, y), QPointF(800, y), rl, 0.0)
 
 
+def _arm_flip_ud(sc, items, y):
+    """Flip about the horizontal line y (centre on it, ud toggle on)."""
+    sc.mode = "flip"
+    sc._selected_items = list(items)
+    sc._flip_center = QPointF(0.0, y)
+    sc._flip_lr, sc._flip_ud = False, True
+
+
 def test_rotate_commit_carries_a_placed_dim_round(be):
     """Rotate 90 deg (Y-up CCW) about the origin maps scene (x, y) -> (y, -x):
     the dim-line middle (150, -40) lands at (-40, -150)."""
@@ -707,9 +715,7 @@ def test_flip_mirrors_a_placed_dim_to_the_other_side(be):
     v, sc = be; ctl = sc.constraint_ctl
     ln = _line(sc, (0, 0), (300, 0))
     c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
-    sc.mode = "flip"
-    sc._selected_items = [ln]
-    sc._mirror_axis = _hx_axis(sc, 10.0)
+    _arm_flip_ud(sc, [ln], 10.0)
     assert sc._modify_ctl.commit_reflect() is True
     assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
 
@@ -759,9 +765,7 @@ def test_flip_and_scale_carry_a_placed_reference_dim(be):
     ln = _line(sc, (0, 0), (300, 0))
     c = ctl.add("dim_distance", [E(ln)], label={"offset": -40.0})
     ctl.set_driving(c.id, False)
-    sc.mode = "flip"
-    sc._selected_items = [ln]
-    sc._mirror_axis = _hx_axis(sc, 10.0)
+    _arm_flip_ud(sc, [ln], 10.0)
     assert sc._modify_ctl.commit_reflect() is True
     assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 60))))
     sc._selected_items = [ln]
@@ -778,9 +782,7 @@ def test_flipped_rect_dim_measures_the_mirrored_edge(be):
     v, sc = be; ctl = sc.constraint_ctl
     r = _rect(sc, (0, 0), (300, 100))
     c = ctl.add("dim_distance", [E(r, "top")], label={"offset": -40.0})
-    sc.mode = "flip"
-    sc._selected_items = [r]
-    sc._mirror_axis = _hx_axis(sc, 200.0)
+    _arm_flip_ud(sc, [r], 200.0)
     assert sc._modify_ctl.commit_reflect() is True
     assert _close(_dim_mid_vp(v, ctl, c.id), QPointF(v.mapFromScene(QPointF(150, 440))))
     (e,) = [e for e in cd.dim_entries(v, ctl) if e.cid == c.id]
