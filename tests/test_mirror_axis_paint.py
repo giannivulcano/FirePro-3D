@@ -1,4 +1,5 @@
-"""DD3: the Flip / Mirror axis paint — an infinite accent dash-dot axis plus a
+"""DD3: the Mirror axis paint (Flip has no axis pick since D16's 2026-11-01
+amendment) — an infinite accent dash-dot axis plus a
 HALO glow on the SINGLE source segment — and the ghost transforms.
 
 Pixel ground truth on a real shown Model_View (scale 1, 800x600, centred on

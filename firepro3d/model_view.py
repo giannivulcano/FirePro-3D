@@ -536,7 +536,7 @@ class Model_View(QGraphicsView):
             paint_ghost(painter, gpaths, th.detect())
             painter.restore()
 
-        # ── 8a. Flip / Mirror axis (P1 DD3): infinite accent dash-dot axis +
+        # ── 8a. Mirror axis (P1 DD3): infinite accent dash-dot axis +
         # HALO glow on the single source segment; the reflected ghost (8)
         # paints on top of it.
         axis = getattr(scene, "_mirror_axis", None)

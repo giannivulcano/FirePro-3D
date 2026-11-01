@@ -2,7 +2,8 @@
 
 One style for every transform preview (Move, Duplicate, Paste, Rotate,
 Offset, Array and the gridline array/offset ghosts — Flip / Mirror additionally
-paint their axis (:func:`paint_axis`) and map the ghost through
+paint their axis (:func:`paint_axis`; Flip its centre crosshair,
+:func:`paint_flip_crosshair`) and map the ghost through
 :func:`reflect_transform`; Scale through :func:`scale_transform`): the ghost
 traces the item's true drawn geometry (:func:`halo.halo_scene_path`, not
 ``shape()``), painted as the HALO glow with a crisp 1 px accent line on top.
