@@ -136,7 +136,8 @@ def _scaled_text_record(rec, s: float) -> dict:
     """*rec* with its size fields x *s* (design DD9): cap height, wrap
     width, box height and cell padding; 0 (auto) stays 0; the border weight
     is a line weight and does not scale. Defaults resolve through the one
-    record reader so an absent key scales too."""
+    record reader so an absent key scales too. Every other key -- the Wrap /
+    Shrink to fit flags included (text-sizing D6) -- is copied unchanged."""
     from .text_item import TextAnnotationData
     data = TextAnnotationData.from_dict(rec)
     return {**rec, "height_mm": data.height_mm * s,

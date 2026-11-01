@@ -492,3 +492,58 @@ def test_hide_empty_collapse_reads_the_authored_box(qapp):
     got = hide_empty_shifts([(a, QTransform()), (b, QTransform())], frozenset({"A"}))
     assert got[0] is None
     assert got[1] == pytest.approx(-12.0, abs=1e-6)
+def test_explode_copies_the_flags_and_scales_the_sizes(qapp, make_model_space):
+    """AC16 explode: a static text's authored flags survive explode, and the
+    scaled record (DD9) keeps them while its sizes scale x2."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_explode import explode_instances
+    ms = make_model_space()
+    prim = {"type": "text", "text": "Static", "x": 0.0, "y": 0.0, "height_mm": 3.0,
+            "wrap_width_mm": 30.0, "box_height_mm": 10.0, "align": "C", "valign": "M",
+            "wrap": True, "shrink": True}
+    d = BlockDefinition.new(name="FlagTag", library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    ms.register_block_definition(d)
+    inst = ms.place_block_instance(d.id, (100.0, 50.0), scale=2.0)
+    made = explode_instances(ms, [inst], flatten=True)
+    t = [m for m in made if isinstance(m, TextItem)][0]
+    assert (t.data.wrap, t.data.shrink) == (True, True)
+    assert t.data.wrap_width_mm == pytest.approx(60.0)
+    assert (t.to_dict()["wrap"], t.to_dict()["shrink"]) == (True, True)
+
+
+def test_exploded_shrink_text_lands_in_the_drawn_box(qapp, make_model_space):
+    """Explode parity: a static Shrink text explodes to the box it is drawn
+    in (the block's border op), at the instance origin."""
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_explode import explode_instances
+    from firepro3d.render_op import STROKE
+    ms = make_model_space()
+    prim = {"type": "text", "text": "Static", "x": -20.0, "y": -6.0, "height_mm": 3.0,
+            "wrap_width_mm": 40.0, "box_height_mm": 12.0, "align": "C", "valign": "M",
+            "border": True, "cell_padding_mm": 1.0, "wrap": False, "shrink": True}
+    d = BlockDefinition.new(name="HugStatic", library="", series="", origin=(0.0, 0.0),
+                            primitives=[prim])
+    ms.register_block_definition(d)
+    inst = ms.place_block_instance(d.id, (100.0, 50.0))
+    drawn = [o for o in inst.render_ops() if o.kind == STROKE][0].path.boundingRect()
+    assert drawn.center().x() == pytest.approx(0.0, abs=1e-6)        # authored centre
+    made = explode_instances(ms, [inst], flatten=True)
+    g = [m for m in made if isinstance(m, TextItem)][0].grip_points()
+    assert (g[4] - g[0]).x() == pytest.approx(drawn.width(), abs=1e-6)
+    assert (g[8].x(), g[8].y()) == pytest.approx((100.0 + drawn.center().x(),
+                                                  50.0 + drawn.center().y()), abs=1e-6)
+
+
+@pytest.mark.parametrize("tw,wrap", [(0, False), (80.0, True)])
+def test_legacy_note_maps_wrap_from_its_text_width(qapp, tw, wrap):
+    """AC15 / T-legacy: a legacy "note" record maps text_width to the derived
+    Wrap (no stored flag, nothing new written)."""
+    from firepro3d.network_codec import deserialize_note
+    ms = _model()
+    item = deserialize_note(ms, {"type": "note", "x": 0.0, "y": 0.0, "text_width": tw,
+                                 "properties": {"Text": "Legacy note"}})
+    assert (item.data.wrap, item.data.shrink) == (None, None)
+    assert (item.wrap_on(), item.shrink_on()) == (wrap, False)
+    out = item.to_dict()
+    assert "wrap" not in out and "shrink" not in out
