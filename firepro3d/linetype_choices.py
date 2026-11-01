@@ -19,10 +19,10 @@ _FIXED = (("Continuous", CONTINUOUS),)
 
 def _folder_linetypes() -> list[tuple[str, str, str]]:
     """``[(name, block_id, path)]`` -- the System tier's and the Linetypes
-    folder's ``repeat`` blocks (``capability_folder.scan_tiered``)."""
+    folder's ``repeat`` blocks (``capability_folder.memo_scan``)."""
     from .app_data import linetypes_dir
-    from .capability_folder import scan_tiered
-    return scan_tiered(linetypes_dir(), "repeat")
+    from .capability_folder import memo_scan
+    return memo_scan("repeat", linetypes_dir)
 
 
 def linetype_choices(registry=None, exclude=()) -> list[tuple[str, str]]:

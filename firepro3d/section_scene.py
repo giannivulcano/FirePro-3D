@@ -1104,11 +1104,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         # Only the section's selection is deleted: a stale plan selection must
         # not ride along into delete_items / delete_selected_items.
         plan_sel = list(self._ms.selectedItems())
-        self._ms.clearSelection()
-        for item in others:
-            source = item.data(_ROLE_SOURCE) if item else None
-            if source is not None and hasattr(source, "setSelected"):
-                source.setSelected(True)
+        self._ms.select_items(                    # clear + select, one emit (§5.9)
+            [src for src in (it.data(_ROLE_SOURCE) if it else None for it in others)
+             if src is not None and hasattr(src, "setSelected")])
         if hosted:
             # Plan-hidden model blocks: setSelected would not stick, so they
             # join the model selection in ONE explicit-list delete (one undo).
@@ -1116,9 +1114,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                                   + list(self._ms.selectedItems()))
         else:
             self._ms.delete_selected_items()
-        for it in plan_sel:                       # the plan selection survives
-            if it.scene() is self._ms:
-                it.setSelected(True)
+        self._ms.select_items(plan_sel, clear=False)   # the plan selection survives
         self.rebuild()
 
     # ── Properties ───────────────────────────────────────────────────────
