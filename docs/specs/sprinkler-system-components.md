@@ -1,7 +1,7 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-09-26
-verified-commit: e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/sprinkler_db.py
@@ -284,7 +284,7 @@ Material options: Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC.
 | Colour | enum | Red | Black, White, Red, Blue, Grey |
 | Phase | enum | New | New, Existing, Demo |
 | Show Label | enum | True | True, False |
-| Label Size | string | 12 | — |
+| Tag | enum (panel row) | Project default | per-pipe label block; not a `_properties` entry ([`system-blocks.md`](system-blocks.md) section 8a) |
 
 ---
 

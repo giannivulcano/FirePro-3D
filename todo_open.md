@@ -75,6 +75,7 @@
     - (14) `docs/architecture/level-system.md` restates the `Level` dataclass and default-levels table (Rule A) and now lacks `number`; replace with a link to `view-relationships.md` §3.3 (SB2b added only a link line).
     - (15) `docs/architecture/overview.md` and `refactoring.md` describe the undo snapshot as model content "excluding underlays and scale"; it now also carries levels, plan views, the active level and underlay level lists (`scene-io.md` owns it) — link instead.
     - (16) `docs/specs/pipe-placement-methodology.md` Step 2 still says `pipe.user_layer` (removed) and the file has no frontmatter (cf. DOCS-REVIEW.md pipe-placement split).
+      - +1 occurrence 2026-11-01 (SB4a Account): `user_layer` still in that spec's §2 and serialization example; Account left it (out of scope).
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
 
@@ -330,6 +331,8 @@
   - Details: SB4a VC9 seam review M4, 2026-11-01 — the off-scene placement template (`main.py` pipe template, `Pipe._tag_row`) has no scene, so the shared choice list is empty and the default name unresolved; `add_pipe` copies `_tag_block` from the template (bcb28528) but the user cannot pick one there. Decide: hide the Tag row on the template, or resolve choices against the active scene.
 - [ ] [type:bug] Paper pass skips a pipe label that pokes into the viewport while its pipe lies just outside -- the label plots at model size / model colour [P3] [subject:CAD]
   - Details: SB4a VC9 seam review M5, 2026-11-01 — `paper_display`'s walk reaches the label only through its pipe (`scene.items(source_rect)` → Pipe branch → `_apply_block(item.label, …)`); a top-level label hit on its own is not a category item, so it gets no paper hooks. Fix: in the walk, route a hit `BoundLabelItem` with a Pipe host through its host's branch (or widen the pipe hit test by its label rect).
+- [ ] [type:bug] Verify `pipe-placement-methodology.md` B12 (`update_elevations()` does not refresh pipe labels) against the SB4a block label [P3] [subject:CAD]
+  - Details: SB4a Account 2026-11-01 — the label now pulls host values at paint (`BoundLabelItem`), but its bounds rect is cached, so B12 may be stale or may now be a stale-rect bug. Repro: change a level elevation with labelled pipes on it and check the label text and its bounds; then close B12 or fix the refresh.
 - [ ] [type:maint] `Pipe.setVisible(True)` now runs the full `update_label()` every time the level filter re-shows a pipe [P3] [subject:CAD]
   - Details: SB4a VC9 seam review M6, 2026-11-01 — the label pose/refresh cascade in `Pipe.setVisible`; G8's bench times rendering only, so a level switch over a large network is unmeasured. Measure a level toggle over 2,000 pipes first (base vs HEAD); act only if it is slow.
 - [ ] [type:maint] Measure the SB4a pipe-label bench (G8) on an idle host -- long solved 4-line labels may be ~1.3x slower than the HTML label [P2] [subject:CAD]

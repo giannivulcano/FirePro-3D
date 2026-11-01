@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built; divergence ledger in §12
-last-verified: 2026-09-09
-verified-commit: 1228ef5
+last-verified: 2026-11-01   # SB4a Account: §11.4 only
+verified-commit: 0924bcd6   # SB4a (§11.4 only); prior 1228ef5
 applies-to:
   - firepro3d/hydraulic_solver.py
   - firepro3d/hydraulic_report.py
@@ -477,7 +477,7 @@ Thresholds are relative (normalized to system max hf), not absolute. This ensure
 
 ### 11.4 Pipe Labels
 
-Pipe labels append flow (gpm, blue) and total hf (psi, orange) lines **only for pipes carrying flow** (`pipe_flows[pipe] > 0`). Zero-flow tree pipes outside the design-area calc path stay unlabelled instead of cluttering the drawing with "0.0 gpm / 0.00 psi".
+The pipe label is drawn by the PipeLabel System block ([`system-blocks.md`](system-blocks.md) section 8a); after a solve it shows flow and friction loss lines **only for pipes carrying flow** (`pipe_flows[pipe] > 0`): the Pipe `Flow` / `Velocity` / `FrictionLoss` host keys read `None` at zero flow ([`element-parameters.md`](element-parameters.md) E7) and the block's *Hide when empty* texts drop and close up. Zero-flow tree pipes outside the design-area calc path stay unlabelled instead of cluttering the drawing with "0.0 gpm / 0.00 psi".
 
 ---
 

@@ -3,6 +3,7 @@
 > **Status:** Revised specification (documents current implementation + required fixes)
 > **Source files:** `model_space.py`, `pipe.py`, `node.py`, `fitting.py`, `sprinkler_system.py`, `constants.py`
 > **Date:** 2026-04-04
+> **Labels (§ Labels, §9.2 preview) verified 2026-11-01** (`0924bcd6`, SB4a): the placed label is now an annotation block; B11 fixed. Other sections unchanged by SB4a.
 > **Revision:** 2 (post grill session)
 > **§4.1 verified 2026-08-20** (`25c7edb`): B5 fixed — contextual coplanar-pipe 45° reference. Other sections still describe required fixes, not shipped code.
 > **§4.1 typed-entry verified 2026-09-03** (`b5ddacf`): T19 — pipe is a Dynamic Input HUD client (relative/absolute Angle; `pipe_network_controller.py:_commit_pipe_at`). See `align-placement.md §4a`.
@@ -52,7 +53,6 @@ These rules govern the entire pipe placement system:
 | Colour | enum | `"Red"` | Black, White, Red, Blue, Grey |
 | Phase | enum | `"New"` | New, Existing, Demo |
 | Show Label | enum | `"True"` | True, False |
-| Label Size | string | `"12"` | Text height in inches |
 
 **Auto-assignment rule:** Diameters ≥ 3" automatically set Line Type to `"Main"`.
 
@@ -520,15 +520,19 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
 | 12–20 fps | Orange | `(220, 140, 0)` |
 | > 20 fps | Red | `(220, 0, 0)` |
 
-**Labels** (when `Show Label == "True"`):
-- Diameter in display units using `_INT_TO_IMPERIAL` / `_INT_TO_METRIC` mappings
-- **3D length** (computed from `sqrt(dx² + dy² + dz²)`, matching hydraulic solver)
-- Hydraulic results if available (flow gpm, friction loss psi)
-- Positioned at midpoint, rotated to align with pipe
-- Hidden for vertical pipes (zero 2D projection)
-- Labels are **independent top-level scene items** at `Z_OVERLAY` (200), not children of Pipe
+**Labels** (when `Show Label == "True"`) -- drawn by the **PipeLabel System block** (SB4a;
+contract, content, Tag row, Hide when empty, paper and persistence owned by
+[`system-blocks.md`](system-blocks.md) section 8a; field keys / units / 3D `Length` by
+[`element-parameters.md`](element-parameters.md)):
+- The label is a `BoundLabelItem` (`Pipe.label`), an **independent top-level scene item**,
+  not a child of Pipe, so it draws above nodes and fittings. Its Z is
+  `max(Z_OVERLAY, pipe z + Z_LABEL_ABOVE_PIPE)` (`Pipe.sync_label_z`; `constants.py`)
+- Positioned at the pipe midpoint, the whole label rotated to the pipe angle kept readable
+- Hidden for vertical pipes (zero 2D projection) and when Show Label is off
 - `Pipe.setVisible()` cascades visibility to the label
-- Labels are **non-interactive** (reject mouse clicks and hover events)
+- Labels are **non-interactive** (not selectable, no hover)
+- The text size is the block's authored printed size (annotative); the per-pipe
+  `Label Size` property and the Display Manager Pipe font are **retired**
 
 **Riser pass-through symbol** (vertical pipes):
 - Vertical pipes (zero 2D extent) render a yin-yang / broken-pipe SVG symbol at their XY location
@@ -539,11 +543,9 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
 - `Pipe.setVisible()` cascades to the riser symbol
 - Vertical pipe `shape()` returns a circular hit area (300mm diameter) so the riser is clickable for `split_pipe` operations
 
-> **BUG (current):** `update_label()` shows 2D projected length via `scene_to_display(self.length)`, not 3D length. Inconsistent with hydraulic solver's `get_length_ft()`.
->
-> **FIX:** Labels must show 3D length. Use `get_length_ft()` (or equivalent mm computation) for the label.
+> ~~**BUG:** `update_label()` shows 2D projected length~~ -- **fixed 2026-11-01 (SB4a)**: the label binds the 3D `Length` key.
 
-> **BUG (current):** `update_elevations()` in LevelManager recomputes node Z positions but does not refresh pipe labels. Once labels show 3D length, changing a level's elevation leaves labels stale.
+> **BUG (current):** `update_elevations()` in LevelManager recomputes node Z positions but does not refresh pipe labels. Now that labels show 3D length, changing a level's elevation leaves labels stale.
 >
 > **FIX:** `update_elevations()` must call `pipe.update_label()` on all pipes after recomputing node Z positions.
 
@@ -557,7 +559,7 @@ The preview pipe is rendered in `_move_pipe()` during mouse movement between cli
 
 **Shows:**
 - Colored dashed line from start node to cursor (styled from template)
-- Preview label with diameter and length
+- Preview label with diameter and length, in a fixed text height (`constants.PIPE_PREVIEW_LABEL_IN`; the placed label is the annotation block)
 
 > **BUG (current):** Preview label formats diameter using `float()` on the raw diameter key (e.g., `"1\"Ø"`), which always throws `ValueError`. Falls through to raw key display instead of using `_INT_TO_IMPERIAL` / `_INT_TO_METRIC` mappings. Preview shows `1"Ø` while placed pipes show `Ø 1"`.
 >
@@ -632,11 +634,13 @@ Where: Q = flow (gpm), C = C-factor, d = inner diameter (inches), L = length (ft
     "Diameter": "2\"Ø", "Schedule": "Sch 40",
     "C-Factor": "120", "Material": "Galvanized Steel",
     "Line Type": "Branch", "Colour": "Red",
-    "Phase": "New", "Show Label": "True", "Label Size": "12"
+    "Phase": "New", "Show Label": "True"
   },
   "display_overrides": {}
 }
 ```
+
+A sparse `tag_block` key (the per-pipe label block id) is written only when set; a legacy `Label Size` property key is dropped on load ([`system-blocks.md`](system-blocks.md) section 8a).
 
 > **Backward compatibility:** Old save files containing pipe-level `ceiling_level` / `ceiling_offset_mm` fields (or `"Ceiling Level"` / `"Ceiling Offset"` in the properties dict) are silently ignored on load.
 
@@ -746,7 +750,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 | B8 | Preview label formats diameter as raw key, not display format | Low | `model_space.py:3557–3561` |
 | B9 | Preview length ignores Z difference | Low | `model_space.py:3554` |
 | B10 | Fitting `determine_type` broken for through-risers (2 vertical pipes) | Medium | `fitting.py:149–154` |
-| B11 | Pipe labels show 2D length, not 3D | Medium | `pipe.py:169` |
+| B11 | ~~Pipe labels show 2D length, not 3D~~ -- **fixed 2026-11-01** (SB4a) | Medium | -- |
 | B12 | `update_elevations()` doesn't refresh pipe labels (latent until B11 fixed) | Low | `level_manager.py:327` |
 
 ### 16.2 Enhancements
@@ -765,7 +769,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 4. ~~**B5** — Contextual snap reference~~ — **done 2026-08-17** (`25c7edb`)
 5. **B6** — Riser column move
 6. **B10 + E1** — Fitting matrix + new SVGs
-7. **B11 + B12** — 3D labels + elevation refresh
+7. ~~**B11**~~ done (SB4a); **B12** — elevation refresh
 8. **B8 + B9** — Preview fixes
 9. **E2** — Vertical collinear extension
 10. **E3** — Preview elevation info
