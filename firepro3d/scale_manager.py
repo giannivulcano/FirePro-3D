@@ -57,6 +57,10 @@ class ScaleManager:
         self._pressure_precision: int = DEFAULT_PRESSURE_PRECISION
         self._flow_precision: int = DEFAULT_FLOW_PRECISION
         self._velocity_precision: int = DEFAULT_VELOCITY_PRECISION
+        # Area / volume digits: None = the per-unit fixed digits; set only on a
+        # ``with_overrides`` clone (an attribute's Precision override, D8).
+        self._area_precision: int | None = None
+        self._volume_precision: int | None = None
 
         # Store the calibration points for save/load
         self._cal_pt1: QPointF | None = None
@@ -221,6 +225,41 @@ class ScaleManager:
             return f"{m:.{p}f} m"
         else:  # METRIC_MM
             return f"{mm:.{p}f} mm"
+
+    def with_overrides(self, unit=None, precision=None) -> "ScaleManager":
+        """This manager, or a clone printing with *unit* / *precision* (D8).
+
+        An attribute definition's Unit / Precision override formats its host
+        value through the clone, so every formatter stays here
+        (units-and-formatting.md) and the project manager is never mutated.
+
+        Args:
+            unit: A ``DisplayUnit`` or its value (``"imperial"``, ``"m"``,
+                ``"mm"``); None or an unknown value keeps the project unit.
+                Area and volume follow it (the length family).
+            precision: 0-5 (clamped), or None to keep the project
+                precisions. It replaces every quantity's precision on the
+                clone: length (imperial = the fraction denominator ``2**p``,
+                the project setting's meaning), area, volume, pressure, flow
+                and velocity.
+
+        Returns:
+            ``self`` when neither is given, else an independent shallow copy.
+        """
+        if unit is None and precision is None:
+            return self
+        sm = copy.copy(self)
+        if unit is not None:
+            try:
+                sm._display_unit = unit if isinstance(unit, DisplayUnit) else DisplayUnit(unit)
+            except ValueError:
+                pass                        # not a project unit: keep the project's
+        if precision is not None:
+            p = max(0, min(DISPLAY_PRECISION_MAX, int(precision)))
+            sm._precision = p
+            sm._area_precision = sm._volume_precision = p
+            sm._pressure_precision = sm._flow_precision = sm._velocity_precision = p
+        return sm
 
     # -----------------------------------------------------------------
     # Dialog helpers — numeric display-unit ↔ scene conversion
@@ -648,12 +687,14 @@ class ScaleManager:
         return mm
 
     def format_area_mm2(self, mm2: float) -> str:
-        """A geometry-derived area (mm²) in the display unit."""
+        """A geometry-derived area (mm²) in the display unit: fixed digits per
+        unit unless a ``with_overrides`` clone carries a precision (D8)."""
+        p = self._area_precision
         if self._display_unit == DisplayUnit.IMPERIAL:
-            return f"{mm2 / (304.8 ** 2):.1f} sq ft"
+            return f"{mm2 / (304.8 ** 2):.{1 if p is None else p}f} sq ft"
         if self._display_unit == DisplayUnit.METRIC_M:
-            return f"{mm2 / 1_000_000.0:.2f} m²"
-        return f"{mm2:.0f} mm²"
+            return f"{mm2 / 1_000_000.0:.{2 if p is None else p}f} m²"
+        return f"{mm2:.{0 if p is None else p}f} mm²"
 
     def area_mm2_value(self, mm2: float) -> float:
         """Numeric twin of ``format_area_mm2``."""
@@ -664,12 +705,14 @@ class ScaleManager:
         return mm2
 
     def format_volume_mm3(self, mm3: float) -> str:
-        """A volume (mm³) in the display unit."""
+        """A volume (mm³) in the display unit: fixed digits per unit unless a
+        ``with_overrides`` clone carries a precision (D8)."""
+        p = self._volume_precision
         if self._display_unit == DisplayUnit.IMPERIAL:
-            return f"{mm3 / (304.8 ** 3):.0f} cu ft"
+            return f"{mm3 / (304.8 ** 3):.{0 if p is None else p}f} cu ft"
         if self._display_unit == DisplayUnit.METRIC_M:
-            return f"{mm3 / 1e9:.1f} m³"
-        return f"{mm3:.0f} mm³"
+            return f"{mm3 / 1e9:.{1 if p is None else p}f} m³"
+        return f"{mm3:.{0 if p is None else p}f} mm³"
 
     def volume_mm3_value(self, mm3: float) -> float:
         """Numeric twin of ``format_volume_mm3``."""
