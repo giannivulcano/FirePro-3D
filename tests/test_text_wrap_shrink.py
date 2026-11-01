@@ -425,6 +425,46 @@ def test_constraint_width_write_on_shrink_box_sets_size_shrink_off(qapp):
     assert a.read(t) == pytest.approx([cx, cy, w + 8.0, h], abs=1e-6)
 
 
+def _constrained_shrink_scene():
+    """Block Editor scene: a grounded 200 mm line, a Shrink text with tl on the
+    origin (the constraint-controller path of AC12)."""
+    from firepro3d.geometry_2d import LineItem
+    ms = _model(role="block_editor")
+    ln = LineItem(QPointF(0, 0), QPointF(200, 0))
+    ms.addItem(ln)
+    ms._draw_lines.append(ln)
+    ctl = ms.constraint_ctl
+    ctl.add("coincident", [{"uid": ln._uid, "h": "p1"}, {"ref": "origin"}])
+    ctl.add("horizontal", [{"uid": ln._uid, "h": "edge"}])
+    ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
+    t = _add(ms, text="Short", x=0.0, y=0.0, wrap_width_mm=40.0, box_height_mm=12.0,
+             align="L", valign="T", wrap=False, shrink=True)
+    return ms, ctl, ln, t
+
+
+def test_constraint_width_solve_on_shrink_box_is_one_undo_step(qapp):
+    """AC12 constraint leg: the controller's solve writes the width through
+    _TextBoxAdapter (Shrink OFF, Wrap ON, explicit size); ONE undo restores
+    the flags and the size together."""
+    ms, ctl, ln, t = _constrained_shrink_scene()
+    ctl.add("coincident", [{"uid": t._uid, "h": "tl"}, {"ref": "origin"}])
+    ms.push_undo_state()
+    w0 = _box(t).width()
+    flags0 = (t.data.wrap, t.data.shrink, t.data.wrap_width_mm, t.data.box_height_mm)
+    depth = len(ms._undo_stack)
+    c = ctl.add("coincident", [{"uid": t._uid, "h": "tr"}, {"uid": ln._uid, "h": "p2"}])
+    assert c is not None and c.id not in ctl.red
+    assert len(ms._undo_stack) == depth + 1                    # one step
+    assert (t.data.shrink, t.data.wrap) == (False, True)
+    assert t.data.wrap_width_mm == pytest.approx(200.0, abs=1e-3)
+    assert _box(t).width() == pytest.approx(200.0, abs=1e-3)
+    ms.undo()
+    restored = next(x for x in ms._texts)
+    assert (restored.data.wrap, restored.data.shrink, restored.data.wrap_width_mm,
+            restored.data.box_height_mm) == flags0
+    assert _box(restored).width() == pytest.approx(w0, abs=1e-6)
+
+
 def test_constraint_move_of_shrink_box_keeps_shrink(qapp):
     """A pure centre move of a Shrink box translates it and keeps the hug;
     the authored origin moves by the same delta (raw: 10 + 5, 20 - 3)."""
