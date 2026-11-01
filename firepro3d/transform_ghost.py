@@ -20,7 +20,7 @@ from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
 from .constants import (HALO_TRACE_COLOR, TRANSFORM_GHOST_DIM_OPACITY,
                         TRANSFORM_GHOST_TRACE_ALPHA, TRANSFORM_GHOST_TRACE_WIDTH_PX)
 from .geometry_2d import _degenerate_axis
-from .halo import halo_scene_path, paint_halo_path
+from .halo import halo_scene_path, paint_halo_path, paint_halo_paths
 
 # Opacity match tolerance for restore (qreal round-trip noise only).
 _OPACITY_TOL = 1e-4
@@ -71,9 +71,8 @@ def paint_ghost(painter, paths, theme) -> None:
     if not paths:
         return
     pen = _trace_pen(theme)
-    for path in paths:
-        if not isinstance(path, LiteGhostPath):
-            paint_halo_path(painter, path, theme)
+    paint_halo_paths(painter, [p for p in paths
+                               if not isinstance(p, LiteGhostPath)], theme)
     painter.save()
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(pen)
