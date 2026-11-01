@@ -14,12 +14,16 @@ Calibration workflow:
 """
 
 from __future__ import annotations
+import copy
 import math
 import re
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 from enum import Enum
 from math import floor
 from PyQt6.QtCore import QPointF
+
+from .constants import (DEFAULT_FLOW_PRECISION, DEFAULT_PRESSURE_PRECISION,
+                        DEFAULT_VELOCITY_PRECISION, DISPLAY_PRECISION_MAX)
 
 # The shared §3.1 number grammar lives with the length grammar it serves;
 # ``parse_factor`` reuses it here, unsigned.
@@ -49,6 +53,10 @@ class ScaleManager:
         self._calibrated: bool = False
         self._drawing_scale: float = 100.0      # denominator (e.g. 100 for 1:100)
         self._precision: int = 3                # decimal places for metric display
+        # Project hydraulic precisions (D9; Project Settings > Units & Precision).
+        self._pressure_precision: int = DEFAULT_PRESSURE_PRECISION
+        self._flow_precision: int = DEFAULT_FLOW_PRECISION
+        self._velocity_precision: int = DEFAULT_VELOCITY_PRECISION
 
         # Store the calibration points for save/load
         self._cal_pt1: QPointF | None = None
@@ -81,7 +89,34 @@ class ScaleManager:
 
     @precision.setter
     def precision(self, value: int):
-        self._precision = max(0, min(5, int(value)))
+        self._precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
+
+    @property
+    def pressure_precision(self) -> int:
+        """Decimal places of ``format_pressure`` (D9; default 1)."""
+        return self._pressure_precision
+
+    @pressure_precision.setter
+    def pressure_precision(self, value: int):
+        self._pressure_precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
+
+    @property
+    def flow_precision(self) -> int:
+        """Decimal places of ``format_flow`` (D9; default 0)."""
+        return self._flow_precision
+
+    @flow_precision.setter
+    def flow_precision(self, value: int):
+        self._flow_precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
+
+    @property
+    def velocity_precision(self) -> int:
+        """Decimal places of ``format_velocity`` (D9; default 1)."""
+        return self._velocity_precision
+
+    @velocity_precision.setter
+    def velocity_precision(self, value: int):
+        self._velocity_precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
 
     @property
     def drawing_scale(self) -> float:
@@ -650,20 +685,17 @@ class ScaleManager:
             return sqft
         return sqft * _SQFT_TO_M2
 
-    @staticmethod
-    def format_pressure(psi: float) -> str:
-        """Pressure (psi; no metric variant -- units D2)."""
-        return f"{psi:.1f} psi"
+    def format_pressure(self, psi: float) -> str:
+        """Pressure at ``pressure_precision`` (psi; no metric variant -- units D2)."""
+        return f"{psi:.{self._pressure_precision}f} psi"
 
-    @staticmethod
-    def format_flow(gpm: float) -> str:
-        """Flow (gpm; no metric variant -- units D2)."""
-        return f"{gpm:.0f} gpm"
+    def format_flow(self, gpm: float) -> str:
+        """Flow at ``flow_precision`` (gpm; no metric variant -- units D2)."""
+        return f"{gpm:.{self._flow_precision}f} gpm"
 
-    @staticmethod
-    def format_velocity(fps: float) -> str:
-        """Velocity (ft/s; no metric variant -- units D2)."""
-        return f"{fps:.1f} ft/s"
+    def format_velocity(self, fps: float) -> str:
+        """Velocity at ``velocity_precision`` (ft/s; no metric variant -- units D2)."""
+        return f"{fps:.{self._velocity_precision}f} ft/s"
 
     def format_pipe_id(self, inches: float) -> str:
         """A pipe inner diameter (stored in inches)."""
@@ -680,6 +712,12 @@ class ScaleManager:
     # -----------------------------------------------------------------
     # Serialisation
     # -----------------------------------------------------------------
+    def _hydraulic_precisions(self) -> tuple:
+        """``(attribute, value, default)`` per project hydraulic precision (D9)."""
+        return (("pressure_precision", self._pressure_precision, DEFAULT_PRESSURE_PRECISION),
+                ("flow_precision", self._flow_precision, DEFAULT_FLOW_PRECISION),
+                ("velocity_precision", self._velocity_precision, DEFAULT_VELOCITY_PRECISION))
+
     def to_dict(self) -> dict:
         d = {
             "pixels_per_mm":  self._pixels_per_mm,
@@ -688,6 +726,9 @@ class ScaleManager:
             "drawing_scale":  self._drawing_scale,
             "precision":      self._precision,
         }
+        for key, value, default in self._hydraulic_precisions():
+            if value != default:
+                d[key] = value          # sparse: absent = the default (nothing moves, D9)
         if self._cal_pt1 is not None:
             d["cal_pt1"] = [self._cal_pt1.x(), self._cal_pt1.y()]
             d["cal_pt2"] = [self._cal_pt2.x(), self._cal_pt2.y()]
@@ -702,6 +743,11 @@ class ScaleManager:
         sm._display_unit = DisplayUnit(d.get("display_unit", "mm"))
         sm._drawing_scale = d.get("drawing_scale", 100.0)
         sm._precision = d.get("precision", 3)
+        for key, _value, default in sm._hydraulic_precisions():
+            try:
+                setattr(sm, key, d.get(key, default))
+            except (TypeError, ValueError):
+                setattr(sm, key, default)   # a malformed file value never blocks a load
         if "cal_pt1" in d:
             sm._cal_pt1 = QPointF(d["cal_pt1"][0], d["cal_pt1"][1])
             sm._cal_pt2 = QPointF(d["cal_pt2"][0], d["cal_pt2"][1])

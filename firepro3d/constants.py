@@ -552,3 +552,11 @@ MARK_ROW_TOLERANCE_MM = 600.0
 # Project Settings > Marks table: narrowest the stretch "Next" column may get (px),
 # so the fitted table never needs a horizontal scrollbar.
 MARKS_NEXT_COL_MIN_WIDTH_PX = 90
+
+# Display precision (text-sizing-wrap D8 / D9): the upper bound of every
+# project / attribute precision (imperial length: fraction denominator 2**p),
+# and the project hydraulic precisions -- today's fixed formats, so nothing moves.
+DISPLAY_PRECISION_MAX = 5
+DEFAULT_PRESSURE_PRECISION = 1     # psi
+DEFAULT_FLOW_PRECISION = 0         # gpm
+DEFAULT_VELOCITY_PRECISION = 1     # ft/s
