@@ -1,7 +1,7 @@
 ---
 status: current          # BUILT 2026-10-29 (feat/sb3-room-tag, merged ff to main 8be9034a); the built contract is docs/specs/system-blocks.md
-last-verified: 2026-10-29   # SB3 Account: built; status current, AC ticks with test names, edge-case rows (hug ruling, nameless room), notice-at-first-resolve wording, performance note; prior 2026-10-28
-verified-commit: 8be9034a   # SB3 Account; prior b9328614
+last-verified: 2026-11-02  # text-sizing-wrap Account: hug-ruling edge case pointer only; prior 2026-10-29   # SB3 Account: built; status current, AC ticks with test names, edge-case rows (hug ruling, nameless room), notice-at-first-resolve wording, performance note; prior 2026-10-28
+verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 8be9034a   # SB3 Account; prior b9328614
 applies-to:
   - firepro3d/bound_label.py          # new: BoundLabelItem
   - firepro3d/system_blocks.py        # new: SYSTEM_DEFAULTS
@@ -145,7 +145,7 @@ Persistence: `annotation_defaults` in the `.fpd` and the template; Room keeps `m
 - Mapped block not annotative or wrong `host_category` -> treated as missing (log + one status-bar notice via `_show_status` + fallback; the notice fires at the first resolve and is lost if no window has a status bar yet).
 - Room with no boundary / degenerate centroid -> tag not painted.
 - Paper pass on a hidden tag (`show_label` False) -> skipped.
-- Bound text in an authored fixed-width box (the shipped RoomTag's box is sized round the placeholder) -> the **hug ruling** (FP1 at smoke, 2026-10-29): a host-bound text primitive auto-sizes width and height round its RESOLVED value, anchored at the authored box's alignment point (`block_attributes.hugged_text_record`); static and `keep_upright` static text are untouched; `block_explode` hugs before substituting (explode parity). Contract: `docs/specs/system-blocks.md` section 6.
+- Bound text in an authored fixed-width box (the shipped RoomTag's box is sized round the placeholder) -> the **hug ruling** (FP1 at smoke, 2026-10-29; since 2026-11-02 the seeded Shrink to fit flag, [`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](2026-11-01-text-sizing-wrap-design.md) D5): a host-bound text primitive auto-sizes width and height round its RESOLVED value, anchored at the authored box's alignment point (`block_attributes.hugged_text_record`); static and `keep_upright` static text are untouched; `block_explode` hugs before substituting (explode parity). Contract: `docs/specs/system-blocks.md` section 6.
 
 ## User-only steps (Phase 4 batches these)
 

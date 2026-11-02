@@ -1,7 +1,7 @@
 ---
-status: proposal
-last-verified: 2026-11-01
-verified-commit: fffb283a
+status: built  # built 2026-11-02 (feat/text-sizing-wrap, merged 6693013b, v0.80.0); as-built deviations folded into D4-D8
+last-verified: 2026-11-02  # Account: D4 tri-state, D5 bound-seed scope + Block Editor hug + live re-layout, D6 _scaled_text_record, D8 keys + one Precision column + cross-family unit, AC / checklist ticks; prior 2026-11-01
+verified-commit: 6693013b  # merge feat/text-sizing-wrap; prior fffb283a
 applies-to:
   - firepro3d/text_item.py
   - firepro3d/paper_space.py
@@ -15,6 +15,8 @@ applies-to:
   - firepro3d/element_params.py
   - firepro3d/scale_manager.py
   - firepro3d/property_manager.py
+  - firepro3d/settings/panes.py
+  - firepro3d/annotative.py
 source-tasks:
   - "TextItem scene-mm font integer px sizing [bug P1] (+1 SB4a height/padding)"
   - "Per-attribute Unit + Precision override, default Per project settings [feature P1]"
@@ -87,10 +89,14 @@ New text placed in an annotative block definition is seeded at 3 mm cap and
 `DEFAULT_MODEL_TEXT_HEIGHT_MM` (100) / 15 mm. New constants in `constants.py`.
 
 ### D4 — Wrap / Shrink data model (approach A)
-`TextAnnotationData` gains `wrap: bool` and `shrink: bool`, written only when
-they differ from the legacy default:
-- legacy `wrap` = `wrap_width_mm > 0`; legacy `shrink` = the text holds an
-  `@[Field]` (bound text, G12/G13).
+`TextAnnotationData` gains `wrap` and `shrink`, each `bool | None`: `None` = not
+authored = the legacy default, resolved live by `wrap_on()` / `shrink_on()`;
+`to_dict` writes a key only when the flag is authored (not `None`).
+- legacy `shrink` = bound text (holds an `@[Field]`, G12/G13) **in the block
+  layer** only: placed / exploded copies through `hugged_text_record`, and an
+  item on a `scene_role == "block_editor"` scene. Sheet or plan text holding
+  a title-block style token is never seeded.
+- legacy `wrap` = `wrap_width_mm > 0` and not the seeded hug.
 - `wrap_width_mm` / `box_height_mm` / `x` / `y` always hold the **authored**
   box. Turning a toggle off restores it (G2).
 
@@ -107,6 +113,12 @@ export) gets it without change:
   a **local** offset on the painted/hit geometry, never via `setPos` (see
   Architecture). The first plan step probes this offset against
   `boundingRect`, `shape`, grips and snap.
+- While inline-editing, every document content change re-runs the width step
+  (`TextItem._apply_wrap_width` on `contentsChanged`), so typed text widens a
+  Wrap-OFF box and re-hugs a Shrink box live (smoke fix, 2026-11-02).
+- The Block Editor shows the hug: bound text there hugs its displayed (sample
+  or token) text about the authored alignment point, WYSIWYG with placed
+  copies (Phase 4 ruling).
 - `block_attributes.hugged_text_record` keeps its call sites, but its sizing
   core goes away: a bound text seeded `shrink` hugs through D5, so the
   function reduces to value substitution (SB3 U4 ruling preserved as the
@@ -118,7 +130,7 @@ A grip drag, a sheet `ResizeTextBoxCommand`, or a constraint dimension
 height writes an explicit size and sets `shrink = False`; setting a width also
 sets `wrap = True`. One undo step: the command's state tuple and the sketch
 adapter carry both flags. Model placement seeds `wrap` from the drawn width
-as today. `block_explode._scaled_size_fields` and `network_codec` copy and map
+as today. `block_explode._scaled_text_record` and `network_codec` copy and map
 the flags.
 
 ### D7 — Panel toggles
@@ -127,17 +139,28 @@ text, Block Editor text and sheet text panels, undo-routed. Bound text shows
 them too (G12).
 
 ### D8 — Attribute Unit + Precision override (L340)
-- `normalise_attr` accepts optional `unit` (one of the project's length
-  display units; area/volume follow the length family) and `precision`
-  (int 0–5). Absent = "Per project settings". A malformed value is dropped to
-  absent rather than raising (closes the bad-precision ValueError line).
+- `normalise_attr` accepts two optional sparse keys: `unit` (one of the
+  project's length display units; area/volume follow the length family) and
+  `display_precision` (int 0–5, clamped). Absent = "Per project settings".
+  The existing `precision` key keeps its A8 meaning (a `number` attribute's
+  decimals); it is not reused, because every stored record carries it (0 on
+  the shipped tags) and reading it as an override would move legacy files.
+  A malformed `precision` reads 0 and a malformed `unit` / `display_precision`
+  is dropped, so the record loads; an unknown `type` / `source` still raises.
 - `format_value` formats a `HostValue` through `sm.with_overrides(unit=,
   precision=)`, a `ScaleManager` clone. Imperial length precision keeps the
   project meaning (fraction denominator `2**p`). Hydraulic kinds accept
-  precision only (G7).
-- The Block Editor Attributes editor (`block_attributes_editor.py`) gains Unit
-  and Precision columns, each with a "Per project settings" entry. Every
-  placed copy follows the definition (G5).
+  precision only (G7). A `number` attribute takes the unit only; it prints at
+  its own `precision`. A unit override with no precision override keeps the
+  project's precision integer, read in the new family (project imperial 3 =
+  1/8" -> a metric override prints 3 decimals).
+- The Block Editor Attributes editor (`block_attributes_editor.py`) keeps ONE
+  Precision column, now a dropdown ("Per project settings", 0–5), and gains a
+  Unit column ("Per project settings" default). The row type decides the key:
+  a `number` row edits `precision` ("Per project settings" there saves 0 --
+  accepted at smoke, 2026-11-02), a host `text` row edits `display_precision`.
+  A text record's own `precision` rides on the widget and is written back
+  unchanged. Every placed copy follows the definition (G5).
 
 ### D9 — Project hydraulic precision (G6)
 `ScaleManager` gains `pressure_precision` / `flow_precision` /
@@ -155,39 +178,40 @@ Units stay psi / gpm / ft/s (units D2; metric hydraulics is out of scope).
 
 ## Acceptance Criteria
 
-- [ ] AC1 3 mm text draws a 3.0 mm cap (±1%; today 2.863) at 2, 3 and 100 mm, with glyph advances within 2% of ideal.
-- [ ] AC2 Height shows/parses in pt (decimals) on sheet and annotative-block text; mm with decimals on real-size text; storage stays cap mm.
-- [ ] AC3 New text in an annotative Block Editor block stores 3 mm / 1 mm; model and real-size blocks keep 100 / 15.
-- [ ] AC4 RoomTag pixel lock and SB3 parity goldens re-captured; PipeLabel / RoomTag seed sizes unchanged.
-- [ ] AC5 Attributes editor Unit + Precision per record, default "Per project settings"; every placed copy follows.
-- [ ] AC6 Unit list = the project's; hydraulic kinds precision-only.
-- [ ] AC7 Project Pressure / Flow / Velocity precision rows, defaults 1 / 0 / 1 — today's strings unchanged.
-- [ ] AC8 A malformed precision value no longer raises.
-- [ ] AC9 Wrap + Shrink toggles on model, Block Editor and sheet text.
-- [ ] AC10 Wrap OFF: breaks only at Enter; width = longest line + padding; authored width restored on Wrap ON.
-- [ ] AC11 Shrink ON: hugs both axes; alignment point fixed.
-- [ ] AC12 Drag / sheet resize / constraint dim on a Shrink box: explicit size, Shrink OFF, one undo step.
-- [ ] AC13 Width drag on a Wrap-OFF box: Wrap ON at the dragged width, one undo step (G14).
-- [ ] AC14 Bound text seeded Shrink ON + Wrap OFF; looks as today; author may turn Shrink off.
-- [ ] AC15 Legacy load moves nothing (flags per D4) except AC1.
-- [ ] AC16 Flags round-trip through save/load, undo, block explode, copy/paste.
+- [x] AC1 3 mm text draws a 3.0 mm cap (±1%; today 2.863) at 2, 3 and 100 mm, with glyph advances within 2% of ideal.
+- [x] AC2 Height shows/parses in pt (decimals) on sheet and annotative-block text; mm with decimals on real-size text; storage stays cap mm.
+- [x] AC3 New text in an annotative Block Editor block stores 3 mm / 1 mm; model and real-size blocks keep 100 / 15.
+- [x] AC4 RoomTag pixel lock and SB3 parity goldens re-captured; PipeLabel / RoomTag seed sizes unchanged.
+- [x] AC5 Attributes editor Unit + Precision per record, default "Per project settings"; every placed copy follows.
+- [x] AC6 Unit list = the project's; hydraulic kinds precision-only.
+- [x] AC7 Project Pressure / Flow / Velocity precision rows, defaults 1 / 0 / 1 — today's strings unchanged.
+- [x] AC8 A malformed precision value no longer raises.
+- [x] AC9 Wrap + Shrink toggles on model, Block Editor and sheet text.
+- [x] AC10 Wrap OFF: breaks only at Enter; width = longest line + padding; authored width restored on Wrap ON.
+- [x] AC11 Shrink ON: hugs both axes; alignment point fixed.
+- [x] AC12 Drag / sheet resize / constraint dim on a Shrink box: explicit size, Shrink OFF, one undo step.
+- [x] AC13 Width drag on a Wrap-OFF box: Wrap ON at the dragged width, one undo step (G14).
+- [x] AC14 Bound text seeded Shrink ON + Wrap OFF; looks as today; author may turn Shrink off.
+- [x] AC15 Legacy load moves nothing (flags per D4) except AC1.
+- [x] AC16 Flags round-trip through save/load, undo, block explode, copy/paste.
 
 ## Verification Checklist
 
 Each guard drives the real path and is shown RED with its rule reverted (VC3).
 
-- [ ] T-L96: native-font render, drawn cap at 2/3/100 mm vs h (±1%), 'm' advance at 3 mm vs ideal (RED: restore the rounded pixel size).
-- [ ] T-height-row: annotative-block row shows pt and accepts 10.5; real-size row accepts 2.5 mm (RED: int rounding).
-- [ ] T-be-default: text placed in an annotative block stores 3 / 1 (RED: model default).
-- [ ] T-precision: definition precision 2 on a length attribute → instance shows 2 dp; absent follows a project change; project pressure precision 2 → `12.34 psi` (RED: drop the override in `format_value`).
-- [ ] T-wrap-off: long text with Wrap off lays out on one line, width = idealWidth + 2·pad; Wrap on restores the authored width.
-- [ ] T-shrink: box rect = content rect + pad on both axes; alignment point unchanged across a value change.
-- [ ] T-shrink-anchor-probe: the shrink offset never reaches `data.x/y` through `itemChange`.
-- [ ] T-drag-off: grip drag on a Shrink box → shrink False, dragged size, one undo restores both; width drag on Wrap-OFF → wrap True (G14).
-- [ ] T-legacy: fixture with `wrap_width_mm` 0 / 120 and a bound tag → flags per D4, render rects identical to base except the AC1 scale.
-- [ ] T-roundtrip: to_dict/from_dict, explode, undo preserve both flags (sparse keys).
-- [ ] Full suite green (VC6); goldens re-captured only in the L96 commit.
-- [ ] Smoke: PipeLabel + RoomTag at true size; toggles on all three surfaces; precision override on a PipeLabel attribute.
+- [x] T-L96: native-font render, drawn cap at 2/3/100 mm vs h (±1%), 'm' advance at 3 mm vs ideal (RED: restore the rounded pixel size).
+- [x] T-height-row: annotative-block row shows pt and accepts 10.5; real-size row accepts 2.5 mm (RED: int rounding).
+- [x] T-be-default: text placed in an annotative block stores 3 / 1 (RED: model default).
+- [x] T-precision: definition precision 2 on a length attribute → instance shows 2 dp; absent follows a project change; project pressure precision 2 → `12.34 psi` (RED: drop the override in `format_value`).
+- [x] T-wrap-off: long text with Wrap off lays out on one line, width = idealWidth + 2·pad; Wrap on restores the authored width.
+- [x] T-shrink: box rect = content rect + pad on both axes; alignment point unchanged across a value change.
+- [x] T-shrink-anchor-probe: the shrink offset never reaches `data.x/y` through `itemChange`.
+- [x] T-drag-off: grip drag on a Shrink box → shrink False, dragged size, one undo restores both; width drag on Wrap-OFF → wrap True (G14).
+- [x] T-legacy: fixture with `wrap_width_mm` 0 / 120 and a bound tag → flags per D4, render rects identical to base except the AC1 scale.
+- [x] T-roundtrip: to_dict/from_dict, explode, undo preserve both flags (sparse keys).
+- [ ] Full suite green (VC6) -- **waived by the user at Phase 6 (2026-11-02)**; coupled keep-green
+  runs only (T38 + the smoke-fix round). Goldens re-captured only in the L96 commit.
+- [x] Smoke: PipeLabel + RoomTag at true size; toggles on all three surfaces; precision override on a PipeLabel attribute.
 
 ## Existing Code Context
 

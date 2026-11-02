@@ -1,7 +1,7 @@
 ---
 status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+last-verified: 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
@@ -202,6 +202,11 @@ axis authored 0 keeps its position on that axis. The gate is "the record has fie
 `bound_text_ops` hugs before binding, and `block_explode` hugs before substituting, so an
 exploded tag lands in the same box it was drawn in (explode parity). Guards:
 `tests/test_sb3_bound_label.py` (`test_bound_text_box_*`, `test_exploded_bound_text_lands_in_the_hugged_box`).
+
+*As of 2026-11-02 the hug is the text's own Shrink to fit:* `hugged_text_record` no longer resizes the
+record; it writes the seeded flags (Wrap OFF + Shrink ON unless authored) and `TextItem`
+lays the box out round the value, keeping the authored alignment point. An author may turn
+Shrink off on a bound text. Contract: [`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](../superpowers/specs/2026-11-01-text-sizing-wrap-design.md) D4 / D5 (G12, G13).
 
 ## 6a. Hide when empty (SB4a)
 

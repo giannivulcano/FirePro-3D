@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built conventions; divergences ledger at end
-last-verified: 2026-10-30  # dimension-input-grammar Account: §3.2 length literals + expressions (length_expr.py), §3.1 fraction rows scoped to lengths, NUM_PATTERN home moved; prior 2026-10-24 SB2a Account: §3 area / volume / pressure / flow rows name the ScaleManager formatters, new velocity + pipe ID rows, D1 resolved, D2 reworded; prior 2026-10-01 scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
-verified-commit: 6984a2b1   # dimension-input-grammar Account; prior a6122a0e   # SB2a Account; prior c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
+last-verified: 2026-11-02  # text-sizing-wrap Account: §3 pressure / flow / velocity rows (project precision, instance methods) + with_overrides pointer only, rest not re-audited; prior 2026-10-30  # dimension-input-grammar Account: §3.2 length literals + expressions (length_expr.py), §3.1 fraction rows scoped to lengths, NUM_PATTERN home moved; prior 2026-10-24 SB2a Account: §3 area / volume / pressure / flow rows name the ScaleManager formatters, new velocity + pipe ID rows, D1 resolved, D2 reworded; prior 2026-10-01 scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
+verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 6984a2b1   # dimension-input-grammar Account; prior a6122a0e   # SB2a Account; prior c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
 applies-to:
   - firepro3d/scale_manager.py
   - firepro3d/dynamic_input.py    # FieldKind formatter/parser shells (FACTOR → ScaleManager; COUNT still local — §8 D5)
@@ -39,15 +39,20 @@ Values are converted **at display time only**. Never store a display string as t
 | Volume | `23040 cu ft` | `652.4 m³` (`N mm³` for METRIC_MM) | `ScaleManager.format_volume_mm3(mm3)` (+ `volume_mm3_value`); `Room._fmt_volume` delegates to it |
 | Area (NFPA design basis, stored ft²) | `1500 sq ft` | `139.4 m²` | `ScaleManager.format_area_sqft(sqft)`; None-safe module wrapper `scale_manager.format_area_sqft(sqft, sm)` |
 | Sprinkler density | `0.15 gpm/ft²` | `6.11 mm/min` (×40.746) | `ScaleManager.format_density(gpm_ft2)`; None-safe wrapper likewise |
-| Pressure | `68.3 psi` | psi (no metric variant yet) | `ScaleManager.format_pressure(psi)` (`@staticmethod`, `:.1f` + " psi"); no metric variant |
-| Flow | `750 gpm` | gpm (no metric variant yet) | `ScaleManager.format_flow(gpm)` (`@staticmethod`, `:.0f` + " gpm"); no metric variant |
-| Velocity | `12.3 ft/s` | ft/s (no metric variant yet) | `ScaleManager.format_velocity(fps)` (`@staticmethod`, `:.1f` + " ft/s") |
+| Pressure | `68.3 psi` | psi (no metric variant yet) | `ScaleManager.format_pressure(psi)` at `pressure_precision` (project setting, default 1) + " psi"; no metric variant |
+| Flow | `750 gpm` | gpm (no metric variant yet) | `ScaleManager.format_flow(gpm)` at `flow_precision` (project setting, default 0) + " gpm"; no metric variant |
+| Velocity | `12.3 ft/s` | ft/s (no metric variant yet) | `ScaleManager.format_velocity(fps)` at `velocity_precision` (project setting, default 1) + " ft/s" |
 | Pipe inner diameter (stored in) | `1.049"` | `26.6 mm` (all metric units) | `ScaleManager.format_pipe_id(inches)` (+ `pipe_id_value`); imperial `:.3f"`, metric `inches × 25.4` at `:.1f mm` |
 | Text size (annotations) | Word-style **pt** display | pt | storage stays mm cap-height (paper-space.md §9; user_word_like_text_ux) |
 | Angle | decimal degrees (unit-invariant) | decimal degrees (unit-invariant) | `ScaleManager.format_angle` / `parse_angle` — conventions in §4 |
 | Factor (unitless ratio — the Scale tool's factor, added 2026-10-01) | bare decimal, no unit glyph (unit-invariant): `2`, `0.5`, `0.3333`, `0.00002`, `12345.6` | same | `ScaleManager.format_factor` / `parse_factor` (`@staticmethod`s; `dynamic_input._format_factor`/`_parse_factor` are delegating shells for `FieldKind.FACTOR`). **Display:** values ≥ 1 keep up to 4 decimals, values < 1 keep 4 *significant* digits (a tiny positive factor never collapses to `0`); never scientific notation; trailing zeros trimmed, rounded half-up; non-finite (`NaN`/`±inf`) displays `1` (the identity — it reaches paint paths). **Input:** the §3.1 number grammar (`_NUM`), **unsigned** (a sign is refused), optional trailing `x` / `X` / `×` (`2x`); `1e3`, `1_000`, `nan`, `inf` refused → `None` (revert). Positivity (> 0) is the field `minimum` / applier's job, not the parser's. The one precision for every factor display (HUD field, live status, commit message). |
 
 **Spelling conventions (imperial):** `sq ft`, `cu ft`, `gpm/ft²`, `psi`, `gpm`, `gal`. **Not** `ft²`/`sqft`/`SF` in UI text. (`gpm/ft²` keeps the `ft²` glyph inside the compound unit only.)
+
+The three hydraulic precisions are project settings (Project Settings > Units & Precision,
+sparse in `ScaleManager.to_dict`). `ScaleManager.with_overrides(unit=, precision=)` is the
+clone a block attribute's Unit / Precision override formats through -- contract in
+[`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](../superpowers/specs/2026-11-01-text-sizing-wrap-design.md) D8 / D9.
 
 ### 3.1 Numeric grammar — shared by both parsers
 

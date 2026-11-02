@@ -1,7 +1,7 @@
 ---
 status: built               # SB1a built 2026-10-21, merged 0c06b766; as-built deviations in "Reconciliations"
-last-verified: 2026-10-21
-verified-commit: 0c06b766   # SB1a merge (design written at branch base 33afbc32)
+last-verified: 2026-11-02  # text-sizing-wrap Account: record schema + A8 pointers (sparse unit / display_precision; malformed precision reads 0) only; prior 2026-10-21
+verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0c06b766   # SB1a merge (design written at branch base 33afbc32)
 applies-to:
   - firepro3d/block_attributes.py          # new: attribute schema, formatting, resolver (pure)
   - firepro3d/block_attributes_dialog.py   # new: Edit Attributes dialog (placed instance)
@@ -60,7 +60,7 @@ registry). Nothing user-visible changes for blocks without attributes.
 | A5 | `keep_upright`: net text angle in (90, 270] degrees -> 180-degree flip about the text's own box centre; a mirrored instance also un-mirrors the glyphs. Pose-only (view-independent), so model and paper agree. |
 | A6 | `default` doubles as the preview sample (host attrs: sample only). Empty -> placeholder. A "show raw tokens" toggle. |
 | A7 | Renaming a key rewrites every `@[old]` in the definition's text (one undo step); deleting a referenced key is refused ("used by N text fields"); unknown tokens render literally plus a Block Manager warning. |
-| A8 | `type: number` renders as a plain decimal with `precision`, wrapped by prefix/suffix. Unit-aware (kind) formatting arrives with SB2 host values. |
+| A8 | `type: number` renders as a plain decimal with `precision`, wrapped by prefix/suffix. Unit-aware (kind) formatting arrives with SB2 host values. *(2026-11-02: a malformed `precision` reads 0 instead of raising; the optional `unit` / `display_precision` override -- [`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](2026-11-01-text-sizing-wrap-design.md) D8.)* |
 | A9 | Explode bakes the resolved string and the keep_upright pose into a plain text primitive. |
 | Assumed | `scale_mode: "annotative"` is authored and stored in SB1a but paints as real size until SB1c. |
 
@@ -68,7 +68,8 @@ registry). Nothing user-visible changes for blocks without attributes.
 
 - **Definition `attributes`** (the reserved list, now read): records
   `{key, label, type: "text"|"number", source: "instance"|"host", host_key, default,
-  prefix, suffix, precision, placeholder}`. `key` is the token name, unique per
+  prefix, suffix, precision, placeholder}` (+ optional sparse `unit` /
+  `display_precision`, 2026-11-02: [`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](2026-11-01-text-sizing-wrap-design.md) D8). `key` is the token name, unique per
   definition, case-sensitive. `host_category: str` ("" = none) and `scale_mode`
   ("real_size" | "annotative") become authored definition fields. `attributes` is
   still carried by clone (Manager "Create new based off").

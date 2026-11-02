@@ -1,7 +1,7 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); model-surface inline edit LANDED 2026-09-23 (feat/model-text-inline-edit); style presets/SHX/overrides deferred
-last-verified: 2026-11-01  # SB4a Account (hide_empty pointer only); prior 2026-10-21  # SB1a Account (pointer paragraph: keep_upright + Insert field / @[key]); prior 2026-10-18 HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
-verified-commit: 0924bcd6  # SB4a (pointer only); prior 0c06b766  # SB1a Account (pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
+last-verified: 2026-11-02  # text-sizing-wrap Account: Decision 5 + divergence D4 superseded (Wrap / Shrink to fit, true cap height) -- pointers only, rest not re-audited; prior 2026-11-01  # SB4a Account (hide_empty pointer only); prior 2026-10-21  # SB1a Account (pointer paragraph: keep_upright + Insert field / @[key]); prior 2026-10-18 HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
+verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6  # SB4a (pointer only); prior 0c06b766  # SB1a Account (pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields; SB1a keep_upright flag + Block Editor Insert field row)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -96,7 +96,9 @@ Decisions locked in the 2026-09-21 brainstorm (mockup:
 4. **Border color = the text color** — no separate border-color field this slice
    (a dedicated frame color can be added later without a migration: absence ⇒
    text color).
-5. **No wrap toggle — text always wraps.** The box always has a width (from
+5. *(Superseded 2026-11-02 -- text now has **Wrap** and **Shrink to fit** toggles and
+   draws at its true cap height; contract in [`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](../superpowers/specs/2026-11-01-text-sizing-wrap-design.md) D1-D7.)*
+   **No wrap toggle — text always wraps.** The box always has a width (from
    placement/resize); text wraps to it and the box auto-grows in height. This
    removes the old auto-width-vs-wrap ambiguity. (Any residual auto-width path
    in `TextItem` is normalized to always-wrap — see Divergences.)
@@ -457,7 +459,8 @@ edit (stops blink, clears the old scene's marker).
   the SHX section + stroke-font preview pixmaps land with D1.
 - **D3 — Separate border color.** Absent ⇒ text color; a dedicated field can be
   added later without migration.
-- **D4 — Always-wrap normalization.** Today `TextItem` treats `wrap_width_mm == 0`
+- **D4 — Always-wrap normalization.** *(Retired 2026-11-02: Wrap OFF is now an explicit
+  flag -- [`superpowers/specs/2026-11-01-text-sizing-wrap-design.md`](../superpowers/specs/2026-11-01-text-sizing-wrap-design.md) D4.)* Today `TextItem` treats `wrap_width_mm == 0`
   as auto-width (no wrap). Decision 5 makes text always wrap; the implementation
   normalizes placement/resize so a width is always present. Any code path that
   still emits `wrap_width_mm == 0` for a live box is a divergence to close in the
