@@ -136,6 +136,37 @@ def test_wrap_off_breaks_only_at_a_typed_enter(qapp):
     assert _lines(t.document()) == 2
 
 
+def _type_keys(t, s):
+    """Type *s* into an editing item through its real key routing."""
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    for ch in s:
+        key = Qt.Key.Key_Space if ch == " " else Qt.Key(ord(ch.upper()))
+        t.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key,
+                                  Qt.KeyboardModifier.NoModifier, ch))
+    _process()
+
+
+@pytest.mark.parametrize("wrap,shrink", [(False, False), (False, True), (True, True)])
+def test_typing_re_lays_out_the_box_live(qapp, wrap, shrink):
+    """G2/G3 smoke: while inline-editing, typed text widens a Wrap-OFF box
+    on one line, and a Shrink + Wrap box keeps breaking at the wrap width --
+    not at the width laid out before the edit began."""
+    from PyQt6.QtGui import QTextCursor
+    ms = _model()
+    t = _add(ms, text="Hi", wrap_width_mm=20.0, wrap=wrap, shrink=shrink)
+    t.begin_edit()
+    c = t.textCursor()
+    c.movePosition(QTextCursor.MoveOperation.End)
+    t.setTextCursor(c)
+    _type_keys(t, " " + LONG)
+    assert t.toPlainText() == "Hi " + LONG
+    doc, s = _raw_doc("Hi " + LONG, wrap_mm=20.0 if wrap else None)
+    assert _lines(t.document()) == _lines(doc)
+    assert _box(t).width() == pytest.approx(doc.idealWidth() * s, abs=1e-6)
+    t.commit_edit()
+
+
 # ── T23: Shrink sizing (D5, G3) ─────────────────────────────────────────────
 
 def test_shrink_hugs_both_axes_wrap_off(qapp):

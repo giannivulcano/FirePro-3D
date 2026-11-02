@@ -481,6 +481,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setPos(data.x, data.y)
         self._apply_format()
+        self.document().contentsChanged.connect(self._on_contents_changed)
+
+    def _on_contents_changed(self) -> None:
+        """Re-lay out the Wrap / Shrink width live while inline-editing."""
+        if self._editing:
+            self.prepareGeometryChange()
+            self._apply_wrap_width()
 
     @property
     def data(self) -> "TextAnnotationData":
@@ -539,6 +546,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
         if scale > 0:
             self.document().setDocumentMargin(self._data.cell_padding_mm / scale)
+        self._apply_wrap_width()
+
+    def _apply_wrap_width(self) -> None:
+        """Lay the document out at its Wrap / Shrink width (D5) and latch the
+        Shrink offset.  Run by ``_apply_format`` and, while inline-editing, on
+        every content change, so typed text widens a Wrap-OFF box and a Shrink
+        box re-hugs live instead of wrapping at the pre-edit width."""
+        d = self._data
+        scale = self.scale()
         shrink = self.shrink_on()
         if self.wrap_on() and d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
