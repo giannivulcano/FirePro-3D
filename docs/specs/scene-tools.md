@@ -1,13 +1,14 @@
 ---
-status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; Trim/Extend/Break/Fillet/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
-last-verified: 2026-11-01  # transform per-move perf Account: D11 GhostFrame / cached glow amendment only, rest not re-audited; prior 2026-10-31  # floor-opening Account: "Selection / undo" bullet (floor_opening ends on undo via _cancel_modify_tool_for_undo) + new "Floor voids ride their slab" bullet only, rest not re-audited; prior 2026-10-26  # Editor/Build slice 1 Account: Edit + Modify grouping pointer and the ribbon names in D1 / file list only, rest not re-audited; prior 2026-10-25  # SB2b Account: Array Targets bullet only (paste branches, design-area filter, one duplicate refresh), rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-20  # UP2 Account (Hatch row: menu entries "Fill…" / "Fill Pattern…", pointer only; verified at ab930f58); prior HF4 Account (s1 Fill row: pick_region branch + _commit_region tail, pointer only; verified at bb7074b8); prior HF3 Account (s1 Fill row: fill_selected_items / region Explode / _find_tool_target refusals -> hatch-and-fill D-A3 / D-A13; pointer only); prior 2026-10-17 AC4 Account (pointer only: §5.7 Block Editor relations on the copy -> parametric-constraint-system §13 D155-D156; commit_offset(event)); prior 2026-10-15 block-primitive-snap Account (D16 axis step: block primitives' straight edges are axes; arcs never); prior 2026-10-14 CS4b Account (pointers only: bare D in model_view keyPressEvent -> parametric D63; Rotate / Flip / Mirror / Scale commits pass point_map -> parametric D65 / §8); prior reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
-verified-commit: 63144256   # merge perf/transform-per-move (D11 amendment); prior 1c1e59c6   # floor-opening (pointers only); prior c23c1610   # Editor/Build slice 1 Account (ribbon grouping pointer only); prior ceacaab4   # SB2b Account (Array Targets only); prior 58769fc5   # Editor/Build design (pointer only); prior ab930f58   # feat/up2-fill-picker-routing (Hatch row, pointer only); prior bb7074b8 merge feat/hf4-pick-region (Fill row pick_region branch, pointer only); prior 66880197 merge feat/hf3-filled-region (HF3 Fill row, pointer only); prior 1adf8dae merge feat/ac4-offset-constraints (AC4 pointer); prior 5e4948d6 merge feat/block-primitive-snap; prior f866ff39 CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; scene-tool polish (D10 0-deg lock, D16 Flip quadrants, D17 Length, new D19 Fillet) BUILT 2026-11-01 (70d08c28); Trim/Extend/Break/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
+last-verified: 2026-11-02  # scene-tool polish Account: D10 Linear lock, D14 note, D16 Flip, D17 Scale HUD, new D19 Fillet, s1 Fillet row + Existing Code tool_geometry line, applies-to fillet_geometry.py, rest not re-audited; prior 2026-11-01  # transform per-move perf Account: D11 GhostFrame / cached glow amendment only, rest not re-audited; prior 2026-10-31  # floor-opening Account: "Selection / undo" bullet (floor_opening ends on undo via _cancel_modify_tool_for_undo) + new "Floor voids ride their slab" bullet only, rest not re-audited; prior 2026-10-26  # Editor/Build slice 1 Account: Edit + Modify grouping pointer and the ribbon names in D1 / file list only, rest not re-audited; prior 2026-10-25  # SB2b Account: Array Targets bullet only (paste branches, design-area filter, one duplicate refresh), rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-20  # UP2 Account (Hatch row: menu entries "Fill…" / "Fill Pattern…", pointer only; verified at ab930f58); prior HF4 Account (s1 Fill row: pick_region branch + _commit_region tail, pointer only; verified at bb7074b8); prior HF3 Account (s1 Fill row: fill_selected_items / region Explode / _find_tool_target refusals -> hatch-and-fill D-A3 / D-A13; pointer only); prior 2026-10-17 AC4 Account (pointer only: §5.7 Block Editor relations on the copy -> parametric-constraint-system §13 D155-D156; commit_offset(event)); prior 2026-10-15 block-primitive-snap Account (D16 axis step: block primitives' straight edges are axes; arcs never); prior 2026-10-14 CS4b Account (pointers only: bare D in model_view keyPressEvent -> parametric D63; Rotate / Flip / Mirror / Scale commits pass point_map -> parametric D65 / §8); prior reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: 70d08c28   # merge feat/scene-tool-polish (D10 / D14 / D16 / D17 / D19); prior 63144256   # merge perf/transform-per-move (D11 amendment); prior 1c1e59c6   # floor-opening (pointers only); prior c23c1610   # Editor/Build slice 1 Account (ribbon grouping pointer only); prior ceacaab4   # SB2b Account (Array Targets only); prior 58769fc5   # Editor/Build design (pointer only); prior ab930f58   # feat/up2-fill-picker-routing (Hatch row, pointer only); prior bb7074b8 merge feat/hf4-pick-region (Fill row pick_region branch, pointer only); prior 66880197 merge feat/hf3-filled-region (HF3 Fill row, pointer only); prior 1adf8dae merge feat/ac4-offset-constraints (AC4 pointer); prior 5e4948d6 merge feat/block-primitive-snap; prior f866ff39 CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
   - firepro3d/modify_tools_controller.py
   - firepro3d/transform_ghost.py
-  - firepro3d/axis_picker.py            # Flip / Mirror axis pick (D16)
+  - firepro3d/axis_picker.py            # Mirror axis pick (D16)
+  - firepro3d/fillet_geometry.py        # Fillet corner / tangent-arc maths (D19)
   # Shared files — only the Edit/Modify builders, the window tool-shortcut
   # table and the mode-badge labels (main.py); the Copy/Cut entries
   # (entity_context_menu.py):
@@ -106,7 +107,7 @@ Verified by reading every row and by a read-only runtime probe (real
 | Trim | `trim` → `trim_pick` | `SceneTools._handle_trim_click`: pick cutting edge, then click target piece; Line = move nearer endpoint; Circle → Arc; Arc = shorten | edge highlight only | none | set_mode clears edge + highlight ("right-click to cancel" actually opens the context menu, whose first item is Cancel) | after each trim |
 | Extend | `extend` → `extend_pick` | `_handle_extend_click`: boundary, then endpoint (Line / Polyline end vertex only) | highlight | none | set_mode | after each extend |
 | Break / Break-at-point | `break`, `break_at_point` | pick object, then 1 or 2 points → `_break_item` / `_break_at_point` | highlight | none | set_mode | after |
-| Fillet / Chamfer | `fillet`, `chamfer` | pick 2 **LineItems** → preview → Enter commits (`_commit_fillet/_commit_chamfer`); radius/dist fixed at 5.0 (Tab path dead) | dashed circle / bevel line | none | set_mode | after |
+| Fillet / Chamfer | `fillet`, `chamfer` | pick 2 **LineItems** → preview → Enter commits (`_commit_fillet/_commit_chamfer`); radius/dist fixed at 5.0 (Tab path dead) | dashed circle / bevel line | none | set_mode | after | *(Fillet superseded 2026-11-01 by the new tool, D19; legacy retired)*
 | Stretch | `stretch` | view-side right-to-left rubber band (`Model_View` release) → `begin_stretch_crossing`; base click, dest click → `_commit_stretch` | dashed line | none | set_mode | after |
 | Merge points | `merge_points` | two endpoint clicks → `apply_grip` | marker item | none | set_mode | after |
 | Join / Explode | — (methods) | `join_selected_items` / `explode_selected_items` | — | — | — | after |
@@ -608,6 +609,10 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
     horizontal). A blank field keeps its value (the HUD never reports empty);
     an Angle equal to the live aim is the untouched readout and does not
     lock. The status readout shows an active lock.
+    *Amended 2026-11-01 (scene-tool polish DS2, `docs/superpowers/specs/2026-11-01-scene-tool-polish-design.md`):*
+    a typed **0 locks to 0°** (it no longer releases), and the lock **ends
+    with the tool** — leaving Array or restarting it mid-tool starts
+    unlocked (`_array_angle_locked` is no longer session memory).
   - **2D** — the cursor is the first cell's diagonal corner (any quadrant —
     spacings are signed); columns along Angle (the lock, else 0°), rows along
     Angle + 90° CCW (Y-up). HUD **Angle · Col spacing · Cols · Row spacing ·
@@ -696,6 +701,8 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
   Stretch, Merge points, geometry Join / Explode — so their DV7 fixes are
   guarded by tests only and cannot be smoke-tested in the UI. Polar and 2D
   array are built (D10).)*
+  *(2026-11-01, scene-tool polish: **Fillet** is surfaced as a new tool —
+  D19; the legacy fillet is retired. Chamfer and the rest stay unreachable.)*
 - **D15 Dead plumbing.** `numericInputRequested` / `complete_numeric_input`
   deleted (the HUD replaces it).
 
@@ -713,6 +720,13 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
 
 - **D16 Flip (Shift+F) / Mirror (Shift+I).** Flip reflects the selection in
   place; Mirror adds reflected copies. Modify-group buttons (D1).
+  *Amended 2026-11-01 (scene-tool polish DS3, `docs/superpowers/specs/2026-11-01-scene-tool-polish-design.md`):*
+  **Flip no longer uses the axis step** — a crosshair sits at the selection's
+  bounding-box centre; the cursor's quadrant sets left/right and up/down
+  (`_flip_lr` / `_flip_ud`), ←/→ and ↑/↓ toggle them until the next
+  quadrant change; one reflection per active axis about the centre, live
+  ghost; nothing active → "Nothing flipped", tool stays live. Steps 2–5
+  below now describe **Mirror** only (its edge-pick axis is unchanged).
   1. *Gate:* select-first (D3); with no selected item carrying
      `manip_reflect` → status `nothing_to_hint` ("Nothing to flip — only 2D
      drafting geometry and blocks can be flipped"), no mode change. One shared helper
@@ -772,6 +786,12 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
      (`FieldKind.FACTOR`, unitless, > 0; formatter / parser are
      `ScaleManager.format_factor` / `parse_factor`); typed + Enter commits;
      ≤ 0 or non-finite → refused (`reject_commit`, HUD stays).
+     *Amended 2026-11-01 (scene-tool polish DS1, `docs/superpowers/specs/2026-11-01-scene-tool-polish-design.md`):*
+     after the reference point the HUD opens on **Length** (`scale_length`,
+     a DIMENSION: the new base→reference distance; factor = L ÷ |ref −
+     base|); ←/→ at that step swaps Length ⇄ Factor. **Tab** on either
+     field previews the ghost at the typed value (`preview_scale_typed`);
+     Enter commits.
   4. *Commit:* `manip_scale_about(base, f)` per item (per-primitive rules,
      incl. "lineweights never scale", owned by `2d-geometry.md` §1.2). One
      undo → Select with the originals; "(k skipped)". **Factor 1** is a
@@ -783,6 +803,22 @@ splines + the shared close helper → `2d-geometry.md`; FACTOR display/parse gra
   6. *Skipped by capability:* as D16 (Text, Nodes, …). Block instances are
      supported since 2026-10-12 (uniform pose scale about the base) —
      `block-system.md` "Instance pose: mirror & scale".
+- **D19 Fillet (Shift+E) — added 2026-11-01 (scene-tool polish DS4).**
+  Contract, acceptance criteria and edge cases: `docs/superpowers/specs/2026-11-01-scene-tool-polish-design.md` DS4
+  (Rule A — not restated). As built: Modify-group button (after Array,
+  before Explode); not select-first; hover corner = polyline vertex,
+  Rect / RegularPolygon corner, or two Lines that meet / cross (fallback:
+  click Line 1, hover Line 2); pure maths in `fillet_geometry.py`; sticky
+  `fillet_radius` HUD (default `FILLET_DEFAULT_RADIUS_MM`; **Tab** previews
+  the typed radius, Enter / click commits and makes it sticky); one undo step,
+  tool stays live; shapes become open polyline(s) + an `ArcItem` (fill
+  dropped). Cursor SNAP / ALIGN are **off** in fillet mode (as Flip / Mirror —
+  the tool hit-tests on the raw cursor). Constrained trimmed ends: relations
+  naming a trimmed end are dropped in the same step
+  (`ConstraintController.drop_at`); if one still resists the trim, the
+  pre-commit state is restored and the fillet refused ("Fillet conflicts with
+  the constraints on these edges"). Block Editor relations →
+  `parametric-constraint-system.md` §13.
 - **D18 Mode badge.** The footer badge shows the friendly tool name for every
   mode a user can enter (`main.py` `_MODE_LABELS`): the dispatch-table modes,
   literal `set_mode` callers (incl. `dimension`), `offset_side` → Offset,
@@ -1005,7 +1041,8 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 - `firepro3d/tool_geometry.py` — pure math: `extract_edges`, offset
   (`offset_polyline_pts`, `offset_signed_dist`, `inset_polygon`,
   `distance_to_item`, `offset_side_sign`, `offset_item` — D9),
-  `compute_fillet/chamfer`, segments / intersections.
+  `compute_chamfer`, segments / intersections (`compute_fillet` retired
+  2026-11-01; Fillet maths → `fillet_geometry.py`, D19).
 - `firepro3d/model_space.py` — mode state machines: `set_mode` teardown,
   `_PRESS_DISPATCH` / `_MOVE_DISPATCH` / `_PREVIEW_DISPATCH`,
   `_SCHEMA_FOR_MODE` / `_APPLIER_FOR_MODE`, the tools' `_press_*` / `_move_*`,

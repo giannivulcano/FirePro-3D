@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d import tool_geometry as tg
 from firepro3d.geometry_2d import (
-    LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem,
+    LineItem, PolylineItem, RectangleItem, ArcItem,
 )
 
 
@@ -98,25 +98,6 @@ class TestGetItemSegments:
         segs = tg.get_item_segments(rect)
         assert len(segs) == 4
         assert all(s[0] == "line" for s in segs)
-
-
-class TestComputeFillet:
-    def test_perpendicular_lines(self, scene):
-        l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
-        l2 = LineItem(QPointF(0, 0), QPointF(0, 100))
-        scene.addItem(l1)
-        scene.addItem(l2)
-        data = tg.compute_fillet(l1, l2, 10.0)
-        assert data is not None
-        assert abs(data["center"].x() - 10.0) < 1e-3
-        assert abs(data["center"].y() - 10.0) < 1e-3
-
-    def test_non_line_returns_none(self, scene):
-        l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
-        c1 = CircleItem(QPointF(50, 50), 30)
-        scene.addItem(l1)
-        scene.addItem(c1)
-        assert tg.compute_fillet(l1, c1, 10.0) is None
 
 
 class TestExtractEdges:

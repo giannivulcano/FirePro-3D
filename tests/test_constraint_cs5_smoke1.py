@@ -311,7 +311,6 @@ def test_d84_arc_sweep_places_and_drags_in_radius(be):
 
 
 def test_d84_scale_tool_scales_the_radius_but_rotate_and_flip_do_not(be):
-    from firepro3d.axis_picker import AxisPick
     v, sc = be; ctl = sc.constraint_ctl
     l1, l2, c = _placed_angle(sc, _r80())
     assert c.label["radius"] == pytest.approx(80.0)
@@ -319,11 +318,10 @@ def test_d84_scale_tool_scales_the_radius_but_rotate_and_flip_do_not(be):
     sc._rotate_pivot = QPointF(0, 0)
     assert sc._modify_ctl.commit_rotate(90.0) is True
     assert c.label["radius"] == pytest.approx(80.0)
-    rl = LineItem(QPointF(-500, 10), QPointF(800, 10)); rl.reference = True
-    _add(sc, rl)
     sc.mode = "flip"
     sc._selected_items = [l1, l2]
-    sc._mirror_axis = AxisPick(QPointF(-500, 10), QPointF(800, 10), rl, 0.0)
+    sc._flip_center = QPointF(0.0, 10.0)           # reflect across y = 10
+    sc._flip_lr, sc._flip_ud = False, True
     assert sc._modify_ctl.commit_reflect() is True
     assert c.label["radius"] == pytest.approx(80.0)
     sc._selected_items = [l1, l2]

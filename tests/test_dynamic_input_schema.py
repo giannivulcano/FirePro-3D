@@ -36,7 +36,7 @@ class TestRegistry:
             "displacement", "distance", "offset_distance", "spacing_count",
             "array_linear", "array_grid", "array_polar",
             "arc_span", "arc_radius", "rotation", "rotate_by", "track",
-            "scale_factor",
+            "scale_factor", "scale_length", "fillet_radius",
             "manip_move", "manip_resize",
             "rect_side", "rect_side_center", "rect_depth", "rect_depth_center",
         }
@@ -54,6 +54,15 @@ class TestRegistry:
                  if s.name == "Count"][0]
         assert count.kind is FieldKind.COUNT
         assert count.minimum == 0.0     # DimensionEdit uses strict >, so >= 1
+
+    def test_fillet_radius_schema(self):
+        s = SCHEMAS["fillet_radius"]
+        assert [f.name for f in s.fields] == ["Radius"]
+        f = s.fields[0]
+        assert f.kind is FieldKind.DIMENSION
+        assert f.minimum == 0.0                      # strict > 0: a zero radius is a red field
+        assert s.is_placement is False and s.requires_anchor is False
+        assert s.resolve(None, {"Radius": 25.4}) == {"radius": 25.4}
 
     def test_placement_flag_matches_resolve_return_type(self):
         """``is_placement`` must agree with what ``resolve`` actually returns.
@@ -101,6 +110,7 @@ class TestRegistry:
                         "polygon", "displacement", "arc_span", "arc_radius",
                         "rotation", "rotate_by", "array_linear",
                         "array_grid", "array_polar", "scale_factor",
+                        "scale_length",
                         "track", "manip_move", "manip_resize",
                         "rect_side", "rect_side_center", "rect_depth",
                         "rect_depth_center"}
@@ -167,6 +177,17 @@ class TestRegistry:
         assert s.fields[0].minimum == 0.0
         assert s.is_placement is False and s.needs_anchor is True
         assert s.resolve(None, {"Factor": 0.5}) == {"factor": 0.5}
+
+    def test_scale_length_is_one_anchored_dimension_field(self):
+        """scene-tools DS1: the post-reference Scale HUD types the NEW LENGTH
+        (a DIMENSION, strictly > 0) and resolves it under ``length``."""
+        s = SCHEMAS["scale_length"]
+        assert [f.name for f in s.fields] == ["Length"]
+        assert s.fields[0].label == "L"
+        assert s.fields[0].kind is FieldKind.DIMENSION
+        assert s.fields[0].minimum == 0.0
+        assert s.is_placement is False and s.needs_anchor is True
+        assert s.resolve(None, {"Length": 150.0}) == {"length": 150.0}
 
     def test_factor_editor_keeps_decimals(self, qapp):
         """A typed 0.25 stays 0.25 (a COUNT editor would round it to 0)."""

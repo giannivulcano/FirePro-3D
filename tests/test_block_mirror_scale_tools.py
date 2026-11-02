@@ -7,7 +7,8 @@ from firepro3d.transform_ghost import reflect_transform
 from tests._modify_tools_helpers import add_primitive, grips
 from tests._snap_polish_helpers import click, close_view
 from tests.test_modify_tools_flip_mirror import (AXIS_X, _axis_line,
-                                                 _capture_status, _hover_and_click)
+                                                 _capture_status, _hover_and_click,
+                                                 flip_click)
 from tests.test_modify_tools_scale import _type_factor, make_view
 
 
@@ -26,10 +27,11 @@ def _ends(scene, inst):
                    for k, p, _n in scene._snap_engine._collect(inst) if k == "endpoint"})
 
 
-def _reflected(ends):
-    """*ends* mapped across the ``_axis_line`` (x = AXIS_X) by the ghost's own
-    ``reflect_transform`` -- the reflection the commit must reproduce."""
-    t = reflect_transform(QPointF(AXIS_X, -500), QPointF(AXIS_X, 500))
+def _reflected(ends, x=AXIS_X):
+    """*ends* mapped across the vertical line x = *x* (default the
+    ``_axis_line``) by the ghost's own ``reflect_transform`` -- the
+    reflection the commit must reproduce."""
+    t = reflect_transform(QPointF(x, -500), QPointF(x, 500))
     return sorted({(round(q.x(), 3), round(q.y(), 3))
                    for q in (t.map(QPointF(x, y)) for x, y in ends)})
 
@@ -38,19 +40,19 @@ def _reflected(ends):
 def test_flip_reflects_a_block_instance(qapp, role):
     view, scene = make_view(role=role, scale=1.0)
     try:
-        _axis_line(scene)
         inst = _block(scene)
         inst.set_block_rotation(30.0)
         scene.push_undo_state()         # baseline holds the placed block
         before = inst.to_dict()
         src_ends = _ends(scene, inst)           # rotated 30: reflect, don't hand-compute
+        cx = (min(x for x, _ in src_ends) + max(x for x, _ in src_ends)) / 2
         p0 = scene._undo_pos
         scene.clearSelection()
         inst.setSelected(True)
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start("flip") is True                        # [RED]
-        _hover_and_click(view)
-        assert _ends(scene, inst) == _reflected(src_ends)
+        flip_click(view, scene, "UL")           # lr about the block's own centre
+        assert _ends(scene, inst) == _reflected(src_ends, cx)
         assert "Flipped 1 item(s)" in msgs[-1] and "skipped" not in msgs[-1]
         assert scene._undo_pos == p0 + 1        # exactly one undo step
         scene.undo()                    # one step; restore rebuilds the instances
@@ -180,7 +182,7 @@ def test_flip_commit_rechecks_a_block_grounded_after_entry(qapp):
         assert scene._modify_ctl.start("flip") is True    # a free block arms Flip
         pose = _ground(scene, inst)                       # grounded while armed
         p0 = scene._undo_pos                    # after the add's own undo step
-        _hover_and_click(view)
+        flip_click(view, scene, "LR")           # ud: an active axis, so the commit re-checks
         assert GROUNDED_STATUS in msgs                                        # [RED]
         assert _pose_of(inst) == pose and grips(line) == line_grips
         assert scene._undo_pos == p0 and scene.mode in (None, "select")
@@ -212,8 +214,8 @@ def test_flip_of_a_grounded_line_is_not_refused(qapp):
         msgs = _capture_status(scene)
         assert scene._modify_ctl.start("flip") is True                        # [RED]
         assert scene.mode == "flip"
-        _hover_and_click(view)
-        assert GROUNDED_STATUS not in msgs                                    # [RED]
+        flip_click(view, scene, "LR")           # the line is symmetric about its own y
+        assert GROUNDED_STATUS not in msgs                                   # [RED]
         assert any("Flipped 1 item(s)" in m for m in msgs)
         assert scene._undo_pos == p0 + 1 and scene.mode in (None, "select")
     finally:

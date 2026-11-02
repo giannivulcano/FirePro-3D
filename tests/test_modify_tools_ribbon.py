@@ -100,6 +100,7 @@ def test_tooltips_show_shift_keys(main_window):
     for label, key in (("Move", "Shift+M"), ("Rotate", "Shift+R"),
                        ("Flip", "Shift+F"), ("Mirror", "Shift+I"),
                        ("Offset", "Shift+O"), ("Array", "Shift+A"),
+                       ("Fillet", "Shift+E"),
                        ("Copy", "Shift+C"), ("Cut", "Shift+X"),
                        ("Paste", "Shift+V"), ("Duplicate", "Shift+D")):
         assert key in b[label].toolTip(), label
@@ -128,7 +129,7 @@ def test_block_editor_page_edit_modify_end_to_end(main_window, qapp):
         assert ed is not None
         btns = main_window._be_modify_buttons
         edit = {"Copy", "Cut", "Paste", "Duplicate", "Delete"}
-        modify = {"Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"}
+        modify = {"Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Fillet", "Explode"}
         assert set(btns) == edit | modify
         for label, b in btns.items():
             assert _group_title(b) == "EDIT", label            # B5: one merged group
@@ -229,7 +230,8 @@ def test_modal_buttons_light_with_their_mode_and_clear_on_exit(main_window, qapp
                              ("Duplicate", ("duplicate",)), ("Move", ("move",)),
                              ("Rotate", ("rotate",)),
                              ("Offset", ("offset", "offset_side")),
-                             ("Array", ("array",))):
+                             ("Array", ("array",)),
+                             ("Fillet", ("fillet",))):
             assert btns[label].isCheckable(), label
             for m in modes:
                 assert reg[m] is btns[label], (label, m)
@@ -294,7 +296,7 @@ def _reading_order(btns, labels):
     return sorted(labels, key=key)
 
 
-MODIFY_ORDER = ["Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"]
+MODIFY_ORDER = ["Move", "Rotate", "Scale", "Flip", "Mirror", "Offset", "Array", "Fillet", "Explode"]
 
 
 def test_modify_group_reading_order(main_window, qapp):
@@ -304,6 +306,23 @@ def test_modify_group_reading_order(main_window, qapp):
         ed, editor, line = _open_editor_with_line(main_window, qapp)
         btns = main_window._be_modify_buttons
         assert _reading_order(btns, MODIFY_ORDER) == MODIFY_ORDER         # [RED]
+    finally:
+        _close_editor(main_window, ed, qapp)
+
+
+def test_fillet_button_enters_fillet_without_a_selection(main_window, qapp):
+    ed = None
+    try:
+        ed, editor, line = _open_editor_with_line(main_window, qapp)
+        editor.clearSelection()
+        qapp.processEvents()
+        b = main_window._be_modify_buttons["Fillet"]
+        assert b.isEnabled() and b.isCheckable() and not b.icon().isNull()
+        assert "Shift+E" in b.toolTip()
+        b.click()
+        assert editor.mode == "fillet" and b.isChecked()             # [RED]
+        editor.set_mode(None)
+        assert not b.isChecked()
     finally:
         _close_editor(main_window, ed, qapp)
 

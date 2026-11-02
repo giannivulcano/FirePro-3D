@@ -10,7 +10,7 @@ Tools included:
 - Rotate, Scale, Mirror
 - Join, Explode
 - Break, Break-at-Point
-- Fillet, Chamfer
+- Chamfer
 - Stretch (crossing window)
 - Trim, Extend
 - Merge, Hatch
@@ -94,7 +94,7 @@ class SceneTools:
 
     # ======================================================================
     # ARRAY / ROTATE / SCALE / MIRROR / JOIN / EXPLODE / BREAK
-    # FILLET / CHAMFER / STRETCH / TRIM / EXTEND / MERGE / HATCH
+    # CHAMFER / STRETCH / TRIM / EXTEND / MERGE / HATCH
     # GEOMETRY HELPERS
     # ======================================================================
 
@@ -343,31 +343,7 @@ class SceneTools:
                 self._scene._draw_arcs.append(ai)
 
     # -------------------------------------------------------------------------
-    # FILLET / CHAMFER
-
-    def _compute_fillet(self, item1, item2, radius):
-        """Delegates to :func:`tool_geometry.compute_fillet`."""
-        return tool_geometry.compute_fillet(item1, item2, radius)
-
-    def _commit_fillet(self, data):
-        """Create the fillet arc and trim the source lines."""
-        if data is None:
-            return
-        arc = ArcItem(data["center"], data["radius"], data["start"], data["span"],
-                      color=data["item1"].pen().color().name(),
-                      lineweight=data["item1"].pen().widthF())
-        copy_style(data["item1"], arc, fresh_ends=("start", "finish"))
-        self._scene.addItem(arc)
-        self._scene._draw_arcs.append(arc)
-        # Trim lines to tangent points
-        setattr(data["item1"], data["near1"], QPointF(data["tp1"]))
-        _fresh_end(data["item1"], "start" if data["near1"] == "_pt1" else "finish")
-        item1 = data["item1"]
-        item1.setLine(item1._pt1.x(), item1._pt1.y(), item1._pt2.x(), item1._pt2.y())
-        setattr(data["item2"], data["near2"], QPointF(data["tp2"]))
-        _fresh_end(data["item2"], "start" if data["near2"] == "_pt1" else "finish")
-        item2 = data["item2"]
-        item2.setLine(item2._pt1.x(), item2._pt1.y(), item2._pt2.x(), item2._pt2.y())
+    # CHAMFER
 
     def _compute_chamfer(self, item1, item2, dist):
         """Delegates to :func:`tool_geometry.compute_chamfer`."""

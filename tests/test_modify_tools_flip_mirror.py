@@ -68,6 +68,16 @@ def _hover_and_click(view, at=HOVER):
     click(view, at)
 
 
+def flip_click(view, scene, quad="UL", off=60.0):
+    """Aim the live Flip at *quad* of the selection's bbox centre and click."""
+    from firepro3d.selection_manipulator import union_manip_bounds
+    c = union_manip_bounds([i for i in scene.selectedItems()]).center()
+    at = QPointF(c.x() + (-off if quad[1] == "L" else off),
+                 c.y() + (-off if quad[0] == "U" else off))
+    move(view, at)
+    click(view, at)
+
+
 def _capture_status(scene):
     msgs = []
     real = scene._show_status
@@ -89,14 +99,15 @@ def _px(view, img, spt):
 def test_flip_reflects_in_place_one_undo_selects_original(qapp):
     view, scene = make_view(scale=1.0)
     try:
-        _axis_line(scene)
-        item, _ = add_primitive(scene, "line")            # (0,0)-(100,0)
+        item, _ = add_primitive(scene, "line")            # (0,0)-(100,0), centre (50, 0)
         p0 = scene._undo_pos
         assert scene._modify_ctl.start("flip") is True
         assert scene.mode == "flip"
         assert item.opacity() == pytest.approx(0.35)      # DD3: originals dimmed
-        _hover_and_click(view)
-        assert grips(item) == LINE_FLIPPED                                # [RED]
+        at = QPointF(-10.0, -60.0)                        # UL quadrant: lr only
+        move(view, at)
+        click(view, at)
+        assert grips(item) == [(100.0, 0.0), (50.0, 0.0), (0.0, 0.0)]     # [RED]
         assert scene._undo_pos == p0 + 1
         assert scene.mode in (None, "select")
         assert item.isSelected() and item.opacity() == pytest.approx(1.0)
@@ -129,7 +140,7 @@ def test_mirror_adds_reflected_copy_and_selects_it(qapp):
         close_view(view, scene)
 
 
-@pytest.mark.parametrize("tool", ["flip", "mirror"])
+@pytest.mark.parametrize("tool", ["mirror"])
 @pytest.mark.parametrize("name", GEOM)
 def test_every_primitive_reflects_per_dd1(qapp, name, tool):
     view, scene = make_view(scale=1.0)
@@ -143,13 +154,9 @@ def test_every_primitive_reflects_per_dd1(qapp, name, tool):
         scene._modify_ctl.start(tool)
         _hover_and_click(view)
         lst = _own(scene, attr, axis_d)
-        if tool == "flip":
-            assert len(lst) == 1 and lst[0] is item
-            result = item
-        else:
-            assert len(lst) == 2                                          # [RED]
-            result = next(it for it in lst if it is not item)
-            assert grips(item) == before_grips
+        assert len(lst) == 2                                              # [RED]
+        result = next(it for it in lst if it is not item)
+        assert grips(item) == before_grips
         a1, a2 = QPointF(AXIS_X, -500), QPointF(AXIS_X, 500)
         _assert_same_outline(
             [CAD_Math.mirror_point(p, a1, a2) for p in before], result)  # [RED]
@@ -166,15 +173,38 @@ def test_every_primitive_reflects_per_dd1(qapp, name, tool):
 
 
 def test_flip_arc_across_x0_lands_in_visual_q2(qapp):
+    """Convention-critical (M2): the upper-right arc (centre 0,0, r50, 0..90
+    Y-up) occupies scene x 0..50, y -50..0, bbox centre (25, -25). Flip (UL:
+    lr) reflects it about x = 25, so it stays in the same box with the mid
+    sample at (14.64, -35.36) (35.36 -> 2*25 - 35.36)."""
+    view, scene = make_view(scale=1.0)
+    try:
+        arc, _ = add_primitive(scene, "arc")
+        scene._modify_ctl.start("flip")
+        at = QPointF(-35.0, -85.0)                        # UL of (25, -25)
+        move(view, at)
+        click(view, at)
+        path = arc.mapToScene(arc.path())
+        pts = [path.pointAtPercent(i / 20) for i in range(21)]
+        assert all(-1e-6 <= p.x() <= 50 + 1e-6 and -50 - 1e-6 <= p.y() <= 1e-6
+                   for p in pts)                                          # [RED]
+        mid = path.pointAtPercent(0.5)
+        assert (round(mid.x(), 2), round(mid.y(), 2)) == (14.64, -35.36)
+    finally:
+        close_view(view, scene)
+
+
+def test_mirror_arc_across_x0_lands_in_visual_q2(qapp):
     """Convention-critical (M2): the upper-right arc (centre 0,0, 0..90)
-    flipped across x = 0 paints in the visual upper-left quadrant."""
+    mirrored across x = 0 puts a COPY in the visual upper-left quadrant."""
     view, scene = make_view(scale=1.0)
     try:
         _axis_line(scene, x=0.0)
         arc, _ = add_primitive(scene, "arc")
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start("mirror")
         _hover_and_click(view, QPointF(2.0, 250.0))
-        path = arc.mapToScene(arc.path())
+        copy = next(a for a in scene._draw_arcs if a is not arc)
+        path = copy.mapToScene(copy.path())
         pts = [path.pointAtPercent(i / 20) for i in range(21)]
         assert all(p.x() <= 1e-6 and p.y() <= 1e-6 for p in pts)          # [RED]
         mid = path.pointAtPercent(0.5)
@@ -187,17 +217,21 @@ def test_the_selections_own_edge_is_a_valid_axis(qapp):
     view, scene = make_view(scale=1.0)
     try:
         pl, _ = add_primitive(scene, "polyline_closed")   # (0,0)(100,0)(100,-100)(0,-100)
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start("mirror")
         _hover_and_click(view, QPointF(50.0, 2.0))       # its own bottom edge y = 0
-        assert sorted(grips(pl)) == sorted(
+        copy = next(p for p in scene._polylines if p is not pl)
+        assert sorted(grips(copy)) == sorted(
             [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)])     # [RED]
-        assert pl.is_closed()
+        assert copy.is_closed()
+        assert sorted(grips(pl)) == sorted(
+            [(0.0, 0.0), (100.0, 0.0), (100.0, -100.0), (0.0, -100.0)])
     finally:
         close_view(view, scene)
 
 
+@pytest.mark.parametrize("tool", ["mirror"])
 @pytest.mark.parametrize("where", ["on_a_circle", "empty_space"])
-def test_click_without_a_straight_edge_is_refused(qapp, where):
+def test_click_without_a_straight_edge_is_refused(qapp, where, tool):
     view, scene = make_view(scale=1.0)
     try:
         c = CircleItem(QPointF(250, 0), 50.0)
@@ -206,13 +240,13 @@ def test_click_without_a_straight_edge_is_refused(qapp, where):
         item, _ = add_primitive(scene, "line")
         msgs = _capture_status(scene)
         p0 = scene._undo_pos
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start(tool)
         at = QPointF(300.0, 2.0) if where == "on_a_circle" else QPointF(-300.0, 250.0)
         move(view, at)
         assert scene._mirror_axis is None
         click(view, at)
         assert "Pick a straight edge or reference line" in msgs          # [RED]
-        assert scene.mode == "flip"
+        assert scene.mode == tool
         assert grips(item) == LINE0
         assert scene._undo_pos == p0
         scene.set_mode(None)
@@ -223,15 +257,16 @@ def test_click_without_a_straight_edge_is_refused(qapp, where):
 def test_text_is_skipped_with_a_status_count(qapp):
     view, scene = make_view(scale=1.0)
     try:
-        _axis_line(scene)
         text, _ = add_primitive(scene, "text")
         line, _ = add_primitive(scene, "line")
         text.setSelected(True)                            # line + text selected
         tgrips = grips(text)
         msgs = _capture_status(scene)
         scene._modify_ctl.start("flip")
-        _hover_and_click(view)
-        assert grips(line) == LINE_FLIPPED
+        at = QPointF(-10.0, -60.0)                        # UL: lr only
+        move(view, at)
+        click(view, at)
+        assert grips(line) == [(100.0, 0.0), (50.0, 0.0), (0.0, 0.0)]
         assert grips(text) == tgrips
         assert "Flipped 1 item(s) (1 skipped)" in msgs                    # [RED]
         assert text.isSelected() and line.isSelected()
@@ -252,7 +287,7 @@ def test_text_only_selection_is_refused(qapp, tool):
         close_view(view, scene)
 
 
-@pytest.mark.parametrize("tool", ["flip", "mirror"])
+@pytest.mark.parametrize("tool", ["mirror"])
 def test_esc_is_a_no_op(qapp, tool):
     view, scene = make_view(scale=1.0)
     try:
@@ -277,16 +312,20 @@ def test_enter_commits_on_the_hovered_axis(qapp):
     try:
         _axis_line(scene)
         item, _ = add_primitive(scene, "line")
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start("mirror")
         move(view, HOVER)
         QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
-        assert grips(item) == LINE_FLIPPED                                # [RED]
+        lines = _lines(scene)
+        assert len(lines) == 2                                            # [RED]
+        copy = next(ln for ln in lines if ln is not item)
+        assert grips(copy) == LINE_FLIPPED
         assert scene.mode in (None, "select")
     finally:
         close_view(view, scene)
 
 
-def test_axis_step_has_no_cursor_snap_or_align(qapp):
+@pytest.mark.parametrize("tool", ["flip", "mirror"])
+def test_axis_step_has_no_cursor_snap_or_align(qapp, tool):
     view, scene = make_view(scale=1.0)
     try:
         _axis_line(scene)
@@ -297,7 +336,7 @@ def test_axis_step_has_no_cursor_snap_or_align(qapp):
         assert scene._snap_result is not None
         scene.set_mode(None)
         item.setSelected(True)
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start(tool)
         move(view, near_end)
         assert scene._snap_result is None                                 # [RED]
         assert scene._align_result is None
@@ -316,7 +355,7 @@ def test_hover_paints_the_axis_and_the_reflected_ghost(qapp):
         # runs through the origin (parametric-constraint-system.md D3/D27), so a
         # probe on y = 0 is never background.
         line.translate(0.0, 40.0)
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start("mirror")
         img0 = _grab(view)
         bg = _px(view, img0, QPointF(300, -200))
         assert _px(view, img0, QPointF(350, 40)) == bg
@@ -346,7 +385,6 @@ def _block(scene, at=(-150.0, -150.0)):
 def test_block_instance_flips_with_the_selection(qapp):
     view, scene = make_view(role="plan", scale=1.0)
     try:
-        _axis_line(scene)
         inst = _block(scene)
         line, _ = add_primitive(scene, "line")
         inst.setSelected(True)                            # line + block selected
@@ -354,11 +392,15 @@ def test_block_instance_flips_with_the_selection(qapp):
         msgs = _capture_status(scene)
         scene._modify_ctl.start("flip")
         assert inst.opacity() < 1.0                       # in flight like the line
-        _hover_and_click(view)
-        assert grips(line) == LINE_FLIPPED
+        # manip_bounds are PEN-PADDED: line x -6.25..106.25, y -6.25..6.25; block
+        # x -152..-108, y -152..-148 -> union centre (-22.875, -72.875).
+        at = QPointF(-85.0, -135.0)                       # UL of that centre: lr only
+        move(view, at)
+        click(view, at)
+        assert grips(line) == [(-45.75, 0.0), (-95.75, 0.0), (-145.75, 0.0)]  # x -> -45.75 - x
         assert inst.block_mirrored() is True
-        # (-150, -150) across x = AXIS_X -> (2*AXIS_X + 150, -150)
-        assert inst.block_pos() == pytest.approx((2 * AXIS_X + 150.0, -150.0))
+        # (-150, -150) about x = -22.875 -> (2*(-22.875) + 150, -150)
+        assert inst.block_pos() == pytest.approx((104.25, -150.0), abs=1e-6)
         assert any("Flipped 2 item(s)" in m and "skipped" not in m for m in msgs)
     finally:
         close_view(view, scene)
@@ -395,7 +437,7 @@ def _axis_pixels(view, img, bg):
     return sum(_px(view, img, p) != bg for p in _AXIS_BAND)
 
 
-@pytest.mark.parametrize("tool", ["flip", "mirror"])
+@pytest.mark.parametrize("tool", ["mirror"])
 def test_undo_mid_pick_drops_the_axis(qapp, tool):
     """The AxisPick holds its source item, which an undo restore replaces —
     after Ctrl+Z mid-pick no axis survives and none is painted. Gated by
@@ -440,7 +482,7 @@ class _PaintSpy:
         return any(r.contains(vp_point) for r in self.regions)
 
 
-@pytest.mark.parametrize("tool", ["flip", "mirror"])
+@pytest.mark.parametrize("tool", ["mirror"])
 def test_every_view_repaints_the_axis_band(qapp, tool):
     """MinimalViewportUpdate: a second view on the same scene (a detail view)
     repaints the axis band on each axis change and on mode exit, so no stale
@@ -480,8 +522,7 @@ def test_every_view_repaints_the_axis_band(qapp, tool):
 
 # ── Slice-5 review fixes (F1, F3, F4) ───────────────────────────────────────
 
-@pytest.mark.parametrize("first,second", [("flip", "flip"), ("flip", "mirror"),
-                                          ("mirror", "flip")])
+@pytest.mark.parametrize("first,second", [("mirror", "mirror")])
 def test_reentry_over_the_same_axis_keeps_the_ghost(qapp, first, second):
     """F1: re-entering Flip / Mirror (Shift+F twice, Flip <-> Mirror, the
     other ribbon button) while hovering an axis keeps that axis AND repaints
@@ -506,7 +547,7 @@ def test_reentry_over_the_same_axis_keeps_the_ghost(qapp, first, second):
         close_view(view, scene)
 
 
-@pytest.mark.parametrize("tool", ["flip", "mirror"])
+@pytest.mark.parametrize("tool", ["mirror"])
 def test_axis_whose_source_was_removed_never_commits(qapp, tool):
     """F3: the hovered axis's source is deleted mid-pick (no move after):
     Enter reflects nothing, the stale axis is dropped and the tool stays live
@@ -577,7 +618,7 @@ def test_os_mouse_input_cannot_reaim_the_axis(qapp):
     try:
         _axis_line(scene)
         add_primitive(scene, "line")
-        scene._modify_ctl.start("flip")
+        scene._modify_ctl.start("mirror")
         move(view, HOVER)
         assert scene._mirror_axis is not None
         win = view.window()

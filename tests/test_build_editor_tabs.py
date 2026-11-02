@@ -375,7 +375,7 @@ def test_plan_selection_then_entering_a_block_returns_to_the_original_tab(mw, qa
 ROSTER = ["Manage", "Architecture", "Sprinkler Systems", "Analyze", "Draft",
           "Build", "Editor"]
 EDIT_ORDER = ["Copy", "Cut", "Paste", "Duplicate", "Delete", "Move", "Rotate",
-              "Scale", "Flip", "Mirror", "Offset", "Array", "Explode"]
+              "Scale", "Flip", "Mirror", "Offset", "Array", "Fillet", "Explode"]
 
 
 def _reading_order(group):
@@ -430,12 +430,14 @@ PROBE = {"Block": ("New", "Open", "Manager", "Insert"), "Definition": ("Save",),
 # stays live on a wall (user ruling 2026-10-26: it copies walls through the
 # paste path; ``can_start("array", [wall])`` is True).
 EDIT_ON = {
-    "plan": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array"},
-    "detail": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array"},
+    "plan": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array",
+             "Fillet"},
+    "detail": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Array",
+               "Fillet"},
     "block": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate", "Scale",
-              "Flip", "Mirror", "Offset", "Array"},
+              "Flip", "Mirror", "Offset", "Array", "Fillet"},
     "schematic": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate",
-                  "Scale", "Flip", "Mirror", "Offset", "Array"},
+                  "Scale", "Flip", "Mirror", "Offset", "Array", "Fillet"},
 }
 
 

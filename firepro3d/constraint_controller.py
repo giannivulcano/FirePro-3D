@@ -3077,6 +3077,29 @@ class ConstraintController:
         self._commit_gen += 1
         return n
 
+    def drop_at(self, ends) -> int:
+        """Delete every constraint naming one of *ends* (``(uid, handle)`` pairs)
+        -- no undo push: the caller's step captures it (Fillet drops the
+        corner relations of the ends it trims, DS4 / F1).
+
+        Returns:
+            How many constraints were removed.
+        """
+        ends = set(ends)
+        ids = {c.id for c in self.constraints
+               if any((r.get("uid"), r.get("h")) in ends
+                      for r in c.refs if isinstance(r, dict))}
+        if not ids:
+            return 0
+        self.constraints = [c for c in self.constraints if c.id not in ids]
+        self.red &= {c.id for c in self.constraints}
+        if self.selected_id in ids:
+            self.selected_id = None
+        if self.hover_id in ids:
+            self.hover_id = None
+        self._commit_gen += 1
+        return len(ids)
+
     def _committed(self, skip=()) -> None:
         self._recheck_red(skip)          # D37: structural commit re-check
         self._commit_gen += 1

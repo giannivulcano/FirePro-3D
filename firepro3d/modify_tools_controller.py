@@ -17,8 +17,9 @@ import math
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QPainterPath, QTransform
 
+from . import fillet_geometry as fh
 from .cad_math import CAD_Math
-from .constants import ARRAY_GHOST_FULL_MAX
+from .constants import ARRAY_GHOST_FULL_MAX, FLIP_LINE_EPS_MM
 from .constraint_dims import point_map_like
 from .design_area import DesignArea
 from .gridline import GridlineItem
@@ -57,7 +58,8 @@ class ModifyToolsController:
     _TOOL_MODE = {"copy": "copy_base", "cut": "copy_base", "paste": "paste",
                   "duplicate": "duplicate", "move": "move", "rotate": "rotate",
                   "offset": "offset", "array": "array",
-                  "flip": "flip", "mirror": "mirror", "scale": "scale"}
+                  "flip": "flip", "mirror": "mirror", "scale": "scale",
+                  "fillet": "fillet"}
     _SELECT_FIRST = {"copy", "cut", "duplicate", "move", "rotate", "array",
                      "flip", "mirror", "scale"}
     # Cut shares Copy's ``copy_base`` mode (``_copy_is_cut`` tells them
@@ -70,7 +72,7 @@ class ModifyToolsController:
     # point, captured selection, armed payload) would outlive the restore.
     CANCEL_ON_UNDO_MODES = frozenset({"copy_base", "paste", "duplicate", "move",
                                       "rotate", "offset", "offset_side",
-                                      "array", "flip", "mirror", "scale"})
+                                      "array", "flip", "mirror", "scale", "fillet"})
 
     @classmethod
     def tool_modes(cls, tool: str):
@@ -193,6 +195,8 @@ class ModifyToolsController:
             return self.begin_paste()
         if tool == "offset":
             return self.begin_offset(sel)      # Task 12
+        if tool == "fillet":
+            return self.begin_fillet()
         s._copy_is_cut = (tool == "cut")
         s._selected_items = sel
         s.set_mode(self._TOOL_MODE[tool])
@@ -202,6 +206,10 @@ class ModifyToolsController:
             # refined 2026-10-12): no mode entered, nothing armed.
             s._selected_items = []
             return False
+        if tool == "array":
+            # DS2.2: a new Array starts unlocked -- clear() only drops the
+            # lock on leaving array, which a mid-tool restart never does.
+            s._array_angle_locked = None
         # D11: dim the originals. After set_mode — its clear() restores any
         # previous dim first, so entering a mode never undoes its own dim.
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
@@ -219,12 +227,15 @@ class ModifyToolsController:
             # DD3: the acted-on silhouettes, mirrored per hovered axis.
             s._move_ghost_base = self._shape_paths_for_move(
                 self._reflectable(sel))
-            # Re-entry (Shift+F twice, Flip <-> Mirror) keeps the hovered
-            # axis (clear() spares it), so its ghost is rebuilt here — the
-            # next aim at the same segment is a no-op.
-            if not self._axis_live(s._mirror_axis):
-                s._mirror_axis = None
-            s._move_ghost = self._reflected_ghost(s._mirror_axis)
+            if tool == "flip":
+                self._begin_flip(self._reflectable(sel))
+            else:
+                # Mirror re-entry (Shift+I twice) keeps the hovered axis
+                # (clear() spares it), so its ghost is rebuilt here — the
+                # next aim at the same segment is a no-op.
+                if not self._axis_live(s._mirror_axis):
+                    s._mirror_axis = None
+                s._move_ghost = self._reflected_ghost(s._mirror_axis)
         return True
 
     _PAST = {"flip": "flipped", "mirror": "mirrored", "scale": "scaled"}
@@ -577,6 +588,19 @@ class ModifyToolsController:
         from . import auto_constrain as ac
         ctl.auto_join(ac.plan_offset(src, item))
 
+    def _auto_constrain_fillet(self, arc_item, edges, event) -> None:
+        """DS4.5 + F3: tie the Fillet arc to the trimmed edges (tangent +
+        coincident), clean-only through ``auto_join``. Same gate as Offset AC4:
+        ``_hv_on`` (a click is toggle XOR Shift; Enter / a typed Radius, *event*
+        None, the toggle alone); Block Editor only."""
+        s = self._scene
+        ctl = getattr(s, "constraint_ctl", None)
+        geom = getattr(s, "_geom_ctl", None)
+        if ctl is None or not ctl.block_editor or geom is None or not geom._hv_on(event):
+            return
+        from . import auto_constrain as ac
+        ctl.auto_join(ac.plan_fillet(arc_item, edges))
+
     def press_offset_side(self, event, pos, snapped, *_):
         """``offset_side`` click: commit on the cursor's side."""
         self.commit_offset(event)
@@ -640,13 +664,25 @@ class ModifyToolsController:
             s._array_row_spacing = 0.0
             s._array_total = None
             s._array_start_deg = None
-        if new_mode not in ("flip", "mirror"):
+            # DS2.2: the typed Angle lock ends with the tool (it no longer
+            # carries to the next Array); _array_variant / _array_memory stay
+            # session-sticky.
+            s._array_angle_locked = None
+        if new_mode != "mirror":
             # The axis paints in drawForeground; set_mode repaints every view
             # (detail views share the scene) right after this clear().
             s._mirror_axis = None
+        if new_mode != "flip":
+            s._flip_center = None
+            s._flip_lr = s._flip_ud = False
+            s._flip_quad = None
         if new_mode != "scale":
             s._scale_base = None
             s._scale_ref = None
+        # DS1: the Length/Factor variant is per run, not session-sticky — every
+        # mode change (so every Scale entry) restarts on Length.
+        s._scale_variant = "length"
+        s._plc._variant_index["scale"] = 0
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
             s._offset_dist = 0.0
@@ -1093,8 +1129,12 @@ class ModifyToolsController:
     # straight segment (axis_picker.pick_axis; cursor SNAP + ALIGN are off in
     # get_effective_position — snapping-engine §3); click / Enter commits.
     # Flip reflects the originals in place; Mirror reflects copies. No HUD.
+    # Flip (D16 as amended): centre-based, no axis pick; Mirror picks an edge.
 
     NO_AXIS_HINT = "Pick a straight edge or reference line"
+    NOTHING_FLIPPED = "Nothing flipped"
+    FLIP_HINT = ("Move into a quadrant or ←→ / ↑↓ to flip "
+                 "· click/Enter applies")
 
     def _reflectable(self, items) -> list:
         """The transformable *items* with a per-item ``manip_reflect`` (DD1).
@@ -1163,22 +1203,107 @@ class ModifyToolsController:
             v.viewport().update()
         return axis
 
+    def _begin_flip(self, targets) -> None:
+        """Flip entry: centre = bbox centre of the reflectable *targets*;
+        nothing active until the cursor enters a quadrant or an arrow toggles."""
+        from .selection_manipulator import union_manip_bounds
+        s = self._scene
+        s._flip_center = QPointF(union_manip_bounds(targets).center())
+        s._flip_lr = s._flip_ud = False
+        s._flip_quad = None
+        s._mirror_axis = None
+        s._move_ghost = []
+
+    def _flip_axes(self, c) -> list:
+        """The (p1, p2) reflection axes through centre *c* for the active
+        toggles: vertical line for lr, horizontal for ud."""
+        s = self._scene
+        c = QPointF(c)
+        axes = []
+        if s._flip_lr:
+            axes.append((c, QPointF(c.x(), c.y() + 1.0)))
+        if s._flip_ud:
+            axes.append((c, QPointF(c.x() + 1.0, c.y())))
+        return axes
+
+    def _flip_ghost(self):
+        """GhostFrame of the ghost base under the composed active
+        reflections (identity when none is active)."""
+        from .transform_ghost import GhostFrame, reflect_transform
+        s = self._scene
+        t = QTransform()
+        for p1, p2 in self._flip_axes(s._flip_center):
+            t = t * reflect_transform(p1, p2)
+        return GhostFrame(s._move_ghost_base, t)
+
+    def _flip_refresh(self) -> None:
+        """Rebuild the ghost and repaint EVERY view (the crosshair lives in
+        drawForeground; MinimalViewportUpdate leaves detail views stale)."""
+        s = self._scene
+        s._move_ghost = self._flip_ghost()
+        for v in s.views():
+            v.viewport().update()
+
+    def aim_flip(self, point) -> None:
+        """Cursor quadrant -> toggles (DS3.2). Crossing into a NEW quadrant
+        overwrites both toggles (last input wins); a cursor on a crosshair
+        line, or staying in the same quadrant, changes nothing."""
+        s = self._scene
+        c = s._flip_center
+        if c is None:
+            return
+        dx, dy = point.x() - c.x(), point.y() - c.y()
+        if abs(dx) < FLIP_LINE_EPS_MM or abs(dy) < FLIP_LINE_EPS_MM:
+            return
+        quad = ("U" if dy < 0 else "D") + ("L" if dx < 0 else "R")
+        if quad == s._flip_quad:
+            return
+        s._flip_quad = quad
+        s._flip_lr = dx < 0
+        s._flip_ud = dy > 0
+        self._flip_refresh()
+
+    def toggle_flip(self, axis: str) -> None:
+        """Arrow key: ``"lr"`` (←/→) or ``"ud"`` (↑/↓) toggles that axis; it
+        holds until the cursor crosses into a different quadrant."""
+        s = self._scene
+        if s.mode != "flip" or s._flip_center is None:
+            return
+        if axis == "lr":
+            s._flip_lr = not s._flip_lr
+        else:
+            s._flip_ud = not s._flip_ud
+        self._flip_refresh()
+
     def move_reflect(self, event, snapped):
-        """Flip / Mirror cursor: detect the axis under the (raw) cursor."""
+        """Flip / Mirror cursor: Flip aims the quadrant, Mirror detects the
+        axis under the (raw) cursor."""
         s = self._scene
         s.preview_pipe.hide()
         s.preview_node.hide()
+        if s.mode == "flip":
+            self.aim_flip(snapped)
+            return
         self.aim_axis(snapped)
 
     def press_reflect(self, event, pos, snapped, *_):
-        """Flip / Mirror click: commit on the axis under the click."""
+        """Flip / Mirror click: Flip commits in the clicked quadrant, Mirror on
+        the axis under the click."""
+        if self._scene.mode == "flip":
+            self.aim_flip(snapped)
+            self.commit_reflect()
+            return
         if self.aim_axis(snapped) is None:
             self._scene._show_status(self.NO_AXIS_HINT, 3000)
             return
         self.commit_reflect()
 
     def commit_reflect(self) -> bool:
-        """Reflect across the hovered axis: Flip in place, Mirror as copies.
+        """Reflect: Flip about the active centre axes (quadrant / arrows), Mirror
+        across the hovered axis; Flip with no active axis posts 'Nothing
+        flipped' (False, no undo step, tool stays live).
+
+        Flip reflects in place, Mirror as copies.
 
         One undo step; returns to Select with the originals (Flip) or the
         copies (Mirror) selected (D3). Text (no manip_reflect) is skipped with a
@@ -1191,22 +1316,38 @@ class ModifyToolsController:
             hint, the tool stays live) or nothing reflectable (no undo step).
         """
         s = self._scene
-        axis = s._mirror_axis
-        if axis is not None and not self._axis_live(axis):
-            # The source segment was removed (or hidden) since the last aim:
-            # never reflect across a vanished edge — drop the stale axis.
-            s._mirror_axis = axis = None
-            s._move_ghost = []
-            for v in s.views():
-                v.viewport().update()
-        if axis is None:
-            s._show_status(self.NO_AXIS_HINT, 3000)
-            return False
         mirror = s.mode == "mirror"
-        p1, p2 = QPointF(axis.p1), QPointF(axis.p2)
+        axes = []
+        if mirror:
+            axis = s._mirror_axis
+            if axis is not None and not self._axis_live(axis):
+                # The source segment was removed (or hidden) since the last aim:
+                # never reflect across a vanished edge — drop the stale axis.
+                s._mirror_axis = axis = None
+                s._move_ghost = []
+                for v in s.views():
+                    v.viewport().update()
+            if axis is None:
+                s._show_status(self.NO_AXIS_HINT, 3000)
+                return False
+            axes = [(QPointF(axis.p1), QPointF(axis.p2))]
         items = [it for it in (s._selected_items or []) if it.scene() is s]
         targets = self._reflectable(items)
+        if not mirror:
+            if s._flip_center is not None:
+                c = s._flip_center
+            else:
+                # Headless-only seam: the real path always sets _flip_center
+                # in _begin_flip, so ghost and commit read the same value.
+                from .selection_manipulator import union_manip_bounds
+                c = union_manip_bounds(targets).center()
+            axes = self._flip_axes(c) if targets else []
+            if not axes:
+                # No quadrant / arrow active: not an undo step, tool stays live.
+                s._show_status(self.NOTHING_FLIPPED, 3000)
+                return False
         if mirror:
+            p1, p2 = axes[0]
             result = []
             uid_map = {}
             for it in targets:
@@ -1229,10 +1370,15 @@ class ModifyToolsController:
             if s.constraint_ctl.refuse_grounded(flip_refusal_targets(targets)):
                 self._end_refused(items)
                 return False
-            with s.constraint_ctl.edit(targets, point_map=point_map_like(   # CS4b D65
-                    lambda it: it.manip_reflect(p1, p2))):
+
+            def _apply(it):
+                # DS3.4: one manip_reflect per active axis (lr then ud).
+                for a1, a2 in axes:
+                    it.manip_reflect(a1, a2)
+
+            with s.constraint_ctl.edit(targets, point_map=point_map_like(_apply)):  # CS4b D65
                 for it in targets:
-                    it.manip_reflect(p1, p2)
+                    _apply(it)
             result = list(targets)
         if result:
             s.push_undo_state()
@@ -1297,7 +1443,7 @@ class ModifyToolsController:
                 s._show_status(self.SCALE_REF_HINT, 3000)
                 return
             s._scale_ref = QPointF(snapped)
-            s.instructionChanged.emit("Pick new size (or type a factor)")
+            s.instructionChanged.emit("Pick new size (or type a length)")
             return
         self.commit_scale(self.scale_factor_to(snapped))
 
@@ -1327,6 +1473,22 @@ class ModifyToolsController:
         s._move_ghost = [t.map(p) for p in s._move_ghost_base]
         for v in s.views():
             v.viewport().update()
+
+    def preview_scale_typed(self, params: dict) -> None:
+        """Typed Factor / Length field commit (Tab): re-ghost at that factor.
+
+        Preview only — Enter commits (``apply_scale_factor``). A Length needs
+        the reference; a factor that is not finite and > 0 leaves the ghost.
+        """
+        if "length" in params:
+            factor = self.scale_factor_for_length(params["length"])
+        else:
+            factor = float(params["factor"])
+        if not math.isfinite(factor) or factor <= 0.0:
+            return
+        self.preview_scale(factor)
+        self._scene._show_status(
+            f"Factor: {ScaleManager.format_factor(factor)}", timeout=0)
 
     def commit_scale(self, factor: float) -> bool:
         """Scale the selection by *factor* about the base (one undo step).
@@ -1380,24 +1542,420 @@ class ModifyToolsController:
         s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
         return bool(targets)
 
+    def scale_factor_for_length(self, length: float) -> float:
+        """Factor that makes the base→reference span *length* long (DS1).
+
+        Both operands are in scene units: the HUD hands a DIMENSION field's
+        value back converted from mm to scene units
+        (``DynamicInputHud._value_of``), so ``length ÷ |ref − base|`` is the
+        same ratio as ``L_mm ÷ scene_to_mm(|ref − base|)`` on a calibrated
+        scene. Converting only one side would be off by ``pixels_per_mm``.
+
+        Returns:
+            The factor, or NaN when there is no measurable reference
+            (``commit_scale`` refuses non-finite factors).
+        """
+        s = self._scene
+        base, ref = s._scale_base, s._scale_ref
+        if base is None or ref is None:
+            return float("nan")
+        d_ref = math.hypot(ref.x() - base.x(), ref.y() - base.y())
+        if d_ref < 1e-9:
+            return float("nan")
+        return float(length) / d_ref
+
     def apply_scale_factor(self, params: dict) -> bool:
-        """Typed Factor (``scale_factor``): commit about the base.
+        """Typed Factor (``scale_factor``) or Length (``scale_length``): commit
+        about the base.
+
+        A Length becomes factor = L ÷ |ref − base| (:meth:`scale_factor_for_length`);
+        factor 1 (no-op) and ≤ 0 / non-finite (refusal) are decided by
+        :meth:`commit_scale`, unchanged.
 
         Returns:
             True when the tool ended (scaled, or a factor-1 no-op); False
             when refused and still live, which keeps the HUD open with a red
             field (``reject_commit``).
         """
-        self.commit_scale(float(params["factor"]))
+        if "length" in params:
+            factor = self.scale_factor_for_length(params["length"])
+        else:
+            factor = float(params["factor"])
+        self.commit_scale(factor)
         return self._scene.mode != "scale"
+
+    # ── Fillet (scene-tools.md D14 Fillet; design 2026-11-01 DS4) ──────────
+    # Not select-first. Hover a corner (polyline vertex, Rect / RegularPolygon
+    # corner, two Lines that meet or cross) within the snap aperture at the
+    # active view's zoom and click / Enter; or click Line 1 and hover Line 2
+    # (extended intersection). Pure maths: fillet_geometry. Transients on the
+    # scene: _fillet_item1 (Line 1), _fillet_corner, _fillet_arc; the radius
+    # _fillet_radius is session-sticky (never cleared).
+    FILLET_HINT = "Hover a corner and click (or click Line 1, then Line 2)"
+    FILLET_LINE2_HINT = "Hover Line 2 and click"
+    FILLET_NO_CORNER = "Hover a corner (or click Line 1) first"
+    FILLET_CONSTRAINED = "Fillet conflicts with the constraints on these edges"
+
+    def begin_fillet(self) -> bool:
+        """Enter Fillet (never needs a selection).
+
+        Returns:
+            True when the mode was entered.
+        """
+        s = self._scene
+        s.set_mode("fillet")
+        return s.mode == "fillet"
+
+    def fillet_shapes(self) -> list:
+        """The fillet candidates in the scene as ``fillet_geometry.Shape``s."""
+        s = self._scene
+        out = []
+
+        def alive(it):
+            return it.scene() is s and it.isVisible()
+        for ln in s._draw_lines:
+            if alive(ln):
+                out.append(fh.Shape("line", ((ln._pt1.x(), ln._pt1.y()),
+                                             (ln._pt2.x(), ln._pt2.y())), False, ln))
+        for pl in s._polylines:
+            if alive(pl) and len(pl._points) >= 3:
+                out.append(fh.Shape("poly", tuple((p.x(), p.y()) for p in pl._points),
+                                    pl.is_closed(), pl))
+        for rc in s._draw_rects:
+            if alive(rc):
+                ring, _closed = self._fillet_points(rc)            # TL TR BR BL
+                out.append(fh.Shape("poly", tuple(ring), True, rc))
+        for pg in s._draw_polygons:
+            if alive(pg):
+                ring, _closed = self._fillet_points(pg)
+                out.append(fh.Shape("poly", tuple(ring), True, pg))
+        return out
+
+    @staticmethod
+    def _fillet_line_shape(ln):
+        return fh.Shape("line", ((ln._pt1.x(), ln._pt1.y()), (ln._pt2.x(), ln._pt2.y())),
+                        False, ln)
+
+    @staticmethod
+    def _fillet_points(item):
+        """``(points, closed)`` of a polyline-like fillet source."""
+        from .geometry_2d import PolylineItem, RectangleItem
+        if isinstance(item, PolylineItem):
+            return [(p.x(), p.y()) for p in item._points], item.is_closed()
+        if isinstance(item, RectangleItem):
+            return [(g.x(), g.y()) for g in item.grip_points()[0:8:2]], True
+        return [(p.x(), p.y()) for p in item.vertices()], True
+
+    def _fillet_line_at(self, pos, exclude):
+        """The visible Line within the pick aperture of *pos* (nearest), not *exclude*."""
+        s = self._scene
+        tol = self._pick_tolerance()
+        p = (pos.x(), pos.y())
+        best = None
+        for ln in s._draw_lines:
+            if ln is exclude or ln.scene() is not s or not ln.isVisible():
+                continue
+            d = fh.seg_distance(p, (ln._pt1.x(), ln._pt1.y()), (ln._pt2.x(), ln._pt2.y()))
+            if d <= tol and (best is None or d < best[0]):
+                best = (d, ln)
+        return None if best is None else best[1]
+
+    def _fillet_aim(self, pos) -> None:
+        """Re-aim at *pos*: corner, arc at the sticky radius, ghost, status."""
+        from .transform_ghost import ghost_base_paths
+        s = self._scene
+        p = (pos.x(), pos.y())
+        had_corner = s._fillet_corner is not None
+        s._fillet_corner = None
+        s._fillet_arc = None
+        line1 = s._fillet_item1
+        lit = ghost_base_paths([line1]) if line1 is not None else []
+        corner = None
+        if line1 is None:
+            corner = fh.find_corner(self.fillet_shapes(), p, self._pick_tolerance())
+        else:
+            line2 = self._fillet_line_at(pos, line1)
+            if line2 is not None:
+                res = fh.corner_between_lines(self._fillet_line_shape(line1),
+                                              self._fillet_line_shape(line2), p)
+                if isinstance(res, fh.Refused):
+                    s._move_ghost = lit
+                    s._show_status(res.message, 0)
+                    return
+                corner = res
+        s._fillet_corner = corner
+        if corner is None:
+            s._move_ghost = lit
+            if had_corner or line1 is not None:     # drop a stale refusal / "click to fillet" status
+                s._show_status(self.FILLET_HINT if line1 is None
+                               else self.FILLET_LINE2_HINT, 0)
+            return
+        self._fillet_show(corner, s._fillet_radius)
+
+    def preview_fillet_radius(self, radius: float) -> None:
+        """Typed Radius field commit (Tab): re-ghost the aimed corner at *radius*.
+
+        Preview only — the sticky radius changes on Enter (``apply_fillet_radius``).
+        """
+        corner = self._scene._fillet_corner
+        if corner is not None:
+            self._fillet_show(corner, radius)
+
+    def _fillet_show(self, corner, radius) -> None:
+        """Arc at *radius* on *corner*: ghost + status, or the refusal."""
+        s = self._scene
+        arc = fh.tangent_arc(corner, radius)
+        s._fillet_arc = None
+        if isinstance(arc, fh.Refused):
+            s._move_ghost = []
+            s._show_status(arc.message, 0)
+            return
+        s._fillet_arc = arc
+        s._move_ghost = self._fillet_ghost(corner, arc)
+        s._show_status(f"Fillet radius {self._fmt_len(arc.radius)} \u2014 "
+                       f"click or Enter to fillet (or type a radius)", 0)
+
+    def _fillet_pieces(self, corner, arc) -> list:
+        pts, closed = self._fillet_points(corner.ref1)
+        return fh.poly_pieces(pts, closed, corner.idx1, arc.t1, arc.t2)
+
+    def _fillet_ghost(self, corner, arc) -> list:
+        """Scene-coord ghost paths: the arc, then each trimmed edge / piece."""
+        r = arc.radius
+        cx, cy = arc.center
+        rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+        arc_path = QPainterPath()
+        arc_path.arcMoveTo(rect, arc.start_deg)             # Y-up CCW, as ArcItem._rebuild_path
+        arc_path.arcTo(rect, arc.start_deg, arc.span_deg)
+        paths = [arc_path]
+        if corner.kind == "lines":
+            for ln, idx, t in ((corner.ref1, corner.idx1, arc.t1),
+                               (corner.ref2, corner.idx2, arc.t2)):
+                far = ln._pt1 if idx == 0 else ln._pt2
+                if math.hypot(far.x() - t[0], far.y() - t[1]) > fh.LEN_TOL:
+                    e = QPainterPath(QPointF(*t))
+                    e.lineTo(far)
+                    paths.append(e)
+        else:
+            for pc in self._fillet_pieces(corner, arc):
+                e = QPainterPath(QPointF(*pc.pts[0]))
+                for q in pc.pts[1:]:
+                    e.lineTo(QPointF(*q))
+                paths.append(e)
+        return paths
+
+    def move_fillet(self, event, snapped):
+        """``fillet`` cursor: re-aim at the cursor (corner + ghost)."""
+        s = self._scene
+        s.preview_node.hide()
+        s.preview_pipe.hide()
+        self._fillet_aim(event.scenePos())
+        s.publish_placement_state(snapped, snapped)      # feeds the HUD seed
+        for v in s.views():
+            v.viewport().update()
+
+    FILLET_RADIUS_HINT = "Fillet radius must be greater than zero"
+
+    def apply_fillet_radius(self, params: dict) -> bool:
+        """Typed Radius (``fillet_radius`` schema): store it (sticky for the
+        session) and, with a corner under the cursor, fillet it.
+
+        Returns:
+            True when the HUD may close (committed, or stored with no corner);
+            False when refused with the tool live, which keeps the HUD open
+            with a red field (``reject_commit``).
+        """
+        s = self._scene
+        r = float(params["radius"])
+        if not math.isfinite(r) or r <= 0.0:
+            s._show_status(self.FILLET_RADIUS_HINT, 3000)
+            return False
+        s._fillet_radius = r
+        if s._fillet_corner is None:
+            s._show_status(f"Fillet radius {self._fmt_len(r)} \u2014 "
+                           f"hover a corner and click", 3000)
+            return True
+        return self.commit_fillet()
+
+    def press_fillet(self, event, pos, snapped, *_):
+        """``fillet`` click: commit the hovered corner; else arm Line 1."""
+        from .geometry_2d import LineItem
+        from .transform_ghost import ghost_base_paths
+        s = self._scene
+        self._fillet_aim(pos)                  # the press re-aims at the click point
+        if s._fillet_corner is not None:
+            self.commit_fillet(event)
+            return
+        if s._fillet_item1 is not None:
+            return                             # Line 2 not under the cursor / refused: stay live
+        hit = s._tools._find_tool_target(pos, "filleted")    # a Filled Region says so (F7)
+        if isinstance(hit, LineItem):
+            s._fillet_item1 = hit
+            s._move_ghost = ghost_base_paths([hit])
+            s.instructionChanged.emit(self.FILLET_LINE2_HINT)
+        for v in s.views():
+            v.viewport().update()
+
+    def _fillet_arc_item(self, src, arc):
+        """The new ArcItem, styled from *src* (a fresh arc has fresh ends)."""
+        from .geometry_2d import ArcItem
+        from .stroke_style import copy_style
+        item = ArcItem(QPointF(*arc.center), arc.radius, arc.start_deg, arc.span_deg,
+                       color=src.pen().color().name(), lineweight=src.pen().widthF())
+        copy_style(src, item, fresh_ends=("start", "finish"))
+        return item
+
+    def _fillet_apply_lines(self, corner, arc, arc_item):
+        """Line ∠ Line: trim / extend both lines to t1 / t2 inside
+        ``constraint_ctl.edit``; a line left with zero length is removed.
+
+        Returns:
+            The relation edges ``[(item, edge_h, end_h, arc_h)]`` for
+            ``auto_constrain.plan_fillet``, or None when refused (fully defined).
+        """
+        from .scene_tools import _fresh_end
+        s = self._scene
+        ctl = s.constraint_ctl
+        plan = []        # (line, trimmed end index, tangent QPointF, remaining length)
+        for ln, idx, t in ((corner.ref1, corner.idx1, arc.t1),
+                           (corner.ref2, corner.idx2, arc.t2)):
+            far = ln._pt1 if idx == 0 else ln._pt2
+            plan.append((ln, 1 - idx, QPointF(*t),
+                         math.hypot(far.x() - t[0], far.y() - t[1])))
+        if ctl.refuse_grounded([p[0] for p in plan]):                # D17 (CS3)
+            return None
+        trims = [p for p in plan if p[3] > fh.LEN_TOL]
+        gone = [p[0] for p in plan if p[3] <= fh.LEN_TOL]
+        ctl.drop_at([(ln._uid, "p1" if e == 0 else "p2") for ln, e, _t, _r in trims])
+        with ctl.edit([p[0] for p in trims]):
+            for ln, e, t, _r in trims:
+                ln.apply_grip(0 if e == 0 else 2, QPointF(t))
+                _fresh_end(ln, "start" if e == 0 else "finish")
+        for ln, e, t, _r in trims:       # a remaining constraint (e.g. a length dim) pulled an end off its tangent point
+            end = ln._pt1 if e == 0 else ln._pt2
+            if math.hypot(end.x() - t.x(), end.y() - t.y()) > fh.TRIMMED_END_TOL:
+                self._fillet_abandon()
+                return None
+        for ln in gone:
+            s._remove_item_from_lists(ln)
+        if gone:
+            ctl.on_items_removed(gone)
+        s.addItem(arc_item)
+        s._draw_arcs.append(arc_item)
+
+        def arc_h(is_t1):
+            return "start" if arc.start_is_t1 == is_t1 else "end"
+        return [(ln, "edge", "p1" if e == 0 else "p2", arc_h(i == 0))
+                for i, (ln, e, _t, r) in enumerate(plan) if r > fh.LEN_TOL]
+
+    def _fillet_abandon(self) -> None:
+        """Restore the pre-commit state (the last pushed one) and refuse (F1)."""
+        s = self._scene
+        if s._undo_stack and 0 <= s._undo_pos < len(s._undo_stack):
+            s._restore_network(s._undo_stack[s._undo_pos])
+        s._fillet_item1 = s._fillet_corner = s._fillet_arc = None
+        s._move_ghost = []
+        s._show_status(self.FILLET_CONSTRAINED, 3000)
+
+    def commit_fillet(self, event=None) -> bool:
+        """Fillet the hovered corner at the sticky radius (one undo step).
+
+        Args:
+            event: The click's mouse event (None for Enter / a typed radius);
+                feeds the Auto Constrain gate (F3, D7).
+
+        Returns:
+            True when committed; False (status posted, tool stays live, nothing
+            changed) for no corner, a refusal, or a fully defined edge.
+        """
+        s = self._scene
+        corner = s._fillet_corner
+        if corner is None:
+            s._show_status(self.FILLET_NO_CORNER, 3000)
+            return False
+        arc = fh.tangent_arc(corner, s._fillet_radius)
+        if isinstance(arc, fh.Refused):
+            s._show_status(arc.message, 3000)
+            return False
+        arc_item = self._fillet_arc_item(corner.ref1, arc)
+        if corner.kind == "lines":
+            edges = self._fillet_apply_lines(corner, arc, arc_item)
+        else:
+            edges = self._fillet_apply_poly(corner, arc, arc_item)
+        if edges is None:
+            return False
+        self._auto_constrain_fillet(arc_item, edges, event)
+        s.push_undo_state()
+        s._show_status(f"Filleted \u2014 radius {self._fmt_len(arc.radius)}", 3000)
+        # F2: the tool stays live for the next corner at the same sticky radius
+        # (Esc exits); the picked-line / corner / ghost transients are spent.
+        s._fillet_item1 = s._fillet_corner = s._fillet_arc = None
+        s._move_ghost = []
+        s.instructionChanged.emit(self.FILLET_HINT)
+        for v in s.views():
+            v.viewport().update()
+        return True
+
+    def _fillet_piece_item(self, src, piece):
+        """One open PolylineItem for a ``PolyPiece``, styled from *src* (fill
+        dropped by construction; a cut end is fresh)."""
+        from .geometry_2d import PolylineItem
+        from .scene_tools import _fresh_end
+        from .stroke_style import copy_style
+        pl = PolylineItem(QPointF(*piece.pts[0]), color=src.pen().color().name(),
+                          lineweight=src.pen().widthF())
+        for q in piece.pts[1:]:
+            pl.append_point(QPointF(*q))
+        copy_style(src, pl)
+        if piece.start_tp:
+            _fresh_end(pl, "start")
+        if piece.end_tp:
+            _fresh_end(pl, "finish")
+        return pl
+
+    def _fillet_apply_poly(self, corner, arc, arc_item):
+        """Polyline / Rect / RegularPolygon corner: the source is replaced by
+        open polyline(s) + the arc; relations on it drop via the normal delete
+        cascade (``on_items_removed``).
+
+        Returns:
+            The relation edges for ``plan_fillet``, or None when refused
+            (fully defined source).
+        """
+        s = self._scene
+        ctl = s.constraint_ctl
+        src = corner.ref1
+        if ctl.refuse_grounded([src]):                              # D17 (CS3)
+            return None
+        pieces = self._fillet_pieces(corner, arc)
+        new = [self._fillet_piece_item(src, pc) for pc in pieces]
+        s._remove_item_from_lists(src)
+        ctl.on_items_removed([src])
+        for pl in new:
+            s.addItem(pl)
+            s._polylines.append(pl)
+        s.addItem(arc_item)
+        s._draw_arcs.append(arc_item)
+
+        def arc_h(is_t1):
+            return "start" if arc.start_is_t1 == is_t1 else "end"
+        edges = []
+        for pc, pl in zip(pieces, new):
+            m = len(pc.pts)
+            if pc.start_tp:
+                edges.append((pl, "s0", "v0", arc_h(pc.start_tp == "prev")))
+            if pc.end_tp:
+                edges.append((pl, f"s{m - 2}", f"v{m - 1}", arc_h(pc.end_tp == "prev")))
+        return edges
 
     # ── Array (D10 + P1 DD5) ────────────────────────────────────────────────
     # Base point, then the cursor aims and a click / Enter commits; the HUD
     # types the variant's fields. Counts are TOTALS incl. the original. Copies
     # are independent (not associative); one undo step; back to Select with
     # the ORIGINAL selection. Transient scene state (_array_base, _array_dir,
-    # _array_spacing) is cleared on leaving the mode; the session-sticky
-    # _array_variant / _array_memory are never cleared (per canvas tab).
+    # _array_spacing, _array_angle_locked) is cleared on leaving the mode (the
+    # lock also on a restart -- start()); the session-sticky _array_variant /
+    # _array_memory are never cleared (per canvas tab).
 
     # HUD fields remembered per variant after a typed commit: (field, param).
     # Cursor-driven fields (spacings, the polar sweep) are re-set by every aim
@@ -1441,8 +1999,10 @@ class ModifyToolsController:
 
         The HUD never reports an empty field — a blank ``DimensionEdit``
         keeps its seeded value — so typed-vs-untouched is decided against the
-        seed: 0 releases the lock; a value equal to the unlocked seed is the
-        untouched readout and changes nothing; any other value locks.
+        seed: a value equal to the unlocked seed is the untouched readout and
+        changes nothing; any other value — including 0, and any multiple of
+        360 (``ScaleManager.parse_angle`` normalises those to 0) — locks the
+        direction (scene-tools DS2). The lock ends with the tool (``clear``).
 
         Args:
             angle: The resolved ``angle`` param, or None (Polar has none).
@@ -1451,12 +2011,6 @@ class ModifyToolsController:
         if angle is None:
             return
         angle = float(angle)
-        if abs(angle) < 1e-9:
-            # 0 releases the lock — and so does any multiple of 360 (360,
-            # -360, 720 …), which ScaleManager.parse_angle normalises to 0
-            # (review S5).
-            s._array_angle_locked = None
-            return
         if (s._array_angle_locked is None
                 and abs(self._norm(angle - self.array_seed_angle())) < 1e-6):
             return
@@ -1474,7 +2028,8 @@ class ModifyToolsController:
     def _array_grid_axes(self):
         """2D axes in scene coords: û along the lock (else +X) and v̂ = û
         turned +90° CCW in Y-up, i.e. scene ``(û.y, −û.x)`` — rows go UP."""
-        u = self._unit(self._scene._array_angle_locked or 0.0)
+        lock = self._scene._array_angle_locked
+        u = self._unit(0.0 if lock is None else lock)
         return u, QPointF(u.y(), -u.x())
 
     @staticmethod
@@ -1839,7 +2394,7 @@ class ModifyToolsController:
 
         On success the variant's non-cursor fields are remembered for the
         next Array on this canvas. A typed Angle locks / releases the
-        direction first (it stays locked for the next Array).
+        direction first (the lock ends with the tool).
 
         Args:
             params: The active array schema's resolver output.

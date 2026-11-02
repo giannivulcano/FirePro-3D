@@ -51,7 +51,8 @@ from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES)
+                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES,
+                       FILLET_DEFAULT_RADIUS_MM)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -536,7 +537,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Session-sticky per canvas tab (never cleared by clear()): the ←/→
         # variant and the last typed non-cursor HUD fields per variant.
         self._array_variant: str = "linear"
-        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims.
+        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims;
+        # dropped when Array ends or restarts (DS2.2).
         self._array_angle_locked: "float | None" = None
         self._array_memory: dict = {v: dict(f) for v, f
                                     in ARRAY_DEFAULT_MEMORY.items()}
@@ -544,22 +546,31 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # reference point (|ref - base| = 1x); both None outside the tool.
         self._scale_base: "QPointF | None" = None
         self._scale_ref: "QPointF | None" = None
+        # DS1: which field the post-reference Scale HUD types — "length"
+        # (default; reset on every set_mode by ModifyToolsController.clear) or
+        # "factor" (←/→). Per run, never session-sticky.
+        self._scale_variant: str = "length"
         # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
         # the hovered axis_picker.AxisPick painted by Model_View, or None.
         self._mirror_axis = None
+        # Flip (DS3): bbox centre of the reflectable selection (set at entry,
+        # None outside Flip), the two toggles, and the last quadrant ("UL" ..).
+        self._flip_center = None
+        self._flip_lr = False
+        self._flip_ud = False
+        self._flip_quad = None
         # Break / Break at Point
         self._break_target = None
         self._break_highlight = None
         self._break_p1: "QPointF | None" = None
         self._break_at_target = None
         self._break_at_highlight = None
-        # Fillet / Chamfer
-        self._fillet_radius: float = 5.0
-        self._fillet_item1 = None
-        self._fillet_item2 = None
-        self._fillet_highlight1 = None
-        self._fillet_highlight2 = None
-        self._fillet_preview = None
+        # Fillet (scene-tools.md D14 Fillet; behaviour in ModifyToolsController)
+        self._fillet_radius: float = FILLET_DEFAULT_RADIUS_MM   # session-sticky: never cleared
+        self._fillet_item1 = None        # fallback Line 1 (click it, then hover Line 2)
+        self._fillet_corner = None       # fillet_geometry.Corner under the cursor
+        self._fillet_arc = None          # its TangentArc at the current radius
+        # Chamfer
         self._chamfer_dist: float = 5.0
         self._chamfer_item1 = None
         self._chamfer_item2 = None
@@ -1449,10 +1460,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             _remove_preview("_break_at_highlight")
         if mode != "fillet":
             self._fillet_item1 = None
-            self._fillet_item2 = None
-            _remove_preview("_fillet_highlight1")
-            _remove_preview("_fillet_highlight2")
-            _remove_preview("_fillet_preview")
+            self._fillet_corner = None
+            self._fillet_arc = None
         if mode != "chamfer":
             self._chamfer_item1 = None
             self._chamfer_item2 = None
@@ -1518,11 +1527,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "rotate":          "Pick pivot point",
             "array":           "Pick base point",
             "scale":           "Pick base point",
-            "flip":            "Pick mirror axis",
+            "flip":            ModifyToolsController.FLIP_HINT,
             "mirror":          "Pick mirror axis",
             "break":           "Select object to break",
             "break_at_point":  "Select object to split",
-            "fillet":          "Click first object",
+            "fillet":          self._modify_ctl.FILLET_HINT,
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point  ·  Space = alignment",
@@ -1559,7 +1568,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # this mode's state reset (above) so the variant flag it sets is not
         # clobbered.  No-op for non-variant modes, so their plain instruction
         # stands.
-        if mode in self._plc._PLACEMENT_VARIANTS:
+        # Scale is exempt: its ←/→ cycle only opens after the reference point
+        # (DS1), so the entry readout keeps the plain "Pick base point" instead
+        # of advertising a cycle that does not work yet.
+        if mode in self._plc._PLACEMENT_VARIANTS and mode != "scale":
             self._apply_current_variant()
 
         # Populate the Properties dock with the gridline placement template so
@@ -4188,7 +4200,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # segment through axis_picker, so cursor SNAP and ALIGN are off — no
         # snap glyph (snapping-engine §3: no contextual snap-by-tool). The
         # constraint pick modes (D21 markers, raw cursor) likewise (CS4 smoke).
-        if self.mode in ("flip", "mirror") or (
+        # Fillet hit-tests corners / lines on the raw cursor itself (DS4.2;
+        # smoke 2026-11-01: a snap glyph there disagreed with the aim).
+        if self.mode in ("flip", "mirror", "fillet") or (
                 isinstance(self.mode, str) and self.mode.startswith("constrain_")):
             self._snap_result = None
             self._align_result = None
@@ -4620,11 +4634,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "paste": "displacement",
         "duplicate": "displacement",
         "rotate": "rotate_by",
+        # scale keeps this row for the forward-declaration tables, but
+        # active_schema overrides it after the reference point (DS1:
+        # scale_length / scale_factor by ``_scale_variant``).
         "scale": "scale_factor",
         # array is intentionally absent — active_schema follows its ←/→
         # variant (array_linear / array_grid / array_polar, P1 DD5) like
         # draw_rectangle; _APPLIER_FOR_MODE keeps the one router.
         "offset_side": "offset_distance",
+        "fillet": "fillet_radius",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
     }
@@ -4663,6 +4681,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "scale": "_apply_scale_factor",
         "array": "_apply_array_dynamic_input",
         "offset_side": "_apply_offset_distance",
+        "fillet": "_apply_fillet_radius",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
@@ -5517,6 +5536,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "scale":                    "_move_scale",
+        "fillet":                   "_move_fillet",
         "array":                    "_move_array",
         "flip":                     "_move_reflect",
         "mirror":                   "_move_reflect",
@@ -7096,37 +7116,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.push_undo_state()
             self.set_mode("break_at_point")
 
-    # ── Fillet ───────────────────────────────────────────────────────
-    def _press_fillet(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._fillet_item1 is None:
-            hit = self._tools._find_tool_target(pos, "filleted")
-            if hit is not None and isinstance(hit, LineItem):
-                self._fillet_item1 = hit
-                self._fillet_highlight1 = self._tools._highlight_item(hit)
-                self.instructionChanged.emit("Click second line")
-        elif self._fillet_item2 is None:
-            hit = self._tools._find_tool_target(pos, "filleted")
-            if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
-                self._fillet_item2 = hit
-                self._fillet_highlight2 = self._tools._highlight_item(hit)
-                data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                           self._fillet_radius)
-                if data is None:
-                    self._show_status("Cannot fillet these lines (parallel?)")
-                    self.set_mode("fillet")
-                else:
-                    # Show preview
-                    pp = QPainterPath()
-                    r = data["radius"]
-                    c = data["center"]
-                    pp.addEllipse(c, r, r)
-                    self._fillet_preview = self.addPath(
-                        pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                    self._fillet_preview.setPen(
-                        QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                    self._fillet_preview.pen().setCosmetic(True)
-                    self.instructionChanged.emit(
-                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit")
+    # ── Fillet (scene-tools.md D14 Fillet) ───────────────────────────
+    def _press_fillet(self, *args, **kwargs):  # shell → ModifyToolsController
+        return self._modify_ctl.press_fillet(*args, **kwargs)
+
+    def _move_fillet(self, *args, **kwargs):  # shell → ModifyToolsController
+        return self._modify_ctl.move_fillet(*args, **kwargs)
+
+    def _apply_fillet_radius(self, *args, **kwargs):  # shell → ModifyToolsController
+        return self._modify_ctl.apply_fillet_radius(*args, **kwargs)
 
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8880,6 +8878,20 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     "h" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "v")
             event.accept()
             return
+        # ── Flip arrows (scene-tools D16 / DS3.2) ────────────────────────────
+        # Same gate as the placement flips above: no modifier (KeypadModifier
+        # masked), not in input mode, auto-repeat accepted but ignored.
+        # <-/-> toggle the left-right reflection, up/down the top-bottom one.
+        if (self.mode == "flip" and not self.is_input_mode()
+                and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
+                == Qt.KeyboardModifier.NoModifier
+                and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                                    Qt.Key.Key_Up, Qt.Key.Key_Down)):
+            if not event.isAutoRepeat():
+                self._modify_ctl.toggle_flip(
+                    "lr" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "ud")
+            event.accept()
+            return
         # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
@@ -8971,6 +8983,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode in ("flip", "mirror"):
                 self._modify_ctl.commit_reflect()
                 return
+            # Fillet: Enter commits the hovered corner like a click (DS4).
+            if self.mode == "fillet":
+                self._modify_ctl.commit_fillet()
+                return
             # Array: Enter commits at the cursor's aim with the remembered
             # counts, like a click (D10 / DD5); a refused aim posts
             # commit_array's reason. The typed path is the HUD.
@@ -9058,17 +9074,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first room boundary point")
-            # Commit fillet
-            elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
-                data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                            self._fillet_radius)
-                if data is not None:
-                    self._tools._commit_fillet(data)
-                    self.push_undo_state()
-                else:
-                    self._show_status("Cannot compute fillet for these objects", timeout=3000)
-                self.set_mode(None)
-                return
             # Commit chamfer
             elif self.mode == "chamfer" and self._chamfer_item1 is not None and self._chamfer_item2 is not None:
                 data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
