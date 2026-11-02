@@ -3,9 +3,10 @@
 Containment C5 retired ``NoteAnnotation``; its box-native behaviour (9-grip
 resize, bake-at-rest rotation, manip_* protocol) is now carried by the unified
 ``TextItem`` (``firepro3d.text_item``).  These guards drive a model-surface
-``TextItem`` (off-scene / bare-scene ⇒ scene-mm sizing, ``setScale == 1``, so
-local units equal mm) and assert the same ground truth the retired
-NoteAnnotation guards did.  Box height / angle now live on the shared
+``TextItem`` (off-scene / bare-scene: scene-mm sizing) and assert the same
+ground truth the retired NoteAnnotation guards did.  Since L96 the item's local
+frame is reference-px font units (``scale() == height / cap``), so wrap widths
+are set and read in scene mm through ``_wrap`` / ``_tw_mm``.  Box height / angle now live on the shared
 ``TextAnnotationData`` (``data.box_height_mm`` / ``data.angle``); ``_angle`` and
 ``_pivot`` still mirror the rotation for the map overrides.
 """
@@ -16,8 +17,18 @@ from firepro3d.text_item import TextItem, TextAnnotationData
 
 
 def _note(text="Note", x=0.0, y=0.0):
-    """A model-surface TextItem (off-scene ⇒ scene-mm sizing, scale 1)."""
+    """A model-surface TextItem (off-scene: scene-mm sizing)."""
     return TextItem(TextAnnotationData(text=text, x=x, y=y))
+
+
+def _wrap(note, mm):
+    """Set the laid-out wrap width to *mm* scene mm (local = reference-px units)."""
+    note.setTextWidth(mm / note.scale())
+
+
+def _tw_mm(note):
+    """The laid-out wrap width in scene mm."""
+    return note.textWidth() * note.scale()
 
 
 # ── Task 1: data-model fields ────────────────────────────────────────────────
@@ -62,7 +73,7 @@ def test_old_dict_without_new_keys_loads_as_identity(qapp):
 
 def test_grip_points_are_nine_box_corners_at_angle_zero(qapp):
     note = _note("Hello world", x=100, y=200)
-    note.setTextWidth(80.0)
+    _wrap(note,80.0)
     note.data.box_height_mm = 40.0
     gp = note.grip_points()
     assert len(gp) == 9
@@ -73,11 +84,11 @@ def test_grip_points_are_nine_box_corners_at_angle_zero(qapp):
 
 def test_mr_grip_changes_only_wrap_not_font_or_height(qapp):
     note = _note("Hello", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 50.0
     px = note.font().pixelSize()
     note.apply_grip(3, QPointF(140, 25))       # right-mid to x=140
-    assert abs(note.textWidth() - 140.0) < 1e-6
+    assert abs(_tw_mm(note) - 140.0) < 1e-6
     assert abs(note.data.box_height_mm - 50.0) < 1e-6   # axis-isolated
     assert note.font().pixelSize() == px       # FONT untouched
     assert note.pos() == QPointF(0, 0)         # right-drag pins left → no re-anchor
@@ -85,21 +96,21 @@ def test_mr_grip_changes_only_wrap_not_font_or_height(qapp):
 
 def test_lm_grip_pins_right_edge_and_reanchors_pos(qapp):
     note = _note("Hello", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 50.0
     note.apply_grip(7, QPointF(30, 25))        # left-mid right to x=30 (shrink)
-    assert abs(note.textWidth() - 70.0) < 1e-6  # 100 - 30
+    assert abs(_tw_mm(note) - 70.0) < 1e-6  # 100 - 30
     assert abs(note.pos().x() - 30.0) < 1e-6    # left edge moved → pos re-anchored
     assert abs(note.pos().y() - 0.0) < 1e-6
 
 
 def test_bm_grip_changes_only_box_height(qapp):
     note = _note("Hello", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 50.0
     note.apply_grip(5, QPointF(50, 80))        # bottom-mid down
     assert abs(note.data.box_height_mm - 80.0) < 1e-6
-    assert abs(note.textWidth() - 100.0) < 1e-6
+    assert abs(_tw_mm(note) - 100.0) < 1e-6
 
 
 def test_first_resize_from_auto_width_seeds_wrap(qapp):
@@ -131,13 +142,13 @@ def test_caps_are_font_constant_on_model_surface(qapp):
 
 def test_manip_handles_present(qapp):
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(50.0)
+    _wrap(note,50.0)
     assert len(note.manip_handles()) == 9
 
 
 def test_manip_bounds_is_local_box_in_scene(qapp):
     note = _note("Hi", x=10, y=20)
-    note.setTextWidth(60.0)
+    _wrap(note,60.0)
     note.data.box_height_mm = 30.0
     b = note.manip_bounds()
     assert abs(b.x() - 10) < 1e-6 and abs(b.y() - 20) < 1e-6
@@ -147,10 +158,10 @@ def test_manip_bounds_is_local_box_in_scene(qapp):
 def test_manip_scale_matches_apply_grip_corner(qapp):
     """Baked scale about an anchor reproduces the box; anchor (TL) held."""
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 50.0
     note.manip_scale(2.0, 2.0, QPointF(0, 0))
-    assert abs(note.textWidth() - 200.0) < 1e-6
+    assert abs(_tw_mm(note) - 200.0) < 1e-6
     assert abs(note.data.box_height_mm - 100.0) < 1e-6
     assert note.pos() == QPointF(0, 0)
 
@@ -159,7 +170,7 @@ def test_manip_scale_matches_apply_grip_corner(qapp):
 
 def test_rotate_bakes_angle_and_drops_scale_cap(qapp):
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 40.0
     note.manip_rotate(90.0, QPointF(50, 20))       # 90° about box centre
     assert abs(note._angle - 90.0) < 1e-6
@@ -169,9 +180,9 @@ def test_rotate_bakes_angle_and_drops_scale_cap(qapp):
 
 def test_rotated_grip_points_follow_transform(qapp):
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 40.0
-    centre = note._box_rect_local().center()       # (50, 20) local
+    centre = note._box_rect_local().center()       # box centre, local frame
     note.manip_rotate(90.0, note.mapToScene(centre))
     gp = note.grip_points()
     # Centre grip (8) is rotation-invariant → stays at the scene centre.
@@ -183,7 +194,7 @@ def test_rotated_grip_points_follow_transform(qapp):
 def test_no_qt_item_rotation_set(qapp):
     """Bake-at-rest: Qt's own rotation() stays 0 — pose lives in data + paint."""
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.manip_rotate(45.0, QPointF(50, 10))
     assert note.rotation() == 0.0
 
@@ -197,7 +208,7 @@ def test_grip_render_angle_tracks_baked_angle(qapp):
 def test_rotated_bounds_is_rotated_footprint(qapp):
     """boundingRect grows to the rotated footprint (Qt scene index tracks shape)."""
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(100.0)
+    _wrap(note,100.0)
     note.data.box_height_mm = 40.0
     base = note.boundingRect()
     note.manip_rotate(45.0, QPointF(50, 20))
@@ -252,16 +263,16 @@ def test_rotated_note_grip_apply_matches_live_drive(qapp):
     """Driving grip 3 through the live-apply lifecycle == calling apply_grip
     directly — proves the manipulator path carries the item's resize math."""
     legacy = _note("Hi", x=0, y=0)
-    legacy.setTextWidth(100.0); legacy.data.box_height_mm = 40.0
+    _wrap(legacy,100.0); legacy.data.box_height_mm = 40.0
     legacy.set_angle(30.0, QPointF(50, 20))
     legacy.apply_grip(3, QPointF(130, 25))
 
     migrated = _note("Hi", x=0, y=0)
-    migrated.setTextWidth(100.0); migrated.data.box_height_mm = 40.0
+    _wrap(migrated,100.0); migrated.data.box_height_mm = 40.0
     migrated.set_angle(30.0, QPointF(50, 20))
     _drive_handle(migrated, 3, QPointF(130, 25))
 
-    assert abs(migrated.textWidth() - legacy.textWidth()) < 1e-6
+    assert abs(_tw_mm(migrated) - _tw_mm(legacy)) < 1e-6
     assert abs(migrated.data.box_height_mm - legacy.data.box_height_mm) < 1e-6
     assert abs(migrated.pos().x() - legacy.pos().x()) < 1e-6
     assert abs(migrated.pos().y() - legacy.pos().y()) < 1e-6
@@ -276,7 +287,7 @@ def test_posted_drag_centre_grip_moves_rotated_note(qapp):
     view = QGraphicsView(scene); view.resize(600, 600); view.show()
     qapp.processEvents()
     note = _note("Hi", x=0, y=0)
-    note.setTextWidth(100.0); note.data.box_height_mm = 40.0
+    _wrap(note,100.0); note.data.box_height_mm = 40.0
     note.set_angle(30.0, QPointF(50, 20))
     scene.addItem(note)
     m = SelectionManipulator(scene)

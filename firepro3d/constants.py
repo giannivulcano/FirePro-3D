@@ -316,10 +316,16 @@ DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (pape
 # the block scale_mode="annotative" (authored in printed mm; SB1c, annotative.py).
 DEFAULT_MODEL_TEXT_HEIGHT_MM = 100.0  # model/Block-Editor default CAP height (scene mm)
 DEFAULT_MODEL_TEXT_PADDING_MM = 15.0  # model/Block-Editor default cell padding (scene mm)
+# Text placed in an ANNOTATIVE Block Editor block is authored in printed mm
+# (SB1c), so it seeds a printed default instead: 3 mm cap ~= 12 pt Arial
+# (text-sizing-wrap D3; the shipped PipeLabel / RoomTag size).
+DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM = 3.0   # annotative-block default CAP height (printed mm)
+DEFAULT_ANNOTATIVE_TEXT_PADDING_MM = 1.0  # annotative-block default cell padding (printed mm)
 PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
-TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
+TEXT_METRIC_REF_PX = 1000        # reference px size of every TextItem font; setScale(h / cap) sizes it (L96)
 GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
+TEXT_HEIGHT_MM_PRECISION = 2     # decimals of the real-size text Height row (mm; text-sizing-wrap D2)
 
 # ── App-wide selection / grip style (owned by docs/architecture/theming.md) ──
 # Selection colour comes from the theme `selection` tokens (selection
@@ -556,3 +562,11 @@ MARK_ROW_TOLERANCE_MM = 600.0
 # Project Settings > Marks table: narrowest the stretch "Next" column may get (px),
 # so the fitted table never needs a horizontal scrollbar.
 MARKS_NEXT_COL_MIN_WIDTH_PX = 90
+
+# Display precision (text-sizing-wrap D8 / D9): the upper bound of every
+# project / attribute precision (imperial length: fraction denominator 2**p),
+# and the project hydraulic precisions -- today's fixed formats, so nothing moves.
+DISPLAY_PRECISION_MAX = 5
+DEFAULT_PRESSURE_PRECISION = 1     # psi
+DEFAULT_FLOW_PRECISION = 0         # gpm
+DEFAULT_VELOCITY_PRECISION = 1     # ft/s

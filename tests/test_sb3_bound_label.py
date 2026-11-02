@@ -632,7 +632,9 @@ def test_exploded_bound_text_lands_in_the_hugged_box(qapp, make_model_space):
     made = explode_instances(ms, [inst], flatten=True)
     text = [t for t in made if isinstance(t, TextItem)][0]
     assert text._data.text == "Mechanical Equipment Room"
-    assert text._data.wrap_width_mm == 0.0 and text._data.box_height_mm == 0.0
+    # D4/D5: the authored box is kept and the hug is the explicit Shrink flag.
+    assert (text._data.wrap, text._data.shrink) == (False, True)
+    assert text._data.wrap_width_mm == 13.9 and text._data.box_height_mm == 7.0
     g = text.grip_points()                                      # the box text_box_ops strokes
     assert (g[4] - g[0]).x() == pytest.approx(drawn.width(), abs=0.05)
     # render_ops() is definition-local; the exploded item is posed at the instance origin

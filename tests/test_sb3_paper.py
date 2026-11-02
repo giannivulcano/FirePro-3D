@@ -107,10 +107,9 @@ def test_ac4_model_view_tag_is_authored_mm_times_the_drawing_scale(qapp):
     g = QRectF()
     for op in ops:
         g = g.united(op.path.boundingRect())
-    # TextItem sizes the font so cap height == height_mm (text_item.py 350-375); the pixel size is
-    # rounded at TEXT_METRIC_REF_PX = 1000, so the outline is within 0.1 % + flattening: 0.1 mm band.
-    # pins the shipped value, not 3.0: filed TextItem integer-px bug (todo_open.md Text annotation); retighten to TAG_MM when fixed
-    assert g.height() == pytest.approx(2.863, abs=0.02)
+    # TextItem scales its reference-px font so the cap height == height_mm (L96 true cap,
+    # text-sizing-wrap D1); the outline carries curve flattening only: 0.02 mm band.
+    assert g.height() == pytest.approx(TAG_MM, abs=0.02)
     for ds in (100.0, 200.0):
         ms.scale_manager.drawing_scale = ds
         reprepare_annotative(ms)

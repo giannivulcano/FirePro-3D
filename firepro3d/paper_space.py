@@ -27,6 +27,10 @@ from .constants import (
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
 from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
+from .text_item import (  # text-height pt/mm helpers -- one home in text_item (D2); re-exported for callers
+    MM_PER_PT, _font_pt_from_mm, _format_height_pt, _mm_from_font_pt,
+    _parse_height_pt, _parse_text_height_mm, _text_cap_ratio,
+)
 from .house_dialog import HouseDialog
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
@@ -1503,101 +1507,16 @@ class SheetViewPropertiesDialog(QDialog):
 # Sheet-text panel helpers (spec property-panel.md §3.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _parse_text_height_mm(text: str) -> float | None:
-    """Parse a paper text height string to mm.
-
-    Delegates to ``ScaleManager.parse_dimension`` after pre-processing a bare
-    leading fraction such as ``1/8"`` (which parse_dimension rejects) by
-    inserting a ``0 `` prefix to produce ``0 1/8"``.
-
-    Args:
-        text: A dimension string, e.g. ``'1/8"'``, ``'3mm'``, ``'3.175 mm'``.
-
-    Returns:
-        The equivalent value in millimetres, or ``None`` if unparseable.
-    """
-    import re as _re
-    t = text.strip()
-    # Pre-process a bare leading fraction like "1/8"" → "0 1/8""
-    if _re.match(r'^\d+\s*/\s*\d+\s*"?$', t):
-        t = "0 " + t
-    return ScaleManager.parse_dimension(t, fallback_unit="mm")
-
-
 _PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
 _PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
-
-
-MM_PER_PT = 25.4 / 72.0   # 1 typographic point in paper mm
-
-
-def _text_cap_ratio(data: "TextAnnotationData") -> float:
-    """Return the cap-height / em-size ratio for *data*'s font.
-
-    Word-style font sizes ("12 pt") measure the em body; stored height_mm is
-    cap height (§5.3). This ratio converts between the two for the panel's
-    pt display. Computed at TEXT_METRIC_REF_PX for metric precision (§9.4).
-
-    Args:
-        data: The TextAnnotationData whose font (family/bold/italic) applies.
-
-    Returns:
-        capHeight / em ratio (e.g. ~0.716 for Arial); 0.7 fallback if the
-        metric degenerates.
-    """
-    f = QFont(data.font_family) if data.font_family else QFont("Arial")
-    f.setBold(data.bold)
-    f.setItalic(data.italic)
-    f.setPixelSize(TEXT_METRIC_REF_PX)
-    ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
-    return ratio if ratio > 0 else 0.7
-
-
-def _font_pt_from_mm(data: "TextAnnotationData", mm: float) -> float:
-    """Convert a stored cap height (mm) to the Word-style font pt size."""
-    return mm / (MM_PER_PT * _text_cap_ratio(data))
-
-
-def _mm_from_font_pt(data: "TextAnnotationData", pt: float) -> float:
-    """Convert a Word-style font pt size to the stored cap height (mm)."""
-    return pt * MM_PER_PT * _text_cap_ratio(data)
-
-
-def _format_height_pt(data: "TextAnnotationData", mm: float) -> str:
-    """Format a cap height for the panel: Word-style pt, e.g. ``"12 pt"``."""
-    pt = round(_font_pt_from_mm(data, mm), 1)
-    return f"{pt:g} pt"
-
-
-def _parse_height_pt(data: "TextAnnotationData", text: str) -> float | None:
-    """Parse the panel height field: bare numbers / ``pt`` mean font points.
-
-    ``"12"`` and ``"12 pt"`` parse as a Word-style 12 pt font size (converted
-    to cap-height mm via the font's metrics). Explicit dimension strings such
-    as ``'1/8"'`` or ``"3mm"`` still parse as literal cap heights through
-    :func:`_parse_text_height_mm`.
-
-    Args:
-        data: The TextAnnotationData whose font drives the pt conversion.
-        text: The user's input string.
-
-    Returns:
-        Cap height in mm, or None if unparseable.
-    """
-    t = text.strip().lower()
-    if t.endswith("pt"):
-        t = t[:-2].strip()
-    try:
-        return _mm_from_font_pt(data, float(t))
-    except ValueError:
-        return _parse_text_height_mm(text)
 
 
 def _text_panel_properties(data: "TextAnnotationData") -> dict:
     """Property-panel form dict for a sheet text annotation (§9.6 panel path).
 
     Formatting only — content is edited inline on the canvas and wrap width
-    via the drag grip. Height displays/parses as a Word-style pt font size
+    via the drag grip; Wrap / Shrink to fit toggle the box (text-sizing D7).
+    Height displays/parses as a Word-style pt font size
     (storage stays cap-height mm). The trailing "Leader" label row is a
     placeholder for the leader follow-up task (real leader rows will replace
     it).
@@ -1633,6 +1552,8 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
                           "options": weight_names()},
         "Corner": {"type": "enum", "value": data.border_corner,
                    "options": ["square", "round", "chamfer"]},
+        "Wrap": {"type": "bool", "value": data.wrap_on()},                   # D7
+        "Shrink to fit": {"type": "bool", "value": data.shrink_on()},       # D7
         "Leader": {"type": "label", "value": "None"},
     }
 
@@ -2651,8 +2572,9 @@ class _MoveTextBoxAdapter(ResizeTextBoxCommand):
     """A text-box move committed by the SelectionManipulator.
 
     A manipulator translate bakes only ``x`` / ``y`` (wrap/box unchanged), but
-    the generic commit path snapshots the full 4-tuple ``(x, y, wrap, box_h)``.
-    Reusing ResizeTextBoxCommand's atomic 4-field restore keeps the undo path in
+    the generic commit path snapshots the full 6-tuple
+    ``(x, y, wrap_width, box_h, wrap, shrink)``.
+    Reusing ResizeTextBoxCommand's atomic box restore keeps the undo path in
     one home; only the visible label differs ("Move Text"), so the move reads
     correctly in the undo history — the spec's "existing move command for a
     translate" without a second serializer.
@@ -3095,7 +3017,7 @@ class PaperScene(QGraphicsScene):
 
         SheetViewport always uses ViewportGeometryCommand.  TextItem
         uses ``_MoveTextBoxAdapter`` for a manipulator translate and
-        ResizeTextBoxCommand for a resize — both consume the same 4-tuple
+        ResizeTextBoxCommand for a resize — both consume the same 6-tuple
         snapshot (:meth:`_text_box_geom`), so an x/y-only move reuses the
         atomic box-restore without a second serializer (spec "Undo & domains").
         """
@@ -3109,8 +3031,10 @@ class PaperScene(QGraphicsScene):
     @staticmethod
     def _text_box_geom(data) -> tuple:
         """Snapshot tuple of a TextAnnotationData box state (matches the
-        ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm))."""
-        return (data.x, data.y, data.wrap_width_mm, data.box_height_mm)
+        ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm,
+        wrap, shrink))."""
+        return (data.x, data.y, data.wrap_width_mm, data.box_height_mm,
+                data.wrap, data.shrink)
 
     def _manip_capture_press(self, items) -> None:
         """SelectionManipulator press_hook: snapshot pre-drag record state.
@@ -3379,6 +3303,12 @@ class PaperScene(QGraphicsScene):
             data.align = t.align
             data.fill_color = t.fill_color
             data.fill_opacity = t.fill_opacity
+            # Wrap / Shrink are tri-state: carry only an authored value so an
+            # untouched template still places a legacy (flagless) text.
+            if t.wrap is not None:
+                data.wrap = t.wrap
+            if t.shrink is not None:
+                data.shrink = t.shrink
         item = TextItem(data)  # TRANSIENT: not tracked, not in sheet
         self.addItem(item)
         self._pending_text = item

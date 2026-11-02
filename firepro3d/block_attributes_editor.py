@@ -1,7 +1,12 @@
 """Attributes editor for the Block Editor (SB1a S4 / A7).
 
 A table of attribute records (key, label, type, source, host key, default,
-prefix, suffix, precision, placeholder) with + / minus / up / down row buttons. OK
+prefix, suffix, precision, unit, placeholder) with + / minus / up / down row
+buttons. Precision is ONE column (text-sizing-wrap D8, rule B-2'): a ``number``
+record's decimals (``precision``, A8), else a host text record's display
+override (``display_precision``; "Per project settings" = no key). Unit is the
+override of a host length / area / volume value ("Per project settings" = no
+key). OK
 validates (empty or duplicate keys refused inline; removing a key that text
 primitives still reference is refused with "used by N text fields") and
 applies through ``BlockEditorWidget.apply_attributes_edit`` -- renames
@@ -14,15 +19,24 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QTableWidget,
                              QTableWidgetItem, QToolButton, QWidget)
 
-from .block_attributes import ATTR_SOURCES, ATTR_TYPES, references_of
+from .block_attributes import (ATTR_SOURCES, ATTR_TYPES, OVERRIDE_PRECISION_KINDS,
+                               OVERRIDE_UNIT_KINDS, references_of)
 from . import theme as th
+from .constants import DISPLAY_PRECISION_MAX
 from .element_params import PARAMS, host_key_items
 from .house_dialog import HouseDialog
+from .scale_manager import DISPLAY_UNIT_OPTIONS
 
 COLUMNS = ("key", "label", "type", "source", "host_key", "default",
-           "prefix", "suffix", "precision", "placeholder")
+           "prefix", "suffix", "precision", "unit", "placeholder")
 _HEADERS = ("Key", "Label", "Type", "Source", "Host key", "Default",
-            "Prefix", "Suffix", "Precision", "Placeholder")
+            "Prefix", "Suffix", "Precision", "Unit", "Placeholder")
+# First entry of the Unit / Precision dropdowns (data ""): no override key (D8).
+PER_PROJECT = "Per project settings"
+_PRECISION_OPTIONS = tuple((str(p), str(p)) for p in range(DISPLAY_PRECISION_MAX + 1))
+# The Precision dropdown carries a text record's own (unused) ``precision`` so
+# an edit writes it back unchanged (nothing moves, B-2').
+_A8_PROP = "a8_precision"
 _ORIG_ROLE = 0x0100 + 7       # Qt.ItemDataRole.UserRole + 7: the row's original key
 
 
@@ -68,19 +82,36 @@ class AttributesEditorDialog(HouseDialog):
                 self.table.setCellWidget(r, c, box)
             elif col == "host_key":
                 self.table.setCellWidget(r, c, self._host_key_box(str(rec.get(col, ""))))
+            elif col == "unit":
+                self.table.setCellWidget(r, c, self._override_box(
+                    DISPLAY_UNIT_OPTIONS, str(rec.get(col, ""))))
+            elif col == "precision":
+                self.table.setCellWidget(r, c, self._precision_box(rec))
             else:
                 it = QTableWidgetItem(str(rec.get(col, "")))
                 if c == 0:
                     it.setData(_ORIG_ROLE, orig)
                 self.table.setItem(r, c, it)
         src = self.table.cellWidget(r, COLUMNS.index("source"))
+        typ = self.table.cellWidget(r, COLUMNS.index("type"))
         hk = self.table.cellWidget(r, COLUMNS.index("host_key"))
+        unit = self.table.cellWidget(r, COLUMNS.index("unit"))
+        prec = self.table.cellWidget(r, COLUMNS.index("precision"))
         cat = self._scene.block_meta.get("host_category", "")
 
-        def _sync(_=None, src=src, hk=hk):
-            hk.setEnabled(src.currentText() == "host" and cat in PARAMS)
+        def _sync(_=None, src=src, typ=typ, hk=hk, unit=unit, prec=prec):
+            host = src.currentText() == "host" and cat in PARAMS
+            hk.setEnabled(host)
+            # Unit reaches a host value of a kind it formats (D8, G7); Precision
+            # is a number's decimals, or a host text value's display override.
+            spec = PARAMS[cat].get(hk.currentData() or "") if host else None
+            kind = spec.kind if spec is not None else None
+            unit.setEnabled(kind in OVERRIDE_UNIT_KINDS)
+            prec.setEnabled(typ.currentText() == "number" or kind in OVERRIDE_PRECISION_KINDS)
 
         src.currentTextChanged.connect(_sync)
+        typ.currentTextChanged.connect(_sync)
+        hk.currentIndexChanged.connect(_sync)
         _sync()
 
     def _host_key_box(self, current: str) -> QComboBox:
@@ -97,6 +128,36 @@ class AttributesEditorDialog(HouseDialog):
                 box.setItemData(i, wc, Qt.ItemDataRole.ForegroundRole)
         i = box.findData(current)
         box.setCurrentIndex(i if i >= 0 else 0)
+        return box
+
+    @staticmethod
+    def _override_box(options, current: str) -> QComboBox:
+        """A D8 override dropdown: "Per project settings" (data "") then
+        *options* ``(text, value)``; *current* selects by value."""
+        box = QComboBox()
+        box.addItem(PER_PROJECT, "")
+        for text, value in options:
+            box.addItem(text, value)
+        i = box.findData(current)
+        box.setCurrentIndex(i if i >= 0 else 0)
+        return box
+
+    @staticmethod
+    def _precision_box(rec: dict) -> QComboBox:
+        """The one Precision dropdown (B-2'): shows a ``number`` record's
+        decimals (``precision``, A8), else the text record's display override
+        (``display_precision``; absent = "Per project settings"). The text
+        record's own ``precision`` rides along on the widget, unchanged."""
+        number = rec.get("type") == "number"
+        current = str(rec.get("precision", 0) if number else rec.get("display_precision", ""))
+        box = AttributesEditorDialog._override_box(_PRECISION_OPTIONS, current)
+        if box.findData(current) < 0:            # legacy decimals above the list
+            box.addItem(current, current)
+            box.setCurrentIndex(box.count() - 1)
+        try:
+            box.setProperty(_A8_PROP, int(rec.get("precision", 0) or 0))
+        except (TypeError, ValueError):
+            box.setProperty(_A8_PROP, 0)
         return box
 
     def add_row(self) -> None:
@@ -147,6 +208,15 @@ class AttributesEditorDialog(HouseDialog):
                 out[col] = w.currentData()
             else:
                 out[col] = w.currentText()
+        # One Precision column (B-2'): a number's decimals, else the display
+        # override; a text record keeps its own precision as loaded.
+        p = out.pop("precision")
+        if out["type"] == "number":
+            out["precision"] = p or "0"
+        else:
+            box = self.table.cellWidget(row, COLUMNS.index("precision"))
+            out["precision"] = box.property(_A8_PROP) or 0
+            out["display_precision"] = p
         return out
 
     def message(self) -> str:

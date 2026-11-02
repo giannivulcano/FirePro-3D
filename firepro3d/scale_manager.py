@@ -14,12 +14,16 @@ Calibration workflow:
 """
 
 from __future__ import annotations
+import copy
 import math
 import re
 from decimal import Decimal, ROUND_HALF_UP, localcontext
 from enum import Enum
 from math import floor
 from PyQt6.QtCore import QPointF
+
+from .constants import (DEFAULT_FLOW_PRECISION, DEFAULT_PRESSURE_PRECISION,
+                        DEFAULT_VELOCITY_PRECISION, DISPLAY_PRECISION_MAX)
 
 # The shared §3.1 number grammar lives with the length grammar it serves;
 # ``parse_factor`` reuses it here, unsigned.
@@ -37,6 +41,16 @@ class DisplayUnit(Enum):
     METRIC_M = "m"
 
 
+# (label, DisplayUnit value) in menu order: the project's display-unit choices,
+# one home for the Units & Precision pane and the Attributes editor's Unit
+# override (D8 / G7). Mirrors ``MainWindow._build_units_menu``.
+DISPLAY_UNIT_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Imperial (ft-in)", "imperial"),
+    ("Metric (m)",       "m"),
+    ("Metric (mm)",      "mm"),
+)
+
+
 class ScaleManager:
     """Converts between scene pixels and real-world millimeters."""
 
@@ -49,6 +63,14 @@ class ScaleManager:
         self._calibrated: bool = False
         self._drawing_scale: float = 100.0      # denominator (e.g. 100 for 1:100)
         self._precision: int = 3                # decimal places for metric display
+        # Project hydraulic precisions (D9; Project Settings > Units & Precision).
+        self._pressure_precision: int = DEFAULT_PRESSURE_PRECISION
+        self._flow_precision: int = DEFAULT_FLOW_PRECISION
+        self._velocity_precision: int = DEFAULT_VELOCITY_PRECISION
+        # Area / volume digits: None = the per-unit fixed digits; set only on a
+        # ``with_overrides`` clone (an attribute's Precision override, D8).
+        self._area_precision: int | None = None
+        self._volume_precision: int | None = None
 
         # Store the calibration points for save/load
         self._cal_pt1: QPointF | None = None
@@ -81,7 +103,34 @@ class ScaleManager:
 
     @precision.setter
     def precision(self, value: int):
-        self._precision = max(0, min(5, int(value)))
+        self._precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
+
+    @property
+    def pressure_precision(self) -> int:
+        """Decimal places of ``format_pressure`` (D9; default 1)."""
+        return self._pressure_precision
+
+    @pressure_precision.setter
+    def pressure_precision(self, value: int):
+        self._pressure_precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
+
+    @property
+    def flow_precision(self) -> int:
+        """Decimal places of ``format_flow`` (D9; default 0)."""
+        return self._flow_precision
+
+    @flow_precision.setter
+    def flow_precision(self, value: int):
+        self._flow_precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
+
+    @property
+    def velocity_precision(self) -> int:
+        """Decimal places of ``format_velocity`` (D9; default 1)."""
+        return self._velocity_precision
+
+    @velocity_precision.setter
+    def velocity_precision(self, value: int):
+        self._velocity_precision = max(0, min(DISPLAY_PRECISION_MAX, int(value)))
 
     @property
     def drawing_scale(self) -> float:
@@ -186,6 +235,41 @@ class ScaleManager:
             return f"{m:.{p}f} m"
         else:  # METRIC_MM
             return f"{mm:.{p}f} mm"
+
+    def with_overrides(self, unit=None, precision=None) -> "ScaleManager":
+        """This manager, or a clone printing with *unit* / *precision* (D8).
+
+        An attribute definition's Unit / Precision override formats its host
+        value through the clone, so every formatter stays here
+        (units-and-formatting.md) and the project manager is never mutated.
+
+        Args:
+            unit: A ``DisplayUnit`` or its value (``"imperial"``, ``"m"``,
+                ``"mm"``); None or an unknown value keeps the project unit.
+                Area and volume follow it (the length family).
+            precision: 0-5 (clamped), or None to keep the project
+                precisions. It replaces every quantity's precision on the
+                clone: length (imperial = the fraction denominator ``2**p``,
+                the project setting's meaning), area, volume, pressure, flow
+                and velocity.
+
+        Returns:
+            ``self`` when neither is given, else an independent shallow copy.
+        """
+        if unit is None and precision is None:
+            return self
+        sm = copy.copy(self)
+        if unit is not None:
+            try:
+                sm._display_unit = unit if isinstance(unit, DisplayUnit) else DisplayUnit(unit)
+            except ValueError:
+                pass                        # not a project unit: keep the project's
+        if precision is not None:
+            p = max(0, min(DISPLAY_PRECISION_MAX, int(precision)))
+            sm._precision = p
+            sm._area_precision = sm._volume_precision = p
+            sm._pressure_precision = sm._flow_precision = sm._velocity_precision = p
+        return sm
 
     # -----------------------------------------------------------------
     # Dialog helpers — numeric display-unit ↔ scene conversion
@@ -613,12 +697,14 @@ class ScaleManager:
         return mm
 
     def format_area_mm2(self, mm2: float) -> str:
-        """A geometry-derived area (mm²) in the display unit."""
+        """A geometry-derived area (mm²) in the display unit: fixed digits per
+        unit unless a ``with_overrides`` clone carries a precision (D8)."""
+        p = self._area_precision
         if self._display_unit == DisplayUnit.IMPERIAL:
-            return f"{mm2 / (304.8 ** 2):.1f} sq ft"
+            return f"{mm2 / (304.8 ** 2):.{1 if p is None else p}f} sq ft"
         if self._display_unit == DisplayUnit.METRIC_M:
-            return f"{mm2 / 1_000_000.0:.2f} m²"
-        return f"{mm2:.0f} mm²"
+            return f"{mm2 / 1_000_000.0:.{2 if p is None else p}f} m²"
+        return f"{mm2:.{0 if p is None else p}f} mm²"
 
     def area_mm2_value(self, mm2: float) -> float:
         """Numeric twin of ``format_area_mm2``."""
@@ -629,12 +715,14 @@ class ScaleManager:
         return mm2
 
     def format_volume_mm3(self, mm3: float) -> str:
-        """A volume (mm³) in the display unit."""
+        """A volume (mm³) in the display unit: fixed digits per unit unless a
+        ``with_overrides`` clone carries a precision (D8)."""
+        p = self._volume_precision
         if self._display_unit == DisplayUnit.IMPERIAL:
-            return f"{mm3 / (304.8 ** 3):.0f} cu ft"
+            return f"{mm3 / (304.8 ** 3):.{0 if p is None else p}f} cu ft"
         if self._display_unit == DisplayUnit.METRIC_M:
-            return f"{mm3 / 1e9:.1f} m³"
-        return f"{mm3:.0f} mm³"
+            return f"{mm3 / 1e9:.{1 if p is None else p}f} m³"
+        return f"{mm3:.{0 if p is None else p}f} mm³"
 
     def volume_mm3_value(self, mm3: float) -> float:
         """Numeric twin of ``format_volume_mm3``."""
@@ -650,20 +738,17 @@ class ScaleManager:
             return sqft
         return sqft * _SQFT_TO_M2
 
-    @staticmethod
-    def format_pressure(psi: float) -> str:
-        """Pressure (psi; no metric variant -- units D2)."""
-        return f"{psi:.1f} psi"
+    def format_pressure(self, psi: float) -> str:
+        """Pressure at ``pressure_precision`` (psi; no metric variant -- units D2)."""
+        return f"{psi:.{self._pressure_precision}f} psi"
 
-    @staticmethod
-    def format_flow(gpm: float) -> str:
-        """Flow (gpm; no metric variant -- units D2)."""
-        return f"{gpm:.0f} gpm"
+    def format_flow(self, gpm: float) -> str:
+        """Flow at ``flow_precision`` (gpm; no metric variant -- units D2)."""
+        return f"{gpm:.{self._flow_precision}f} gpm"
 
-    @staticmethod
-    def format_velocity(fps: float) -> str:
-        """Velocity (ft/s; no metric variant -- units D2)."""
-        return f"{fps:.1f} ft/s"
+    def format_velocity(self, fps: float) -> str:
+        """Velocity at ``velocity_precision`` (ft/s; no metric variant -- units D2)."""
+        return f"{fps:.{self._velocity_precision}f} ft/s"
 
     def format_pipe_id(self, inches: float) -> str:
         """A pipe inner diameter (stored in inches)."""
@@ -680,6 +765,12 @@ class ScaleManager:
     # -----------------------------------------------------------------
     # Serialisation
     # -----------------------------------------------------------------
+    def _hydraulic_precisions(self) -> tuple:
+        """``(attribute, value, default)`` per project hydraulic precision (D9)."""
+        return (("pressure_precision", self._pressure_precision, DEFAULT_PRESSURE_PRECISION),
+                ("flow_precision", self._flow_precision, DEFAULT_FLOW_PRECISION),
+                ("velocity_precision", self._velocity_precision, DEFAULT_VELOCITY_PRECISION))
+
     def to_dict(self) -> dict:
         d = {
             "pixels_per_mm":  self._pixels_per_mm,
@@ -688,6 +779,9 @@ class ScaleManager:
             "drawing_scale":  self._drawing_scale,
             "precision":      self._precision,
         }
+        for key, value, default in self._hydraulic_precisions():
+            if value != default:
+                d[key] = value          # sparse: absent = the default (nothing moves, D9)
         if self._cal_pt1 is not None:
             d["cal_pt1"] = [self._cal_pt1.x(), self._cal_pt1.y()]
             d["cal_pt2"] = [self._cal_pt2.x(), self._cal_pt2.y()]
@@ -702,6 +796,11 @@ class ScaleManager:
         sm._display_unit = DisplayUnit(d.get("display_unit", "mm"))
         sm._drawing_scale = d.get("drawing_scale", 100.0)
         sm._precision = d.get("precision", 3)
+        for key, _value, default in sm._hydraulic_precisions():
+            try:
+                setattr(sm, key, d.get(key, default))
+            except (TypeError, ValueError):
+                setattr(sm, key, default)   # a malformed file value never blocks a load
         if "cal_pt1" in d:
             sm._cal_pt1 = QPointF(d["cal_pt1"][0], d["cal_pt1"][1])
             sm._cal_pt2 = QPointF(d["cal_pt2"][0], d["cal_pt2"][1])

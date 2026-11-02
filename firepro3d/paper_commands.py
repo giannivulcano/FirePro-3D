@@ -48,28 +48,30 @@ class MoveTextAnnotationCommand(QUndoCommand):
 class ResizeTextBoxCommand(QUndoCommand):
     """Undo/redo an 8-handle box resize gesture.
 
-    Carries x, y, wrap_width_mm, and box_height_mm so that any combination of
-    left/right/top/bottom handle drags (which may move the anchor and/or change
-    size) is restored atomically.
+    Carries x, y, wrap_width_mm, box_height_mm and the Wrap / Shrink to fit
+    flags (text-sizing D6: a resize turns Shrink OFF and a width turns Wrap
+    ON) so that any combination of left/right/top/bottom handle drags (which
+    may move the anchor and/or change size) is restored atomically.
 
     Args:
         scene: The PaperScene that owns the annotation.
         data: The TextAnnotationData being resized.
-        old_state: ``(old_x, old_y, old_wrap_width_mm, old_box_height_mm)``
-                   — state before the gesture.
-        new_state: ``(new_x, new_y, new_wrap_width_mm, new_box_height_mm)``
-                   — state after the gesture.
+        old_state: ``(x, y, wrap_width_mm, box_height_mm, wrap, shrink)``
+                   — state before the gesture (flags as stored: None = legacy).
+        new_state: The same 6-tuple after the gesture.
     """
     def __init__(self, scene, data, old_state, new_state):
         super().__init__("Resize Text Box"); self._scene, self._data = scene, data
         self._old, self._new = old_state, new_state
     def _set(self, state):
-        x, y, w, bh = state
+        x, y, w, bh, wrap, shrink = state
         def op():
             self._data.x = x
             self._data.y = y
             self._data.wrap_width_mm = w
             self._data.box_height_mm = bh
+            self._data.wrap = wrap
+            self._data.shrink = shrink
             it = _find_text_item(self._scene, self._data)
             if it is not None:
                 it.setPos(x, y)

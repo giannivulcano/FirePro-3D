@@ -3,7 +3,8 @@ reference scene (plan Task 0's three rooms, rebuilt here) rendered through the r
 tier (firepro3d/system_blocks/Tags/RoomTag.fpdb). The user approved this look at the visual
 gate (U4, 2026-10-29: bound text hugs its value, 7021a2f5); the digest was captured by plan
 Task 15 step 2 right after. A re-authored RoomTag re-runs the gate and re-captures; nothing
-else may move these pixels."""
+else may move these pixels. Re-captured once by the L96 true-cap fix (text-sizing-wrap
+D1 / AC4, user-approved G8): 3 mm text now draws a 3.0 mm cap (was 2.86)."""
 import hashlib
 
 from PyQt6.QtCore import QPointF, QRect, QRectF, Qt
@@ -17,7 +18,7 @@ ROOMS = [("Office", 0.0, 0.0), ("Lobby", 6000.0, 0.0), ("Storage", 0.0, 4000.0)]
 VIEW = QRectF(-500.0, -500.0, 13000.0, 9000.0)      # 10 scene mm per px (as the Task 0 base shot)
 PNG_W, PNG_H = 1300, 900
 PAD_PX = 10
-GOLDEN = "c29e7ae70c917d9d6f437fb25cca2fdec5d61111bf065fd9c9951f85f0d9f420"   # Task 15 step 2, 2026-10-29
+GOLDEN = "95dcb0a9e6668f6b60629e977cb55f30794d0e5fbeda47ef934db864a5922f06"   # re-captured at the L96 true-cap fix (text-sizing-wrap AC4, G8), 2026-11-01
 
 
 def _room(name, x0, y0):

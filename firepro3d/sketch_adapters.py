@@ -987,7 +987,8 @@ def _content_height_at(it, w_local: float) -> float:
 
 class _TextBoxAdapter(_Adapter):
     """CS3c: vars cx cy w h, all SCENE units (box centre; w -> wrap width,
-    h -> box height; local box size x ``scale()`` -- 1 in the editor).
+    h -> box height; local box size x ``scale()`` -- height / cap on every
+    surface since L96, so local units are reference-px font units).
     Handles = the rectangle's (``tl``..``center`` + edges) through the text's
     constant rotation, plus the hidden legacy ``ins``. Write-back
     canonicalises the pivot to the centre (identical geometry), like the
@@ -1054,10 +1055,13 @@ class _TextBoxAdapter(_Adapter):
         it.prepareGeometryChange()
         w_moved = abs(w - o[2]) > POS_WRITE_TOL
         h_moved = abs(h - o[3]) > POS_WRITE_TOL
+        if w_moved or h_moved:
+            it._freeze_shrink()           # D6: explicit size, Shrink OFF (box unmoved)
         if w_moved:
             w = max(w, MIN_TEXT_WRAP_WIDTH_MM)
             it.setTextWidth(w / s)
             it._data.wrap_width_mm = w
+            it._data.wrap = True          # G14: a solved width wraps there
         else:
             w = o[2]                      # sub-tolerance noise never shifts pos
         if not h_moved:
@@ -1068,7 +1072,14 @@ class _TextBoxAdapter(_Adapter):
             it._data.box_height_mm = h
         if it._pivot is not None:
             it.set_angle(it._angle, None)
-        it.setPos(cx - w / 2.0, cy - h / 2.0)
+        if it._shrink_eff:
+            # A pure move of a Shrink box (sizes unmoved, so still Shrink):
+            # its box sits at a local offset (D5), so seat its centre by the
+            # centre delta instead of from pos.
+            c = it.mapToScene(it._box_rect_local().center())
+            it.moveBy(cx - c.x(), cy - c.y())
+        else:
+            it.setPos(cx - w / 2.0, cy - h / 2.0)
         it.sync_data_from_item()
         it.update()
 

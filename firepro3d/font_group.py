@@ -17,10 +17,8 @@ from . import colour_picker
 from .constants import FONT_SIZE_LADDER_PT, TOKEN_AUTO
 from .colour_tokens import resolve_colour
 from .ui_kit import FontSelect
-from .paper_space import (
-    _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt,
-    _text_panel_change, _PANEL_CODE_TO_ALIGN,
-)
+from .paper_space import _text_panel_change, _PANEL_CODE_TO_ALIGN
+from .text_item import _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt
 
 
 def next_ladder_pt(pt: float) -> float:

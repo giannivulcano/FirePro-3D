@@ -52,9 +52,14 @@ class TextAnnotationData:
     height_mm:
         CAP height of the rendered text, in paper mm.
     wrap_width_mm:
-        Word-wrap column width; 0 = auto (no wrap).
+        The AUTHORED word-wrap column width; 0 = none authored.  Whether
+        the text wraps at it is ``wrap_on()`` (text-sizing D4).
     box_height_mm:
-        Explicit box height; 0 = auto-fit content.
+        The AUTHORED box height; 0 = auto-fit content.  Ignored while
+        ``shrink_on()`` (the box hugs its content, D5).
+    wrap, shrink:
+        Wrap / Shrink to fit toggles; ``None`` = not authored, the legacy
+        default (``wrap_on`` / ``shrink_on``).  Written only when authored.
     font_family:
         Font family name; empty string → Arial default.
     bold, italic, underline:
@@ -88,8 +93,8 @@ class TextAnnotationData:
     x: float = 0.0
     y: float = 0.0
     height_mm: float = DEFAULT_TEXT_HEIGHT_MM   # CAP height
-    wrap_width_mm: float = 0.0                   # 0 = auto-width; >0 = word-wrap width
-    box_height_mm: float = 0.0                   # 0 = auto-fit content; >0 = stored box height
+    wrap_width_mm: float = 0.0                   # authored wrap width; wrap_on() decides
+    box_height_mm: float = 0.0                   # authored box height; 0 = auto-fit
     font_family: str = ""                        # "" => Arial default
     bold: bool = False
     italic: bool = False
@@ -108,7 +113,35 @@ class TextAnnotationData:
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     keep_upright: bool = False                   # SB1a A5: always readable in a block
     hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
+    wrap: bool | None = None                     # D4: None = legacy (see wrap_on)
+    shrink: bool | None = None                   # D4: None = legacy (see shrink_on)
     type: str = "text"                           # discriminator for future annotation types
+
+    def shrink_on(self, bound: bool = False) -> bool:
+        """Effective Shrink to fit (text-sizing D4).
+
+        Args:
+            bound: True for bound (``@[Field]``) block text, whose legacy
+                default is the SB3 U4 hug (G12/G13).
+
+        Returns:
+            The authored flag, else the legacy default (on only when *bound*).
+        """
+        return bool(self.shrink) if self.shrink is not None else bool(bound)
+
+    def wrap_on(self, bound: bool = False) -> bool:
+        """Effective Wrap (text-sizing D4).
+
+        Args:
+            bound: As :meth:`shrink_on`.
+
+        Returns:
+            The authored flag, else the legacy default: an authored wrap
+            width wraps unless the box hugs (a seeded bound tag never wraps).
+        """
+        if self.wrap is not None:
+            return bool(self.wrap)
+        return self.wrap_width_mm > 0 and not self.shrink_on(bound)
 
     def to_dict(self) -> dict:
         # Saves canonical weight names (linetypes.md LT2-8 / H-g): a name an
@@ -134,6 +167,10 @@ class TextAnnotationData:
             d["keep_upright"] = True             # sparse (the `mirrored` convention)
         if self.hide_empty:
             d["hide_empty"] = True               # sparse, same convention
+        if self.wrap is not None:
+            d["wrap"] = bool(self.wrap)          # sparse: absent = legacy default (D4)
+        if self.shrink is not None:
+            d["shrink"] = bool(self.shrink)      # sparse, same rule
         return d
 
     @classmethod
@@ -163,6 +200,8 @@ class TextAnnotationData:
             angle=float(d.get("angle", 0.0)),
             keep_upright=bool(d.get("keep_upright", False)),
             hide_empty=bool(d.get("hide_empty", False)),
+            wrap=None if d.get("wrap") is None else bool(d["wrap"]),
+            shrink=None if d.get("shrink") is None else bool(d["shrink"]),
             type=d.get("type", "text"),
         )
 
@@ -182,12 +221,14 @@ class TextAnnotationData:
 #     rotation (data-only ``_angle``/``_pivot`` + composed map overrides) and a
 #     translate+scale+rotate manipulator that drops scale when rotated.
 #
-# The SIZING MODE follows the scene: a PaperScene reports
-# ``device_independent_text() == True`` → the paper path; a Model_Space /
-# Block-Editor scene reports False → the font is sized so the cap height equals
-# ``height_mm`` in SCENE units (scale() == 1, scales with zoom).  The mode is
-# re-derived whenever the item is added to a scene (``itemChange``), so the same
-# data lands at the right physical size on whichever surface it is placed.
+# SIZING is one path on every surface (text-sizing-wrap D1, L96): the font
+# stays at ``TEXT_METRIC_REF_PX`` and ``setScale(height_mm / cap)`` brings the
+# cap to ``height_mm`` -- paper mm on a PaperScene (``device_independent_text()
+# == True``, zoom invariant), scene mm on a Model_Space / Block-Editor scene
+# (False; scales with zoom like every model primitive).  The local frame is
+# therefore reference-px font units everywhere.  The surface still picks the
+# paint path, the property form and the manipulator caps; it is re-derived
+# whenever the item is added to a scene (``itemChange``).
 #
 # Governing spec: docs/specs/2026-09-17-containment-implementation-design.md §A2.
 # Retirement of the two old classes and the paper repoint happen in a LATER task.
@@ -205,11 +246,119 @@ from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
-    TEXT_CARET_WIDTH_PX, TEXT_METRIC_REF_PX, TEXT_SELECTION_ALPHA,
+    TEXT_CARET_WIDTH_PX, TEXT_HEIGHT_MM_PRECISION, TEXT_METRIC_REF_PX,
+    TEXT_SELECTION_ALPHA,
 )
 from .colour_tokens import is_token, normalize_colour, resolve_colour  # noqa: E402
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
+from .scale_manager import DisplayUnit, ScaleManager                # noqa: E402
+
+
+# ── Height display / parse helpers (one home; text-sizing-wrap D2) ─────────
+# The stored text height is the CAP height in mm on every surface. Printed
+# text (sheet text, and text in an annotative block) shows / parses it as a
+# Word-style pt font size; real-size model / block text shows decimal mm.
+# paper_space, font_group and network_codec import these from here.
+
+MM_PER_PT = 25.4 / 72.0   # 1 typographic point in paper mm
+
+
+def _parse_text_height_mm(text: str) -> float | None:
+    """Parse a paper text height string to mm.
+
+    Delegates to ``ScaleManager.parse_dimension`` after pre-processing a bare
+    leading fraction such as ``1/8"`` (which parse_dimension rejects) by
+    inserting a ``0 `` prefix to produce ``0 1/8"``.
+
+    Args:
+        text: A dimension string, e.g. ``'1/8"'``, ``'3mm'``, ``'3.175 mm'``.
+
+    Returns:
+        The equivalent value in millimetres, or ``None`` if unparseable.
+    """
+    import re as _re
+    t = text.strip()
+    # Pre-process a bare leading fraction like "1/8"" → "0 1/8""
+    if _re.match(r'^\d+\s*/\s*\d+\s*"?$', t):
+        t = "0 " + t
+    return ScaleManager.parse_dimension(t, fallback_unit="mm")
+
+
+def _text_cap_ratio(data: "TextAnnotationData") -> float:
+    """Return the cap-height / em-size ratio for *data*'s font.
+
+    Word-style font sizes ("12 pt") measure the em body; stored height_mm is
+    cap height (§5.3). This ratio converts between the two for the panel's
+    pt display. Computed at TEXT_METRIC_REF_PX for metric precision (§9.4).
+
+    Args:
+        data: The TextAnnotationData whose font (family/bold/italic) applies.
+
+    Returns:
+        capHeight / em ratio (e.g. ~0.716 for Arial); 0.7 fallback if the
+        metric degenerates.
+    """
+    f = QFont(data.font_family) if data.font_family else QFont("Arial")
+    f.setBold(data.bold)
+    f.setItalic(data.italic)
+    f.setPixelSize(TEXT_METRIC_REF_PX)
+    ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
+    return ratio if ratio > 0 else 0.7
+
+
+def _font_pt_from_mm(data: "TextAnnotationData", mm: float) -> float:
+    """Convert a stored cap height (mm) to the Word-style font pt size."""
+    return mm / (MM_PER_PT * _text_cap_ratio(data))
+
+
+def _mm_from_font_pt(data: "TextAnnotationData", pt: float) -> float:
+    """Convert a Word-style font pt size to the stored cap height (mm)."""
+    return pt * MM_PER_PT * _text_cap_ratio(data)
+
+
+def _format_height_pt(data: "TextAnnotationData", mm: float) -> str:
+    """Format a cap height for the panel: Word-style pt, e.g. ``"12 pt"``."""
+    pt = round(_font_pt_from_mm(data, mm), 1)
+    return f"{pt:g} pt"
+
+
+def _parse_height_pt(data: "TextAnnotationData", text: str) -> float | None:
+    """Parse the panel height field: bare numbers / ``pt`` mean font points.
+
+    ``"12"`` and ``"12 pt"`` parse as a Word-style 12 pt font size (converted
+    to cap-height mm via the font's metrics). Explicit dimension strings such
+    as ``'1/8"'`` or ``"3mm"`` still parse as literal cap heights through
+    :func:`_parse_text_height_mm`.
+
+    Args:
+        data: The TextAnnotationData whose font drives the pt conversion.
+        text: The user's input string.
+
+    Returns:
+        Cap height in mm, or None if unparseable.
+    """
+    t = text.strip().lower()
+    if t.endswith("pt"):
+        t = t[:-2].strip()
+    try:
+        return _mm_from_font_pt(data, float(t))
+    except ValueError:
+        return _parse_text_height_mm(text)
+
+
+def _format_height_mm(mm: float) -> str:
+    """Format a real-size cap height for the panel in decimal mm (``"2.50 mm"``).
+
+    Goes through ``ScaleManager.format_length`` (the owned length formatter,
+    units-and-formatting) pinned to mm at ``TEXT_HEIGHT_MM_PRECISION``
+    decimals whatever the project unit: real-size text height always shows in
+    mm (D2). Bare numbers typed back parse as mm (:func:`_parse_text_height_mm`).
+    """
+    sm = ScaleManager()
+    sm.display_unit = DisplayUnit.METRIC_MM
+    sm.precision = TEXT_HEIGHT_MM_PRECISION
+    return sm.format_length(mm)
 
 
 def editing_text_item(scene) -> "TextItem | None":
@@ -241,12 +390,16 @@ class _LayoutOffsets(NamedTuple):
     shift from those Qt calls directly rather than from a cached flag here.
 
     Attributes:
-        voff: Vertical-alignment offset (local, unscaled units) of the whole
-            text block within the box — ``0.0`` for top, half the box/content
-            slack for middle, and the full slack for bottom alignment.
+        voff: Vertical offset (local, unscaled units) of the whole text block:
+            the vertical-alignment slack within the box — ``0.0`` for top,
+            half the box/content slack for middle, the full slack for bottom
+            — plus the box's Shrink offset ``y`` (text-sizing D5).
+        hoff: The box's Shrink offset ``x`` (local, unscaled; D5) — ``0.0``
+            unless Shrink to fit moved the hugged box off the local origin.
     """
 
     voff: float
+    hoff: float = 0.0
 
 
 class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
@@ -306,6 +459,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # The border frame's crisp axis-split (MW-7); its own name -- the
         # Geometry2DMixin stroke cache is a separate base-class attr.
         self._frame_split_cache = _cs.SplitCache()
+        # Shrink to fit (text-sizing D5), latched by _apply_format: the
+        # effective flag and the LOCAL offset of the hugged box that keeps the
+        # authored box's alignment point fixed.  Read by the box rect, the
+        # line origin and the paper paint -- never applied through setPos
+        # (itemChange live-syncs data.x/y from pos).
+        self._shrink_eff = False
+        self._shrink_off = QPointF(0.0, 0.0)
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -321,6 +481,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setPos(data.x, data.y)
         self._apply_format()
+        self.document().contentsChanged.connect(self._on_contents_changed)
+
+    def _on_contents_changed(self) -> None:
+        """Re-lay out the Wrap / Shrink width live while inline-editing."""
+        if self._editing:
+            self.prepareGeometryChange()
+            self._apply_wrap_width()
 
     @property
     def data(self) -> "TextAnnotationData":
@@ -348,12 +515,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def _apply_format(self) -> None:
         """Rebuild font, colour, alignment, scale, and wrap from self._data.
 
-        In device-independent (paper) mode the font uses a large reference pixel
-        size and ``setScale`` maps cap-height units to paper mm (zoom invariant),
-        exactly like the retired ``TextAnnotationItem``.  In scene-mm (model /
-        block-editor) mode the font is sized so its cap height equals
-        ``height_mm`` in SCENE units and ``setScale`` stays 1 (the box scales
-        with zoom like every other model primitive).
+        On every surface the font uses the large reference pixel size and
+        ``setScale(height_mm / cap)`` maps cap-height units to mm -- paper mm on
+        a sheet (zoom invariant, like the retired ``TextAnnotationItem``), scene
+        mm on a model / block-editor scene (scales with zoom like every other
+        model primitive).  Margin and wrap width are divided by ``scale()`` so
+        they stay in surface mm.  (L96: a whole-pixel font sized to the cap
+        quantized small text -- 3 mm drew a 2.86 mm cap.)
         """
         d = self._data
         f = QFont(d.font_family) if d.font_family else QFont("Arial")
@@ -368,26 +536,140 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.document().setDefaultTextOption(opt)
         cap = QFontMetricsF(f).capHeight()
         h = d.height_mm if d.height_mm > 0 else DEFAULT_TEXT_HEIGHT_MM
-        if self.is_device_independent():
-            # Paper path: reference-px font + geometric scale to paper mm.
-            scale = h / cap if cap > 0 else 1.0
-        else:
-            # Scene-mm path: bake the cap→mm ratio into the font pixel size so a
-            # plain scene item (scale 1) has cap height == h in scene units, and
-            # scales naturally with the viewport zoom.
-            if cap > 0:
-                f.setPixelSize(max(1, round(TEXT_METRIC_REF_PX * h / cap)))
-                self.setFont(f)
-            scale = 1.0
+        # One sizing path for every surface (L96): the font stays at the
+        # reference pixel size and ``setScale`` maps cap-height units to mm --
+        # paper mm on a sheet, scene mm on a model / Block-Editor scene. A
+        # whole-pixel font sized to the cap would quantize small text (3 mm
+        # drew a 2.86 mm cap with touching glyphs).
+        scale = h / cap if cap > 0 else 1.0
         self.setScale(scale)
         # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
         if scale > 0:
             self.document().setDocumentMargin(self._data.cell_padding_mm / scale)
-        if d.wrap_width_mm > 0 and scale > 0:
+        self._apply_wrap_width()
+
+    def _apply_wrap_width(self) -> None:
+        """Lay the document out at its Wrap / Shrink width (D5) and latch the
+        Shrink offset.  Run by ``_apply_format`` and, while inline-editing, on
+        every content change, so typed text widens a Wrap-OFF box and a Shrink
+        box re-hugs live instead of wrapping at the pre-edit width."""
+        d = self._data
+        scale = self.scale()
+        shrink = self.shrink_on()
+        if self.wrap_on() and d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
+            if shrink and self.document().idealWidth() < self.textWidth():
+                # Shrink + Wrap (G3): hug the widest wrapped line.  idealWidth()
+                # is that line + margins, and a re-layout at it keeps every
+                # break (T20 probe); an overflowing word keeps the wrap width
+                # (re-laying out wider could merge lines).
+                self.setTextWidth(self.document().idealWidth())
         else:
+            # Wrap OFF (G2): breaks only at a typed Enter; the authored
+            # wrap_width_mm is kept for Wrap ON.
             self.setTextWidth(-1)
             self.setTextWidth(self.document().idealWidth())
+        self._shrink_eff = shrink
+        self._shrink_off = self._shrink_offset() if shrink else QPointF(0.0, 0.0)
+
+    # ── Wrap / Shrink to fit (text-sizing D4/D5) ────────────────────────────
+
+    def _bound_seed(self) -> bool:
+        """True for bound (``@[Field]``) text on the Block Editor surface,
+        whose absent Wrap / Shrink flags default to the seeded hug (G12).
+        Placed and exploded bound text get the seed through
+        ``block_attributes.hugged_text_record``."""
+        sc = self.scene()
+        if sc is None or getattr(sc, "scene_role", "") != "block_editor":
+            return False
+        from .block_attributes import has_fields
+        return has_fields(self._data.text)
+
+    def wrap_on(self) -> bool:
+        """Effective Wrap for this item (``TextAnnotationData.wrap_on``)."""
+        return self._data.wrap_on(self._bound_seed())
+
+    def shrink_on(self) -> bool:
+        """Effective Shrink to fit for this item (``TextAnnotationData.shrink_on``)."""
+        return self._data.shrink_on(self._bound_seed())
+
+    def _authored_rect_local(self) -> QRectF:
+        """The authored box at the local origin, LOCAL unscaled (D5).
+
+        The frame a Shrink box keeps its alignment point in: an axis authored
+        0 (auto) is the hugged extent itself, and an authored height never
+        drops below the content (SB3 U4 ruling).
+        """
+        w, h = self._box_size_local()
+        s = self.scale() or 1.0
+        d = self._data
+        aw = d.wrap_width_mm / s if d.wrap_width_mm > 0 else w
+        ah = max(d.box_height_mm / s, h) if d.box_height_mm > 0 else h
+        return QRectF(0.0, 0.0, aw, ah)
+
+    def _shrink_offset(self) -> QPointF:
+        """LOCAL offset of the hugged box: its ``align`` x ``valign`` point
+        sits on the authored box's (D5, G3)."""
+        a = self._authored_rect_local()
+        w, h = self._box_size_local()
+        fx = {"L": 0.0, "C": 0.5, "R": 1.0}.get(self._data.align, 0.0)
+        fy = {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0)
+        return QPointF(fx * (a.width() - w), fy * (a.height() - h))
+
+    def _freeze_shrink(self) -> None:
+        """D6: before a resize, write a Shrink box's drawn extent as an
+        explicit authored box and turn Shrink OFF, leaving the box where it
+        is drawn (its scene centre and size unchanged).
+
+        No-op when Shrink is off.  The untouched axes keep their hugged
+        extent: a wrapping box freezes its hugged width as the wrap width, a
+        non-wrapping one stays Wrap OFF; the height becomes the box height.
+        """
+        if not self._shrink_eff:
+            return
+        d = self._data
+        s = self.scale() or 1.0
+        r = self._box_rect_local()
+        c = self.mapToScene(r.center())
+        wrap = self.wrap_on()
+        if wrap:
+            d.wrap_width_mm = r.width() * s
+        d.wrap = wrap
+        d.box_height_mm = r.height() * s
+        d.shrink = False
+        self.prepareGeometryChange()
+        self._apply_format()
+        c2 = self.mapToScene(self._box_rect_local().center())
+        self.moveBy(c.x() - c2.x(), c.y() - c2.y())
+
+    def _toggle_change(self, key: str, value) -> dict:
+        """The field writes of a Wrap / Shrink to fit panel toggle (D7).
+
+        Wrap ON on a box with no authored width seeds it from the drawn box
+        (nothing moves); Shrink ON freezes a legacy Wrap at its effective
+        value so the box hugs what it shows (G3); Shrink OFF leaves Wrap as
+        is, restoring the authored box (D4).
+
+        Returns:
+            ``{field: value}`` (empty when the toggle is already in that state).
+        """
+        on = bool(value)
+        d = self._data
+        if key == "Wrap":
+            if on == self.wrap_on():
+                return {}
+            change = {"wrap": on}
+            if on and d.wrap_width_mm <= 0:
+                s = self.scale() or 1.0
+                change["wrap_width_mm"] = max(self._box_rect_local().width() * s,
+                                              MIN_TEXT_WRAP_WIDTH_MM)
+            return change
+        if on == self.shrink_on():
+            return {}
+        change = {"shrink": on}
+        if on and d.wrap is None:
+            change["wrap"] = self.wrap_on()
+        return change
 
     def on_theme_changed(self) -> None:
         """Re-latch the document's default text colour after a theme switch
@@ -443,9 +725,21 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def _box_rect_local(self) -> QRectF:
         """The box bounding rect in item-local UNSCALED coordinates.
 
+        Size from :meth:`_box_size_local`; the top-left is the Shrink offset
+        (D5) -- the local origin unless Shrink to fit moved the hugged box.
+        """
+        w, h = self._box_size_local()
+        o = self._shrink_off
+        return QRectF(o.x(), o.y(), w, h)
+
+    def _box_size_local(self) -> tuple[float, float]:
+        """``(width, height)`` of the box, LOCAL unscaled.
+
         Width comes from the text layout (``textWidth`` already reflects wrap);
         height is ``max(content height, box_height_mm / scale)`` so the box
         auto-grows with content but never shrinks below the stored height.
+        A Shrink box (D5, G3) hugs both axes: height = content (the authored
+        floor ignored), width never narrower than an overflowing line.
         """
         content = super().boundingRect()
         # The exact wrap width (CS3c): the document lays out on a 1/64 grid
@@ -453,13 +747,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # box edge off its target. textWidth() is always set (_apply_format).
         tw = self.textWidth()
         width = tw if tw > 0 else content.width()
+        if self._shrink_eff:
+            return max(width, content.width()), content.height()
         scale = self.scale() or 1.0
         box_h_mm = self._data.box_height_mm
         if box_h_mm > 0 and scale > 0:
             height = max(content.height(), box_h_mm / scale)
         else:
             height = content.height()
-        return QRectF(0, 0, width, height)
+        return width, height
 
     def _frame_path(self) -> "QPainterPath":
         """Border path for the box rect, honoring the corner style (local frame)."""
@@ -576,7 +872,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.update()
 
     def _rotation_origin(self) -> QPointF:
-        return QPointF(self._pivot) if self._pivot is not None else self._box_rect_local().center()
+        if self._pivot is not None:
+            return QPointF(self._pivot)
+        if self._shrink_eff:
+            # A Shrink box turns about the AUTHORED box's centre, so its
+            # alignment point lands where the authored box's would (SB3 U4).
+            return self._authored_rect_local().center()
+        return self._box_rect_local().center()
 
     def _rotation_transform(self) -> QTransform:
         m = QTransform()
@@ -642,7 +944,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self.is_device_independent():
             # Paper surface: the QGraphicsTextItem document renderer works on the
             # paper viewport device (zoom-invariant, live caret) — keep it.
-            super().paint(painter, option, widget)
+            if self._shrink_off.isNull():
+                super().paint(painter, option, widget)
+            else:
+                self._paint_document_shifted(painter, option, widget)
         else:
             # Model / Block-Editor surface: EVERYTHING is drawn through direct
             # painter ops, never super().paint() — the document renderer draws
@@ -677,6 +982,37 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             painter.drawRect(box)
         painter.restore()
 
+    def _paint_document_shifted(self, painter: QPainter, option, widget) -> None:
+        """Paper document paint at the Shrink offset (D5, T20 probe).
+
+        The native renderer draws the document at the local origin and clips
+        it to ``option.exposedRect`` read as DOCUMENT coordinates, then draws
+        Qt's selection highlight round ``boundingRect()``.  So the document
+        pass runs translated by the offset with the exposed rect moved back
+        and the highlight states stripped; the highlight is then drawn
+        untranslated (its rect is already the shifted ``boundingRect``) with
+        an exposed rect that clips every glyph.
+        """
+        from PyQt6.QtWidgets import QStyle
+        hl = QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus
+        off = self._shrink_off
+        er, st = QRectF(option.exposedRect), option.state
+        try:
+            painter.save()
+            try:
+                painter.translate(off)
+                option.exposedRect = er.translated(-off)
+                option.state = st & ~hl
+                super().paint(painter, option, widget)
+            finally:
+                painter.restore()
+            if st & hl:
+                option.state = st
+                option.exposedRect = QRectF(-1e9, -1e9, 1.0, 1.0)
+                super().paint(painter, option, widget)
+        finally:
+            option.exposedRect, option.state = er, st
+
     # ── Glyph-outline path (block-content compile; containment C5.4) ────────
 
     def render_outline_path(self) -> QPainterPath:
@@ -689,9 +1025,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         one path.
 
         The path is in the same LOCAL, unscaled coordinate frame that
-        ``_box_rect_local``/``grip_points`` use (font pixel size is baked so the
-        cap height equals ``height_mm`` in local units; ``setScale`` is 1 for a
-        model/block-editor scene — the surface a block is authored on).  The
+        ``_box_rect_local``/``grip_points`` use (reference-px font units; the
+        item's ``setScale(height_mm / cap)``, which ``mapToParent`` applies in
+        ``BlockDefinition._compile``, brings the cap to ``height_mm``).  The
         item's bake-at-rest rotation (``self._angle`` about its pivot) is applied
         to the returned path directly, because ``BlockDefinition._compile`` maps
         primitives via Qt ``mapToParent`` which does NOT see the data-baked
@@ -760,7 +1096,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                      - super().boundingRect().height())
         voff = (vslack if self._data.valign == "B"
                 else vslack / 2.0 if self._data.valign == "M" else 0.0)
-        return _LayoutOffsets(voff)
+        o = self._shrink_off
+        return _LayoutOffsets(voff + o.y(), o.x())
 
     def _line_origin(self, block, line, offsets: _LayoutOffsets | None = None) -> QPointF:
         """Painted top-left of *line*, in the LOCAL, UNSCALED, UN-rotated,
@@ -788,9 +1125,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             QPointF: the line's unaligned top-left, in local unscaled
             coordinates. The glyph baseline is ``origin.y() + line.ascent()``.
         """
-        voff = (offsets if offsets is not None else self._layout_offsets()).voff
+        o = offsets if offsets is not None else self._layout_offsets()
         bp = block.layout().position()
-        return QPointF(bp.x() + line.x(), bp.y() + line.y() + voff)
+        return QPointF(bp.x() + line.x() + o.hoff, bp.y() + line.y() + o.voff)
 
     def _line_for_position(self, pos: int):
         """Resolve document position *pos* to its block, line, and offset.
@@ -835,7 +1172,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             # every block has >=1 valid QTextLine afterwards and this branch
             # should be unreachable in practice.
             m = self.document().documentMargin()
-            return QRectF(m, m + offsets.voff, 0.0, QFontMetricsF(self.font()).height())
+            return QRectF(m + offsets.hoff, m + offsets.voff, 0.0,
+                          QFontMetricsF(self.font()).height())
         origin = self._line_origin(block, line, offsets)
         x, _ = line.cursorToX(rel)
         return QRectF(origin.x() + (x - line.x()), origin.y(), 0.0, line.height())
@@ -938,10 +1276,6 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # Indices (clockwise from top-left, matching RectangleItem/NoteAnnotation):
     #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
 
-    def _content_size(self) -> tuple[float, float]:
-        r = super().boundingRect()
-        return r.width(), r.height()
-
     def grip_points(self) -> list[QPointF]:
         r = self._box_rect_local()
         cx, cy = r.center().x(), r.center().y()
@@ -968,17 +1302,24 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def apply_grip(self, index: int, pos: QPointF):
         """Resize (edges/corners) or translate (centre) by dragging a grip.
 
-        Reproduces the box-native resize: horizontal drags set wrap width,
+        Reproduces the box-native resize: horizontal drags set the wrap width
+        and turn Wrap ON (G14),
         vertical drags set box height (content-min clamped); the opposite edge
         stays fixed.  Font (``height_mm``) is never touched.  A mid-edge drag is
         axis-isolated (review I2): a left/right mid-edge writes ONLY
         ``wrap_width_mm`` and a top/bottom mid-edge writes ONLY
         ``box_height_mm`` — the untouched axis' stored field is left exactly as
         it was (so an auto-height 0 box stays 0 after a horizontal drag).
+        A resize on a Shrink box first freezes its drawn box (D6,
+        :meth:`_freeze_shrink`); the centre move keeps Shrink.
         """
+        if index != self.MOVE_GRIP_INDEX:
+            self._freeze_shrink()      # D6: a resize grip; the centre move keeps Shrink
         local = self.mapFromScene(pos)
         r = self._box_rect_local()
-        # First horizontal resize from auto-width: seed wrap from content width.
+        # Legacy seed for a never-laid-out box (textWidth <= 0); _apply_format
+        # always sets a positive width, so a Wrap OFF box resizes through the
+        # G14 write in _commit_box_size instead.
         if self.textWidth() <= 0 and index in (0, 2, 3, 4, 6, 7):
             self.setTextWidth(r.width())
             r = self._box_rect_local()
@@ -1020,12 +1361,15 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         wrap, content-height for the box) — NOT local units — so a paper item
         (scale != 1) clamps to the same physical minimum the retired paper
         ``_resize_box_on_paper`` used.  Font ``height_mm`` is never touched.
+        A width write turns Wrap ON at that width (G14); callers freeze a
+        Shrink box first (:meth:`_freeze_shrink`, D6).
         """
         scale = self.scale() or 1.0
         if local_w is not None:
             new_w_mm = max(local_w * scale, MIN_TEXT_WRAP_WIDTH_MM)
             self.setTextWidth(new_w_mm / scale)
             self._data.wrap_width_mm = new_w_mm
+            self._data.wrap = True
         if local_h is not None:
             new_h_mm = max(local_h * scale, self._content_height_mm())
             self._data.box_height_mm = new_h_mm
@@ -1097,7 +1441,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
         """Baked resize about a scene *anchor* by (fx, fy) in the box's own
         frame — reproduces the manipulator preview for any handle.  Font
-        untouched."""
+        untouched.  A Shrink box is frozen first (D6)."""
+        self._freeze_shrink()          # D6: a manipulator resize turns Shrink OFF
         r = self._box_rect_local()
         a = self.mapFromScene(anchor)
         left   = a.x() + (r.left()   - a.x()) * fx
@@ -1158,7 +1503,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Content":  {"type": "multiline", "value": d.text},
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
-            "Height":   {"type": "number", "value": int(round(d.height_mm)), "minimum": 1},
+            "Height":   self._height_row(),
             "Padding":  {"type": "number", "value": int(round(d.cell_padding_mm)), "minimum": 0},
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
@@ -1169,6 +1514,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "V Align":  {"type": "icon_enum", "value": d.valign,
                          "options": [("T", "align_top.svg"), ("M", "align_middle.svg"),
                                      ("B", "align_bottom.svg")]},
+            "Wrap":     {"type": "bool", "value": self.wrap_on()},              # D7
+            "Shrink to fit": {"type": "bool", "value": self.shrink_on()},      # D7
             "Font Color": {"type": "color", "value": TOKEN_AUTO if d.color is None else d.color},
             "Frame":    {"type": "header", "value": "Frame"},
             "Line Type": {"type": "enum",
@@ -1203,6 +1550,26 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
             props["Hide when empty"] = {"type": "bool", "value": d.hide_empty}
         return props
+
+    def _height_row(self) -> dict:
+        """The model-surface Height row (text-sizing-wrap D2).
+
+        Text in an annotative Block Editor block is printed text: Height shows
+        and parses as a Word-style pt font size (``10.5 pt``), like sheet
+        text. Real-size model / block text shows decimal mm (``2.50 mm``).
+        Storage stays cap height in mm either way; the row commits mm.
+        """
+        from .annotative import editor_is_annotative
+        d = self._data
+        if editor_is_annotative(self.scene()):
+            return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
+                    "parser": lambda text, dd=d: _parse_height_pt(dd, text),
+                    "formatter": lambda mm, dd=d: _format_height_pt(dd, mm),
+                    "minimum": 0.0}
+        return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
+                "parser": _parse_text_height_mm,
+                "formatter": _format_height_mm,
+                "minimum": 0.0}
 
     def set_property(self, key: str, value) -> None:
         if self._on_paper():
@@ -1240,6 +1607,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self._data.keep_upright = bool(value)
         elif key == "Hide when empty":
             self._data.hide_empty = bool(value)
+        elif key in ("Wrap", "Shrink to fit"):
+            change = self._toggle_change(key, value)
+            if not change:
+                return
+            for f, v in change.items():
+                setattr(self._data, f, v)
         elif key == "Font":
             self._data.font_family = str(value)
         elif key == "Font Color":
@@ -1307,14 +1680,16 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         from .paper_space import _text_panel_change
         from .paper_commands import FormatTextCommand
-        change = _text_panel_change(self._data, key, value)
+        if key in ("Wrap", "Shrink to fit"):
+            change = self._toggle_change(key, value) or None     # D7: may be 2 fields
+        else:
+            change = _text_panel_change(self._data, key, value)
         if change is None:
             return
         scene = self.scene()
         stack = getattr(scene, "undo_stack", None) if scene is not None else None
         if stack is not None and not getattr(scene, "_applying_command", False):
-            field = next(iter(change))
-            old = {field: getattr(self._data, field)}
+            old = {f: getattr(self._data, f) for f in change}
             stack.push(FormatTextCommand(scene, self._data, old, change))
         else:
             for f, v in change.items():
@@ -1502,7 +1877,53 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self.begin_edit()
             event.accept()
             return
+        if self._offset_paper_edit():
+            from PyQt6.QtGui import QTextCursor
+            self._place_caret(event, keep_anchor=False)
+            cur = self.textCursor()
+            cur.select(QTextCursor.SelectionType.WordUnderCursor)
+            self.setTextCursor(cur)
+            return
         super().mouseDoubleClickEvent(event)
+
+    # Paper inline edit of a Shrink box (D5): the native text control maps a
+    # press straight to document coordinates, so with the document painted at
+    # the Shrink offset it would land beside the click.  QGraphicsSceneMouseEvent
+    # .setPos() kills the process under PyQt6 (T20 P4), so these place the
+    # caret through the offset-aware cursor_position_at instead.
+
+    def _offset_paper_edit(self) -> bool:
+        """True while paper-editing a box painted at a non-zero Shrink offset."""
+        return (self._editing and self.is_device_independent()
+                and not self._shrink_off.isNull())
+
+    def _place_caret(self, event, keep_anchor: bool) -> None:
+        from PyQt6.QtGui import QTextCursor
+        cur = self.textCursor()
+        cur.setPosition(self.cursor_position_at(self.mapFromScene(event.scenePos())),
+                        QTextCursor.MoveMode.KeepAnchor if keep_anchor
+                        else QTextCursor.MoveMode.MoveAnchor)
+        self.setTextCursor(cur)
+        event.accept()
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        if self._offset_paper_edit() and event.button() == Qt.MouseButton.LeftButton:
+            self._place_caret(event, keep_anchor=False)
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._offset_paper_edit() and event.buttons() & Qt.MouseButton.LeftButton:
+            self._place_caret(event, keep_anchor=True)
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._offset_paper_edit() and event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _request_commit(self) -> None:
         """Model surface: end the session through the scene's commit funnel."""
@@ -1581,6 +2002,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 event.accept()
                 return
             super().keyPressEvent(event)   # Enter=newline, Delete=char
+            if not self._shrink_off.isNull():
+                self.update()   # Qt dirties document rects, not the shifted paint (D5)
             return
         if event.key() == Qt.Key.Key_Delete:
             self.delete_requested.emit(self)

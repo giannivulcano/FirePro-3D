@@ -158,7 +158,7 @@ def test_annotation_panel_grouped_form(qapp):
     assert keys.index("Text") < keys.index("Format") < keys.index("Frame") < keys.index("Fill")
     assert p["Text"]["type"] == "header" and p["Format"]["type"] == "header"
     assert keys.index("Font") > keys.index("Format") and keys.index("Height") > keys.index("Format")
-    assert p["Height"]["type"] == "number"
+    assert p["Height"]["type"] == "dimension"    # decimal mm / pt row (text-sizing-wrap D2)
     assert p["Corner"]["type"] == "icon_enum"
     assert [o[0] for o in p["Corner"]["options"]] == ["square", "round", "chamfer"]
     assert p["Style"]["type"] == "bool_group"

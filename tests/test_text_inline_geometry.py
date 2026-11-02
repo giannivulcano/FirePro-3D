@@ -209,15 +209,25 @@ def test_line_for_position_past_end_clamps_to_document_end(scene):
 # ── Painting (live failure mode simulated: QGraphicsTextItem.paint is a no-op) ──
 
 def _render(t, w=800, h=300, pad=20):
+    """Paint *t* through its own ``paint()`` with the item's scale applied, so
+    1 image px = 1 scene mm (offset by *pad*). Since L96 the local frame is
+    reference-px font units (``scale() == height / cap``); map local geometry
+    to image px with :func:`_px`."""
     from PyQt6.QtGui import QImage, QPainter, QColor
     from PyQt6.QtWidgets import QStyleOptionGraphicsItem
     img = QImage(w, h, QImage.Format.Format_ARGB32)
     img.fill(QColor("#000000"))
     p = QPainter(img)
     p.translate(pad, pad)
+    p.scale(t.scale(), t.scale())
     t.paint(p, QStyleOptionGraphicsItem(), None)
     p.end()
     return img
+
+
+def _px(t, v):
+    """A local-frame length / coordinate *v* in image px (scene mm)."""
+    return v * t.scale()
 
 
 def _bright_in_column(img, x, y0, y1):
@@ -239,8 +249,9 @@ def test_caret_paints_without_document_renderer(scene, no_doc_render):
     t._caret_on = True
     r = t.caret_rect_local()
     img = _render(t)
-    n = _bright_in_column(img, round(r.x()) + 20, round(r.top()) + 20, round(r.bottom()) + 20)
-    assert n > 0.5 * r.height(), f"caret not painted ({n}px)"
+    n = _bright_in_column(img, round(_px(t, r.x())) + 20, round(_px(t, r.top())) + 20,
+                          round(_px(t, r.bottom())) + 20)
+    assert n > 0.5 * _px(t, r.height()), f"caret not painted ({n}px)"
 
 
 def test_caret_hidden_in_off_blink_phase(scene, no_doc_render):
@@ -250,8 +261,9 @@ def test_caret_hidden_in_off_blink_phase(scene, no_doc_render):
     t._caret_on = False
     r = t.caret_rect_local()
     img = _render(t)
-    n = _bright_in_column(img, round(r.x()) + 20, round(r.top()) + 20, round(r.bottom()) + 20)
-    assert n < 0.2 * r.height()
+    n = _bright_in_column(img, round(_px(t, r.x())) + 20, round(_px(t, r.top())) + 20,
+                          round(_px(t, r.bottom())) + 20)
+    assert n < 0.2 * _px(t, r.height())
 
 
 def test_selection_highlight_paints_without_document_renderer(scene, no_doc_render):
@@ -261,7 +273,9 @@ def test_selection_highlight_paints_without_document_renderer(scene, no_doc_rend
     plain = _render(t)
     _set_pos(t, 5, anchor=0)
     sel = _render(t)
-    rect = t.selection_rects_local()[0].translated(20, 20)
+    r = t.selection_rects_local()[0]
+    rect = QRectF(_px(t, r.x()), _px(t, r.y()),
+                  _px(t, r.width()), _px(t, r.height())).translated(20, 20)
     changed = sum(1 for y in range(int(rect.top()), int(rect.bottom()))
                   for x in range(int(rect.left()), int(rect.right()))
                   if plain.pixel(x, y) != sel.pixel(x, y))
@@ -383,7 +397,7 @@ def test_caret_paints_correctly_when_rotated(scene, no_doc_render):
         frac = i / (samples - 1)
         local_pt = QPointF(r.x(), r.top() + frac * r.height())
         mapped = rot.map(local_pt)
-        px, py = round(mapped.x()) + pad, round(mapped.y()) + pad
+        px, py = round(_px(t, mapped.x())) + pad, round(_px(t, mapped.y())) + pad
         if any(0 <= px + dx < img.width() and 0 <= py < img.height()
                and img.pixelColor(px + dx, py).lightness() > 128
                for dx in (-2, -1, 0, 1, 2)):
@@ -410,8 +424,8 @@ def test_selection_highlight_paints_correctly_when_rotated(scene, no_doc_render)
     corners = [rot.map(QPointF(x, y)) for x, y in
                [(rect.left(), rect.top()), (rect.right(), rect.top()),
                 (rect.right(), rect.bottom()), (rect.left(), rect.bottom())]]
-    xs = [c.x() + pad for c in corners]
-    ys = [c.y() + pad for c in corners]
+    xs = [_px(t, c.x()) + pad for c in corners]
+    ys = [_px(t, c.y()) + pad for c in corners]
     x0, x1 = int(min(xs)) - 2, int(max(xs)) + 2
     y0, y1 = int(min(ys)) - 2, int(max(ys)) + 2
     x0, y0 = max(0, x0), max(0, y0)
@@ -446,7 +460,7 @@ def test_selection_clips_to_box_when_content_overflows(scene, no_doc_render, mon
     plain = _render(t, h=300, pad=pad)
     _set_pos(t, len(t.toPlainText()), anchor=0)     # select everything
     sel = _render(t, h=300, pad=pad)
-    below = round(short.bottom()) + pad + 1
+    below = round(_px(t, short.bottom())) + pad + 1
     inside = sum(1 for y in range(0, min(below - 1, sel.height()))
                  for x in range(sel.width())
                  if plain.pixel(x, y) != sel.pixel(x, y))

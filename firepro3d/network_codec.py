@@ -137,7 +137,8 @@ def deserialize_note(scene, entry):
     read into a ``TextAnnotationData`` and built as a ``TextItem`` rather than
     the retired ``NoteAnnotation``.  The legacy fields map as:
 
-      * ``text_width`` → ``wrap_width_mm`` (0 = auto-width, the old contract),
+      * ``text_width`` → ``wrap_width_mm`` (0 = none; Wrap is derived from it,
+        text-sizing D4 -- no flag is stored),
       * ``box_height`` → ``box_height_mm`` (0 = auto-fit),
       * ``angle``      → ``angle``,
       * property ``Text`` → ``text``,
@@ -149,8 +150,7 @@ def deserialize_note(scene, entry):
     A later containment task (C1/C8) replaces this with a clean drop; until
     then this keeps legacy projects loading.  Returns the created ``TextItem``.
     """
-    from .text_item import TextItem, TextAnnotationData
-    from .paper_space import _mm_from_font_pt
+    from .text_item import TextItem, TextAnnotationData, _mm_from_font_pt
 
     props = entry.get("properties", {}) or {}
     tw = entry.get("text_width", 0) or 0

@@ -2389,6 +2389,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         dst.display_unit = src.display_unit
         dst.precision = src.precision
+        dst.pressure_precision = src.pressure_precision
+        dst.flow_precision = src.flow_precision
+        dst.velocity_precision = src.velocity_precision
         # ET1 Q1 (+ smoke ruling 2026-10-10): block and schematic editors
         # preview Fixed ends and Drafting linetypes at the project drawing
         # scale -- schematics are built from the same model-size blocks. A

@@ -1,6 +1,7 @@
 """SB3 AC10 -- lifting bound_text_ops / paint_ops out of BlockInstance changes no
 pixel and no op: goldens captured at base 23512cb3 by plan Task 0 (same machine,
-same fonts -- regenerate with that script if the host font set changes)."""
+same fonts -- regenerate with that script if the host font set changes), re-captured
+once by the L96 true-cap fix (text-sizing-wrap D1 / AC4, user-approved G8)."""
 import hashlib
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -12,8 +13,8 @@ from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.room import Room
 
-OPS_GOLDEN = "057e3d1c25d78f069866be6e0f5ff781093ed047d97fc938fbab4e2522b51ae6"
-RENDER_GOLDEN = "0d799d5855bd4d4830fadae156d377c5f48179b28166d0e5acb5ab2656c8cfe2"
+OPS_GOLDEN = "b60538501a12a5d09616e6731ed2f5407c89761203a0e0e76744696d9cfaf43a"      # re-captured: L96 true cap (AC4, G8)
+RENDER_GOLDEN = "58438ac46ec7eb774eda9a1b19aed8e29ecc40c50924a738f1e11fdd853124b2"   # re-captured: L96 true cap (AC4, G8)
 
 
 def _room(name="Office"):
