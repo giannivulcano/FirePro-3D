@@ -447,15 +447,29 @@ def test_invalid_cs5_records_load_inert(qapp):
 # -- VC9 I-1: reflection with a ground-axis ref (D76 / D81), real Flip path -------
 
 def _flip_across(sc, items, a, b):
-    """Drive the real Flip tool (commit_reflect -> ctl.edit(point_map=...))."""
-    from firepro3d.axis_picker import AxisPick
-    rl = LineItem(QPointF(*a), QPointF(*b))
-    rl.reference = True
-    sc.addItem(rl); sc._draw_lines.append(rl)
+    """Drive the real Flip commit (commit_reflect -> ctl.edit(point_map=...))
+    as a reflection across the line a-b (horizontal or vertical): the Flip
+    centre sits on the line, the matching toggle is on."""
     sc.mode = "flip"
     sc._selected_items = list(items)
-    sc._mirror_axis = AxisPick(QPointF(*a), QPointF(*b), rl, 0.0)
+    horizontal = abs(a[1] - b[1]) < 1e-9
+    sc._flip_center = QPointF(0.0, a[1]) if horizontal else QPointF(a[0], 0.0)
+    sc._flip_lr, sc._flip_ud = (not horizontal), horizontal
     return sc._modify_ctl.commit_reflect()
+
+
+def _reflect_oblique(sc, items, a, b):
+    """Flip no longer has an oblique axis (quadrant / arrows reflect only
+    lr / ud), so drive the SAME constraint seam Flip uses -- ``edit(point_map=)``
+    around ``manip_reflect`` -- across the oblique line a-b, to keep the
+    rollback-of-an-illegal-reflection contract covered."""
+    from firepro3d.constraint_dims import point_map_like
+    p1, p2 = QPointF(*a), QPointF(*b)
+    items = list(items)
+    with sc.constraint_ctl.edit(items, point_map=point_map_like(
+            lambda it: it.manip_reflect(p1, p2))):
+        for it in items:
+            it.manip_reflect(p1, p2)
 
 
 _AXIS_FLIPS = [(ax, mirror) for ax in ("x_axis", "y_axis") for mirror in ("horizontal", "vertical")]
@@ -583,7 +597,7 @@ def test_oblique_flip_of_point_line_to_axis_is_refused(qapp):
     c = ctl.add(t, refs)
     assert t == "dim_point_line"
     before, helper, v0 = _pts(ln), dict(c.helper), c.value
-    _flip_across(sc, [ln], (-500, -500), (800, 800))             # y = x (scene)
+    _reflect_oblique(sc, [ln], (-500, -500), (800, 800))            # y = x (scene)
     assert _pts(ln) == pytest.approx(before, abs=1e-9)           # rolled back exactly
     assert c.helper == helper and c.value == v0
     assert c.id not in ctl.red
@@ -598,8 +612,8 @@ def test_oblique_flip_of_edge_axis_angle_is_refused(qapp):
     c = ctl.add("dim_angle", refs, helper=h)
     before, helper, v0 = _pts(ln), copy.deepcopy(c.helper), c.value
     k = 500.0
-    _flip_across(sc, [ln], (-k * math.cos(math.radians(30)), k * math.sin(math.radians(30))),
-                 (k * math.cos(math.radians(30)), -k * math.sin(math.radians(30))))
+    _reflect_oblique(sc, [ln], (-k * math.cos(math.radians(30)), k * math.sin(math.radians(30))),
+                     (k * math.cos(math.radians(30)), -k * math.sin(math.radians(30))))
     assert _pts(ln) == pytest.approx(before, abs=1e-9)
     assert c.helper == helper and c.value == v0
     assert c.id not in ctl.red

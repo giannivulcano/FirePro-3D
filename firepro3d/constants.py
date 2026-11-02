@@ -289,6 +289,11 @@ WALL_OUTLINE_MIN_SEG = MITER_TOL
 # ~1e-12 mm; Qt's path clipper then drops a whole body.  Union operand
 # vertices are snapped to this grid (mm) so such pairs weld exactly.
 WALL_OUTLINE_SNAP = 1e-6
+# Flip (scene-tools D16): a cursor within this scene distance of a crosshair
+# line is "on the line" and keeps the previous quadrant (float-noise guard).
+FLIP_LINE_EPS_MM = 1e-6
+# Flip crosshair: alpha (0-255) of the idle (inactive) axis line.
+FLIP_CROSSHAIR_IDLE_ALPHA = 70
 AUTO_JOIN_TOLERANCE = 20.0    # snap radius for endpoint-to-endpoint wall joins
 TEE_TOLERANCE = 40.0          # snap radius for tee (mid-wall) joins
 
@@ -492,6 +497,11 @@ ARRAY_GHOST_FULL_MAX = 200
 # Largest cached ghost-glow image (device px, width x height) before
 # paint_ghost falls back to the live glow (transform_ghost._GlowCache, L1068).
 GHOST_GLOW_CACHE_MAX_PX = 4 * 1920 * 1080
+
+# Fillet tool (scene-tools.md D14 Fillet, design 2026-11-01 DS4): the radius a
+# session starts with. 6 in x 25.4 mm/in = 152.4 mm -- the corner radius a
+# sprinkler-layout drawing typically uses; the HUD field makes it sticky.
+FILLET_DEFAULT_RADIUS_MM = 152.4
 
 # ── Hatch renderer (hatch-and-fill.md D-A30 / D-A35) ──────────────────────────
 DRAFTING_CANVAS_SCALE = 100.0   # assumed plan scale (1:N) for Drafting tiles on the model canvas until SB1c

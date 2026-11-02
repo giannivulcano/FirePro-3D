@@ -335,7 +335,7 @@ def _factor_text(scene):
 
 
 def test_live_hud_shows_the_cursor_factor(qapp):
-    """The passive HUD reads |cursor - base| / |ref - base| as the cursor
+    """After ←/→ to Factor, the passive HUD reads |cursor - base| / |ref - base| as the cursor
     moves (the _transform_seed_values scale branch), not a frozen 1."""
     view, scene = make_view(scale=1.0)
     try:
@@ -343,6 +343,7 @@ def test_live_hud_shows_the_cursor_factor(qapp):
         scene._modify_ctl.start("scale")
         click(view, QPointF(0, 0))
         click(view, QPointF(100, 0))                      # reference = 100
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)  # DS1: Length -> Factor
         seen = []
         for x in (150.0, 137.0, 300.0):
             move(view, QPointF(x, 0))
@@ -388,6 +389,7 @@ def test_status_and_commit_show_the_hud_factor_text(qapp):
         scene._modify_ctl.start("scale")
         click(view, QPointF(0, 0))
         click(view, QPointF(7, 0))                        # reference = 7
+        QTest.keyClick(view.viewport(), Qt.Key.Key_Right)  # DS1: Length -> Factor
         move(view, QPointF(61.75, 0))
         hud_text = _factor_text(scene)
         assert hud_text == "8.8214"

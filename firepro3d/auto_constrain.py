@@ -205,6 +205,23 @@ def plan_offset(src, copy) -> list:
 _POLY2_TO_LINE = {"v0": "p1", "v1": "p2", "s0": "edge", "m0": "mid"}
 
 
+def plan_fillet(arc, edges) -> list:
+    """Fillet (design 2026-11-01 DS4.5): the records tying the new fillet *arc*
+    to each trimmed edge -- ``tangent`` [edge, arc curve] and ``coincident``
+    [arc end, edge end]. *edges* is ``[(item, edge_handle, end_handle,
+    arc_handle)]``. **Tangents come first**: probed 2026-11-01, a tangent added
+    after the coincident pair reads redundant and ``auto_join`` drops it. A
+    missing uid -> ``[]``."""
+    au = getattr(arc, "_uid", None)
+    if au is None or any(getattr(it, "_uid", None) is None for it, *_ in edges):
+        return []
+    tangents = [("tangent", [{"uid": it._uid, "h": eh}, {"uid": au, "h": "curve"}])
+                for it, eh, _end, _ah in edges]
+    joins = [("coincident", [{"uid": au, "h": ah}, {"uid": it._uid, "h": end}])
+             for it, _eh, end, ah in edges]
+    return tangents + joins
+
+
 def remap_handle(h: str) -> str | None:
     """AD8: a 2-vertex polyline's handle on the LineItem that replaces it."""
     return _POLY2_TO_LINE.get(h)

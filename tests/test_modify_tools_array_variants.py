@@ -116,8 +116,10 @@ def test_typed_angle_locks_direction_cursor_sets_spacing_only(qapp):
         close_view(view, scene)
 
 
-def test_typed_zero_angle_releases_the_lock(qapp):
-    """DD5: 0 releases the lock — the cursor aims (direction + spacing) again."""
+def test_typed_zero_angle_locks_to_zero(qapp):
+    """DS2.1 (amends DD5): a typed 0 LOCKS the direction to 0 deg like any
+    other angle -- from a 30 deg lock, and the cursor then sets spacing only
+    (its projection on +X), whatever the cursor's height."""
     view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
@@ -126,20 +128,73 @@ def test_typed_zero_angle_releases_the_lock(qapp):
         _tab_angle(scene, "30")
         move(view, QPointF(300, -40))
         sp = 300 * COS30 + 40 * SIN30
-        # Locked: the ghost copies sit on the 30° line.
-        _assert_points([p.boundingRect().center() for p in scene._move_ghost],  # [RED]
+        # Locked at 30: the ghost copies sit on the 30 deg line.
+        _assert_points([p.boundingRect().center() for p in scene._move_ghost],
                        [(sp * k * COS30, -sp * k * SIN30) for k in (1, 2)])
         _tab_angle(scene, "0")
+        assert scene._array_angle_locked == 0.0          # locked, not released
         move(view, QPointF(300, -40)); click(view, QPointF(300, -40))
-        _assert_points([c._center for c in getattr(scene, attr)],
-                       [(300 * k, -40 * k) for k in range(3)])
+        # Locked at 0: spacing = projection on +X (300); the -40 is ignored.
+        _assert_points([c._center for c in getattr(scene, attr)],   # [RED]
+                       [(300.0 * k, 0.0) for k in range(3)])
     finally:
         close_view(view, scene)
 
 
-def test_typed_angle_lock_carries_to_the_next_array(qapp):
-    """DD5 session memory: a typed Angle starts the next Array locked (and
-    the typed Count pre-fills it)."""
+def test_typed_zero_angle_via_enter_places_copies_along_zero(qapp):
+    """DS2.1 through the Enter commit (apply_array): the aim is off-zero
+    (26.6 deg), so a typed Angle 0 differs from the seed and locks -- the
+    copies land on the +X axis, not on the cursor aim."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, -100))
+        _type(scene, Angle="0", Spacing="150", Count="3")
+        _assert_points([c._center for c in getattr(scene, attr)],   # [RED]
+                       [(150.0 * k, 0.0) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_360_angle_locks_to_zero(qapp):
+    """DS2.1: any multiple of 360 parses to 0 and locks like 0."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, -100))
+        _tab_angle(scene, "360")
+        assert scene._array_angle_locked == 0.0
+        move(view, QPointF(300, -40)); click(view, QPointF(300, -40))
+        _assert_points([c._center for c in getattr(scene, attr)],   # [RED]
+                       [(300.0 * k, 0.0) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_zero_equal_to_the_live_aim_does_not_lock(qapp):
+    """DS2.1 keeps the 'equals the unlocked seed = untouched readout' skip:
+    aiming exactly along +X and 'typing' 0 is the readout, not a lock -- the
+    cursor keeps aiming direction + spacing."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))       # 0 deg
+        _tab_angle(scene, "0")
+        assert scene._array_angle_locked is None
+        move(view, QPointF(300, -40)); click(view, QPointF(300, -40))
+        _assert_points([c._center for c in getattr(scene, attr)],   # [RED]
+                       [(300.0 * k, -40.0 * k) for k in range(3)])
+    finally:
+        close_view(view, scene)
+
+
+def test_typed_angle_lock_ends_with_the_tool(qapp):
+    """DS2.2 (amends DD5 session memory): the Angle lock ends when the tool
+    does -- the next Array's cursor aims direction + spacing again, while the
+    typed Count (a separate memory) still pre-fills it."""
     view, scene = make_view(scale=1.0)
     try:
         item, attr = add_primitive(scene, "circle")
@@ -147,12 +202,72 @@ def test_typed_angle_lock_carries_to_the_next_array(qapp):
         click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
         _type(scene, Angle="30", Spacing="100", Count="2")
         assert len(getattr(scene, attr)) == 2
+        assert scene._array_angle_locked is None             # tool ended
+        assert scene._modify_ctl.start("array")
+        assert scene._array_angle_locked is None
+        click(view, QPointF(0, 0)); move(view, QPointF(300, -40))
+        click(view, QPointF(300, -40))
+        # Unlocked: the cursor aims both direction and spacing (Count 2
+        # carried from the typed commit -> exactly one new copy).
+        _assert_points([c._center for c in getattr(scene, attr)[2:]],  # [RED]
+                       [(300.0, -40.0)])
+    finally:
+        close_view(view, scene)
+
+
+def test_angle_lock_is_dropped_when_the_tool_is_cancelled(qapp):
+    """DS2.2: every way out of Array ends the lock, not just a commit -- a
+    mode change (Esc / tool switch -> set_mode) clears it too."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _tab_angle(scene, "30")
+        assert scene._array_angle_locked == 30.0
+        scene.set_mode("select")                              # cancel
+        assert scene._array_angle_locked is None              # [RED]
+        item.setSelected(True)
         assert scene._modify_ctl.start("array")
         click(view, QPointF(0, 0)); move(view, QPointF(300, -40))
         click(view, QPointF(300, -40))
-        sp = 300 * COS30 + 40 * SIN30
-        _assert_points([c._center for c in getattr(scene, attr)[2:]],  # [RED]
-                       [(sp * COS30, -sp * SIN30)])
+        _assert_points([c._center for c in getattr(scene, attr)[1:]],
+                       [(300.0 * k, -40.0 * k) for k in (1, 2)])
+    finally:
+        close_view(view, scene)
+
+
+def test_zero_lock_also_ends_with_the_tool(qapp):
+    """DS2.1 x DS2.2: a locked 0 deg (a falsy value) is cleared on tool exit
+    too -- the reset is an explicit None, not a truthiness check."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, -100))
+        _tab_angle(scene, "0")
+        assert scene._array_angle_locked == 0.0
+        click(view, QPointF(300, -40))                        # commit
+        assert scene._array_angle_locked is None              # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_restarting_array_mid_tool_drops_the_lock(qapp):
+    """DS2.2 'on Array entry': pressing Array again while Array is live
+    starts a new Array -- set_mode('array') -> clear('array') does not leave
+    the mode, so the entry itself must drop the lock."""
+    view, scene = make_view(scale=1.0)
+    try:
+        item, attr = add_primitive(scene, "circle")
+        assert scene._modify_ctl.start("array")
+        click(view, QPointF(0, 0)); move(view, QPointF(200, 0))
+        _tab_angle(scene, "30")
+        assert scene._array_angle_locked == 30.0
+        item.setSelected(True)
+        assert scene._modify_ctl.start("array")               # restart
+        assert scene.mode == "array"                          # re-entered
+        assert scene._array_angle_locked is None              # [RED]
     finally:
         close_view(view, scene)
 
@@ -693,7 +808,8 @@ def test_polar_ghost_matches_the_commit_full_rects_of_a_rotated_rect(qapp):
 
 
 def test_status_readout_shows_an_active_angle_lock(qapp):
-    """Review S4: a session-sticky Angle lock is visible in the readout."""
+    """Review S4 / DS2.1: an active Angle lock -- including a locked 0 deg --
+    is visible in the readout."""
     from firepro3d.scale_manager import ScaleManager
     view, scene = make_view(scale=1.0)
     try:
@@ -708,7 +824,8 @@ def test_status_readout_shows_an_active_angle_lock(qapp):
         assert f"Angle: {ScaleManager.format_angle(30.0)} (locked)" in msgs[-1]  # [RED]
         _tab_angle(scene, "0")
         move(view, QPointF(300, -40))
-        assert "(locked)" not in msgs[-1]
+        # DS2.1: a typed 0 is a lock too -- the readout shows it.
+        assert f"Angle: {ScaleManager.format_angle(0.0)} (locked)" in msgs[-1]
     finally:
         close_view(view, scene)
 

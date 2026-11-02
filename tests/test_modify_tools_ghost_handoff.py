@@ -48,9 +48,11 @@ def _seg_dist(p, a, b):
 
 
 # Live geometry the probes must stay clear of: the line (0,0)-(100,0) and the
-# short axis reference line x = AXIS_X, y -50..50.
+# short axis reference line x = AXIS_X, y -50..50, and the Flip case's second
+# selected line x = 150, y -120..-60 (it makes the selection asymmetric).
 _LIVE = [(QPointF(0, 0), QPointF(100, 0)),
-         (QPointF(AXIS_X, -50), QPointF(AXIS_X, 50))]
+         (QPointF(AXIS_X, -50), QPointF(AXIS_X, 50)),
+         (QPointF(150, -60), QPointF(150, -120))]
 
 
 def _ghost_probes(scene):
@@ -67,7 +69,9 @@ def _ghost_probes(scene):
 def _build_ghost(view, scene, tool):
     """Run *tool* up to a live ghost (no commit)."""
     assert scene._modify_ctl.start(tool) is True
-    if tool in ("flip", "mirror"):
+    if tool == "flip":
+        move(view, QPointF(160.0, -40.0))              # LR of the union centre: ud
+    elif tool == "mirror":
         move(view, QPointF(AXIS_X + 2.0, 0.0))         # mirrored to x 300..400
     elif tool == "scale":
         click(view, QPointF(0, 0))                     # base
@@ -92,6 +96,13 @@ def test_previous_tool_ghost_is_gone_before_the_base_pick(qapp, src, dst):
         scene.addItem(rl)
         scene._draw_lines.append(rl)
         item, _ = add_primitive(scene, "line")         # selected
+        if src == "flip":
+            # A lone line is symmetric about its own centre (its flip ghost
+            # would coincide with it); a second selected line makes it asymmetric.
+            extra = LineItem(QPointF(150, -60), QPointF(150, -120))
+            scene.addItem(extra)
+            scene._draw_lines.append(extra)
+            extra.setSelected(True)
         move(view, EMPTY)
         ref = _grab(view)                              # no tool, no ghost
         _build_ghost(view, scene, src)

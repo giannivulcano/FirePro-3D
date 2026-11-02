@@ -37,6 +37,7 @@ _MODIFY_ICONS = [
     "delete_icon.svg", "move_icon.svg", "rotate_icon.svg", "offset_icon.svg",
     "array_icon.svg", "explode_icon.svg",
     "scale_icon.svg", "flip_icon.svg", "mirror_icon.svg",
+    "fillet_icon.svg",
 ]
 
 

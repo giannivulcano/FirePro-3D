@@ -24,6 +24,7 @@ EXPECTED = {
     "Shift+C": "copy", "Shift+X": "cut", "Shift+V": "paste", "Shift+D": "duplicate",
     "Shift+M": "move", "Shift+R": "rotate", "Shift+O": "offset", "Shift+A": "array",
     "Shift+F": "flip", "Shift+I": "mirror", "Shift+S": "scale",
+    "Shift+E": "fillet",
     "Ctrl+C": "copy", "Ctrl+X": "cut", "Ctrl+V": "paste", "Ctrl+D": "duplicate",
 }
 
@@ -84,6 +85,14 @@ def test_shift_m_starts_move_on_active_scene(main_window, monkeypatch):
     monkeypatch.setattr(scene._modify_ctl, "start", lambda tool: calls.append(tool))
     _shortcut(main_window, "Shift+M").activated.emit()
     assert calls == ["move"]
+
+
+def test_shift_e_enters_fillet_on_the_active_scene(main_window):
+    scene = main_window._active_scene()
+    scene.clearSelection()
+    _shortcut(main_window, "Shift+E").activated.emit()
+    assert scene.mode == "fillet"                          # [RED] no QShortcut / no tool
+    scene.set_mode(None)
 
 
 def test_shortcut_refused_while_line_edit_focused(main_window, monkeypatch, qapp):

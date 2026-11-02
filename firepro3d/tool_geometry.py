@@ -601,57 +601,8 @@ def _inset_ok(src_pts, new_pts) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FILLET / CHAMFER math
+# CHAMFER math
 # ─────────────────────────────────────────────────────────────────────────────
-
-def compute_fillet(item1, item2, radius):
-    """Compute fillet arc data between two line items. Returns dict or None."""
-    if not isinstance(item1, LineItem) or not isinstance(item2, LineItem):
-        return None
-    ix = gi.line_line_intersection_unbounded(item1._pt1, item1._pt2,
-                                             item2._pt1, item2._pt2)
-    if ix is None:
-        return None  # parallel lines
-    # Determine which ends are near intersection
-    def _near_end(item, ix):
-        d1 = CAD_Math.get_vector_length(item._pt1, ix)
-        d2 = CAD_Math.get_vector_length(item._pt2, ix)
-        return ("_pt1", "_pt2") if d1 < d2 else ("_pt2", "_pt1")
-    near1, far1 = _near_end(item1, ix)
-    near2, far2 = _near_end(item2, ix)
-    # Vectors from intersection along each line
-    u1 = CAD_Math.get_unit_vector(ix, getattr(item1, far1))
-    u2 = CAD_Math.get_unit_vector(ix, getattr(item2, far2))
-    # Half-angle between the two lines
-    dot = u1.x()*u2.x() + u1.y()*u2.y()
-    dot = max(-1.0, min(1.0, dot))
-    half = math.acos(dot) / 2
-    if half < 1e-6:
-        return None  # lines too close to parallel
-    # Bisector
-    bx = u1.x() + u2.x()
-    by = u1.y() + u2.y()
-    bl = math.hypot(bx, by)
-    if bl < 1e-12:
-        return None
-    bx /= bl; by /= bl
-    # Fillet center distance from intersection
-    d = radius / math.sin(half)
-    center = QPointF(ix.x() + bx * d, ix.y() + by * d)
-    # Tangent points (perpendicular foot from center to each line)
-    tp1 = CAD_Math.point_on_line_nearest(center, item1._pt1, item1._pt2)
-    tp2 = CAD_Math.point_on_line_nearest(center, item2._pt1, item2._pt2)
-    # Arc angles
-    sa = yup_angle(center, tp1)
-    ea = yup_angle(center, tp2)
-    span = (ea - sa) % 360
-    if span > 180:
-        span -= 360
-    return {"center": center, "radius": radius, "start": sa, "span": span,
-            "tp1": tp1, "tp2": tp2,
-            "item1": item1, "near1": near1,
-            "item2": item2, "near2": near2}
-
 
 def compute_chamfer(item1, item2, dist):
     """Compute chamfer data between two line items. Returns dict or None."""
