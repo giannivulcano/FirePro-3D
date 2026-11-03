@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
+    QPushButton, QDoubleSpinBox, QSpinBox,
     QHeaderView, QWidget, QLabel, QComboBox,
     QAbstractItemView,
 )
@@ -1839,19 +1839,13 @@ class DisplayManager(HouseDialog):
 
     # ── Swatch update (replaces 3 specific update methods) ────────────
 
-    def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str):
-        """Update a swatch button for 'color' or 'fill'."""
+    def _update_swatch(self, btn: Swatch, prop: str, hex_color: str):
+        """Show *hex_color* on a Colour / Fill chip ('color' or 'fill');
+        ``Swatch.set_hex`` mirrors it into the ``_color`` property the pick
+        flows read."""
         # color and fill are both solid swatches
         _, hex_col = _parse_fill_value(hex_color)
-        if isinstance(btn, Swatch):
-            # Model chips (T3). The Paper tree's cells stay QPushButtons until
-            # T4, which drops this bridge (self-review F5).
-            btn.set_hex(hex_col)
-            return
-        _t = th.detect()
-        btn.setProperty("_color", hex_col)
-        btn.setIcon(QIcon())
-        _apply_swatch_look(btn, hex_col, _t)
+        btn.set_hex(hex_col)
 
     # ── Section cell: Fill Type selector (HF5) ─────────────────────────
 
@@ -2359,6 +2353,7 @@ class DisplayManager(HouseDialog):
 
         page = QWidget()
         layout = QVBoxLayout(page)
+        self._page_margins(layout)
 
         # ── Color mode dropdown ─────────────────────────────────────
         mode_row = QHBoxLayout()
@@ -2380,6 +2375,7 @@ class DisplayManager(HouseDialog):
 
         # ── Category tree ───────────────────────────────────────────
         self._ps_tree = QTreeWidget()
+        self._ps_tree.setObjectName("underlayTable")   # Underlay Manager table look
         self._ps_tree.setColumnCount(7)
         self._ps_tree.setHeaderLabels(
             ["Name", "Vis", "Colour", "Fill", "Section", "Line Weight",
@@ -2419,10 +2415,6 @@ class DisplayManager(HouseDialog):
         group_font.setBold(True)
         group_font.setPointSize(group_font.pointSize() + 1)
 
-        _disabled_ss = (
-            f"background: {_t.bg_sunken}; color: {_t.text_disabled}; "
-            f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
-
         self._suppress = True
 
         for grp_name, grp_keys in self._PS_GROUPS.items():
@@ -2441,56 +2433,52 @@ class DisplayManager(HouseDialog):
                 tree_item.setFont(self._PS_COL_NAME, bold)
                 tree_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
-                # ── Visibility checkbox ──────────────────────────────
-                vis_cb = QCheckBox()
-                vis_cb.setChecked(cat.get("visible", True))
-                vis_cb.stateChanged.connect(
-                    lambda state, k=key: self._on_paper_vis_changed(
-                        k, state == Qt.CheckState.Checked.value))
-                self._ps_tree.setItemWidget(tree_item, self._PS_COL_VIS,
-                                            vis_cb)
+                # Every column (see _make_row_widgets): the 22 px opacity spin
+                # clamps the row unless each column carries the house height.
+                for _c in range(self._ps_tree.columnCount()):
+                    tree_item.setSizeHint(_c, QSize(0, th.M.DM_ROW_H))
 
-                # ── Colour swatch ────────────────────────────────────
-                color_btn = QPushButton()
-                color_btn.setFixedSize(40, 20)
-                color_val = cat.get("color", "#000000")
-                color_btn.setProperty("_color", color_val)
-                _apply_swatch_look(color_btn, color_val, _t)
+                # ── Visibility eye (R3) ──────────────────────────────
+                vis_cb = EyeToggle(checked=cat.get("visible", True))
+                vis_cb.toggled.connect(
+                    lambda checked, k=key: self._on_paper_vis_changed(
+                        k, checked))
+                vis_box = QWidget()
+                vis_lay = QHBoxLayout(vis_box)
+                vis_lay.setContentsMargins(0, 0, 0, 0)
+                vis_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                vis_lay.addWidget(vis_cb)
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_VIS,
+                                            vis_box)
+
+                # ── Colour chip (R2) ─────────────────────────────────
+                color_btn = Swatch(cat.get("color", "#000000"), context="Colour",
+                                   show_label=False, auto_pick=False)
                 color_btn.clicked.connect(
-                    lambda _, k=key: self._on_paper_color_clicked(k, "color"))
+                    lambda k=key: self._on_paper_color_clicked(k, "color"))
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_COLOR,
                                             color_btn)
 
-                # ── Fill swatch ──────────────────────────────────────
-                fill_btn = QPushButton()
-                fill_btn.setFixedSize(40, 20)
+                # ── Fill chip ────────────────────────────────────────
+                fill_btn = Swatch(cat.get("fill", "#ffffff") if key in _HAS_FILL else "",
+                                  context="Fill", show_label=False, auto_pick=False)
                 if key in _HAS_FILL:
-                    fill_val = cat.get("fill", "#ffffff")
-                    fill_btn.setProperty("_color", fill_val)
-                    _apply_swatch_look(fill_btn, fill_val, _t)
                     fill_btn.clicked.connect(
-                        lambda _, k=key: self._on_paper_color_clicked(
-                            k, "fill"))
+                        lambda k=key: self._on_paper_color_clicked(k, "fill"))
                 else:
-                    fill_btn.setProperty("_color", "")
-                    fill_btn.setStyleSheet(_disabled_ss)
                     fill_btn.setEnabled(False)
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_FILL,
                                             fill_btn)
 
-                # ── Section swatch ───────────────────────────────────
-                section_btn = QPushButton()
-                section_btn.setFixedSize(40, 20)
+                # ── Section chip ─────────────────────────────────────
+                section_btn = Swatch(
+                    cat.get("section_color", "#000000") if key in _HAS_SECTION else "",
+                    context="Section", show_label=False, auto_pick=False)
                 if key in _HAS_SECTION:
-                    sec_val = cat.get("section_color", "#000000")
-                    section_btn.setProperty("_color", sec_val)
-                    _apply_swatch_look(section_btn, sec_val, _t)
                     section_btn.clicked.connect(
-                        lambda _, k=key: self._on_paper_color_clicked(
+                        lambda k=key: self._on_paper_color_clicked(
                             k, "section_color"))
                 else:
-                    section_btn.setProperty("_color", "")
-                    section_btn.setStyleSheet(_disabled_ss)
                     section_btn.setEnabled(False)
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_SECTION,
                                             section_btn)
@@ -2523,7 +2511,6 @@ class DisplayManager(HouseDialog):
                 if key in _LW_ONLY:
                     for _w in (vis_cb, color_btn, opacity_spin):
                         _w.setEnabled(False)
-                    color_btn.setStyleSheet(_disabled_ss)
                     lw_combo.setToolTip(
                         "Line weight of hatch pattern lines on sheets and PDF")
                     tree_item.setToolTip(
