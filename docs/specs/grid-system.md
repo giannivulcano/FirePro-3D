@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-11-03  # SB4b Account: s3.5, s4.1, s4.2 (rewritten: GridlineBubble), s4.3 lock, s4.4 tag_block, s6.4, s7 Mark/Tag rows, s10.1 / s10.2, s11, s14, s17.6 / s17.7 re-audited against 7b6e90fc; prior 2026-10-30  # per-view datum design Account: s8.3 pointer to view-relationships s7.5 only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: 7b6e90fc   # SB4b merge on main; prior 53594a64   # per-view datum design (docs only, s8.3); prior d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-11-03  # SB4c Account: s3.5, s4.2 (OutlinedLabel + retired line), s8.2 / s8.3 / s8.5 (elevation bubbles + datum head -> system-blocks.md 8c), s10.1 (new Level Datum row rule) / s10.2 re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s3.5, s4.1, s4.2 (rewritten: GridlineBubble), s4.3 lock, s4.4 tag_block, s6.4, s7 Mark/Tag rows, s10.1 / s10.2, s11, s14, s17.6 / s17.7 re-audited against 7b6e90fc; prior 2026-10-30  # per-view datum design Account: s8.3 pointer to view-relationships s7.5 only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: 8d95a864   # SB4c merge on main (v0.83.0); prior 7b6e90fc   # SB4b merge on main; prior 53594a64   # per-view datum design (docs only, s8.3); prior d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -11,7 +11,8 @@ applies-to:
   - firepro3d/scene_io.py
   - firepro3d/constants.py
   - firepro3d/align_engine.py
-  - firepro3d/display_manager.py   # Grid Line row (SB4b: line tint only)
+  - firepro3d/section_scene.py     # SB4c: ElevGridlineItem bubbles + per-end visibility, ElevDatumItem (the projection itself: section-view-subsystem.md)
+  - firepro3d/display_manager.py   # Grid Line row (SB4b: line tint only), Level Datum row (SB4c: line only)
   - firepro3d/system_blocks/Tags/GridlineBubble.fpdb
   - main.py
 ---
@@ -52,7 +53,7 @@ Gridlines support arbitrary angles (not just cardinal); the angle is a first-cla
 ### 3.5 Cross-References
 
 - **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules. Snap reads `line()`, which the parametric model keeps in sync.
-- **Paper space:** Paper rendering is defined in `docs/specs/paper-space.md` §9.9.1: the gridline LINE gets the paper weight + paper-mm dash, and each plan bubble prints through the one annotative path (`_apply_block`) at its authored size — there is no per-item or per-category bubble-size setting. (`GRIDLINE_BUBBLE_PAPER_CAP_MM` now sizes only the elevation / section bubble.) See §10.2.
+- **Paper space:** Paper rendering is defined in `docs/specs/paper-space.md` §9.9.1: the gridline LINE gets the paper weight + paper-mm dash, and each plan bubble prints through the one annotative path (`_apply_block`) at its authored size — there is no per-item or per-category bubble-size setting; the elevation / section bubbles and the level datum head print the same way (SB4c, §8, §10.2). See §10.2.
 - **Theming:** Selection-grip style is the selection manipulator's (theme `selection` tokens — `selection-manipulator.md`; tokens in `docs/architecture/theming.md`). See §5 / §14.
 - **Constants:** Grid constant *values* live in `firepro3d/constants.py` (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors). This spec names them, not their values (Rule A).
 
@@ -95,7 +96,7 @@ reposition grips + lock indicator
 
 ### 4.2 `GridlineBubble` (Child; a System annotation block, SB4b 2026-11-03)
 
-`GridlineBubble(BoundLabelItem)` — each plan end is drawn by the user-designable annotation block mapped for category `Gridline` (default `system-tags-gridlinebubble`, host field `Mark`), annotative like the room tag and pipe label: it scales with zoom on screen and prints at its authored size. The block contract (label seam, resolver + fallback, Tag row, Gridline section) is owned by [`system-blocks.md`](system-blocks.md) (Rule A); this section keeps the gridline-side behaviour. Two instances per gridline (`bubble1` / `bubble2`, children of the gridline: visibility, opacity and z cascade from it), positioned by `_rebuild_geometry()` at each endpoint standoff (`set_anchor`); **never rotated** — the bubble stays upright on an angled gridline.
+`GridlineBubble(OutlinedLabel)` — each plan end is drawn by the user-designable annotation block mapped for category `Gridline` (default `system-tags-gridlinebubble`, host field `Mark`), annotative like the room tag and pipe label: it scales with zoom on screen and prints at its authored size. The block contract (label seam, `OutlinedLabel`, resolver + fallback, Tag row, Gridline section) is owned by [`system-blocks.md`](system-blocks.md) (Rule A); this section keeps the gridline-side behaviour. Two instances per gridline (`bubble1` / `bubble2`, children of the gridline: visibility, opacity and z cascade from it), positioned by `_rebuild_geometry()` at each endpoint standoff (`set_anchor`); **never rotated** — the bubble stays upright on an angled gridline.
 
 - **Content.** The block's `@[Mark]` text — the gridline's `_label_text`. A blank label keeps the block's static geometry (`system_blocks.PAINT_WHEN_BLANK`), so an unlabelled gridline still shows its empty circle and the line still stops at it.
 - **Line trim.** `outline_path()` (the union of the closed subpaths of the block's static ops at the current annotative factor; text ignored; the placeholder box or the bounds rect as fallback) and `trim_distance(ux, uy)` (distance from the block origin along the axis to where it leaves the outline); `paint` and `drawn_endpoints()` stop the line at each visible bubble's outline, on screen and on paper.
@@ -103,7 +104,7 @@ reposition grips + lock indicator
 - **Overlays (screen only, never on paper).** `overlay_pens()`: a selected gridline strokes the outline in `_grid_color.lighter(150)` (cosmetic 2 px); a duplicate label strokes it orange (`#ff8800`, cosmetic 2 px, drawn last). Both are skipped while `_paper_render`. The duplicate flag is `set_duplicate` (via `update_duplicate_warning`); resolving the duplicate clears it.
 - **Tag row.** `GridlineItem` mixes in `TagBlockHost` (`_TAG_CATEGORY = "Gridline"`); a "Tag" row sits under Bubble 2 Offset (not on the placement template, §17.7), both ends share the mapped block. Mechanism: `system-blocks.md` (Tag row).
 - **Shipped seed** `firepro3d/system_blocks/Tags/GridlineBubble.fpdb`: a 10 mm circle with centre / diameter constraints and a centred, Shrink-to-fit `@[Mark]` text (Consolas bold), Mark placeholder `-` (so a blank Mark, reachable only from an old file or Renumber, shows `-`).
-- **Retired:** `GridBubble`, `RADIUS_PX`, `enter_paper_mode()` / `exit_paper_mode()`, the paper-mode geometry swap, the screen-fixed (`ItemIgnoresTransformations`) bubble, and the gridline's `_display_scale`. The *elevation / section* bubble (`section_scene._ElevBubble`) is unchanged here (SB4c).
+- **Retired:** `GridBubble`, `RADIUS_PX`, `enter_paper_mode()` / `exit_paper_mode()`, the paper-mode geometry swap, the screen-fixed (`ItemIgnoresTransformations`) bubble, and the gridline's `_display_scale`. The bespoke *elevation / section* bubble (`section_scene._ElevBubble`) is retired too (SB4c): an `ElevGridlineItem` owns two more `GridlineBubble`s hosted on this plan gridline (§8.2).
 
 ### 4.3 Grips (manipulator-owned since U3, 2026-09-10)
 
@@ -291,7 +292,8 @@ A gridline appears in a section / elevation view where the infinite gridline cro
 For a qualifying gridline, the `ElevGridlineItem` is drawn as a vertical line in the elevation:
 
 - **H-position:** The gridline's perpendicular coordinate (X for vertical gridlines in N/S, Y for horizontal gridlines in E/W), given by the section basis `h(p)` of `section-view-subsystem.md` §4.1 (for the cardinals, the same sign-adjusted X / Y mapping as before).
-- **V-extent (default):** Top of highest level to bottom of lowest level (full building height from `LevelManager`).
+- **V-extent (default):** Top of highest level to bottom of lowest level (full building height from `LevelManager`), padded at each end by `ELEV_GRIDLINE_END_PAD_MM` (`constants.py`).
+- **Bubbles (SB4c, 2026-11-03):** the elevation gridline draws the **same System block as its plan gridline** (one design drives both views): `bubble1` (plan Bubble 1) at the top end, `bubble2` (plan Bubble 2) at the bottom, each `GridlineBubble` hosted on the plan gridline, so the Mark, the Tag row's block and the duplicate flag follow it. **Per-end visibility rule:** the top bubble shows iff `gl.bubble1.isVisibleTo(gl)`, the bottom iff `gl.bubble2.isVisibleTo(gl)` — the plan end's own toggle, independent of the plan item's display visibility. **The line trims at each visible bubble's block outline** (`drawn_endpoints()`; screen and paper alike, as §4.2). The elevation line's pen weight is `ELEV_GRIDLINE_PEN_W_MM`. The block-side contract (ownership, outline and trim, hit / HALO, overlays, refresh, paper) is owned by [`system-blocks.md`](system-blocks.md) 8c (Rule A).
 
 ### 8.3 Per-View Z-Extent Overrides
 
@@ -306,6 +308,7 @@ _gridline_z_overrides: dict[str, dict]  # label → {"v_top": float, "v_bot": fl
 - Override set via grip drag on `ElevGridlineItem` top/bottom grips in the elevation view.
 - If no override exists, defaults to full building height (recalculated on each rebuild).
 - Overrides are **per-view** — adjusting a gridline's extent in the North elevation does not affect the South or East elevations.
+- Overrides stay **label-keyed** (the plan gridline's label), unchanged by SB4c; the bubbles move with the extent ends (`_update_bubble_positions`).
 
 ### 8.4 Elevation Override Serialization
 
@@ -323,7 +326,7 @@ Stored in the elevation view's `to_dict()`:
 
 ### 8.5 Level Datums
 
-`ElevDatumItem` behavior on screen is unchanged; on a sheet it plots through the "Level Datum" paper row (§10.2). Horizontal reference lines span all visible gridlines. Extent recalculated from projected gridline H-positions.
+The level datum's head is a System block (SB4c, 2026-11-03): the project's `Level` annotation block (`LevelDatumHead`, shipped seed `LevelDatum`) at the datum's left end, and the datum line starts at the head's outline; the block-side contract is owned by [`system-blocks.md`](system-blocks.md) 8c and the datum / line geometry by `section-view-subsystem.md` (Rule A). On a sheet the line plots through the "Level Datum" paper row and the head through `_apply_block` (§10.2). The Level Datum Display Manager row is line-only (§10.1). Horizontal reference lines span all visible gridlines. Extent recalculated from projected gridline H-positions.
 
 ## 9. Legacy Cleanup & Migration
 
@@ -355,7 +358,7 @@ Existing project files with `"level"` on gridlines: field is read and silently d
 
 ### 10.1 Display Manager Category
 
-Single category: **"Grid Line"**
+Single category for the plan and elevation gridline: **"Grid Line"** (the level datum's own "Level Datum" row follows below the table)
 
 | Property | Default | Applies to |
 |----------|---------|-----------|
@@ -364,6 +367,8 @@ Single category: **"Grid Line"**
 | `visible` | `True` | Show/hide all gridlines |
 
 The row has no Fill (`fill: None`) and no Scale column (`"Grid Line"` is in `_NO_SCALE_CATEGORIES`; `_apply_gridline` tints the line colour + opacity + visibility only and ignores the fill / scale / font arguments); a saved Fill / Scale value is ignored. Per-instance overrides via `_display_overrides` take precedence over category defaults.
+
+**Level Datum row (SB4c, 2026-11-03; the one home of this rule — `section-view-subsystem.md` points here).** The elevation / section level datum has its own **"Level Datum"** category with the same line-only shape: `color` tints the datum **line** (the head block keeps its authored colours), `opacity` and `visible` act on the whole datum item. The row has no Fill (`fill: None`), no Font (`font: None`) and no Scale column (`"Level Datum"` is in `_NO_SCALE_CATEGORIES`); `SectionScene._datum_display_props` reads colour / opacity / visible only, and a saved fill / scale / font value is ignored. The same holds for the elevation gridline, which no longer reads the Grid Line Fill / Scale (`_gridline_display_props`).
 
 ### 10.1.1 Dash-Dot Linetype
 
@@ -382,7 +387,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - **Sheet view rendering:** each visible plan bubble prints at its block's authored size (annotative, `paper_display._apply_block`, as room tags and pipe labels); the category line weight drives the gridline line and the block's strokes. The Grid Line `bubble_label_height_mm` key and "Label Ht" column are retired (SB1c, see [the SB1c design](../superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md)).
 - **Retired:** the per-item `GridlineItem.paper_height_mm` field. `to_dict` stops writing it; `from_dict` ignores the legacy key. Sizing is uniform per category (grill decision 2026-08-07).
 - Selection ring, manipulator grips, lock indicator, and the duplicate-label ring never plot.
-- **Elevation / section gridlines (2026-10-22):** `ElevGridlineItem` plots through the same "Grid Line" paper row as the plan gridline, with parity in weight, paper-mm dash-dot, colour (B&W / Custom) and true-scale bubble size; `ElevDatumItem` plots through the "Level Datum" row (visibility, opacity, weight, dash, colour/fill). Mechanism owned by `paper-space.md` §9.9.1 (Rule A).
+- **Elevation / section gridlines (2026-10-22):** `ElevGridlineItem` plots through the same "Grid Line" paper row as the plan gridline, with parity in weight, paper-mm dash-dot and colour (B&W / Custom); its bubbles print at their block's authored size (`_apply_block`, as the plan bubbles); `ElevDatumItem` plots its line through the "Level Datum" row (visibility, opacity, weight, dash, colour; no fill) and its head through `_apply_block`. Mechanism owned by `paper-space.md` §9.9.1 (Rule A).
 
 ## 11. Design Decisions
 

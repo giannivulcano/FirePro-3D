@@ -1,5 +1,5 @@
 ---
-status: design (ratified 2026-11-03, not built)
+status: as-built 2026-11-03 (merged 8d95a864, v0.83.0)
 task: "SB4c -- Convert the elevation gridline bubble + level datum head to System blocks (todo_open.md)"
 base: 1adb7e84
 branch: feat/sb4c-elev-bubble-datum
@@ -83,3 +83,29 @@ Probe record: `docs/superpowers/plans/2026-11-03-sb4c-1b-findings.md` (local). K
 / `_project_level_datums` / `drawForeground` / `ElevGridlineItem.paint`, `paper_display` elevation
 branch + `_apply_block` + `restore_model_display`, `section_manager.SectionManager.open_scenes`,
 `element_params.category_of` / `PARAMS`, `system_blocks`, `display_manager` Level Datum row.
+
+## As-built (2026-11-03)
+
+Merged at `8d95a864` (v0.83.0). The contract now lives in `system-blocks.md` s8c; this record
+keeps the decisions above as ratified and lists what the build corrected. Commits: D1 / D2
+`bd9ee87a` `0afa894b` `e167026d` `0075f6bd`; D3 `75727c2d` `05a10c98` `7f158ded`; D4 `e7a3b152`
+`b6c5325a`; D5 `9ee80b79`; VC9 `48da1062`; smoke `6f54b2fc`.
+
+1. **D2 trim direction.** The ray from each bubble toward its line is derived from `p1 -> p2`
+   (top bubble (0, +1) in Qt y-down, bottom (0, -1)); the `trim_distance(0, -1)` / `(0, 1)` order
+   written in D2 is reversed. The datum head's ray toward `_h_max` is (+1, 0).
+2. **D2 visibility.** The top bubble is visible iff `gl.bubble1.isVisibleTo(gl)` (the per-end toggle,
+   independent of the plan item's own visibility), the bottom iff `gl.bubble2.isVisibleTo(gl)`;
+   D2's `isVisible()` would have hidden both ends with a plan-hidden gridline.
+3. **D6 probe result.** Every UI path (a Properties Mark / Bubble 1 / Bubble 2 commit, a Tag pick)
+   already emits `sceneModified`, which reschedules `SectionScene._schedule_rebuild`; no wiring
+   was added, and Mark is pulled at paint.
+4. **element-parameters E3.** The `Level` category's own keys keep the `Level.` prefix (`Level.Name`,
+   `Level.Elevation`, tier 1 Stored); folded into `element-parameters.md` E3 at Account.
+5. **Smoke fixes (`6f54b2fc`).** `OutlinedLabel.outline_path` unions snapped operands
+   (`WALL_OUTLINE_SNAP`): Qt clipper noise on a coincident-corner seed produced an empty union.
+   `ElevDatumItem.halo_trace_path` starts at the head outline. The shipped `LevelDatum.fpdb` is the
+   user's Block Editor restyle (a 3 mm-radius circle, crossed centre lines, two filled quadrants,
+   `@[Level.Name]` / `@[Level.Elevation]`), so it no longer reproduces today's head as D3 / AC3 say.
+6. **VC9 fix (`48da1062`).** `ElevDatumItem.enter_paper_pass` / `exit_paper_pass` call
+   `prepareGeometryChange()`, like the gridline's.

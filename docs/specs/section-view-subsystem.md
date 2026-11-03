@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -141,8 +141,8 @@ elevation and break acceptance (d). **Cut** adds the section columns only.
 | Sprinkler / node | never cut | today's glyph |
 | Floor slab | chord x thickness rect, section hatch (with floor voids: one rect per material span, below) | today's mask + fill |
 | Roof | **not cut-rendered in v1** (follow-up: mesh / plane intersection); a crossing roof shows as today's projected rect | today's rect, fixed Z |
-| Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`, bubble and label-keyed z-overrides as today; parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
-| Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`) | -- |
+| Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`; label-keyed z-overrides as today; its two bubbles are the plan gridline's System block (`GridlineBubble` children of `ElevGridlineItem`, SB4c; per-end visibility, trim and hit shape: [`system-blocks.md`](system-blocks.md) 8c, [`grid-system.md`](grid-system.md) 8.2); parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
+| Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`); the head at the left end is the `Level` System block (`LevelDatumHead`, SB4c), and `SectionScene.drawForeground` draws the line from `ElevDatumItem.line_start_h()` (the head outline) to `_h_max`; `ElevDatumItem.shape()` is the head outline, so a press on the head selects the datum. Block contract: [`system-blocks.md`](system-blocks.md) 8c | -- |
 
 Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at plan approval):
 
@@ -171,8 +171,14 @@ Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at p
   does); the app QSS paints the canvas behind the view, so a section viewport plots paper white.
 - **Proxies plot through their paper row.** Projected items carry `_paper_cat` (Wall / Floor /
   Roof / Pipe / Sprinkler, opening items the opening's `display_category`) and take that category's
-  whole paper row; elevation gridlines and level datums use the "Grid Line" / "Level Datum" rows.
-  Mechanism owned by `paper-space.md` §9.9.1 (Rule A); not restated here.
+  whole paper row; elevation gridlines and level datums use the "Grid Line" / "Level Datum" rows
+  for the **line only** (no fill; their bubbles / heads are annotation blocks printed through
+  `_apply_block`, SB4c). The Level Datum Display Manager row rule is homed in `grid-system.md`
+  10.1. Mechanism owned by `paper-space.md` §9.9.1 (Rule A); not restated here.
+- **Selection plumbing for the heads (SB4c).** `SectionScene._manip_exclude` excludes any
+  `BoundLabelItem` from the manipulator (only the top-level gridline / datum is framed) and
+  `_halo_resolve` walks the full parent chain to the owning `ElevGridlineItem` / `ElevDatumItem`;
+  the label-side contract is `system-blocks.md` 8c (Rule A).
 - **Known gap: cut cross-sections do not occlude what lies behind them.** With the paper Wall Fill
   at "" (No Fill) a beyond-the-cut wall no longer paints an opaque body, so a farther wall shows
   through a nearer one. Tracked in `todo_open.md`, "Cut cross-sections occlude what lies behind them".
@@ -386,7 +392,7 @@ jogged / stepped sections; break lines; in-view dimensions; geometry editing in 
 | D3 | depth = the section's own crop box in plan, seeded to the building extent | Phase 2 |
 | D4 | new `sections` key, no `SAVE_VERSION` bump | Phase 2 |
 | D5 / D5b | Section button beside Detail; cardinals permanent | Phase 2 |
-| D6 | bespoke bubble / datum / hatch visuals carried over; marker glyphs superseded by D6r | Phase 2 |
+| D6 | bespoke bubble / datum / hatch visuals carried over; marker glyphs superseded by D6r. **Note 2026-11-03: the bubble / datum visuals are superseded by SB4c** (elevation bubble + datum head are System blocks, `system-blocks.md` 8c); the hatch visuals stand | Phase 2 |
 | D6r | cardinal = old ViewMarkerArrow glyph on its own box; section = 2x bubble on each endpoint + tangent triangle (R*sqrt(2)), label along the cut; crop box edits as a rect | smoke ruling 2026-10-21, served tuner |
 | D7a / D7b | gridlines crossing the cut project; 767 stale | Phase 2 |
 | D8 | cardinals keep "Elevation" naming; one DM marker row relabelled | Phase 2 |

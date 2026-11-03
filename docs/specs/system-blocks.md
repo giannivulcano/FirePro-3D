@@ -1,15 +1,16 @@
 ---
-status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
+last-verified: 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
-  - firepro3d/bound_label.py          # BoundLabelItem, TagBlockHost, eligible_definition, resolve_annotation_block
+  - firepro3d/bound_label.py          # BoundLabelItem, OutlinedLabel (SB4c), TagBlockHost, eligible_definition, resolve_annotation_block
+  - firepro3d/section_scene.py        # SB4c: ElevGridlineItem bubbles, LevelDatumHead / ElevDatumItem, SectionScene.annotation_block + refresh_annotation_tags (the block side; the section projection is section-view-subsystem.md)
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
   - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK
-  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble .fpdb
+  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble + LevelDatum .fpdb
   - firepro3d/block_attributes.py     # bound_text_ops, hugged_text_record, blank_keys / collapse_shifts / hide_empty_shifts (Hide when empty)
   - firepro3d/pipe.py                 # the Pipe owns its label, tag_block, update_label / sync_label_z
-  - firepro3d/gridline.py             # SB4b: GridlineBubble (child label, outline trim, overlays), GridlineItem(TagBlockHost), sparse tag_block
+  - firepro3d/gridline.py             # SB4b: GridlineBubble(OutlinedLabel) (child label, duplicate ring), GridlineItem(TagBlockHost), sparse tag_block
   - firepro3d/network_codec.py        # sparse pipe tag_block (serialize_pipe / deserialize_pipe)
   - firepro3d/text_item.py            # TextData.hide_empty + the Block Editor checkbox
   - firepro3d/render_op.py            # paint_ops (lifted from BlockInstance.paint)
@@ -20,8 +21,9 @@ applies-to:
   - firepro3d/settings/template.py    # annotation_defaults in the .fpdt
   - firepro3d/paper_display.py        # the tag through _apply_block
   - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
-  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only (rest under display-manager's own spec)
+  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1)
 source-tasks:
+  - "SB4c -- Convert the elevation gridline bubble + level datum head to System blocks (todo_closed.md; design record superpowers/specs/2026-11-03-sb4c-elev-bubble-datum-design.md)"
   - "SB4b -- Convert the plan gridline bubble to a System block (todo_closed.md; design record superpowers/specs/2026-11-02-sb4b-gridline-bubble-design.md)"
   - "SB4a -- Convert the pipe label to a System block (todo_closed.md; design record superpowers/specs/2026-10-31-sb4a-pipe-label-design.md)"
   - "SB3 -- First vertical slice: room tag drawn by a System block via BoundLabelItem + the Project Settings Annotation defaults pane (todo_closed.md)"
@@ -33,13 +35,13 @@ source-tasks:
 > **Status: partial.** This spec is the consolidating contract for what is **built**:
 > the host-bound label seam (`BoundLabelItem`), block resolution with a guaranteed
 > fallback (`annotation_block`), the Project Settings Annotation pane, and the first
-> conversion (the Room tag) the second (the Pipe label, SB4a) and the third (the plan Gridline bubble, SB4b). It was promoted from the concept
+> conversion (the Room tag) the second (the Pipe label, SB4a), the third (the plan Gridline bubble, SB4b) and the fourth (the elevation / section gridline bubbles and the level datum head, SB4c). It was promoted from the concept
 > [`2026-09-29-system-blocks-concept-design.md`](../superpowers/specs/2026-09-29-system-blocks-concept-design.md)
 > on 2026-10-29; that document is kept as **history** (the grill Q1-Q16, the
 > architecture F1-F8, the not-yet-built phases 4-7). The slice's own design record is
 > [`2026-10-28-sb3-room-tag-slice-design.md`](../superpowers/specs/2026-10-28-sb3-room-tag-slice-design.md)
 > (ratified decisions Q1-Q13, D-A..D-E). Not built: the remaining intrinsic labels
-> (SB4c-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
+> (SB4d-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
 > 2026-10-30)** adds the per-room tag block (`Room.tag_block`, sections 3 / 8) and the
 > shared picker list that also widens the Annotation pane to the user library (section 7).
 > **SB4a (built 2026-11-01)** converts the pipe label (section 8a): a top-level
@@ -52,6 +54,11 @@ source-tasks:
 > gridline. Its design record is
 > [`2026-11-02-sb4b-gridline-bubble-design.md`](../superpowers/specs/2026-11-02-sb4b-gridline-bubble-design.md)
 > (D1-D15, kept as history; the contract now lives here and in [`grid-system.md`](grid-system.md) 4.2).
+> **SB4c (built 2026-11-03)** draws the elevation / section gridline bubbles with the plan
+> gridline's block and makes the level datum head a System block (section 8c). Its design
+> record is [`2026-11-03-sb4c-elev-bubble-datum-design.md`](../superpowers/specs/2026-11-03-sb4c-elev-bubble-datum-design.md)
+> (D1-D6, with an As-built section; the contract now lives here, in [`grid-system.md`](grid-system.md)
+> 8 / 10.1 and in [`section-view-subsystem.md`](section-view-subsystem.md)).
 
 ## Ownership (Rule A)
 
@@ -77,10 +84,10 @@ checkpoint. It links, never restates:
 
 An **intrinsic label** is owned by its element, automatic, toggled per element, and
 needs no persisted reference: it is drawn by a `BoundLabelItem` the host owns (a child
-for Room and Gridline, a top-level item for Pipe -- section 2).
+for Room, Gridline and Level, a top-level item for Pipe -- section 2).
 A **placed tag** is a standalone hosted instance (concept F7) and is **not built**.
-Both are drawn by blocks authored in the one Block Editor. Today three categories
-are converted: `Room`, `Pipe` and `Gridline` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline")`).
+Both are drawn by blocks authored in the one Block Editor. Today four categories
+are converted: `Room`, `Pipe`, `Gridline` and `Level` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level")`).
 
 ## 2. `BoundLabelItem` (`bound_label.py`)
 
@@ -88,8 +95,10 @@ A lightweight `QGraphicsItem`, **not** a `BlockInstance` subclass (SB3 D-A: no
 `isinstance(BlockInstance)` leakage into HALO, snaps, the level filter or the
 block-instance list).
 
-- **Host and data.** `BoundLabelItem(host, *, child=True)`: a child of the host by
-  default (Room, Gridline); `child=False` makes a **top-level** item (Pipe, SB4a D1). Either way
+- **Host and data.** `BoundLabelItem(host, *, child=True, parent=None)`: a child of the host by
+  default (Room, Gridline, the datum head); `child=False` makes a **top-level** item (Pipe, SB4a D1);
+  a given `parent` is the graphics parent while `host` stays the data source (SB4c D1: an
+  elevation bubble is a child of its `ElevGridlineItem` and reads the PLAN gridline). Either way
   `host` is the explicit `_host`, never `parentItem()`. The host is the data
   source through the `element_params` getters (`host_values`, asked only for the keys the
   block binds plus the category's label field -- the keyed form is owned by
@@ -119,8 +128,23 @@ block-instance list).
   `label_offset` and `tag_block`).
 - **Paper hooks.** `_paper_scale`, `_paper_pen_width`, `_paper_pen_color` are set by
   `paper_display._apply_block` during a viewport pass (section 8).
-- **Subclasses.** A host may subclass the label for category-specific behaviour: the Gridline
-  bubble (`GridlineBubble`, section 8b) adds the outline / trim and the screen-only rings.
+- **Dead host.** `host_values` returns `None` for a host that is no longer live, a category
+  mismatch, or a cross-scene host whose C++ object is already gone (a plan gridline deleted
+  under an open section, SB4c D1): bound fields then show their placeholders (E9) and the
+  orphan placeholder box is **not** drawn (it needs a live host value), so nothing raises.
+- **`OutlinedLabel(BoundLabelItem)`** (SB4c D1, lifted from SB4b's `GridlineBubble`): the
+  outline / trim / overlay machinery shared by labels whose host trims a line at the block
+  outline. `outline_path()` = the union of the closed subpaths of the block's static ops at
+  the current k (text ops ignored; the orphan placeholder box when the block resolves nowhere;
+  the bounds rect when nothing closes), cached until `refresh()` or a paper-scale change; the
+  union operands are snapped to `WALL_OUTLINE_SNAP` first, because a Block Editor restyle
+  leaves ~1e-12 noise on coincident corners and Qt's clipper then returns an empty union.
+  `trim_distance(ux, uy)` = the distance from the block origin along the unit direction to where
+  it leaves the outline (0 when the origin is outside it). `overlay_pens()` (base: none) lists
+  the screen-only rings stroked round the outline after the ops, none during a paper pass.
+- **Subclasses.** A host may subclass the label for category-specific behaviour:
+  `GridlineBubble(OutlinedLabel)` (section 8b, 8c) adds the duplicate flag and its rings;
+  `LevelDatumHead(OutlinedLabel)` (section 8c) adds the datum's selection ring.
 - **One implementation of bound text and op painting.** `block_attributes.bound_text_ops`
   and `render_op.paint_ops` were lifted from `BlockInstance`; `BlockInstance` wraps them.
   Guard: the AC10 ops/render digests (`tests/test_sb3_parity.py`).
@@ -147,12 +171,19 @@ block-instance list).
    only when eligible (an ineligible file is never embedded).
 5. Nothing resolves -> `None` (the tag draws the placeholder or nothing, section 2).
 
+**Section scenes (SB4c D1).** A label in a `SectionScene` (an elevation bubble, a datum head)
+resolves through `SectionScene.annotation_block(category, mapped=None)`, which forwards to the
+model scene's `annotation_block` -- one resolver, one memo, one notice set; it returns `None`
+(placeholder / nothing, section 2) when the model scene is already gone (a queued paint during
+teardown). The `mapped` id is read from the label's data host (`tag_block`), so an elevation
+bubble follows its plan gridline's Tag row.
+
 The resolver step lives in `Model_Space._resolve_mapped`. Its result is memoised in
 `_annot_memo`, keyed `(category, mapped id, fallback)` -- the same id resolves differently
 as a per-element id (`fallback=False`) and as the project default (`fallback=True`) -- and
 cleared on `blockDefinitionsChanged` (`_on_block_definitions_changed`); the same handler
-re-shapes every intrinsic label (room tags, pipe labels and gridline bubbles) through
-`refresh_annotation_tags()`, except while `_annot_resolving`
+re-shapes every intrinsic label (room tags, pipe labels, plan gridline bubbles, and every open
+section's elevation bubbles and datum heads) through `refresh_annotation_tags()`, except while `_annot_resolving`
 (the resolver itself embedding a file) -- the memo clear always runs.
 
 A mapped id that is missing, not annotative, not Scale-with-zoom, or of the wrong
@@ -170,13 +201,13 @@ Known gap, filed: the notice is lost when no window has a status bar yet.
 ## 4. `SYSTEM_DEFAULTS` and ids
 
 `system_blocks.SYSTEM_DEFAULTS` (`"Room"` -> `"system-tags-roomtag"`, `"Pipe"` ->
-`"system-tags-pipelabel"`, `"Gridline"` -> `"system-tags-gridlinebubble"`) guarantees a fallback
-for every converted category. Shipped ids are frozen **slugs**
+`"system-tags-pipelabel"`, `"Gridline"` -> `"system-tags-gridlinebubble"`, `"Level"` ->
+`"system-tags-leveldatum"`) guarantees a fallback for every converted category. Shipped ids are frozen **slugs**
 (`system-<series>-<name>`, minted by `system_promote`; a re-promote keeps the id), **not
 uuids** -- the concept's F4 wording "frozen uuids" is corrected by this pointer.
-`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`; a pipe's Diameter is never
+`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`, `"Level"` -> `"Level.Name"`; a pipe's Diameter is never
 `None`, so a pipe whose block resolves nowhere draws the red placeholder) names the host field whose empty raw value means
-"nothing to show". `PAINT_WHEN_BLANK` (`frozenset({"Gridline"})`) lists the categories whose static geometry still draws when every host-bound field is blank (section 2). The shipped System file is never written by the app outside the
+"nothing to show". `PAINT_WHEN_BLANK` (`frozenset({"Gridline"})`) lists the categories whose static geometry still draws when every host-bound field is blank (section 2); `"Level"` is not listed, because `Level.Elevation` is never `None`, so a datum head never has every field blank. The shipped System file is never written by the app outside the
 dev-gated Promote path (`block-system.md`).
 
 ## 5. The shipped RoomTag (`firepro3d/system_blocks/Tags/RoomTag.fpdb`)
@@ -254,7 +285,7 @@ through `_compute_rect`.
   project's eligible blocks, labelled "(Project)" (or "(System)" when the embedded block's
   library is System), then eligible shipped blocks the project has not embedded,
   "(System)", then eligible user-library `.fpdb` files the project has not embedded,
-  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)". A current mapping that is
+  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)", the Level row (labelled "Level tag") "LevelDatum (System)" (the project default only: the datum has no per-level Tag row, section 8c). A current mapping that is
   missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry appended
   by the shared list. A "(Library)" pick is embedded outside history by the resolver
   (section 3) when the mapping is applied; the pane's apply stays non-undoable.
@@ -306,12 +337,12 @@ through `_compute_rect`.
 - **Paper.** The paper walk's Room branch routes the tag through
   `paper_display._apply_block(...)` (SB1c D6, the one annotative path), skipping a hidden
   tag, and restores it afterwards. `ROOM_LABEL_PAPER_CAP_MM` and
-  `_apply_room_label_paper_height` are retired; `GRIDLINE_BUBBLE_PAPER_CAP_MM` now sizes only
-  the elevation / section bubble (SB4c; [`paper-space.md`](paper-space.md) 9.9).
+  `_apply_room_label_paper_height` are retired ([`paper-space.md`](paper-space.md) 9.9).
 - **Visibility.** The Room row's visibility / opacity hide the tag with the room.
 - **Refresh hooks.** `_refresh_all_labels` (units), `annotative.reprepare_annotative`
   (drawing scale) and the pane apply/revert walk every intrinsic label (room tags, pipe
-  labels, gridline bubbles) through `Model_Space.refresh_annotation_tags()` (the former `refresh_room_tags`).
+  labels, gridline bubbles, and every open section's elevation bubbles and datum heads,
+  section 8c) through `Model_Space.refresh_annotation_tags()` (the former `refresh_room_tags`).
 - **Retired** (guard `tests/test_sb3_retired_strings.py`, AC11): the HTML room label,
   `_RoundedRectBgItem`, `_label_font_size`, `_label_font_color`, `label_scene_rect`, the
   HALO label-rect click and rubber-band special cases, `ROOM_LABEL_PAPER_CAP_MM`,
@@ -361,7 +392,7 @@ Gridline-side behaviour (geometry, grips, lock, Properties rows, serialization) 
 [`grid-system.md`](grid-system.md) 4.2; this section holds the block-side contract.
 
 - **Ownership.** `GridlineItem` (a `TagBlockHost`, `_TAG_CATEGORY = "Gridline"`) creates one
-  `GridlineBubble(BoundLabelItem)` per end (`bubble1` / `bubble2`, `child=True`: visibility,
+  `GridlineBubble(OutlinedLabel)` per end (`bubble1` / `bubble2`, `child=True`: visibility,
   opacity and z cascade from the gridline). `_rebuild_geometry` calls `set_anchor` at each
   standoff; the bubble is **never rotated**, so it stays upright on an angled gridline.
   Per-end visibility stays `bubbleN.isVisible()`.
@@ -369,17 +400,14 @@ Gridline-side behaviour (geometry, grips, lock, Properties rows, serialization) 
   panel row is named `Mark` and a blank Mark is refused there (`element-parameters.md` M2 /
   M16), but a blank can still arrive from an old file or Renumber: `PAINT_WHEN_BLANK` keeps the
   block's static geometry, and the shipped seed's Mark placeholder `-` shows in the circle.
-- **Outline and trim.** `GridlineBubble.outline_path()` = the union of the closed subpaths of
-  the block's static ops at the current k (text ops ignored; the orphan placeholder box when the
-  block resolves nowhere; the bounds rect when nothing closes), cached until `refresh()` or a
-  paper-scale change. `trim_distance(ux, uy)` is the distance from the block origin along the
-  axis to where it leaves the outline. `GridlineItem.drawn_endpoints()` trims each visible end by
-  it, on screen and on paper, so the line meets any block shape, not only the circle.
+- **Outline and trim.** `outline_path()` / `trim_distance(ux, uy)` are `OutlinedLabel`'s (section
+  2). `GridlineItem.drawn_endpoints()` trims each visible end by it, on screen and on paper, so
+  the line meets any block shape, not only the circle.
 - **Hit and HALO.** `GridlineItem.shape()` = the stroked line plus both visible outlines (a
   press on a bubble selects the gridline; the label accepts no buttons); `halo_trace_path` =
   the trimmed line plus both outlines; `halo_area_path` = the outlines. Snaps skip the child
   bubbles (parent not None), as before.
-- **Overlays (screen only, never on paper).** `GridlineBubble.overlay_pens()`: selected gridline
+- **Overlays (screen only, never on paper).** `GridlineBubble.overlay_pens()` (the `OutlinedLabel` hook): selected gridline
   -> the outline stroked `_grid_color.lighter(150)`, cosmetic 2 px; duplicate Mark -> stroked
   `#ff8800`, cosmetic, drawn last. Both are skipped while the gridline's `_paper_render` is set.
 - **Tag row / persistence.** The Gridline panel's "Tag" enum row sits under Bubble 2 Offset (not
@@ -400,11 +428,106 @@ Gridline-side behaviour (geometry, grips, lock, Properties rows, serialization) 
   `system-tags-gridlinebubble`; host category Gridline; Annotative, On screen Scale with zoom):
   a 10 mm circle with centre / diameter constraints, a centred Shrink-to-fit `@[Mark]` text
   (Consolas bold, Automatic colours), Mark placeholder `-`. User-designed at the SB4b smoke.
-- **Elevation / section bubbles** (`section_scene._ElevBubble`) are unchanged (SB4c).
+- **Elevation / section bubbles** draw the same block through section-scene children of the
+  elevation gridline: section 8c.
 - **Retired** (guard `tests/test_sb4b_retired_strings.py`): `GridBubble`, `RADIUS_PX`,
   `enter_paper_mode` / `exit_paper_mode`, the plan use of `bubble_paper_geometry` and
   `_paper_bubble_r`, the `scene_scale` bubble radius in `halo_trace_path`, the gridline's
-  `_display_scale`, and the Display Manager Grid Line Fill / Scale.
+  `_display_scale`, and the Display Manager Grid Line Fill / Scale. (`bubble_paper_geometry`,
+  `_paper_bubble_r` and the paper-cap constants are fully gone since SB4c, section 8c.)
+
+## 8c. Elevation bubbles + level datum head (SB4c)
+
+Section / elevation geometry (projection, crop, the datum and gridline lines) is owned by
+[`section-view-subsystem.md`](section-view-subsystem.md); the gridline-side rules (per-end
+visibility, Z-extent overrides) by [`grid-system.md`](grid-system.md) 8; the Display Manager
+Level Datum row by `grid-system.md` 10.1. This section holds the block-side contract. The
+decisions D1-D6 and their as-built corrections are in
+[`2026-11-03-sb4c-elev-bubble-datum-design.md`](../superpowers/specs/2026-11-03-sb4c-elev-bubble-datum-design.md)
+(history; Rule A). Concept Q9 composite rule: heads only; the lines and extents stay bespoke in
+`section_scene.py`. Datum line + head as one linear block is deferred to SB8.
+
+- **Ownership.** `ElevGridlineItem(..., gridline=gl)` keeps the PLAN `GridlineItem` and owns two
+  `GridlineBubble(gl, parent=self)` children: `bubble1` at the top end (`line().p1()`, plan
+  Bubble 1) and `bubble2` at the bottom (plan Bubble 2). The plan gridline is the **data host**
+  (`BoundLabelItem`'s `parent=`, section 2), so each bubble draws that gridline's resolved
+  block (`tag_block`, else the project default, section 3) with its live `@[Mark]`, annotative
+  (k = the drawing scale on screen, 1 / S on paper), never rotated. `ElevDatumItem` keeps its
+  `Level` (`_level`; a rename mutates it in place) and owns one `LevelDatumHead(OutlinedLabel)`
+  (`head`, `child=True`) whose block origin sits on the line half a `BUBBLE_RADIUS_MM` left of the
+  crop edge; the left grip and an interior move carry it (session-only, as the datum's
+  extent). `gridline=None` (unit tests) = a detached item whose bubbles paint nothing.
+- **Content.** Bubble: as 8b (`Mark`). Head: the `Level` category (`element-parameters.md`:
+  `Level.Name` text as typed, `Level.Elevation` length formatted by the project ScaleManager;
+  `category_of(ElevDatumItem) == "Level"`, getters read `_level`). A `SectionScene` has no
+  `scale_manager` attribute, so the datum carries the model's live ScaleManager as
+  `_scale_manager_ref` (the `format_utils.get_scale_manager` fallback). Seed bound fields:
+  `LABEL_FIELD["Level"] = "Level.Name"`.
+- **Visibility and duplicate flag.** The top bubble is visible iff `gl.bubble1.isVisibleTo(gl)`,
+  the bottom iff `gl.bubble2.isVisibleTo(gl)`: the plan end's own toggle, independent of the plan
+  item's display visibility (a plan-hidden gridline still shows here). Both are copied at build,
+  with the duplicate flag; a plan edit rebuilds the section (Refresh below).
+- **Outline and trim.** `OutlinedLabel` (section 2). `ElevGridlineItem.drawn_endpoints()` trims
+  each visible end where the vertical leaves that bubble's outline; the ray from each bubble
+  toward its line is derived from `p1 -> p2` (the top bubble's is (0, +1) in Qt y-down, the bottom's
+  (0, -1)). `ElevDatumItem.line_start_h()` = where the ray from the head origin toward `_h_max`
+  (+1, 0) leaves the head outline (0 trim when the head is hidden or draws nothing);
+  `SectionScene.drawForeground` draws the datum line from it, so the line stays visible when the
+  head scrolls off-screen. Screen and paper alike (on paper k is 1 / S, so the outline is the
+  printed one). The elevation line geometry constants are `ELEV_GRIDLINE_END_PAD_MM` /
+  `ELEV_GRIDLINE_PEN_W_MM` (`constants.py`).
+- **Hit and HALO.** `ElevGridlineItem.shape()` = the stroked drawn line plus both visible bubble
+  outlines; `halo_trace_path` = the trimmed line plus both outlines; `halo_area_path` = the
+  outlines. `ElevDatumItem.shape()` = the head outline (a press on the head selects the datum; the
+  line is scene foreground); `halo_trace_path` = the line from `line_start_h()` to `_h_max` plus
+  the head outline, never the raw `line()` from `h_min` inside the head. Both items' `boundingRect`
+  holds the heads. `SectionScene._halo_resolve` walks the **full parent chain** to the owning
+  gridline / datum, and `_manip_exclude` (the `SelectionManipulator` exclude predicate) excludes
+  any `BoundLabelItem`, so only the top-level gridline / datum is framed.
+- **Overlays (screen only, never on paper).** The bubbles use `GridlineBubble.overlay_pens()`
+  (selection ring, orange duplicate ring), reading the host item's overlay contract on
+  `ElevGridlineItem`: `_paper_render`, `_grid_color`, `isSelected()`. `LevelDatumHead.overlay_pens()`
+  = the selection ring only (the datum line colour `.lighter(150)`, cosmetic 2 px), never with the
+  datum's `_paper_render` set.
+- **Resolver forwarding.** `SectionScene.annotation_block(category, mapped=None)` forwards to
+  `Model_Space.annotation_block` (section 3). A deleted plan gridline under an open section reads as
+  a dead host (`host_values` -> `None`, section 2): static ops still draw with placeholder text, no
+  orphan box, no raise.
+- **Display Manager.** The Grid Line and Level Datum rows act on the **line only** here
+  (`SectionScene._gridline_display_props` / `_datum_display_props` read colour, opacity and
+  visibility; colour tints the line, visible / opacity act on the whole item). The Level Datum
+  row has `fill: None`, `font: None` and is in `_NO_SCALE_CATEGORIES`; elevation no longer reads
+  the Grid Line Fill / Scale. The row rule is homed in `grid-system.md` 10.1. The heads keep
+  their authored colours.
+- **Paper.** The paper walk's elevation branch (`paper_display`) calls the item's
+  `enter_paper_pass` for the line (weight + paper-mm dash; `_paper_render` on; colour in B&W /
+  Custom) and then `_apply_block` with opacity 1 on each visible head from `_elev_heads(item)`
+  (`bubble1` / `bubble2` / `head`); `restore_model_display` replays each head's three paper hooks
+  and refreshes it, then calls `exit_paper_pass`. Both items' paper hooks call
+  `prepareGeometryChange()` because the trim and bounds move with the paper k. `_HAS_FILL` has no
+  "Grid Line" / "Level Datum" ([`paper-space.md`](paper-space.md) 9.9.1).
+- **Refresh.** `SectionScene.refresh_annotation_tags()` calls `refresh()` on each elevation
+  gridline's bubbles and re-shapes the gridline, and `refresh_head()` on each datum (the head
+  re-shapes, `prepareGeometryChange`, then the scene foreground updates because the datum lines
+  start at the outline). `Model_Space.refresh_annotation_tags` also walks
+  `self._section_manager.open_scenes` (when set), so a mapping, registry, units or drawing-scale
+  change reaches every open section; `annotative.reprepare_annotative` goes through it. Every UI
+  path that changes what a bubble shows (a Properties Mark / Bubble 1 / Bubble 2 commit, a Tag
+  pick) already emits `sceneModified`, which reschedules the section rebuild
+  (`SectionScene._schedule_rebuild`); nothing extra is wired, and Mark is pulled at paint.
+- **Shipped seed** `firepro3d/system_blocks/Tags/LevelDatum.fpdb` (id `system-tags-leveldatum`;
+  host category Level; Annotative; a user restyle at the SB4c smoke -- verify against the file
+  before relying on numbers): a 3 mm-radius circle (6 mm across) with a horizontal and a vertical
+  centre line and two filled quadrants, `@[Level.Name]` (Arial bold, 2.7 mm, left-aligned,
+  Shrink on) above the datum line and `@[Level.Elevation]` (Arial, 2.4 mm) below it (today's
+  layout), both starting 6.25 mm right of the origin; the outline (trim, ring, hit) is the circle -- text never moves it.
+  Project default only: the Annotation pane's "Level tag" row, no per-level Tag row; the name is
+  shown as typed.
+- **Retired** (guard `tests/test_sb4c_retired_strings.py`): `_ElevBubble`, `_ElevLabel`,
+  `bubble_paper_geometry`, `GRIDLINE_BUBBLE_PAPER_CAP_MM`, `GRIDLINE_BUBBLE_LABEL_EM_FRAC`,
+  `_paper_bubble_r`, `_bubble_r`, the bespoke quadrant / font / upper-casing items, and the
+  Display Manager fill / scale / font reads for both rows. `BUBBLE_RADIUS_MM` is **kept**
+  (`section_marker` / `detail_view` proportion base, and the datum head's origin offset).
 
 ## 9. Performance (G6)
 
@@ -439,6 +562,9 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB4a G8 perf bar (pipes; `-m perf`) | `test_sb4a_perf.py` |
 | SB4b gridline bubble: category + default registered, blank Mark keeps the circle (a blank room name still paints nothing), seed eligibility + `@[Mark]` binding, annotative size at two drawing scales, upright on a 30 deg line, line trim for circle and rectangle blocks + orphan box, HALO trace, per-end visibility / grips / lock, paper mm at two scales + the duplicate ring never plots, DM Grid Line tints the line only, saved Fill / Scale ignored, Tag row below Bubble 2 Offset + one undo step + `tag_block` round-trip + offset / array copy + missing-id notice, bubble click / Ctrl+click through a shown view, bounds cover the hit area, rings render round the outline, legacy file loads, Properties row is Mark | `test_sb4b_gridline_bubble.py` |
 | SB4b retired gridline-bubble strings | `test_sb4b_retired_strings.py` |
+| SB4c elevation bubbles: `BoundLabelItem` `parent=` vs host, `OutlinedLabel` base without overlays, `SectionScene` resolver forwarding, a dead cross-scene host reads as dead, the plan gridline's `tag_block` / Mark drive the elevation bubble, per-end plan toggle hides the matching end in every section, line trim at a non-circular outline (screen and paper scale), bounds cover the hit area, the manipulator never wraps the bubbles, section and model refresh reach open sections, rings on screen and never on paper, a bubble click selects the gridline | `test_sb4c_elev_bubble.py` |
+| SB4c level datum head: `Level` category + `category_of`, the shipped seed, one head per datum at the left end, Name / Elevation paint and a rename repaints, name as typed, line starts at the head outline (screen and paper), selection ring screen only, head scales with the drawing scale, press / HALO / grips / interior move, paper mm at two scales, DM Level Datum row line-only with stale values ignored, colour tints the line not the head, a noisy nested-quadrant outline still trims, HALO trace | `test_sb4c_level_datum.py` |
+| SB4c retired elevation-bubble / datum-head strings, `BUBBLE_RADIUS_MM` kept | `test_sb4c_retired_strings.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
 
 **Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**
@@ -485,6 +611,6 @@ Contradictions found during the build, and their resolution:
 
 Phase 3 (this slice) is **done**, as is SB3b (per-room tag style, library-folder picker;
 2026-10-30). Phase 4 is the follow-up per remaining intrinsic
-conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; SB4b, the plan gridline bubble, 2026-11-03; todo lines; each user-designed and visually gated, G7). Phases 5-7
+conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; SB4b, the plan gridline bubble, 2026-11-03; SB4c, the elevation / section gridline bubbles + level datum head, 2026-11-03; todo lines; each user-designed and visually gated, G7). Phases 5-7
 (uids and hosting, placed tags, sheet tags) are gated on phase 4 and described in the
 concept.
