@@ -45,8 +45,10 @@ def _geometric_bbox(item):
     if hasattr(item, "geometric_rect"):
         # BlockInstance: pen-free posed bounds (boundingRect adds a pen margin).
         return item.geometric_rect()
-    # Fallback for unknown item types — use sceneBoundingRect.
-    return item.sceneBoundingRect()
+    # Fallback for unknown item types -- the frame's box (no joint miter pad)
+    # where the item has one, else sceneBoundingRect.
+    mb = getattr(item, "manip_bounds", None)
+    return mb() if mb is not None else item.sceneBoundingRect()
 
 
 def geometric_bounds(items) -> QRectF | None:

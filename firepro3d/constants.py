@@ -535,6 +535,12 @@ END_JOIN_TOL_MM = 1e-6             # abutting trimmed pieces within this stay on
 # Crisp H/V strokes (linetypes.md MW-7 / H-MW-f, crisp_stroke.py)
 CRISP_AXIS_TOL = 1e-6              # relative off-axis tolerance: float noise only (delta 3)
 CRISP_CLOSE_TOL = 1e-9             # subpath end within this of its start = closed
+
+# Stroke corner joins (design 2026-11-03): miter limit as the PDF ratio
+# (miter length / line width; 4 == bevel past ~29 deg). Qt's setMiterLimit
+# measures the tip's reach from the join point in pen widths, so the Qt
+# value is this / 2 -- derived at the pen factory, never a second constant.
+STROKE_MITER_LIMIT = 4.0
 # Gridline-hosted blocks (hosted_blocks.py): |N.u| below this = section parallel to the gridline
 PARALLEL_EPS = 1e-6
 REPEAT_FRAME_HALF_H_MM = 1.5       # LT4 repeat frame: half-height around the axis

@@ -26,6 +26,8 @@ from .geometry_2d import (
 from .filled_region import FilledRegionItem
 from .end_render import SCREEN_FIXED, SCREEN_SCALE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
+from .stroke_joints import JointIndex, ends_of_pieces
+from .stroke_style import apply_stroke_joins
 from .text_item import TextItem
 
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
@@ -75,6 +77,35 @@ def is_scaffold_item(item) -> bool:
 _PLACEHOLDER_COLOR = "#c0392b"      # BlockInstance orphan placeholder colour
 _PLACEHOLDER_MM = 200.0
 _COMPILING: set[str] = set()        # re-entrancy guard (corrupt cyclic data)
+
+
+def _build_joint_indexes(ops, groups) -> tuple:
+    """Corner-joint indexes of *ops* (design D5b): ``(per_op, partnered, top)``.
+
+    Every open styled stroke op (pieces and an ``ends`` record) registers its
+    two ends -- op index as owner, the ops' own frame -- in the index of its
+    container (*groups*: container id per op, 0 = the definition itself, a
+    nested child's ops carry the child's own ids). ``top`` is container 0's
+    index (empty when it holds none).
+    """
+    by_group: dict = {}
+    per_op: list = [None] * len(ops)
+    for i, op in enumerate(ops):
+        if op.kind != STROKE or not op.pieces or op.ends is None:
+            continue
+        ends = ends_of_pieces(op.pieces, i)
+        if not ends:
+            continue
+        g = groups[i] if groups is not None and i < len(groups) else 0
+        ix = by_group.get(g)
+        if ix is None:
+            ix = by_group[g] = JointIndex()
+        ix.register(i, ends)
+        per_op[i] = ix
+    partnered = frozenset(
+        i for i, ix in enumerate(per_op)
+        if ix is not None and any(ix.partner(e) is not None for e in ix.ends_of(i)))
+    return per_op, partnered, by_group.get(0) or JointIndex()
 
 
 def _nested_pose(rec: dict):
@@ -379,6 +410,8 @@ class BlockDefinition:
         self.render_mode = render_mode or "default"
         self._render_ops: list[RenderOp] | None = None
         self._variants: tuple | None = None   # (base ops list, OrderedDict) -- DD4
+        self._op_groups: list[int] | None = None   # joint container id per op (D5b)
+        self._joint_cache: tuple | None = None     # (base ops, {variant key: result}) -- D5b
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
         self._text_snap_pts: list[list[QPointF]] | None = None
         self._bound_prims: list | None = None    # BoundPrim list (SB1a S2)
@@ -438,6 +471,7 @@ class BlockDefinition:
         self.version += 1
         self._render_ops = None
         self._variants = None
+        self._joint_cache = None
         self._text_snap_pts = None
         self._bound_prims = None
         self._eff_attrs = None
@@ -459,6 +493,7 @@ class BlockDefinition:
         (next read recompiles)."""
         self._render_ops = None
         self._variants = None
+        self._joint_cache = None
         self._text_snap_pts = None
         self._bound_prims = None
         self._eff_attrs = None
@@ -555,6 +590,49 @@ class BlockDefinition:
         if self._render_ops is None:
             self._render_ops = self._compile()
         return self._render_ops
+
+    def joint_indexes(self, mirrored: bool = False, scale: float = 1.0) -> tuple:
+        """The corner-joint indexes of the ops under a mirror / scale variant
+        (design D5b), compiled with -- and dropped with -- the render ops.
+
+        Each open styled stroke op registers its two ends (op index as owner,
+        variant frame) in its CONTAINER's :class:`JointIndex`: this
+        definition's own ops share one; a nested child's ops are the child's
+        container (AC7), so they never pair with the parent's. One result per
+        variant list, held beside ``_variants`` (identity-keyed on the base).
+
+        Args:
+            mirrored: Variant mirror flag (as :meth:`render_ops_variant`).
+            scale: Variant uniform scale.
+
+        Returns:
+            ``(per_op, partnered)``: ``per_op[i]`` is op *i*'s container index
+            (None for ops with no ends), ``partnered`` the frozenset of op
+            indexes with at least one end that has a coincident partner.
+        """
+        hit = self._joint_entry(mirrored, scale)
+        return hit[1], hit[2]
+
+    def _joint_entry(self, mirrored: bool, scale: float) -> tuple:
+        """``(ops, per_op, partnered, top)`` for a variant, built once per
+        variant list (``top`` = the group-0 index, an empty one when none)."""
+        base = self.render_ops()
+        ops = self.render_ops_variant(mirrored, scale)
+        c = self._joint_cache
+        if c is None or c[0] is not base:
+            c = self._joint_cache = (base, {})
+        key = (bool(mirrored), float(f"{float(scale):.9g}"))
+        hit = c[1].get(key)
+        if hit is None or hit[0] is not ops:
+            hit = c[1][key] = (ops,) + _build_joint_indexes(ops, self._op_groups)
+            while len(c[1]) > BLOCK_VARIANT_CACHE_MAX:      # same cap as _variants
+                del c[1][next(iter(c[1]))]
+        return hit
+
+    def joint_index(self) -> JointIndex:
+        """This definition's own corner-joint index (the top-level container
+        of the As-Authored ops): static, built when the ops compile."""
+        return self._joint_entry(False, 1.0)[3]
 
     @property
     def attributes(self) -> list[dict]:
@@ -688,13 +766,26 @@ class BlockDefinition:
         """
         if self.render_mode == "reference":
             self._bound_prims = []
+            self._op_groups = None
             return self._compile_reference()
         ox, oy = self.origin
         ops: list[RenderOp] = []
         bound: list = []
+        groups: list[int] = []      # joint container per op: 0 = this definition (D5b)
+        gnext = 1
         for prim in self.primitives:
             if prim.get("type") == _NESTED_TYPE:
+                n0 = len(ops)
                 ops.extend(self._nested_ops(prim, ox, oy, bound))
+                groups.extend([0] * (n0 - len(groups)))
+                child = self._resolve_nested(prim)
+                cg = child._op_groups if child is not None else None
+                if cg is not None and len(cg) == len(ops) - n0:
+                    groups.extend(gnext + g for g in cg)        # the child's own containers
+                    gnext += max(cg, default=0) + 1
+                else:                                           # placeholder / unresolved
+                    groups.extend([gnext] * (len(ops) - n0))
+                    gnext += 1
                 continue
             if is_scaffold(prim):
                 continue
@@ -739,7 +830,7 @@ class BlockDefinition:
                 from .stroke_style import open_stroke
                 if open_stroke(item):          # LT5 Q2: free ends only
                     ends = (dict(st["start"]), dict(st["finish"]))
-            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
+            ops.append(RenderOp(STROKE, path, pen=apply_stroke_joins(QPen(item.pen())),
                                 weight=st["weight"] if st else None,
                                 colour=st["colour"] if st else None,
                                 pieces=pieces, linetype=lt,
@@ -747,6 +838,8 @@ class BlockDefinition:
                                 origin=QPointF(0.0, 0.0) if pieces else None,
                                 ends=ends))
         self._bound_prims = bound
+        groups.extend([0] * (len(ops) - len(groups)))
+        self._op_groups = groups
         return ops
 
     def bound_prims(self) -> list:
@@ -813,7 +906,7 @@ class BlockDefinition:
             path.translate(-ox, -oy)                       # origin-relative
             if layer not in by_layer:
                 by_layer[layer] = QPainterPath()
-                pen = QPen(item.pen())
+                pen = apply_stroke_joins(QPen(item.pen()))
                 pen.setCosmetic(True)
                 pens[layer] = pen
             by_layer[layer].addPath(path)
