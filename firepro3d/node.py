@@ -269,7 +269,22 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             if self.pipes:
                 for p in self.pipes:
                     p.update_geometry()
-                    
+            if getattr(self, "_hydraulic_badge", None) is not None:
+                self._hydraulic_badge._centre_on_offset()     # top-level badge follows (SB4d D5)
+
+        badge = getattr(self, "_hydraulic_badge", None)
+        if badge is not None:
+            gc = QGraphicsItem.GraphicsItemChange
+            if change == gc.ItemVisibleHasChanged:
+                badge.setVisible(self.isVisible())
+            elif change == gc.ItemSceneChange:
+                old = self.scene()
+                if old is not None and badge.scene() is old:
+                    old.removeItem(badge)
+            elif change == gc.ItemSceneHasChanged and value is not None and badge.scene() is None:
+                value.addItem(badge)
+                badge._centre_on_offset()
+
         return super().itemChange(change, value)
 
     # -------------------------------------------------------------------------
@@ -287,6 +302,10 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             position=position, stack_index=stack_index,
             stack_total=stack_total, node_label=node_label,
         )
+        sc = self.scene()
+        if sc is not None:                    # top-level (SB4d D5): joins the node's scene
+            sc.addItem(self._hydraulic_badge)
+        self._hydraulic_badge.setVisible(self.isVisible())
 
     def remove_hydraulic_badge(self):
         """Remove the hydraulic badge if present."""
