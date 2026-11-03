@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QPolygonF
 
 from .constants import STROKE_MITER_LIMIT
@@ -72,3 +72,37 @@ def joint_wedge(corner: QPointF, d_a, d_b, half_w: float,
     reach = half_w / s
     tip = QPointF(cx + bx_ / n * reach, cy + by_ / n * reach)
     return QPolygonF([corner, pa, tip, pb])
+
+
+def fill_wedge(painter, wedge: QPolygonF, colour) -> None:
+    """Fill *wedge* with *colour*, no pen, under the painter's current transform."""
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(colour)
+    painter.drawPolygon(wedge)
+
+
+def map_dir(xf, d) -> tuple:
+    """*d* through *xf*'s 2x2, re-normalised ((0, 0) stays (0, 0))."""
+    vx = d[0] * xf.m11() + d[1] * xf.m21()
+    vy = d[0] * xf.m12() + d[1] * xf.m22()
+    n = math.hypot(vx, vy)
+    return (vx / n, vy / n) if n > _EPS else (0.0, 0.0)
+
+
+def fill_wedges_device(painter, joints, pen) -> None:
+    """D3 / D7 cosmetic case: each ``(point, d_in, d_out)`` mapped through
+    ``painter.worldTransform()`` to device space and filled under an identity
+    transform with ``half_w = pen.widthF() / 2`` in the pen's colour. Leaves
+    the painter's transform / pen / brush as found."""
+    xf = painter.worldTransform()
+    half_w = pen.widthF() / 2.0
+    painter.save()
+    try:
+        painter.resetTransform()
+        for pt, d_in, d_out in joints:
+            w = joint_wedge(xf.map(pt), map_dir(xf, (-d_in[0], -d_in[1])),
+                            map_dir(xf, d_out), half_w)
+            if w is not None:
+                fill_wedge(painter, w, pen.color())
+    finally:
+        painter.restore()

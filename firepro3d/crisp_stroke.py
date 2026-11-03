@@ -15,10 +15,11 @@ import math
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QPainter, QPainterPath, QPen, QPolygonF, QTransform
+from PyQt6.QtGui import QPainter, QPainterPath, QPen, QTransform
 
 from .constants import CRISP_AXIS_TOL, CRISP_CLOSE_TOL
 from .paper_display import paper_pass_active
+from .stroke_joints import fill_wedges_device
 
 _AA = QPainter.RenderHint.Antialiasing
 _MOVE = QPainterPath.ElementType.MoveToElement
@@ -37,13 +38,15 @@ class CrispSplit:
         other: Diagonals and every curve element (anti-aliased).
         all_axis: Whether the whole path is axis (a Qt-dashed pen splits only
             then, delta 4).
-        joint_points: Axis <-> other junction vertices (painter-local), one
-            polygon so a paint stamps every joint dot in one ``drawPoints``.
+        joints: Axis <-> other junctions, painter-local:
+            ``(point, d_in, d_out)`` -- unit directions of the run arriving at
+            and leaving the vertex (D3). ``d_in`` reversed is one wedge
+            direction, ``d_out`` the other.
     """
     axis: QPainterPath
     other: QPainterPath
     all_axis: bool
-    joint_points: QPolygonF = field(default_factory=QPolygonF, compare=False)
+    joints: tuple = field(default=(), compare=False)
 
 
 def xf_key(xf: QTransform) -> tuple:
@@ -123,7 +126,11 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
     # at a time. A segment is (class, element index); its end point is
     # xs/ys at the index (line) or index + 2 (curve).
     axis, other = QPainterPath(), QPainterPath()
-    joints = QPolygonF()
+    joints: list = []
+
+    def _unit(dx, dy):
+        n = math.hypot(dx, dy)
+        return (dx / n, dy / n) if n > 1e-12 else (0.0, 0.0)
 
     def _end(seg):
         j = seg[1] + (2 if seg[0] == 2 else 0)
@@ -151,18 +158,35 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
             sx, sy = _end(segs[-1])
         cx, cy = sx, sy
         run = None
+        d_prev = (0.0, 0.0)
+        d_first = _dir_at(segs[0], sx, sy, True)
         for seg in segs:
             is_axis = seg[0] == 1
             tgt = axis if is_axis else other
             if run is not is_axis:
                 if run is not None:
-                    joints.append(QPointF(cx, cy))
+                    joints.append((QPointF(cx, cy), d_prev,
+                                   _dir_at(seg, cx, cy, True)))
                 tgt.moveTo(cx, cy)
                 run = is_axis
             _seg_to(tgt, seg)
+            d_prev = _dir_at(seg, cx, cy, False)
             cx, cy = _end(seg)
-        if closed:
-            joints.append(QPointF(cx, cy))              # last run meets the first
+        if closed:                                      # last run meets the first
+            joints.append((QPointF(cx, cy), d_prev, d_first))
+
+    def _dir_at(seg, x0, y0, at_start):
+        """Unit tangent of *seg* (starting at x0, y0) at its start or end,
+        falling back to the chord when a control point coincides."""
+        c, j = seg
+        if c == 2:
+            ex, ey = xs[j + 2], ys[j + 2]
+            if at_start:
+                d = _unit(xs[j] - x0, ys[j] - y0)
+            else:
+                d = _unit(ex - xs[j + 1], ey - ys[j + 1])
+            return d if d != (0.0, 0.0) else _unit(ex - x0, ey - y0)
+        return _unit(xs[j] - x0, ys[j] - y0)
 
     def _seg_to(tgt, seg):
         c, j = seg
@@ -184,7 +208,7 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
         segs.append((c, i))
         i += 3 if c == 2 else 1
     _emit(sx, sy, segs)
-    return CrispSplit(axis, other, False, joints)
+    return CrispSplit(axis, other, False, tuple(joints))
 
 
 class SplitCache:
@@ -238,11 +262,11 @@ def stroke(painter: QPainter, path: QPainterPath, pen: QPen,
     """Stroke *path* with *pen* (no brush).
 
     Cosmetic pens on a canvas draw through *split*: axis runs aliased, the
-    rest (and the joint dots) under the painter's own AA hint -- "stay" AA on
+    rest (and the joint wedges) under the painter's own AA hint -- "stay" AA on
     an AA canvas, never AA added to an aliased render. Paper passes,
     non-cosmetic pens, and Qt-dashed pens on a mixed path draw unsplit
     (delta 4). Leaves the painter's AA hint as found, and its pen and brush
-    SET (*pen*, or a round-cap copy after joint dots; NoBrush) -- callers
+    SET (the stroke pen -- joint wedges are brush fills; NoBrush) -- callers
     that need them kept bracket the call with ``save`` / ``restore``.
 
     Args:
@@ -269,13 +293,10 @@ def stroke(painter: QPainter, path: QPainterPath, pen: QPen,
         if not split.axis.isEmpty():
             painter.setRenderHint(_AA, False)
             painter.drawPath(split.axis)
-        if not split.joint_points.isEmpty() and pen.widthF() >= 2.0:
-            dot = QPen(pen)
-            dot.setStyle(Qt.PenStyle.SolidLine)
-            dot.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(dot)
+        if split.joints and pen.widthF() >= 2.0:
             painter.setRenderHint(_AA, aa)
-            painter.drawPoints(split.joint_points)
+            fill_wedges_device(painter, split.joints, pen)
+            painter.setPen(pen)
     finally:
         painter.setRenderHint(_AA, aa)
 

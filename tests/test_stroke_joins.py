@@ -203,3 +203,54 @@ def test_joint_wedge_outer_points_sit_on_the_flat_ends():
     pts = _pts(w)
     # A runs +x, B runs +y: the exterior is the (-,-) quadrant
     assert (10.0, 8.0) in pts and (8.0, 10.0) in pts and (8.0, 8.0) in pts
+
+
+# ---------------------------------------------------------------- D. crisp junctions (D3)
+from firepro3d import crisp_stroke as cs
+from PyQt6.QtGui import QTransform
+
+
+def _oracle(path, w):
+    """Mitered outline (MiterJoin, Qt limit = STROKE_MITER_LIMIT / 2)."""
+    st = QPainterPathStroker(); st.setWidth(w)
+    st.setJoinStyle(Qt.PenJoinStyle.MiterJoin); st.setMiterLimit(C.STROKE_MITER_LIMIT / 2.0)
+    st.setCapStyle(Qt.PenCapStyle.FlatCap)
+    return st.createStroke(path)
+
+
+def _mask(outline, size):
+    img = QImage(*size, QImage.Format.Format_ARGB32); img.fill(QColor("white"))
+    p = QPainter(img); p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor("black")); p.drawPath(outline); p.end()
+    return _dark(img)
+
+
+def _tri_path():
+    p = QPainterPath(QPointF(50, 150)); p.lineTo(QPointF(250, 150))   # axis base
+    p.lineTo(QPointF(150, 150 - 100 * math.sqrt(3)))                  # 60 deg sides
+    p.closeSubpath(); return p
+
+
+def test_g2_closed_polyline_triangle_matches_mitered_oracle(qapp, monkeypatch):
+    """AC2: the crisp split's axis<->diagonal junctions are sharp (no notch,
+    no dot bulge). Compare against the stroker oracle with a 2 px AA band."""
+    poly = PolylineItem(QPointF(50, 150))
+    poly.append_point(QPointF(250, 150))
+    poly.append_point(QPointF(150, 150 - 100 * math.sqrt(3)))
+    poly.close()
+    img = _render([poly], size=(300, 200), monkeypatch=monkeypatch)
+    got = _dark(img); want = _mask(_oracle(_tri_path(), 20.0), (300, 200))
+    near = [(dx, dy) for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2)]
+    outside = {q for q in got if all((q[0] + dx, q[1] + dy) not in want for dx, dy in near)}
+    missing = {q for q in want if all((q[0] + dx, q[1] + dy) not in got for dx, dy in near)}
+    assert not outside, f"{len(outside)} dark px outside the mitered outline, e.g. {sorted(outside)[:5]}"
+    assert not missing, f"{len(missing)} px missing inside, e.g. {sorted(missing)[:5]}"
+
+
+def test_split_records_junction_directions(qapp):
+    p = QPainterPath(QPointF(0, 0)); p.lineTo(QPointF(10, 0)); p.lineTo(QPointF(20, 10))
+    s = cs.split_axis(p, QTransform())
+    assert len(s.joints) == 1
+    pt, d_in, d_out = s.joints[0]
+    assert pt == QPointF(10, 0)
+    assert d_in == pytest.approx((1.0, 0.0)) and d_out == pytest.approx((math.sqrt(0.5), math.sqrt(0.5)))

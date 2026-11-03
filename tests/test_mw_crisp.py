@@ -36,7 +36,7 @@ def test_split_classifies_axis_diagonal_curve(qapp):
     p.cubicTo(25, 25, 30, 20, 35, 20)          # curve
     s = cs.split_axis(p, QTransform())
     assert s.axis.elementCount() == 3 and not s.all_axis
-    assert s.joint_points.count() == 1 and s.joint_points.at(0) == QPointF(10, 10)
+    assert len(s.joints) == 1 and s.joints[0][0] == QPointF(10, 10)
     assert not s.other.isEmpty()
 
 
@@ -105,8 +105,7 @@ def test_closed_mixed_subpath_records_closing_joint(qapp):
     # at BOTH ends -- the closing vertex is a joint too.
     p = QPainterPath(QPointF(0, 0)); p.lineTo(10, 0); p.lineTo(5, 8); p.closeSubpath()
     s = cs.split_axis(p, QTransform())
-    pts = s.joint_points
-    assert sorted((pts.at(k).x(), pts.at(k).y()) for k in range(pts.count())) == \
+    assert sorted((j[0].x(), j[0].y()) for j in s.joints) == \
         [(0.0, 0.0), (10.0, 0.0)]
 
 
@@ -657,6 +656,15 @@ def _pts(poly):
                    for k in range(poly.count()))
 
 
+def _jpts(joints):
+    """Counter of (x, y, d_in, d_out) rounded -- the seed must carry the same
+    junction directions as ``split_axis`` (strengthens the point-only pin)."""
+    from collections import Counter
+    return Counter((round(j[0].x(), 9), round(j[0].y(), 9),
+                    tuple(round(v, 9) for v in j[1]), tuple(round(v, 9) for v in j[2]))
+                   for j in joints)
+
+
 _L = lambda x1, y1, x2, y2: {"kind": "line", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
 _P = lambda pts, closed=False: {"kind": "path_points", "points": pts, "closed": closed}
 _SEED_EDGE_CASES = {
@@ -704,7 +712,7 @@ def test_seed_matches_exact_split_on_edge_geoms(qapp, case):
     assert got.all_axis == want.all_axis
     assert _subs(got.axis) == _subs(want.axis)
     assert _subs(got.other) == _subs(want.other)
-    assert _pts(got.joint_points) == _pts(want.joint_points)
+    assert _jpts(got.joints) == _jpts(want.joints)
 
 
 def test_rotated_view_line_is_classified_in_the_painter_frame(be):
