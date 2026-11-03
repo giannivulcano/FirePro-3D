@@ -74,9 +74,10 @@ def test_gridline_bubble_hover_resolves_to_gridline(qapp):
     """Hovering a GridlineItem's bubble CENTRE must still resolve/rank the
     gridline first (bubble is a filled HALO_AREA child that resolves to its
     GridlineItem parent — same _halo_resolve path as a sprinkler->Node)."""
+    from tests.test_sb4b_gridline_bubble import _bubble_def, _gridline
     sc = Model_Space()
-    gl = GridlineItem(QPointF(0, 0), QPointF(0, 500), "A")
-    sc.addItem(gl)
+    _bubble_def(sc)                     # without a mapped block the bubble paints nothing
+    gl = _gridline(sc, (0.0, 0.0), (0.0, 500.0), "A")
     view = QGraphicsView(sc)
     view.setTransform(QTransform.fromScale(1.0, 1.0))
     dt = view.viewportTransform()

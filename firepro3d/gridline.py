@@ -5,8 +5,8 @@ Revit-style gridline system for FirePro 3D.
 
 Classes
 -------
-GridBubble     — circle + label at one end of a gridline (screen-fixed size)
-GridlineItem   — finite gridline with two GridBubble children
+GridlineBubble — one end's annotation block (BoundLabelItem child, SB4b)
+GridlineItem   — finite gridline with two GridlineBubble children
 
 Placement: 2-click (start → end).
 Auto-numbering: vertical grids → A, B, C…  horizontal → 1, 2, 3…
@@ -18,8 +18,7 @@ import math
 import uuid
 from functools import lru_cache
 from PyQt6.QtWidgets import (
-    QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
-    QGraphicsItem, QGraphicsPathItem, QStyle,
+    QGraphicsLineItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker, QFontMetricsF
 from .constants import (
@@ -27,6 +26,7 @@ from .constants import (
     GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
+from .bound_label import BoundLabelItem, TagBlockHost, PLACEHOLDER_MM
 from .marks import duplicate_groups, letter_label
 from .displayable_item import display_overrides_from_dict, display_overrides_to_dict
 
@@ -147,102 +147,131 @@ def apply_duplicate_warnings(gridlines: list) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GridBubble — circle + text, fixed screen size
+# GridlineBubble — one end's annotation block (SB4b D1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Model-unit (mm) proportioning base for elevation/detail markers and
-# elevation-scene bubbles (they size off this constant).  NOT the plan-view
-# bubble size (screen bubbles are RADIUS_PX ItemIgnoresTransformations) and
-# NOT the paper size (paper bubbles derive from bubble_paper_geometry, §9.9.1).
+# Model-unit (mm) proportioning base for elevation / detail markers and
+# elevation-scene bubbles (SB4c). The plan bubble is a GridlineBubble block
+# since SB4b.
 BUBBLE_RADIUS_MM = 8.0 * 25.4
 
+DUPLICATE_COLOR = "#ff8800"
 
-class GridBubble(QGraphicsEllipseItem):
-    """Fixed-size circle with a centred label (constant screen pixels)."""
 
-    RADIUS_PX = 14.0  # screen pixels — constant regardless of zoom
-    HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
+class GridlineBubble(BoundLabelItem):
+    """One end of a plan gridline, drawn by the Gridline annotation block
+    (``system_blocks`` category "Gridline", host field Mark). A child of its
+    gridline: visibility, opacity and z cascade from it; never rotated (D4).
 
-    def __init__(self, label: str, parent: QGraphicsItem | None = None):
-        r = self.RADIUS_PX
-        super().__init__(-r, -r, 2 * r, 2 * r, parent)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        pen = QPen(QColor("#4488cc"), max(1.0, r * 0.08))
-        self.setPen(pen)
-        self.setBrush(QBrush(QColor("#1a1a2e")))
+    The gridline reads ``outline_path`` to trim its line (D5) and build its
+    hit / HALO shape (D6); the two screen-only rings (selection, duplicate
+    label) are painted here after the ops (D7) and never on paper.
+    """
+
+    def __init__(self, gridline):
+        super().__init__(gridline)                 # child=True: parent + host
+        self._duplicate = False
+        self._outline_cache = None                 # (paper scale, QPainterPath)
         self.setZValue(Z_GRIDLINE_BUBBLE)
 
-        self._label = QGraphicsTextItem(label, self)
-        self._label.setDefaultTextColor(QColor("#88ccff"))
-        font = QFont("Consolas")
-        font.setPixelSize(max(1, int(r * 0.9)))
-        font.setBold(True)
-        self._label.setFont(font)
-        self._center_label()
+    # -- outline (D5) ---------------------------------------------------------
+    def outline_path(self) -> QPainterPath:
+        """Union of the closed subpaths of the block's STATIC ops at the
+        current k, local coords (text ops ignored: a label that sticks out of
+        the shape never moves the trim); the orphan placeholder box when the
+        block resolves nowhere; the bounds rect when nothing closes.
 
-    def set_label(self, text: str):
-        self._label.setPlainText(text)
-        self._center_label()
+        Cached until ``refresh()`` (every mapping / registry / scale change
+        reaches it through ``refresh_annotation_tags``) or a paper-scale
+        change, like the bounds rect: ``shape()`` / ``halo_trace_path`` run
+        inside Qt's index queries during scene teardown, which must never
+        re-resolve through a half-destroyed scene. Empty (uncached) off-scene."""
+        if self.scene() is None:
+            return QPainterPath()
+        key = self._paper_scale_v
+        if self._outline_cache is not None and self._outline_cache[0] == key:
+            return self._outline_cache[1]
+        st = self._state()
+        d = st[0]
+        k = self._k(None, d)
+        out = QPainterPath()
+        if d is None:
+            if self._orphan_visible(st):
+                h = PLACEHOLDER_MM / 2.0
+                out.addRect(QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM))
+        else:
+            for op in d.render_ops_variant(False, k):
+                if op.kind == "text":
+                    continue
+                for sub in op.path.toSubpathPolygons():
+                    if sub.isClosed() and len(sub) > 2:
+                        p = QPainterPath()
+                        p.addPolygon(sub)
+                        out = out.united(p)
+            if out.isEmpty():
+                r = self.boundingRect()
+                if not r.isEmpty():
+                    out.addRect(r)
+        self._outline_cache = (key, out)
+        return out
 
-    def label(self) -> str:
-        return self._label.toPlainText()
+    def trim_distance(self, ux: float, uy: float) -> float:
+        """Distance from the block origin along unit direction (ux, uy) to
+        where that ray leaves the outline (0 when the origin is outside it)."""
+        outline = self.outline_path()
+        if outline.isEmpty() or not outline.contains(QPointF(0.0, 0.0)):
+            return 0.0
+        r = outline.boundingRect()
+        far = math.hypot(r.width(), r.height()) + 1.0
+        lo, hi = 0.0, far
+        for _ in range(40):                        # bisection to ~1e-12 of the extent
+            mid = (lo + hi) / 2.0
+            if outline.contains(QPointF(ux * mid, uy * mid)):
+                lo = mid
+            else:
+                hi = mid
+        return hi
 
-    def _center_label(self):
-        br = self._label.boundingRect()
-        self._label.setPos(-br.width() / 2, -br.height() / 2)
+    def refresh(self) -> None:
+        self._outline_cache = None
+        super().refresh()
 
-    def enter_paper_mode(self, radius_scene: float, em_scene: float) -> dict:
-        """Switch to scene-unit geometry for a paper render pass (§9.9.1)."""
-        saved = {
-            "rect": QRectF(self.rect()),
-            "font": QFont(self._label.font()),
-            "label_scale": self._label.scale(),
-            "label_pos": QPointF(self._label.pos()),
-        }
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
-        self.setRect(-radius_scene, -radius_scene, 2 * radius_scene, 2 * radius_scene)
-        f = QFont(self._label.font())
-        f.setPixelSize(TEXT_METRIC_REF_PX)          # §9.4: ref px + geometric scale
-        self._label.setFont(f)
-        self._label.setScale(em_scene / TEXT_METRIC_REF_PX)
-        br = self._label.boundingRect()
-        s = self._label.scale()
-        self._label.setPos(-br.width() * s / 2, -br.height() * s / 2)
-        return saved
+    # -- overlays (D7) --------------------------------------------------------
+    def set_duplicate(self, flag: bool) -> None:
+        if flag != self._duplicate:
+            self._duplicate = flag
+            self.update()
 
-    def exit_paper_mode(self, saved: dict):
-        """Restore screen-pixel geometry after a paper render pass (§9.9.1)."""
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setRect(saved["rect"])
-        self._label.setFont(saved["font"])
-        self._label.setScale(saved["label_scale"])
-        self._label.setPos(saved["label_pos"])
-
-    # ── Selection: bubble click selects parent gridline ────────────────────
+    def overlay_pens(self) -> list:
+        """The screen-only rings to stroke round the outline, in draw order:
+        selection (the gridline's colour, lighter) then duplicate (orange,
+        last). Empty during a paper pass."""
+        gl = self.parentItem()
+        if gl is None or getattr(gl, "_paper_render", False):
+            return []
+        pens = []
+        if gl.isSelected():
+            pen = QPen(gl._grid_color.lighter(150), 2.0)
+            pen.setCosmetic(True)
+            pens.append(pen)
+        if self._duplicate:
+            pen = QPen(QColor(DUPLICATE_COLOR), 2.0)
+            pen.setCosmetic(True)
+            pens.append(pen)
+        return pens
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
-        parent = self.parentItem()
-        if parent is not None and parent.isSelected() and not getattr(parent, "_paper_render", False):
-            r = self.RADIUS_PX
-            # Use the gridline's assigned colour for the highlight ring
-            base_color = getattr(parent, "_grid_color", QColor(GRID_COLOR))
-            highlight = QPen(base_color.lighter(150), max(1.0, r * 0.12))
-            painter.setPen(highlight)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QRectF(-r, -r, 2 * r, 2 * r))
-
-    def mousePressEvent(self, event):
-        parent = self.parentItem()
-        if parent is not None:
-            scene = parent.scene()
-            if scene is not None:
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    parent.setSelected(not parent.isSelected())
-                else:
-                    scene.clearSelection()
-                    parent.setSelected(True)
-        event.accept()
+        pens = self.overlay_pens()
+        if not pens:
+            return
+        outline = self.outline_path()
+        if outline.isEmpty():
+            return
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for pen in pens:
+            painter.setPen(pen)
+            painter.drawPath(outline)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -273,7 +302,7 @@ class _LockIndicator(QGraphicsPathItem):
     Drawn offset from the bubble centre so it sits beside it.
     """
 
-    _OFFSET_PX = GridBubble.RADIUS_PX + 6  # bubble edge + gap
+    _GAP_PX = 6.0  # screen-fixed gap between the bubble outline and the padlock
 
     def __init__(self, parent: "GridlineItem"):
         super().__init__(parent)
@@ -302,8 +331,16 @@ class _LockIndicator(QGraphicsPathItem):
         dominant = nx if abs(nx) >= abs(ny) else ny
         if dominant < 0:
             nx, ny = -nx, -ny
-        ox = nx * self._OFFSET_PX
-        oy = ny * self._OFFSET_PX
+        # Outline half-extent along the perpendicular, scene units -> px (D8).
+        b = self._gridline.bubble1
+        r = b.outline_path().boundingRect()
+        half_scene = abs(nx) * r.width() / 2.0 + abs(ny) * r.height() / 2.0
+        from .view_scale import scene_view_scale
+        sc = self._gridline.scene()
+        px_per_unit = scene_view_scale(sc) if sc is not None else 1.0
+        offset_px = half_scene * px_per_unit + self._GAP_PX
+        ox = nx * offset_px
+        oy = ny * offset_px
 
         self.setPath(padlock_path(ox, oy, s))
         locked = self._gridline._locked
@@ -386,8 +423,10 @@ def bubble_paper_geometry(cap_mm: float) -> tuple[float, float]:
     return em_mm / GRIDLINE_BUBBLE_LABEL_EM_FRAC, em_mm
 
 
-class GridlineItem(QGraphicsLineItem):
+class GridlineItem(TagBlockHost, QGraphicsLineItem):
     """A finite gridline with auto-numbered bubble labels at each end."""
+
+    _TAG_CATEGORY = "Gridline"
 
     def __init__(self, p1: QPointF, p2: QPointF, label: str | None = None):
         super().__init__(p1.x(), p1.y(), p2.x(), p2.y())
@@ -431,22 +470,21 @@ class GridlineItem(QGraphicsLineItem):
         self._locked = False
 
         # Bubbles + lock indicator (grips are manipulator-owned since U3)
-        self.bubble1 = GridBubble(label, self)
-        self.bubble2 = GridBubble(label, self)
+        self._init_tag_block()
+        self.bubble1 = GridlineBubble(self)
+        self.bubble2 = GridlineBubble(self)
         self._lock_indicator = _LockIndicator(self)
 
         # Hover events for grip visibility
         self.setAcceptHoverEvents(True)
 
         self._display_overrides: dict = {}  # per-instance display overrides
-        self._display_scale: float = 1.0    # display scale for bubbles
-        # Write-together unit: the four _paper_* attributes are set only by
+        # Write-together unit: the three _paper_* attributes are set only by
         # paper_display's override pass (_apply_gridline / restore) — never
         # mutate one without the others.
         self._paper_render = False        # True during a paper override pass
         self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
         self._paper_line_w_mm = 0.0       # line/border width, ON-PAPER mm (paper pass)
-        self._paper_bubble_r = 0.0        # bubble radius, scene units (paper pass)
 
         self._rebuild_geometry()
 
@@ -463,56 +501,63 @@ class GridlineItem(QGraphicsLineItem):
         m = max(20.0, self._bubble1_offset, self._bubble2_offset) + 20.0
         return br.adjusted(-m, -m, m, m)
 
-    def shape(self) -> QPainterPath:
-        """Return the selectable hit area: the line body with a generous
-        stroke width plus the bubble positions for marquee selection."""
-        path = QPainterPath()
-        line = self.line()
-        # Add a stroked version of the line with generous hit width
-        line_path = QPainterPath()
-        line_path.moveTo(line.p1())
-        line_path.lineTo(line.p2())
-        stroker = QPainterPathStroker()
-        stroker.setWidth(40.0)  # scene units — generous click target
-        path = stroker.createStroke(line_path)
-        # Also include bubble positions for marquee selection
-        r = 50.0
-        path.addEllipse(self.bubble1.pos(), r, r)
-        path.addEllipse(self.bubble2.pos(), r, r)
-        return path
-
-    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
-        """Composite HALO trace: the full drawn line (bubble-to-bubble, trimmed
-        at each visible bubble's edge) plus the bubble circles — mirroring
-        :meth:`paint` so the preselection highlight matches exactly what is
-        drawn, and the extension never reaches into a bubble.
-
-        ``scene_scale`` is the view's scene→device scale; the bubbles are
-        screen-fixed (``ItemIgnoresTransformations``), so their scene-unit radius
-        is ``RADIUS_PX / scene_scale``. Without a scale (headless) it falls back
-        to the bare line body so the hook stays usable in tests."""
-        path = QPainterPath()
+    def drawn_endpoints(self) -> tuple[QPointF, QPointF]:
+        """The line's drawn span: bubble to bubble, each visible end trimmed
+        where the axis leaves that bubble's block outline (D5)."""
         b1 = self.bubble1.pos()
         b2 = self.bubble2.pos()
         dx, dy = b2.x() - b1.x(), b2.y() - b1.y()
         length = math.hypot(dx, dy)
-        scene_r = (GridBubble.RADIUS_PX / scene_scale) if scene_scale else 0.0
-        if length <= 1e-9 or scene_r <= 0.0:
-            ln = self.line()
-            path.moveTo(ln.p1())
-            path.lineTo(ln.p2())
-            return path
+        if length <= 1e-9:
+            return b1, b2
         ux, uy = dx / length, dy / length
-        vis1, vis2 = self.bubble1.isVisible(), self.bubble2.isVisible()
-        p1 = QPointF(b1.x() + ux * scene_r, b1.y() + uy * scene_r) if vis1 else b1
-        p2 = QPointF(b2.x() - ux * scene_r, b2.y() - uy * scene_r) if vis2 else b2
+        t1 = self.bubble1.trim_distance(ux, uy) if self.bubble1.isVisible() else 0.0
+        t2 = self.bubble2.trim_distance(-ux, -uy) if self.bubble2.isVisible() else 0.0
+        return (QPointF(b1.x() + ux * t1, b1.y() + uy * t1),
+                QPointF(b2.x() - ux * t2, b2.y() - uy * t2))
+
+    def _outlines_local(self) -> QPainterPath:
+        p = QPainterPath()
+        for b in (self.bubble1, self.bubble2):
+            if b.isVisible():
+                p.addPath(self.mapFromItem(b, b.outline_path()))
+        return p
+
+    def shape(self) -> QPainterPath:
+        """Hit area: the drawn line with a generous stroke plus both visible
+        bubble outlines, so a press on a bubble selects the gridline (D6)."""
+        p1, p2 = self.drawn_endpoints()
+        line_path = QPainterPath()
+        line_path.moveTo(p1)
+        line_path.lineTo(p2)
+        stroker = QPainterPathStroker()
+        stroker.setWidth(40.0)  # scene units - generous click target
+        path = stroker.createStroke(line_path)
+        path.addPath(self._outlines_local())
+        return path
+
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """Composite HALO trace: the trimmed line plus both visible bubble
+        outlines, mirroring :meth:`paint` (D6). ``scene_scale`` is accepted
+        for the hook signature and unused: nothing here is screen-fixed."""
+        p1, p2 = self.drawn_endpoints()
+        path = QPainterPath()
         path.moveTo(p1)
         path.lineTo(p2)
-        if vis1:
-            path.addEllipse(b1, scene_r, scene_r)
-        if vis2:
-            path.addEllipse(b2, scene_r, scene_r)
+        path.addPath(self._outlines_local())
         return path
+
+    def halo_area_path(self) -> QPainterPath:
+        """HALO: a cursor inside a bubble outline is a direct hit (as the
+        filled GridBubble was); ``halo_pick_distance_px`` reads this hook."""
+        return self._outlines_local()
+
+    def _tag_changed(self) -> None:
+        """Re-shape both bubbles after the gridline's tag mapping changed."""
+        for b in (self.bubble1, self.bubble2):
+            b.refresh()
+        self.prepareGeometryChange()
+        self.update()
 
     def itemChange(self, change, value):
         """Refresh bubble paint and show/hide grips + lock indicator on selection change."""
@@ -561,10 +606,12 @@ class GridlineItem(QGraphicsLineItem):
         self.prepareGeometryChange()
         self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
         dx, dy = self._direction()
-        self.bubble1.setPos(p1.x() - self._bubble1_offset * dx,
-                            p1.y() - self._bubble1_offset * dy)
-        self.bubble2.setPos(p2.x() + self._bubble2_offset * dx,
-                            p2.y() + self._bubble2_offset * dy)
+        self.bubble1.set_anchor(QPointF(p1.x() - self._bubble1_offset * dx,
+                                        p1.y() - self._bubble1_offset * dy))
+        self.bubble2.set_anchor(QPointF(p2.x() + self._bubble2_offset * dx,
+                                        p2.y() + self._bubble2_offset * dy))
+        self.bubble1.refresh()
+        self.bubble2.refresh()
         if hasattr(self, "_lock_indicator"):
             self._lock_indicator.setPos(self.bubble1.pos())
         self.update()
@@ -694,7 +741,6 @@ class GridlineItem(QGraphicsLineItem):
 
         if self._paper_render:
             pen_w = self._paper_line_w
-            scene_r = self._paper_bubble_r
             pen = QPen(self._grid_color, pen_w)
             pen.setDashPattern(_dash_pattern_mm(self._paper_line_w_mm))
             sx = None
@@ -703,23 +749,9 @@ class GridlineItem(QGraphicsLineItem):
             vt = painter.deviceTransform()
             sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
             pen_w = GRID_WIDTH / sx
-            scene_r = GridBubble.RADIUS_PX / sx  # pixel radius → scene units
             pen = self._build_line_pen(sx)
 
-        # Shorten line to meet visible bubbles at their edge.
-        # Bubbles use ItemIgnoresTransformations (screen mode) or scene-unit
-        # geometry (paper mode); scene_r is set appropriately above.
-        b1 = self.bubble1.pos()
-        b2 = self.bubble2.pos()
-        dx = b2.x() - b1.x()
-        dy = b2.y() - b1.y()
-        length = math.hypot(dx, dy)
-        if length > 1e-9:
-            ux, uy = dx / length, dy / length
-            draw_p1 = QPointF(b1.x() + ux * scene_r, b1.y() + uy * scene_r) if self.bubble1.isVisible() else b1
-            draw_p2 = QPointF(b2.x() - ux * scene_r, b2.y() - uy * scene_r) if self.bubble2.isVisible() else b2
-        else:
-            draw_p1, draw_p2 = b1, b2
+        draw_p1, draw_p2 = self.drawn_endpoints()
 
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
@@ -739,8 +771,9 @@ class GridlineItem(QGraphicsLineItem):
     @grid_label.setter
     def grid_label(self, text: str):
         self._label_text = text
-        self.bubble1.set_label(text)
-        self.bubble2.set_label(text)
+        self.bubble1.refresh()
+        self.bubble2.refresh()
+        self.prepareGeometryChange()      # the Mark changed; a non-circular block moves the trim
 
     def set_bubble_visible(self, end: int, visible: bool):
         """Toggle bubble visibility. end=1 for start, end=2 for end."""
@@ -1068,14 +1101,11 @@ class GridlineItem(QGraphicsLineItem):
     # ── Duplicate warning ─────────────────────────────────────────────────
 
     def update_duplicate_warning(self, is_duplicate: bool):
-        """Colour the bubble outlines orange when *is_duplicate* is True.
+        """Flag the bubbles for the orange duplicate-label ring when *is_duplicate*.
 
         Args:
             is_duplicate: Whether this gridline shares its label with
                 another gridline in the scene.
         """
-        color = QColor("#ff8800") if is_duplicate else self._grid_color
-        for bubble in (self.bubble1, self.bubble2):
-            pen = bubble.pen()
-            pen.setColor(color)          # width unchanged
-            bubble.setPen(pen)
+        for b in (self.bubble1, self.bubble2):
+            b.set_duplicate(is_duplicate)

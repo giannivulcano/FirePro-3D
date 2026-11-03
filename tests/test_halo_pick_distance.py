@@ -77,19 +77,19 @@ def test_screen_fixed_unfilled_marker_measures_in_true_device_pixels(qapp):
 
 
 def test_real_gridline_bubble_center_is_a_direct_hit(qapp):
-    """A real plan GridBubble (HALO_AREA, ItemIgnoresTransformations, filled)
-    is a direct hit (distance 0) at its own centre, at any zoom — this is
-    the case the ranking task relies on: MIN over a gridline's raw child hits
-    collapses to 0 through its bubble children."""
-    gl = GridlineItem(QPointF(0, 0), QPointF(0, 500), "A")
-    keep = _in_scene(gl)
+    """A plan gridline's bubble interior is a direct hit (distance 0) at the
+    bubble centre, at any zoom, via the gridline's ``halo_area_path`` hook
+    (SB4b D6): the bubble is an annotation block, no longer HALO_AREA itself."""
+    from tests.test_sb4b_gridline_bubble import _bubble_def, _gridline, _scene
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms, (0.0, 0.0), (0.0, 500.0))
     bubble = gl.bubble1
     assert bubble.isVisible()                # visible by default; no toggle needed
-    assert halo_is_area(bubble)
     for zoom in (1, 20):
         dt = QTransform.fromScale(zoom, zoom)
         center_vp = bubble.deviceTransform(dt).map(QPointF(0, 0))
-        assert halo_pick_distance_px(bubble, center_vp, dt) == 0.0
+        assert halo_pick_distance_px(gl, center_vp, dt) == 0.0
 
 
 def test_empty_path_item_has_no_traceable_geometry(qapp):

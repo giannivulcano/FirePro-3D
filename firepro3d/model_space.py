@@ -1849,12 +1849,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         labels += [p.label for p in list(self.sprinkler_system.pipes)
                    if isinstance(getattr(p, "label", None), BoundLabelItem)]
         for gl in list(self._gridlines):
-            labels += [b for b in (gl.bubble1, gl.bubble2)
-                       if isinstance(b, BoundLabelItem)]
+            labels += [gl.bubble1, gl.bubble2]
         for lab in labels:
             try:
                 lab.refresh()
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
+        for gl in list(self._gridlines):  # the trim moves with the block / k (SB4b D13)
+            try:
+                gl.prepareGeometryChange()
+                gl.update()
+            except RuntimeError:
                 pass
 
     def annotation_block(self, category: str, mapped: str | None = None):

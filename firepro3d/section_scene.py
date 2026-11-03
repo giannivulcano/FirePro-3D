@@ -292,7 +292,8 @@ class _ElevBubble(_SrcEllipse):
     """Bubble at a gridline/datum endpoint in elevation view.
 
     Clicking selects the parent composite item.  Visual appearance mirrors
-    the plan-view GridBubble.
+    the plan bubble (a GridlineBubble block since SB4b; this elevation bubble
+    stays bespoke until SB4c).
     """
 
     HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
@@ -331,7 +332,7 @@ class _ElevBubble(_SrcEllipse):
     def enter_paper_pass(self, r: float, em: float, pen_w: float,
                          color_src=None, fill_src=None) -> dict:
         """Scene-unit paper geometry for one sheet-viewport render (AC3),
-        mirroring ``GridBubble.enter_paper_mode``: radius *r*, label em *em*,
+        the retired plan-view ``GridBubble.enter_paper_mode`` (SB4b; bespoke until SB4c): radius *r*, label em *em*,
         a non-cosmetic *pen_w* border; *color_src* / *fill_src* replace the
         stored colour strings (``None`` keeps them). Undone by
         ``exit_paper_pass``."""

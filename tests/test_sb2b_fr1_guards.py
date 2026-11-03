@@ -102,13 +102,13 @@ def test_blank_gridline_labels_are_not_duplicates(qapp, shown_model_view):
     b = GridlineItem(QPointF(1000, 0), QPointF(1000, 9000), "")
     assert gl_mod.check_duplicate_labels([a, b]) == set()
     gl_mod.apply_duplicate_warnings([a, b])
-    assert a.bubble1.pen().color().name() != "#ff8800"            # no orange warning
+    assert not a.bubble1._duplicate                                # no orange warning
     c = GridlineItem(QPointF(2000, 0), QPointF(2000, 9000), "1")
     d = GridlineItem(QPointF(3000, 0), QPointF(3000, 9000), "1")
     assert gl_mod.check_duplicate_labels([a, b, c, d]) == {c, d}
     gl_mod.apply_duplicate_warnings([a, b, c, d])
-    assert c.bubble1.pen().color().name() == "#ff8800"
-    assert a.bubble1.pen().color().name() != "#ff8800"
+    assert c.bubble1._duplicate
+    assert not a.bubble1._duplicate
 
 
 # ------------------------------------------------------------------ D: one level resolver
