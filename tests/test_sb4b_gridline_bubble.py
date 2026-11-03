@@ -101,12 +101,13 @@ def test_shipped_gridlinebubble_is_eligible_and_binds_mark(qapp):
     d = block_library.load_block_file(path)
     assert d.id == "system-tags-gridlinebubble" and eligible_definition(d, "Gridline")
     attrs = [a for a in d.effective_attributes() if a.get("source") == "host"]
-    assert [a["host_key"] for a in attrs] == ["Mark"] and attrs[0]["placeholder"] == ""
+    assert [a["host_key"] for a in attrs] == ["Mark"] and attrs[0]["placeholder"] == "-"   # smoke redesign 2026-11-03
     raw = json.load(open(path, encoding="utf-8"))
     kinds = sorted(p["type"] for p in raw["primitives"])
     assert kinds == ["draw_circle", "text"]
     circ = next(p for p in raw["primitives"] if p["type"] == "draw_circle")
-    assert circ["radius"] == pytest.approx(4.75) and (circ["cx"], circ["cy"]) == (0.0, 0.0)
+    assert circ["radius"] == pytest.approx(5.0)                    # 10 mm (smoke redesign, Promoted)
+    assert circ["cx"] == pytest.approx(0.0, abs=1e-6) and circ["cy"] == pytest.approx(0.0, abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +400,10 @@ def test_g8_bubble_click_selects_and_ctrl_click_toggles_through_a_shown_view(qap
     _post_hover_click(view, centre)
     assert ms.halo_item() is gl, "HALO resolves the bubble to its gridline"
     assert gl.isSelected()
+    # The selection manipulator's interior-press guard may swallow a second
+    # posted click over its frame (test_ctrl_click_universal docstring; the
+    # elevation twin hides it the same way), so the toggle runs with it hidden.
+    ms._live_manip().hide()
     _post_hover_click(view, centre, ctrl=True)
     assert not gl.isSelected()
     _post_hover_click(view, centre, ctrl=True)
@@ -500,3 +505,16 @@ def test_g9_legacy_file_loads_through_the_app_load_path(qapp, tmp_path, real_sys
     assert gl2.bubble1_offset() == pytest.approx(1500.0)
     assert gl2.bubble1.definition().id == "system-tags-gridlinebubble"
     assert gl2.bubble1.paints() and gl2.bubble1._ops(1.0)
+
+
+def test_smoke_properties_row_is_mark_and_drives_the_bubble_value(qapp):
+    """Smoke 2026-11-03: the Block Editor attribute key and host value say
+    Mark, so the gridline's Properties row says Mark too (was Label)."""
+    from firepro3d.element_params import host_values
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms, label="1")
+    props = gl.get_properties()
+    assert "Mark" in props and "Label" not in props and props["Mark"]["value"] == "1"
+    gl.set_property("Mark", "A")
+    assert host_values(gl)["Mark"].raw == "A" and gl.to_dict()["label"] == "A"   # file key unchanged

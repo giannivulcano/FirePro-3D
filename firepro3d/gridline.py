@@ -1039,7 +1039,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
 
         # Template mode: return only non-geometric rows so the placement
         # template panel doesn't expose geometry fields that have no meaning
-        # before the gridline is drawn (Origin, End, Length, Angle, Label).
+        # before the gridline is drawn (Origin, End, Length, Angle, Mark).
         if self._is_template:
             return {
                 "Bubble 1": {"type": "enum", "options": ["Visible", "Hidden"],
@@ -1052,7 +1052,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
             }
 
         return {
-            "Label": {"type": "string", "value": self._label_text},
+            "Mark": {"type": "string", "value": self._label_text},   # the bubble block binds @[Mark] (Q3)
             "Origin X": {"type": "dimension", "value_mm": _nz(self._origin.x())},
             "Origin Y": {"type": "dimension", "value_mm": _nz(-self._origin.y())},
             "Length": {"type": "dimension", "value_mm": self._length, "minimum": 1.0},
@@ -1070,7 +1070,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
         }
 
     def set_property(self, key: str, value):
-        if key == "Label":
+        if key == "Mark":
             self.grid_label = str(value)
             sc = self.scene()
             if sc and hasattr(sc, '_gridlines'):
