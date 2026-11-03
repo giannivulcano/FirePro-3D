@@ -2675,8 +2675,10 @@ class DisplayManager(HouseDialog):
 
         page = QWidget()
         layout = QVBoxLayout(page)
+        self._page_margins(layout)
 
         self._lw_table = QTableWidget()
+        self._lw_table.setObjectName("underlayTable")   # Underlay Manager table look
         self._lw_table.setColumnCount(3)
         self._lw_table.setHorizontalHeaderLabels(
             ["Name", "Width (mm)", "Model (px)"])
@@ -2711,11 +2713,11 @@ class DisplayManager(HouseDialog):
         layout.addWidget(self._lw_table)
 
         btn_row = QHBoxLayout()
-        add_btn = QPushButton("Add")
-        add_btn.clicked.connect(self._on_lw_add)
-        self._lw_remove_btn = QPushButton("Remove")
-        self._lw_remove_btn.clicked.connect(self._on_lw_remove)
-        btn_row.addWidget(add_btn)
+        self._lw_add_btn = glyph_button("+", "Add line weight", self._on_lw_add)
+        self._lw_remove_btn = glyph_button(
+            "\u2212", "Remove selected line weight", self._on_lw_remove)
+        btn_row.setSpacing(th.M.GLYPH_BTN_GAP)
+        btn_row.addWidget(self._lw_add_btn)
         btn_row.addWidget(self._lw_remove_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
