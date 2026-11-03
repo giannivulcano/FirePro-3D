@@ -1842,7 +1842,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.refresh_annotation_tags()
 
     def refresh_annotation_tags(self) -> None:
-        """Re-shape every intrinsic label (room tags, pipe labels): its bounds
+        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles): its bounds
         rect is cached, so a mapping, registry, units or scale change needs
         ``refresh()``."""
         labels = [r._tag for r in list(self._rooms)]

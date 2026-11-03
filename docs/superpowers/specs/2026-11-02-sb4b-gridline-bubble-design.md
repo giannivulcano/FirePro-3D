@@ -1,7 +1,7 @@
 ---
-status: proposal         # designed 2026-11-02 (SB4b Phase 3), unbuilt; the built contract will land in docs/specs/system-blocks.md + grid-system.md
-last-verified: 2026-11-02  # Phase 1b/3 probes against main c20d2ec3
-verified-commit: c20d2ec3
+status: built            # designed 2026-11-02, BUILT 2026-11-03 (merge 7b6e90fc, v0.81.0); kept as history -- the contract now lives in docs/specs/system-blocks.md (s8b) + grid-system.md (s4.2). Post-design changes (they supersede D3 / D14 / D9 wording below): the Properties row is named Mark (set_property key Mark; .fpd key stays label), so the panel's Mark rules apply (blank refused, duplicate row flag + the orange ring); the shipped seed was redesigned by the user at smoke (10 mm circle, centre / diameter constraints, Shrink-to-fit text, Mark placeholder '-'); tests/conftest.py section_scene_for now tears its scenes down
+last-verified: 2026-11-03  # Account against 7b6e90fc (status + post-design note only; decisions D1-D15 not rewritten, history)
+verified-commit: 7b6e90fc
 applies-to:
   - firepro3d/gridline.py               # GridBubble -> GridlineBubble(BoundLabelItem); trim / shape / HALO / overlays; TagBlockHost; tag_block
   - firepro3d/bound_label.py            # PAINT_WHEN_BLANK honoured in _ops
@@ -17,7 +17,7 @@ source-tasks:
 
 # SB4b -- Plan gridline bubble as a System block -- Design Spec
 
-> **Status: proposal.** Ratified: Phase 2 grill AC1-AC9 (recorded on the SB4b line in
+> **Status: built (2026-11-03); kept as history.** The built contract is `system-blocks.md` section 8b + `grid-system.md` 4.2; where this table differs (D3 / D14 seed numbers, the Mark row name) the specs win. Ratified: Phase 2 grill AC1-AC9 (recorded on the SB4b line in
 > `todo_open.md`, 2026-11-02), the blank-label ruling and the Phase 3 approvals (approach A,
 > sections 1-3, 2026-11-02). Subsystem contracts: [`system-blocks.md`](../../specs/system-blocks.md)
 > (label seam, resolver, Tag row) and [`grid-system.md`](../../specs/grid-system.md) (gridline);

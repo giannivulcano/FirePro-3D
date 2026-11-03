@@ -15,7 +15,7 @@
 - `firepro3d/floor_opening.py` -- Floor voids (`FloorOpening`) owned by a slab; cut geometry in `firepro3d/floor_cut.py` (`specs/wall-room-floor-system.md` §11.11)
 - `firepro3d/roof.py` -- Roof polygons
 - `firepro3d/wall_opening.py` -- Door and window openings in walls
-- `firepro3d/gridline.py` -- Structural gridlines (`GridlineItem`, `GridBubble`)
+- `firepro3d/gridline.py` -- Structural gridlines (`GridlineItem`, `GridlineBubble`)
 - `firepro3d/geometry_2d.py` -- Lines, polylines, rectangles, circles, arcs, ellipses, splines, regular polygons
 - `firepro3d/text_item.py` -- The unified `TextItem` (model, paper and block text)
 - `firepro3d/block_definition.py`, `firepro3d/block_instance.py` -- Block flyweight (definition + placed instance)
@@ -234,8 +234,9 @@ system was removed) and participate in the snap engine. Mechanics are owned by
 
 - **Blocks** -- `BlockDefinition` (shared geometry) + `BlockInstance` (placed,
   level-scoped, or gridline-hosted and shown in parallel sections) → [`block-system.md`](../specs/block-system.md)
-- **Gridlines** -- `GridlineItem` with `GridBubble` ends →
-  [`grid-system.md`](../specs/grid-system.md)
+- **Gridlines** -- `GridlineItem` with a `GridlineBubble` annotation block at each end →
+  [`grid-system.md`](../specs/grid-system.md); the bubble block (System block, label seam) →
+  [`system-blocks.md`](../specs/system-blocks.md)
 - **Detail markers** -- `DetailMarker` / `DetailViewManager` →
   [`view-relationships.md`](../specs/view-relationships.md)
 - **Constraints** -- Block Editor sketch constraints: `Constraint` records

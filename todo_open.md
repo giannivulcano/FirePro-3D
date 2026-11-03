@@ -1517,6 +1517,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 - [ ] [type:feature] Thin-lines toggle (model-space true-scale WYSIWYG preview of labels) [P3] [subject:CAD]
   - Details: deferred in the 2026-08-07 grill — bubbles/labels render at paper size in model units when OFF. `gridline.py`, `model_view.py`. ref: paper-space §9.9.
   - Note 2026-10-23 (SB1c): annotative blocks already preview at printed size x drawing scale on the plan (On screen = Scale with zoom); re-check this task after SB3 / SB4b move room labels and gridline bubbles onto System blocks.
+  - Re-scoped 2026-11-03 (SB4b Account, user): delivered for room tags (SB3), pipe labels (SB4a) and plan gridline bubbles (SB4b) -- they are annotative System blocks and preview at printed size x drawing scale. What remains is a toggle for labels that are NOT annotative blocks yet: elevation / section gridline bubbles + datum heads (until SB4c), plain text, dimensions, view-marker heads (SB4d).
 - [ ] [type:design] Undo/redo for Display Manager paper-category settings [P3] [subject:UX]
   - Details: user, 2026-08-08 smoke — no DM setting participates in any undo stack today. Wants a design pass (which stack? settings-level command pattern). `display_manager.py`.
 - [ ] [type:maint] Per-entry exception tolerance in `restore_model_display` [P3] [subject:Code Quality]

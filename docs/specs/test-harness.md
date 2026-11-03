@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-10-15  # OS-mouse make_view Account: Invariant 9 -- make_view installs ignore_os_mouse, guard test_snap_polish_os_mouse, same-point window-move caveat; prior suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
-verified-commit: 1a474a6d   # OS-mouse make_view (main); prior 22c9444c suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-11-03  # SB4b Account: fixture-catalog `section_scene_for` teardown note only, rest not re-audited; prior 2026-10-15  # OS-mouse make_view Account: Invariant 9 -- make_view installs ignore_os_mouse, guard test_snap_polish_os_mouse, same-point window-move caveat; prior suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: 7b6e90fc   # SB4b merge on main (fixture-catalog note only); prior 1a474a6d   # OS-mouse make_view (main); prior 22c9444c suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -47,6 +47,10 @@ SEH bug #371).
   `section_scene_for`** — scene/view factories. `make_model_space` and
   `shown_model_view` call `scene.cleanup()` on teardown (worker drain, Invariant 2).
   `shown_model_view` `show()`s + exposes + focuses the view (Invariant 4).
+  `section_scene_for` tears down every scene it made at fixture exit (stops the rebuild timer,
+  closes + `deleteLater()`s the views and the `SectionScene`, `ms.cleanup()`), so a later cyclic-GC
+  pass cannot free a scene while Qt is inside one of its Python virtuals (the Invariant 10
+  failure mode, SB4b; `0xC0000409`).
 - **`tiny_png_b64`** — shared title-block image fixture.
 - **`stub_view3d`** (opt-in) — windowless `_StubView3D` injected into `main.View3D`
   (#367). Mirrors the MainWindow→View3D surface owned by `view-3d.md §4`

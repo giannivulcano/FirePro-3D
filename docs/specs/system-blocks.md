@@ -1,14 +1,15 @@
 ---
-status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
+last-verified: 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
-  - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD
-  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel .fpdb
+  - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK
+  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble .fpdb
   - firepro3d/block_attributes.py     # bound_text_ops, hugged_text_record, blank_keys / collapse_shifts / hide_empty_shifts (Hide when empty)
   - firepro3d/pipe.py                 # the Pipe owns its label, tag_block, update_label / sync_label_z
+  - firepro3d/gridline.py             # SB4b: GridlineBubble (child label, outline trim, overlays), GridlineItem(TagBlockHost), sparse tag_block
   - firepro3d/network_codec.py        # sparse pipe tag_block (serialize_pipe / deserialize_pipe)
   - firepro3d/text_item.py            # TextData.hide_empty + the Block Editor checkbox
   - firepro3d/render_op.py            # paint_ops (lifted from BlockInstance.paint)
@@ -19,8 +20,9 @@ applies-to:
   - firepro3d/settings/template.py    # annotation_defaults in the .fpdt
   - firepro3d/paper_display.py        # the tag through _apply_block
   - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
-  - firepro3d/display_manager.py      # Room + Pipe rows: font None (rest under display-manager's own spec)
+  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only (rest under display-manager's own spec)
 source-tasks:
+  - "SB4b -- Convert the plan gridline bubble to a System block (todo_closed.md; design record superpowers/specs/2026-11-02-sb4b-gridline-bubble-design.md)"
   - "SB4a -- Convert the pipe label to a System block (todo_closed.md; design record superpowers/specs/2026-10-31-sb4a-pipe-label-design.md)"
   - "SB3 -- First vertical slice: room tag drawn by a System block via BoundLabelItem + the Project Settings Annotation defaults pane (todo_closed.md)"
   - "System Blocks -- author the app's own 2D annotation graphics ... (concept, 2026-09-29)"
@@ -31,13 +33,13 @@ source-tasks:
 > **Status: partial.** This spec is the consolidating contract for what is **built**:
 > the host-bound label seam (`BoundLabelItem`), block resolution with a guaranteed
 > fallback (`annotation_block`), the Project Settings Annotation pane, and the first
-> conversion (the Room tag) and the second (the Pipe label, SB4a). It was promoted from the concept
+> conversion (the Room tag) the second (the Pipe label, SB4a) and the third (the plan Gridline bubble, SB4b). It was promoted from the concept
 > [`2026-09-29-system-blocks-concept-design.md`](../superpowers/specs/2026-09-29-system-blocks-concept-design.md)
 > on 2026-10-29; that document is kept as **history** (the grill Q1-Q16, the
 > architecture F1-F8, the not-yet-built phases 4-7). The slice's own design record is
 > [`2026-10-28-sb3-room-tag-slice-design.md`](../superpowers/specs/2026-10-28-sb3-room-tag-slice-design.md)
 > (ratified decisions Q1-Q13, D-A..D-E). Not built: the remaining intrinsic labels
-> (SB4b-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
+> (SB4c-e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
 > 2026-10-30)** adds the per-room tag block (`Room.tag_block`, sections 3 / 8) and the
 > shared picker list that also widens the Annotation pane to the user library (section 7).
 > **SB4a (built 2026-11-01)** converts the pipe label (section 8a): a top-level
@@ -45,6 +47,11 @@ source-tasks:
 > *Hide when empty* text option (section 6a). Its design record is
 > [`2026-10-31-sb4a-pipe-label-design.md`](../superpowers/specs/2026-10-31-sb4a-pipe-label-design.md)
 > (D1-D11).
+> **SB4b (built 2026-11-03)** converts the plan gridline bubble (section 8b): a child
+> label per gridline end, the line trimmed at the block outline, and the Tag row on the
+> gridline. Its design record is
+> [`2026-11-02-sb4b-gridline-bubble-design.md`](../superpowers/specs/2026-11-02-sb4b-gridline-bubble-design.md)
+> (D1-D15, kept as history; the contract now lives here and in [`grid-system.md`](grid-system.md) 4.2).
 
 ## Ownership (Rule A)
 
@@ -63,16 +70,17 @@ checkpoint. It links, never restates:
 - Containment: [`model-space-containment-contract.md`](model-space-containment-contract.md) C9.
 - Room fields and persistence: [`wall-room-floor-system.md`](wall-room-floor-system.md).
 - Pipe fields, geometry and the placement preview: [`pipe-placement-methodology.md`](pipe-placement-methodology.md).
+- Gridline fields, geometry, grips, lock and the Display Manager line tint: [`grid-system.md`](grid-system.md).
 - Selection: [`selection-mode.md`](selection-mode.md). Z-order: `view-relationships.md` 7.3 + `constants.py`.
 
 ## 1. Two kinds of annotation, one graphic source
 
 An **intrinsic label** is owned by its element, automatic, toggled per element, and
 needs no persisted reference: it is drawn by a `BoundLabelItem` the host owns (a child
-for Room, a top-level item for Pipe -- section 2).
+for Room and Gridline, a top-level item for Pipe -- section 2).
 A **placed tag** is a standalone hosted instance (concept F7) and is **not built**.
-Both are drawn by blocks authored in the one Block Editor. Today two categories
-are converted: `Room` and `Pipe` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe")`).
+Both are drawn by blocks authored in the one Block Editor. Today three categories
+are converted: `Room`, `Pipe` and `Gridline` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline")`).
 
 ## 2. `BoundLabelItem` (`bound_label.py`)
 
@@ -81,7 +89,7 @@ A lightweight `QGraphicsItem`, **not** a `BlockInstance` subclass (SB3 D-A: no
 block-instance list).
 
 - **Host and data.** `BoundLabelItem(host, *, child=True)`: a child of the host by
-  default (Room); `child=False` makes a **top-level** item (Pipe, SB4a D1). Either way
+  default (Room, Gridline); `child=False` makes a **top-level** item (Pipe, SB4a D1). Either way
   `host` is the explicit `_host`, never `parentItem()`. The host is the data
   source through the `element_params` getters (`host_values`, asked only for the keys the
   block binds plus the category's label field -- the keyed form is owned by
@@ -99,7 +107,8 @@ block-instance list).
 - **Cached bounds.** `boundingRect` is cached in `_rect`; `refresh()` and the
   `_paper_scale` setter drop it. With no scene the rect is empty and not cached.
 - **Paints nothing** when (a) every host-bound string resolves to raw `None` (a nameless
-  room), or (b) the host hides it -- the Room does so when its centroid is degenerate
+  room) -- except for `system_blocks.PAINT_WHEN_BLANK` categories (`Gridline`, SB4b D3), whose
+  static ops still draw with the bound text empty -- or (b) the host hides it -- the Room does so when its centroid is degenerate
   (no boundary included; `Room._update_label`), or the Pipe when Show Label is off, the
   pipe is vertical or hidden (section 8a). A tag whose block resolves nowhere draws the red orphan placeholder
   **only** when the scene has a resolver **and** the host has a label to lose
@@ -110,6 +119,8 @@ block-instance list).
   `label_offset` and `tag_block`).
 - **Paper hooks.** `_paper_scale`, `_paper_pen_width`, `_paper_pen_color` are set by
   `paper_display._apply_block` during a viewport pass (section 8).
+- **Subclasses.** A host may subclass the label for category-specific behaviour: the Gridline
+  bubble (`GridlineBubble`, section 8b) adds the outline / trim and the screen-only rings.
 - **One implementation of bound text and op painting.** `block_attributes.bound_text_ops`
   and `render_op.paint_ops` were lifted from `BlockInstance`; `BlockInstance` wraps them.
   Guard: the AC10 ops/render digests (`tests/test_sb3_parity.py`).
@@ -140,7 +151,7 @@ The resolver step lives in `Model_Space._resolve_mapped`. Its result is memoised
 `_annot_memo`, keyed `(category, mapped id, fallback)` -- the same id resolves differently
 as a per-element id (`fallback=False`) and as the project default (`fallback=True`) -- and
 cleared on `blockDefinitionsChanged` (`_on_block_definitions_changed`); the same handler
-re-shapes every intrinsic label (room tags and pipe labels) through
+re-shapes every intrinsic label (room tags, pipe labels and gridline bubbles) through
 `refresh_annotation_tags()`, except while `_annot_resolving`
 (the resolver itself embedding a file) -- the memo clear always runs.
 
@@ -159,13 +170,13 @@ Known gap, filed: the notice is lost when no window has a status bar yet.
 ## 4. `SYSTEM_DEFAULTS` and ids
 
 `system_blocks.SYSTEM_DEFAULTS` (`"Room"` -> `"system-tags-roomtag"`, `"Pipe"` ->
-`"system-tags-pipelabel"`) guarantees a fallback
+`"system-tags-pipelabel"`, `"Gridline"` -> `"system-tags-gridlinebubble"`) guarantees a fallback
 for every converted category. Shipped ids are frozen **slugs**
 (`system-<series>-<name>`, minted by `system_promote`; a re-promote keeps the id), **not
 uuids** -- the concept's F4 wording "frozen uuids" is corrected by this pointer.
-`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`; a pipe's Diameter is never
+`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`; a pipe's Diameter is never
 `None`, so a pipe whose block resolves nowhere draws the red placeholder) names the host field whose empty raw value means
-"nothing to show". The shipped System file is never written by the app outside the
+"nothing to show". `PAINT_WHEN_BLANK` (`frozenset({"Gridline"})`) lists the categories whose static geometry still draws when every host-bound field is blank (section 2). The shipped System file is never written by the app outside the
 dev-gated Promote path (`block-system.md`).
 
 ## 5. The shipped RoomTag (`firepro3d/system_blocks/Tags/RoomTag.fpdb`)
@@ -243,7 +254,7 @@ through `_compute_rect`.
   project's eligible blocks, labelled "(Project)" (or "(System)" when the embedded block's
   library is System), then eligible shipped blocks the project has not embedded,
   "(System)", then eligible user-library `.fpdb` files the project has not embedded,
-  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)". A current mapping that is
+  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)". A current mapping that is
   missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry appended
   by the shared list. A "(Library)" pick is embedded outside history by the resolver
   (section 3) when the mapping is applied; the pane's apply stays non-undoable.
@@ -276,9 +287,9 @@ through `_compute_rect`.
   12.3; [`scene-io.md`](scene-io.md) 2). Copy/paste and Duplicate Level carry it (both
   rebuild rooms from `to_dict` through `paste_items`).
 - **Tag row (SB3b; shared since SB4a).** The `TagBlockHost` mixin (`bound_label.py`) owns
-  `tag_block`, `_tag_row()` and `_set_tag()` for every host with a tag (Room, Pipe); a
+  `tag_block`, `_tag_row()` and `_set_tag()` for every host with a tag (Room, Pipe, Gridline); a
   host sets `_TAG_CATEGORY` and implements `_tag_changed()` (Room: `tag.refresh()`; Pipe:
-  `update_label()`). The Room panel has a "Tag" enum row under Show Label. Its first entry
+  `update_label()`; Gridline: `_tag_changed` refreshes both bubbles and re-shapes the line). The Room panel has a "Tag" enum row under Show Label. Its first entry
   is "Project default (<resolved block name>)" (= `None`); the rest are the shared list
   (`annotation_choices.choices`, section 7) including "(Library)" entries and the kept
   "(missing)" / "(not eligible)" entry for a pinned id that no longer resolves. The setter
@@ -295,12 +306,12 @@ through `_compute_rect`.
 - **Paper.** The paper walk's Room branch routes the tag through
   `paper_display._apply_block(...)` (SB1c D6, the one annotative path), skipping a hidden
   tag, and restores it afterwards. `ROOM_LABEL_PAPER_CAP_MM` and
-  `_apply_room_label_paper_height` are retired; `GRIDLINE_BUBBLE_PAPER_CAP_MM` stays until
-  SB4b ([`paper-space.md`](paper-space.md) 9.9).
+  `_apply_room_label_paper_height` are retired; `GRIDLINE_BUBBLE_PAPER_CAP_MM` now sizes only
+  the elevation / section bubble (SB4c; [`paper-space.md`](paper-space.md) 9.9).
 - **Visibility.** The Room row's visibility / opacity hide the tag with the room.
 - **Refresh hooks.** `_refresh_all_labels` (units), `annotative.reprepare_annotative`
   (drawing scale) and the pane apply/revert walk every intrinsic label (room tags, pipe
-  labels) through `Model_Space.refresh_annotation_tags()` (the former `refresh_room_tags`).
+  labels, gridline bubbles) through `Model_Space.refresh_annotation_tags()` (the former `refresh_room_tags`).
 - **Retired** (guard `tests/test_sb3_retired_strings.py`, AC11): the HTML room label,
   `_RoundedRectBgItem`, `_label_font_size`, `_label_font_color`, `label_scene_rect`, the
   HALO label-rect click and rubber-band special cases, `ROOM_LABEL_PAPER_CAP_MM`,
@@ -344,6 +355,57 @@ through `_compute_rect`.
   `_apply_pipe` has no `font_size` path). The placement preview label keeps a fixed
   `constants.PIPE_PREVIEW_LABEL_IN` ([`pipe-placement-methodology.md`](pipe-placement-methodology.md)).
 
+## 8b. The Gridline bubble (SB4b)
+
+Gridline-side behaviour (geometry, grips, lock, Properties rows, serialization) is owned by
+[`grid-system.md`](grid-system.md) 4.2; this section holds the block-side contract.
+
+- **Ownership.** `GridlineItem` (a `TagBlockHost`, `_TAG_CATEGORY = "Gridline"`) creates one
+  `GridlineBubble(BoundLabelItem)` per end (`bubble1` / `bubble2`, `child=True`: visibility,
+  opacity and z cascade from the gridline). `_rebuild_geometry` calls `set_anchor` at each
+  standoff; the bubble is **never rotated**, so it stays upright on an angled gridline.
+  Per-end visibility stays `bubbleN.isVisible()`.
+- **Content.** Host field `Mark` (`LABEL_FIELD["Gridline"]`) -- the gridline's label. The
+  panel row is named `Mark` and a blank Mark is refused there (`element-parameters.md` M2 /
+  M16), but a blank can still arrive from an old file or Renumber: `PAINT_WHEN_BLANK` keeps the
+  block's static geometry, and the shipped seed's Mark placeholder `-` shows in the circle.
+- **Outline and trim.** `GridlineBubble.outline_path()` = the union of the closed subpaths of
+  the block's static ops at the current k (text ops ignored; the orphan placeholder box when the
+  block resolves nowhere; the bounds rect when nothing closes), cached until `refresh()` or a
+  paper-scale change. `trim_distance(ux, uy)` is the distance from the block origin along the
+  axis to where it leaves the outline. `GridlineItem.drawn_endpoints()` trims each visible end by
+  it, on screen and on paper, so the line meets any block shape, not only the circle.
+- **Hit and HALO.** `GridlineItem.shape()` = the stroked line plus both visible outlines (a
+  press on a bubble selects the gridline; the label accepts no buttons); `halo_trace_path` =
+  the trimmed line plus both outlines; `halo_area_path` = the outlines. Snaps skip the child
+  bubbles (parent not None), as before.
+- **Overlays (screen only, never on paper).** `GridlineBubble.overlay_pens()`: selected gridline
+  -> the outline stroked `_grid_color.lighter(150)`, cosmetic 2 px; duplicate Mark -> stroked
+  `#ff8800`, cosmetic, drawn last. Both are skipped while the gridline's `_paper_render` is set.
+- **Tag row / persistence.** The Gridline panel's "Tag" enum row sits under Bubble 2 Offset (not
+  on the off-scene placement template: it would show only the default); both ends share the
+  mapped block. `tag_block` is a sparse key in `GridlineItem.to_dict` / `from_dict` (the one
+  serializer for `.fpd`, undo and paste); `_clone_parallel` (offset / array copies) carries it.
+  No `SAVE_VERSION` bump.
+- **Display Manager.** The Grid Line row has `fill: None`, is in `_NO_SCALE_CATEGORIES`, and
+  `display_manager._apply_gridline` tints the **line** colour + opacity + visibility only; a
+  saved Fill / Scale is ignored. The bubble keeps its authored colours.
+- **Paper.** The paper walk's Gridline branch styles the line (`paper_display._apply_gridline`:
+  weight + paper-mm dash) and routes each visible bubble through `_apply_block(...)` with
+  opacity 1; `restore_model_display` restores the block hooks. The old paper-mode geometry
+  swap is retired ([`paper-space.md`](paper-space.md) 9.9.1).
+- **Refresh.** `refresh_annotation_tags` walks every gridline's bubbles and re-shapes the
+  gridline (`prepareGeometryChange`), because the trim moves with the block and k.
+- **Shipped seed** `firepro3d/system_blocks/Tags/GridlineBubble.fpdb` (id
+  `system-tags-gridlinebubble`; host category Gridline; Annotative, On screen Scale with zoom):
+  a 10 mm circle with centre / diameter constraints, a centred Shrink-to-fit `@[Mark]` text
+  (Consolas bold, Automatic colours), Mark placeholder `-`. User-designed at the SB4b smoke.
+- **Elevation / section bubbles** (`section_scene._ElevBubble`) are unchanged (SB4c).
+- **Retired** (guard `tests/test_sb4b_retired_strings.py`): `GridBubble`, `RADIUS_PX`,
+  `enter_paper_mode` / `exit_paper_mode`, the plan use of `bubble_paper_geometry` and
+  `_paper_bubble_r`, the `scene_scale` bubble radius in `halo_trace_path`, the gridline's
+  `_display_scale`, and the Display Manager Grid Line Fill / Scale.
+
 ## 9. Performance (G6)
 
 Bar (Q7): at most 0.25 ms per labelled room on a full-view headless render (200 rooms
@@ -375,6 +437,8 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB4a Hide when empty: `collapse_shifts`, drop + slot close in the drawn ops, zero flow collapses, explode parity (incl. flattened nested) | `test_sb4a_hide_empty.py` |
 | SB4a retired pipe-label strings | `test_sb4a_retired_strings.py` |
 | SB4a G8 perf bar (pipes; `-m perf`) | `test_sb4a_perf.py` |
+| SB4b gridline bubble: category + default registered, blank Mark keeps the circle (a blank room name still paints nothing), seed eligibility + `@[Mark]` binding, annotative size at two drawing scales, upright on a 30 deg line, line trim for circle and rectangle blocks + orphan box, HALO trace, per-end visibility / grips / lock, paper mm at two scales + the duplicate ring never plots, DM Grid Line tints the line only, saved Fill / Scale ignored, Tag row below Bubble 2 Offset + one undo step + `tag_block` round-trip + offset / array copy + missing-id notice, bubble click / Ctrl+click through a shown view, bounds cover the hit area, rings render round the outline, legacy file loads, Properties row is Mark | `test_sb4b_gridline_bubble.py` |
+| SB4b retired gridline-bubble strings | `test_sb4b_retired_strings.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
 
 **Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**
@@ -421,6 +485,6 @@ Contradictions found during the build, and their resolution:
 
 Phase 3 (this slice) is **done**, as is SB3b (per-room tag style, library-folder picker;
 2026-10-30). Phase 4 is the follow-up per remaining intrinsic
-conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; todo lines; each user-designed and visually gated, G7). Phases 5-7
+conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; SB4b, the plan gridline bubble, 2026-11-03; todo lines; each user-designed and visually gated, G7). Phases 5-7
 (uids and hosting, placed tags, sheet tags) are gated on phase 4 and described in the
 concept.
