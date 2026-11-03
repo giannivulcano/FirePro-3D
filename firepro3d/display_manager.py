@@ -13,10 +13,10 @@ Replaces the older FSVisibilityDialog.
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
+    QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
+    QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
     QHeaderView, QWidget, QLabel, QComboBox,
-    QAbstractItemView, QTabWidget,
+    QAbstractItemView,
 )
 from PyQt6.QtGui import (QColor, QFont, QPen,
                          QIcon)
@@ -29,10 +29,13 @@ import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
 from . import fill_types
-from .ui_kit import Selector
+from .house_dialog import HouseDialog
+from .ui_kit import EyeToggle, Selector, Swatch, TopTabs, glyph_button
 from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO
 from .colour_tokens import is_token, resolve_colour, token_label
 from .fill_layers import to_record
+
+_DM_ICON = "placeholder_icon.svg"   # header glyph; the ribbon button uses the same placeholder (no dedicated art yet)
 
 
 # ---------------------------------------------------------------------------
@@ -973,9 +976,9 @@ def apply_category_defaults(item):
 # DisplayManager dialog
 # ──────────────────────────────────────────────────────────────────────────────
 
-class DisplayManager(QDialog):
-    """Modal dialog providing Revit-style display settings for fire-
-    suppression model items."""
+class DisplayManager(HouseDialog):
+    """Modal house dialog (``HouseDialog`` frame, ``TopTabs`` pages) providing
+    Revit-style display settings for fire-suppression model items."""
 
     # The PROJECT line-weight table changed (linetypes.md LT1-3 / H3).
     # MainWindow dirties the project and re-pens weight-mapped canvases;
@@ -983,20 +986,12 @@ class DisplayManager(QDialog):
     lineWeightsChanged = pyqtSignal()
 
     def __init__(self, scene, parent=None, active_context: str = "model"):
-        super().__init__(parent)
-        self.setWindowTitle("Display Manager")
+        super().__init__(parent, title="Display Manager", icon=_DM_ICON,
+                         controls=("min", "max", "close"), resizable=True)
         self.setMinimumSize(850, 420)
         self._scene = scene
         self._active_context = active_context
         self._settings = QSettings("GV", "FirePro3D")
-
-        # Restore last window geometry (size + position)
-        saved_size = self._settings.value("display_manager/window_size")
-        if saved_size is not None:
-            self.resize(saved_size)
-        saved_pos = self._settings.value("display_manager/window_pos")
-        if saved_pos is not None:
-            self.move(saved_pos)
         self._suppress = False  # guard against recursive signal loops
 
         # {id(item): {visible, opacity, color, scale, effect}} — for revert
@@ -1016,6 +1011,19 @@ class DisplayManager(QDialog):
         }
 
         self._build_ui()
+        self._restore_geometry()
+
+    def _restore_geometry(self) -> None:
+        """Restore the last size + position. Runs AFTER ``_build_ui``:
+        ``set_footer_buttons`` ends in ``adjustSize()``, which would otherwise
+        overwrite a restored size (and ``resizeEvent`` would then persist the
+        overwrite)."""
+        saved_size = self._settings.value("display_manager/window_size")
+        if saved_size is not None:
+            self.resize(saved_size)
+        saved_pos = self._settings.value("display_manager/window_pos")
+        if saved_pos is not None:
+            self.move(saved_pos)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1349,12 +1357,16 @@ class DisplayManager(QDialog):
     # UI construction
     # ------------------------------------------------------------------
 
-    def _build_ui(self):
-        _t = th.detect()
-        outer = QVBoxLayout(self)
+    @staticmethod
+    def _page_margins(layout) -> None:
+        """House side margins for a TopTabs page (the stack itself is full-bleed)."""
+        inset = th.M.TOPTABS_BAR_INSET
+        layout.setContentsMargins(inset, 0, inset, inset)
 
+    def _build_ui(self):
         # ── Tree widget ──────────────────────────────────────────────
         self._tree = QTreeWidget()
+        self._tree.setObjectName("underlayTable")   # Underlay Manager table look (theme.build_dialog_qss)
         self._tree.setColumnCount(10)
         self._tree.setHeaderLabels(
             ["Name", "Vis", "Colour", "Fill", "Section", "Scale", "Opacity",
@@ -1397,13 +1409,19 @@ class DisplayManager(QDialog):
             for j in range(grp.childCount()):
                 grp.child(j).setExpanded(False)
         self._suppress = False
-        # ── Tab widget ──────────────────────────────────────────────
-        self._tabs = QTabWidget()
-        self._tabs.addTab(self._tree, "Model")
+        # ── Tabs (house TopTabs, R1) ─────────────────────────────────
+        # Pages are wrapped: TopTabs pins a surface stylesheet on each page by
+        # objectName, which would override the bare tree's #underlayTable look.
+        self._tabs = TopTabs()
+        model_page = QWidget()
+        model_lay = QVBoxLayout(model_page)
+        self._page_margins(model_lay)
+        model_lay.addWidget(self._tree)
+        self._tabs.add_tab("model", "Model", model_page)
         self._paper_tab = self._build_paper_space_tab()
-        self._tabs.insertTab(1, self._paper_tab, "Paper Space")
+        self._tabs.add_tab("paper", "Paper Space", self._paper_tab)
         self._lw_tab = self._build_line_weights_tab()
-        self._tabs.addTab(self._lw_tab, "Line Weights")
+        self._tabs.add_tab("line_weights", "Line Weights", self._lw_tab)
         # HF5 R5: the Fill Types tab edits a working copy; OK installs it.
         from .fill_types_tab import FillTypesTab
         # Cancel puts the live table back if the tab was edited (a pending type
@@ -1412,37 +1430,40 @@ class DisplayManager(QDialog):
         self._ft_table_snapshot = fill_types.project_table().copy()
         self._ft_tab = FillTypesTab(self._scene, parent=self)
         self._ft_tab.edited.connect(self._refresh_section_selectors)
-        self._tabs.addTab(self._ft_tab, "Fill Types")
+        self._tabs.add_tab("fill_types", "Fill Types", self._ft_tab)
         fill_types.fill_type_bus().changed.connect(self._on_fill_type_bus)
 
         if self._active_context == "paper":
             self._tabs.setCurrentIndex(1)  # Paper Space tab
 
-        outer.addWidget(self._tabs)
-
-        # ── Button box ───────────────────────────────────────────────
-        bbox = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel |
-            QDialogButtonBox.StandardButton.RestoreDefaults)
-        bbox.accepted.connect(self.accept)
-        bbox.rejected.connect(self.reject)
-        reset_btn = bbox.button(QDialogButtonBox.StandardButton.RestoreDefaults)
-        reset_btn.setText("Reset All")
-        reset_btn.clicked.connect(self._reset_all)
-
-        # ── Set as Default button ────────────────────────────────────
-        default_btn = QPushButton("Set as Default")
-        default_btn.setToolTip(
+        # ── Footer (R4): Reset All + Set as Default left, Cancel + OK right ──
+        self._reset_btn = QPushButton("Reset All")
+        self._reset_btn.setAutoDefault(False)
+        self._reset_btn.setToolTip("Reset the active tab to factory defaults")
+        self._reset_btn.clicked.connect(self._reset_all)
+        self._default_btn = QPushButton("Set as Default")
+        self._default_btn.setAutoDefault(False)
+        self._default_btn.setToolTip(
             "Save current settings as defaults for new projects")
-        default_btn.clicked.connect(self._set_as_default)
-        bbox.addButton(default_btn, QDialogButtonBox.ButtonRole.ActionRole)
-        self._reset_btn, self._default_btn = reset_btn, default_btn
-        self._reset_tip, self._default_tip = reset_btn.toolTip(), default_btn.toolTip()
+        self._default_btn.clicked.connect(self._set_as_default)
+        self._reset_tip = self._reset_btn.toolTip()
+        self._default_tip = self._default_btn.toolTip()
+        left = QWidget()
+        left_lay = QHBoxLayout(left)
+        left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.setSpacing(th.M.FOOTER_BTN_GAP)
+        left_lay.addWidget(self._reset_btn)
+        left_lay.addWidget(self._default_btn)
+        self.set_body(self._tabs, margin=(0, 0, 0, 0))
+        ok = self.set_footer_buttons(primary=("OK", self.accept), extra_left=left)["primary"]
+        # HouseDialog.set_footer_buttons calls setDefault(True) before the footer
+        # is parented to the dialog, so QDialog never registers OK as its main
+        # default and the first focusable autoDefault button (a header dot, an
+        # instance-row reset) takes Enter. Re-register now it is in the dialog.
+        ok.setDefault(False)
+        ok.setDefault(True)
         self._tabs.currentChanged.connect(self._sync_tab_buttons)
         self._sync_tab_buttons()
-
-        outer.addWidget(bbox)
 
     # ------------------------------------------------------------------
     # Tree population
