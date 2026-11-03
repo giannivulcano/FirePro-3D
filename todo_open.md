@@ -401,6 +401,8 @@
   - +1 occurrence 2026-10-31 (floor-opening T7 keep-green, VC7-proved at branch base 83196632 and HEAD 9bd0e31a, 1 failed both).
   - +1 occurrence 2026-10-31 (Block Editor select-all perf T4 keep-green, VC7-proved by the orchestrator at branch base f20268e1 and HEAD: 'Arrow' != 'Brick' ordering).
   - +1 occurrence 2026-11-01 (text-sizing-wrap Part A T5 keep-green, VC7-proved in a detached worktree at base 2109fb02 and HEAD 796b26dc, 6 failed / 33 passed both): the tier test + the same 5 browser tests.
+- [ ] [type:bug] `tests/test_sb3_parity.py::test_ac10_bound_instance_render_unchanged_by_the_lift` fails on a render-digest mismatch [P4] [subject:Architecture]
+  - Details: SB4d T5 keep-green 2026-11-03, VC7-proved pre-existing by the orchestrator in a detached worktree at branch base 22bb5bdd and HEAD bb5d4802 (identical `1cb4fa70...` != `58438ac4...` both). The guard pins a bound-instance render digest against a pre-lift golden; some shipped change since re-baselined the render (candidates: SB3b room-tag style, SB4a/b/c OutlinedLabel changes). Re-derive which commit moved the digest (`git bisect` on the test), then either re-baseline deliberately or rewrite the guard as a before/after parity check in one process. `tests/test_sb3_parity.py`.
 
 ## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
 
