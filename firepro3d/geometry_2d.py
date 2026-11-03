@@ -201,6 +201,10 @@ class Geometry2DMixin:
         self._end_trim_cache = None
         self._end_split_cache = None
         self._screen_ends = False    # last model paint drew a Fixed-size end (ET1 spec C)
+        # Corner joints are registered in scene coordinates, so a position /
+        # transform change (the manipulator preview's setTransform) must reach
+        # itemChange to re-register the ends (design D6).
+        self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
     # Unstyled subclasses set this False (LT2-1).
     _STYLED = True
@@ -860,7 +864,9 @@ class Geometry2DMixin:
                     for n in ix.neighbours(e.point):
                         n.owner.update()
         r = super().itemChange(change, value)
-        if change == gc.ItemSceneHasChanged:
+        if change in (gc.ItemSceneHasChanged, gc.ItemPositionHasChanged,
+                      gc.ItemTransformHasChanged, gc.ItemRotationHasChanged,
+                      gc.ItemScaleHasChanged):
             self._stroke_geometry_changed()
         return r
 

@@ -617,6 +617,39 @@ def test_g7_move_breaks_and_undo_restores_the_join(qapp, monkeypatch):
     sc.cleanup()
 
 
+def test_f_transform_and_pos_moves_carry_the_wedge_with_the_item(qapp, monkeypatch):
+    """The manipulator preview moves real items with setTransform: the wedge
+    must paint at the NEW corner (not the old one), and restore on reset; a
+    setPos move re-registers the ends too (design D6)."""
+    import firepro3d.geometry_2d as g2
+    from PyQt6.QtGui import QTransform
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space(); sc.set_mode("select")
+    try:
+        a, b = _corner_pair()
+        for it in (a, b):
+            it.style["colour"] = "#000000"; sc.addItem(it); sc._draw_lines.append(it)
+        size = (300, 300)
+        white = QColor("white")
+        inked = lambda core: {q for q in core
+                              if _snap(sc, size).pixelColor(*q) != white}
+        assert inked(_core(150, 150)) == _core(150, 150)         # premise: joined
+        for it in (a, b):
+            it.setTransform(QTransform().translate(60, 60))
+        assert inked(_core(210, 210)) == _core(210, 210)          # wedge at the new corner
+        assert not inked(_core(150, 150))                         # none at the old one
+        for it in (a, b):
+            it.setTransform(QTransform())
+        assert inked(_core(150, 150)) == _core(150, 150)         # restored
+        for it in (a, b):
+            it.setPos(60, 60)
+        ix = sc.stroke_joints
+        assert {e.owner for e in ix.neighbours(QPointF(210, 210))} == {a, b}
+        assert not ix.neighbours(QPointF(150, 150))
+    finally:
+        sc.cleanup()
+
+
 def test_wedge_for_pair_uses_the_midpoint_and_maps_through_xf():
     from firepro3d.stroke_joints import wedge_for_pair
     a = _end(0.2, 0, -1, 0, "A"); b = _end(-0.2, 0, 0, -1, "B", "finish")
