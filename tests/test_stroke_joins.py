@@ -720,3 +720,228 @@ def test_wedge_for_pair_uses_the_midpoint_and_maps_through_xf():
     from PyQt6.QtGui import QTransform
     w2 = wedge_for_pair(a, b, 20.0, QTransform.fromScale(2, 2))
     assert (20.0, 20.0) in {(round(w2.at(k).x(), 6), round(w2.at(k).y(), 6)) for k in range(w2.count())}
+
+
+# ---------------------------------------------------------------- H. blocks + sheets (D5b / AC7 / AC8)
+_BSIZE = (340, 300)
+_BP = QPointF(170, 150)                  # block insertion point in the render
+_TRI_LOCAL = [QPointF(-100, 100 * math.sqrt(3) / 3), QPointF(100, 100 * math.sqrt(3) / 3),
+              QPointF(0, -200 * math.sqrt(3) / 3)]      # equilateral, centroid at (0, 0)
+
+
+def _local_tri_lines():
+    a, b, c = _TRI_LOCAL
+    return [LineItem(a, b), LineItem(b, c), LineItem(c, a)]
+
+
+def _prims(items):
+    out = []
+    for it in items:
+        it.style["colour"] = "#000000"
+        out.append(it.to_dict())
+    return out
+
+
+def _block_def(prims, name="Tri"):
+    from firepro3d.block_definition import BlockDefinition
+    return BlockDefinition.new(name=name, library="L", series="S",
+                               primitives=prims, origin=(0.0, 0.0))
+
+
+def _patch_px(monkeypatch):
+    """Canvas px = 20 on every paint path (plain ops, linetype loop, mixin)."""
+    import firepro3d.block_instance as bi
+    import firepro3d.geometry_2d as g2
+    import firepro3d.stroke_style as ss
+    for mod in (bi, g2, ss):
+        monkeypatch.setattr(mod, "canvas_px", lambda w: 20.0)
+
+
+def _block_scene(monkeypatch, rot=0.0, nested=False):
+    """A Model_Space holding one placed instance of a definition built from
+    three LineItems (the triangle, centroid at the block origin)."""
+    _patch_px(monkeypatch)
+    sc = Model_Space()
+    d = _block_def(_prims(_local_tri_lines()))
+    sc.register_block_definition(d)
+    if nested:
+        host = _block_def([{"type": "block_instance", "block_id": d.id,
+                            "pos": [0.0, 0.0], "rotation": 0.0}], name="Host")
+        sc.register_block_definition(host)
+        d = host
+    inst = sc.place_block_instance(d.id, (_BP.x(), _BP.y()), rotation=rot,
+                                   level=sc.active_level)
+    return sc, inst
+
+
+def _tri_oracle(rot):
+    """The triangle's closed path in scene px: local points turned by *rot*
+    (Y-up CCW degrees = Qt rotate(-rot)) about the block origin, moved to
+    the insertion point. Convention written out here, not read back."""
+    t = QTransform(); t.translate(_BP.x(), _BP.y()); t.rotate(-rot)
+    p = QPainterPath(t.map(_TRI_LOCAL[0]))
+    p.lineTo(t.map(_TRI_LOCAL[1])); p.lineTo(t.map(_TRI_LOCAL[2])); p.closeSubpath()
+    return p
+
+
+def test_g6_triangle_inside_a_placed_block_is_mitered(qapp, monkeypatch):
+    """AC7 / D5b: three block-op lines meeting end to end close sharp corners
+    on the canvas, against the stroker oracle."""
+    sc, _inst = _block_scene(monkeypatch, 0.0)
+    img = _render([], size=_BSIZE, monkeypatch=monkeypatch, scene=sc)
+    outside, missing = _compare(img, _tri_oracle(0.0), size=_BSIZE)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_g6_triangle_inside_a_rotated_block_is_mitered(qapp, monkeypatch):
+    """Same at pose rotation 30 deg: oracle = the local triangle turned by
+    the same angle (cosmetic pen: the wedge is filled in device space)."""
+    sc, _inst = _block_scene(monkeypatch, 30.0)
+    img = _render([], size=_BSIZE, monkeypatch=monkeypatch, scene=sc)
+    outside, missing = _compare(img, _tri_oracle(30.0), size=_BSIZE)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_g6_nested_block_triangle_is_mitered(qapp, monkeypatch):
+    """A nested child is its own container: its ops join among themselves."""
+    sc, _inst = _block_scene(monkeypatch, 0.0, nested=True)
+    img = _render([], size=_BSIZE, monkeypatch=monkeypatch, scene=sc)
+    outside, missing = _compare(img, _tri_oracle(0.0), size=_BSIZE)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_g6_loose_line_touching_a_block_line_stays_flat(qapp, monkeypatch):
+    """AC7: a LineItem ending exactly on a placed block's line end gets no
+    wedge. Mechanism: a BlockInstance is not a Geometry2DMixin, so its ends
+    never enter the scene index (only the loose line's two do)."""
+    _patch_px(monkeypatch)
+    sc = Model_Space()
+    blk = LineItem(QPointF(-100, 0), QPointF(0, 0))
+    d = _block_def(_prims([blk]))
+    sc.register_block_definition(d)
+    sc.place_block_instance(d.id, (150, 150), level=sc.active_level)   # ends at (150, 150)
+    loose = LineItem(QPointF(150, 150), QPointF(150, 50))
+    loose.style["colour"] = "#000000"
+    sc.set_mode("select")
+    sc.addItem(loose); sc._draw_lines.append(loose)
+    assert len(sc.stroke_joints) == 2
+    img = _render([], size=(300, 200), monkeypatch=monkeypatch, scene=sc)
+    assert not _core(150, 150) & _dark(img)
+    # premise: two scene lines on the same corner DO close it (the g2 pair)
+    a, b = _corner_pair()
+    img2 = _render([a, b], monkeypatch=monkeypatch)
+    assert _core(150, 150) <= _dark(img2)
+
+
+def test_block_definition_joint_index_is_static_and_recompiled_with_ops(qapp):
+    """Three lines -> 6 ends, 3 pairs; set_primitives (one line moved away)
+    recompiles; a mirrored variant gets its own index in the variant frame;
+    a nested child is its own container."""
+    from firepro3d.render_op import STROKE
+    d = _block_def(_prims(_local_tri_lines()))
+    ix = d.joint_index()
+    assert len(ix) == 6 and d.joint_index() is ix            # static
+    own = [i for i, o in enumerate(d.render_ops()) if o.kind == STROKE]
+    ends = [e for i in own for e in ix.ends_of(i)]
+    assert len(ends) == 6 and all(ix.partner(e) is not None for e in ends)
+    # mirrored variant: its own index, ends in the variant frame
+    per_op, _jops = d.joint_indexes(True, 1.0)
+    vix = per_op[own[0]]
+    assert vix is not ix
+    e0, v0 = ix.ends_of(own[0])[0], vix.ends_of(own[0])[0]
+    assert v0.x == pytest.approx(-e0.x) and v0.y == pytest.approx(e0.y)
+    assert d.joint_indexes(True, 1.0)[0] is per_op           # keyed like _variants
+    # edit: one edge moved away -> recompiled, a single shared corner left
+    a, b, c = _TRI_LOCAL
+    moved = [LineItem(a, b), LineItem(b, c),
+             LineItem(QPointF(c.x() + 500, c.y() + 500), QPointF(a.x() + 500, a.y() + 500))]
+    d.set_primitives(_prims(moved))
+    ix2 = d.joint_index()
+    assert ix2 is not ix and len(ix2) == 6
+    ends2 = [e for i in range(len(d.render_ops())) for e in ix2.ends_of(i)]
+    assert sum(ix2.partner(e) is not None for e in ends2) == 2
+    # nested: the child's ops index in the child's own container
+    child = _block_def(_prims(_local_tri_lines()), name="Child")
+    host = _block_def(_prims([LineItem(QPointF(0, 0), QPointF(5, 5))]) + [
+        {"type": "block_instance", "block_id": child.id, "pos": [0.0, 0.0], "rotation": 0.0}],
+        name="Host")
+    host._resolve = {child.id: child}.get
+    hix = host.joint_index()
+    assert len(hix) == 2                                      # the host's own line only
+    per_op = host.joint_indexes(False, 1.0)[0]
+    child_ixs = [x for x in per_op if x is not None and x is not hix]
+    assert child_ixs and all(len(x) == 6 for x in child_ixs)
+
+
+def test_g6_sheet_pdf_export_is_mitered(qapp, tmp_path, monkeypatch):
+    """AC8: a sheet viewport over the placed 3-Line triangle block, exported
+    through the real paper_export QPdfWriter path; PyMuPDF rasterises a base
+    corner and the apex at high zoom; both match the mitered stroker oracle
+    mapped by the viewport scale (stroke width read from the PDF)."""
+    import fitz
+    from firepro3d import paper_display as pd
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
+    save_paper_color_mode(PaperColorMode.BW)
+    cats = pd.load_paper_categories()
+    cats["Blocks"]["line_weight"] = "Heavy"
+    pd.save_paper_categories(cats)
+    scale = 0.02
+    k = 5.0                                                  # model mm per local px
+    ms = Model_Space()
+    pts = [QPointF(p.x() * k, p.y() * k) for p in _TRI_LOCAL]
+    d = _block_def(_prims([LineItem(pts[0], pts[1]), LineItem(pts[1], pts[2]),
+                           LineItem(pts[2], pts[0])]))
+    ms.register_block_definition(d)
+    ms.place_block_instance(d.id, (0.0, 0.0), level=ms.active_level)
+    pdf = _export(tmp_path, ms, scale, "tri.pdf")
+    pt_mm = 25.4 / 72.0
+    z = 24.0
+    doc = fitz.open(str(pdf))
+    try:
+        page = doc[0]
+        cx, cy = _VP_X + _VP_W / 2.0, _VP_Y + _VP_W / 2.0
+        pp = [((cx + p.x() * scale) / pt_mm, (cy + p.y() * scale) / pt_mm) for p in pts]
+        # the block's stroke weight, read from the PDF: widest stroke whose
+        # rect sits inside the triangle's page box
+        x0, x1 = min(p[0] for p in pp), max(p[0] for p in pp)
+        widths = [dr["width"] for dr in page.get_drawings()
+                  if "s" in (dr.get("type") or "") and x0 - 3 <= dr["rect"].x0
+                  and dr["rect"].x1 <= x1 + 3 and dr["rect"].height > 5]
+        assert widths, "premise: the triangle strokes are in the PDF"
+        width_pt = max(widths)
+        for v in (0, 2):                                     # a base corner and the apex
+            x, y = pp[v]
+            clip = fitz.Rect(x - 8, y - 8, x + 8, y + 8)
+            pix = page.get_pixmap(matrix=fitz.Matrix(z, z), clip=clip,
+                                  colorspace=fitz.csGRAY, alpha=False)
+            n, w, h, s = pix.n, pix.width, pix.height, pix.samples
+            got = {(i, j) for j in range(h) for i in range(w) if s[(j * w + i) * n] < 128}
+            path = QPainterPath(QPointF((pp[0][0] - clip.x0) * z, (pp[0][1] - clip.y0) * z))
+            path.lineTo(QPointF((pp[1][0] - clip.x0) * z, (pp[1][1] - clip.y0) * z))
+            path.lineTo(QPointF((pp[2][0] - clip.x0) * z, (pp[2][1] - clip.y0) * z))
+            path.closeSubpath()
+            want = _mask(_oracle(path, width_pt * z), (w, h))
+            near = lambda q, S: any((q[0] + dx, q[1] + dy) in S
+                                    for dx in range(-3, 4) for dy in range(-3, 4))
+            inner = lambda q: 6 <= q[0] < w - 6 and 6 <= q[1] < h - 6   # clip-edge raster noise
+            outside = {q for q in got if inner(q) and not near(q, want)}
+            missing = {q for q in want if inner(q) and not near(q, got)}
+            assert len(want) > 500 and len(got) > 500, "premise: the stroke is in the clip"
+            assert not outside and not missing, (v, sorted(outside)[:5], sorted(missing)[:5])
+    finally:
+        doc.close()
+
+
+def test_g6_dashed_block_ends_follow_the_ink_like_scene_lines(qapp, monkeypatch):
+    """AC6 inside a block (the linetype loop): the op end sitting on ink is
+    sharp, the op end sitting in a gap stays flat -- same premise as g5."""
+    _patch_px(monkeypatch)
+    for cx, want_sharp in ((_pick_corner(True), True), (_pick_corner(False), False)):
+        sc, items, _ia, _ib = _dashed_corner(cx)
+        d = _block_def(_prims(items))
+        sc.register_block_definition(d)
+        sc.place_block_instance(d.id, (0.0, 0.0), level=sc.active_level)
+        img = _render([], monkeypatch=monkeypatch, scene=sc)       # cleans sc
+        assert (_core(cx, 150) <= _dark(img)) is want_sharp
+        assert want_sharp or not _core(cx, 150) & _dark(img)

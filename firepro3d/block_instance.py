@@ -34,8 +34,12 @@ from .block_definition import BlockDefinition
 from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver
-from .constants import LINETYPE_WINDOW_MIN_PERIODS, TOKEN_AUTO
+from .constants import (LINETYPE_WINDOW_MIN_PERIODS, MODEL_WEIGHT_PX_MAX,
+                        STROKE_MITER_LIMIT, TOKEN_AUTO)
 from .geometry_2d import constraint_tint
+from .path_walk import end_frame
+from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
+                            wedge_for_pair)
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
                         PoseXf as _PoseXf,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
@@ -44,12 +48,31 @@ from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 from .stroke_style import (BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
-                           canvas_px, has_ends, is_as_authored, is_end_ref,
+                           canvas_px, canvas_weight_name, has_ends, is_as_authored, is_end_ref,
                            is_linetype_ref, linetype_block,
                            normalize_overrides, override_args, resolve_ends,
                            resolve_stroke)
 
 _PLACEHOLDER_MM = 200.0
+
+
+class _JointCtx:
+    """Per-paint state of the block-op joint pass (D5b): the linetype loop's
+    ``strokes`` memo (None on the plain path), the dash path of each op
+    already decided, and the lazily read device scale / paper flag / view
+    window."""
+    __slots__ = ("strokes", "routed", "registry", "on_paper", "dash", "dev",
+                 "paper_pass", "win")
+
+    def __init__(self, strokes, routed, registry, on_paper):
+        self.strokes = strokes
+        self.routed = routed
+        self.registry = registry
+        self.on_paper = on_paper
+        self.dash = {}
+        self.dev = None
+        self.paper_pass = None
+        self.win = False
 
 
 def _record_scale(rec: dict) -> float:
@@ -533,6 +556,11 @@ class BlockInstance(QGraphicsObject):
         """
         r = self._frame_rect()
         extra = scene_hit_width(self, 10.0, 6.0) / 2.0 - 2.0
+        if self._joint_map() is not None:
+            # A joined op end's miter tip reaches STROKE_MITER_LIMIT / 2 pen
+            # widths past the corner (D7): the widest Model weight bounds it.
+            reach = MODEL_WEIGHT_PX_MAX * STROKE_MITER_LIMIT / 2.0
+            extra = max(extra, scene_hit_width(self, reach, reach) - 2.0)
         if extra > 0.0:
             r = r.adjusted(-extra, -extra, extra, extra)
         return r
@@ -818,6 +846,7 @@ class BlockInstance(QGraphicsObject):
             k = _an.annotative_factor(self, painter)   # this painter's zoom
             pose.scale(k, k)
         ops = self.render_ops()
+        jm = self._joint_map()                  # D5b: ops whose ends have a partner
         self._drew_screen = frame_k             # ET1 spec C (+ SB1c: a Fixed-size frame)
         self._paint_sf = None                   # set where the ends' factors are read
         if not ops:
@@ -838,7 +867,7 @@ class BlockInstance(QGraphicsObject):
             ec = self._end_ops_cache          # inline hit of _end_ref_ops
             eo = ec[1] if ec is not None and ec[0] is ops else self._end_ref_ops(ops)
             miss = self._paint_plain_ops(painter, pose, ops, override, selected,
-                                         tint, eo)
+                                         tint, eo, jm)
             if self._paint_sf is not None or frame_k:   # paper passes never touch the mark
                 _er.mark_screen_ends(self, self._drew_screen)
             if (miss or self._lt_tip_id is not None) and not self._is_ghost:
@@ -867,6 +896,8 @@ class BlockInstance(QGraphicsObject):
         rc = paint_resolver(self)     # each distinct colour once per paint (G12)
         sel = (QColor(_theme.detect().accent)       # canvas selection (R5)
                if selected and not on_paper else None)
+        jctx = (_JointCtx(strokes, routed, registry, on_paper)
+                if jm is not None else None)
         for i, op in enumerate(ops):
             if op.kind in (FILL, PATTERN):
                 xf.unposed()
@@ -983,12 +1014,17 @@ class BlockInstance(QGraphicsObject):
                         if ends is not None:
                             self._draw_op_ends(painter, op, ends, p, xf, ff, sf,
                                                miss_e)
+                        if jm is not None and i in jm[1]:
+                            self._paint_op_joints(painter, pose, xf, ops, i, p,
+                                                  jm, jctx)
                         continue
                 self._stroke_op(painter, ops, i, op, pose, p, xf,
                                 path=(None if trims == _er.NO_TRIMS else
                                       self._trimmed_op_path(ops, i, op, trims)))
                 if ends is not None:
                     self._draw_op_ends(painter, op, ends, p, xf, ff, sf, miss_e)
+                if jm is not None and i in jm[1]:
+                    self._paint_op_joints(painter, pose, xf, ops, i, p, jm, jctx)
                 continue
             painter.drawPath(pose.map(self._text_path(op)))
         xf.unposed()
@@ -1002,8 +1038,134 @@ class BlockInstance(QGraphicsObject):
             if not _pd.paper_pass_active():
                 _lr.paint_missing_badge(painter, pose.map(QPointF(0.0, 0.0)))
 
+    def _joint_map(self):
+        """``(per_op indexes, partnered op indexes)`` of the definition's
+        corner joints under this placement's mirror / scale variant (D5b), or
+        None when no op end has a partner (or this is a ghost)."""
+        if self._is_ghost:
+            return None
+        d = self.definition()
+        if d is None:
+            return None
+        jm = d.joint_indexes(self._pose_mirrored, self._variant_scale())
+        return jm if jm[1] else None
+
+    def _paint_op_joints(self, painter, pose, xf, ops, i, pen, jm, ctx) -> None:
+        """D7 for a block op: for each end of op *i* whose container partner
+        ``joinable``s, fill the corner wedge in *pen*'s painter-local colour --
+        device space for a cosmetic pen (half-width in px), the item frame for
+        a paper pen. Both partners draw the shared wedge (same colour, same
+        width). Leaves the painter's transform as found."""
+        ix = jm[0][i]
+        if ix is None:
+            return
+        pairs = []
+        cache = {}
+        for e in ix.ends_of(i):
+            q = ix.partner(e)
+            if q is None:
+                continue
+            for k in ((i, e.which), (q.owner, q.which)):
+                if k not in cache:
+                    cache[k] = self._op_joint_attrs(painter, pose, xf, ops, k[0],
+                                                    k[1], ctx)
+            if joinable(cache[(i, e.which)], cache[(q.owner, q.which)]):
+                pairs.append((e, q))
+        if not pairs:
+            return
+        xf.unposed()
+        half_w = pen.widthF() / 2.0
+        cosmetic = pen.isCosmetic()
+        painter.save()
+        try:
+            if cosmetic:
+                to_dev = pose * painter.worldTransform()
+                painter.resetTransform()
+            else:
+                to_dev = pose
+            for e, q in pairs:
+                w = wedge_for_pair(e, q, half_w, to_dev)
+                if w is not None:
+                    fill_wedge(painter, w, pen.color())
+        finally:
+            painter.restore()
+
+    def _op_joint_attrs(self, painter, pose, xf, ops, j, which, ctx):
+        """``JointAttrs`` of op *j*'s *which* end for the paint-time match
+        (AC4 / AC6), mirroring ``Geometry2DMixin._joint_attrs``: the weight
+        name and colour string from the compiled op, an end type present when
+        the resolved end holds a block (or a missing id), ``inked`` from the
+        dash path the op is drawn with (True when drawn continuous). None
+        when the op cannot join."""
+        op = ops[j] if j < len(ops) else None
+        if op is None or op.kind != STROKE or op.ends is None:
+            return None
+        ent = rs = lt = None
+        if ctx.strokes is not None:             # the linetype loop's memo
+            key = (op.linetype, op.weight)
+            ent = ctx.strokes.get(key)
+            if ent is None:
+                ent = ctx.strokes[key] = self._resolve_op_stroke(
+                    op, ctx.routed, ctx.registry, ctx.on_paper)
+            rs = ent[0]
+            lt = rs.lt if rs is not None else None
+        weight = rs.weight if rs is not None else op.weight
+        ends = self._op_ends(op, lt, ctx.registry)
+        end = ends[0 if which == "start" else 1] if ends is not NO_ENDS else None
+        has_end = end is not None and (end.defn is not None or bool(end.missing_id))
+        inked = True
+        if not has_end and ent is not None:
+            if j not in ctx.dash:
+                ctx.dash[j] = self._joint_dash(painter, pose, xf, ops, j, ent, ctx)
+            dash = ctx.dash[j]
+            if dash is not None:
+                fr = end_frame(op.pieces, which, 0.0)
+                inked = fr is not None and end_inked(dash, fr[0], 1e-4)
+        return JointAttrs(weight=canvas_weight_name(weight) if weight is not None else "",
+                          colour=op.colour or TOKEN_AUTO, inked=inked,
+                          has_end_type=has_end)
+
+    def _joint_dash(self, painter, pose, xf, ops, j, ent, ctx):
+        """The definition-local dash path op *j* is drawn with this paint, or
+        None when it draws continuous -- the tests ``paint``'s linetype
+        branch runs (period, LOD, Fixed shorter than one period), decided
+        here for an op whose entry the loop has not reached yet."""
+        rs, width, lt, factor, ok, fixed = ent
+        op = ops[j]
+        if lt is None or not op.pieces:
+            return None
+        if ok is None:
+            if ctx.paper_pass is None:
+                ctx.paper_pass = _pd.paper_pass_active()
+            if ctx.paper_pass:
+                ok = True
+            else:
+                if ctx.dev is None:
+                    ctx.dev = self._posed_device_scale(painter, pose, xf)
+                if factor is None:
+                    factor = ent[3] = self._linetype_factor(lt, ctx.dev)
+                ok = (_lr.period_ok(lt, factor)
+                      and _lr.lod_ok_at(lt.period * factor, ctx.dev))
+            ent[4] = ok
+        if not ok:
+            return None
+        n = _lr.periods_on(op.pieces, lt, factor) if fixed else None
+        if n is not None and n < 1.0:
+            return None
+        w = None
+        if n is not None and n > LINETYPE_WINDOW_MIN_PERIODS:
+            if ctx.win is False:
+                painter.save()
+                try:
+                    painter.setWorldTransform(pose, True)
+                    ctx.win = _lr.view_window(painter)
+                finally:
+                    painter.restore()
+            w = ctx.win
+        return self._op_expansion(ops, j, op, lt, factor, w, _er.NO_TRIMS)[0]
+
     def _paint_plain_ops(self, painter, pose, ops, override, selected,
-                         tint=None, end_ops=frozenset()) -> tuple:
+                         tint=None, end_ops=frozenset(), jm=None) -> tuple:
         """Paint *ops* of a block with no linetype refs -- the lifted
         ``render_op.paint_ops`` loop with this instance's LT5 end branch
         supplied as the ``ends`` callback (stroke ops in *end_ops* draw
@@ -1015,32 +1177,47 @@ class BlockInstance(QGraphicsObject):
         """
         miss = []
         lazy = {}                     # ff / sf / reg, read on the first end op
+        jctx = _JointCtx(None, False, None, False) if jm is not None else None
+        if jm is not None:
+            sc = self.scene()
+            jctx.registry = getattr(sc, "block_registry", None) if sc is not None else None
 
         def ends(i, op, pen, xf):
-            if "ff" not in lazy:
-                sc = self.scene()
-                lazy["reg"] = (getattr(sc, "block_registry", None)
-                               if sc is not None else None)
-                a = self._lt_args()
-                lazy["ff"] = _lr.printed_factor(**a)
-                dev = self._posed_device_scale(painter, pose, xf)
-                lazy["sf"] = self._paint_sf = _er.screen_factor(
-                    paper_scale=a["paper_scale"], role=a["role"], device_scale=dev)
-            e = self._op_ends(op, None, lazy["reg"])
-            if not has_ends(e):
-                return False
-            trims = _er.end_trims(e, printed=lazy["ff"], screen=lazy["sf"])
-            if _er.short_on_screen(op.pieces, e, trims, lazy["sf"]):   # ET1 Q7
-                trims = _er.NO_TRIMS
-                e = _er.badges_only(e)
-            self._stroke_op(painter, ops, i, op, pose, pen, xf,
-                            path=(None if trims == _er.NO_TRIMS else
-                                  self._trimmed_op_path(ops, i, op, trims)))
-            self._draw_op_ends(painter, op, e, pen, xf, lazy["ff"], lazy["sf"], miss)
+            e = None
+            if i in end_ops:
+                if "ff" not in lazy:
+                    sc = self.scene()
+                    lazy["reg"] = (getattr(sc, "block_registry", None)
+                                   if sc is not None else None)
+                    a = self._lt_args()
+                    lazy["ff"] = _lr.printed_factor(**a)
+                    dev = self._posed_device_scale(painter, pose, xf)
+                    lazy["sf"] = self._paint_sf = _er.screen_factor(
+                        paper_scale=a["paper_scale"], role=a["role"], device_scale=dev)
+                e = self._op_ends(op, None, lazy["reg"])
+                if not has_ends(e):
+                    e = None
+            joined = jm is not None and i in jm[1]
+            if e is None:
+                if not joined:
+                    return False
+                self._stroke_op(painter, ops, i, op, pose, pen, xf)
+            else:
+                trims = _er.end_trims(e, printed=lazy["ff"], screen=lazy["sf"])
+                if _er.short_on_screen(op.pieces, e, trims, lazy["sf"]):   # ET1 Q7
+                    trims = _er.NO_TRIMS
+                    e = _er.badges_only(e)
+                self._stroke_op(painter, ops, i, op, pose, pen, xf,
+                                path=(None if trims == _er.NO_TRIMS else
+                                      self._trimmed_op_path(ops, i, op, trims)))
+                self._draw_op_ends(painter, op, e, pen, xf, lazy["ff"], lazy["sf"], miss)
+            if joined:
+                self._paint_op_joints(painter, pose, xf, ops, i, pen, jm, jctx)
             return True
 
+        all_ends = end_ops | jm[1] if jm is not None else end_ops
         _paint_ops(painter, ops, pose, self, override=override, selected=selected,
-                   tint=tint, end_ops=end_ops, ends=ends if end_ops else None)
+                   tint=tint, end_ops=all_ends, ends=ends if all_ends else None)
         return tuple(dict.fromkeys(miss))
 
     def _stroke_op(self, painter, ops, i, op, pose, pen, xf=None,
