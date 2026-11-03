@@ -1015,6 +1015,24 @@ class SheetViewport(QGraphicsObject):
         self.setPos(self._data.x, self._data.y)
         self.mark_dirty()
 
+    #: Resize live -- the crop / box re-derive every frame -- instead of under
+    #: the manipulator's held-transform preview, which stretches the picture.
+    MANIP_LIVE_RESIZE = True
+
+    def manip_live_state(self) -> tuple:
+        """Rest geometry ``(x, y, w, h, crop_rect)`` a live resize resets to."""
+        d = self._data
+        return (d.x, d.y, d.w, d.h, QRectF(d.crop_rect))
+
+    def manip_live_restore(self, state) -> None:
+        """Restore a :meth:`manip_live_state` snapshot (live frame reset / Esc)."""
+        self.prepareGeometryChange()
+        d = self._data
+        d.x, d.y, d.w, d.h = state[0], state[1], state[2], state[3]
+        d.crop_rect = QRectF(state[4])
+        self.setPos(d.x, d.y)
+        self.mark_dirty()
+
     def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
         """Baked resize about *anchor* — reproduces the retired grip-resize.
 
@@ -1401,7 +1419,18 @@ class SheetViewport(QGraphicsObject):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.sync_data_from_item()
+            self._rebake_manipulator()
         return super().itemChange(change, value)
+
+    def _rebake_manipulator(self) -> None:
+        """Re-fit the scene's selection frame after a move it did not drive
+        (the native ``ItemIsMovable`` press-drag of a not-yet-wrapped viewport,
+        an undo / panel edit). A manipulator gesture keeps its own frame:
+        never rebake mid-gesture."""
+        sc = self.scene()
+        m = getattr(sc, "_manipulator", None) if sc is not None else None
+        if m is not None and self.isSelected() and not m.is_dragging():
+            m.rebake()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:

@@ -61,6 +61,24 @@ class _NullCtl:
         yield
 
 
+class _NullLiveCtl:
+    """Drag-session stand-in for an opt-in live resize (``MANIP_LIVE_RESIZE``)
+    with no constraint involvement: every frame applies, nothing is solved,
+    nothing is held (the item's rest state is reset by the session itself)."""
+    def drag_frame(self, items, fn, reset=False):
+        fn()
+        return True
+
+    def hold_last_good(self):
+        pass
+
+    def end_drag(self):
+        pass
+
+    def cancel_drag(self):
+        pass
+
+
 class _LiveDrag:
     """D35 live-apply state of one body (move) / resize gesture.
 
@@ -81,6 +99,9 @@ class _LiveDrag:
         # resize (single box-native item): (fx, fy, anchor) applied / good
         self.f_applied = (1.0, 1.0, None)
         self.f_good = (1.0, 1.0, None)
+        # opt-in live resize: {item: rest state} -- each frame restores rest
+        # then applies the frame's factors (None for a constraint session)
+        self.rest = None
 
 
 # App-wide, user-tunable (Preferences); read at call time. AutoCAD GRIPOBJLIMIT
@@ -1083,8 +1104,11 @@ class SelectionManipulator(QGraphicsObject):
         # old->new undo commands (model scene passes no press_hook).
         if self._press_hook is not None:
             self._press_hook([rec[0] for rec in self._items0])
-        self._live = (self._open_live([rec[0] for rec in self._items0])
+        items = [rec[0] for rec in self._items0]
+        self._live = (self._open_live(items)
                       if mode in ("move", "resize") else None)
+        if self._live is None and mode == "resize":
+            self._live = self._open_live_resize(items)
         if self._active_handle is not None and mode != "grip":
             self._active_handle.on_press(self)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
@@ -1291,6 +1315,19 @@ class SelectionManipulator(QGraphicsObject):
         ctl.begin_drag(items)
         return _LiveDrag(ctl, items) if ctl.dragging else None
 
+    def _open_live_resize(self, items) -> Optional[_LiveDrag]:
+        """Opt-in live resize: a single item declaring ``MANIP_LIVE_RESIZE``
+        (its picture is derived from its real geometry -- a sheet viewport's
+        crop) resizes live instead of under the held preview, which would
+        stretch it. Each frame restores the rest state captured here
+        (``manip_live_state`` / ``manip_live_restore``) and applies the frame's
+        factors through ``manip_scale``; else None."""
+        if len(items) != 1 or not getattr(items[0], "MANIP_LIVE_RESIZE", False):
+            return None
+        lv = _LiveDrag(_NullLiveCtl(), items)
+        lv.rest = {it: it.manip_live_state() for it in items}
+        return lv
+
     def _live_apply(self, d: QTransform) -> None:
         """One live frame: reset to the session snapshot, bake this frame's
         delta with the release bake's own path (``bake_translate`` /
@@ -1321,6 +1358,17 @@ class SelectionManipulator(QGraphicsObject):
         factors about their anchor, apply this frame's about its own (Ctrl
         may switch the anchor mid-drag). Incremental -- an adapter reset
         would not restore the box size."""
+        if lv.rest is not None:
+            fx, fy = self._last_factors
+            if min(abs(fx), abs(fy)) < 1e-9:
+                return                              # degenerate: hold this frame
+            anchor = self._scale_anchor(self._role, self._R0, self._B0,
+                                        self._last_from_center)
+            for it, state in lv.rest.items():
+                it.manip_live_restore(state)        # reset, then this frame
+                it.manip_scale(fx, fy, anchor)
+            lv.f_applied = (fx, fy, anchor)
+            return
         fx, fy = self._last_factors
         anchor = self._scale_anchor(self._role, self._R0, self._B0,
                                     self._last_from_center)
@@ -1350,6 +1398,11 @@ class SelectionManipulator(QGraphicsObject):
         if lv is None:
             return
         self._live = None
+        if lv.rest is not None:
+            for it, state in lv.rest.items():
+                it.manip_live_restore(state)        # opt-in: back to rest
+            self._reflow_live()
+            return
         fa = lv.f_applied
         if fa[2] is not None and min(abs(fa[0]), abs(fa[1])) > 1e-9:
             for it in lv.items:
