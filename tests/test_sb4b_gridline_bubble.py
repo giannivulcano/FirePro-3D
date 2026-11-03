@@ -283,3 +283,25 @@ def test_g3_duplicate_ring_never_plots_and_line_trims_at_paper_size(qapp, tmp_pa
     finally:
         doc.close()
     assert (1.0, 0.53, 0.0) not in cols                  # #ff8800 never plots
+
+
+def test_g4_dm_grid_line_colour_tints_the_line_not_the_bubble(qapp):
+    from firepro3d.display_manager import _apply_gridline, _category_has_fill, _category_has_scale
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms)
+    before = [op.colour for op in gl.bubble1._ops(1.0)]
+    _apply_gridline(gl, "#ff00ff", 1.0, 100, True, None)
+    assert gl._grid_color.name() == "#ff00ff"
+    assert [op.colour for op in gl.bubble1._ops(1.0)] == before
+    assert gl.bubble1.scale() == 1.0 and not hasattr(gl, "_display_scale")
+    assert not _category_has_fill("Grid Line") and not _category_has_scale("Grid Line")
+
+
+def test_g4_saved_fill_and_scale_are_ignored_at_load(qapp):
+    from firepro3d.display_manager import apply_display_to_item
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms)
+    apply_display_to_item(gl, "#4488cc", 2.0, 100, True, fill_color="#123456")
+    assert gl.bubble1.scale() == 1.0 and gl.bubble2.scale() == 1.0

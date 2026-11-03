@@ -271,7 +271,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": None,      "section_pattern": None,         "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal", "section_type": "Floor Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Grid Line",        "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Elevation Marker", "label": "Section Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
@@ -513,7 +513,7 @@ def _fill_type_icon(layers, registry=None) -> QIcon:
 _CUT_ATTRS = ("_display_section_type", "_display_color", "_display_fill_color",
               "_display_scale", "_fill_mode")
 
-_NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor"}
+_NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line"}
 
 
 def _category_has_scale(key: str) -> bool:
@@ -770,28 +770,15 @@ def _apply_detail_marker(marker, color, scale, opacity, visible, fill_color,
 
 
 def _apply_gridline(gl, color, scale, opacity, visible, fill_color, font_size=None):
-    """Apply display settings to a GridlineItem."""
+    """Apply display settings to a GridlineItem: the LINE colour, opacity and
+    visibility. The bubbles are annotation blocks (SB4b D11) and keep their
+    authored colours and printed size; *scale*, *fill_color* and *font_size*
+    are accepted for the shared signature and ignored."""
     if color:
         gl._grid_color = resolve_colour(color)
-        # Preserve the bubble's original pen width, just change color
-        for bubble in (gl.bubble1, gl.bubble2):
-            bp = bubble.pen()
-            bp.setColor(resolve_colour(color))
-            bubble.setPen(bp)
-            bubble._label.setDefaultTextColor(resolve_colour(color).lighter(150))
-    if fill_color is not None:
-        gl.bubble1.setBrush(QBrush(_fill_qcolor(fill_color)))
-        gl.bubble2.setBrush(QBrush(_fill_qcolor(fill_color)))
-    # Scale the bubbles (child transforms around their position on the line)
-    if scale and scale != 1.0:
-        gl.bubble1.setScale(scale)
-        gl.bubble2.setScale(scale)
-    elif scale == 1.0:
-        gl.bubble1.setScale(1.0)
-        gl.bubble2.setScale(1.0)
-    gl._display_scale = scale if scale else 1.0
     gl.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     gl.setVisible(visible)
+    gl.update()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1090,11 +1077,6 @@ class DisplayManager(QDialog):
                     "visible": item.isVisible(),
                     "opacity": item.opacity(),
                     "grid_color": item._grid_color.name(),
-                    "bubble_pen": item.bubble1.pen().color().name(),
-                    "bubble_brush": item.bubble1.brush().color().name(),
-                    "label_color": item.bubble1._label.defaultTextColor().name(),
-                    "bubble_font_px": item.bubble1._label.font().pixelSize(),
-                    "bubble_scale": item.bubble1.scale(),
                     "overrides": dict(getattr(item, "_display_overrides", {})),
                 }
 
@@ -1130,23 +1112,6 @@ class DisplayManager(QDialog):
                 item.setVisible(snap["visible"])
                 item.setOpacity(snap["opacity"])
                 item._grid_color = QColor(snap["grid_color"])
-                for bubble in (item.bubble1, item.bubble2):
-                    bp = bubble.pen()
-                    bp.setColor(QColor(snap["bubble_pen"]))
-                    bubble.setPen(bp)
-                item.bubble1.setBrush(QBrush(QColor(snap["bubble_brush"])))
-                item.bubble2.setBrush(QBrush(QColor(snap["bubble_brush"])))
-                item.bubble1._label.setDefaultTextColor(QColor(snap["label_color"]))
-                item.bubble2._label.setDefaultTextColor(QColor(snap["label_color"]))
-                if "bubble_font_px" in snap and snap["bubble_font_px"] > 0:
-                    for bubble in (item.bubble1, item.bubble2):
-                        f = bubble._label.font()
-                        f.setPixelSize(snap["bubble_font_px"])
-                        bubble._label.setFont(f)
-                        bubble._center_label()
-                if "bubble_scale" in snap:
-                    item.bubble1.setScale(snap["bubble_scale"])
-                    item.bubble2.setScale(snap["bubble_scale"])
                 item._display_overrides = snap.get("overrides", {})
                 continue
 
@@ -1325,7 +1290,7 @@ class DisplayManager(QDialog):
         # --- color, fill, font (type-specific) ---
         if isinstance(item, GridlineItem):
             color = item._grid_color.name()
-            fill = item.bubble1.brush().color().name()
+            fill = None
             font = None
         elif isinstance(item, Pipe):
             color = _fill_or(getattr(item, "_display_color", None),

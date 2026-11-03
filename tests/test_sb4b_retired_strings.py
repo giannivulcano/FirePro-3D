@@ -6,7 +6,6 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
 
 
-@pytest.mark.xfail(strict=True, reason="Tasks 5-6")
 def test_gridline_retired_strings_are_gone():
     src = (ROOT / "gridline.py").read_text(encoding="utf-8")
     for s in ("class GridBubble", "RADIUS_PX", "enter_paper_mode", "exit_paper_mode",

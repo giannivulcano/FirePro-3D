@@ -366,14 +366,17 @@ def test_dm_no_fill_persists_and_is_not_inherit(qapp, monkeypatch):
     _pick_returns(monkeypatch, "")
     dm = DisplayManager(ms)
     try:
-        dm._pick_category_prop("Grid Line", "fill")
+        dm._pick_category_prop("Room", "fill")
         dm.accept()
     finally:
         _dispose(dm)
+    # Grid Line has no Fill column since SB4b D11 (the bubble is a block)
+    from firepro3d.display_manager import _category_has_fill
+    assert not _category_has_fill("Grid Line")
     # persisted as "" and read back as "" -- never the factory fill (inherit)
-    assert _read_category_from_settings("Grid Line")["fill"] == ""
-    assert _CATEGORY_MAP["Grid Line"]["fill"] not in ("", None)
-    QSettings("GV", "FirePro3D").remove("display/Grid Line/fill")
+    assert _read_category_from_settings("Room")["fill"] == ""
+    assert _CATEGORY_MAP["Room"]["fill"] not in ("", None)
+    QSettings("GV", "FirePro3D").remove("display/Room/fill")
 
 
 def test_dm_instance_state_no_fill_vs_unset(qapp):
