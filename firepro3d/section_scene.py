@@ -834,6 +834,19 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         scene it is handed)."""
         return getattr(self._ms, "block_registry", None)
 
+    def annotation_block(self, category: str, mapped: str | None = None):
+        """The ``BlockDefinition`` that draws *category*'s intrinsic label in
+        this scene: forwarded to the model scene's resolver (SB4c D1;
+        ``Model_Space.annotation_block``, system-blocks.md section 3), so a
+        ``BoundLabelItem`` here -- an elevation gridline bubble, a datum head
+        -- draws the project's block. None when the model scene is gone
+        (a queued paint during teardown)."""
+        fn = getattr(self._ms, "annotation_block", None)
+        try:
+            return fn(category, mapped) if fn is not None else None
+        except RuntimeError:          # model scene deleted under a queued paint
+            return None
+
     def __init__(self, marker, model_space: "Model_Space",
                  level_manager: "LevelManager", scale_manager: "ScaleManager",
                  parent=None):

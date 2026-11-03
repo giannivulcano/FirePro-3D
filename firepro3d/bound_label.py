@@ -172,8 +172,11 @@ class BoundLabelItem(QGraphicsItem):
         (``element_params.host_values`` evaluates only those getters and returns only
         those keys); None = every key of the category."""
         h = self._host
-        if (h is None or not element_params.is_live(h)
-                or element_params.category_of(h) != self._category):
+        try:
+            dead = h is None or not element_params.is_live(h)
+        except RuntimeError:          # cross-scene host's C++ object gone first (SB4c D1)
+            return None
+        if dead or element_params.category_of(h) != self._category:
             return None
         return element_params.host_values(h, keys)
 

@@ -83,3 +83,49 @@ def test_d1_outlined_label_base_has_no_overlays_and_gridline_bubble_extends_it(q
     ms.addItem(holder)
     b = GridlineBubble(gl, parent=holder)
     assert b.parentItem() is holder and b.host is gl and b.category == "Gridline"
+
+
+def _static_width(label):
+    """Width of the union of *label*'s painted non-text ops at its own k
+    (the ops ``BoundLabelItem.paint`` hands ``paint_ops``)."""
+    st = label._state()
+    r = QRectF()
+    for op in label._ops(label._k(None, st[0]), st):
+        if op.kind != "text":
+            r = r.united(op.path.boundingRect())
+    return r.width()
+
+
+def test_d1_section_scene_forwards_the_annotation_resolver(qapp, section_scene_for):
+    """A label hosted on a plan gridline but living in a SectionScene draws the
+    project's mapped block at the section canvas k (= the drawing scale)."""
+    from firepro3d.bound_label import BoundLabelItem
+    ms, sec = section_scene_for("north")
+    k = _k(ms)
+    d = _bubble_def(ms)
+    gl = _plan_gridline(ms)
+    assert sec.annotation_block("Gridline") is d
+    lab = BoundLabelItem(gl, child=False)
+    sec.addItem(lab)
+    assert lab.definition() is d
+    assert _static_width(lab) == pytest.approx(2 * CIRCLE_R * k, abs=0.1 * k)
+
+
+def test_d1_cross_scene_host_deleted_first_reads_as_dead_not_a_raise(qapp, section_scene_for):
+    """The data host now lives in ANOTHER scene than the label: when the plan
+    gridline's C++ object is gone first (teardown order, undo restore), the
+    label's host read must return None (placeholders, E9) -- a RuntimeError
+    raised inside a Qt virtual (boundingRect / shape) is a native abort."""
+    from PyQt6 import sip
+    from firepro3d.bound_label import BoundLabelItem
+    ms, sec = section_scene_for("north")
+    _bubble_def(ms)
+    gl = _plan_gridline(ms)
+    lab = BoundLabelItem(gl, child=False)
+    sec.addItem(lab)
+    ms._gridlines.remove(gl)
+    ms.removeItem(gl)
+    sip.delete(gl)
+    assert lab.host_values() is None
+    lab.refresh()
+    lab.boundingRect()                    # must not raise
