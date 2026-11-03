@@ -336,10 +336,11 @@ def test_g7_tag_pick_is_one_undo_step_and_round_trips(qapp):
     assert rec["tag_block"] == other.id
     gl2 = GridlineItem.from_dict(rec)
     assert gl2.tag_block == other.id
+    n = len(ms._undo_stack)
+    gl.set_property("Tag", "< mixed >")                   # no-op: keeps the pick, no undo step
+    assert gl.tag_block == other.id and len(ms._undo_stack) == n
     gl._tag_block = None
     assert "tag_block" not in gl.to_dict()                # sparse
-    gl.set_property("Tag", "< mixed >")                   # no-op
-    assert gl.tag_block is None
     ms.undo()
     assert ms._gridlines[0].tag_block is None              # SB3b pattern: undo rebuilds from records
 
@@ -358,8 +359,58 @@ def test_g7_missing_tag_block_falls_back_with_one_notice(qapp):
     ms = _scene()
     d = _bubble_def(ms)
     gl = _gridline(ms)
+    notices = []
+    ms._show_status = lambda msg, timeout=5000: notices.append(msg)   # test_sb3b_room_tag_style recipe
     gl._tag_block = "no-such-block"
     gl._tag_changed()
-    assert gl.bubble1.definition() is d
+    assert gl.bubble1.definition() is d and gl.bubble2.definition() is d
+    gl._tag_changed()                                   # both ends, twice: still one notice
+    assert len(notices) == 1 and "no-such-block" in notices[0], notices
+    assert gl.tag_block == "no-such-block"              # the gridline keeps its id
     row = gl.get_properties()["Tag"]
     assert "(missing)" in row["value"]
+
+
+def _post_hover_click(view, scene_pt, ctrl=False):
+    """tests/test_ctrl_click_universal.py recipe (T1 probe): a sent MouseMove so
+    HALO resolves the item under the cursor, then a sent press + release."""
+    from PyQt6.QtCore import QEvent, Qt
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtWidgets import QApplication
+    vp = QPointF(view.mapFromScene(scene_pt))
+    none = Qt.KeyboardModifier.NoModifier
+    QApplication.sendEvent(view.viewport(), QMouseEvent(
+        QEvent.Type.MouseMove, vp, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, none))
+    mods = Qt.KeyboardModifier.ControlModifier if ctrl else none
+    for t in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+        QApplication.sendEvent(view.viewport(), QMouseEvent(
+            t, vp, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods))
+    QApplication.processEvents()
+
+
+def test_g8_bubble_click_selects_and_ctrl_click_toggles_through_a_shown_view(qapp, shown_model_view):
+    view, ms = shown_model_view
+    ms.set_mode(None)
+    _bubble_def(ms)
+    gl = _gridline(ms, (500.0, 0.0), (500.0, 5000.0), label="A")
+    view.centerOn(gl.bubble1.scenePos())
+    qapp.processEvents()
+    centre = gl.bubble1.scenePos()                 # bubble centre: inside the circle, past the trimmed line
+    _post_hover_click(view, centre)
+    assert ms.halo_item() is gl, "HALO resolves the bubble to its gridline"
+    assert gl.isSelected()
+    _post_hover_click(view, centre, ctrl=True)
+    assert not gl.isSelected()
+    _post_hover_click(view, centre, ctrl=True)
+    assert gl.isSelected()
+
+
+def test_g9_legacy_gridline_record_loads_with_blocks(qapp):
+    ms = _scene()
+    _bubble_def(ms)
+    rec = {"p1": [0.0, 0.0], "p2": [0.0, 4000.0], "label": "3", "bubble_start": True,
+           "bubble_end": False, "locked": True}
+    gl = GridlineItem.from_dict(rec)
+    ms.addItem(gl); ms._gridlines.append(gl)
+    assert gl.grid_label == "3" and gl.locked and gl.bubble1.isVisible() and not gl.bubble2.isVisible()
+    assert gl.tag_block is None and gl.bubble1.paints()
