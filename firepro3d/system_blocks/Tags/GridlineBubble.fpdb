@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "id": "system-tags-gridlinebubble",
+  "version": 2,
+  "name": "GridlineBubble",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [
+    {
+      "key": "Mark",
+      "label": "Mark",
+      "type": "text",
+      "source": "host",
+      "host_key": "Mark",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "-"
+    }
+  ],
+  "host_category": "Gridline",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": -1.9326762412674725e-12,
+      "cy": 7.063016838060321e-12,
+      "radius": 5.0,
+      "uid": "b19529e338bd455d95fed8248407fc53",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    },
+    {
+      "type": "text",
+      "text": "@[Mark]",
+      "x": -9.049286291409853,
+      "y": -5.783438888882826,
+      "height_mm": 3.151859982638889,
+      "wrap_width_mm": 18.09857258281713,
+      "box_height_mm": 11.566877777777776,
+      "font_family": "Consolas",
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "96a63914a0f84a179478a6be016f398d"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "b768a99a54bd4262b19b5812b26e3a84",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "96a63914a0f84a179478a6be016f398d",
+          "h": "center"
+        },
+        {
+          "uid": "b19529e338bd455d95fed8248407fc53",
+          "h": "center"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "9ce23393078545f484f0675e3289e6e9",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "96a63914a0f84a179478a6be016f398d",
+          "h": "center"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "d3c231489ce54fc18a6bb70f1c965db3",
+      "type": "dim_diameter",
+      "refs": [
+        {
+          "uid": "b19529e338bd455d95fed8248407fc53",
+          "h": "curve"
+        }
+      ],
+      "value": 10.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "angle": 55.981680507869456
+      }
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "base_version": 2,
+  "colour_tokens": 1,
+  "weights": {
+    "Thinner": 0.25
+  }
+}

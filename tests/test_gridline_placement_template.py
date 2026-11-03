@@ -102,7 +102,7 @@ class TestTemplateGetProperties:
         ms = make_model_space()
         tmpl = ms._get_gridline_template()
         props = tmpl.get_properties()  # returns a dict keyed by name
-        geometric = {"Origin X", "Origin Y", "Length", "Angle", "End X", "End Y", "Label"}
+        geometric = {"Origin X", "Origin Y", "Length", "Angle", "End X", "End Y", "Mark"}
         overlap = geometric & set(props.keys())
         assert not overlap, (
             f"Template get_properties() should omit geometric rows; found: {overlap}"
@@ -137,12 +137,12 @@ class TestTemplateGetProperties:
         """Non-template gridlines must still return the full property set."""
         gl = GridlineItem(QPointF(0, 0), QPointF(0, 1000))
         props = gl.get_properties()
-        expected = {"Label", "Origin X", "Origin Y", "Length", "Angle",
+        expected = {"Mark", "Origin X", "Origin Y", "Length", "Angle",
                     "End X", "End Y",
                     "Bubble 1", "Bubble 1 Offset", "Bubble 2", "Bubble 2 Offset",
-                    "Locked"}
+                    "Tag", "Locked"}                      # SB4b D9: per-gridline Tag row
         assert expected == set(props.keys()), (
-            "Non-template get_properties() should be unchanged"
+            "Non-template get_properties() should be the full set (plus Tag)"
         )
 
 

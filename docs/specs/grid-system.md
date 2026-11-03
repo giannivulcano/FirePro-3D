@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-10-30  # per-view datum design Account: s8.3 pointer to view-relationships s7.5 only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: 53594a64   # per-view datum design (docs only, s8.3); prior d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-11-03  # SB4b Account: s3.5, s4.1, s4.2 (rewritten: GridlineBubble), s4.3 lock, s4.4 tag_block, s6.4, s7 Mark/Tag rows, s10.1 / s10.2, s11, s14, s17.6 / s17.7 re-audited against 7b6e90fc; prior 2026-10-30  # per-view datum design Account: s8.3 pointer to view-relationships s7.5 only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: 7b6e90fc   # SB4b merge on main; prior 53594a64   # per-view datum design (docs only, s8.3); prior d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -11,6 +11,8 @@ applies-to:
   - firepro3d/scene_io.py
   - firepro3d/constants.py
   - firepro3d/align_engine.py
+  - firepro3d/display_manager.py   # Grid Line row (SB4b: line tint only)
+  - firepro3d/system_blocks/Tags/GridlineBubble.fpdb
   - main.py
 ---
 
@@ -50,7 +52,7 @@ Gridlines support arbitrary angles (not just cardinal); the angle is a first-cla
 ### 3.5 Cross-References
 
 - **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules. Snap reads `line()`, which the parametric model keeps in sync.
-- **Paper space:** True-scale bubble rendering through sheet viewports is defined in `docs/specs/paper-space.md` §9.9.1 (label height is the fixed printed constant `GRIDLINE_BUBBLE_PAPER_CAP_MM`, no longer a Grid Line paper-category setting; there is no per-item property). See §10.2.
+- **Paper space:** Paper rendering is defined in `docs/specs/paper-space.md` §9.9.1: the gridline LINE gets the paper weight + paper-mm dash, and each plan bubble prints through the one annotative path (`_apply_block`) at its authored size — there is no per-item or per-category bubble-size setting. (`GRIDLINE_BUBBLE_PAPER_CAP_MM` now sizes only the elevation / section bubble.) See §10.2.
 - **Theming:** Selection-grip style is the selection manipulator's (theme `selection` tokens — `selection-manipulator.md`; tokens in `docs/architecture/theming.md`). See §5 / §14.
 - **Constants:** Grid constant *values* live in `firepro3d/constants.py` (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors). This spec names them, not their values (Rule A).
 
@@ -67,14 +69,14 @@ Gridlines support arbitrary angles (not just cardinal); the angle is a first-cla
 | `_angle_deg` | `float` | (derived at ctor) | 0–360°, Y-up (0°=East, CCW+) |
 | `_bubble1_offset` | `float` | `GRIDLINE_BUBBLE_OFFSET_MM` | Absolute along-axis outward standoff at the origin end (mm) |
 | `_bubble2_offset` | `float` | `GRIDLINE_BUBBLE_OFFSET_MM` | Absolute along-axis outward standoff at the far end (mm) |
-| `_label_text` | `str` | auto-assigned | Shared by both bubbles |
+| `_label_text` | `str` | auto-assigned | The gridline's Mark; shared by both bubbles (`.fpd` key `label`) |
 | `_locked` | `bool` | `False` | Prevents grip drag, body drag, panel geometry edit; fixed in a constraint solve (spacing-dim edits move the other side) |
 | `_display_overrides` | `dict` | `{}` | Per-instance display overrides |
-| `_display_scale` | `float` | `1.0` | Bubble scale factor (from Display Manager) |
-| `_grid_color` | `QColor` | `GRID_COLOR` (#4488cc) | Line + bubble border color |
+| `_tag_block` | `str` or `None` | `None` | The block id drawing both bubbles; `None` = the project default (`TagBlockHost`, §4.2) |
+| `_grid_color` | `QColor` | `GRID_COLOR` (#4488cc) | Line colour (and the selection ring's base); the bubble block keeps its authored colours |
 | `_paper_*` (4) | — | — | Write-together paper-pass state (owned by `paper_display`, §10.2) |
 
-Per-end bubble **visibility** is stored on the `GridBubble` child items (`isVisible()`), not as separate `GridlineItem` flags.
+Per-end bubble **visibility** is stored on the `GridlineBubble` child items (`isVisible()`), not as separate `GridlineItem` flags.
 
 **Derived (never stored):** `line()` p1/p2, bubble/grip/lock positions — all written only by `_rebuild_geometry()`:
 
@@ -87,18 +89,21 @@ bubble2 at  p2 + _bubble2_offset · û
 reposition grips + lock indicator
 ```
 
-**Removed fields:** `_p1`/`_p2` explicit endpoints (now derived); `level` (gridlines are level-independent); `_user_layer` (layer system removed); `paper_height_mm` (retired 2026-08-08 — bubble label height is a fixed printed constant, paper-space §9.9.1).
+**Removed fields:** `_p1`/`_p2` explicit endpoints (now derived); `level` (gridlines are level-independent); `_user_layer` (layer system removed); `paper_height_mm` (retired 2026-08-08 — the bubble's printed size is its block's authored size, paper-space §9.9.1).
 
-**Retired concept:** the length-proportional bubble overshoot (`GRIDLINE_BUBBLE_OVERSHOOT_FRAC`) is gone. `line()` is the *clicked span* (origin→far); bubbles stand off by explicit absolute per-end offsets (default `GRIDLINE_BUBBLE_OFFSET_MM`, `constants.py`). `paint()` draws from the offset bubble edge, shortened so the line meets each visible bubble.
+**Retired concept:** the length-proportional bubble overshoot (`GRIDLINE_BUBBLE_OVERSHOOT_FRAC`) is gone. `line()` is the *clicked span* (origin→far); bubbles stand off by explicit absolute per-end offsets (default `GRIDLINE_BUBBLE_OFFSET_MM`, `constants.py`). `paint()` draws between the offset bubbles, trimmed so the line meets each visible bubble's block outline (§4.2).
 
-### 4.2 `GridBubble` (Child)
+### 4.2 `GridlineBubble` (Child; a System annotation block, SB4b 2026-11-03)
 
-`QGraphicsEllipseItem` with `ItemIgnoresTransformations` — constant screen size during model-space editing. Two instances per gridline, positioned by `_rebuild_geometry()` at each endpoint standoff.
+`GridlineBubble(BoundLabelItem)` — each plan end is drawn by the user-designable annotation block mapped for category `Gridline` (default `system-tags-gridlinebubble`, host field `Mark`), annotative like the room tag and pipe label: it scales with zoom on screen and prints at its authored size. The block contract (label seam, resolver + fallback, Tag row, Gridline section) is owned by [`system-blocks.md`](system-blocks.md) (Rule A); this section keeps the gridline-side behaviour. Two instances per gridline (`bubble1` / `bubble2`, children of the gridline: visibility, opacity and z cascade from it), positioned by `_rebuild_geometry()` at each endpoint standoff (`set_anchor`); **never rotated** — the bubble stays upright on an angled gridline.
 
-- Centered label text (Consolas, bold, pixel-size scaled to bubble radius)
-- Click on bubble selects parent gridline; Ctrl+Click toggles selection
-- Duplicate-label warning: bubble border color changes to orange (`#ff8800`) when the label matches another gridline in the scene. **Border width is unchanged** by the warning. Clears automatically when resolved.
-- `enter_paper_mode()` / `exit_paper_mode()` swap to scene-unit geometry for the paper render pass (§10.2, paper-space §9.9.1).
+- **Content.** The block's `@[Mark]` text — the gridline's `_label_text`. A blank label keeps the block's static geometry (`system_blocks.PAINT_WHEN_BLANK`), so an unlabelled gridline still shows its empty circle and the line still stops at it.
+- **Line trim.** `outline_path()` (the union of the closed subpaths of the block's static ops at the current annotative factor; text ignored; the placeholder box or the bounds rect as fallback) and `trim_distance(ux, uy)` (distance from the block origin along the axis to where it leaves the outline); `paint` and `drawn_endpoints()` stop the line at each visible bubble's outline, on screen and on paper.
+- **Hit and HALO.** `shape()` = the stroked line plus both visible outlines, so a press on a bubble selects the gridline (Ctrl+Click toggles it through the scene's ordinary path); `halo_trace_path` = the trimmed line plus both outlines, `halo_area_path` = the outlines (a cursor inside a bubble is a direct hit). Nothing is screen-fixed, so no `scene_scale` is read.
+- **Overlays (screen only, never on paper).** `overlay_pens()`: a selected gridline strokes the outline in `_grid_color.lighter(150)` (cosmetic 2 px); a duplicate label strokes it orange (`#ff8800`, cosmetic 2 px, drawn last). Both are skipped while `_paper_render`. The duplicate flag is `set_duplicate` (via `update_duplicate_warning`); resolving the duplicate clears it.
+- **Tag row.** `GridlineItem` mixes in `TagBlockHost` (`_TAG_CATEGORY = "Gridline"`); a "Tag" row sits under Bubble 2 Offset (not on the placement template, §17.7), both ends share the mapped block. Mechanism: `system-blocks.md` (Tag row).
+- **Shipped seed** `firepro3d/system_blocks/Tags/GridlineBubble.fpdb`: a 10 mm circle with centre / diameter constraints and a centred, Shrink-to-fit `@[Mark]` text (Consolas bold), Mark placeholder `-` (so a blank Mark, reachable only from an old file or Renumber, shows `-`).
+- **Retired:** `GridBubble`, `RADIUS_PX`, `enter_paper_mode()` / `exit_paper_mode()`, the paper-mode geometry swap, the screen-fixed (`ItemIgnoresTransformations`) bubble, and the gridline's `_display_scale`. The *elevation / section* bubble (`section_scene._ElevBubble`) is unchanged here (SB4c).
 
 ### 4.3 Grips (manipulator-owned since U3, 2026-09-10)
 
@@ -118,11 +123,11 @@ no longer render via `_PullTabGrip`/`drawForeground`, and `_find_grip_hit` skips
 the gridline (coexistence gate `_item_uses_manip_handles`). The edit math
 (`apply_grip`, §5.2 / §5.7) is unchanged.
 
-A `_LockIndicator` padlock child renders beside the origin bubble when the gridline is selected; clicking it toggles `_locked` and nudges `manipulator.rebake()` so grip visibility re-evaluates immediately.
+A `_LockIndicator` padlock child renders beside the origin bubble (offset past that bubble's outline half-extent along the perpendicular, plus a fixed screen gap) when the gridline is selected; clicking it toggles `_locked` and nudges `manipulator.rebake()` so grip visibility re-evaluates immediately.
 
 ### 4.4 Serialization Format
 
-`to_dict` emits the parametric format (`display_overrides` written only when non-empty):
+`to_dict` emits the parametric format (`display_overrides` and `tag_block` written only when non-empty / set):
 
 ```json
 {
@@ -136,11 +141,12 @@ A `_LockIndicator` padlock child renders beside the origin bubble when the gridl
     "label": "1",
     "locked": false,
     "uid": "<32-hex>",
-    "display_overrides": {}
+    "display_overrides": {},
+    "tag_block": "<block id>"
 }
 ```
 
-`uid` is the stable gridline identity (s18); a file without one gets a fresh uid on load. `from_dict` reads this parametric format and **migrates legacy formats** — see §9.2. Both serialization paths (`scene_io.py` file I/O and `model_space._capture_network` / `_restore_network` undo) delegate to these class methods; there is one serializer, not two hand-written copies.
+`uid` is the stable gridline identity (s18); a file without one gets a fresh uid on load. `tag_block` (SB4b) is sparse — written only when the gridline pins a block; a missing / non-string / empty value reads as `None` (follow the project default); no `SAVE_VERSION` bump, and `_clone_parallel` (offset / array) carries it. `from_dict` reads this parametric format and **migrates legacy formats** — see §9.2. Both serialization paths (`scene_io.py` file I/O and `model_space._capture_network` / `_restore_network` undo) delegate to these class methods; there is one serializer, not two hand-written copies.
 
 ## 5. Movement & Interaction
 
@@ -230,7 +236,7 @@ Sync logic:
 
 After any label change (Properties-panel relabel, auto-assign at placement, load, undo/redo) `apply_duplicate_warnings` scans for duplicates. Gridlines with duplicate labels display a visual warning:
 
-- Bubble border color changes to orange (`#ff8800`); the border **width is unchanged**
+- An orange (`#ff8800`) ring is stroked round both bubbles' outlines (screen only, never on paper; §4.2)
 - Detection is `check_duplicate_labels`, which routes through `marks.duplicate_groups` (exact match; a blank label is never a duplicate) — the same rule element Marks use (`element-parameters.md` "Marks (SB2b)")
 - Warning is informational only — does not block any operation
 - Clears automatically when the duplicate is resolved (rename or delete)
@@ -246,7 +252,7 @@ Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line
 - **1st click** = origin; **2nd click** = length + angle
 - **Ctrl** = angle-constrain; **Tab** = exact length + angle dynamic input
 - `single_place_mode` returns to select mode after one placement; otherwise it loops
-- On placement the factory syncs auto-number counters *before* construction (§6.3), calls `apply_category_defaults` (adopts the live Display Manager "Grid Line" color/scale), appends to `_gridlines`, selects the item, emits `requestPropertyUpdate`, then re-syncs counters and re-runs duplicate warnings
+- On placement the factory syncs auto-number counters *before* construction (§6.3), calls `apply_category_defaults` (adopts the live Display Manager "Grid Line" colour, opacity and visibility; the row's Fill / Scale are retired and ignored, §10.1), appends to `_gridlines`, selects the item, emits `requestPropertyUpdate`, then re-syncs counters and re-runs duplicate warnings
 - **Auto Constrain** (2026-10-28): the commit then adds the gridline's H / V and spacing dims (§5.4) before its undo push, so gridline + records undo together
 
 The **Draw-tab ribbon "Gridline" button** (a checkable mode button in the Geometry group, `main.py`) sets `draw_gridline`. The default 3+3 seed is `place_grid_lines`, called by `_place_default_gridlines`, which then auto-constrains it and ties 1 / A to the origin (§5.4 pointer, GA3).
@@ -257,7 +263,7 @@ The **Draw-tab ribbon "Gridline" button** (a checkable mode button in the Geomet
 
 | Row | Type | `set_property` effect |
 |-----|------|-----------------------|
-| Label | string | relabel + duplicate re-scan |
+| Mark | string | relabel + duplicate re-scan. The row is named Mark (it was Label until SB4b; the `.fpd` key stays `label`), so the Properties panel's Mark rules apply: a blank Mark is refused ("gridlines need a Mark"; the value reverts with a status message) and a duplicate Mark flags the row (warn state + count tooltip) in addition to the orange ring (`element-parameters.md` "Marks (SB2b)") |
 | Origin X | dimension (mm) | set `_origin.x()` → **whole line translates** |
 | Origin Y | dimension (mm) | set `_origin.y()` → **whole line translates** |
 | Length | dimension (mm, min 1.0) | set `_length`, origin fixed |
@@ -265,6 +271,7 @@ The **Draw-tab ribbon "Gridline" button** (a checkable mode button in the Geomet
 | End X / End Y | label (read-only) | derived far endpoint, informational |
 | Bubble 1 / Bubble 2 | enum (Visible/Hidden) | toggle that bubble's visibility |
 | Bubble 1 Offset / Bubble 2 Offset | dimension (mm, min 0.0) | set `_bubbleN_offset` |
+| Tag | enum | the block drawing both bubbles ("Project default (<name>)" or a choice; `TagBlockHost`, one undo step, `< mixed >` a no-op — `system-blocks.md`) |
 | Locked | enum (True/False) | set `_locked` |
 
 **Y is displayed up-positive.** The scene stays Qt down-positive; Origin Y and End Y are **negated** for display and re-negated on parse, so a value typed as "up" reads/writes correctly. Negative-zero is normalized to 0 for both Origin and End coordinates.
@@ -352,13 +359,11 @@ Single category: **"Grid Line"**
 
 | Property | Default | Applies to |
 |----------|---------|-----------|
-| `color` | `#4488cc` | Line pen, bubble border |
-| `fill` | `#1a1a2e` | Bubble fill |
+| `color` | `#4488cc` | Line pen (the bubble block keeps its authored colours) |
 | `opacity` | `100` | Entire item (0–100%) |
-| `scale` | `1.0` | Bubble radius multiplier |
 | `visible` | `True` | Show/hide all gridlines |
 
-Per-instance overrides via `_display_overrides` take precedence over category defaults.
+The row has no Fill (`fill: None`) and no Scale column (`"Grid Line"` is in `_NO_SCALE_CATEGORIES`; `_apply_gridline` tints the line colour + opacity + visibility only and ignores the fill / scale / font arguments); a saved Fill / Scale value is ignored. Per-instance overrides via `_display_overrides` take precedence over category defaults.
 
 ### 10.1.1 Dash-Dot Linetype
 
@@ -367,16 +372,16 @@ The gridline renders as a **dash-dot** line. The line pen is non-cosmetic (width
 - **On screen (model-absolute):** the dash pattern is a **fixed model-mm** pattern that scales with zoom like a CAD/Revit model linetype — bold at working zoom, thinning toward solid only at extreme zoom-out. Constants `_DASH_MODEL_MM`/`_GAP_MODEL_MM`/`_DOT_MODEL_MM` (`gridline.py`). The line **weight** stays a screen constant (~`GRID_WIDTH` px).
 - **On paper (paper-mm):** the dash pattern is a **fixed on-paper mm** pattern (`_DASH_MM`/`_GAP_MM`/`_DOT_MM`), normalized by the on-paper line width (`_paper_line_w_mm`) so — because pen width and pattern both ride the viewport scale — the on-paper dash resolves to the fixed mm regardless of viewport scale, and a PDF reads as dash-dot at any DPI.
 
-The **selection highlight** and the **duplicate-warning** recolor never change line/border width (dup warning recolors the bubble border only; §6.4).
+The **selection highlight** never changes the line width; the **duplicate warning** is an orange ring round the bubble outline, not a line recolour (§4.2, §6.4).
 
 ### 10.2 Paper Space Bridge [as-built 2026-08-08]
 
 Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for the render-pass contract). Grid-system-side summary:
 
-- **Model-space editing:** unchanged — bubbles stay `ItemIgnoresTransformations`, fixed screen size, always readable. (The thin-lines WYSIWYG-preview toggle is deferred.)
-- **Sheet view rendering:** bubbles render at a true paper size derived from the fixed printed cap height `GRIDLINE_BUBBLE_PAPER_CAP_MM` (3.0 mm; the Grid Line `bubble_label_height_mm` key and "Label Ht" column are retired by SB1c, see [the SB1c design](../superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md)); the category line weight drives both the gridline line and the bubble border on paper.
+- **Model-space editing:** the bubble block is annotative — it scales with zoom (screen size = printed mm × drawing scale), upright, always readable (§4.2). (The thin-lines WYSIWYG-preview toggle is deferred.)
+- **Sheet view rendering:** each visible plan bubble prints at its block's authored size (annotative, `paper_display._apply_block`, as room tags and pipe labels); the category line weight drives the gridline line and the block's strokes. The Grid Line `bubble_label_height_mm` key and "Label Ht" column are retired (SB1c, see [the SB1c design](../superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md)).
 - **Retired:** the per-item `GridlineItem.paper_height_mm` field. `to_dict` stops writing it; `from_dict` ignores the legacy key. Sizing is uniform per category (grill decision 2026-08-07).
-- Selection ring, manipulator grips, lock indicator, and the duplicate-label warning color never plot.
+- Selection ring, manipulator grips, lock indicator, and the duplicate-label ring never plot.
 - **Elevation / section gridlines (2026-10-22):** `ElevGridlineItem` plots through the same "Grid Line" paper row as the plan gridline, with parity in weight, paper-mm dash-dot, colour (B&W / Custom) and true-scale bubble size; `ElevDatumItem` plots through the "Level Datum" row (visibility, opacity, weight, dash, colour/fill). Mechanism owned by `paper-space.md` §9.9.1 (Rule A).
 
 ## 11. Design Decisions
@@ -461,7 +466,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 
 ### 11.10 Duplicate labels — warn but allow
 
-**Chosen:** Visual warning (orange bubble border), no enforcement.
+**Chosen:** Visual warning (orange ring round the bubble outline), no enforcement.
 **Rationale:** Strict enforcement creates frustrating UX during batch relabeling (rename A→temp before renaming B→A). Duplicates are almost always mistakes, so the visual cue is sufficient.
 
 ## 12. Acceptance Criteria
@@ -474,14 +479,14 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [x] Perpendicular body drag with directional constraint (fixed-sign normal)
 - [x] On-canvas placement via `draw_gridline` mode, mirroring the Line tool (1st click origin, 2nd click length+angle, Ctrl-constrain, Tab exact input, single-place)
 - [x] Draw-tab ribbon "Gridline" button sets `draw_gridline`; modal Grid Lines dialog removed
-- [x] Properties-panel editing: Origin X/Y translate whole line, Length (origin fixed), Angle (rotate about origin), Bubble visible/offset, Label, Locked; End X/Y read-only; each geometry/offset commit = one undo step
+- [x] Properties-panel editing: Origin X/Y translate whole line, Length (origin fixed), Angle (rotate about origin), Bubble visible/offset, Mark (was Label), Tag, Locked; End X/Y read-only; each geometry/offset commit = one undo step
 - [x] Origin Y / End Y displayed and parsed up-positive; negative-zero normalized to 0
-- [x] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (label height now a fixed constant, SB1c; per-item `paper_height_mm` retired) — built 2026-08-08
+- [x] Paper-space bridge: bubbles print through sheet viewports per §10.2 / paper-space §9.9.1 (built 2026-08-08; since SB4b the plan bubble prints at its block's authored size through `_apply_block`; per-item `paper_height_mm` retired)
 - [x] Angled gridlines supported as first-class (stored angle)
 - [x] Section views draw a gridline where it crosses the cut line; parallel gridlines hidden (angled projection, 872 — owned by `section-view-subsystem.md` §4.1)
 - [x] Auto-numbering counters sync to max existing label on load/undo/before each on-canvas placement
 - [x] Auto-labeling: vertical (dy>=dx) → numbers, horizontal → letters (matches default seed)
-- [x] Duplicate labels produce visual warning (orange bubble border, width unchanged), not enforcement
+- [x] Duplicate labels produce visual warning (orange ring round the bubble outline, screen only), not enforcement
 - [x] Grip drag extends/shortens along line (opposite end fixed); body drag constrained perpendicular
 - [x] Bubble standoff is an editable absolute per-end offset (default `GRIDLINE_BUBBLE_OFFSET_MM`); fractional overshoot retired
 - [x] Gridlines render as legible dash-dot (model-absolute on screen, paper-mm on paper — no apparent-solid)
@@ -523,14 +528,14 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 
 | File | Role |
 |------|------|
-| `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property`; `alignment_reference_points()`; `offset_copy()`/`array_copies()` copy factories; `_is_template` placement-template flag |
+| `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridlineBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property`; `alignment_reference_points()`; `offset_copy()`/`array_copies()` copy factories; `_is_template` placement-template flag |
 | `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, copy / paste auto-join call sites (§5.4), body drag, `place_grid_lines` seed, both undo serialization paths; `gridline_offset`/`gridline_array` transient modes; `_collect_alignment_refs`; `get_effective_position` inference hook; `_get_gridline_template()` |
 | `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
 | `firepro3d/model_view.py` | Double-click-to-select gridline; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost. Grip render is manipulator-owned since U3 (§4.3) — the `drawForeground` legacy grip loop skips the migrated gridline. |
 | `firepro3d/scene_tools.py` | `_find_grip_hit` grip hit-test (honors `grip_hittable`); shared with all grip-bearing items — **skips** the U3-migrated gridline (`_item_uses_manip_handles`). |
 | `firepro3d/manip_handle.py` | `GridlineGripHandle` — the gridline's live-apply grip (parallel-delta on all grips + endpoint Ctrl-constrain + sibling Esc-restore); see `selection-manipulator.md §"U3 — GripHandle"`. |
 | `firepro3d/align_engine.py` | `AlignEngine`, `ReferenceFeature`, `Guide`, `AlignResult` — entity-agnostic; owned by `Model_Space` |
-| `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
+| `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` paper weight + dash-dot paper geometry for the line; bubbles through `_apply_block` (§10.2) |
 | `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
 | `firepro3d/section_scene.py` | Section / elevation projection + `ElevGridlineItem` (crossing filter, Z-overrides) |
 | `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors, `ALIGN_PATH_TOL_PX`, `ALIGN_GUIDE_COLOR`, `ALIGN_GUIDE_DASH`, `ALIGN_GLYPH_PX`) |
@@ -590,7 +595,7 @@ Creates **N** parallel copies at successive multiples of a signed spacing. Defau
 
 ### 17.4 Copy Geometry
 
-Copies are **rigid parallel translations**: same `_angle_deg` and `_length`, `_origin` shifted perpendicular by `n × spacing` using the gridline's fixed-sign `_perpendicular_vector()` (§5.3). Inherited: bubble offsets, bubble visibility, display overrides. **Not inherited:** lock (copies always unlocked).
+Copies are **rigid parallel translations**: same `_angle_deg` and `_length`, `_origin` shifted perpendicular by `n × spacing` using the gridline's fixed-sign `_perpendicular_vector()` (§5.3). Inherited: bubble offsets, bubble visibility, display overrides, `tag_block`. **Not inherited:** lock (copies always unlocked).
 
 ### 17.5 Labeling & Commit
 
@@ -602,7 +607,7 @@ Copies are ordinary `GridlineItem` instances. They serialize/round-trip via `Gri
 
 ### 17.7 Placement Template
 
-Entering `draw_gridline` mode emits `requestPropertyUpdate(_get_gridline_template())`. The template is an off-scene `GridlineItem` with `_is_template = True`; its `get_properties()` exposes only non-geometric rows (Bubble 1/2 Offset, Bubble 1/2 Visible, Locked). Placed gridlines adopt the template's bubble/lock settings. The template persists for the session; paste-mode ghost + inference participation is a filed follow-up.
+Entering `draw_gridline` mode emits `requestPropertyUpdate(_get_gridline_template())`. The template is an off-scene `GridlineItem` with `_is_template = True`; its `get_properties()` exposes only non-geometric rows (Bubble 1/2 Offset, Bubble 1/2 Visible, Locked). Placed gridlines adopt the template's bubble/lock settings (the Tag row is not on the template: off-scene it would show only the default). The template persists for the session; paste-mode ghost + inference participation is a filed follow-up.
 
 ### 17.8 Alignment Snapping (Inference)
 

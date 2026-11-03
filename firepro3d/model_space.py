@@ -1857,16 +1857,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.refresh_annotation_tags()
 
     def refresh_annotation_tags(self) -> None:
-        """Re-shape every intrinsic label (room tags, pipe labels): its bounds
+        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles): its bounds
         rect is cached, so a mapping, registry, units or scale change needs
         ``refresh()``."""
         labels = [r._tag for r in list(self._rooms)]
         labels += [p.label for p in list(self.sprinkler_system.pipes)
                    if isinstance(getattr(p, "label", None), BoundLabelItem)]
+        for gl in list(self._gridlines):
+            labels += [gl.bubble1, gl.bubble2]
         for lab in labels:
             try:
                 lab.refresh()
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
+        for gl in list(self._gridlines):  # the trim moves with the block / k (SB4b D13)
+            try:
+                gl.prepareGeometryChange()
+                gl.update()
+            except RuntimeError:
                 pass
 
     def annotation_block(self, category: str, mapped: str | None = None):

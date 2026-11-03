@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QGraphicsItem
 import firepro3d.paper_display as pd
 from firepro3d.constants import GRIDLINE_BUBBLE_LABEL_EM_FRAC, TEXT_METRIC_REF_PX
 from firepro3d.gridline import GridlineItem, bubble_paper_geometry
+from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def
 from firepro3d.paper_display import (
     factory_paper_categories, load_paper_categories, save_paper_categories,
     get_paper_display_for_save, apply_paper_display_from_project)
@@ -91,32 +92,6 @@ class TestPerItemFieldRetired:
         assert not hasattr(gl2, "paper_height_mm")
 
 
-def _full_bubble_state(b):
-    return (QRectF(b.rect()),
-            b._label.font().pixelSize(), b._label.font().family(), b._label.font().bold(),
-            b._label.scale(), b._label.pos().x(), b._label.pos().y(),
-            bool(b.flags() & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations))
-
-
-class TestBubblePaperMode:
-    def test_enter_sets_scene_geometry(self, qapp):
-        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
-        b = gl.bubble1
-        saved = b.enter_paper_mode(radius_scene=476.0, em_scene=428.0)
-        assert not (b.flags() & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
-        assert b.rect() == QRectF(-476.0, -476.0, 952.0, 952.0)
-        assert b._label.scale() == pytest.approx(428.0 / TEXT_METRIC_REF_PX)
-        assert saved  # opaque state dict for exit_paper_mode
-
-    def test_exit_restores_exactly(self, qapp):
-        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
-        b = gl.bubble1
-        before = _full_bubble_state(b)
-        saved = b.enter_paper_mode(radius_scene=476.0, em_scene=428.0)
-        b.exit_paper_mode(saved)
-        assert _full_bubble_state(b) == before
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Render-measurement tests — bubbles true-scale through sheet viewports
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +138,7 @@ def two_scale_sheet(qapp, paper_env):
     from firepro3d.paper_space import Sheet, SheetViewData, PaperScene, ViewResolver
 
     scene = Model_Space()
+    _bubble_def(scene, fill=True)       # the bubble is the mapped Gridline block (SB4b)
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
     # Bubble standoff is orthogonal to the head-size / true-scale checks here;
     # zero it so bubble1 sits at the gridline endpoint (= crop/viewport centre).
@@ -253,9 +229,7 @@ class TestViewportTrueScale:
 
     def test_head_measures_paper_size_at_two_scales(self, two_scale_sheet):
         ts = two_scale_sheet
-        ts.env.cats["Grid Line"]["fill"] = "#000000"  # solid head → run = diameter
-        radius_mm, _ = bubble_paper_geometry(3.0)
-        expected = 2 * radius_mm * PX_PER_MM
+        expected = 2 * CIRCLE_R * PX_PER_MM
         d1 = self._measure_head(ts, _VP1_X + _VP_W / 2, _VP1_Y + _VP_W / 2)
         d2 = self._measure_head(ts, _VP2_X + _VP_W / 2, _VP2_Y + _VP_W / 2)
         assert d1 == pytest.approx(expected, abs=PX_PER_MM)  # ±1mm equivalent
@@ -284,7 +258,7 @@ class TestViewportTrueScale:
         ts.model.addItem(gl2)
         ts.model._gridlines.append(gl2)
         apply_duplicate_warnings(ts.model._gridlines)  # production invocation
-        assert ts.gl.bubble1.pen().color().name() == "#ff8800"  # warning armed
+        assert ts.gl.bubble1._duplicate  # warning armed
         ts.env.mode = pd.PaperColorMode.FULL_COLOR
         img = _render_paper(ts.paper)
         b, g, r = _np_bgr(img)
@@ -316,18 +290,6 @@ class TestViewportTrueScale:
         red = (r >= 200) & (g <= 60) & (b <= 60)
         assert not red.any()
         assert all(it.isVisible() for it in origin_items)  # restored
-
-    def test_model_display_scale_isolated(self, two_scale_sheet):
-        ts = two_scale_sheet
-        img_a = _render_paper(ts.paper)
-        # Display Manager model-side bubble scale: sets the attribute AND
-        # bubble.setScale (display_manager._apply_gridline) — apply both.
-        ts.gl._display_scale = 2.0
-        ts.gl.bubble1.setScale(2.0)
-        ts.gl.bubble2.setScale(2.0)
-        img_b = _render_paper(ts.paper)
-        assert img_a == img_b
-        assert ts.gl.bubble1.scale() == 2.0  # model state untouched by pass
 
     def test_line_weight_drives_border(self, two_scale_sheet):
         ts = two_scale_sheet
@@ -365,7 +327,7 @@ class TestOverridePassExceptionSafety:
         geometry — and the next pass would snapshot that as model state.
         """
         ts = two_scale_sheet
-        b1_rect_before = QRectF(ts.gl.bubble1.rect())
+        b1_rect_before = QRectF(ts.gl.bubble1.boundingRect())
         real_apply = pd._apply_gridline
 
         def apply_then_boom(*args, **kwargs):
@@ -377,11 +339,10 @@ class TestOverridePassExceptionSafety:
             pd.apply_paper_overrides(ts.model, QRectF(_CROPS["V50"]),
                                      paper_scale=0.02)
         # The gridline's saved entry precedes the raise, so restore must have
-        # run: not stuck in paper mode, bubble geometry back to model state.
+        # run: not stuck in paper mode, bubble block back to its model-size bounds.
         assert ts.gl._paper_render is False
-        assert bool(ts.gl.bubble1.flags()
-                    & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
-        assert ts.gl.bubble1.rect() == b1_rect_before
+        assert ts.gl.bubble1._paper_scale is None
+        assert ts.gl.bubble1.boundingRect() == b1_rect_before
         # Origin-cross entries are visibility-only saves — restored too.
         origin_items = [it for it in ts.model.items() if it.data(0) == "origin"]
         assert origin_items and all(it.isVisible() for it in origin_items)
@@ -403,6 +364,7 @@ def aspect_diverged_sheet(qapp, paper_env):
     from firepro3d.paper_space import Sheet, SheetViewData, PaperScene, ViewResolver
 
     scene = Model_Space()
+    _bubble_def(scene, fill=True)       # the bubble is the mapped Gridline block (SB4b)
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
     # Bubble standoff is orthogonal to the head-size / true-scale checks here;
     # zero it so bubble1 sits at the gridline endpoint (= crop/viewport centre).
@@ -429,18 +391,16 @@ class TestAspectDivergedViewport:
     def test_head_measures_true_rendered_size_under_keep_aspect(
             self, aspect_diverged_sheet):
         ts = aspect_diverged_sheet
-        ts.env.cats["Grid Line"]["fill"] = "#000000"  # solid head → run = diameter
         crop = _CROPS["V50"]
         vp_h = _VP_W / 2
         # True geometric scale under KeepAspectRatio is the min ratio — and it
         # genuinely diverges from the width-only ratio in this fixture.
         true_scale = min(_VP_W / crop.width(), vp_h / crop.height())
         assert true_scale < _VP_W / crop.width()
-        # paint() must author the bubble at radius r_mm / true_scale scene
-        # units; rendered at true_scale that measures exactly 2*r_mm on paper.
-        # (Width-only S would author r_mm / (2*true_scale) → half-size head.)
-        radius_mm, _ = bubble_paper_geometry(3.0)
-        expected = 2 * (radius_mm / true_scale) * true_scale * PX_PER_MM
+        # The bubble block is authored at k = 1 / true_scale scene units per mm;
+        # rendered at true_scale that measures exactly 2*CIRCLE_R on paper.
+        # (Width-only S would author the head at half size.)
+        expected = 2 * CIRCLE_R * PX_PER_MM
         img = _render_paper(ts.paper)
         # KeepAspectRatio centers the square crop in the 80x40 viewport, so
         # bubble1 (scene (0,0) = crop center) sits at the viewport center.
@@ -523,11 +483,7 @@ class TestExportParity:
         from firepro3d import paper_export
 
         ts = two_scale_sheet
-        # Solid fill so the head produces a contiguous dark run.
-        ts.env.cats["Grid Line"]["fill"] = "#000000"
-
-        radius_mm, _ = bubble_paper_geometry(3.0)
-        expected_mm = 2 * radius_mm
+        expected_mm = 2 * CIRCLE_R
 
         measured = {}
         for dpi in (150, 300):

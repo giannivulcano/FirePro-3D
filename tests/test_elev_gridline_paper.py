@@ -123,7 +123,8 @@ def test_elevation_datum_plots_through_level_datum_row(qapp, tmp_path, section_s
     assert _same_dashes(d, _vertical_line(pdf)), (_dash_mm(d),)  # same paper-mm dash-dot
 
 
-def test_custom_grid_line_colour_reaches_elevation_gridline(qapp, tmp_path, section_scene_for):
+def test_custom_grid_line_colour_reaches_elevation_gridline(qapp, tmp_path, section_scene_for,
+                                                            real_system_library):   # SB4b: the plan bubble is the shipped GridlineBubble block
     """Custom mode: the row colour (not the paper-surface token default)
     reaches the elevation line and bubble, as on the plan gridline."""
     save_paper_color_mode(PaperColorMode.CUSTOM)

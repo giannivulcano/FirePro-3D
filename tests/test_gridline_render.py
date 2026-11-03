@@ -35,14 +35,20 @@ def test_grips_are_manipulator_owned(qapp):
     assert len(gl.manip_handles()) == 4
 
 
-def test_duplicate_warning_keeps_border_width(qapp):
-    from PyQt6.QtCore import QPointF
-    from firepro3d.gridline import GridlineItem
-    gl = GridlineItem(QPointF(0, 0), QPointF(0, 1000), label="A")
-    w_before = gl.bubble1.pen().widthF()
+def test_duplicate_warning_sets_the_bubble_flag(qapp):
+    from tests.test_sb4b_gridline_bubble import _bubble_def, _gridline, _scene
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms, label="A")
+    ops_before = [(op.kind, op.color.name() if hasattr(op, "color") and op.color is not None else None)
+                  for op in gl.bubble1._ops(1.0)]
     gl.update_duplicate_warning(True)
-    assert gl.bubble1.pen().widthF() == w_before   # only color changes
-    assert gl.bubble1.pen().color().name() == "#ff8800"
+    assert gl.bubble1._duplicate and gl.bubble2._duplicate
+    ops_after = [(op.kind, op.color.name() if hasattr(op, "color") and op.color is not None else None)
+                 for op in gl.bubble1._ops(1.0)]
+    assert ops_after == ops_before                  # the ring is an overlay: block colours unchanged
+    gl.update_duplicate_warning(False)
+    assert not gl.bubble1._duplicate
 
 
 def test_paper_dash_pattern_normalizes_to_onpaper_mm():

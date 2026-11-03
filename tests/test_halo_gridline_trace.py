@@ -1,61 +1,60 @@
-"""GridlineItem HALO composite-trace hook (selection-mode.md §4.2).
+"""GridlineItem HALO composite-trace hook (selection-mode.md 4.2).
 
-A gridline is a composite (line + extension + bubbles); its HALO preselection
-trace must union all parts, trim the extension at each visible bubble's edge
-(never reach into the bubble), and include the bubble circles — mirroring
-GridlineItem.paint(). The bubbles are screen-fixed (ItemIgnoresTransformations),
-so the hook takes the view's scene->device scale.
+A gridline is a composite (line + bubbles); its HALO preselection trace must
+union all parts, trim the line at each visible bubble's block outline (never
+reach into the bubble) and include both outlines, mirroring
+GridlineItem.paint(). Since SB4b the bubbles are annotation blocks sized in
+scene units, so the hook needs no view scale.
 """
 import math
-from PyQt6.QtCore import QPointF
-from firepro3d.model_space import Model_Space
-from firepro3d.gridline import GridlineItem, GridBubble
+
+import pytest
+
+from firepro3d.halo import halo_scene_path
+from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def, _gridline, _scene
 
 
 def _make(qapp):
-    sc = Model_Space()
-    gl = GridlineItem(QPointF(0, 0), QPointF(0, 1000))   # vertical
-    sc.addItem(gl)
+    sc = _scene()
+    _bubble_def(sc)
+    gl = _gridline(sc, (0.0, 0.0), (0.0, 1000.0))        # vertical
     return sc, gl
 
 
 def test_trace_unions_line_and_both_bubbles(qapp):
     _sc, gl = _make(qapp)
-    p = gl.halo_trace_path(1.0)                            # scale 1 -> r == RADIUS_PX
-    # A bare line is 2 elements; a composite with two ellipses is many more.
+    p = gl.halo_trace_path()
+    br = p.boundingRect().adjusted(-1e-6, -1e-6, 1e-6, 1e-6)     # float noise of the union
+    for b in (gl.bubble1, gl.bubble2):
+        assert br.contains(gl.mapFromItem(b, b.outline_path()).boundingRect())
+    # a bare line is 2 elements; the composite carries both outlines too
     assert p.elementCount() > 2
-    # Both bubble circles are inside the trace bounds.
-    br = p.boundingRect()
-    for b in (gl.bubble1.pos(), gl.bubble2.pos()):
-        assert br.contains(b)
+    assert not halo_scene_path(gl).isEmpty()
 
 
 def test_extension_trimmed_at_bubble_edge_not_center(qapp):
-    _sc, gl = _make(qapp)
-    scale = 1.0
-    r = GridBubble.RADIUS_PX / scale
+    sc, gl = _make(qapp)
+    r = CIRCLE_R * sc.scale_manager.drawing_scale
     b1 = gl.bubble1.pos()
-    b2 = gl.bubble2.pos()
-    p = gl.halo_trace_path(scale)
-    # The traced line's first vertex must sit ~r from the near bubble center
-    # (edge), not AT the center. elementAt(0) is the moveTo start of the line.
+    p = gl.halo_trace_path()
+    # The traced line's first vertex must sit ~r from the near bubble centre
+    # (edge), not AT the centre. elementAt(0) is the moveTo start of the line.
     start = p.elementAt(0)
     d_center = math.hypot(start.x - b1.x(), start.y - b1.y())
-    assert abs(d_center - r) < 1e-6            # trimmed exactly to the edge
-    assert d_center > r * 0.5                  # definitely not at the center
+    assert d_center == pytest.approx(r, abs=0.05 * sc.scale_manager.drawing_scale)
+    assert d_center > r * 0.5                  # definitely not at the centre
 
 
 def test_hidden_bubble_extends_to_endpoint(qapp):
     _sc, gl = _make(qapp)
     gl.set_bubble_visible(1, False)            # hide the start bubble
     b1 = gl.bubble1.pos()
-    p = gl.halo_trace_path(1.0)
+    p = gl.halo_trace_path()
     start = p.elementAt(0)
     # With bubble1 hidden the line runs to the bubble anchor itself (no trim).
     assert abs(start.x - b1.x()) < 1e-6 and abs(start.y - b1.y()) < 1e-6
 
 
-def test_headless_fallback_is_bare_line(qapp):
+def test_scale_argument_is_accepted_and_ignored(qapp):
     _sc, gl = _make(qapp)
-    p = gl.halo_trace_path(None)               # no scale -> cannot size bubbles
-    assert p.elementCount() == 2               # moveTo + lineTo only
+    assert gl.halo_trace_path(None) == gl.halo_trace_path(7.0)

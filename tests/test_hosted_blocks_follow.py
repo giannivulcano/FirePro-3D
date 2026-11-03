@@ -74,6 +74,6 @@ def test_grips_do_not_move_blocks(qapp, make_model_space, grip, pt):
 
 def test_rename_keeps_host(qapp, make_model_space):
     ms = make_model_space(); gl, inst = _setup(ms)
-    gl.set_property("Label", "Z")
+    gl.set_property("Mark", "Z")
     assert ms.hosted_blocks_on(gl) == [inst]
     assert inst.block_pos() == pytest.approx((1500.0, -3200.0))
