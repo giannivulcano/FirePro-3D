@@ -983,50 +983,19 @@ def _model_colour_token(item, cat_key: str, cache: dict | None = None):
 
 
 def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
-    """Apply paper overrides to a GridlineItem — colors + true-scale geometry (§9.9.1).
-
-    *model_token*: the model-side token colour (Full Colour only) re-resolved on
-    the paper surface; ``_grid_color`` is restored by ``restore_model_display``.
-    """
-    from PyQt6.QtGui import QColor, QBrush
-    from .gridline import bubble_paper_geometry
-    from .annotative import paper_scene_size
-
+    """Apply paper overrides to a GridlineItem's LINE (§9.9.1): weight + the
+    paper-mm dash. Its bubbles are annotation blocks and take ``_apply_block``
+    in the walk (SB4b D12). *model_token*: the model-side token colour (Full
+    Colour only) re-resolved on the paper surface."""
     S = max(paper_scale, 1e-9)
-    r_mm, em_mm = bubble_paper_geometry(GRIDLINE_BUBBLE_PAPER_CAP_MM)
-
     gl._paper_render = True          # write-together unit with the floats below
     gl._paper_line_w = lw_mm / S
     gl._paper_line_w_mm = lw_mm      # ON-PAPER mm (NOT divided by S) — dash normaliser
-    gl._paper_bubble_r = paper_scene_size(r_mm, paper_scale)
-
     if color_mode != PaperColorMode.FULL_COLOR:
         gl._grid_color = _paper_qcolor(cat["color"], gl)
     elif model_token is not None:
         from .colour_tokens import resolve_colour
         gl._grid_color = resolve_colour(model_token, item=gl)
-    # Authored color in full-color mode — suppresses the duplicate-warning
-    # orange in ALL modes (a warning is not authored content, §9.9.1).
-    pen_color = (_paper_qcolor(cat["color"], gl) if color_mode != PaperColorMode.FULL_COLOR
-                 else QColor(gl._grid_color))
-
-    for bubble in (gl.bubble1, gl.bubble2):
-        bubble._paper_saved = bubble.enter_paper_mode(
-            paper_scene_size(r_mm, paper_scale),
-            paper_scene_size(em_mm, paper_scale))
-        # Model-side Display Manager bubble scale multiplier never affects
-        # paper output (§9.9.1 isolation) — the multiplier is applied as an
-        # item scale on each bubble, which would compound the paper radius.
-        bubble.setScale(1.0)
-        bp = bubble.pen()
-        bp.setColor(pen_color)
-        bp.setWidthF(lw_mm / S)
-        bp.setCosmetic(False)
-        bubble.setPen(bp)
-        bubble._label.setDefaultTextColor(pen_color)
-        if color_mode != PaperColorMode.FULL_COLOR and cat["fill"] is not None:
-            bubble.setBrush(QBrush(_paper_qcolor(cat["fill"], gl)))
-
     gl._lock_indicator.setVisible(False)
     gl.setOpacity(cat["opacity"] / 100.0)
     gl.update()
@@ -1063,20 +1032,13 @@ def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
 
 
 def _save_gridline_state(gl) -> dict:
-    """Capture gridline state for restore.
-
-    Full pen/brush objects (not color names) and per-bubble entries — the two
-    bubbles can legitimately differ (e.g. duplicate-warning pen).
-    """
-    from PyQt6.QtGui import QPen, QBrush
+    """Capture gridline state for restore: the line colour, the lock
+    indicator and each bubble's _apply_block hooks (SB4b D12)."""
     return {
         "grid_color": gl._grid_color.name(),
-        "bubble_pen": [QPen(b.pen()) for b in (gl.bubble1, gl.bubble2)],
-        "bubble_brush": [QBrush(b.brush()) for b in (gl.bubble1, gl.bubble2)],
-        "label_color": [b._label.defaultTextColor()
-                        for b in (gl.bubble1, gl.bubble2)],
-        "bubble_scale": [gl.bubble1.scale(), gl.bubble2.scale()],
         "lock_vis": gl._lock_indicator.isVisible(),
+        "bubble_paper": [(b._paper_pen_width, b._paper_pen_color, b._paper_scale)
+                         for b in (gl.bubble1, gl.bubble2)],
     }
 
 
@@ -1306,6 +1268,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             elif isinstance(item, GridlineItem):
                 _apply_gridline(item, cat, color_mode, lw_mm, paper_scale,
                                 _full_tok(item, cat_key))
+                for b in (item.bubble1, item.bubble2):     # SB4b D12: annotative path
+                    if b.isVisible():
+                        _apply_block(b, cat, color_mode, lw_mm, paper_scale)
+                        b.setOpacity(1.0)
+                item.prepareGeometryChange()               # the trim moves with k
             elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
                 if color_mode != PaperColorMode.FULL_COLOR:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
@@ -1445,6 +1412,7 @@ def restore_model_display(saved: list[dict]):
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .pipe import Pipe
     from .gridline import GridlineItem
+    from .annotative import is_annotative as _is_annot
     from PyQt6.QtGui import QColor, QBrush, QPen
 
     global _THIN_SUSPEND, _PASS_COLOR_MODE
@@ -1512,7 +1480,6 @@ def restore_model_display(saved: list[dict]):
             item._display_color = entry["display_color"]
             item._paper_pen_width = entry.get("paper_pen_width")
             if "tag_paper" in entry:
-                from .annotative import is_annotative as _is_annot
                 _l = item.label
                 if _is_annot(_l.definition()):
                     _l.prepareGeometryChange()       # SB1c D6
@@ -1524,23 +1491,16 @@ def restore_model_display(saved: list[dict]):
         elif isinstance(item, GridlineItem):
             gs = entry.get("gridline", {})
             item._grid_color = QColor(gs["grid_color"])
-            for i, bubble in enumerate((item.bubble1, item.bubble2)):
-                # Matched pair with _apply_gridline's enter_paper_mode — but
-                # the geometry stage is skipped when the category is hidden
-                # (visibility continue), so guard on the saved marker.
-                pm = getattr(bubble, "_paper_saved", None)
-                if pm is not None:
-                    bubble.exit_paper_mode(pm)
-                    del bubble._paper_saved
-                bubble.setScale(gs["bubble_scale"][i])
-                bubble.setPen(gs["bubble_pen"][i])
-                bubble.setBrush(gs["bubble_brush"][i])
-                bubble._label.setDefaultTextColor(gs["label_color"][i])
+            for b, hooks in zip((item.bubble1, item.bubble2), gs["bubble_paper"]):
+                if _is_annot(b.definition()):
+                    b.prepareGeometryChange()            # SB1c D6
+                b._paper_pen_width, b._paper_pen_color, b._paper_scale = hooks
+                b.refresh()
             item._lock_indicator.setVisible(gs["lock_vis"])
             item._paper_render = False
             item._paper_line_w = 0.0
             item._paper_line_w_mm = 0.0
-            item._paper_bubble_r = 0.0
+            item.prepareGeometryChange()
             item.update()
 
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
@@ -1594,7 +1554,6 @@ def restore_model_display(saved: list[dict]):
             item.__dict__.pop("_paper_pen_width", None)
             # Restore the room tag's paper hooks (SB3).
             if "tag_paper" in entry:
-                from .annotative import is_annotative as _is_annot
                 _tag = item._tag
                 if _is_annot(_tag.definition()):
                     _tag.prepareGeometryChange()     # SB1c D6

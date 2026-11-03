@@ -244,3 +244,42 @@ def test_g9_per_end_visibility_grips_and_lock_carry_over(qapp):
     c = gl._lock_indicator.path().boundingRect().center()
     assert math.hypot(c.x(), c.y()) > 6.0 + 1.0           # past the outline (px), not at the centre
 
+
+# ---------------------------------------------------------------------------
+# Task 5 -- paper pass through _apply_block
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("scale", [0.02, 0.005])          # 1:50, 1:200
+def test_g2_pdf_bubble_mark_cap_height_is_the_authored_mm(qapp, tmp_path, scale):
+    from tests.test_sb3_paper import _export, _text_height, TAG_MM
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    save_paper_color_mode(PaperColorMode.BW)
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms, (0.0, 0.0), (0.0, 1.0e6), label="H")     # far end outside the crop
+    gl.set_bubble_offset(1, 0.0)                                  # bubble 1 at the origin
+    h = _text_height(_export(tmp_path, ms, scale, f"g{int(1 / scale)}.pdf"))
+    assert abs(h - TAG_MM) < 0.3, h
+    assert gl.bubble1._paper_scale is None and not gl._paper_render   # restored
+
+
+def test_g3_duplicate_ring_never_plots_and_line_trims_at_paper_size(qapp, tmp_path):
+    import fitz
+    from tests.test_sb3_paper import _export
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from firepro3d.gridline import apply_duplicate_warnings
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    ms = _scene()
+    _bubble_def(ms)
+    a = _gridline(ms, (0.0, 0.0), (0.0, 1.0e6), label="A")
+    b = _gridline(ms, (1.0e6, 0.0), (1.0e6, 1.0e6), label="A")
+    a.set_bubble_offset(1, 0.0)
+    apply_duplicate_warnings(ms._gridlines)
+    assert a.bubble1._duplicate
+    pdf = _export(tmp_path, ms, 0.02, "dup.pdf")
+    doc = fitz.open(str(pdf))
+    try:
+        cols = {tuple(round(c, 2) for c in (d.get("color") or ())) for d in doc[0].get_drawings()}
+    finally:
+        doc.close()
+    assert (1.0, 0.53, 0.0) not in cols                  # #ff8800 never plots

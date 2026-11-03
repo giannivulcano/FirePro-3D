@@ -123,25 +123,30 @@ from PyQt6.QtWidgets import QGraphicsScene
 
 
 def test_g_dm_stale_bubble_height_ignored(qapp):
+    """SB1c D11 / SB4b D12: a stale stored ``bubble_label_height_mm`` is never read; the
+    gridline bubble plots through the annotative _apply_block path (k = 1 / S)."""
     from firepro3d import paper_display as pd
-    from firepro3d.gridline import GridlineItem, bubble_paper_geometry
+    from firepro3d.bound_label import PEN_MARGIN
+    from firepro3d.gridline import GridlineItem
+    from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def
     QSettings("GV", "FirePro3D").setValue(
         "paper/categories/Grid Line/bubble_label_height_mm", 4.0)
     assert "bubble_label_height_mm" not in pd.load_paper_categories()["Grid Line"]
     ms = Model_Space()
+    _bubble_def(ms)
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
     gl.set_bubble_offset(1, 0.0)
     gl.set_bubble_offset(2, 0.0)
     ms.addItem(gl)
     ms._gridlines.append(gl)
-    before = QRectF(gl.bubble1.rect())
+    before = QRectF(gl.bubble1.boundingRect())
     saved = pd.apply_paper_overrides(ms, QRectF(-3000, -3000, 6000, 16000), 0.02)
     try:
-        r = gl.bubble1.rect().width() / 2.0
-        assert r == pytest.approx(bubble_paper_geometry(3.0)[0] / 0.02, rel=1e-6)
+        w = gl.bubble1.boundingRect().width() - 2 * PEN_MARGIN
+        assert w == pytest.approx(2 * CIRCLE_R / 0.02, rel=1e-6)
     finally:
         pd.restore_model_display(saved)
-    assert gl.bubble1.rect() == before                       # canvas restored exactly (D11)
+    assert gl.bubble1.boundingRect() == before               # canvas restored exactly (D11)
 
 
 def test_g_room_stale_label_height_ignored(qapp):
