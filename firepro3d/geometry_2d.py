@@ -490,14 +490,17 @@ class Geometry2DMixin:
             finally:
                 painter.restore()
         if dashed:
+            self._paint_joints(painter, pen, rs)
             return True
         self._paint_base_stroke(painter, option, widget, pen)
+        self._paint_joints(painter, pen, rs)
         if shows_selection(self) and not _manip_wraps(self):
             highlight = self._highlight_pen()
             if self.reference:
                 highlight.setStyle(Qt.PenStyle.DashLine)   # RG4: stays dashed
             painter.setPen(highlight)
             draw_highlight(painter)
+            self._paint_joints(painter, highlight, rs)
         return False
 
     # ── LT5 ends ─────────────────────────────────────────────────────────────
@@ -646,6 +649,7 @@ class Geometry2DMixin:
                     draw_highlight(painter)
                 else:
                     self._paint_trimmed_stroke(painter, pieces, trims, hl)
+        self._paint_joints(painter, pen, rs)         # a free end (no type) may still join
         sc = self.scene()
         drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf, scene=sc)
         if sf is not None:       # paper passes never touch the mark (spec C)
@@ -859,6 +863,99 @@ class Geometry2DMixin:
         if change == gc.ItemSceneHasChanged:
             self._stroke_geometry_changed()
         return r
+
+    def _dash_path_for_joints(self, rs, device_scale, painter=None):
+        """The item-local dash path *rs*'s linetype draws at *device_scale*,
+        or None when the stroke draws continuous on screen -- the same three
+        tests ``linetype_render.paint_stroke`` runs (period, LOD, Fixed
+        shorter than one period). *painter* (optional) supplies the LTS-8
+        view window for very long Fixed strokes."""
+        from .linetype_render import (expand, fixed_on_canvas, lod_ok_at,
+                                      period_ok, periods_on, view_window)
+        from .constants import LINETYPE_WINDOW_MIN_PERIODS
+        lt = rs.lt if rs is not None else None
+        pieces = self.stroke_pieces()
+        if lt is None or not pieces or self._ghost_pen:
+            return None
+        factor = self._linetype_factor(lt, device_scale)
+        if not period_ok(lt, factor):
+            return None
+        if not paper_pass_active() and not lod_ok_at(lt.period * factor, device_scale):
+            return None
+        a = self._lt_args()
+        win = None
+        if fixed_on_canvas(lt, paper_scale=a["paper_scale"], role=a["role"]):
+            n = periods_on(pieces, lt, factor)
+            if n < 1.0:
+                return None
+            if n > LINETYPE_WINDOW_MIN_PERIODS and painter is not None:
+                win = view_window(painter)
+        o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
+        dash, _dot = expand(pieces, lt, factor, (o.x(), o.y()), window=win)
+        return dash
+
+    def _joint_attrs(self, rs, device_scale, which, painter=None):
+        """``JointAttrs`` of this item's *which* end ("start" / "finish") for
+        the paint-time match (AC4 / AC6), or None when it cannot join (hidden
+        stroke, unstyled, reference, ghost). *rs* is this paint's
+        ResolvedStroke (resolved here when None)."""
+        from .path_walk import end_frame
+        from .stroke_joints import JointAttrs, end_inked
+        if (self.style is None or self.reference or self._ghost_pen
+                or self._stroke_hidden()):
+            return None
+        if rs is None:
+            rs = self._resolved_stroke()
+        ends = self._item_ends(rs)
+        end = ends[0 if which == "start" else 1] if ends is not NO_ENDS else None
+        has_end = end is not None and (end.defn is not None or bool(end.missing_id))
+        inked = True
+        if not has_end:
+            dash = self._dash_path_for_joints(rs, device_scale, painter)
+            if dash is not None:
+                fr = end_frame(self.stroke_pieces(), which, 0.0)
+                inked = fr is not None and end_inked(dash, fr[0], 1e-4)
+        return JointAttrs(weight=canvas_weight_name(rs.weight) if rs is not None else "",
+                          colour=self._stroke_colour(), inked=inked,
+                          has_end_type=has_end, visible=self.isVisible())
+
+    def _paint_joints(self, painter, pen, rs) -> None:
+        """D7: for each registered end with a partner that ``joinable``s,
+        fill the wedge in *pen*'s colour -- device space for a cosmetic pen
+        (half_w = widthF / 2 px), painter-local for a paper pen."""
+        ix = self._joint_index()
+        if ix is None:
+            return
+        mine = ix.ends_of(self)
+        if not mine:
+            return
+        from .hatch_render import _device_scale
+        from .stroke_joints import fill_wedge, joinable, wedge_for_pair
+        ds = _device_scale(painter)
+        cosmetic = pen.isCosmetic()
+        to_item = self.sceneTransform().inverted()[0]       # scene -> item
+        xf = to_item * painter.worldTransform() if cosmetic else to_item
+        wedges = []
+        for e in mine:
+            p = ix.partner(e)
+            if p is None:
+                continue
+            if not joinable(self._joint_attrs(rs, ds, e.which, painter),
+                            p.owner._joint_attrs(None, ds, p.which, painter)):
+                continue
+            w = wedge_for_pair(e, p, pen.widthF() / 2.0, xf)
+            if w is not None:
+                wedges.append(w)
+        if not wedges:
+            return
+        painter.save()
+        try:
+            if cosmetic:
+                painter.resetTransform()
+            for w in wedges:
+                fill_wedge(painter, w, pen.color())
+        finally:
+            painter.restore()
 
     def _paint_lt_badge(self, painter) -> None:
         """Missing-linetype glyph at mid-length; canvas only (LT3-10)."""

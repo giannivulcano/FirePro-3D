@@ -120,13 +120,14 @@ def test_stroke_pen_is_flat_miter_qt_limit_2(qapp):
     assert stroke_pen("#ff00ff", 0.5, cosmetic=False).isCosmetic() is False
 
 
-def _render(items, size=(300, 200), weight_px=20.0, monkeypatch=None):
-    """Render *items* in a Model_Space onto a QImage, identity view transform,
-    canvas pens patched to *weight_px* (exaggerated so geometry is legible)."""
+def _render(items, size=(300, 200), weight_px=20.0, monkeypatch=None, scene=None):
+    """Render *items* in a Model_Space (or the prepared *scene*) onto a QImage,
+    identity view transform, canvas pens patched to *weight_px* (exaggerated
+    so geometry is legible)."""
     import firepro3d.geometry_2d as g2
     if monkeypatch is not None:
         monkeypatch.setattr(g2, "canvas_px", lambda w: weight_px)
-    sc = Model_Space(); sc.set_mode("select")
+    sc = scene if scene is not None else Model_Space(); sc.set_mode("select")
     for it in items:
         it.style["colour"] = "#000000"
         sc.addItem(it); sc._draw_lines.append(it)
@@ -443,3 +444,185 @@ def test_selection_frame_ignores_the_joint_pad(qapp, monkeypatch):
     assert frame.left() > -20.0 and frame.right() < 120.0      # w / 2 + 0.75 = 10.75, not 2 w
     assert ln.boundingRect().left() <= -40.0                    # paint bounds still padded
     sc.cleanup()
+
+
+# ---------------------------------------------------------------- G. cross-item joints (D7)
+def _tri_lines():
+    a, b, c = QPointF(50, 150), QPointF(250, 150), QPointF(150, 150 - 100 * math.sqrt(3))
+    return [LineItem(a, b), LineItem(b, c), LineItem(c, a)]
+
+
+def _compare(img, oracle_path, size=(300, 200), band=2):
+    """(dark px outside the oracle, oracle px not dark), each with a *band*
+    px AA tolerance. The oracle is the mitered stroker outline (clips past
+    the miter limit like Qt), so a bevel / overshoot shows up in either set."""
+    got = _dark(img); want = _mask(_oracle(oracle_path, 20.0), size)
+    near = lambda q, S: any((q[0]+dx, q[1]+dy) in S for dx in range(-band, band+1) for dy in range(-band, band+1))
+    return {q for q in got if not near(q, want)}, {q for q in want if not near(q, got)}
+
+
+def _core(xc, yc):
+    """Pixels only the exterior wedge of a 90 deg corner at (xc, yc) can ink
+    (20 px pen: the wedge fills [xc, xc+10] x [yc, yc+10]); clear of any
+    end-glyph / cap sliver."""
+    return {(x, y) for x in range(xc + 6, xc + 10) for y in range(yc + 6, yc + 10)}
+
+
+def _corner_pair(**kw):
+    """Two lines meeting at (150, 150): left-to-corner and corner-to-up."""
+    return (LineItem(QPointF(50, 150), QPointF(150, 150)),
+            LineItem(QPointF(150, 150), QPointF(150, 50)))
+
+
+def test_g2_three_lines_triangle_matches_mitered_oracle(qapp, monkeypatch):
+    img = _render(_tri_lines(), monkeypatch=monkeypatch)
+    outside, missing = _compare(img, _tri_path())
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_g2_two_lines_make_one_sharp_square_corner(qapp, monkeypatch):
+    a, b = _corner_pair()
+    img = _render([a, b], monkeypatch=monkeypatch)
+    assert _core(150, 150) <= _dark(img)
+
+
+def test_g3_three_ends_at_one_point_stay_flat(qapp, monkeypatch):
+    c = QPointF(150, 100)
+    # a fan (0, 60, 120 deg, all upward): every pairwise exterior wedge lands
+    # below the corner, where no arm hides it (a symmetric 120 deg star would
+    # cover each wedge with the third arm).
+    items = [LineItem(c, QPointF(250, 100)), LineItem(c, QPointF(200, 100 - 50 * math.sqrt(3))),
+             LineItem(c, QPointF(100, 100 - 50 * math.sqrt(3)))]
+    img = _render(items, monkeypatch=monkeypatch)
+    want = QPainterPath()
+    for it in items:
+        q = QPainterPath(it.line().p1()); q.lineTo(it.line().p2()); want.addPath(q)
+    st = QPainterPathStroker(); st.setWidth(20.0); st.setCapStyle(Qt.PenCapStyle.FlatCap)
+    flat = _mask(st.createStroke(want), (300, 200))
+    got = _dark(img)
+    outside = {q for q in got if not any((q[0]+dx, q[1]+dy) in flat for dx in (-2,-1,0,1,2) for dy in (-2,-1,0,1,2))}
+    assert not outside, sorted(outside)[:5]
+
+
+def test_g3_mixed_weights_stay_flat(qapp, monkeypatch):
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0 if w == "Thick" else 8.0)
+    a, b = _corner_pair()
+    a.style["weight"] = "Thick"; b.style["weight"] = "Thin"
+    img = _render([a, b])
+    # a wedge would put dark px in the exterior corner square
+    assert not {(x, y) for x in range(151, 160) for y in range(151, 160)} & _dark(img)
+
+
+def _snap(sc, size=(300, 200)):
+    """Render a live scene to a QImage (identity view)."""
+    from PyQt6.QtCore import QRectF
+    img = QImage(*size, QImage.Format.Format_ARGB32); img.fill(QColor("white"))
+    p = QPainter(img); p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    sc.render(p, QRectF(0, 0, *size), QRectF(0, 0, *size)); p.end()
+    return img
+
+
+def test_g3_mixed_colours_stay_flat(qapp, monkeypatch):
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    for red, expect_join in ((False, True), (True, False)):
+        sc = Model_Space(); sc.set_mode("select")
+        a, b = _corner_pair()
+        a.style["colour"] = "#ff0000" if red else "#000000"; b.style["colour"] = "#000000"
+        for it in (a, b):
+            sc.addItem(it); sc._draw_lines.append(it)
+        img = _snap(sc); sc.cleanup()
+        inked = {(x, y) for x, y in _core(150, 150) if img.pixelColor(x, y) != QColor("white")}
+        assert (inked == _core(150, 150)) if expect_join else not inked, (red, len(inked))
+
+
+def test_g4_twenty_degree_sliver_is_clipped_like_qt(qapp, monkeypatch):
+    # apex high in the frame, arms running down: the full miter tip (~57 px
+    # above the apex) and Qt's clipped one (~41 px) both stay inside the image
+    apex = QPointF(150, 100); a = math.radians(20.0)
+    items = [LineItem(apex, QPointF(150, 190)),
+             LineItem(apex, QPointF(150 + 90 * math.sin(a), 100 + 90 * math.cos(a)))]
+    img = _render(items, monkeypatch=monkeypatch)
+    p = QPainterPath(items[0].line().p2()); p.lineTo(apex); p.lineTo(items[1].line().p2())
+    outside, missing = _compare(img, p)       # oracle: MiterJoin at Qt limit 2 -> clipped miter
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+    # `not outside` is exactly "no dark pixel beyond the oracle's reach"
+
+
+def test_g5_arrow_end_never_joins(qapp, monkeypatch):
+    from tests.lt5_support import end_id, set_ends
+    sc = Model_Space(); sc.scale_manager.drawing_scale = 1.0
+    a, b = _corner_pair()
+    set_ends(a, finish=end_id(sc))
+    img = _render([a, b], monkeypatch=monkeypatch, scene=sc)
+    assert not _core(150, 150) & _dark(img)
+
+
+def _dashed_corner(cx):
+    """Hidden-dash (6 on / 3 off, period 9) line A ending at (cx, 150) and a
+    vertical B starting there; scene at drawing scale 1. Returns
+    (scene, items, a_end_inked, b_start_inked): the premise, read from
+    ``linetype_render.expand`` independently of the paint."""
+    from tests.lt3_support import hidden
+    from firepro3d.linetype_render import expand, LinetypeDef
+    from firepro3d.stroke_style import linetype_block
+    sc = Model_Space(); sc.scale_manager.drawing_scale = 1.0
+    lid = hidden(sc)
+    a = LineItem(QPointF(50, 150), QPointF(cx, 150))
+    b = LineItem(QPointF(cx, 150), QPointF(cx, 50))
+    for it in (a, b):
+        it.style["linetype"] = lid
+    lt = LinetypeDef.from_block(linetype_block(lid, sc.block_registry))
+    inked = [end_inked(expand(it.stroke_pieces(), lt, 1.0, (0.0, 0.0))[0], pt, 1e-4)
+             for it, pt in ((a, QPointF(cx, 150)), (b, QPointF(cx, 150)))]
+    return sc, [a, b], inked[0], inked[1]
+
+
+def _pick_corner(a_inked):
+    """The first cx whose A end is *a_inked* and whose B start is on ink."""
+    for cx in range(150, 175):
+        sc, _items, ia, ib = _dashed_corner(cx)
+        sc.cleanup()
+        if ib and ia == a_inked:
+            return cx
+    raise AssertionError(f"no corner with A end inked={a_inked} in 150..175")
+
+
+def test_g5_dashed_end_in_a_gap_is_flat_and_inked_end_is_sharp(qapp, monkeypatch):
+    cx_on, cx_off = _pick_corner(True), _pick_corner(False)
+    sc, items, ia, ib = _dashed_corner(cx_on)
+    assert ia and ib, "premise: both ends sit on ink"
+    assert _core(cx_on, 150) <= _dark(_render(items, monkeypatch=monkeypatch, scene=sc))
+    sc, items, ia, ib = _dashed_corner(cx_off)
+    assert (ia, ib) == (False, True), "premise: A's end is in a gap"
+    assert not _core(cx_off, 150) & _dark(_render(items, monkeypatch=monkeypatch, scene=sc))
+
+
+def test_g7_move_breaks_and_undo_restores_the_join(qapp, monkeypatch):
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space(); sc.set_mode("select")
+    items = _tri_lines()
+    for it in items:
+        it.style["colour"] = "#000000"; sc.addItem(it); sc._draw_lines.append(it)
+
+    snap = lambda: _snap(sc)
+    corner = {(x, y) for x in range(251, 262) for y in range(151, 162)}   # exterior of the (250,150) corner
+    assert corner & _dark(snap())                       # mitered: wedge present
+    items[0].apply_grip(1, QPointF(150, 100))           # translate the base away (mid grip)
+    assert not (corner & _dark(snap()))                 # both former partners flat
+    items[0].apply_grip(1, QPointF(150, 150))           # back (undo path = the same setter)
+    assert corner & _dark(snap())
+    sc.cleanup()
+
+
+def test_wedge_for_pair_uses_the_midpoint_and_maps_through_xf():
+    from firepro3d.stroke_joints import wedge_for_pair
+    a = _end(0.2, 0, -1, 0, "A"); b = _end(-0.2, 0, 0, -1, "B", "finish")
+    w = wedge_for_pair(a, b, 10.0)
+    assert (w.at(0).x(), w.at(0).y()) == pytest.approx((0.0, 0.0))     # corner = midpoint
+    assert (10.0, 10.0) in {(round(w.at(k).x(), 6), round(w.at(k).y(), 6)) for k in range(w.count())}
+    from PyQt6.QtGui import QTransform
+    w2 = wedge_for_pair(a, b, 20.0, QTransform.fromScale(2, 2))
+    assert (20.0, 20.0) in {(round(w2.at(k).x(), 6), round(w2.at(k).y(), 6)) for k in range(w2.count())}

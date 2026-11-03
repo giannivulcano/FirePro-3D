@@ -257,3 +257,19 @@ def end_inked(dash: QPainterPath, pt: QPointF, tol: float = 1e-6) -> bool:
         if abs(e.x - pt.x()) <= tol and abs(e.y - pt.y()) <= tol:
             return True
     return False
+
+
+def wedge_for_pair(a: JointEnd, b: JointEnd, half_w: float, xf=None) -> QPolygonF | None:
+    """The wedge between partner ends *a* and *b* (same point within tol).
+
+    *xf* maps the ends' container frame to the paint frame (device for a
+    cosmetic pen, item-local for a paper pen) and *half_w* is in that frame.
+    The corner is the midpoint of the two ends.
+    """
+    corner = QPointF((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+    da, db = a.away, b.away
+    if xf is not None:
+        corner = xf.map(corner)
+        da = map_dir(xf, da)
+        db = map_dir(xf, db)
+    return joint_wedge(corner, da, db, half_w)
