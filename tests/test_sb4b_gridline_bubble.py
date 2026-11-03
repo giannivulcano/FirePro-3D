@@ -414,3 +414,22 @@ def test_g9_legacy_gridline_record_loads_with_blocks(qapp):
     ms.addItem(gl); ms._gridlines.append(gl)
     assert gl.grid_label == "3" and gl.locked and gl.bubble1.isVisible() and not gl.bubble2.isVisible()
     assert gl.tag_block is None and gl.bubble1.paints()
+
+
+@pytest.mark.parametrize("shape", ["circle", "square"])
+@pytest.mark.parametrize("ds", [50.0, 200.0])
+def test_m1_bounding_rect_covers_the_bubble_hit_area_for_qt_native_picks(qapp, shape, ds):
+    """VC9 M1: shape() adds the bubble outlines, so boundingRect() must hold
+    them -- else the scene index drops the item and items(pos) / itemAt miss
+    the outer half of each bubble (context menu, double-click)."""
+    ms = _scene()
+    _bubble_def(ms, shape)
+    ms.scale_manager.drawing_scale = ds
+    gl = _gridline(ms, (0.0, 0.0), (0.0, 5000.0))
+    ms.refresh_annotation_tags()
+    assert gl.boundingRect().contains(gl.shape().boundingRect())
+    c = gl.bubble1.scenePos()
+    reach = (CIRCLE_R if shape == "circle" else 3.0) * ds * 0.9   # inside the outline, outboard
+    ux, uy = gl._direction()
+    outer = QPointF(c.x() - ux * reach, c.y() - uy * reach)
+    assert gl in ms.items(outer), "a Qt-native pick at the bubble's outer edge finds the gridline"

@@ -493,8 +493,9 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
     def boundingRect(self):
         """Expand bounding rect with a small margin for the pen.
 
-        Bubbles and grips use ItemIgnoresTransformations and manage
-        their own bounds independently.
+        ``QGraphicsLineItem.boundingRect`` derives from the virtual
+        :meth:`shape` (non-zero pen width), so the base rect already holds
+        both visible bubble outlines; the margin covers the standoffs.
         """
         br = super().boundingRect()
         # Account for bubbles positioned outboard of each endpoint plus pen.
