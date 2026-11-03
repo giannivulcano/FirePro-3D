@@ -121,10 +121,6 @@ FIXED_LINETYPE_PX_PER_MM = 6.0
 # ET1: Fixed-size end types (On screen = Fixed size) share the LTS px-per-mm
 # mapping on model canvases (linetypes.md ET1 / LTS-3).
 FIXED_END_PX_PER_MM = FIXED_LINETYPE_PX_PER_MM
-# SB1c (D10): fixed ON-PAPER cap height, mm. Gridline bubbles plot at this
-# through annotative.paper_scene_size until SB4b makes them System blocks
-# (the Display Manager row retired, D12).
-GRIDLINE_BUBBLE_PAPER_CAP_MM = 3.0
 # ET1: per-end Scale on a line's end record (a plain multiplier, Q5 / Q10-b).
 END_SCALE_MIN = 0.1
 END_SCALE_MAX = 10.0
@@ -330,7 +326,6 @@ DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM = 3.0   # annotative-block default CAP height 
 DEFAULT_ANNOTATIVE_TEXT_PADDING_MM = 1.0  # annotative-block default cell padding (printed mm)
 PIPE_PREVIEW_LABEL_IN = 12  # placement preview label height (in); the placed label is the annotation block (SB4a D9)
 TEXT_METRIC_REF_PX = 1000        # reference px size of every TextItem font; setScale(h / cap) sizes it (L96)
-GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
 TEXT_HEIGHT_MM_PRECISION = 2     # decimals of the real-size text Height row (mm; text-sizing-wrap D2)
 

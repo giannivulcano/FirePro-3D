@@ -16,15 +16,11 @@ from __future__ import annotations
 
 import math
 import uuid
-from functools import lru_cache
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker, QFontMetricsF
-from .constants import (
-    Z_GRIDLINE_BUBBLE, TEXT_METRIC_REF_PX,
-    GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
-)
+from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
+from .constants import Z_GRIDLINE_BUBBLE, GRIDLINE_BUBBLE_OFFSET_MM
 from PyQt6.QtCore import Qt, QPointF
 from .bound_label import OutlinedLabel, TagBlockHost
 from .marks import duplicate_groups, letter_label
@@ -150,9 +146,9 @@ def apply_duplicate_warnings(gridlines: list) -> None:
 # GridlineBubble — one end's annotation block (SB4b D1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Model-unit (mm) proportioning base for elevation / detail markers and
-# elevation-scene bubbles (SB4c). The plan bubble is a GridlineBubble block
-# since SB4b.
+# Model-unit (mm) proportioning base for the section / elevation markers and
+# detail views, and the level datum head's anchor inset (SB4c). Every
+# gridline bubble and datum head is an annotation block (SB4b / SB4c).
 BUBBLE_RADIUS_MM = 8.0 * 25.4
 
 DUPLICATE_COLOR = "#ff8800"
@@ -324,30 +320,6 @@ def _dash_pattern_mm(line_w_mm: float) -> list[float]:
     length resolves to _DASH_MM regardless of viewport scale."""
     w = max(line_w_mm, 1e-6)
     return [_DASH_MM / w, _GAP_MM / w, _DOT_MM / w, _GAP_MM / w]
-
-
-# Requires a live QApplication (QFontMetricsF); never call at module import time.
-@lru_cache(maxsize=8)
-def bubble_paper_geometry(cap_mm: float) -> tuple[float, float]:
-    """Return (radius_mm, em_mm) of a bubble head on paper for a label cap height.
-
-    em derives from cap via Consolas-bold metrics at TEXT_METRIC_REF_PX
-    (paper-space spec §9.4 technique); the head radius keeps the historic
-    screen proportion em = GRIDLINE_BUBBLE_LABEL_EM_FRAC × radius.
-
-    Args:
-        cap_mm: Desired cap height of the label text on paper, in mm.
-
-    Returns:
-        A tuple of (radius_mm, em_mm) where radius_mm is the bubble head
-        radius and em_mm is the corresponding font em size, both in mm.
-    """
-    f = QFont("Consolas")
-    f.setBold(True)
-    f.setPixelSize(TEXT_METRIC_REF_PX)
-    cap_ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
-    em_mm = cap_mm / (cap_ratio if cap_ratio > 0 else 0.7)
-    return em_mm / GRIDLINE_BUBBLE_LABEL_EM_FRAC, em_mm
 
 
 class GridlineItem(TagBlockHost, QGraphicsLineItem):

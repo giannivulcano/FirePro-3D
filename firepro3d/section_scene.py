@@ -19,12 +19,12 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsRectItem, QGraphicsLineItem,
-    QGraphicsEllipseItem, QGraphicsSimpleTextItem, QGraphicsPathItem,
+    QGraphicsEllipseItem,
     QGraphicsItem, QStyle,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QPointF, QLineF, QTimer
 from PyQt6.QtGui import (
-    QPen, QColor, QBrush, QFont, QFontMetricsF, QPainterPath,
+    QPen, QColor, QBrush, QPainterPath,
     QPainterPathStroker, QPainter,
 )
 
@@ -149,20 +149,6 @@ class _SrcLine(_ColourSrcMixin, QGraphicsLineItem):
 class _SrcEllipse(_ColourSrcMixin, QGraphicsEllipseItem):
     def _draw_shape(self, painter):
         painter.drawEllipse(self.rect())
-
-
-class _SrcPath(_ColourSrcMixin, QGraphicsPathItem):
-    def _draw_shape(self, painter):
-        painter.drawPath(self.path())
-
-
-class _SrcSimpleText(_ColourSrcMixin, QGraphicsSimpleTextItem):
-    def _draw_shape(self, painter):
-        painter.setFont(self.font())
-        painter.setPen(QPen(painter.brush().color()))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawText(QPointF(0, QFontMetricsF(self.font()).ascent()),
-                         self.text())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1389,7 +1375,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     def drawForeground(self, painter, rect):
         """Draw datum lines from the head's outline across the crop box (basis h_min..h_max).
 
-        Drawn in foreground so lines remain visible even when the bubble
+        Drawn in foreground so lines remain visible even when the head
         has scrolled out of the viewport.
         """
         super().drawForeground(painter, rect)
