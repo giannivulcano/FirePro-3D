@@ -650,6 +650,30 @@ def test_f_transform_and_pos_moves_carry_the_wedge_with_the_item(qapp, monkeypat
         sc.cleanup()
 
 
+def test_copy_base_point_is_the_manip_bounds_centre_not_the_padded_scene_rect(qapp):
+    """The joint pad (open line: 2 w; closed rect: w/2) must not shift the
+    copy base point -- it is the centre of ``union_manip_bounds``."""
+    from firepro3d.geometry_2d import RectangleItem
+    from firepro3d.selection_manipulator import union_manip_bounds
+    sc = Model_Space()
+    try:
+        ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+        rc = RectangleItem(QPointF(150, 40), QPointF(250, 140))
+        for it in (ln, rc):
+            sc.addItem(it); sc._draw_lines.append(it); it.setSelected(True)
+        got = []
+        sc._modify_ctl.write_clipboard = lambda items, base: got.append(base) or len(items)
+        sc.copy_selected_items()
+        want = union_manip_bounds([ln, rc]).center()
+        assert len(got) == 1
+        assert (got[0].x(), got[0].y()) == pytest.approx((want.x(), want.y()))
+        padded = ln.sceneBoundingRect().united(rc.sceneBoundingRect()).center()
+        assert abs(padded.x() - want.x()) > 0.1 or abs(padded.y() - want.y()) > 0.1, \
+            "premise: the pad shifts the naive union"
+    finally:
+        sc.cleanup()
+
+
 def test_wedge_for_pair_uses_the_midpoint_and_maps_through_xf():
     from firepro3d.stroke_joints import wedge_for_pair
     a = _end(0.2, 0, -1, 0, "A"); b = _end(-0.2, 0, 0, -1, "B", "finish")

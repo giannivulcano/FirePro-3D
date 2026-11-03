@@ -9246,9 +9246,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The capability frame is never copied, so it never shifts the base point.
         items = [it for it in self.selectedItems()
                  if QGraphicsItem.data(it, 0) != CAPABILITY_FRAME_TAG]
-        rect = QRectF()
-        for it in items:
-            rect = rect.united(it.sceneBoundingRect())
+        from .selection_manipulator import union_manip_bounds
+        rect = union_manip_bounds(items)     # the frame's box: no joint miter pad
         n = self._modify_ctl.write_clipboard(items, rect.center())
         self._show_status(f"Copied {n} item(s)" if n is not None
                           else self._modify_ctl.CLIPBOARD_UNAVAILABLE)
