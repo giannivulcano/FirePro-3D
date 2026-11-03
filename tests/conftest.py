@@ -542,6 +542,8 @@ def section_scene_for(qapp):
     from firepro3d.section_scene import SectionScene
     from firepro3d.section_marker import SectionMarker, building_bbox
 
+    made = []
+
     def _factory(direction: str = "north"):
         ms = Model_Space()
         lm = LevelManager()            # seeds Level 1 (elevation 0.0) by default
@@ -551,9 +553,30 @@ def section_scene_for(qapp):
         marker = SectionMarker.for_cardinal(direction, building_bbox(ms))
         elev = SectionScene(marker, model_space=ms,
                             level_manager=lm, scale_manager=sm)
+        made.append((ms, elev))
         return ms, elev
 
-    return _factory
+    yield _factory
+
+    # Free the scenes HERE, at a safe point. Left to the cyclic GC, a later
+    # automatic pass can collect a SectionScene while Qt is inside one of its
+    # Python virtuals (a queued scene event -> boundingRect -> shape()), and
+    # PyQt turns the "wrapped C/C++ object deleted" raise into a fatal abort
+    # (0xC0000409, SB4b D1 diagnosis).
+    import gc
+    from PyQt6.QtWidgets import QApplication
+    for ms, elev in made:
+        elev._rebuild_timer.stop()
+        for v in list(elev.views()):
+            v.close()
+            v.deleteLater()
+        elev.deleteLater()      # C++ side freed below; a manipulator child's bound-method hold can't keep it alive
+        ms.cleanup()
+    made.clear()
+    from PyQt6.QtCore import QEvent
+    QApplication.processEvents()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)   # deleteLater is a posted event
+    gc.collect()
 
 
 @pytest.fixture
