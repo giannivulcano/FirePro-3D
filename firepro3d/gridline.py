@@ -549,7 +549,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
 
     def halo_area_path(self) -> QPainterPath:
         """HALO: a cursor inside a bubble outline is a direct hit (as the
-        filled GridBubble was); ``halo_pick_distance_px`` reads this hook."""
+        pre-SB4b filled circle was); ``halo_pick_distance_px`` reads this hook."""
         return self._outlines_local()
 
     def _tag_changed(self) -> None:

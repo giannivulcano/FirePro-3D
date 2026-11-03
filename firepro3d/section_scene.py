@@ -331,8 +331,9 @@ class _ElevBubble(_SrcEllipse):
 
     def enter_paper_pass(self, r: float, em: float, pen_w: float,
                          color_src=None, fill_src=None) -> dict:
-        """Scene-unit paper geometry for one sheet-viewport render (AC3),
-        the retired plan-view ``GridBubble.enter_paper_mode`` (SB4b; bespoke until SB4c): radius *r*, label em *em*,
+        """Scene-unit paper geometry for one sheet-viewport render (AC3).
+        The plan bubble is an annotation block since SB4b; this elevation
+        bubble stays bespoke until SB4c. Radius *r*, label em *em*,
         a non-cosmetic *pen_w* border; *color_src* / *fill_src* replace the
         stored colour strings (``None`` keeps them). Undone by
         ``exit_paper_pass``."""
