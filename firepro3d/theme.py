@@ -214,6 +214,9 @@ class _Metrics:
     PROP_SWATCH_W = 34          # colour chip width
     PROP_SWATCH_H = 14          # colour chip height
     PROP_HEX_GAP = 8            # colour chip -> hex label gap
+    EYE_GLYPH_PX = 17           # painted eye glyph box (Underlay Manager delegate + ui_kit.EyeToggle)
+    EYE_TOGGLE_PX = 22          # EyeToggle widget edge (table-cell visibility toggle)
+    DM_ROW_H = 28               # Display Manager tree row height (22 px spin boxes + the 1 px row line)
     PROP_CONTENT_H = 110        # content text-box height
     PROP_DOCK_W = 240           # default properties-dock width
     PROP_FORM_MARGIN = (6, 4, 6, 4)   # form contents margin

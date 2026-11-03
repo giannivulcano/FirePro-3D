@@ -7,16 +7,18 @@ from __future__ import annotations
 import html
 
 from PyQt6.QtCore import Qt, QPoint, QRect, QRectF, QPointF, QSize, pyqtSignal
-from PyQt6.QtGui import (QColor, QBrush, QPainter, QPen, QPolygonF, QFont,
+from PyQt6.QtGui import (QColor, QBrush, QPainter, QPainterPath, QPen, QPolygonF, QFont,
                          QFontDatabase, QIntValidator, QCursor, QFontMetrics, QPolygon)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QPushButton, QButtonGroup, QSizePolicy, QTabWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
-                             QLineEdit, QToolButton, QHeaderView)
+                             QLineEdit, QToolButton, QHeaderView, QAbstractButton)
 
 from .colour_tokens import is_token, resolve_colour, token_label
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .theme import M, detect as _detect, theme_bus
+
+_DISABLED_OPACITY = 0.4        # disabled painted cell widgets (Swatch chip, EyeToggle)
 
 
 def dock_header(text: str) -> QLabel:
@@ -53,6 +55,71 @@ def glyph_button(glyph: str | None, tooltip: str, slot, *, icon=None) -> QToolBu
     b.setFixedSize(M.GLYPH_BTN_PX, M.GLYPH_BTN_PX)
     b.clicked.connect(slot)
     return b
+
+
+def round_pen(color: QColor, width: float = 1.6) -> QPen:
+    """Round-capped pen shared by the painted glyphs (eye, snap)."""
+    pen = QPen(color, width)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    return pen
+
+
+def paint_eye(p: QPainter, r: QRectF, on: bool, color: QColor) -> None:
+    """Paint the visibility eye into *r*: open eye with pupil when *on*, closed
+    lid with lashes when off. The ONE eye painter (Underlay Manager delegate and
+    ``EyeToggle`` both call it)."""
+    p.setPen(round_pen(color))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cx, cy = r.center().x(), r.center().y()
+    w, h = r.width() / 2, r.height() / 2.4
+    if on:
+        path = QPainterPath()
+        path.moveTo(cx - w, cy)
+        path.quadTo(cx, cy - h * 1.5, cx + w, cy)
+        path.quadTo(cx, cy + h * 1.5, cx - w, cy)
+        p.drawPath(path)
+        p.drawEllipse(QPointF(cx, cy), 2.3, 2.3)
+    else:
+        path = QPainterPath()  # closed lid
+        path.moveTo(cx - w, cy - 1)
+        path.quadTo(cx, cy + h, cx + w, cy - 1)
+        p.drawPath(path)
+        for dx, dy in ((-w * 0.62, 3.6), (0.0, 4.6), (w * 0.62, 3.6)):
+            p.drawLine(QPointF(cx + dx, cy + dy * 0.55), QPointF(cx + dx, cy + dy * 0.55 + 3))
+
+
+def eye_color(theme, on: bool) -> QColor:
+    """Eye stroke colour: accent when visible, faint (alpha 170) when hidden."""
+    return theme.color("accent") if on else theme.color("faint", 170)
+
+
+class EyeToggle(QAbstractButton):
+    """Painted visibility eye for table cells (open accent eye = visible, closed
+    faint eye = hidden). QCheckBox-compatible where the Display Manager needs it:
+    checkable, ``toggled(bool)``, ``isChecked`` / ``setChecked`` / ``setEnabled``.
+    Re-latches on ``theme_bus().changed``."""
+
+    def __init__(self, parent=None, *, checked=True):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(checked)
+        self.setFixedSize(M.EYE_TOGGLE_PX, M.EYE_TOGGLE_PX)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Toggle visibility")
+        theme_bus().changed.connect(self._on_theme)
+
+    def _on_theme(self):
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            p.setOpacity(_DISABLED_OPACITY)
+        r = QRectF(0, 0, M.EYE_GLYPH_PX, M.EYE_GLYPH_PX)
+        r.moveCenter(QRectF(self.rect()).center())
+        on = self.isChecked()
+        paint_eye(p, r, on, eye_color(_detect(), on))
 
 
 class SortHeader(QHeaderView):
@@ -1146,6 +1213,8 @@ class _Chip(QWidget):
         t = _detect()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            p.setOpacity(_DISABLED_OPACITY)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         if not self._color:                      # No Fill (todo #70)
             paint_no_fill(p, r, 3)
@@ -1170,14 +1239,21 @@ class Swatch(QWidget):
     ``colorChanged(hex)``. The picker always offers No Fill and the Theme row;
     the emitted value is then "" (chip shows the shared No-Fill glyph, label
     "None", todo #70) or a ``token:*`` string. Replaces a bare QPushButton (which picked up the app's
-    global button chrome and rendered wrong)."""
+    global button chrome and rendered wrong). ``show_label=False`` hides the label (compact
+    table-cell chip); ``auto_pick=False`` leaves picking to the host (the chip only emits
+    ``clicked``; the Display Manager owns its pick flows). The value is mirrored into the
+    dynamic property ``_color``."""
 
     colorChanged = pyqtSignal(str)
+    clicked = pyqtSignal()      # chip pressed; with auto_pick=False this is the only effect
 
-    def __init__(self, hex_color="#000000", parent=None, *, context="Colour"):
+    def __init__(self, hex_color="#000000", parent=None, *, context="Colour",
+                 show_label=True, auto_pick=True):
         super().__init__(parent)
         self._context = context
+        self._auto_pick = auto_pick
         self._hex = "#000000" if hex_color is None else hex_color
+        self.setProperty("_color", self._hex)   # host-readable mirror of hex()
         t = _detect()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -1185,9 +1261,12 @@ class Swatch(QWidget):
         lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._chip = _Chip(self._hex)
         self._chip.setToolTip(f"Pick {context.lower()}")
-        self._chip.clicked.connect(self._pick)
+        self._chip.clicked.connect(self._on_chip)
         self._label = QLabel(self._text_for(self._hex))
         self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
+        self._label.setVisible(bool(show_label))
+        if not show_label:
+            lay.insertStretch(0, 1)      # centre the lone chip in a table cell
         lay.addWidget(self._chip)
         lay.addWidget(self._label)
         lay.addStretch(1)
@@ -1203,6 +1282,11 @@ class Swatch(QWidget):
     def _text_for(v):
         return "None" if not v else (token_label(v) or v.upper())
 
+    def _on_chip(self):
+        self.clicked.emit()
+        if self._auto_pick:
+            self._pick()
+
     def _pick(self):
         from . import colour_picker
         v = colour_picker.pick_colour(self._hex, self, self._context)
@@ -1214,6 +1298,7 @@ class Swatch(QWidget):
 
     def set_hex(self, hex_color):
         self._hex = hex_color
+        self.setProperty("_color", hex_color)
         self._chip.set_color(hex_color)
         self._label.setText(self._text_for(hex_color))
 

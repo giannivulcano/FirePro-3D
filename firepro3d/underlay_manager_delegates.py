@@ -30,7 +30,8 @@ from .underlay_manager_model import (
     LayerRole,
     UnderlayRole,
 )
-from .theme import Theme
+from .theme import Theme, M
+from .ui_kit import round_pen as _round_pen, paint_eye as _draw_eye, eye_color
 from . import colour_picker
 from .colour_tokens import resolve_colour, token_label
 
@@ -58,33 +59,6 @@ def make_menu(parent, keep_open: bool = False) -> QMenu:
 # ---------------------------------------------------------------------------
 # painting helpers
 # ---------------------------------------------------------------------------
-
-def _round_pen(color: QColor, width: float = 1.6) -> QPen:
-    pen = QPen(color, width)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    return pen
-
-
-def _draw_eye(p: QPainter, r: QRectF, on: bool, color: QColor) -> None:
-    p.setPen(_round_pen(color))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    cx, cy = r.center().x(), r.center().y()
-    w, h = r.width() / 2, r.height() / 2.4
-    if on:
-        path = QPainterPath()
-        path.moveTo(cx - w, cy)
-        path.quadTo(cx, cy - h * 1.5, cx + w, cy)
-        path.quadTo(cx, cy + h * 1.5, cx - w, cy)
-        p.drawPath(path)
-        p.drawEllipse(QPointF(cx, cy), 2.3, 2.3)
-    else:
-        path = QPainterPath()  # closed lid
-        path.moveTo(cx - w, cy - 1)
-        path.quadTo(cx, cy + h, cx + w, cy - 1)
-        p.drawPath(path)
-        for dx, dy in ((-w * 0.62, 3.6), (0.0, 4.6), (w * 0.62, 3.6)):
-            p.drawLine(QPointF(cx + dx, cy + dy * 0.55), QPointF(cx + dx, cy + dy * 0.55 + 3))
-
 
 def _draw_eye_partial(p: QPainter, r: QRectF, color: QColor) -> None:
     """Open-eye outline marked as *partially* on: the eye is drawn in a
@@ -223,12 +197,12 @@ class ToggleDelegate(_BaseDelegate):
               partial: bool = False) -> None:
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = QRectF(0, 0, 17, 17)
+        r = QRectF(0, 0, M.EYE_GLYPH_PX, M.EYE_GLYPH_PX)
         r.moveCenter(QRectF(option.rect).center())
         if eye and partial:
             _draw_eye_partial(painter, r, self.t.color("muted"))
         else:
-            color = self.t.color("accent") if on else self.t.color("faint", 170)
+            color = eye_color(self.t, on)
             if eye:
                 _draw_eye(painter, r, on, color)
             else:
