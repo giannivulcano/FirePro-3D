@@ -120,3 +120,46 @@ def test_non_opt_in_item_keeps_held_preview(qapp):
     assert not item.transform().isIdentity()
     assert data.wrap_width_mm == w0
     m.cancel_drag()
+
+
+@pytest.mark.parametrize("kind", ["detail", "plan"])
+def test_native_press_drag_refits_frame(qapp, kind):
+    """Press on a NOT-selected viewport and drag in one gesture: Qt's native
+    ItemIsMovable drag moves it; the manipulator frame must follow (it stayed
+    at the press position -- repro 2026-11-03)."""
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QGraphicsView
+    from tests.test_paper_viewport_crop import _FakeMarker
+    model = QGraphicsScene()
+    model.addRect(0, 0, 1000, 500)
+    markers = {"D1": _FakeMarker(QRectF(100, 100, 200, 150))}
+    data = (SheetViewData("detail", "D1", "DET", 0.2, 50, 50, 0, 0)
+            if kind == "detail"
+            else SheetViewData("plan", "Level 1", "PLAN", 0.05, 50, 50, 0, 0))
+    scene = PaperScene(Sheet.create_default(), _resolver(model, markers))
+    vp = scene.add_viewport(data)
+    m = scene._manipulator
+    view = QGraphicsView(scene)
+    view.resize(900, 700)
+    view.show()
+    view.fitInView(QRectF(0, 0, 200, 150), Qt.AspectRatioMode.KeepAspectRatio)
+    QTest.qWait(50)
+    vw = view.viewport()
+    p0 = view.mapFromScene(vp.mapToScene(QPointF(data.w / 2, data.h / 2)))
+    p1 = p0 + QPoint(80, 60)
+    QTest.mousePress(vw, Qt.MouseButton.LeftButton, NO, p0)
+    for i in range(1, 9):
+        QTest.mouseMove(vw, p0 + (p1 - p0) * (i / 8))
+        QTest.qWait(10)
+
+    def _rect(r):
+        return (r.x(), r.y(), r.width(), r.height())
+    assert vp.pos() != QPointF(50, 50), "native drag moved the viewport"
+    assert _rect(m.mapRectToScene(m._rect)) == pytest.approx(
+        _rect(vp.manip_bounds()), abs=1e-6), "frame follows mid-drag"
+    QTest.mouseRelease(vw, Qt.MouseButton.LeftButton, NO, p1)
+    QTest.qWait(30)
+    assert _rect(m.mapRectToScene(m._rect)) == pytest.approx(
+        _rect(vp.manip_bounds()), abs=1e-6), "frame matches after release"
+    view.close()

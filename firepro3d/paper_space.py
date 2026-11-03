@@ -1419,7 +1419,18 @@ class SheetViewport(QGraphicsObject):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.sync_data_from_item()
+            self._rebake_manipulator()
         return super().itemChange(change, value)
+
+    def _rebake_manipulator(self) -> None:
+        """Re-fit the scene's selection frame after a move it did not drive
+        (the native ``ItemIsMovable`` press-drag of a not-yet-wrapped viewport,
+        an undo / panel edit). A manipulator gesture keeps its own frame:
+        never rebake mid-gesture."""
+        sc = self.scene()
+        m = getattr(sc, "_manipulator", None) if sc is not None else None
+        if m is not None and self.isSelected() and not m.is_dragging():
+            m.rebake()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:
