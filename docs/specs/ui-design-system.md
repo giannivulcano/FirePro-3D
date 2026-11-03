@@ -613,7 +613,7 @@ follows these rules so every column reads as a proper rail:
    `RevisionsDialog`** (both wrap existing content into `set_body`; the editor
    keeps its 3-button `Save / Save && Close / Close` box in-body). **Migrated
    2026-11-03 (DM chrome revision): `DisplayManager`** (HouseDialog + `TopTabs`
-   + Underlay-table look; see the consumer paragraph below the D3 section).
+   + Underlay-table look; see the DisplayManager consumer paragraph in D3).
    Remaining:
    `PreferencesDialog`,
    `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`, `WallDialog`,

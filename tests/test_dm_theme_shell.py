@@ -97,3 +97,32 @@ def test_saved_size_survives_the_house_footer_adjustsize(mw):
         assert QSettings("GV", "FirePro3D").value("display_manager/window_size") == QSize(1111, 777)
     finally:
         dispose_dm(dlg)
+
+
+def test_closed_dm_is_deleted_and_drops_its_theme_listeners(mw):
+    """Seam review I1: the menu path (_open_display_manager, real exec()) must not
+    leave the closed dialog alive under MainWindow, still subscribed to theme_bus.
+    The kit's theme handlers are real Qt slots, so their connections drop with the
+    widgets even while a Python wrapper (``seen``) outlives them."""
+    from PyQt6.QtCore import QEvent, QTimer
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.display_manager import DisplayManager
+    from firepro3d.theme import theme_bus
+    bus = theme_bus()
+    base = bus.receivers(bus.changed)
+    seen = {}
+
+    def close_modal():
+        dlg = QApplication.activeModalWidget() or mw.findChildren(DisplayManager)[0]
+        seen["dlg"] = dlg
+        seen["live"] = bus.receivers(bus.changed)
+        dlg.reject()
+
+    QTimer.singleShot(0, close_modal)
+    mw._open_display_manager()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    QApplication.processEvents()
+    assert isinstance(seen["dlg"], DisplayManager)
+    assert seen["live"] > base                          # rows really listened while open
+    assert mw.findChildren(DisplayManager) == []
+    assert bus.receivers(bus.changed) == base

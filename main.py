@@ -3353,6 +3353,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                                      PaperSpaceWidget) else "model"
         dlg = self._make_display_manager(ctx)
         dlg.exec()  # live preview handles apply/revert internally
+        # Parented to the window, so a closed dialog would otherwise live on
+        # and keep every row chip / eye listening to theme_bus.
+        dlg.deleteLater()
 
     def _make_display_manager(self, ctx: str):
         """Build the Display Manager wired to MainWindow (split out so tests

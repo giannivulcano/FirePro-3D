@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import html
 
-from PyQt6.QtCore import Qt, QPoint, QRect, QRectF, QPointF, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QRect, QRectF, QPointF, QSize, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import (QColor, QBrush, QPainter, QPainterPath, QPen, QPolygonF, QFont,
                          QFontDatabase, QIntValidator, QCursor, QFontMetrics, QPolygon)
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
@@ -108,6 +108,7 @@ class EyeToggle(QAbstractButton):
         self.setToolTip("Toggle visibility")
         theme_bus().changed.connect(self._on_theme)
 
+    @pyqtSlot()     # a real Qt slot: the connection dies with the widget
     def _on_theme(self):
         self.update()
 
@@ -1272,6 +1273,7 @@ class Swatch(QWidget):
         lay.addStretch(1)
         theme_bus().changed.connect(self._on_theme)
 
+    @pyqtSlot()     # a real Qt slot: the connection dies with the widget
     def _on_theme(self):
         """Live theme switch: re-latch the muted label colour and repaint."""
         self._label.setStyleSheet(
@@ -1369,6 +1371,7 @@ class FillSwatch(QWidget):
         self.set_layer(layer)
         theme_bus().changed.connect(self._on_theme)
 
+    @pyqtSlot()     # a real Qt slot: the connection dies with the widget
     def _on_theme(self):
         self._label.setStyleSheet(
             f"color: {_detect().muted}; font-size: {M.PROP_FIELD_FS}px;")

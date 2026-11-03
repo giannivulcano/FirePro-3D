@@ -2112,15 +2112,11 @@ class DisplayManager(HouseDialog):
             factory = cats[key]
             if key not in _LW_ONLY:
                 self._update_color_btn(widgets["color_btn"], factory["color"])
-                widgets["color_btn"].setProperty("_color", factory["color"])
             if key in _HAS_FILL:
                 self._update_color_btn(widgets["fill_btn"], factory["fill"])
-                widgets["fill_btn"].setProperty("_color", factory["fill"])
             if key in _HAS_SECTION:
                 self._update_color_btn(widgets["section_btn"],
                                        factory["section_color"])
-                widgets["section_btn"].setProperty("_color",
-                                                    factory["section_color"])
             idx = widgets["lw_combo"].findText(factory["line_weight"])
             if idx >= 0:
                 widgets["lw_combo"].setCurrentIndex(idx)
@@ -2561,15 +2557,12 @@ class DisplayManager(HouseDialog):
                     continue
                 cats[key]["color"] = "#000000"
                 self._update_color_btn(widgets["color_btn"], "#000000")
-                widgets["color_btn"].setProperty("_color", "#000000")
                 if key in _HAS_FILL:
                     cats[key]["fill"] = "#ffffff"
                     self._update_color_btn(widgets["fill_btn"], "#ffffff")
-                    widgets["fill_btn"].setProperty("_color", "#ffffff")
                 if key in _HAS_SECTION:
                     cats[key]["section_color"] = "#000000"
                     self._update_color_btn(widgets["section_btn"], "#000000")
-                    widgets["section_btn"].setProperty("_color", "#000000")
             save_paper_categories(cats, self._settings)
             self._suppress = False
 
@@ -2608,7 +2601,6 @@ class DisplayManager(HouseDialog):
             return
 
         self._update_color_btn(btn, hex_val)
-        btn.setProperty("_color", hex_val)
 
         # Save to QSettings
         cats = load_paper_categories(self._settings)

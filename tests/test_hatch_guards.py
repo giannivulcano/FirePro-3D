@@ -162,7 +162,7 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
     dlg = DisplayManager(Model_Space())
     try:
         row = dlg._paper_cat_data["Hatch"]
-        style0 = row["color_btn"].styleSheet()
+        assert row["color_btn"].hex() == "#123456"
         assert row["lw_combo"].isEnabled()
         assert not row["color_btn"].isEnabled()
         pd._clear_hatch_mm()
@@ -177,9 +177,9 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
         # B&W switch and Reset must not restyle or rewrite the Hatch colour (M1).
         dlg._color_mode_combo.setCurrentIndex(1)
         assert pd.load_paper_categories()["Hatch"]["color"] == "#123456"
-        assert row["color_btn"].styleSheet() == style0
+        assert row["color_btn"].hex() == "#123456"
         dlg._reset_paper_space_tab()
-        assert row["color_btn"].styleSheet() == style0
+        assert row["color_btn"].hex() == "#123456"
         assert not row["color_btn"].isEnabled()
     finally:
         pd.save_paper_categories(pd.factory_paper_categories())
