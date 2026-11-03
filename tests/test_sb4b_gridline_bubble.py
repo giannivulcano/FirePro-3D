@@ -433,3 +433,70 @@ def test_m1_bounding_rect_covers_the_bubble_hit_area_for_qt_native_picks(qapp, s
     ux, uy = gl._direction()
     outer = QPointF(c.x() - ux * reach, c.y() - uy * reach)
     assert gl in ms.items(outer), "a Qt-native pick at the bubble's outer edge finds the gridline"
+
+
+def _ring_pixels(ms, gl, rgb, tol=40):
+    """Pixels near *rgb* in a 200 x 200 render of the bubble-1 area (the ring
+    is drawn round the block outline, VC9 I1: rendered, not a pen list)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QImage, QPainter
+    r = gl.bubble1.sceneBoundingRect().adjusted(-50, -50, 50, 50)
+    img = QImage(200, 200, QImage.Format.Format_RGB32)
+    img.fill(0xFF101010)
+    p = QPainter(img)
+    ms.render(p, QRectF(0, 0, 200, 200), r, Qt.AspectRatioMode.IgnoreAspectRatio)
+    p.end()
+    n = 0
+    for y in range(200):
+        for x in range(200):
+            c = img.pixelColor(x, y)
+            if abs(c.red() - rgb[0]) + abs(c.green() - rgb[1]) + abs(c.blue() - rgb[2]) <= tol:
+                n += 1
+    return n
+
+
+def test_g3_g8_duplicate_and_selection_rings_render_round_the_bubble(qapp):
+    from firepro3d.gridline import apply_duplicate_warnings
+    ms = _scene()
+    _bubble_def(ms)
+    a = _gridline(ms, label="A")
+    b = _gridline(ms, (20000.0, 0.0), (20000.0, 5000.0), label="B")
+    orange = (0xFF, 0x88, 0x00)
+    assert _ring_pixels(ms, a, orange) == 0
+    b.grid_label = "A"
+    apply_duplicate_warnings(ms._gridlines)
+    assert _ring_pixels(ms, a, orange) > 100, "duplicate ring paints round bubble 1"
+    sel = a._grid_color.lighter(150)
+    sel_rgb = (sel.red(), sel.green(), sel.blue())
+    b.grid_label = "B"
+    apply_duplicate_warnings(ms._gridlines)
+    before = _ring_pixels(ms, a, sel_rgb, tol=12)
+    a.setSelected(True)
+    assert _ring_pixels(ms, a, sel_rgb, tol=12) > before + 100, "selection ring paints round bubble 1"
+
+
+def test_g9_legacy_file_loads_through_the_app_load_path(qapp, tmp_path, real_system_library):
+    """VC9 I2: a pre-SB4b .fpd (the c20d2ec3 gridline record shape: no
+    tag_block, no bubble block in the file) opened through
+    Model_Space.load_from_file draws both visible bubbles with the shipped
+    System GridlineBubble and keeps per-end visibility / standoff / lock."""
+    import json
+    ms = _scene()
+    gl = _gridline(ms, (0.0, 0.0), (0.0, 4000.0), label="3")
+    f = tmp_path / "legacy.fpd"
+    assert ms.save_to_file(str(f))
+    rec = json.loads(f.read_text(encoding="utf-8"))
+    (g,) = rec["gridlines"]
+    legacy = {k: g[k] for k in ("origin", "length", "angle", "bubble1_offset", "bubble2_offset",
+                                "label", "locked", "uid")}
+    legacy.update(bubble1_vis=True, bubble2_vis=False, bubble1_offset=1500.0, locked=True)
+    rec["gridlines"] = [legacy]
+    f.write_text(json.dumps(rec), encoding="utf-8")
+    ms2 = _scene()
+    ms2.load_from_file(str(f))
+    (gl2,) = ms2._gridlines
+    assert gl2.grid_label == "3" and gl2.locked and gl2.tag_block is None
+    assert gl2.bubble1.isVisible() and not gl2.bubble2.isVisible()
+    assert gl2.bubble1_offset() == pytest.approx(1500.0)
+    assert gl2.bubble1.definition().id == "system-tags-gridlinebubble"
+    assert gl2.bubble1.paints() and gl2.bubble1._ops(1.0)
