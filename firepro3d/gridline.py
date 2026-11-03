@@ -868,6 +868,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
         cp.bubble1.setVisible(self.bubble1.isVisible())
         cp.bubble2.setVisible(self.bubble2.isVisible())
         cp._display_overrides = dict(self._display_overrides)
+        cp._tag_block = self._tag_block
         cp._locked = False
         cp._rebuild_geometry()
         return cp
@@ -979,6 +980,8 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
             "locked": self._locked,
             "uid": self._uid,
         }
+        if self._tag_block:
+            d["tag_block"] = self._tag_block              # sparse (SB4b D10)
         return display_overrides_to_dict(self, d)        # L283: a copy, never the live dict
 
     @classmethod
@@ -1014,6 +1017,8 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
         item._locked = d.get("locked", False)
         if d.get("uid"):
             item._uid = str(d["uid"])
+        tb = d.get("tag_block")
+        item._tag_block = tb if isinstance(tb, str) and tb else None
         # Silently ignore "level"/"axis" keys from old files.
         item._rebuild_geometry()
         display_overrides_from_dict(item, d)             # after the rebuild: a carried Hide wins
@@ -1059,6 +1064,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
             "Bubble 2": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble2.isVisible() else "Hidden"},
             "Bubble 2 Offset": {"type": "dimension", "value_mm": self._bubble2_offset, "minimum": 0.0},
+            "Tag": self._tag_row(),
             "Locked": {"type": "enum", "options": ["True", "False"], "value": str(self._locked)},
         }
 
@@ -1089,6 +1095,9 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
             self.set_bubble_offset(1, float(value))
         elif key == "Bubble 2 Offset":
             self.set_bubble_offset(2, float(value))
+        elif key == "Tag":
+            self._set_tag(str(value))     # the mixin pushes its own undo step
+            return
         elif key == "Locked":
             self._locked = value in ("True", True)
 

@@ -305,3 +305,61 @@ def test_g4_saved_fill_and_scale_are_ignored_at_load(qapp):
     gl = _gridline(ms)
     apply_display_to_item(gl, "#4488cc", 2.0, 100, True, fill_color="#123456")
     assert gl.bubble1.scale() == 1.0 and gl.bubble2.scale() == 1.0
+
+
+def test_g7_tag_row_sits_under_bubble_2_offset_and_not_on_the_template(qapp):
+    ms = _scene()
+    _bubble_def(ms)
+    gl = _gridline(ms)
+    keys = list(gl.get_properties())
+    assert keys.index("Tag") == keys.index("Bubble 2 Offset") + 1
+    assert gl.get_properties()["Tag"]["value"].startswith("Project default")
+    tmpl = ms._get_gridline_template()
+    assert "Tag" not in tmpl.get_properties()
+
+
+def test_g7_tag_pick_is_one_undo_step_and_round_trips(qapp):
+    ms = _scene()
+    d = _bubble_def(ms)
+    other = _bubble_def(ms, "square", name="SquareBubble")
+    ms.annotation_defaults["Gridline"] = d.id
+    gl = _gridline(ms)
+    ms.push_undo_state()
+    opts = gl.get_properties()["Tag"]["options"]
+    pick = next(o for o in opts if o.startswith("SquareBubble"))
+    n = len(ms._undo_stack)
+    gl.set_property("Tag", pick)
+    assert len(ms._undo_stack) == n + 1
+    assert gl.tag_block == other.id
+    assert gl.bubble1.definition() is other and gl.bubble2.definition() is other
+    rec = gl.to_dict()
+    assert rec["tag_block"] == other.id
+    gl2 = GridlineItem.from_dict(rec)
+    assert gl2.tag_block == other.id
+    gl._tag_block = None
+    assert "tag_block" not in gl.to_dict()                # sparse
+    gl.set_property("Tag", "< mixed >")                   # no-op
+    assert gl.tag_block is None
+    ms.undo()
+    assert ms._gridlines[0].tag_block is None              # SB3b pattern: undo rebuilds from records
+
+
+def test_g7_offset_and_array_copies_carry_tag_block(qapp):
+    ms = _scene()
+    _bubble_def(ms)
+    other = _bubble_def(ms, "square", name="SquareBubble")
+    gl = _gridline(ms)
+    gl._tag_block = other.id
+    assert gl.offset_copy(1000.0).tag_block == other.id
+    assert all(c.tag_block == other.id for c in gl.array_copies(500.0, 3))
+
+
+def test_g7_missing_tag_block_falls_back_with_one_notice(qapp):
+    ms = _scene()
+    d = _bubble_def(ms)
+    gl = _gridline(ms)
+    gl._tag_block = "no-such-block"
+    gl._tag_changed()
+    assert gl.bubble1.definition() is d
+    row = gl.get_properties()["Tag"]
+    assert "(missing)" in row["value"]

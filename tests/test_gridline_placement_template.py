@@ -140,9 +140,9 @@ class TestTemplateGetProperties:
         expected = {"Label", "Origin X", "Origin Y", "Length", "Angle",
                     "End X", "End Y",
                     "Bubble 1", "Bubble 1 Offset", "Bubble 2", "Bubble 2 Offset",
-                    "Locked"}
+                    "Tag", "Locked"}                      # SB4b D9: per-gridline Tag row
         assert expected == set(props.keys()), (
-            "Non-template get_properties() should be unchanged"
+            "Non-template get_properties() should be the full set (plus Tag)"
         )
 
 
