@@ -121,6 +121,31 @@ own math already).
   loose lines, pan / zoom repaint; (2) drag one line in that scene. Budget: no measurable
   regression over base — a > 5 % frame-time increase on either fails.
 
+## Plan-time deviations (ratified at plan approval, 2026-11-03)
+
+Grounding for the plan (`docs/superpowers/plans/2026-11-03-stroke-corner-joins.md`,
+local) found four places the decisions above do not fit the code; each was put to the
+user and ratified as written here. Account reconciles the D-rows at Phase 6.
+
+- **D4 — end records store geometry only.** `JointEnd = (point, tangent_away, which,
+  owner)`. Weight, colour, `inked` and end type are matched **at paint**
+  (`stroke_joints.joinable`) from both owners' live state: there is no style-change choke
+  point to keep stored attributes current, and `inked` for a Fixed linetype depends on the
+  paint's device scale. AC4 / AC6 semantics unchanged.
+- **D5(c) dropped.** `PaperScene` hosts only `TextItem`s, viewports and the title block;
+  sheets show model geometry through viewports, i.e. the paper pass over `Model_Space`
+  (container (a)). AC8's sheet / PDF leg is container (a) under a paper pass.
+- **D6 — choke point = setter overrides.** `LineItem` never calls `prepareGeometryChange`
+  (Qt's `setLine` does it internally). `Geometry2DMixin` overrides `setLine` / `setRect` /
+  `setPath` (Python-level calls dispatch to the mixin, which precedes the Qt base in the
+  MRO) and handles `ItemSceneChange` / `ItemSceneHasChanged` (+ position / transform /
+  rotation changes when any caller moves a styled primitive that way) in `itemChange`.
+- **D7 — both partners draw the shared wedge** (same colour and width → identical
+  polygon; keeps either item's repaint self-sufficient), and open styled items pad
+  `boundingRect` by `STROKE_MITER_LIMIT / 2` pen widths (the miter tip's reach);
+  `BlockInstance.boundingRect` pads by the same reach at `MODEL_WEIGHT_PX_MAX` when its
+  definition holds any joint.
+
 ## Verification checklist
 
 Each guard renders to a `QImage` at an exaggerated weight (e.g. `canvas_px` patched to 20)
