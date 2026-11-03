@@ -375,3 +375,168 @@ def test_d1_model_refresh_reaches_open_sections(qapp, two_sections):
     _offset_box_def(ms)              # registers (its own refresh runs BEFORE the remap) then remaps
     ms.refresh_annotation_tags()     # the call the Annotation pane makes after a mapping change
     assert _painted_lines(eg)[0].y1() == pytest.approx(eg.line().y1() + 4.0 * k, abs=0.05 * k)
+
+
+def _text_width(label):
+    """Width of the union of *label*'s painted TEXT ops (the bound @[Mark])."""
+    st = label._state()
+    r = QRectF()
+    for op in label._ops(label._k(None, st[0]), st):
+        if op.kind == "text":
+            r = r.united(op.path.boundingRect())
+    return r.width()
+
+
+def _ring_pixels(sec, bubble, rgb, tol=40):
+    """Pixels near *rgb* in a 200 x 200 render of *bubble*'s area of *sec*
+    (SB4b ``_ring_pixels`` recipe: the ring is rendered, not a pen list)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QImage, QPainter
+    r = bubble.sceneBoundingRect().adjusted(-50, -50, 50, 50)
+    img = QImage(200, 200, QImage.Format.Format_RGB32)
+    img.fill(0xFF101010)
+    p = QPainter(img)
+    sec.render(p, QRectF(0, 0, 200, 200), r, Qt.AspectRatioMode.IgnoreAspectRatio)
+    p.end()
+    n = 0
+    for y in range(200):
+        for x in range(200):
+            c = img.pixelColor(x, y)
+            if abs(c.red() - rgb[0]) + abs(c.green() - rgb[1]) + abs(c.blue() - rgb[2]) <= tol:
+                n += 1
+    return n
+
+
+def test_ac1_elevation_bubble_follows_the_plan_gridlines_tag_block(qapp, section_scene_for):
+    """A Tag pick on the PLAN gridline (Properties Tag row) changes what the
+    elevation bubbles paint, through the real rebuild the pick schedules."""
+    ms, sec = section_scene_for("north")
+    k = _k(ms)
+    circ = _bubble_def(ms, "circle", name="CircBubble")
+    _bubble_def(ms, "square", name="SquareBubble")           # 12 x 6 mm box
+    ms.annotation_defaults["Gridline"] = circ.id
+    gl = _plan_gridline(ms)
+    sec.rebuild()
+    assert _static_width(_elev(sec).bubble1) == pytest.approx(2 * CIRCLE_R * k, abs=0.1 * k)
+    sec._rebuild_timer.stop()            # a block registration above may have armed it
+    opts = gl.get_properties()["Tag"]["options"]
+    gl.set_property("Tag", next(o for o in opts if o.startswith("SquareBubble")))
+    assert sec._rebuild_timer.isActive(), "the Tag pick schedules the section rebuild (D6 probe)"
+    _flush_rebuild(sec)
+    eg = _elev(sec)
+    for b in (eg.bubble1, eg.bubble2):
+        assert _static_width(b) == pytest.approx(12.0 * k, abs=0.1 * k)
+
+
+def test_ac1_mark_rename_repaints_without_a_rebuild(qapp, section_scene_for):
+    """Pull-on-paint (D6): the elevation bubble reads Mark off the plan
+    gridline at paint, so a rename shows before any section rebuild."""
+    ms, sec = section_scene_for("north")
+    _bubble_def(ms)
+    gl = _plan_gridline(ms, label="1")
+    sec.rebuild()
+    eg = _elev(sec)
+    w1 = _text_width(eg.bubble1)
+    assert w1 > 0.0
+    gl.grid_label = "WWW"
+    assert _elev(sec) is eg                                  # no rebuild ran
+    assert eg.bubble1.host_values({"Mark"})["Mark"].raw == "WWW"
+    assert _text_width(eg.bubble1) > 2.0 * w1
+
+
+@pytest.mark.parametrize("end", [1, 2])
+def test_ac2_plan_bubble_toggle_hides_the_matching_end_in_every_section(qapp, two_sections, end):
+    """Plan Bubble 1 -> elevation TOP, Bubble 2 -> BOTTOM, in North (h = -2500)
+    and South (h = +2500) alike (drafter probe: both cardinals show the
+    gridline; East / West are parallel). Driven through the real property
+    panel commit, which arms each open section's rebuild."""
+    from firepro3d.property_manager import PropertyManager
+    m, ms = two_sections
+    _bubble_def(ms)
+    gl = _plan_gridline(ms)
+    m.seed_cardinals()
+    scenes = [m.get_or_build_scene(c) for c in ("north", "south")]
+    for sc in scenes:
+        eg = _elev(sc)
+        assert eg.bubble1.isVisible() and eg.bubble2.isVisible()
+        sc._rebuild_timer.stop()         # only the panel commit below may arm it
+    pm = PropertyManager()
+    try:
+        pm.show_properties(gl)
+        pm._apply_property(f"Bubble {end}", "Hidden")
+    finally:
+        pm.deleteLater()
+    expect = (False, True) if end == 1 else (True, False)
+    for sc in scenes:
+        assert sc._rebuild_timer.isActive(), "the panel commit schedules every open section"
+        _flush_rebuild(sc)
+        eg = _elev(sc)
+        assert (eg.bubble1.isVisible(), eg.bubble2.isVisible()) == expect
+        drawn = _painted_lines(eg)[0]
+        if end == 1:
+            assert drawn.y1() == pytest.approx(eg.line().y1())   # hidden top: untrimmed
+        else:
+            assert drawn.y2() == pytest.approx(eg.line().y2())   # hidden bottom: untrimmed
+
+
+def test_ac5_duplicate_and_selection_rings_render_on_screen_never_on_paper(qapp, section_scene_for):
+    from firepro3d.gridline import apply_duplicate_warnings
+    ms, sec = section_scene_for("north")
+    _bubble_def(ms)
+    _plan_gridline(ms, 2500.0, "1")
+    other = _plan_gridline(ms, 4000.0, "2")
+    sec.rebuild()
+    orange = (0xFF, 0x88, 0x00)
+    assert _ring_pixels(sec, _elev(sec, -2500.0).bubble1, orange) == 0
+    other.grid_label = "1"
+    apply_duplicate_warnings(ms._gridlines)
+    _flush_rebuild(sec)                       # the panel path arms this rebuild (Task 1 probe)
+    ea = _elev(sec, -2500.0)
+    assert ea.bubble1._duplicate and ea.bubble2._duplicate
+    assert _ring_pixels(sec, ea.bubble1, orange) > 100, "duplicate ring paints round the top bubble"
+    saved = ea.enter_paper_pass(0.35, 0.02)
+    try:
+        assert _ring_pixels(sec, ea.bubble1, orange) == 0, "the duplicate ring never plots"
+    finally:
+        ea.exit_paper_pass(saved)
+    other.grid_label = "2"
+    apply_duplicate_warnings(ms._gridlines)
+    _flush_rebuild(sec)
+    ea = _elev(sec, -2500.0)
+    sel = ea._grid_color.lighter(150)
+    sel_rgb = (sel.red(), sel.green(), sel.blue())
+    before = _ring_pixels(sec, ea.bubble1, sel_rgb, tol=12)
+    ea.setSelected(True)
+    assert _ring_pixels(sec, ea.bubble1, sel_rgb, tol=12) > before + 100, \
+        "selection ring paints round the top bubble"
+
+
+def test_ac8_click_on_an_elevation_bubble_selects_the_gridline(qapp, section_scene_for):
+    """Posted hover + click at the bubble centre on a shown SectionView: HALO
+    resolves the bubble to its gridline and the press selects it (the retired
+    bespoke bubble's mousePressEvent is not needed)."""
+    from PyQt6.QtGui import QTransform
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.elevation_view import SectionView
+    from tests.test_elev_selection_interaction import _click, _move, _vp
+    ms, sec = section_scene_for("north")
+    _bubble_def(ms)
+    _plan_gridline(ms)
+    sec.rebuild()
+    eg = _elev(sec)
+    view = SectionView(sec)
+    try:
+        view.resize(600, 600)
+        view.show()
+        QApplication.processEvents()
+        view.setTransform(QTransform.fromScale(0.2, 0.2))   # bubble radius 4.75 * 100 * 0.2 = 95 px
+        c = eg.bubble1.scenePos()
+        view.centerOn(c)
+        QApplication.processEvents()
+        pt = _vp(view, (c.x(), c.y()))
+        _move(view, pt)
+        assert sec.halo_item() is eg, "HALO resolves the bubble to its gridline"
+        _click(view, pt)
+        assert sec.selectedItems() == [eg]
+    finally:
+        view.close()
