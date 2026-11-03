@@ -1059,6 +1059,9 @@ class BlockInstance(QGraphicsObject):
         ix = jm[0][i]
         if ix is None:
             return
+        # Unpose first: _joint_dash's view window composes *pose* onto the
+        # painter, so a still-posed painter would apply it twice.
+        xf.unposed()
         pairs = []
         cache = {}
         for e in ix.ends_of(i):
@@ -1073,7 +1076,6 @@ class BlockInstance(QGraphicsObject):
                 pairs.append((e, q))
         if not pairs:
             return
-        xf.unposed()
         half_w = pen.widthF() / 2.0
         cosmetic = pen.isCosmetic()
         painter.save()
