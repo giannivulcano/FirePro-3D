@@ -1015,6 +1015,24 @@ class SheetViewport(QGraphicsObject):
         self.setPos(self._data.x, self._data.y)
         self.mark_dirty()
 
+    #: Resize live -- the crop / box re-derive every frame -- instead of under
+    #: the manipulator's held-transform preview, which stretches the picture.
+    MANIP_LIVE_RESIZE = True
+
+    def manip_live_state(self) -> tuple:
+        """Rest geometry ``(x, y, w, h, crop_rect)`` a live resize resets to."""
+        d = self._data
+        return (d.x, d.y, d.w, d.h, QRectF(d.crop_rect))
+
+    def manip_live_restore(self, state) -> None:
+        """Restore a :meth:`manip_live_state` snapshot (live frame reset / Esc)."""
+        self.prepareGeometryChange()
+        d = self._data
+        d.x, d.y, d.w, d.h = state[0], state[1], state[2], state[3]
+        d.crop_rect = QRectF(state[4])
+        self.setPos(d.x, d.y)
+        self.mark_dirty()
+
     def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
         """Baked resize about *anchor* — reproduces the retired grip-resize.
 

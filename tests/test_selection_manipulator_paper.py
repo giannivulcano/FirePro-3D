@@ -134,13 +134,14 @@ def test_viewport_resize_one_geometry_command(qapp):
     r0 = QRectF(manip._rect)
     anchor_scene = r0.topLeft()
     start = r0.bottomRight()
-    manip._begin("resize", start, QPointF(0, 0), HandleRole.BOTTOM_RIGHT)
+    # A viewport resizes live (MANIP_LIVE_RESIZE): geometry moves only through
+    # drag frames, so drive one real _update frame before the release.
+    manip._begin_handle(manip._rigid[HandleRole.BOTTOM_RIGHT], start,
+                        QPointF(0, 0))
     from PyQt6.QtCore import Qt
-    manip._moved = True
-    manip._last_factors = ((r0.width() + 30.0) / r0.width(),
-                           (r0.height() + 20.0) / r0.height())
-    manip._finish(QPointF(start.x() + 30, start.y() + 20),
-                  Qt.KeyboardModifier.NoModifier)
+    end = QPointF(start.x() + 30, start.y() + 20)
+    manip._update(end, Qt.KeyboardModifier.NoModifier, QPointF(300, 200))
+    manip._finish(end, Qt.KeyboardModifier.NoModifier)
 
     assert scene.undo_stack.index() == idx_before + 1, "exactly one undo entry"
     assert data.w == pytest.approx(130.1, abs=1e-3)
