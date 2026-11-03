@@ -23,8 +23,11 @@ from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
 PT = 25.4 / 72.0
 _ORIGIN_BOX = 12            # px half-size masked around the crop centre
 
-# Recorded at base cbe41a15 with LT5_RECORD=1.
-_GOLDEN = ((1280, '3a220c6422e028f4'), (1219, '6a80ca84e977427a'),
+# Recorded at base cbe41a15 with LT5_RECORD=1; re-baselined 2026-11-03 at
+# 0be9aacd (stroke-corner-joins AC1 / D1: every stroke pen is FlatCap, so a
+# free end stops flat -- the canvas legs lose the SquareCap half-width on
+# every non-axis-aligned free end; the PDF leg is unchanged).
+_GOLDEN = ((1277, 'b95e011881654c35'), (1216, 'fb9deae74c12ca43'),
            (6, '2a1780a8c661fd5f'))
 
 

@@ -13,10 +13,13 @@ import copy
 import math
 from typing import NamedTuple
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QPen
+
 from . import paper_display as _pd
 from .colour_tokens import normalize_colour
 from .constants import (TOKEN_AUTO, END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN, END_SCALE_MAX,
-                        END_SCALE_MIN)
+                        END_SCALE_MIN, STROKE_MITER_LIMIT)
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"          # legacy input only -- migrated by normalize_style (WM-9)
@@ -310,6 +313,29 @@ def canvas_weight_name(weight: str) -> str:
 def canvas_px(weight: str) -> float:
     """Cosmetic canvas width for a style weight (MW H-MW-c mapping)."""
     return _pd.canvas_px_for_weight(canvas_weight_name(weight))
+
+
+def apply_stroke_joins(pen: QPen) -> QPen:
+    """Flat caps + mitered joins at the PDF-4 limit on *pen* (design D1).
+
+    Re-asserted wherever a stroke pen is (re)built so a pen a paper pass left
+    behind, or one copied from a compiled block op, is normalised. Returns
+    *pen* (mutated) for chaining.
+    """
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+    pen.setMiterLimit(STROKE_MITER_LIMIT / 2.0)
+    return pen
+
+
+def stroke_pen(colour, width_px: float, cosmetic: bool = True) -> QPen:
+    """The one stroke-pen factory (design D1): *colour* (QColor or str),
+    *width_px* (device px when *cosmetic*, scene units otherwise), FlatCap,
+    MiterJoin, Qt limit ``STROKE_MITER_LIMIT / 2``."""
+    pen = QPen(QColor(colour) if not isinstance(colour, QColor) else colour)
+    pen.setWidthF(float(width_px))
+    pen.setCosmetic(cosmetic)
+    return apply_stroke_joins(pen)
 
 
 class ResolvedStroke(NamedTuple):

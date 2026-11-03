@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
+import copy
 import uuid
 import weakref
 from dataclasses import replace as _dc_replace
@@ -23,16 +24,23 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
-from .constants import CRISP_AXIS_TOL, TOKEN_AUTO, TOKEN_ELEMENT
+from .constants import (CHAIN_WELD_MM, CRISP_AXIS_TOL, LINETYPE_WINDOW_MIN_PERIODS,
+                        TOKEN_AUTO, TOKEN_ELEMENT)
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
                           PatternLayer, alpha as _fill_alpha)
 from . import end_render as _er
-from .linetype_render import badge_pad_px, printed_factor
+from .linetype_render import (badge_pad_px, expand, fixed_on_canvas, lod_ok_at,
+                              period_ok, periods_on, printed_factor, view_window)
+from .hatch_render import _device_scale
+from .path_walk import end_frame
+from .stroke_joints import (JointAttrs, end_inked, ends_of_pieces, fill_wedge,
+                            joinable, joint_pad, wedge_for_pair)
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm, shows_selection
 from .scale_manager import ScaleManager
-from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
+from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE,
+                           apply_stroke_joins, canvas_px, stroke_pen,
                            canvas_weight_name, has_ends,
                            is_linetype_ref, linetype_block, normalize_end,
                            open_stroke, resolve_ends, resolve_stroke,
@@ -200,6 +208,10 @@ class Geometry2DMixin:
         self._end_trim_cache = None
         self._end_split_cache = None
         self._screen_ends = False    # last model paint drew a Fixed-size end (ET1 spec C)
+        # Corner joints are registered in scene coordinates, so a position /
+        # transform change (the manipulator preview's setTransform) must reach
+        # itemChange to re-register the ends (design D6).
+        self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
     # Unstyled subclasses set this False (LT2-1).
     _STYLED = True
@@ -217,9 +229,7 @@ class Geometry2DMixin:
         hexcol = stroke_style._hex(color)
         if self._STYLED:
             self.style = stroke_style.default_style(hexcol)
-        pen = QPen(resolve_colour(hexcol, item=self))
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
+        pen = stroke_pen(resolve_colour(hexcol, item=self), lineweight)
         self.setPen(pen)
 
     def boundingRect(self) -> QRectF:
@@ -246,9 +256,24 @@ class Geometry2DMixin:
             if ends_r is not None:
                 base = base.united(ends_r)
         pen = self.pen()
-        if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
+        if pen.style() == Qt.PenStyle.NoPen:
+            return base
+        # Only an item with a joint partner pads (m3): the wedge reaches
+        # ``joint_pad`` past the corner (+ half the weld distance, the wedge
+        # sits on the midpoint of the two ends); a lone stroke keeps Qt's own
+        # bounds and window-select containment.
+        joined = self._joint_pad and (self._jpart if self._jpart is not None
+                                      else self._has_joint_partner())
+        weld = CHAIN_WELD_MM / 2.0 if joined else 0.0
+        if not pen.isCosmetic():
+            if joined:
+                w = joint_pad(pen.widthF()) - pen.widthF() / 2.0 + weld
+                return base.adjusted(-w, -w, w, w)
             return base
         px = pen.widthF() / 2.0 + 0.75
+        if joined:
+            # ... same reach for a cosmetic pen, in device px (design D7).
+            px = max(px, joint_pad(pen.widthF()))
         # A missing linetype (LT3-10) draws its canvas glyph at the stroke's
         # mid-length: pad for it only while the reference is unresolved,
         # decided by a registry lookup (right before the first paint; a
@@ -261,7 +286,7 @@ class Geometry2DMixin:
                 reg = getattr(sc, "block_registry", None) if sc is not None else None
                 if linetype_block(ref, reg) is None:
                     px = max(px, badge_pad_px())
-        p = scene_hit_width(self, px, px)
+        p = scene_hit_width(self, px, px) + weld
         return base.adjusted(-p, -p, p, p)
 
     def _sync_stroke_pen(self) -> None:
@@ -306,6 +331,7 @@ class Geometry2DMixin:
             pen.setStyle(Qt.PenStyle.SolidLine)     # back from a No-stroke paper pass
         pen.setWidthF(canvas_px(rs.weight))
         pen.setCosmetic(True)
+        apply_stroke_joins(pen)
         self.setPen(pen)
         return rs
 
@@ -351,11 +377,21 @@ class Geometry2DMixin:
         dc = getattr(self, "_display_color", None)
         st = self.style
         colour = dc or (st["colour"] if st is not None else self.pen().color().name())
-        pen = QPen(resolve_colour(colour, item=self))
-        pen.setWidthF(1.0)
-        pen.setCosmetic(True)
+        pen = stroke_pen(resolve_colour(colour, item=self), 1.0)
         pen.setStyle(Qt.PenStyle.DashLine)
         return pen
+
+    def _highlight_pen(self) -> QPen:
+        """The selection halo pen: the stroke lightened and 1.5 px wider,
+        cosmetic, with the stroke's cap / join / miter limit copied so the
+        halo wraps the stroke's own corners (design D1)."""
+        base = self.pen()
+        hl = QPen(base.color().lighter(150), base.widthF() + 1.5)
+        hl.setCosmetic(True)
+        hl.setCapStyle(base.capStyle())
+        hl.setJoinStyle(base.joinStyle())
+        hl.setMiterLimit(base.miterLimit())
+        return hl
 
     def _draws_fill(self) -> bool:
         """Fill paints -- and the interior is a pick area (R14) -- when any
@@ -468,15 +504,19 @@ class Geometry2DMixin:
             finally:
                 painter.restore()
         if dashed:
+            self._paint_joints(painter, pen, rs)
+            if shows_selection(self) and not _manip_wraps(self):
+                self._paint_joints(painter, self._highlight_pen(), rs, False)
             return True
         self._paint_base_stroke(painter, option, widget, pen)
+        self._paint_joints(painter, pen, rs)
         if shows_selection(self) and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
+            highlight = self._highlight_pen()
             if self.reference:
                 highlight.setStyle(Qt.PenStyle.DashLine)   # RG4: stays dashed
             painter.setPen(highlight)
             draw_highlight(painter)
+            self._paint_joints(painter, highlight, rs, False)
         return False
 
     # ── LT5 ends ─────────────────────────────────────────────────────────────
@@ -612,20 +652,24 @@ class Geometry2DMixin:
         dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
         hl = None
         if shows_selection(self) and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
+            hl = self._highlight_pen()
         untrimmed = trims == _er.NO_TRIMS
         if not dashed:
             if untrimmed:
                 self._paint_base_stroke(painter, option, widget, pen)
             else:
                 self._paint_trimmed_stroke(painter, pieces, trims, pen)
-            if hl is not None:
+        # A free end (no type) may still join. Base wedge before the halo
+        # (the Continuous route's order), the halo's own wedge after it.
+        self._paint_joints(painter, pen, rs)
+        if hl is not None:
+            if not dashed:
                 if untrimmed:
                     painter.setPen(hl)
                     draw_highlight(painter)
                 else:
                     self._paint_trimmed_stroke(painter, pieces, trims, hl)
+            self._paint_joints(painter, hl, rs, False)
         sc = self.scene()
         drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf, scene=sc)
         if sf is not None:       # paper passes never touch the mark (spec C)
@@ -754,11 +798,358 @@ class Geometry2DMixin:
                             trims=trims):
             return False
         if shows_selection(self) and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
+            hl = self._highlight_pen()
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
                          fixed=fixed, trims=trims)
         return True
+
+    # ── Stroke corner joints (design D5a / D6 / D7) ─────────────────────────
+
+    def _joint_index(self):
+        """The container's ``JointIndex``: the scene's for a loose item
+        (Block Editor scenes included); None outside a scene, for ghosts,
+        reference items and unstyled items (nothing to register)."""
+        if (getattr(self, "style", None) is None or self._ghost_pen
+                or self.reference):
+            return None
+        sc = self.scene()
+        return getattr(sc, "stroke_joints", None) if sc is not None else None
+
+    def _joint_ends(self) -> tuple:
+        """This item's two ``JointEnd``s in scene coordinates; ``()`` for a
+        closed stroke (``stroke_style.open_stroke``) or a degenerate one."""
+        if not self._ends_open():
+            return ()
+        return ends_of_pieces(self.stroke_pieces(), self, self.sceneTransform())
+
+    def _raw_joint_index(self):
+        """The scene's index whatever this item's eligibility -- the
+        unregister side must find its ends even after the item stopped being
+        eligible (reference flip, m1)."""
+        sc = self.scene()
+        return getattr(sc, "stroke_joints", None) if sc is not None else None
+
+    # Per-item paint cache (see ``_paint_joints``) and the "has a partner"
+    # memo behind the bounds pad. Both are dropped per item by
+    # ``_stroke_geometry_changed`` for the moved item and its old and new
+    # partners; never cleared globally.
+    _jcache = None
+    _jpart = None
+
+    def _drop_joint_cache(self) -> None:
+        self._jcache = None
+        self._jpart = None
+
+    def _has_joint_partner(self) -> bool:
+        """True when some registered end of this item has a partner (memo)."""
+        h = self._jpart
+        if h is None:
+            ix = self._joint_index()
+            h = self._jpart = bool(
+                ix is not None
+                and any(ix.partner(e) is not None for e in ix.ends_of(self)))
+        return h
+
+    def _stroke_geometry_changed(self) -> None:
+        """D6 choke point: re-register this item's ends and repaint the
+        former and new partners, so a moved line's old partner draws flat in
+        the same frame. Called by the setter overrides below, from
+        ``itemChange`` on scene changes and from ``_set_reference_flag``.
+        Unregisters first (raw index) and registers only when eligible."""
+        ix = self._raw_joint_index()
+        if ix is None:
+            self._drop_joint_cache()
+            return
+        old = ix.unregister(self)
+        touched = []
+        for e in old:
+            touched.extend(ix.neighbours(e.point))
+        new = self._joint_ends() if self._joint_index() is not None else ()
+        if new:
+            ix.register(self, new)
+            for e in new:
+                touched.extend(ix.neighbours(e.point))
+        # The partner memo feeds boundingRect (m3 pad), so every owner whose
+        # partner state may flip tells the scene index before the drop.
+        self.prepareGeometryChange()
+        self._drop_joint_cache()
+        for e in touched:
+            if e.owner is not self:
+                e.owner.prepareGeometryChange()
+                e.owner._drop_joint_cache()
+                e.owner.update()
+        self.update()
+
+    # False while ``manip_bounds`` reads the bounds: the miter-reach pad is a
+    # repaint margin, not part of the shape the selection frame wraps.
+    _joint_pad = True
+
+    def manip_bounds(self) -> QRectF:
+        """Scene box the selection frame wraps: the pen-padded scene bounds
+        WITHOUT the joint miter-reach pad (same as the manipulator's
+        ``sceneBoundingRect`` fallback before the pad existed)."""
+        self._joint_pad = False
+        try:
+            return self.sceneBoundingRect()
+        finally:
+            self._joint_pad = True
+
+    def setLine(self, *args):
+        super().setLine(*args)
+        self._stroke_geometry_changed()
+
+    def setRect(self, *args):
+        super().setRect(*args)
+        self._stroke_geometry_changed()
+
+    def setPath(self, path):
+        super().setPath(path)
+        self._stroke_geometry_changed()
+
+    def itemChange(self, change, value):
+        gc = self.GraphicsItemChange
+        if change == gc.ItemSceneChange:
+            ix = self._raw_joint_index()      # the OLD scene's index, before the move
+            if ix is not None:
+                for e in ix.unregister(self):
+                    for n in ix.neighbours(e.point):
+                        n.owner._drop_joint_cache()
+                        n.owner.update()
+            self._drop_joint_cache()
+        r = super().itemChange(change, value)
+        if change in (gc.ItemSceneHasChanged, gc.ItemPositionHasChanged,
+                      gc.ItemTransformHasChanged, gc.ItemRotationHasChanged,
+                      gc.ItemScaleHasChanged):
+            self._stroke_geometry_changed()
+        return r
+
+    def _dash_path_for_joints(self, rs, device_scale, painter=None):
+        """The item-local dash path *rs*'s linetype draws at *device_scale*,
+        or None when the stroke draws continuous on screen -- the same three
+        tests ``linetype_render.paint_stroke`` runs (period, LOD, Fixed
+        shorter than one period). *painter* (optional) supplies the LTS-8
+        view window for very long Fixed strokes."""
+        lt = rs.lt if rs is not None else None
+        pieces = self.stroke_pieces()
+        if lt is None or not pieces or self._ghost_pen:
+            return None
+        factor = self._linetype_factor(lt, device_scale)
+        if not period_ok(lt, factor):
+            return None
+        if not paper_pass_active() and not lod_ok_at(lt.period * factor, device_scale):
+            return None
+        a = self._lt_args()
+        win = None
+        if fixed_on_canvas(lt, paper_scale=a["paper_scale"], role=a["role"]):
+            n = periods_on(pieces, lt, factor)
+            if n < 1.0:
+                return None
+            if n > LINETYPE_WINDOW_MIN_PERIODS and painter is not None:
+                win = view_window(painter)
+        o = self.mapFromScene(QPointF(0.0, 0.0))        # Block Editor origin (D4)
+        dash, _dot = expand(pieces, lt, factor, (o.x(), o.y()), window=win)
+        return dash
+
+    def _joint_attrs(self, rs, device_scale, which, painter=None,
+                     dash_cache=None):
+        """``JointAttrs`` of this item's *which* end ("start" / "finish") for
+        the paint-time match (AC4 / AC6), or None when it cannot join (hidden
+        stroke, unstyled, reference, ghost). *rs* is this paint's
+        ResolvedStroke (resolved here when None). *dash_cache* (optional,
+        per paint) holds each item's dash path so it is built once, and only
+        for an end that needs it."""
+        if (self.style is None or self.reference or self._ghost_pen
+                or self._stroke_hidden()):
+            return None
+        if rs is None:
+            rs = self._resolved_stroke()
+        ends = self._item_ends(rs)
+        end = ends[0 if which == "start" else 1] if ends is not NO_ENDS else None
+        has_end = end is not None and (end.defn is not None or bool(end.missing_id))
+        inked = True
+        if not has_end:
+            if dash_cache is None:
+                dash = self._dash_path_for_joints(rs, device_scale, painter)
+            elif self in dash_cache:
+                dash = dash_cache[self]
+            else:
+                dash = dash_cache[self] = self._dash_path_for_joints(
+                    rs, device_scale, painter)
+            if dash is not None:
+                fr = end_frame(self.stroke_pieces(), which, 0.0)
+                inked = fr is not None and end_inked(dash, fr[0], 1e-4)
+        return JointAttrs(weight=canvas_weight_name(rs.weight) if rs is not None else "",
+                          colour=self._stroke_colour(), inked=inked,
+                          has_end_type=has_end, visible=self.isVisible())
+
+    def _joint_cacheable(self) -> bool:
+        """True when this item's joint attrs cannot depend on the zoom or the
+        registry: no linetype reference (no dash phase, no ``inked`` test)
+        and no end-block id (no registry-resolved end type)."""
+        st = self.style
+        if st is None or is_linetype_ref(st.get("linetype")):
+            return False
+        for slot in ("start", "finish"):
+            sd = st.get(slot)
+            e = sd.get("end") if sd.__class__ is dict else None
+            if e.__class__ is str and e not in _NON_ID_ENDS:
+                return False
+        return True
+
+    def _joint_sig(self) -> tuple:
+        """What a cached wedge's validity reads off this item (the paint-time
+        attrs of ratified D4): the style record, the stroke colour in force,
+        visibility and the NoPen state."""
+        return (self, copy.deepcopy(self.style), self._stroke_colour(),
+                self.isVisible(), self.pen().style())
+
+    @staticmethod
+    def _joint_sigs_valid(sigs) -> bool:
+        for it, st, col, vis, ps in sigs:
+            if (it.style != st or it._stroke_colour() != col
+                    or it.isVisible() != vis or it.pen().style() != ps):
+                return False
+        return True
+
+    def _owns_pair(self, e, p) -> bool:
+        """The one-owner rule: exactly one end of a pair fills its wedge.
+        When the ends differ in ``which`` the item whose end is the FINISH
+        draws; when they match, the lower ``id()`` (stable within a session,
+        symmetric). The bounds pad covers the wedge, so the owner is repainted
+        whenever the wedge region is exposed."""
+        if e.which != p.which:
+            return e.which == "finish"
+        return id(self) < id(p.owner)
+
+    def _paint_joints(self, painter, pen, rs, dedupe: bool = True) -> None:
+        """D7: for each registered end with a partner that ``joinable``s,
+        fill the wedge in *pen*'s colour -- under the painter's own transform,
+        scaled from a cached unit wedge (cosmetic pen: half_w = widthF / 2 px
+        via the device scale; paper pen: widthF / 2 item units).
+
+        One owner per pair fills (``_owns_pair``) when *dedupe*; the
+        selection halo passes False so a selected non-owner still wraps its
+        own corner. The wedge is cached in item-local coordinates per item
+        (shape depends on the end tangents only; width and zoom only scale
+        it) and dropped per item by ``_stroke_geometry_changed``; it is
+        revalidated each paint against the style / colour / visibility of
+        both owners. Items with a linetype or end-block id, and a cosmetic
+        pen under a non-similarity painter transform, take the live
+        device-space path.
+        """
+        cache = self._jcache
+        ent = cache.get(dedupe) if cache is not None else None
+        if ent is not None and ent[0] and not self._joint_sigs_valid(ent[0]):
+            ent = None
+        if ent is None:
+            if cache is None:
+                cache = self._jcache = {}
+            ix = self._joint_index()
+            if ix is None:
+                return
+            mine = ix.ends_of(self)
+            ent = cache[dedupe] = (self._build_joint_entry(ix, mine, dedupe)
+                                   if mine else ((), (), (), None))
+        sigs, wedges, pairs, memo = ent
+        if sigs is None:                        # live path (not cacheable)
+            self._paint_joints_live(painter, pen, rs, pairs)
+            return
+        if not wedges:
+            return
+        if pen.isCosmetic():
+            t = painter.deviceTransform()
+            m11, m12, m21, m22 = t.m11(), t.m12(), t.m21(), t.m22()
+            n2 = m11 * m11 + m12 * m12
+            if (abs(m11 * m21 + m12 * m22) > 1e-9 * n2
+                    or abs(n2 - m21 * m21 - m22 * m22) > 1e-9 * n2):
+                ix = self._joint_index()
+                self._paint_joints_live(
+                    painter, pen, rs,
+                    self._joint_pairs(ix, ix.ends_of(self), dedupe))
+                return
+            k = pen.widthF() / 2.0 / (math.sqrt(n2) or 1e-9)
+        else:
+            k = pen.widthF() / 2.0
+        polys = memo.get(k)             # scaled polygons, kept for the last k (pan: always hits)
+        if polys is None:
+            memo.clear()
+            polys = memo[k] = [QTransform(k, 0.0, 0.0, k, cx * (1.0 - k),
+                                          cy * (1.0 - k)).map(poly)
+                               for cx, cy, poly in wedges]
+        painter.save()
+        try:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(pen.color())
+            for poly in polys:
+                painter.drawPolygon(poly)
+        finally:
+            painter.restore()
+
+    def _joint_pairs(self, ix, mine, dedupe) -> list:
+        out = []
+        for e in mine:
+            p = ix.partner(e)
+            if p is not None and (not dedupe or self._owns_pair(e, p)):
+                out.append((e, p))
+        return out
+
+    def _build_joint_entry(self, ix, mine, dedupe) -> tuple:
+        """``(sigs, wedges, pairs)``: *sigs* None means "not cacheable, paint
+        the *pairs* live"; else *wedges* are ``(cx, cy, unit polygon)`` in
+        item-local coordinates at half_w = 1."""
+        pairs = self._joint_pairs(ix, mine, dedupe)
+        if not pairs:
+            return ((), (), (), None)
+        if not (self._joint_cacheable()
+                and all(p.owner._joint_cacheable() for _, p in pairs)):
+            return (None, (), tuple(pairs), None)
+        to_item = self.sceneTransform().inverted()[0]
+        owners = [self] + [p.owner for _, p in pairs]
+        sigs = tuple(o._joint_sig() for o in dict.fromkeys(owners))
+        wedges = []
+        for e, p in pairs:
+            if not joinable(self._joint_attrs(None, 1.0, e.which),
+                            p.owner._joint_attrs(None, 1.0, p.which)):
+                continue
+            w = wedge_for_pair(e, p, 1.0, to_item)
+            if w is not None:
+                c = w.at(0)
+                wedges.append((c.x(), c.y(), w))
+        return (sigs, tuple(wedges), (), {})
+
+    def _paint_joints_live(self, painter, pen, rs, pairs) -> None:
+        """The device-space path: attrs and wedges computed from live state
+        every paint (dashed / end-typed strokes, sheared painter)."""
+        ds = _device_scale(painter)
+        cosmetic = pen.isCosmetic()
+        to_item = self.sceneTransform().inverted()[0]       # scene -> item
+        xf = to_item * painter.worldTransform() if cosmetic else to_item
+        wedges = []
+        dash_cache: dict = {}             # item -> dash path, once per paint
+        attrs_cache: dict = {}            # (item, end) -> JointAttrs
+        for e, p in pairs:
+            ka, kb = (self, e.which), (p.owner, p.which)
+            if ka not in attrs_cache:
+                attrs_cache[ka] = self._joint_attrs(rs, ds, e.which, painter,
+                                                    dash_cache)
+            if kb not in attrs_cache:
+                attrs_cache[kb] = p.owner._joint_attrs(None, ds, p.which,
+                                                       painter, dash_cache)
+            if not joinable(attrs_cache[ka], attrs_cache[kb]):
+                continue
+            w = wedge_for_pair(e, p, pen.widthF() / 2.0, xf)
+            if w is not None:
+                wedges.append(w)
+        if not wedges:
+            return
+        painter.save()
+        try:
+            if cosmetic:
+                painter.resetTransform()
+            for w in wedges:
+                fill_wedge(painter, w, pen.color())
+        finally:
+            painter.restore()
 
     def _paint_lt_badge(self, painter) -> None:
         """Missing-linetype glyph at mid-length; canvas only (LT3-10)."""
@@ -1076,6 +1467,8 @@ class Geometry2DMixin:
                 self._pre_reference_colour = _NO_PRIOR
         else:
             self.printed = on and self.reference
+        if key == "Reference":
+            self._stroke_geometry_changed()     # (un)registers its joint ends (m1)
         self.update()
 
     def _geom2d_to_dict(self, d: dict) -> dict:

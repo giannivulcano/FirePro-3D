@@ -249,6 +249,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
         self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
+        # Stroke corner joints of the loose styled geometry (design D5a):
+        # items register their open ends from _stroke_geometry_changed.
+        from .stroke_joints import JointIndex
+        self.stroke_joints = JointIndex()
         self.mode = None
         self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
@@ -720,6 +724,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Back-compat read view of the underlay list (owned by the controller)."""
         return self._underlay_ctl.items
 
+    def clear(self) -> None:
+        """Qt ``clear()`` deletes every item without dispatching scene-change
+        events to Python (P4 probe), so the stroke-joint index (design D5a)
+        is emptied here -- every ``self.clear()`` site (load / new reset)
+        goes through this override."""
+        self.stroke_joints.clear()
+        super().clear()
+
     def cleanup(self) -> None:
         """Release background resources held by this scene (teardown seam).
 
@@ -727,7 +739,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         ``finished_data`` signal cannot deliver into a torn-down scene / dialog
         during a later event loop (bug #373). Safe to call repeatedly; tests
         call this on fixture teardown so a worker never outlives its scene.
+        Also empties the stroke-joint index (design D5a): Qt's ``clear()``
+        deletes items without dispatching scene-change events to Python.
         """
+        self.stroke_joints.clear()
         ctl = getattr(self, "_underlay_ctl", None)
         if ctl is not None:
             ctl._cleanup_dxf_worker()
@@ -9239,9 +9254,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # The capability frame is never copied, so it never shifts the base point.
         items = [it for it in self.selectedItems()
                  if QGraphicsItem.data(it, 0) != CAPABILITY_FRAME_TAG]
-        rect = QRectF()
-        for it in items:
-            rect = rect.united(it.sceneBoundingRect())
+        from .selection_manipulator import union_manip_bounds
+        rect = union_manip_bounds(items)     # the frame's box: no joint miter pad
         n = self._modify_ctl.write_clipboard(items, rect.center())
         self._show_status(f"Copied {n} item(s)" if n is not None
                           else self._modify_ctl.CLIPBOARD_UNAVAILABLE)

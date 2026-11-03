@@ -19,7 +19,7 @@ import os
 
 from PyQt6.QtCore import Qt, QObject, QPointF, QRectF, QSize
 from PyQt6.QtGui import (QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap,
-                         QPolygonF, QTransform)
+                         QTransform)
 from PyQt6.QtWidgets import (
     QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
     QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
@@ -36,6 +36,7 @@ from .underlay_freeze import (_UnderlayPathItem, _UnderlayPixmapItem,
                               _UnderlayGroup, _UnderlayPlaceholderRect)
 from .colour_tokens import resolve_colour
 from . import crisp_stroke as _cs
+from .stroke_joints import unit
 
 # A polyline whose last point is this close to its first (but not equal) is
 # left to the exact split: Qt's closeSubpath snaps a fuzzy-equal end instead
@@ -131,19 +132,23 @@ class _CrispSeed:
             segs = segs[k0:] + segs[:k0]
         run = None
         joints = self.joints
+        d_prev = (0.0, 0.0)
         for k in segs:
             ka = kinds[k]
             a, b = pts[k], pts[k + 1]
             tgt = self.axis if ka else self.other
+            d_cur = _seed_dir(a, b)
             if run is not ka:
                 if run is not None:
-                    joints.append(QPointF(a[0], a[1]))
+                    joints.append((QPointF(a[0], a[1]), d_prev, d_cur))
                 tgt.moveTo(a[0], a[1])
                 run = ka
             tgt.lineTo(b[0], b[1])
+            d_prev = d_cur
         if closed:
-            last = pts[segs[-1] + 1]
-            joints.append(QPointF(last[0], last[1]))   # last run meets the first
+            last = pts[segs[-1] + 1]                    # last run meets the first
+            joints.append((QPointF(last[0], last[1]), d_prev,
+                           _seed_dir(pts[segs[0]], pts[segs[0] + 1])))
 
     def split(self, item_path: QPainterPath) -> "_cs.CrispSplit":
         """The merged identity-frame split of *item_path* (the item's path,
@@ -161,14 +166,18 @@ class _CrispSeed:
             axis.addPath(ms.axis)
             if not ms.other.isEmpty():
                 other.addPath(ms.other)
-            jp = ms.joint_points
-            joints = joints + [jp.at(k) for k in range(jp.count())]
+            joints = joints + list(ms.joints)
         has_axis, has_other = _has_segment(axis), _has_segment(other)
         if not has_other:
             return _cs.CrispSplit(QPainterPath(item_path), QPainterPath(), has_axis)
         if not has_axis:
             return _cs.CrispSplit(QPainterPath(), QPainterPath(item_path), False)
-        return _cs.CrispSplit(axis, other, False, QPolygonF(joints))
+        return _cs.CrispSplit(axis, other, False, tuple(joints))
+
+
+def _seed_dir(a, b) -> tuple:
+    """Unit direction a -> b ((0, 0) for a zero-length step)."""
+    return unit(b[0] - a[0], b[1] - a[1])
 
 
 _MOVE_EL = QPainterPath.ElementType.MoveToElement
