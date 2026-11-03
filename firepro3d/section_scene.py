@@ -2053,26 +2053,25 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return {"section": s.value("display/Pipe/section", None)}
 
     def _gridline_display_props(self) -> dict:
-        """Read Grid Line display properties from QSettings (display manager)."""
+        """Read the Grid Line row from QSettings (Display Manager): colour
+        (tints the line), opacity and visibility. The bubbles are annotation
+        blocks; the Fill / Scale columns are retired (SB4b D11, SB4c D4)."""
         s = QSettings("GV", "FirePro3D")
         return {
             "color":   s.value("display/Grid Line/color",   "#4488cc"),
-            "fill":    s.value("display/Grid Line/fill",    "#1a1a2e"),
             "opacity": int(float(s.value("display/Grid Line/opacity", 100))),
             "visible": str(s.value("display/Grid Line/visible", "true")).lower() not in ("false", "0"),
-            "scale":   float(s.value("display/Grid Line/scale", 1.0)),
         }
 
     def _datum_display_props(self) -> dict:
-        """Read Level Datum display properties from QSettings (display manager)."""
+        """Read the Level Datum row from QSettings (Display Manager): colour
+        (tints the line), opacity and visibility (the whole datum). The head is
+        the "Level" annotation block; Fill / Font / Scale are retired (SB4c D4)."""
         s = QSettings("GV", "FirePro3D")
         return {
             "color":   s.value("display/Level Datum/color",   "#4488cc"),
-            "fill":    s.value("display/Level Datum/fill",    "#1a1a2e"),
             "opacity": int(float(s.value("display/Level Datum/opacity", 100))),
             "visible": str(s.value("display/Level Datum/visible", "true")).lower() not in ("false", "0"),
-            "scale":   float(s.value("display/Level Datum/scale", 1.0)),
-            "font":    int(float(s.value("display/Level Datum/font", 10))),
         }
 
     # ── Gridlines ────────────────────────────────────────────────────────

@@ -387,3 +387,56 @@ def test_ac5_datum_selection_ring_never_plots(qapp, tmp_path, section_scene_for)
     cols = {tuple(round(c, 2) for c in (d["color"] or ())) for d in drawings(pdf)}
     assert dt.isSelected()                                    # still selected: the pass hid nothing
     assert want not in cols
+
+
+# -- T11: Display Manager ----------------------------------------------------------------
+
+def test_ac6_dm_level_datum_row_is_line_only_and_stale_values_are_ignored(qapp, section_scene_for):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.display_manager import (_CATEGORY_MAP, _category_has_fill,
+                                           _category_has_font, _category_has_scale)
+    from firepro3d.paper_display import factory_paper_categories
+    from firepro3d.section_scene import ElevDatumItem
+    row = _CATEGORY_MAP["Level Datum"]
+    assert row["fill"] is None and row["font"] is None
+    assert not _category_has_fill("Level Datum")
+    assert not _category_has_font("Level Datum")
+    assert not _category_has_scale("Level Datum")
+    assert factory_paper_categories()["Level Datum"]["fill"] is None
+    assert factory_paper_categories()["Grid Line"]["fill"] is None
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    assert set(sec._datum_display_props()) == {"color", "opacity", "visible"}
+    assert set(sec._gridline_display_props()) == {"color", "opacity", "visible"}
+    k = ms.scale_manager.drawing_scale
+    rect = QRectF(dt._bx - 6.0 * k, -12.0 * k, 40.0 * k, 24.0 * k)
+    before = (_digest(_render(sec, rect, 400, 240)), dt._pen_w, dt.line_start_h())
+    s = QSettings("GV", "FirePro3D")                          # conftest-isolated
+    stale = {"display/Level Datum/scale": 3.0, "display/Level Datum/font": 30,
+             "display/Level Datum/fill": "#ff0000", "display/Grid Line/scale": 3.0,
+             "display/Grid Line/fill": "#00ff00"}
+    try:
+        for key, val in stale.items():
+            s.setValue(key, val)
+        sec.rebuild()
+        dt2 = next(i for i in sec.items() if isinstance(i, ElevDatumItem) and abs(i._v) < 1e-6)
+        after = (_digest(_render(sec, rect, 400, 240)), dt2._pen_w, dt2.line_start_h())
+    finally:
+        for key in stale:
+            s.remove(key)
+    assert after == before
+
+
+def test_ac6_level_datum_colour_tints_the_line_not_the_head(qapp, section_scene_for):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.section_scene import ElevDatumItem
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    head_ops = [op.colour for op in dt.head._ops(dt.head._k())]
+    s = QSettings("GV", "FirePro3D")
+    try:
+        s.setValue("display/Level Datum/color", "#ff00ff")
+        sec.rebuild()
+        dt2 = next(i for i in sec.items() if isinstance(i, ElevDatumItem) and abs(i._v) < 1e-6)
+        assert dt2.line_color().name() == "#ff00ff"
+        assert [op.colour for op in dt2.head._ops(dt2.head._k())] == head_ops
+    finally:
+        s.remove("display/Level Datum/color")
