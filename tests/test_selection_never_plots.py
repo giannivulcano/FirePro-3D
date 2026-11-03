@@ -123,7 +123,9 @@ def _detail(s):
 def _badge(s):
     from firepro3d.hydraulic_node_badge import HydraulicNodeBadge
     n = _node(s)
-    return HydraulicNodeBadge(n, 1, 50.0, 40.0, 10.0, 100.0)
+    b = HydraulicNodeBadge(n, 1, 50.0, 40.0, 10.0, 100.0)
+    s.addItem(b)                  # SB4d D5: top-level, no longer rides in with the node
+    return b
 
 def _region(s):
     from firepro3d.filled_region import FilledRegionItem
