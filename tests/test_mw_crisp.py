@@ -650,12 +650,6 @@ def _subs(path):
                    for poly in path.toSubpathPolygons())
 
 
-def _pts(poly):
-    from collections import Counter
-    return Counter((round(poly.at(k).x(), 9), round(poly.at(k).y(), 9))
-                   for k in range(poly.count()))
-
-
 def _jpts(joints):
     """Counter of (x, y, d_in, d_out) rounded -- the seed must carry the same
     junction directions as ``split_axis`` (strengthens the point-only pin)."""

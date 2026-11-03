@@ -19,7 +19,7 @@ from PyQt6.QtGui import QColor, QPen
 from . import paper_display as _pd
 from .colour_tokens import normalize_colour
 from .constants import (TOKEN_AUTO, END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN, END_SCALE_MAX,
-                        END_SCALE_MIN)
+                        END_SCALE_MIN, STROKE_MITER_LIMIT)
 
 CONTINUOUS = "continuous"      # reserved keyword, never a block id (LT2-1)
 BY_BLOCK = "by_block"          # legacy input only -- migrated by normalize_style (WM-9)
@@ -322,7 +322,6 @@ def apply_stroke_joins(pen: QPen) -> QPen:
     behind, or one copied from a compiled block op, is normalised. Returns
     *pen* (mutated) for chaining.
     """
-    from .constants import STROKE_MITER_LIMIT
     pen.setCapStyle(Qt.PenCapStyle.FlatCap)
     pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
     pen.setMiterLimit(STROKE_MITER_LIMIT / 2.0)

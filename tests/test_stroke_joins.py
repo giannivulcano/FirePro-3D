@@ -254,3 +254,87 @@ def test_split_records_junction_directions(qapp):
     pt, d_in, d_out = s.joints[0]
     assert pt == QPointF(10, 0)
     assert d_in == pytest.approx((1.0, 0.0)) and d_out == pytest.approx((math.sqrt(0.5), math.sqrt(0.5)))
+
+
+# ---------------------------------------------------------------- E. JointIndex (D4)
+from firepro3d.stroke_joints import (JointAttrs, JointEnd, JointIndex, end_inked,
+                                     ends_of_pieces, joinable, unit)
+from firepro3d.path_walk import Seg
+
+
+def _end(x, y, tx, ty, owner, which="start"):
+    return JointEnd(x, y, tx, ty, which, owner)
+
+
+def test_unit_normalises_and_keeps_the_zero_case():
+    assert unit(3.0, 4.0) == pytest.approx((0.6, 0.8))
+    assert unit(0.0, 0.0) == (0.0, 0.0)
+
+
+def test_index_pairs_two_ends_within_weld_and_rejects_three():
+    ix = JointIndex()
+    a = _end(0, 0, 1, 0, "A"); b = _end(0.5, 0, 0, 1, "B", "finish")
+    ix.register("A", (a,)); ix.register("B", (b,))
+    assert ix.partner(a) is b and ix.partner(b) is a
+    c = _end(0, 0.4, 0, -1, "C"); ix.register("C", (c,))
+    assert ix.partner(a) is None and ix.partner(b) is None and ix.partner(c) is None
+    ix.unregister("C")
+    assert ix.partner(a) is b
+
+
+def test_index_distance_is_exact_not_cell():
+    ix = JointIndex()
+    a = _end(0.99, 0, 1, 0, "A"); b = _end(2.0, 0, -1, 0, "B")   # 1.01 apart > CHAIN_WELD_MM
+    ix.register("A", (a,)); ix.register("B", (b,))
+    assert ix.partner(a) is None
+    ix.register("B", (_end(1.98, 0, -1, 0, "B"),))                 # 0.99 apart, across a cell edge
+    assert ix.partner(a) is not None
+
+
+def test_register_replaces_and_unregister_returns_old_ends():
+    ix = JointIndex()
+    a = _end(0, 0, 1, 0, "A"); ix.register("A", (a,))
+    old = ix.register("A", (_end(5, 5, 1, 0, "A"),))
+    assert old == (a,)
+    assert ix.unregister("A")[0].x == 5 and ix.unregister("A") == ()
+
+
+def test_ends_of_is_the_public_registered_tuple():
+    ix = JointIndex()
+    a = _end(0, 0, 1, 0, "A"); ix.register("A", (a,))
+    assert ix.ends_of("A") == (a,) and ix.ends_of("Z") == ()
+
+
+def test_neighbours_reports_every_end_near_a_point():
+    ix = JointIndex()
+    a = _end(0, 0, 1, 0, "A"); b = _end(0, 0, 0, 1, "B")
+    ix.register("A", (a,)); ix.register("B", (b,))
+    assert set(ix.neighbours(QPointF(0.2, 0.2))) == {a, b}
+
+
+def test_joinable_is_the_ac4_ac6_match():
+    base = dict(weight="Thin", colour="#000000", inked=True, has_end_type=False, visible=True)
+    assert joinable(JointAttrs(**base), JointAttrs(**base))
+    assert not joinable(JointAttrs(**{**base, "weight": "Thick"}), JointAttrs(**base))
+    assert not joinable(JointAttrs(**{**base, "colour": "#ff0000"}), JointAttrs(**base))
+    assert not joinable(JointAttrs(**{**base, "inked": False}), JointAttrs(**base))
+    assert not joinable(JointAttrs(**{**base, "has_end_type": True}), JointAttrs(**base))
+    assert not joinable(JointAttrs(**{**base, "visible": False}), JointAttrs(**base))
+    assert not joinable(None, JointAttrs(**base))
+
+
+def test_ends_of_pieces_tangents_point_into_the_stroke():
+    s, f = ends_of_pieces((Seg(0, 0, 10, 0), Seg(10, 0, 10, 10)), "K")
+    assert (s.x, s.y, s.which) == (0, 0, "start") and (s.tx, s.ty) == pytest.approx((1.0, 0.0))
+    assert (f.x, f.y, f.which) == (10, 10, "finish") and (f.tx, f.ty) == pytest.approx((0.0, -1.0))
+    assert s.owner == "K" and f.owner == "K"
+    assert ends_of_pieces((), "K") == ()
+
+
+def test_end_inked_reads_the_dash_path_ends():
+    dash = QPainterPath(QPointF(0, 0)); dash.lineTo(QPointF(4, 0))
+    dash.moveTo(QPointF(8, 0)); dash.lineTo(QPointF(12, 0))
+    assert end_inked(dash, QPointF(0, 0)) is True
+    assert end_inked(dash, QPointF(12, 0)) is True
+    assert end_inked(dash, QPointF(14, 0)) is False       # the stroke ends in a gap
+    assert end_inked(QPainterPath(), QPointF(0, 0)) is False

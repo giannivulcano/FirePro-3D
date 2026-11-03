@@ -19,7 +19,7 @@ from PyQt6.QtGui import QPainter, QPainterPath, QPen, QTransform
 
 from .constants import CRISP_AXIS_TOL, CRISP_CLOSE_TOL
 from .paper_display import paper_pass_active
-from .stroke_joints import fill_wedges_device
+from .stroke_joints import fill_wedges_device, unit as _unit
 
 _AA = QPainter.RenderHint.Antialiasing
 _MOVE = QPainterPath.ElementType.MoveToElement
@@ -127,10 +127,6 @@ def split_axis(path: QPainterPath, xf: QTransform) -> CrispSplit:
     # xs/ys at the index (line) or index + 2 (curve).
     axis, other = QPainterPath(), QPainterPath()
     joints: list = []
-
-    def _unit(dx, dy):
-        n = math.hypot(dx, dy)
-        return (dx / n, dy / n) if n > 1e-12 else (0.0, 0.0)
 
     def _end(seg):
         j = seg[1] + (2 if seg[0] == 2 else 0)

@@ -36,6 +36,7 @@ from .underlay_freeze import (_UnderlayPathItem, _UnderlayPixmapItem,
                               _UnderlayGroup, _UnderlayPlaceholderRect)
 from .colour_tokens import resolve_colour
 from . import crisp_stroke as _cs
+from .stroke_joints import unit
 
 # A polyline whose last point is this close to its first (but not equal) is
 # left to the exact split: Qt's closeSubpath snaps a fuzzy-equal end instead
@@ -176,9 +177,7 @@ class _CrispSeed:
 
 def _seed_dir(a, b) -> tuple:
     """Unit direction a -> b ((0, 0) for a zero-length step)."""
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    n = math.hypot(dx, dy)
-    return (dx / n, dy / n) if n > 1e-12 else (0.0, 0.0)
+    return unit(b[0] - a[0], b[1] - a[1])
 
 
 _MOVE_EL = QPainterPath.ElementType.MoveToElement
