@@ -23,13 +23,19 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
-from .constants import CRISP_AXIS_TOL, STROKE_MITER_LIMIT, TOKEN_AUTO, TOKEN_ELEMENT
+from .constants import (CRISP_AXIS_TOL, LINETYPE_WINDOW_MIN_PERIODS,
+                        STROKE_MITER_LIMIT, TOKEN_AUTO, TOKEN_ELEMENT)
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
                           PatternLayer, alpha as _fill_alpha)
 from . import end_render as _er
-from .linetype_render import badge_pad_px, printed_factor
+from .linetype_render import (badge_pad_px, expand, fixed_on_canvas, lod_ok_at,
+                              period_ok, periods_on, printed_factor, view_window)
+from .hatch_render import _device_scale
+from .path_walk import end_frame
+from .stroke_joints import (JointAttrs, end_inked, ends_of_pieces, fill_wedge,
+                            joinable, wedge_for_pair)
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm, shows_selection
 from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE,
@@ -804,7 +810,6 @@ class Geometry2DMixin:
         closed stroke (``stroke_style.open_stroke``) or a degenerate one."""
         if not self._ends_open():
             return ()
-        from .stroke_joints import ends_of_pieces
         return ends_of_pieces(self.stroke_pieces(), self, self.sceneTransform())
 
     def _stroke_geometry_changed(self) -> None:
@@ -876,9 +881,6 @@ class Geometry2DMixin:
         tests ``linetype_render.paint_stroke`` runs (period, LOD, Fixed
         shorter than one period). *painter* (optional) supplies the LTS-8
         view window for very long Fixed strokes."""
-        from .linetype_render import (expand, fixed_on_canvas, lod_ok_at,
-                                      period_ok, periods_on, view_window)
-        from .constants import LINETYPE_WINDOW_MIN_PERIODS
         lt = rs.lt if rs is not None else None
         pieces = self.stroke_pieces()
         if lt is None or not pieces or self._ghost_pen:
@@ -900,13 +902,14 @@ class Geometry2DMixin:
         dash, _dot = expand(pieces, lt, factor, (o.x(), o.y()), window=win)
         return dash
 
-    def _joint_attrs(self, rs, device_scale, which, painter=None):
+    def _joint_attrs(self, rs, device_scale, which, painter=None,
+                     dash_cache=None):
         """``JointAttrs`` of this item's *which* end ("start" / "finish") for
         the paint-time match (AC4 / AC6), or None when it cannot join (hidden
         stroke, unstyled, reference, ghost). *rs* is this paint's
-        ResolvedStroke (resolved here when None)."""
-        from .path_walk import end_frame
-        from .stroke_joints import JointAttrs, end_inked
+        ResolvedStroke (resolved here when None). *dash_cache* (optional,
+        per paint) holds each item's dash path so it is built once, and only
+        for an end that needs it."""
         if (self.style is None or self.reference or self._ghost_pen
                 or self._stroke_hidden()):
             return None
@@ -917,7 +920,13 @@ class Geometry2DMixin:
         has_end = end is not None and (end.defn is not None or bool(end.missing_id))
         inked = True
         if not has_end:
-            dash = self._dash_path_for_joints(rs, device_scale, painter)
+            if dash_cache is None:
+                dash = self._dash_path_for_joints(rs, device_scale, painter)
+            elif self in dash_cache:
+                dash = dash_cache[self]
+            else:
+                dash = dash_cache[self] = self._dash_path_for_joints(
+                    rs, device_scale, painter)
             if dash is not None:
                 fr = end_frame(self.stroke_pieces(), which, 0.0)
                 inked = fr is not None and end_inked(dash, fr[0], 1e-4)
@@ -935,19 +944,25 @@ class Geometry2DMixin:
         mine = ix.ends_of(self)
         if not mine:
             return
-        from .hatch_render import _device_scale
-        from .stroke_joints import fill_wedge, joinable, wedge_for_pair
         ds = _device_scale(painter)
         cosmetic = pen.isCosmetic()
         to_item = self.sceneTransform().inverted()[0]       # scene -> item
         xf = to_item * painter.worldTransform() if cosmetic else to_item
         wedges = []
+        dash_cache: dict = {}             # item -> dash path, once per paint
+        attrs_cache: dict = {}            # (item, end) -> JointAttrs
         for e in mine:
             p = ix.partner(e)
             if p is None:
                 continue
-            if not joinable(self._joint_attrs(rs, ds, e.which, painter),
-                            p.owner._joint_attrs(None, ds, p.which, painter)):
+            ka, kb = (self, e.which), (p.owner, p.which)
+            if ka not in attrs_cache:
+                attrs_cache[ka] = self._joint_attrs(rs, ds, e.which, painter,
+                                                    dash_cache)
+            if kb not in attrs_cache:
+                attrs_cache[kb] = p.owner._joint_attrs(None, ds, p.which,
+                                                       painter, dash_cache)
+            if not joinable(attrs_cache[ka], attrs_cache[kb]):
                 continue
             w = wedge_for_pair(e, p, pen.widthF() / 2.0, xf)
             if w is not None:

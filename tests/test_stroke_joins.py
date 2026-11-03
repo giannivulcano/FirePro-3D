@@ -127,15 +127,21 @@ def _render(items, size=(300, 200), weight_px=20.0, monkeypatch=None, scene=None
     import firepro3d.geometry_2d as g2
     if monkeypatch is not None:
         monkeypatch.setattr(g2, "canvas_px", lambda w: weight_px)
-    sc = scene if scene is not None else Model_Space(); sc.set_mode("select")
-    for it in items:
-        it.style["colour"] = "#000000"
-        sc.addItem(it); sc._draw_lines.append(it)
-    img = QImage(*size, QImage.Format.Format_ARGB32); img.fill(QColor("white"))
-    p = QPainter(img); p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    from PyQt6.QtCore import QRectF
-    sc.render(p, QRectF(0, 0, *size), QRectF(0, 0, *size))
-    p.end(); sc.cleanup()
+    sc = scene if scene is not None else Model_Space()
+    try:
+        sc.set_mode("select")
+        for it in items:
+            it.style["colour"] = "#000000"
+            sc.addItem(it); sc._draw_lines.append(it)
+        img = QImage(*size, QImage.Format.Format_ARGB32); img.fill(QColor("white"))
+        p = QPainter(img); p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        from PyQt6.QtCore import QRectF
+        try:
+            sc.render(p, QRectF(0, 0, *size), QRectF(0, 0, *size))
+        finally:
+            p.end()
+    finally:
+        sc.cleanup()
     return img
 
 
@@ -371,30 +377,34 @@ def test_end_inked_reads_the_dash_path_ends():
 # ---------------------------------------------------------------- F. scene index (D5a / D6)
 def test_scene_registers_open_styled_items_and_tracks_moves(qapp):
     sc = Model_Space()
-    a = LineItem(QPointF(0, 0), QPointF(100, 0)); b = LineItem(QPointF(100, 0), QPointF(100, 100))
-    for it in (a, b):
-        sc.addItem(it); sc._draw_lines.append(it)
-    ix = sc.stroke_joints
-    assert len(ix) == 4
-    ea = [e for e in ix.neighbours(QPointF(100, 0)) if e.owner is a][0]
-    assert ix.partner(ea).owner is b
-    a.apply_grip(2, QPointF(100, 50))            # move a's end off the corner
-    assert ix.partner([e for e in ix.neighbours(QPointF(100, 0)) if e.owner is b][0]) is None
-    assert len(ix.neighbours(QPointF(100, 50))) == 1
-    sc.removeItem(a)
-    assert len(ix) == 2
-    sc.cleanup()
+    try:
+        a = LineItem(QPointF(0, 0), QPointF(100, 0)); b = LineItem(QPointF(100, 0), QPointF(100, 100))
+        for it in (a, b):
+            sc.addItem(it); sc._draw_lines.append(it)
+        ix = sc.stroke_joints
+        assert len(ix) == 4
+        ea = [e for e in ix.neighbours(QPointF(100, 0)) if e.owner is a][0]
+        assert ix.partner(ea).owner is b
+        a.apply_grip(2, QPointF(100, 50))            # move a's end off the corner
+        assert ix.partner([e for e in ix.neighbours(QPointF(100, 0)) if e.owner is b][0]) is None
+        assert len(ix.neighbours(QPointF(100, 50))) == 1
+        sc.removeItem(a)
+        assert len(ix) == 2
+    finally:
+        sc.cleanup()
 
 
 def test_closed_reference_and_ghost_items_register_nothing(qapp):
     from firepro3d.geometry_2d import RectangleItem
     sc = Model_Space()
-    sc.addItem(RectangleItem(QPointF(0, 0), QPointF(10, 10)))
-    assert len(sc.stroke_joints) == 0
-    ln = LineItem(QPointF(0, 0), QPointF(10, 0)); ln.reference = True
-    sc.addItem(ln)
-    assert len(sc.stroke_joints) == 0
-    sc.cleanup()
+    try:
+        sc.addItem(RectangleItem(QPointF(0, 0), QPointF(10, 10)))
+        assert len(sc.stroke_joints) == 0
+        ln = LineItem(QPointF(0, 0), QPointF(10, 0)); ln.reference = True
+        sc.addItem(ln)
+        assert len(sc.stroke_joints) == 0
+    finally:
+        sc.cleanup()
 
 
 def test_cleanup_and_scene_clear_sites_empty_the_index(qapp):
@@ -411,26 +421,31 @@ def test_cleanup_and_scene_clear_sites_empty_the_index(qapp):
 
 def test_geometry_change_repaints_former_and_new_partners(qapp, monkeypatch):
     sc = Model_Space()
-    a = LineItem(QPointF(0, 0), QPointF(100, 0)); b = LineItem(QPointF(100, 0), QPointF(100, 100))
-    c = LineItem(QPointF(0, 100), QPointF(-50, 100))
-    for it in (a, b, c):
-        sc.addItem(it); sc._draw_lines.append(it)
-    calls = []
-    for it in (a, b, c):
-        monkeypatch.setattr(it, "update", lambda *args, _it=it: calls.append(_it))
-    a.apply_grip(0, QPointF(0, 100))             # a's start now meets c's start
-    assert b in calls and c in calls             # former partner and new partner repaint
-    sc.cleanup()
+    try:
+        a = LineItem(QPointF(0, 0), QPointF(100, 0)); b = LineItem(QPointF(100, 0), QPointF(100, 100))
+        c = LineItem(QPointF(0, 100), QPointF(-50, 100))
+        for it in (a, b, c):
+            sc.addItem(it); sc._draw_lines.append(it)
+        calls = []
+        for it in (a, b, c):
+            monkeypatch.setattr(it, "update", lambda *args, _it=it: calls.append(_it))
+        a.apply_grip(0, QPointF(0, 100))             # a's start now meets c's start
+        assert b in calls and c in calls             # former partner and new partner repaint
+    finally:
+        sc.cleanup()
 
 
 def test_open_item_bounds_pad_covers_the_miter_reach(qapp, monkeypatch):
     import firepro3d.geometry_2d as g2
     monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
-    sc = Model_Space(); ln = LineItem(QPointF(0, 0), QPointF(100, 0))
-    sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
-    r = ln.boundingRect()
-    assert r.left() <= -40.0 and r.right() >= 140.0     # 2 w = 40 px at identity zoom
-    sc.cleanup()
+    sc = Model_Space()
+    try:
+        ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+        sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
+        r = ln.boundingRect()
+        assert r.left() <= -40.0 and r.right() >= 140.0     # 2 w = 40 px at identity zoom
+    finally:
+        sc.cleanup()
 
 
 def test_selection_frame_ignores_the_joint_pad(qapp, monkeypatch):
@@ -438,12 +453,15 @@ def test_selection_frame_ignores_the_joint_pad(qapp, monkeypatch):
     (manip_bounds) keeps the plain pen-padded bounds."""
     import firepro3d.geometry_2d as g2
     monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
-    sc = Model_Space(); ln = LineItem(QPointF(0, 0), QPointF(100, 0))
-    sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
-    frame = ln.manip_bounds()
-    assert frame.left() > -20.0 and frame.right() < 120.0      # w / 2 + 0.75 = 10.75, not 2 w
-    assert ln.boundingRect().left() <= -40.0                    # paint bounds still padded
-    sc.cleanup()
+    sc = Model_Space()
+    try:
+        ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+        sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
+        frame = ln.manip_bounds()
+        assert frame.left() > -20.0 and frame.right() < 120.0      # w / 2 + 0.75 = 10.75, not 2 w
+        assert ln.boundingRect().left() <= -40.0                    # paint bounds still padded
+    finally:
+        sc.cleanup()
 
 
 # ---------------------------------------------------------------- G. cross-item joints (D7)
@@ -468,7 +486,7 @@ def _core(xc, yc):
     return {(x, y) for x in range(xc + 6, xc + 10) for y in range(yc + 6, yc + 10)}
 
 
-def _corner_pair(**kw):
+def _corner_pair():
     """Two lines meeting at (150, 150): left-to-corner and corner-to-up."""
     return (LineItem(QPointF(50, 150), QPointF(150, 150)),
             LineItem(QPointF(150, 150), QPointF(150, 50)))
@@ -527,12 +545,16 @@ def test_g3_mixed_colours_stay_flat(qapp, monkeypatch):
     import firepro3d.geometry_2d as g2
     monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
     for red, expect_join in ((False, True), (True, False)):
-        sc = Model_Space(); sc.set_mode("select")
-        a, b = _corner_pair()
-        a.style["colour"] = "#ff0000" if red else "#000000"; b.style["colour"] = "#000000"
-        for it in (a, b):
-            sc.addItem(it); sc._draw_lines.append(it)
-        img = _snap(sc); sc.cleanup()
+        sc = Model_Space()
+        try:
+            sc.set_mode("select")
+            a, b = _corner_pair()
+            a.style["colour"] = "#ff0000" if red else "#000000"; b.style["colour"] = "#000000"
+            for it in (a, b):
+                sc.addItem(it); sc._draw_lines.append(it)
+            img = _snap(sc)
+        finally:
+            sc.cleanup()
         inked = {(x, y) for x, y in _core(150, 150) if img.pixelColor(x, y) != QColor("white")}
         assert (inked == _core(150, 150)) if expect_join else not inked, (red, len(inked))
 
@@ -552,10 +574,14 @@ def test_g4_twenty_degree_sliver_is_clipped_like_qt(qapp, monkeypatch):
 
 def test_g5_arrow_end_never_joins(qapp, monkeypatch):
     from tests.lt5_support import end_id, set_ends
-    sc = Model_Space(); sc.scale_manager.drawing_scale = 1.0
-    a, b = _corner_pair()
-    set_ends(a, finish=end_id(sc))
-    img = _render([a, b], monkeypatch=monkeypatch, scene=sc)
+    sc = Model_Space()
+    try:
+        sc.scale_manager.drawing_scale = 1.0
+        a, b = _corner_pair()
+        set_ends(a, finish=end_id(sc))
+        img = _render([a, b], monkeypatch=monkeypatch, scene=sc)   # cleans sc
+    finally:
+        sc.cleanup()
     assert not _core(150, 150) & _dark(img)
 
 
@@ -592,29 +618,40 @@ def _pick_corner(a_inked):
 def test_g5_dashed_end_in_a_gap_is_flat_and_inked_end_is_sharp(qapp, monkeypatch):
     cx_on, cx_off = _pick_corner(True), _pick_corner(False)
     sc, items, ia, ib = _dashed_corner(cx_on)
-    assert ia and ib, "premise: both ends sit on ink"
-    assert _core(cx_on, 150) <= _dark(_render(items, monkeypatch=monkeypatch, scene=sc))
+    try:
+        assert ia and ib, "premise: both ends sit on ink"
+        img_on = _render(items, monkeypatch=monkeypatch, scene=sc)    # cleans sc
+    finally:
+        sc.cleanup()
+    assert _core(cx_on, 150) <= _dark(img_on)
     sc, items, ia, ib = _dashed_corner(cx_off)
-    assert (ia, ib) == (False, True), "premise: A's end is in a gap"
-    assert not _core(cx_off, 150) & _dark(_render(items, monkeypatch=monkeypatch, scene=sc))
+    try:
+        assert (ia, ib) == (False, True), "premise: A's end is in a gap"
+        img_off = _render(items, monkeypatch=monkeypatch, scene=sc)   # cleans sc
+    finally:
+        sc.cleanup()
+    assert not _core(cx_off, 150) & _dark(img_off)
 
 
 def test_g7_move_breaks_and_undo_restores_the_join(qapp, monkeypatch):
     import firepro3d.geometry_2d as g2
     monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
-    sc = Model_Space(); sc.set_mode("select")
-    items = _tri_lines()
-    for it in items:
-        it.style["colour"] = "#000000"; sc.addItem(it); sc._draw_lines.append(it)
+    sc = Model_Space()
+    try:
+        sc.set_mode("select")
+        items = _tri_lines()
+        for it in items:
+            it.style["colour"] = "#000000"; sc.addItem(it); sc._draw_lines.append(it)
 
-    snap = lambda: _snap(sc)
-    corner = {(x, y) for x in range(251, 262) for y in range(151, 162)}   # exterior of the (250,150) corner
-    assert corner & _dark(snap())                       # mitered: wedge present
-    items[0].apply_grip(1, QPointF(150, 100))           # translate the base away (mid grip)
-    assert not (corner & _dark(snap()))                 # both former partners flat
-    items[0].apply_grip(1, QPointF(150, 150))           # back (undo path = the same setter)
-    assert corner & _dark(snap())
-    sc.cleanup()
+        snap = lambda: _snap(sc)
+        corner = {(x, y) for x in range(251, 262) for y in range(151, 162)}   # exterior of the (250,150) corner
+        assert corner & _dark(snap())                       # mitered: wedge present
+        items[0].apply_grip(1, QPointF(150, 100))           # translate the base away (mid grip)
+        assert not (corner & _dark(snap()))                 # both former partners flat
+        items[0].apply_grip(1, QPointF(150, 150))           # back (undo path = the same setter)
+        assert corner & _dark(snap())
+    finally:
+        sc.cleanup()
 
 
 def test_f_transform_and_pos_moves_carry_the_wedge_with_the_item(qapp, monkeypatch):
