@@ -25,6 +25,7 @@ from . import element_params
 from .annotative import SCREEN_SCALE
 from .block_attributes import bound_text_ops
 from .render_op import paint_ops
+from .wall_outline import _poly_path
 from .system_blocks import LABEL_FIELD, PAINT_WHEN_BLANK
 
 _log = logging.getLogger(__name__)
@@ -337,9 +338,11 @@ class OutlinedLabel(BoundLabelItem):
                     continue
                 for sub in op.path.toSubpathPolygons():
                     if sub.isClosed() and len(sub) > 2:
-                        p = QPainterPath()
-                        p.addPolygon(sub)
-                        out = out.united(p)
+                        # Operands snapped to WALL_OUTLINE_SNAP: a Block
+                        # Editor restyle leaves ~1e-12 noise on coincident
+                        # corners (a quadrant inside a circle), and Qt's
+                        # clipper then returns a union with no interior.
+                        out = out.united(_poly_path(sub))
             if out.isEmpty():
                 r = self.boundingRect()
                 if not r.isEmpty():

@@ -24,9 +24,28 @@ def _level_def(ms, shape="circle", name="TestLevelHead"):
     (non-circular trim, sign-pinning); @[Level.Name] above-right,
     @[Level.Elevation] below-right (the seed's layout). Mapped as the project
     default."""
-    if shape == "circle":
+    quadrant = None
+    if shape in ("circle", "noisy_quadrant"):
         geom = {"type": "draw_circle", "cx": 0.0, "cy": 0.0, "radius": HEAD_R,
                 "color": "token:auto", "lineweight": 1.0}
+        if shape == "noisy_quadrant":
+            # A Block-Editor-authored filled quadrant INSIDE the circle whose
+            # corner carries 1e-16 float noise (a real restyle of the shipped
+            # seed, 2026-11-03): Qt's clipper breaks on the un-snapped union
+            # and reports every interior point as outside.
+            quadrant = {"type": "draw_filled_region", "outline": False,
+                        "fill": {"background": {"color": "token:auto", "opacity": 1.0}},
+                        "loops": [[
+                {"type": "arc", "cx": 0.0, "cy": 0.0, "radius": HEAD_R,
+                 "start_deg": 0.0, "span_deg": 90.0},
+                {"type": "draw_line", "pt1": [HEAD_R, 0.0], "pt2": [4.440892098500626e-16, 0.0]},
+                {"type": "draw_line", "pt1": [0.0, -4.440892098500626e-16], "pt2": [0.0, -HEAD_R]},
+            ], [
+                {"type": "draw_line", "pt1": [0.0, -4.440892098500626e-16], "pt2": [0.0, HEAD_R + 1e-12]},
+                {"type": "arc", "cx": 0.0, "cy": 0.0, "radius": HEAD_R,
+                 "start_deg": 180.0, "span_deg": 90.0},
+                {"type": "draw_line", "pt1": [-(HEAD_R + 1e-12), 0.0], "pt2": [4.440892098500626e-16, 0.0]},
+            ]]}
     else:
         geom = {"type": "draw_rectangle", "x": SQ_X0, "y": -SQ_H / 2, "w": SQ_W,
                 "h": SQ_H, "color": "token:auto", "lineweight": 1.0}
@@ -36,8 +55,9 @@ def _level_def(ms, shape="circle", name="TestLevelHead"):
     elev_t = {"type": "text", "text": "@[Level.Elevation]", "x": 6.25, "y": 0.5,
               "height_mm": 2.4, "wrap_width_mm": 30.0, "box_height_mm": 4.0,
               "align": "L", "valign": "T"}
+    prims = [geom, name_t, elev_t] + ([quadrant] if quadrant else [])
     d = BlockDefinition.new(name=name, library="", series="", origin=(0.0, 0.0),
-                            primitives=[geom, name_t, elev_t])
+                            primitives=prims)
     d.scale_mode = "annotative"
     d.host_category = "Level"
     d.attributes = [
@@ -123,20 +143,23 @@ def test_shipped_leveldatum_reproduces_todays_head(qapp):
         r = op.path.boundingRect()
         return tuple(round(v, 3) for v in (r.x(), r.y(), r.width(), r.height()))
     ops = d.render_ops()
-    # today's bespoke head: datum-colour quadrants arcTo(0, 90) (upper-right) and
-    # arcTo(180, 90) (lower-left); circle + cross; radius 5 mm (OQ1 option A)
-    assert sorted(box(o) for o in ops if o.kind == FILL) == [(-5.0, 0.0, 5.0, 5.0),
-                                                              (0.0, -5.0, 5.0, 5.0)]
+    # today's bespoke head: datum-colour quadrants (upper-right, lower-left),
+    # circle + cross -- restyled in the Block Editor at the SB4c smoke gate
+    # (2026-11-03): radius 3 mm (was OQ1's 5 mm), name cap 2.70 mm.
+    assert sorted(box(o) for o in ops if o.kind == FILL) == [(-3.0, 0.0, 3.0, 3.0),
+                                                              (0.0, -3.0, 3.0, 3.0)]
     assert sorted(box(o) for o in ops if o.kind == STROKE) == [
-        (-5.0, -5.0, 10.0, 10.0), (-5.0, 0.0, 10.0, 0.0), (0.0, -5.0, 0.0, 10.0)]
+        (-3.0, -3.0, 6.0, 6.0), (-3.0, 0.0, 6.0, 0.0), (0.0, -3.0, 0.0, 6.0)]
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     texts = {p["text"]: p for p in raw["primitives"] if p["type"] == "text"}
     name, elev = texts["@[Level.Name]"], texts["@[Level.Elevation]"]
-    assert (name["x"], name["y"] + name["box_height_mm"], name["valign"], name["align"],
-            name["height_mm"], name["bold"]) == (6.25, -0.5, "B", "L", 3.0, True)
-    assert (elev["x"], elev["y"], elev["valign"], elev["align"],
-            elev["height_mm"], elev["bold"]) == (6.25, 0.5, "T", "L", 2.4, False)
+    assert (name["x"], name["valign"], name["align"], name["bold"]) == (6.25, "B", "L", True)
+    assert name["y"] + name["box_height_mm"] == pytest.approx(-0.392, abs=1e-3)
+    assert name["height_mm"] == pytest.approx(2.7016, abs=1e-4)
+    assert (elev["x"], elev["valign"], elev["align"], elev["height_mm"], elev["bold"]) == (
+        pytest.approx(6.25), "T", "L", 2.4, False)
+    assert elev["y"] == pytest.approx(0.6286, abs=1e-4)
 
 
 # -- T9: the head on the section canvas ----------------------------------------------
@@ -295,7 +318,7 @@ def test_ac3_shipped_leveldatum_draws_the_head_through_the_system_tier(
     assert dt.head.definition().id == "system-tags-leveldatum"
     assert dt.head.paints()
     k = ms.scale_manager.drawing_scale
-    assert dt.line_start_h() == pytest.approx(dt._bx + 5.0 * k, abs=0.02 * k)   # seed r = 5 mm
+    assert dt.line_start_h() == pytest.approx(dt._bx + 3.0 * k, abs=0.02 * k)   # seed r = 3 mm
 
 
 # -- T10: paper ------------------------------------------------------------------------
@@ -440,3 +463,41 @@ def test_ac6_level_datum_colour_tints_the_line_not_the_head(qapp, section_scene_
         assert [op.colour for op in dt2.head._ops(dt2.head._k())] == head_ops
     finally:
         s.remove("display/Level Datum/color")
+
+
+# -- Phase 6 smoke fix: a restyled head's noisy quadrant + the HALO trace ---------------
+
+def test_outline_survives_a_noisy_nested_quadrant_so_the_line_trims(qapp, section_scene_for):
+    """Smoke 2026-11-03: a Block-Editor restyle of the shipped seed put 1e-16
+    noise on the filled quadrants' corners (the lower-left one's
+    radius lines overshoot by 1e-12); Qt's clipper then returned a union
+    that contains NO interior point, so the trim read 0 (line from the origin)
+    and the head's hit shape was dead. Operands are snapped before the union
+    (the wall-outline lesson) -- the outline stays the circle."""
+    ms, sec, dt, _d = _datum_scene(section_scene_for, shape="noisy_quadrant")
+    k = ms.scale_manager.drawing_scale
+    outline = dt.head.outline_path()
+    assert outline.contains(QPointF(0.0, 0.0))
+    assert outline.contains(QPointF(0.5 * HEAD_R * k, 0.0))      # on the quadrant seam
+    assert dt.head.trim_distance(1.0, 0.0) == pytest.approx(HEAD_R * k, abs=0.02 * k)
+    assert dt.line_start_h() == pytest.approx(dt._bx + HEAD_R * k, abs=0.02 * k)
+    assert dt.shape().contains(QPointF(dt._bx + 0.5 * HEAD_R * k, dt._v))
+
+
+def test_halo_trace_is_the_trimmed_line_plus_the_head_outline(qapp, section_scene_for):
+    """Smoke 2026-11-03: the HALO glow traced the raw ``line()`` (from h_min,
+    inside the head, through the text); it now mirrors ``drawForeground`` --
+    the line from the outline to h_max -- plus the head outline (plan
+    ``GridlineItem`` / ``ElevGridlineItem`` parity)."""
+    from firepro3d import halo
+    ms, sec, dt, _d = _datum_scene(section_scene_for, shape="square")
+    k = ms.scale_manager.drawing_scale
+    trace = halo._halo_local(dt)
+    assert not halo.halo_is_area(dt)
+    p0 = trace.elementAt(0)
+    assert (p0.x, p0.y) == pytest.approx((dt._bx + SQ_TRIM * k, dt._v), abs=0.02 * k)
+    p1 = trace.elementAt(1)
+    assert (p1.x, p1.y) == pytest.approx((dt._h_max, dt._v))
+    outline = dt.head.mapToParent(dt.head.outline_path()).boundingRect()
+    assert trace.boundingRect().united(outline) == trace.boundingRect()   # outline is in the trace
+    assert trace.boundingRect().left() == pytest.approx(outline.left())

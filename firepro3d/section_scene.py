@@ -607,6 +607,19 @@ class ElevDatumItem(QGraphicsLineItem):
             return QPainterPath()
         return head.mapToParent(head.outline_path())
 
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """Composite HALO trace mirroring what is drawn: the line from the
+        head's outline to ``_h_max`` (``drawForeground``) plus the head
+        outline -- never the raw ``line()`` from ``h_min`` inside the head
+        (``ElevGridlineItem`` parity). ``scene_scale`` is unused."""
+        path = QPainterPath()
+        h_start = self.line_start_h()
+        if self._h_max > h_start:
+            path.moveTo(QPointF(h_start, self._v))
+            path.lineTo(QPointF(self._h_max, self._v))
+        path.addPath(self.shape())
+        return path
+
     def paint(self, painter, option, widget=None):
         # The datum line is drawn by the scene's drawForeground() so it
         # remains visible even when the head has scrolled off-screen; the
