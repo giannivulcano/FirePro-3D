@@ -1,8 +1,9 @@
-"""LT2-6 / H-e -- Model-tab Line Weight column with a weight-only Blocks row."""
+"""LT2-6 / H-e -- the weight-only Model "Blocks" weight, now a combo on the Line
+Weights tab (smoke round 2: the Model tree lost its Line Weight column)."""
 import pytest
 
 from firepro3d import paper_display as pd
-from firepro3d.display_manager import (DisplayManager, _COL_LW,
+from firepro3d.display_manager import (DisplayManager,
                                        apply_project_display_settings,
                                        get_display_settings_for_save)
 from firepro3d.model_space import Model_Space
@@ -20,7 +21,7 @@ def test_blocks_row_edits_model_weight_and_emits(qapp):
     hits = []
     d.lineWeightsChanged.connect(lambda: hits.append(1))
     combo = d._model_blocks_combo
-    assert d._tree.headerItem().text(_COL_LW) == "Line Weight"
+    assert d._lw_tab.isAncestorOf(combo) and not d._tree.isAncestorOf(combo)
     assert combo.currentText() == "Thinnest"
     assert combo.toolTip()
     combo.setCurrentText("Thin")
@@ -43,8 +44,9 @@ def test_reset_and_set_as_default(qapp):
     from firepro3d.display_manager import apply_default_display_settings
     d = DisplayManager(Model_Space())
     d._model_blocks_combo.setCurrentText("Thin")
-    d._set_model_as_default()                      # default -> Heavy
-    d._reset_model_tab()                           # live row -> factory
+    d._tabs.setCurrentWidget(d._lw_tab)
+    d._set_as_default()                            # Line Weights tab: default -> Thin
+    d._reset_line_weights_tab()                    # live row -> factory
     assert pd.model_blocks_weight() == "Thinnest"
     assert d._model_blocks_combo.currentText() == "Thinnest"
     d.accept()

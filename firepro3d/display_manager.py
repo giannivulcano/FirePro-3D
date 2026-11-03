@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QDoubleSpinBox, QSpinBox,
+    QPushButton, QSpinBox,
     QHeaderView, QWidget, QLabel, QComboBox,
     QAbstractItemView,
 )
@@ -297,11 +297,8 @@ _COL_VIS     = 1
 _COL_COLOR   = 2
 _COL_FILL    = 3
 _COL_SECTION = 4
-_COL_SCALE   = 5
-_COL_OPACITY = 6
-_COL_FONT    = 7
-_COL_LW      = 8
-_COL_RESET   = 9
+_COL_OPACITY = 5
+_COL_RESET   = 6
 
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
 _MODEL_BLOCKS_KEY = "Blocks"
@@ -372,7 +369,9 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
         section_look = to_record(fill_types.legacy_section_layers(
             section, _s("section_pattern", cat_def.get("section_pattern")),
             float(_s("section_scale", 1.0))))
-    scale   = float(_s("scale", cat_def["scale"]))
+    # Scale / Font columns are retired (smoke round 2): the factory values
+    # always apply; a stored scale/font (QSettings, project, override) is ignored.
+    scale   = float(cat_def["scale"])
     opacity = int(float(_s("opacity", cat_def["opacity"])))
     visible = _s("visible", cat_def["visible"])
     if isinstance(visible, str):
@@ -380,8 +379,6 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     elif not isinstance(visible, bool):
         visible = bool(visible)
     font = cat_def.get("font")
-    if font is not None:
-        font = int(float(_s("font", font)))
 
     return {"color": color, "fill": fill, "section_type": section_type,
             "section_look": section_look,
@@ -419,14 +416,11 @@ def _write_category_to_settings(key: str, vals: dict,
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
     settings.setValue(f"display/{key}/color", vals["color"])
-    settings.setValue(f"display/{key}/scale", vals["scale"])
     settings.setValue(f"display/{key}/opacity", vals["opacity"])
     settings.setValue(f"display/{key}/visible", str(vals["visible"]).lower())
     if vals.get("fill") is not None:
         settings.setValue(f"display/{key}/fill", vals["fill"])
     _store_section_cell(settings, key, vals)
-    if vals.get("font") is not None:
-        settings.setValue(f"display/{key}/font", vals["font"])
 
 
 def _apply_to_scene_items(scene, key: str, vals: dict,
@@ -458,11 +452,11 @@ def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True,
     if respect_overrides:
         ov = getattr(obj, "_display_overrides", {})
         c = ov.get("color", vals["color"])
-        s = ov.get("scale", vals["scale"])
+        s = vals["scale"]       # scale / font retired: factory only
         o = ov.get("opacity", vals["opacity"])
         v = ov.get("visible", vals["visible"])
         f = ov.get("fill", vals.get("fill"))
-        fn = ov.get("font", vals.get("font"))
+        fn = vals.get("font")
     else:
         c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
         f, fn = vals.get("fill"), vals.get("font")
@@ -953,15 +947,13 @@ def apply_category_defaults(item):
         return factory
 
     color = _vc("color", cat_def["color"])      # "" = No stroke is a value
-    scale = float(_v("scale", cat_def["scale"]))
+    scale = float(cat_def["scale"])             # scale / font retired: factory only
     opacity = int(float(_v("opacity", cat_def["opacity"])))
     visible = _v("visible", cat_def["visible"])
     if isinstance(visible, str):
         visible = visible.lower() not in ("false", "0")
     fill = _vc("fill", cat_def.get("fill"))
     font = cat_def.get("font")
-    if font is not None:
-        font = int(float(_v("font", font)))
     section_type = None
     if _category_has_section(key):
         section_scale_raw = _v("section_scale", None)
@@ -1098,7 +1090,7 @@ class DisplayManager(HouseDialog):
         self._elev_settings_snapshot: dict[str, dict] = {}
         for key in ("Grid Line", "Level Datum", "Elevation Marker", "Wall", "Roof", "Floor"):
             snap: dict = {}
-            for prop in ("color", "fill", "section", "section_pattern", "section_scale", "scale", "opacity", "visible", "font"):
+            for prop in ("color", "fill", "section", "section_pattern", "section_scale", "opacity", "visible"):
                 v = self._settings.value(f"display/{key}/{prop}")
                 if v is not None:
                     snap[prop] = v
@@ -1365,18 +1357,26 @@ class DisplayManager(HouseDialog):
 
     @staticmethod
     def _page_margins(layout) -> None:
-        """House side margins for a TopTabs page (the stack itself is full-bleed)."""
+        """Flush page for a table tab (like the Underlay Manager): the table
+        touches the divider and the page's left / right / bottom edges. The
+        TopTabs is built with ``page_top=0``; control rows keep their own inset
+        (``_control_row_margins``)."""
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+    @staticmethod
+    def _control_row_margins(row_layout) -> None:
+        """House inset around a non-table control row on a flush page."""
         inset = th.M.TOPTABS_BAR_INSET
-        layout.setContentsMargins(inset, 0, inset, inset)
+        row_layout.setContentsMargins(inset, inset, inset, inset)
 
     def _build_ui(self):
         # ── Tree widget ──────────────────────────────────────────────
         self._tree = QTreeWidget()
         self._tree.setObjectName("underlayTable")   # Underlay Manager table look (theme.build_dialog_qss)
-        self._tree.setColumnCount(10)
+        self._tree.setColumnCount(7)
         self._tree.setHeaderLabels(
-            ["NAME", "VIS", "COLOUR", "FILL", "SECTION", "Scale", "OPACITY",
-             "Font", "Line Weight", ""])
+            ["NAME", "VIS", "COLOUR", "FILL", "SECTION", "OPACITY", ""])
         _center_headers(self._tree, (_COL_VIS, _COL_COLOR, _COL_FILL, _COL_SECTION))
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(20)
@@ -1389,26 +1389,19 @@ class DisplayManager(HouseDialog):
         hdr.setSectionResizeMode(_COL_COLOR, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_FILL, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_SECTION, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(_COL_SCALE, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_OPACITY, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(_COL_FONT, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(_COL_LW, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_RESET, QHeaderView.ResizeMode.Fixed)
         self._tree.setColumnWidth(_COL_VIS, 40)
         self._tree.setColumnWidth(_COL_COLOR, 60)
         self._tree.setColumnWidth(_COL_FILL, 60)
         self._tree.setColumnWidth(_COL_SECTION, 130)
-        self._tree.setColumnWidth(_COL_SCALE, 90)
         self._tree.setColumnWidth(_COL_OPACITY, 90)
-        self._tree.setColumnWidth(_COL_FONT, 70)
-        self._tree.setColumnWidth(_COL_LW, 100)
         self._tree.setColumnWidth(_COL_RESET, 40)
 
         # Suppress preview signals during init so scene isn't changed.
         # Snapshot was already taken in __init__ before _build_ui().
         self._suppress = True
         self._populate_tree()
-        self._add_model_blocks_row()
         # Expand all group headers; collapse every category (child) node
         for i in range(self._tree.topLevelItemCount()):
             grp = self._tree.topLevelItem(i)
@@ -1419,7 +1412,7 @@ class DisplayManager(HouseDialog):
         # ── Tabs (house TopTabs, R1) ─────────────────────────────────
         # Pages are wrapped: TopTabs pins a surface stylesheet on each page by
         # objectName, which would override the bare tree's #underlayTable look.
-        self._tabs = TopTabs()
+        self._tabs = TopTabs(page_top=0)    # tables flush under the divider
         model_page = QWidget()
         model_lay = QVBoxLayout(model_page)
         self._page_margins(model_lay)
@@ -1507,28 +1500,20 @@ class DisplayManager(HouseDialog):
                 _first = self._read_item_display_state(items[0], key)
                 saved_color   = _first["color"]
                 saved_fill    = _first["fill"]
-                saved_scale   = _first["scale"]
                 saved_opacity = _first["opacity"]
                 saved_visible = _first["visible"]
-                saved_font    = _first["font"]
                 saved_section_type = _first.get("section_type")
             else:
                 saved_color = self._settings.value(
                     f"display/{key}/color", cat_def["color"])
                 saved_fill = self._settings.value(
                     f"display/{key}/fill", cat_def.get("fill"))
-                saved_scale = float(self._settings.value(
-                    f"display/{key}/scale", cat_def["scale"]))
                 saved_opacity = int(float(self._settings.value(
                     f"display/{key}/opacity", cat_def["opacity"])))
                 saved_visible = self._settings.value(
                     f"display/{key}/visible", cat_def["visible"])
                 if isinstance(saved_visible, str):
                     saved_visible = saved_visible.lower() not in ("false", "0")
-                saved_font = cat_def.get("font")
-                if saved_font is not None:
-                    saved_font = int(float(self._settings.value(
-                        f"display/{key}/font", saved_font)))
                 saved_section_type = None
             if _category_has_section(key):
                 cat_tid = fill_types.category_section_type(
@@ -1554,7 +1539,7 @@ class DisplayManager(HouseDialog):
 
             cat_widgets = self._make_row_widgets(
                 cat_item, saved_visible, saved_color, saved_fill,
-                saved_scale, saved_opacity, saved_font,
+                saved_opacity,
                 is_category=True, category_key=key,
                 section_type=saved_section_type)
 
@@ -1570,10 +1555,8 @@ class DisplayManager(HouseDialog):
                 _ist = self._read_item_display_state(obj, key)
                 inst_color   = _ist["color"]
                 inst_fill    = _ist["fill"]
-                inst_scale   = _ist["scale"]
                 inst_opacity = _ist["opacity"]
                 inst_visible = _ist["visible"]
-                inst_font    = _ist["font"]
                 inst_section_type = _ist.get("section_type") or cat_tid
 
                 child = QTreeWidgetItem(cat_item)
@@ -1582,7 +1565,7 @@ class DisplayManager(HouseDialog):
 
                 inst_widgets = self._make_row_widgets(
                     child, inst_visible, inst_color, inst_fill,
-                    inst_scale, inst_opacity, inst_font,
+                    inst_opacity,
                     is_category=False, category_key=key,
                     item_ref=obj,
                     section_type=inst_section_type)
@@ -1597,36 +1580,6 @@ class DisplayManager(HouseDialog):
         # A later category may have added its section type to the table: every
         # selector lists the final set.
         self._refresh_section_selectors()
-
-    def _add_model_blocks_row(self):
-        """Weight-only "Blocks" row (linetypes.md LT2-6): the canvas weight of
-        block linework whose weight is By Linetype on a Continuous line
-        (linetypes.md WM-5 fallback). Not a _CATEGORIES entry -- block colours,
-        visibility and opacity stay authored / per instance."""
-        from .paper_display import (model_blocks_weight, picker_weight_name,
-                                    weight_names)
-        parent = None
-        for i in range(self._tree.topLevelItemCount()):
-            grp = self._tree.topLevelItem(i)
-            if grp.text(_COL_NAME) == "Annotation & Geometry":
-                parent = grp
-        row = QTreeWidgetItem(parent or self._tree)
-        row.setText(_COL_NAME, _MODEL_BLOCKS_KEY)
-        f = QFont()
-        f.setBold(True)
-        row.setFont(_COL_NAME, f)
-        row.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        row.setToolTip(_COL_NAME, "Blocks: line weight only (block colours, "
-                                  "visibility and opacity stay authored)")
-        combo = QComboBox()
-        combo.addItems(weight_names())
-        combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
-        combo.setToolTip("Canvas line weight of block linework whose weight is "
-                         "By Linetype on a Continuous line (Thin Lines still "
-                         "applies)")
-        combo.currentTextChanged.connect(self._on_model_blocks_weight)
-        self._tree.setItemWidget(row, _COL_LW, combo)
-        self._model_blocks_combo = combo
 
     def _on_model_blocks_weight(self, name: str):
         if self._suppress or not name:
@@ -1656,8 +1609,7 @@ class DisplayManager(HouseDialog):
     def _make_row_widgets(self, tree_item: QTreeWidgetItem,
                           visible: bool, color: str,
                           fill: str | None,
-                          scale: float, opacity: int,
-                          font: int | None = None, *,
+                          opacity: int, *,
                           is_category: bool,
                           category_key: str,
                           item_ref=None,
@@ -1666,10 +1618,6 @@ class DisplayManager(HouseDialog):
         _t = th.detect()
         has_fill = _category_has_fill(category_key)
         has_section = _category_has_section(category_key)
-        has_scale = _category_has_scale(category_key)
-        has_font = _category_has_font(category_key)
-        _disabled_ss = (f"background: {_t.bg_sunken}; color: {_t.text_disabled}; "
-                        f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
 
         # Every column: QTreeView clamps the row to each fixed-height index
         # widget (the 22 px spin boxes) and only a later column's delegate hint
@@ -1711,19 +1659,6 @@ class DisplayManager(HouseDialog):
             section_sel.setProperty("_section_tid", section_type)
             self._tree.setItemWidget(tree_item, _COL_SECTION, section_sel)
 
-        # ── Scale spinbox ────────────────────────────────────────────
-        scale_spin = QDoubleSpinBox()
-        scale_spin.setRange(0.1, 10.0)
-        scale_spin.setSingleStep(0.1)
-        scale_spin.setDecimals(1)
-        scale_spin.setValue(scale)
-        scale_spin.setSuffix("x")
-        scale_spin.setFixedHeight(22)
-        if not has_scale:
-            scale_spin.setEnabled(False)
-            scale_spin.setStyleSheet(_disabled_ss)
-        self._tree.setItemWidget(tree_item, _COL_SCALE, scale_spin)
-
         # ── Opacity spinbox ──────────────────────────────────────────
         opacity_spin = QSpinBox()
         opacity_spin.setRange(0, 100)
@@ -1732,20 +1667,6 @@ class DisplayManager(HouseDialog):
         opacity_spin.setSuffix("%")
         opacity_spin.setFixedHeight(22)
         self._tree.setItemWidget(tree_item, _COL_OPACITY, opacity_spin)
-
-        # ── Font size spinbox ────────────────────────────────────────
-        font_spin = QSpinBox()
-        font_spin.setRange(4, 48)
-        font_spin.setSingleStep(1)
-        font_spin.setFixedHeight(22)
-        if has_font and font is not None:
-            font_spin.setValue(int(font))
-            font_spin.setSuffix("pt" if category_key in ("Grid Line", "Level Datum", "Elevation Marker") else "in")
-        else:
-            font_spin.setValue(10)
-            font_spin.setEnabled(False)
-            font_spin.setStyleSheet(_disabled_ss)
-        self._tree.setItemWidget(tree_item, _COL_FONT, font_spin)
 
         # ── Reset button (instance rows only) ────────────────────────
         reset_btn = None
@@ -1768,13 +1689,8 @@ class DisplayManager(HouseDialog):
                 section_sel.currentTextChanged.connect(
                     lambda name, k=category_key: self._on_category_changed(
                         k, "section_type", name))
-            scale_spin.valueChanged.connect(
-                lambda v, k=category_key: self._on_category_changed(k, "scale", v))
             opacity_spin.valueChanged.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "opacity", v))
-            if has_font:
-                font_spin.valueChanged.connect(
-                    lambda v, k=category_key: self._on_category_changed(k, "font", v))
         else:
             vis_cb.toggled.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "visible", v))
@@ -1786,13 +1702,8 @@ class DisplayManager(HouseDialog):
             if has_section:
                 section_sel.currentTextChanged.connect(
                     lambda name, ref=item_ref: self._on_instance_section_picked(ref, name))
-            scale_spin.valueChanged.connect(
-                lambda v, ref=item_ref: self._on_instance_changed(ref, "scale", v))
             opacity_spin.valueChanged.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "opacity", v))
-            if has_font:
-                font_spin.valueChanged.connect(
-                    lambda v, ref=item_ref: self._on_instance_changed(ref, "font", v))
             if reset_btn:
                 reset_btn.clicked.connect(
                     lambda _, ref=item_ref: self._reset_instance(ref))
@@ -1802,9 +1713,7 @@ class DisplayManager(HouseDialog):
             "color_btn": color_btn,
             "fill_btn": fill_btn,
             "section_sel": section_sel,
-            "scale": scale_spin,
             "opacity": opacity_spin,
-            "font": font_spin,
             "reset": reset_btn,
         }
 
@@ -2016,10 +1925,7 @@ class DisplayManager(HouseDialog):
             if _category_has_section(cat_key):
                 self._fill_section_selector(
                     w["section_sel"], cat_widgets["section_sel"].currentData())
-            w["scale"].setValue(cat_widgets["scale"].value())
             w["opacity"].setValue(cat_widgets["opacity"].value())
-            if _category_has_font(cat_key):
-                w["font"].setValue(cat_widgets["font"].value())
         finally:
             self._suppress = False
         self._apply_preview()
@@ -2059,10 +1965,7 @@ class DisplayManager(HouseDialog):
                 factory_tid = self._factory_section_type(cat_def)
                 if factory_tid is not None:
                     self._fill_section_selector(cw["section_sel"], factory_tid, icons)
-                cw["scale"].setValue(cat_def["scale"])
                 cw["opacity"].setValue(cat_def["opacity"])
-                if _category_has_font(key) and cat_def["font"] is not None:
-                    cw["font"].setValue(cat_def["font"])
 
                 for obj in self._cat_data[key]["items"]:
                     if hasattr(obj, "_display_overrides"):
@@ -2076,16 +1979,10 @@ class DisplayManager(HouseDialog):
                             self._update_fill_btn(iw["fill_btn"], cat_def["fill"])
                         if factory_tid is not None:
                             self._fill_section_selector(iw["section_sel"], factory_tid, icons)
-                        iw["scale"].setValue(cat_def["scale"])
                         iw["opacity"].setValue(cat_def["opacity"])
-                        if _category_has_font(key) and cat_def["font"] is not None:
-                            iw["font"].setValue(cat_def["font"])
         finally:
             self._suppress = False
         self._apply_preview()
-        # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
-        from .paper_display import model_blocks_factory_weight
-        self._model_blocks_combo.setCurrentText(model_blocks_factory_weight())
 
     @staticmethod
     def _factory_section_type(cat_def: dict):
@@ -2144,6 +2041,9 @@ class DisplayManager(HouseDialog):
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
+        # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
+        from .paper_display import model_blocks_factory_weight
+        self._model_blocks_combo.setCurrentText(model_blocks_factory_weight())
 
     def _set_as_default(self):
         """Save current tab settings as defaults for new projects."""
@@ -2157,6 +2057,7 @@ class DisplayManager(HouseDialog):
             # new projects / table-less files copy (LT1-3).
             from .paper_display import save_line_weights
             save_line_weights(self._lw_defs, self._settings)
+            self._set_model_blocks_as_default()
 
     def _set_model_as_default(self):
         """Save current Model tab category settings as defaults for new projects.
@@ -2169,24 +2070,23 @@ class DisplayManager(HouseDialog):
             s = self._read_category_settings(key)
             # Save as defaults for new projects
             self._settings.setValue(f"display/{key}/default_color", s["color"])
-            self._settings.setValue(f"display/{key}/default_scale", s["scale"])
             self._settings.setValue(f"display/{key}/default_opacity", s["opacity"])
             self._settings.setValue(f"display/{key}/default_visible", s["visible"])
             if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/default_fill", s["fill"])
             _store_section_cell(self._settings, key, s, prefix="default_")
-            if s.get("font") is not None:
-                self._settings.setValue(f"display/{key}/default_font", s["font"])
             # Also save as current settings so they persist across sessions
             self._settings.setValue(f"display/{key}/color", s["color"])
-            self._settings.setValue(f"display/{key}/scale", s["scale"])
             self._settings.setValue(f"display/{key}/opacity", s["opacity"])
             self._settings.setValue(f"display/{key}/visible", s["visible"])
             if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
             _store_section_cell(self._settings, key, s)
-            if s.get("font") is not None:
-                self._settings.setValue(f"display/{key}/font", s["font"])
+        self._settings.sync()
+
+    def _set_model_blocks_as_default(self):
+        """Save the Model "Blocks" weight (Line Weights tab) as the default for
+        new projects, and as the current key so it persists across sessions."""
         from .paper_display import model_blocks_weight
         self._settings.setValue(
             f"display/{_MODEL_BLOCKS_KEY}/default_line_weight",
@@ -2221,13 +2121,8 @@ class DisplayManager(HouseDialog):
                         sel.blockSignals(False)
                 else:
                     self._fill_section_selector(sel, t.id)
-        elif prop == "scale":
-            widgets["scale"].setValue(value)
         elif prop == "opacity":
             widgets["opacity"].setValue(value)
-        elif prop == "font":
-            if widgets["font"].isEnabled():
-                widgets["font"].setValue(int(value))
 
     def _read_category_settings(self, key: str) -> dict:
         """Read current widget values for a category row."""
@@ -2235,8 +2130,10 @@ class DisplayManager(HouseDialog):
         result = {
             "visible": w["vis"].isChecked(),
             "color": w["color_btn"].property("_color"),
-            "scale": w["scale"].value(),
+            # Scale / Font columns are retired: the factory values apply.
+            "scale": _CATEGORY_MAP[key]["scale"],
             "opacity": w["opacity"].value(),
+            "font": _CATEGORY_MAP[key]["font"],
         }
         if _category_has_fill(key):
             result["fill"] = w["fill_btn"].property("_color")
@@ -2251,10 +2148,6 @@ class DisplayManager(HouseDialog):
         else:
             result["section_type"] = None
             result["section_look"] = None
-        if _category_has_font(key):
-            result["font"] = w["font"].value()
-        else:
-            result["font"] = None
         return result
 
     # ------------------------------------------------------------------
@@ -2279,11 +2172,11 @@ class DisplayManager(HouseDialog):
             for obj in self._cat_data[key]["items"]:
                 overrides = getattr(obj, "_display_overrides", {})
                 eff_color = overrides.get("color", cat_settings["color"])
-                eff_scale = overrides.get("scale", cat_settings["scale"])
+                eff_scale = cat_settings["scale"]       # retired: factory only
                 eff_opacity = overrides.get("opacity", cat_settings["opacity"])
                 eff_visible = overrides.get("visible", cat_settings["visible"])
                 eff_fill = overrides.get("fill", cat_settings.get("fill"))
-                eff_font = overrides.get("font", cat_settings.get("font"))
+                eff_font = cat_settings.get("font")     # retired: factory only
                 eff_tid = cat_tid
                 if cat_tid is not None and isinstance(overrides, dict):
                     fill_types.convert_item_section_override(
@@ -2300,14 +2193,11 @@ class DisplayManager(HouseDialog):
             # scene rebuilds pick up changes during live preview.
             if key in self._ELEV_CATEGORIES:
                 self._settings.setValue(f"display/{key}/color", cat_settings["color"])
-                self._settings.setValue(f"display/{key}/scale", cat_settings["scale"])
                 self._settings.setValue(f"display/{key}/opacity", cat_settings["opacity"])
                 self._settings.setValue(f"display/{key}/visible", cat_settings["visible"])
                 if cat_settings.get("fill") is not None:
                     self._settings.setValue(f"display/{key}/fill", cat_settings["fill"])
                 _store_section_cell(self._settings, key, cat_settings)
-                if cat_settings.get("font") is not None:
-                    self._settings.setValue(f"display/{key}/font", cat_settings["font"])
                 elev_dirty = True
 
         self._scene.update()
@@ -2360,6 +2250,7 @@ class DisplayManager(HouseDialog):
 
         # ── Color mode dropdown ─────────────────────────────────────
         mode_row = QHBoxLayout()
+        self._control_row_margins(mode_row)
         mode_row.addWidget(QLabel("Color Mode:"))
         self._color_mode_combo = QComboBox()
         self._color_mode_combo.addItems(["Full Color", "B&W", "Custom"])
@@ -2714,6 +2605,7 @@ class DisplayManager(HouseDialog):
         layout.addWidget(self._lw_table)
 
         btn_row = QHBoxLayout()
+        self._control_row_margins(btn_row)
         self._lw_add_btn = glyph_button("+", "Add line weight", self._on_lw_add)
         self._lw_remove_btn = glyph_button(
             "\u2212", "Remove selected line weight", self._on_lw_remove)
@@ -2721,6 +2613,25 @@ class DisplayManager(HouseDialog):
         btn_row.addWidget(self._lw_add_btn)
         btn_row.addWidget(self._lw_remove_btn)
         btn_row.addStretch()
+        # Model "Blocks" weight (linetypes.md LT2-6): the canvas weight of block
+        # linework whose weight is By Linetype on a Continuous line (WM-5
+        # fallback). Weight-only -- block colours, visibility and opacity stay
+        # authored / per instance.
+        from .paper_display import (model_blocks_weight, picker_weight_name,
+                                    weight_names)
+        blocks_lbl = QLabel("Model blocks weight:")
+        blocks_lbl.setToolTip("Blocks: line weight only (block colours, "
+                              "visibility and opacity stay authored)")
+        combo = QComboBox()
+        combo.addItems(weight_names())
+        combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
+        combo.setToolTip("Canvas line weight of block linework whose weight is "
+                         "By Linetype on a Continuous line (Thin Lines still "
+                         "applies)")
+        combo.currentTextChanged.connect(self._on_model_blocks_weight)
+        self._model_blocks_combo = combo
+        btn_row.addWidget(blocks_lbl)
+        btn_row.addWidget(combo)
         layout.addLayout(btn_row)
 
         return page
@@ -3121,8 +3032,8 @@ def apply_saved_display_settings(scene):
         # Build overrides from default_* keys so they win over current keys
         default_ov: dict = {}
         for prop in ("color", "fill", "section_type", "section_look", "section",
-                      "section_pattern", "section_scale", "scale", "opacity",
-                      "visible", "font"):
+                      "section_pattern", "section_scale", "opacity",
+                      "visible"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -3150,8 +3061,8 @@ def apply_default_display_settings(scene):
         # Build overrides from default_* keys (fall back to regular keys)
         default_ov: dict = {}
         for prop in ("color", "fill", "section_type", "section_look", "section",
-                     "section_pattern", "section_scale", "scale", "opacity",
-                     "visible", "font"):
+                     "section_pattern", "section_scale", "opacity",
+                     "visible"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -3206,7 +3117,9 @@ def get_display_settings_for_save() -> dict:
         key = cat_def["key"]
         vals = _read_category_from_settings(key, settings)
         # Strip None values for clean serialisation
-        entry = {k: v for k, v in vals.items() if v is not None}
+        # (scale / font are retired columns: never written to the project)
+        entry = {k: v for k, v in vals.items()
+                 if v is not None and k not in ("scale", "font")}
         result[key] = entry
     from .paper_display import model_blocks_weight
     result[_MODEL_BLOCKS_KEY] = {"line_weight": model_blocks_weight()}
@@ -3216,7 +3129,8 @@ def get_display_settings_for_save() -> dict:
 def apply_project_display_settings(scene, display_dict: dict):
     """Apply display settings loaded from a project file to all items.
 
-    *display_dict* maps category key → {color, scale, opacity, visible, fill, font}.
+    *display_dict* maps category key → {color, opacity, visible, fill, ...}
+    (a legacy ``scale`` / ``font`` entry is ignored -- retired columns).
     User defaults (``default_*`` keys) take priority over project values,
     so the user's "Set as Default" preferences are always honoured.
     Falls back to QSettings for any category not present in *display_dict*.
@@ -3231,8 +3145,8 @@ def apply_project_display_settings(scene, display_dict: dict):
         # User defaults win over project-embedded values
         merged = dict(proj)
         for prop in ("color", "fill", "section_type", "section_look", "section",
-                      "section_pattern", "section_scale", "scale", "opacity",
-                      "visible", "font"):
+                      "section_pattern", "section_scale", "opacity",
+                      "visible"):
             user_default = settings.value(f"display/{key}/default_{prop}")
             if user_default is not None:
                 merged[prop] = user_default

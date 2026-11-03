@@ -339,7 +339,13 @@ class TopTabs(QWidget):
     tabSelected = pyqtSignal(str)          # key of the newly-current tab
     currentChanged = pyqtSignal(int)       # mirrors QTabWidget (index)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, page_top: int | None = None):
+        """Args:
+            parent: Parent widget.
+            page_top: Gap between the divider and the page stack in px; default
+                ``M.TOPTABS_PAGE_TOP``. 0 lets a table page sit flush under the
+                divider (Display Manager).
+        """
         super().__init__(parent)
         self.setObjectName("topTabs")
         v = QVBoxLayout(self)
@@ -372,7 +378,8 @@ class TopTabs(QWidget):
         _stack_row = QWidget(objectName="topTabsStackRow")
         self._stack.setObjectName("topTabsStack")
         _sl = QVBoxLayout(_stack_row)
-        _sl.setContentsMargins(0, M.TOPTABS_PAGE_TOP, 0, 0)
+        _sl.setContentsMargins(
+            0, M.TOPTABS_PAGE_TOP if page_top is None else page_top, 0, 0)
         _sl.setSpacing(0)
         _sl.addWidget(self._stack)
         v.addWidget(_bar_row)
