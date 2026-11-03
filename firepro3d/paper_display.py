@@ -21,8 +21,7 @@ from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
                         PAPER_LEGACY_PX_PER_MM, PAPER_LEGACY_SNAP_PX,
-                        UNDERLAY_LINE_WIDTH_PX,
-                        GRIDLINE_BUBBLE_PAPER_CAP_MM)
+                        UNDERLAY_LINE_WIDTH_PX)
 
 _log = logging.getLogger(__name__)
 
@@ -515,8 +514,7 @@ _CATEGORY_KEYS = [
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
 _HAS_FILL = {"Sprinkler", "Water Supply", "Hydraulic Badge", "Wall", "Roof",
-             "Room", "Floor", "Grid Line", "Level Datum", "Elevation Marker",
-             "Detail Marker"}
+             "Room", "Floor", "Elevation Marker", "Detail Marker"}
 
 # Which categories have section colour
 _HAS_SECTION = {"Wall", "Roof", "Floor"}
@@ -959,6 +957,14 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     inst.update()
 
 
+def _elev_heads(item) -> list:
+    """The annotation-block heads an elevation gridline / level datum owns
+    (SB4c D4): its two bubbles (``ElevGridlineItem.bubble1`` / ``bubble2``)
+    or its datum head (``ElevDatumItem.head``)."""
+    return [h for h in (getattr(item, "bubble1", None), getattr(item, "bubble2", None),
+                        getattr(item, "head", None)) if h is not None]
+
+
 def _model_colour_token(item, cat_key: str, cache: dict | None = None):
     """The token colour string the MODEL side stores for *item*, else None.
 
@@ -1189,25 +1195,35 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 item.update()
                 continue
             if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
-                # Elevation gridline / level datum (AC3 / AC4): the plan
-                # gridline's whole paper row -- visibility, opacity, colour,
-                # weight, paper-mm dash, true-scale bubble.
+                # Elevation gridline / level datum (SB4c D4): the LINE takes the
+                # row's visibility, opacity, colour, weight and paper-mm dash
+                # (enter_paper_pass, which also sets _paper_render); each
+                # visible bubble / head is an annotation block and prints at
+                # its authored mm through _apply_block (opacity 1, as the plan
+                # gridline's bubbles).
                 entry = {"item": item, "cat_key": cat_key, "elev_paper": None,
-                         "opacity": item.opacity(), "visible": item.isVisible()}
+                         "opacity": item.opacity(), "visible": item.isVisible(),
+                         "heads": []}
                 if not cat.get("visible", True):
                     saved.append(entry)
                     item.setVisible(False)
                     continue
                 bw = color_mode != PaperColorMode.FULL_COLOR
+                lw_elev = resolve_line_weight_mm(cat["line_weight"])
                 # Saved only once the pass is entered: restore never sees a
                 # half-entered item.
                 entry["elev_paper"] = item.enter_paper_pass(
-                    resolve_line_weight_mm(cat["line_weight"]), paper_scale,
-                    color_src=cat["color"] if bw else None,
-                    fill_src=cat["fill"] if bw else None,
-                    cap_mm=GRIDLINE_BUBBLE_PAPER_CAP_MM)
+                    lw_elev, paper_scale, color_src=cat["color"] if bw else None)
                 saved.append(entry)
                 item.setOpacity(cat["opacity"] / 100.0)
+                for h in _elev_heads(item):
+                    if h.isVisible():
+                        entry["heads"].append((h, h._paper_pen_width, h._paper_pen_color,
+                                               h._paper_scale))
+                        _apply_block(h, cat, color_mode, lw_elev, paper_scale)
+                        h.setOpacity(1.0)
+                item.prepareGeometryChange()    # trim / bounds move with the paper k
+                item.update()
                 continue
 
             # --- Save current state ---
@@ -1468,8 +1484,16 @@ def restore_model_display(saved: list[dict]):
         if "elev_paper" in entry:
             item.setVisible(entry["visible"])
             item.setOpacity(entry["opacity"])
+            for h, pen_w, pen_c, scale in entry.get("heads", ()):
+                if _is_annot(h.definition()):
+                    h.prepareGeometryChange()            # SB1c D6
+                h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
+                h.setOpacity(1.0)
+                h.refresh()
             if entry["elev_paper"] is not None:
-                item.exit_paper_pass(entry["elev_paper"])
+                item.exit_paper_pass(entry["elev_paper"])   # clears _paper_render, line weight
+            item.prepareGeometryChange()
+            item.update()
             continue
 
         # Restore visibility and opacity (common to all)

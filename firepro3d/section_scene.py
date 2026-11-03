@@ -422,7 +422,7 @@ class ElevGridlineItem(QGraphicsLineItem):
         return super().itemChange(change, value)
 
     def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
-                         color_src=None, fill_src=None, cap_mm=None) -> dict:
+                         color_src=None) -> dict:
         """Plot the LINE like the plan gridline for one sheet-viewport render
         (AC3, parity with ``paper_display._apply_gridline``): the "Grid Line"
         row's weight and the paper-mm dash-dot; *color_src* replaces the
@@ -430,8 +430,7 @@ class ElevGridlineItem(QGraphicsLineItem):
         ``_paper_render`` (the bubbles' rings drop). The bubbles are
         annotation blocks: the paper walk gives each visible one
         ``_apply_block`` (SB4c D4), and the trim then follows their printed
-        outline. *fill_src* / *cap_mm* are accepted and ignored (the retired
-        bespoke bubble's; the SB4c paper task drops them from the call)."""
+        outline."""
         S = max(paper_scale, 1e-9)
         saved = {"grid_src": self._grid_src}
         self.prepareGeometryChange()
@@ -638,15 +637,14 @@ class ElevDatumItem(QGraphicsLineItem):
         return super().itemChange(change, value)
 
     def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
-                         color_src=None, fill_src=None, cap_mm=None) -> dict:
+                         color_src=None) -> dict:
         """Plot the LINE through the "Level Datum" paper row for one sheet-
         viewport render: its weight and the gridline's paper-mm dash-dot
         (``drawForeground``); *color_src* replaces the stored colour string
         (B&W / Custom), ``None`` keeps it. Sets ``_paper_render`` (the head's
         ring drops), as ``ElevGridlineItem.enter_paper_pass`` does. The head is
         an annotation block and takes ``paper_display._apply_block`` in the
-        walk (SB4c D4). *fill_src* / *cap_mm* are accepted and ignored until
-        the paper task stops passing them (same interim contract as the gridline)."""
+        walk (SB4c D4)."""
         S = max(paper_scale, 1e-9)
         saved = {"color_src": self._color_src}
         self._paper_render = True

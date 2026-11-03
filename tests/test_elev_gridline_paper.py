@@ -48,7 +48,7 @@ def _bubble_dia(pdf):
     dias = [d["rect"][2] - d["rect"][0] for d in drawings(pdf) if "s" in d["type"]
             and abs((d["rect"][0] + d["rect"][2]) / 2.0 - X_MM) < 0.5
             and abs((d["rect"][2] - d["rect"][0]) - (d["rect"][3] - d["rect"][1])) < 0.2
-            and d["rect"][2] - d["rect"][0] > 1.0]
+            and 1.0 < d["rect"][2] - d["rect"][0] < 20.0]
     assert dias, "no bubble stroke"
     return max(dias)
 
@@ -64,7 +64,7 @@ def _same_dashes(a, b):
 
 
 @pytest.mark.parametrize("scale", [0.01, 0.02])            # 1:100, 1:50
-def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, scale):
+def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, real_system_library, scale):
     save_paper_color_mode(PaperColorMode.BW)
     ms, c = _plan_scene()
     plan_pdf = export_scene(tmp_path, ms, scale, c, f"plan_{scale}.pdf")
@@ -77,6 +77,7 @@ def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, s
     assert _same_dashes(el, pl), (_dash_mm(el), _dash_mm(pl))
     assert tuple(el["color"]) == tuple(pl["color"]) == (0.0, 0.0, 0.0)
     assert _bubble_dia(elev_pdf) == pytest.approx(_bubble_dia(plan_pdf), abs=0.05)
+    assert _bubble_dia(elev_pdf) == pytest.approx(10.0, abs=0.1)
 
 
 def test_hidden_grid_line_row_hides_elevation_gridline(qapp, tmp_path, section_scene_for):
@@ -123,7 +124,6 @@ def test_elevation_datum_plots_through_level_datum_row(qapp, tmp_path, section_s
     assert _same_dashes(d, _vertical_line(pdf)), (_dash_mm(d),)  # same paper-mm dash-dot
 
 
-@pytest.mark.xfail(strict=True, reason="SB4c half B paper task: elevation bubbles take the row colour through _apply_block")
 def test_custom_grid_line_colour_reaches_elevation_gridline(qapp, tmp_path, section_scene_for,
                                                             real_system_library):   # SB4b: the plan bubble is the shipped GridlineBubble block
     """Custom mode: the row colour (not the paper-surface token default)

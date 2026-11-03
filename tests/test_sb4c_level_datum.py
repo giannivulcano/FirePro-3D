@@ -296,3 +296,94 @@ def test_ac3_shipped_leveldatum_draws_the_head_through_the_system_tier(
     assert dt.head.paints()
     k = ms.scale_manager.drawing_scale
     assert dt.line_start_h() == pytest.approx(dt._bx + 5.0 * k, abs=0.02 * k)   # seed r = 5 mm
+
+
+# -- T10: paper ------------------------------------------------------------------------
+
+def _circles_at(pdf, cx, cy, tol=0.5):
+    """Diameters (mm) of the stroked near-square drawings centred on paper
+    (cx, cy), bounded below the 80 mm viewport frame."""
+    from tests._section_paper_helpers import drawings
+    out = []
+    for d in drawings(pdf):
+        x0, y0, x1, y1 = d["rect"]
+        if ("s" in d["type"] and abs((x0 + x1) / 2 - cx) < tol and abs((y0 + y1) / 2 - cy) < tol
+                and abs((x1 - x0) - (y1 - y0)) < 0.2 and 1.0 < x1 - x0 < 40.0):
+            out.append(x1 - x0)
+    return out
+
+
+@pytest.mark.parametrize("scale", [0.02, 0.005])     # 1:50, 1:200; canvas k = 100 would print 20 / 5 mm
+def test_ac7_datum_head_prints_at_its_authored_mm(qapp, tmp_path, section_scene_for, scale):
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests._section_paper_helpers import export_scene, to_paper
+    save_paper_color_mode(PaperColorMode.BW)
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    centre = QPointF(dt._bx, 0.0)
+    pdf = export_scene(tmp_path, sec, scale, centre, f"head_{int(1 / scale)}.pdf")
+    dias = _circles_at(pdf, *to_paper(centre, centre, scale))
+    assert dias, "no head circle on paper"
+    assert max(dias) == pytest.approx(2 * HEAD_R, abs=0.1)
+    # restored after the pass
+    assert dt.head._paper_scale is None and dt.head._paper_pen_width is None
+    assert not dt._paper_render and dt._paper_line_w_mm == 0.0 and dt.head.opacity() == 1.0
+
+
+@pytest.mark.parametrize("scale", [0.02, 0.005])
+def test_ac7_elevation_bubble_prints_at_the_plan_blocks_authored_mm(
+        qapp, tmp_path, section_scene_for, scale):
+    from firepro3d.gridline import GridlineItem
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from firepro3d.section_scene import ElevGridlineItem
+    from tests._section_paper_helpers import export_scene, to_paper
+    from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def
+    save_paper_color_mode(PaperColorMode.BW)
+    ms, sec = section_scene_for("north")
+    _bubble_def(ms)                                           # 4.75 mm circle, the plan Gridline default
+    gl = GridlineItem(QPointF(2500.0, -3000.0), QPointF(2500.0, 3000.0), label="1")
+    ms._gridlines.append(gl)
+    ms.addItem(gl)
+    sec._gridline_z_overrides["1"] = {"v_top": -1500.0, "v_bot": 500.0}
+    sec.rebuild()
+    (eg,) = [i for i in sec.items() if isinstance(i, ElevGridlineItem)]
+    top = eg.bubble1                                          # plan Bubble 1 -> elevation top (D2)
+    assert top.isVisible()
+    centre = top.scenePos()
+    pdf = export_scene(tmp_path, sec, scale, centre, f"elev_bubble_{int(1 / scale)}.pdf")
+    dias = _circles_at(pdf, *to_paper(centre, centre, scale))
+    assert dias, "no elevation bubble on paper"
+    assert max(dias) == pytest.approx(2 * CIRCLE_R, abs=0.1)
+    assert top._paper_scale is None and not eg._paper_render
+
+
+def test_ac4_paper_datum_line_starts_at_the_printed_outline(qapp, tmp_path, section_scene_for):
+    """1:50: the printed trim is SQ_TRIM = 8 mm (paper k = 1 / S = 50) on the
+    ray toward the line's far end; the canvas k (100) would leave 16 mm, the
+    reversed ray 4 mm."""
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests._section_paper_helpers import drawings, export_scene, to_paper
+    save_paper_color_mode(PaperColorMode.BW)
+    ms, sec, dt, _d = _datum_scene(section_scene_for, "square")
+    scale = 0.02
+    centre = QPointF(dt._bx, 0.0)
+    pdf = export_scene(tmp_path, sec, scale, centre, "trim.pdf")
+    cx, y = to_paper(centre, centre, scale)
+    hits = [d for d in drawings(pdf)
+            if abs(d["rect"][1] - y) < 0.3 and abs(d["rect"][3] - y) < 0.3
+            and d["rect"][2] - d["rect"][0] > 10.0]
+    assert hits, "no datum line"
+    assert min(d["rect"][0] for d in hits) == pytest.approx(cx + SQ_TRIM, abs=0.3)
+
+
+def test_ac5_datum_selection_ring_never_plots(qapp, tmp_path, section_scene_for):
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests._section_paper_helpers import drawings, export_scene
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    dt.setSelected(True)
+    ring = dt.line_color().lighter(150)
+    want = tuple(round(c, 2) for c in (ring.redF(), ring.greenF(), ring.blueF()))
+    pdf = export_scene(tmp_path, sec, 0.01, QPointF(dt._bx, 0.0), "ring.pdf")
+    cols = {tuple(round(c, 2) for c in (d["color"] or ())) for d in drawings(pdf)}
+    assert dt.isSelected()                                    # still selected: the pass hid nothing
+    assert want not in cols
