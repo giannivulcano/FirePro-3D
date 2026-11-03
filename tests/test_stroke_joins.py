@@ -77,3 +77,47 @@ def test_p4_flat_cap_line_paints_exactly_between_its_endpoints(qapp):
     p.drawLine(QPointF(50, 50), QPointF(250, 50)); p.end()
     dark = [x for x in range(300) if img.pixelColor(x, 50).red() < 128]
     assert (min(dark), max(dark)) == (50, 249)
+
+
+# ---------------------------------------------------------------- B. pens (D1)
+from firepro3d import constants as C
+from firepro3d.stroke_style import stroke_pen
+
+
+def test_stroke_pen_is_flat_miter_qt_limit_2(qapp):
+    pen = stroke_pen("#ff00ff", 6.0)
+    assert pen.capStyle() == Qt.PenCapStyle.FlatCap
+    assert pen.joinStyle() == Qt.PenJoinStyle.MiterJoin
+    assert pen.miterLimit() == pytest.approx(C.STROKE_MITER_LIMIT / 2.0)
+    assert pen.isCosmetic() and pen.widthF() == 6.0
+    assert stroke_pen("#ff00ff", 0.5, cosmetic=False).isCosmetic() is False
+
+
+def _render(items, size=(300, 200), weight_px=20.0, monkeypatch=None):
+    """Render *items* in a Model_Space onto a QImage, identity view transform,
+    canvas pens patched to *weight_px* (exaggerated so geometry is legible)."""
+    import firepro3d.geometry_2d as g2
+    if monkeypatch is not None:
+        monkeypatch.setattr(g2, "canvas_px", lambda w: weight_px)
+    sc = Model_Space(); sc.set_mode("select")
+    for it in items:
+        it.style["colour"] = "#000000"
+        sc.addItem(it); sc._draw_lines.append(it)
+    img = QImage(*size, QImage.Format.Format_ARGB32); img.fill(QColor("white"))
+    p = QPainter(img); p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    from PyQt6.QtCore import QRectF
+    sc.render(p, QRectF(0, 0, *size), QRectF(0, 0, *size))
+    p.end(); sc.cleanup()
+    return img
+
+
+def _dark(img, thr=128):
+    return {(x, y) for x in range(img.width()) for y in range(img.height())
+            if img.pixelColor(x, y).red() < thr}
+
+
+def test_g1_lone_line_dark_extent_equals_endpoints(qapp, monkeypatch):
+    """AC1: a free end stops flat -- no dark pixel before x=50 or at/after x=250."""
+    img = _render([LineItem(QPointF(50, 100), QPointF(250, 100))], monkeypatch=monkeypatch)
+    xs = sorted({x for x, _ in _dark(img)})
+    assert (xs[0], xs[-1]) == (50, 249)

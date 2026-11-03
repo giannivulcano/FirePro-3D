@@ -32,7 +32,8 @@ from . import end_render as _er
 from .linetype_render import badge_pad_px, printed_factor
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm, shows_selection
 from .scale_manager import ScaleManager
-from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE, canvas_px,
+from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE,
+                           apply_stroke_joins, canvas_px, stroke_pen,
                            canvas_weight_name, has_ends,
                            is_linetype_ref, linetype_block, normalize_end,
                            open_stroke, resolve_ends, resolve_stroke,
@@ -217,9 +218,7 @@ class Geometry2DMixin:
         hexcol = stroke_style._hex(color)
         if self._STYLED:
             self.style = stroke_style.default_style(hexcol)
-        pen = QPen(resolve_colour(hexcol, item=self))
-        pen.setWidthF(lineweight)
-        pen.setCosmetic(True)
+        pen = stroke_pen(resolve_colour(hexcol, item=self), lineweight)
         self.setPen(pen)
 
     def boundingRect(self) -> QRectF:
@@ -306,6 +305,7 @@ class Geometry2DMixin:
             pen.setStyle(Qt.PenStyle.SolidLine)     # back from a No-stroke paper pass
         pen.setWidthF(canvas_px(rs.weight))
         pen.setCosmetic(True)
+        apply_stroke_joins(pen)
         self.setPen(pen)
         return rs
 
@@ -351,11 +351,21 @@ class Geometry2DMixin:
         dc = getattr(self, "_display_color", None)
         st = self.style
         colour = dc or (st["colour"] if st is not None else self.pen().color().name())
-        pen = QPen(resolve_colour(colour, item=self))
-        pen.setWidthF(1.0)
-        pen.setCosmetic(True)
+        pen = stroke_pen(resolve_colour(colour, item=self), 1.0)
         pen.setStyle(Qt.PenStyle.DashLine)
         return pen
+
+    def _highlight_pen(self) -> QPen:
+        """The selection halo pen: the stroke lightened and 1.5 px wider,
+        cosmetic, with the stroke's cap / join / miter limit copied so the
+        halo wraps the stroke's own corners (design D1)."""
+        base = self.pen()
+        hl = QPen(base.color().lighter(150), base.widthF() + 1.5)
+        hl.setCosmetic(True)
+        hl.setCapStyle(base.capStyle())
+        hl.setJoinStyle(base.joinStyle())
+        hl.setMiterLimit(base.miterLimit())
+        return hl
 
     def _draws_fill(self) -> bool:
         """Fill paints -- and the interior is a pick area (R14) -- when any
@@ -471,8 +481,7 @@ class Geometry2DMixin:
             return True
         self._paint_base_stroke(painter, option, widget, pen)
         if shows_selection(self) and not _manip_wraps(self):
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
+            highlight = self._highlight_pen()
             if self.reference:
                 highlight.setStyle(Qt.PenStyle.DashLine)   # RG4: stays dashed
             painter.setPen(highlight)
@@ -612,8 +621,7 @@ class Geometry2DMixin:
         dashed = self._paint_linetyped(painter, rs, pen, trims=trims, end_ids=miss)
         hl = None
         if shows_selection(self) and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
+            hl = self._highlight_pen()
         untrimmed = trims == _er.NO_TRIMS
         if not dashed:
             if untrimmed:
@@ -754,8 +762,7 @@ class Geometry2DMixin:
                             trims=trims):
             return False
         if shows_selection(self) and not _manip_wraps(self):
-            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            hl.setCosmetic(True)
+            hl = self._highlight_pen()
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
                          fixed=fixed, trims=trims)
         return True

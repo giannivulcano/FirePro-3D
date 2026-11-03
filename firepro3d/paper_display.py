@@ -891,7 +891,7 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     """
     from PyQt6.QtGui import QColor
     from .colour_tokens import is_token, resolve_colour   # circular at import time
-    from .stroke_style import is_named_weight             # circular at import time
+    from .stroke_style import apply_stroke_joins, is_named_weight   # circular at import time
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         if color_mode != PaperColorMode.FULL_COLOR:
@@ -914,6 +914,7 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
               if rs is not None and is_named_weight(rs.weight) else lw_mm)
         pen.setWidthF(mm / max(paper_scale, 1e-9))
         pen.setCosmetic(False)
+        apply_stroke_joins(pen)
         item.setPen(pen)
     item.setOpacity(cat["opacity"] / 100.0)
     item.update()

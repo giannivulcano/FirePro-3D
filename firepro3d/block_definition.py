@@ -26,6 +26,7 @@ from .geometry_2d import (
 from .filled_region import FilledRegionItem
 from .end_render import SCREEN_FIXED, SCREEN_SCALE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
+from .stroke_style import apply_stroke_joins
 from .text_item import TextItem
 
 # Primitive-type key -> reconstruction class (same keys as the legacy factory)
@@ -739,7 +740,7 @@ class BlockDefinition:
                 from .stroke_style import open_stroke
                 if open_stroke(item):          # LT5 Q2: free ends only
                     ends = (dict(st["start"]), dict(st["finish"]))
-            ops.append(RenderOp(STROKE, path, pen=QPen(item.pen()),
+            ops.append(RenderOp(STROKE, path, pen=apply_stroke_joins(QPen(item.pen())),
                                 weight=st["weight"] if st else None,
                                 colour=st["colour"] if st else None,
                                 pieces=pieces, linetype=lt,
@@ -813,7 +814,7 @@ class BlockDefinition:
             path.translate(-ox, -oy)                       # origin-relative
             if layer not in by_layer:
                 by_layer[layer] = QPainterPath()
-                pen = QPen(item.pen())
+                pen = apply_stroke_joins(QPen(item.pen()))
                 pen.setCosmetic(True)
                 pens[layer] = pen
             by_layer[layer].addPath(path)
