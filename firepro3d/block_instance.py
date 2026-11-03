@@ -34,12 +34,12 @@ from .block_definition import BlockDefinition
 from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver
-from .constants import (LINETYPE_WINDOW_MIN_PERIODS, MODEL_WEIGHT_PX_MAX,
-                        STROKE_MITER_LIMIT, TOKEN_AUTO)
+from .constants import (CHAIN_WELD_MM, LINETYPE_WINDOW_MIN_PERIODS, MODEL_WEIGHT_PX_MAX,
+                        TOKEN_AUTO)
 from .geometry_2d import constraint_tint
 from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
-                            wedge_for_pair)
+                            joint_pad, wedge_for_pair)
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
                         PoseXf as _PoseXf,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
@@ -557,10 +557,12 @@ class BlockInstance(QGraphicsObject):
         r = self._frame_rect()
         extra = scene_hit_width(self, 10.0, 6.0) / 2.0 - 2.0
         if self._joint_map() is not None:
-            # A joined op end's miter tip reaches STROKE_MITER_LIMIT / 2 pen
-            # widths past the corner (D7): the widest Model weight bounds it.
-            reach = MODEL_WEIGHT_PX_MAX * STROKE_MITER_LIMIT / 2.0
-            extra = max(extra, scene_hit_width(self, reach, reach) - 2.0)
+            # A joined op end's wedge reaches ``joint_pad`` past the corner
+            # (D7): the widest Model weight bounds it; the wedge sits on the
+            # midpoint of two ends up to the weld distance apart.
+            reach = joint_pad(MODEL_WEIGHT_PX_MAX)
+            extra = max(extra, scene_hit_width(self, reach, reach)
+                        + CHAIN_WELD_MM / 2.0 - 2.0)
         if extra > 0.0:
             r = r.adjusted(-extra, -extra, extra, extra)
         return r

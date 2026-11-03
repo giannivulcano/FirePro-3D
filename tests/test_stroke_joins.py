@@ -435,15 +435,51 @@ def test_geometry_change_repaints_former_and_new_partners(qapp, monkeypatch):
         sc.cleanup()
 
 
-def test_open_item_bounds_pad_covers_the_miter_reach(qapp, monkeypatch):
+def _pair_in(sc, a, b):
+    for it in (a, b):
+        sc.addItem(it); sc._draw_lines.append(it); it._sync_stroke_pen()
+
+
+def test_joined_item_bounds_pad_covers_the_miter_reach(qapp, monkeypatch):
+    """m2: the pad is half_w * sqrt(1 + limit^2) (the tip AND the clip points
+    sit there), plus half the weld distance -- 20 px: 41.23 + 0.5."""
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space()
+    try:
+        a = LineItem(QPointF(0, 0), QPointF(100, 0))
+        b = LineItem(QPointF(100, 0), QPointF(100, 100))
+        _pair_in(sc, a, b)
+        r = a.boundingRect()
+        a._joint_pad = False
+        plain = a.boundingRect()                 # the same item with the joint pad off
+        a._joint_pad = True
+        grow = 0.5 * 20.0 * math.sqrt(17.0) + 0.5 - (20.0 / 2.0 + 0.75)   # reach + weld - the plain pad
+        assert plain.left() - r.left() >= grow - 1e-6, (r, plain)
+        assert r.right() - plain.right() >= grow - 1e-6, (r, plain)
+    finally:
+        sc.cleanup()
+
+
+def test_lone_line_bounds_are_qts_own_no_joint_pad(qapp, monkeypatch):
+    """m3: with no partner the item pads w / 2 + the cosmetic 0.75 only, so a
+    window-select needs no wider margin than before the joints."""
     import firepro3d.geometry_2d as g2
     monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
     sc = Model_Space()
     try:
         ln = LineItem(QPointF(0, 0), QPointF(100, 0))
         sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
-        r = ln.boundingRect()
-        assert r.left() <= -40.0 and r.right() >= 140.0     # 2 w = 40 px at identity zoom
+        ln._joint_pad = False
+        plain = ln.sceneBoundingRect()          # the bounds with the pad switched off
+        ln._joint_pad = True
+        assert ln.sceneBoundingRect() == plain
+        # a partner arriving pads it; moving it away drops the pad again
+        b = LineItem(QPointF(100, 0), QPointF(100, 100))
+        sc.addItem(b); sc._draw_lines.append(b)
+        assert ln.sceneBoundingRect().right() > plain.right() + 20.0
+        b.apply_grip(0, QPointF(100, 100)); b.apply_grip(2, QPointF(100, 160))
+        assert ln.sceneBoundingRect() == plain
     finally:
         sc.cleanup()
 
@@ -456,7 +492,8 @@ def test_selection_frame_ignores_the_joint_pad(qapp, monkeypatch):
     sc = Model_Space()
     try:
         ln = LineItem(QPointF(0, 0), QPointF(100, 0))
-        sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
+        b = LineItem(QPointF(100, 0), QPointF(100, 100))
+        _pair_in(sc, ln, b)
         frame = ln.manip_bounds()
         assert frame.left() > -20.0 and frame.right() < 120.0      # w / 2 + 0.75 = 10.75, not 2 w
         assert ln.boundingRect().left() <= -40.0                    # paint bounds still padded
@@ -945,3 +982,312 @@ def test_g6_dashed_block_ends_follow_the_ink_like_scene_lines(qapp, monkeypatch)
         img = _render([], monkeypatch=monkeypatch, scene=sc)       # cleans sc
         assert (_core(cx, 150) <= _dark(img)) is want_sharp
         assert want_sharp or not _core(cx, 150) & _dark(img)
+
+
+# ---------------------------------------------------------------- I. fix round (FR1): cache, halo, index, pens
+_RED_LIGHT = "#800000"          # lighter(150) -> (192, 0, 0): the halo is told apart from the stroke
+
+
+def _corner_scene(monkeypatch, colour="#000000"):
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space(); sc.set_mode("select")
+    a, b = _corner_pair()
+    for it in (a, b):
+        it.style["colour"] = colour
+        sc.addItem(it); sc._draw_lines.append(it)
+    return sc, a, b
+
+
+def _core_inked(img, xc=150, yc=150):
+    return {q for q in _core(xc, yc) if img.pixelColor(*q) != QColor("white")}
+
+
+def test_cached_wedge_follows_style_edits_after_a_warm_paint(qapp, monkeypatch):
+    """The wedge cache is revalidated at paint (ratified D4): after the join
+    has painted (cache warm), a partner weight / colour / visibility edit
+    flattens the corner and the revert restores it -- no choke point needed."""
+    import firepro3d.geometry_2d as g2
+    sc, a, b = _corner_scene(monkeypatch)
+    try:
+        assert _core_inked(_snap(sc), 150, 150) == _core(150, 150)    # warm, joined
+        monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0 if w == "Heavy" else 8.0)
+        a.style["weight"] = "Heavy"
+        b.style["weight"] = "Thin"
+        assert not _core_inked(_snap(sc))                             # mixed weights: flat
+        b.style["weight"] = "Heavy"
+        assert _core_inked(_snap(sc)) == _core(150, 150)
+        b.style["colour"] = "#ff0000"
+        assert not _core_inked(_snap(sc))                             # mixed colours: flat
+        b.style["colour"] = "#000000"
+        assert _core_inked(_snap(sc)) == _core(150, 150)
+        b.setVisible(False)
+        assert not _core_inked(_snap(sc))
+    finally:
+        sc.cleanup()
+
+
+def test_one_owner_per_pair_fills_the_wedge(qapp, monkeypatch):
+    """The pair is filled once per paint (perf: not twice): exactly one of the
+    two items holds the wedge, the one whose end is the FINISH. The owner's
+    bounds pad covers the wedge region, so a repaint of that region reaches it."""
+    sc, a, b = _corner_scene(monkeypatch)
+    try:
+        _snap(sc)
+        holders = [it for it in (a, b) if it._jcache[True][1]]
+        assert holders == [a]                  # a's finish meets b's start
+        assert a.sceneBoundingRect().contains(QPointF(159, 159))
+    finally:
+        sc.cleanup()
+
+
+def _no_manip(monkeypatch):
+    """The selection manipulator boxes a selected item and suppresses its own
+    halo; the halo path is under test, so run the pre-manipulator boundary."""
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "_manip_wraps", lambda item: False)
+
+
+def _halo_pixel(img):
+    """Red channel at an exterior-corner pixel inside the wedge (stroke red
+    128, halo red 192)."""
+    return img.pixelColor(157, 157).red()
+
+
+def test_halo_wedge_on_the_continuous_route(qapp, monkeypatch):
+    _no_manip(monkeypatch)
+    sc, a, b = _corner_scene(monkeypatch, _RED_LIGHT)
+    try:
+        b.setSelected(True)                                  # the NON-owner is selected
+        assert _halo_pixel(_snap(sc)) > 160
+    finally:
+        sc.cleanup()
+
+
+def test_halo_wedge_on_the_dashed_route(qapp, monkeypatch):
+    _no_manip(monkeypatch)
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    cx = _pick_corner(True)
+    sc, items, ia, ib = _dashed_corner(cx)
+    try:
+        sc.set_mode("select")
+        for it in items:
+            it.style["colour"] = _RED_LIGHT
+            sc.addItem(it); sc._draw_lines.append(it)
+        items[1].setSelected(True)
+        img = _snap(sc)
+        assert img.pixelColor(cx + 7, 157).red() > 160
+    finally:
+        sc.cleanup()
+
+
+def test_halo_wedge_on_the_ends_route(qapp, monkeypatch):
+    """A line whose FINISH carries an arrow takes the LT5 ends route; its
+    free start joins the partner. The base wedge must not cover the halo and
+    the halo wedge must be drawn."""
+    _no_manip(monkeypatch)
+    from tests.lt5_support import end_id, set_ends
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space(); sc.set_mode("select")
+    try:
+        sc.scale_manager.drawing_scale = 1.0
+        a = LineItem(QPointF(150, 150), QPointF(150, 50))
+        b = LineItem(QPointF(150, 150), QPointF(50, 150))           # start meets a's start
+        set_ends(b, finish=end_id(sc))
+        for it in (a, b):                                           # b paints last, so a partner's
+            it.style["colour"] = _RED_LIGHT                         # base wedge cannot cover its halo
+            sc.addItem(it); sc._draw_lines.append(it)
+        b.setSelected(True)
+        assert _halo_pixel(_snap(sc)) > 160
+    finally:
+        sc.cleanup()
+
+
+def test_reference_flip_reregisters_and_a_deleted_reference_leaves_no_stale_ends(qapp, monkeypatch):
+    sc, a, b = _corner_scene(monkeypatch)
+    try:
+        ix = sc.stroke_joints
+        assert len(ix) == 4
+        b._set_reference_flag("Reference", True)
+        assert len(ix) == 2 and not ix.ends_of(b)                   # unregistered on the flip
+        b._set_reference_flag("Reference", False)
+        assert len(ix) == 4                                         # (a) un-reference re-registers
+        assert _core_inked(_snap(sc)) == _core(150, 150)
+        b._set_reference_flag("Reference", True)                    # (b) flip, then delete
+        sc.removeItem(b)
+        assert len(ix) == 2                                         # no stale ends of b
+        d = LineItem(QPointF(150, 150), QPointF(150, 250))
+        d.style["colour"] = "#000000"
+        sc.addItem(d); sc._draw_lines.append(d)
+        assert ix.partner(ix.ends_of(a)[1]) is not None             # a pairs with the new line
+    finally:
+        sc.cleanup()
+
+
+def test_open_polyline_closing_on_its_own_start_has_no_joint_partner(qapp):
+    """m5: [P, Q, R, P] left open is ONE stroke with two free ends at P; they
+    never pair with each other (AC3 'separate open strokes'). The drawn corner
+    is not asserted by pixels: Qt's own stroker closes any path whose first
+    and last points coincide, so the item mitres at P with or without a wedge."""
+    sc = Model_Space()
+    try:
+        poly = PolylineItem(QPointF(50, 150))
+        poly.append_point(QPointF(250, 150))
+        poly.append_point(QPointF(150, 150 - 100 * math.sqrt(3)))
+        poly.append_point(QPointF(50, 150))
+        sc.addItem(poly); sc._draw_lines.append(poly)
+        ix = sc.stroke_joints
+        assert len(ix.ends_of(poly)) == 2                  # premise: open, registered
+        assert all(ix.partner(e) is None for e in ix.ends_of(poly))
+        assert not poly._has_joint_partner()               # ... and no pad either
+    finally:
+        sc.cleanup()
+
+
+def test_index_rejects_a_same_owner_pair():
+    ix = JointIndex(1.0)
+    ix.register("P", [_end(0, 0, 1, 0, "P", "start"), _end(0.2, 0, 0, 1, "P", "finish")])
+    for e in ix.ends_of("P"):
+        assert ix.partner(e) is None
+
+
+# -- m4: the crisp junction follows the pen's join style -----------------------------------
+def _split_vs_plain(pen, size=(200, 160)):
+    """Dark-pixel sets of a horizontal -> 120 deg turn (interior 60 deg) path stroked through the
+    crisp split and plainly (the oracle: Qt's own join of the same pen)."""
+    path = QPainterPath(QPointF(30, 60)); path.lineTo(QPointF(130, 60)); path.lineTo(QPointF(80, 60 + 50 * math.sqrt(3)))   # 120 deg turn
+    out = []
+    for split in (True, False):
+        img = QImage(*size, QImage.Format.Format_ARGB32); img.fill(QColor("white"))
+        p = QPainter(img); p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        sp = cs.split_axis(path, p.worldTransform()) if split else None
+        cs.stroke(p, path, pen, sp); p.end()
+        out.append(_dark(img))
+    return out
+
+
+def _close(got, want, band=2):
+    near = lambda q, S: any((q[0] + dx, q[1] + dy) in S
+                            for dx in range(-band, band + 1) for dy in range(-band, band + 1))
+    return {q for q in got if not near(q, want)}, {q for q in want if not near(q, got)}
+
+
+def test_crisp_junction_of_a_default_bevel_pen_is_a_bevel(qapp):
+    pen = QPen(QColor("black"), 20.0); pen.setCosmetic(True)       # Qt default join: Bevel
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    assert pen.joinStyle() == Qt.PenJoinStyle.BevelJoin
+    got, want = _split_vs_plain(pen)
+    outside, missing = _close(got, want)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_crisp_junction_of_a_model_pen_stays_the_stroke_miter(qapp):
+    pen = stroke_pen("#000000", 20.0)                              # Miter, Qt limit 2
+    got, want = _split_vs_plain(pen)
+    outside, missing = _close(got, want)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_crisp_junction_of_a_round_pen_is_a_dot(qapp):
+    pen = QPen(QColor("black"), 20.0); pen.setCosmetic(True)
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    got, want = _split_vs_plain(pen)
+    outside, missing = _close(got, want)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+# -- m6: AC sweep ---------------------------------------------------------------------------
+def test_g2_corner_in_a_block_editor_scene(qapp, monkeypatch):
+    """AC8 Block Editor: loose geometry in a scene_role="block_editor" scene
+    joins like the plan scene's."""
+    a, b = _corner_pair()
+    sc = Model_Space(scene_role="block_editor")
+    img = _render([a, b], monkeypatch=monkeypatch, scene=sc)
+    assert _core(150, 150) <= _dark(img)
+
+
+def test_polyline_end_joins_an_arc_end(qapp, monkeypatch):
+    """AC3 non-line ends: a PolylineItem end meets an ArcItem end at a right
+    angle; the corner is the mitered corner of the combined path."""
+    from firepro3d.geometry_2d import ArcItem
+    from firepro3d.stroke_joints import ends_of_pieces
+    arc = ArcItem(QPointF(150, 150), 60.0, 0.0, 90.0)
+    fin = [e for e in ends_of_pieces(arc.stroke_pieces(), arc) if e.which == "finish"][0]
+    e = QPointF(fin.x, fin.y)
+    ax, ay = fin.away                                              # into the arc
+    d = (-ay, ax)                                                  # a right turn off the tangent
+    far = QPointF(e.x() + d[0] * 70.0, e.y() + d[1] * 70.0)
+    poly = PolylineItem(e)
+    poly.append_point(far)
+    path = QPainterPath(arc.path())
+    path.lineTo(far)
+    img = _render([arc, poly], size=(300, 300), monkeypatch=monkeypatch)
+    outside, missing = _compare(img, path, size=(300, 300))
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_g6_mirrored_rotated_block_triangle_is_mitered(qapp, monkeypatch):
+    """AC8: the mirrored pose (local x -> -x, innermost; det < 0) paints its
+    joints: an ASYMMETRIC triangle, mirrored then turned 30 deg."""
+    _patch_px(monkeypatch)
+    sc = Model_Space()
+    loc = [QPointF(-100, 60), QPointF(100, 60), QPointF(60, -100)]
+    d = _block_def(_prims([LineItem(loc[0], loc[1]), LineItem(loc[1], loc[2]),
+                           LineItem(loc[2], loc[0])]))
+    sc.register_block_definition(d)
+    sc.place_block_instance(d.id, (_BP.x(), _BP.y()), rotation=30.0,
+                            level=sc.active_level, mirrored=True)
+    t = QTransform(); t.translate(_BP.x(), _BP.y()); t.rotate(-30.0)
+    pts = [t.map(QPointF(-p.x(), p.y())) for p in loc]
+    oracle = QPainterPath(pts[0]); oracle.lineTo(pts[1]); oracle.lineTo(pts[2]); oracle.closeSubpath()
+    img = _render([], size=_BSIZE, monkeypatch=monkeypatch, scene=sc)
+    outside, missing = _compare(img, oracle, size=_BSIZE)
+    assert not outside and not missing, (sorted(outside)[:5], sorted(missing)[:5])
+
+
+def test_g6_loose_corner_on_a_sheet_pdf_is_mitered(qapp, tmp_path, monkeypatch):
+    """AC8: two LOOSE LineItems (no block) through the real paper_export
+    path: the paper pass fills the wedge in the item frame (non-cosmetic
+    pen). PyMuPDF rasterises the corner at high zoom: the exterior square
+    of the right-angle corner is inked."""
+    import fitz
+    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
+    save_paper_color_mode(PaperColorMode.BW)
+    scale = 0.02
+    ms = Model_Space()
+    for it in (LineItem(QPointF(-1000, 500), QPointF(0, 500)),
+               LineItem(QPointF(0, 500), QPointF(0, -500))):
+        ms.addItem(it); ms._draw_lines.append(it)
+    pdf = _export(tmp_path, ms, scale, "corner.pdf")
+    pt_mm = 25.4 / 72.0
+    z = 24.0
+    cx, cy = _VP_X + _VP_W / 2.0, _VP_Y + _VP_W / 2.0
+    px, py = cx / pt_mm, (cy + 500.0 * scale) / pt_mm      # the corner, in pt
+    doc = fitz.open(str(pdf))
+    try:
+        page = doc[0]
+        widths = [dr["width"] for dr in page.get_drawings()
+                  if "s" in (dr.get("type") or "")
+                  and ((abs(dr["rect"].x1 - px) < 3 and dr["rect"].height > 5)
+                       or (abs(dr["rect"].y1 - py) < 3 and dr["rect"].width > 5))]
+        assert widths, "premise: the corner strokes are in the PDF"
+        half = max(widths) / 2.0
+        clip = fitz.Rect(px - 6, py - 6, px + 6, py + 6)
+        pix = page.get_pixmap(matrix=fitz.Matrix(z, z), clip=clip,
+                              colorspace=fitz.csGRAY, alpha=False)
+        n, w, s = pix.n, pix.width, pix.samples
+        # Locate the arms' outer edges from the raster itself (the pixmap origin
+        # is integer-snapped): the vertical arm alone inks row 0, the horizontal
+        # arm alone inks column 0. The exterior square is bounded by exactly
+        # those two edges (right edge of the vertical arm, bottom edge of the
+        # horizontal arm); a flat corner leaves it white.
+        dark = lambda i, j: s[(j * w + i) * n] < 128
+        xr = max(i for i in range(w) if dark(i, 0))
+        yb = max(j for j in range(pix.height) if dark(0, j))
+        for d in (3, 4):                                # inside the square, off its AA edge
+            assert dark(xr - d, yb - d), (d, xr, yb)
+    finally:
+        doc.close()

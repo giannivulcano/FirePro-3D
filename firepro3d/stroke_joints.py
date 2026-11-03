@@ -95,24 +95,60 @@ def map_dir(xf, d) -> tuple:
                 d[0] * xf.m12() + d[1] * xf.m22())
 
 
+def joint_pad(width: float) -> float:
+    """Reach of a joint wedge past the corner for a stroke *width* wide: the
+    miter tip at the limit and the clip points past it both sit
+    ``half_w * sqrt(1 + limit^2)`` from the corner. The one derivation the
+    bounds pads (scene items and block instances) share."""
+    return 0.5 * width * math.sqrt(1.0 + STROKE_MITER_LIMIT * STROKE_MITER_LIMIT)
+
+
+def bevel_wedge(corner: QPointF, d_a, d_b, half_w: float) -> QPolygonF | None:
+    """The bevel triangle ``[corner, outer edge of A, outer edge of B]`` --
+    what Qt's BevelJoin fills at an in-item vertex. None when collinear."""
+    ax, ay = d_a
+    bx, by = d_b
+    if abs(ax * by - ay * bx) < _EPS or half_w <= 0.0:
+        return None
+    na = (-ay, ax) if (-ay * bx + ax * by) < 0.0 else (ay, -ax)
+    nb = (-by, bx) if (-by * ax + bx * ay) < 0.0 else (by, -bx)
+    cx, cy = corner.x(), corner.y()
+    return QPolygonF([corner,
+                      QPointF(cx + na[0] * half_w, cy + na[1] * half_w),
+                      QPointF(cx + nb[0] * half_w, cy + nb[1] * half_w)])
+
+
 def fill_wedges_device(painter, joints, pen) -> None:
     """D3 / D7 cosmetic case: each ``(point, d_in, d_out)`` mapped through
     ``painter.worldTransform()`` to device space and filled under an identity
-    transform with ``half_w = pen.widthF() / 2`` in the pen's colour. Leaves
-    the painter's transform / pen / brush as found."""
+    transform with ``half_w = pen.widthF() / 2`` in the pen's colour, in the
+    pen's own join style (m4): Bevel -> the bevel triangle, Round -> a dot,
+    Miter -> the miter at ``pen.miterLimit() * 2`` (the PDF ratio). Model
+    geometry pens are Miter limit 2 (``stroke_pen``), i.e. the stroke limit.
+    Leaves the painter's transform / pen / brush as found."""
     xf = painter.worldTransform()
     half_w = pen.widthF() / 2.0
+    js = pen.joinStyle()
     painter.save()
     try:
         painter.resetTransform()
         for pt, d_in, d_out in joints:
-            w = joint_wedge(xf.map(pt), map_dir(xf, (-d_in[0], -d_in[1])),
-                            map_dir(xf, d_out), half_w)
+            c = xf.map(pt)
+            da = map_dir(xf, (-d_in[0], -d_in[1]))
+            db = map_dir(xf, d_out)
+            if js == Qt.PenJoinStyle.RoundJoin:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(pen.color())
+                painter.drawEllipse(c, half_w, half_w)
+                continue
+            if js == Qt.PenJoinStyle.BevelJoin:
+                w = bevel_wedge(c, da, db, half_w)
+            else:
+                w = joint_wedge(c, da, db, half_w, limit=pen.miterLimit() * 2.0)
             if w is not None:
                 fill_wedge(painter, w, pen.color())
     finally:
         painter.restore()
-
 
 
 @dataclass(frozen=True, eq=False, slots=True)
@@ -215,7 +251,10 @@ class JointIndex:
         near = self.neighbours(end.point)
         if len(near) != 2 or end not in near:
             return None
-        return near[0] if near[1] is end else near[1]
+        other = near[0] if near[1] is end else near[1]
+        if other.owner is end.owner:
+            return None               # a coincident-open seam stays flat (m5)
+        return other
 
     def clear(self) -> None:
         self._cells.clear()
