@@ -13,6 +13,7 @@ serialised (the host owns ``show_label`` / ``label_offset``), invisible to HALO
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Collection
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -92,8 +93,10 @@ def resolve_annotation_block(scene, category: str, mapped: str, *, fallback: boo
 class BoundLabelItem(QGraphicsItem):
     """A host element's label drawn by the block mapped for its category.
 
-    ``host`` = the item it was built for (its parent unless ``child=False``: a
-    top-level label, SB4a D1); ``definition()`` = the scene's
+    ``host`` = the data source: also its graphics parent unless
+    ``child=False`` (a top-level label, SB4a D1) or an explicit *parent* is
+    given (SB4c D1: an elevation bubble is a child of its ``ElevGridlineItem``
+    and reads the plan gridline); ``definition()`` = the scene's
     ``annotation_block(category)``; the pose is the host's frame translated
     to the anchor (``setPos``) with the annotative factor k folded into the
     ops (SB1c D3: static variant at k, bound glyphs built at scale k), so
@@ -112,9 +115,9 @@ class BoundLabelItem(QGraphicsItem):
     scene teardown never re-resolve through the scene.
     """
 
-    def __init__(self, host, *, child: bool = True):
-        super().__init__(host if child else None)
-        self._host = host             # the data source (== parentItem() for a child)
+    def __init__(self, host, *, child: bool = True, parent=None):
+        super().__init__(parent if parent is not None else (host if child else None))
+        self._host = host             # the data source (== parentItem() unless *parent* / child=False)
         self._category = element_params.category_of(host) or ""
         self._rect = None             # cached local boundingRect (None = stale)
         # Paper hooks (paper_display._apply_block; None on the model canvas).
@@ -283,6 +286,103 @@ class BoundLabelItem(QGraphicsItem):
                 painter.drawLine(QPointF(-h, -h), QPointF(h, h))
             return
         paint_ops(painter, ops, _IDENTITY, self)
+
+
+class OutlinedLabel(BoundLabelItem):
+    """A ``BoundLabelItem`` whose host trims a line at the block outline and
+    rings it on screen (SB4c D1; lifted from SB4b ``GridlineBubble``, D5 / D7).
+
+    ``outline_path`` = the union of the block's closed static subpaths at the
+    current k; ``trim_distance`` = where a ray from the block origin leaves
+    it; ``paint`` strokes each pen of ``overlay_pens()`` round the outline
+    after the ops. The base has no overlays; a subclass returns its
+    screen-only rings (and none during a paper pass).
+    """
+
+    def __init__(self, host, *, child: bool = True, parent=None):
+        super().__init__(host, child=child, parent=parent)
+        self._outline_cache = None                 # (paper scale, QPainterPath)
+
+    # -- outline --------------------------------------------------------------
+    def outline_path(self) -> QPainterPath:
+        """Union of the closed subpaths of the block's STATIC ops at the
+        current k, local coords (text ops ignored: a label that sticks out of
+        the shape never moves the trim); the orphan placeholder box when the
+        block resolves nowhere; the bounds rect when nothing closes.
+
+        Cached until ``refresh()`` (every mapping / registry / scale change
+        reaches it through ``refresh_annotation_tags``) or a paper-scale
+        change, like the bounds rect: ``shape()`` / ``halo_trace_path`` run
+        inside Qt's index queries during scene teardown, which must never
+        re-resolve through a half-destroyed scene. Empty (uncached) off-scene."""
+        if self.scene() is None:
+            return QPainterPath()
+        key = self._paper_scale_v
+        if self._outline_cache is not None and self._outline_cache[0] == key:
+            return self._outline_cache[1]
+        st = self._state()
+        d = st[0]
+        k = self._k(None, d)
+        out = QPainterPath()
+        if d is None:
+            if self._orphan_visible(st):
+                h = PLACEHOLDER_MM / 2.0
+                out.addRect(QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM))
+        else:
+            for op in d.render_ops_variant(False, k):
+                if op.kind == "text":
+                    continue
+                for sub in op.path.toSubpathPolygons():
+                    if sub.isClosed() and len(sub) > 2:
+                        p = QPainterPath()
+                        p.addPolygon(sub)
+                        out = out.united(p)
+            if out.isEmpty():
+                r = self.boundingRect()
+                if not r.isEmpty():
+                    out.addRect(r)
+        self._outline_cache = (key, out)
+        return out
+
+    def trim_distance(self, ux: float, uy: float) -> float:
+        """Distance from the block origin along unit direction (ux, uy) to
+        where that ray leaves the outline (0 when the origin is outside it)."""
+        outline = self.outline_path()
+        if outline.isEmpty() or not outline.contains(QPointF(0.0, 0.0)):
+            return 0.0
+        r = outline.boundingRect()
+        far = math.hypot(r.width(), r.height()) + 1.0
+        lo, hi = 0.0, far
+        for _ in range(40):                        # bisection to ~1e-12 of the extent
+            mid = (lo + hi) / 2.0
+            if outline.contains(QPointF(ux * mid, uy * mid)):
+                lo = mid
+            else:
+                hi = mid
+        return hi
+
+    def refresh(self) -> None:
+        self._outline_cache = None
+        super().refresh()
+
+    # -- overlays -------------------------------------------------------------
+    def overlay_pens(self) -> list:
+        """Screen-only pens stroked round the outline after the ops, in draw
+        order. The base draws none."""
+        return []
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        pens = self.overlay_pens()
+        if not pens:
+            return
+        outline = self.outline_path()
+        if outline.isEmpty():
+            return
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for pen in pens:
+            painter.setPen(pen)
+            painter.drawPath(outline)
 
 
 class TagBlockHost:

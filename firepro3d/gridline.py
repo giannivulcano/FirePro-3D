@@ -5,7 +5,7 @@ Revit-style gridline system for FirePro 3D.
 
 Classes
 -------
-GridlineBubble — one end's annotation block (BoundLabelItem child, SB4b)
+GridlineBubble — one end's annotation block (OutlinedLabel; plan child SB4b, elevation child SB4c)
 GridlineItem   — finite gridline with two GridlineBubble children
 
 Placement: 2-click (start → end).
@@ -25,8 +25,8 @@ from .constants import (
     Z_GRIDLINE_BUBBLE, TEXT_METRIC_REF_PX,
     GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF
-from .bound_label import BoundLabelItem, TagBlockHost, PLACEHOLDER_MM
+from PyQt6.QtCore import Qt, QPointF
+from .bound_label import OutlinedLabel, TagBlockHost
 from .marks import duplicate_groups, letter_label
 from .displayable_item import display_overrides_from_dict, display_overrides_to_dict
 
@@ -158,83 +158,23 @@ BUBBLE_RADIUS_MM = 8.0 * 25.4
 DUPLICATE_COLOR = "#ff8800"
 
 
-class GridlineBubble(BoundLabelItem):
-    """One end of a plan gridline, drawn by the Gridline annotation block
-    (``system_blocks`` category "Gridline", host field Mark). A child of its
-    gridline: visibility, opacity and z cascade from it; never rotated (D4).
+class GridlineBubble(OutlinedLabel):
+    """One end of a gridline, drawn by the Gridline annotation block
+    (``system_blocks`` category "Gridline", host field Mark); never rotated (D4).
 
-    The gridline reads ``outline_path`` to trim its line (D5) and build its
-    hit / HALO shape (D6); the two screen-only rings (selection, duplicate
-    label) are painted here after the ops (D7) and never on paper.
+    The data host is always the PLAN gridline. The graphics parent is that
+    gridline (SB4b) or, given *parent*, an elevation / section
+    ``ElevGridlineItem`` (SB4c D2). Visibility, opacity and z cascade from the
+    parent. Outline / trim / ring paint come from ``OutlinedLabel``; this class
+    adds the duplicate-label flag and the two screen-only rings (D7), read off
+    ``parentItem()``: ``_paper_render``, ``_grid_color``, ``isSelected()`` --
+    the overlay contract both parents meet.
     """
 
-    def __init__(self, gridline):
-        super().__init__(gridline)                 # child=True: parent + host
+    def __init__(self, gridline, *, parent=None):
+        super().__init__(gridline, child=True, parent=parent)
         self._duplicate = False
-        self._outline_cache = None                 # (paper scale, QPainterPath)
         self.setZValue(Z_GRIDLINE_BUBBLE)
-
-    # -- outline (D5) ---------------------------------------------------------
-    def outline_path(self) -> QPainterPath:
-        """Union of the closed subpaths of the block's STATIC ops at the
-        current k, local coords (text ops ignored: a label that sticks out of
-        the shape never moves the trim); the orphan placeholder box when the
-        block resolves nowhere; the bounds rect when nothing closes.
-
-        Cached until ``refresh()`` (every mapping / registry / scale change
-        reaches it through ``refresh_annotation_tags``) or a paper-scale
-        change, like the bounds rect: ``shape()`` / ``halo_trace_path`` run
-        inside Qt's index queries during scene teardown, which must never
-        re-resolve through a half-destroyed scene. Empty (uncached) off-scene."""
-        if self.scene() is None:
-            return QPainterPath()
-        key = self._paper_scale_v
-        if self._outline_cache is not None and self._outline_cache[0] == key:
-            return self._outline_cache[1]
-        st = self._state()
-        d = st[0]
-        k = self._k(None, d)
-        out = QPainterPath()
-        if d is None:
-            if self._orphan_visible(st):
-                h = PLACEHOLDER_MM / 2.0
-                out.addRect(QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM))
-        else:
-            for op in d.render_ops_variant(False, k):
-                if op.kind == "text":
-                    continue
-                for sub in op.path.toSubpathPolygons():
-                    if sub.isClosed() and len(sub) > 2:
-                        p = QPainterPath()
-                        p.addPolygon(sub)
-                        out = out.united(p)
-            if out.isEmpty():
-                r = self.boundingRect()
-                if not r.isEmpty():
-                    out.addRect(r)
-        self._outline_cache = (key, out)
-        return out
-
-    def trim_distance(self, ux: float, uy: float) -> float:
-        """Distance from the block origin along unit direction (ux, uy) to
-        where that ray leaves the outline (0 when the origin is outside it)."""
-        outline = self.outline_path()
-        if outline.isEmpty() or not outline.contains(QPointF(0.0, 0.0)):
-            return 0.0
-        r = outline.boundingRect()
-        far = math.hypot(r.width(), r.height()) + 1.0
-        lo, hi = 0.0, far
-        for _ in range(40):                        # bisection to ~1e-12 of the extent
-            mid = (lo + hi) / 2.0
-            if outline.contains(QPointF(ux * mid, uy * mid)):
-                lo = mid
-            else:
-                hi = mid
-        return hi
-
-    def refresh(self) -> None:
-        self._outline_cache = None
-        super().refresh()
 
     # -- overlays (D7) --------------------------------------------------------
     def set_duplicate(self, flag: bool) -> None:
@@ -244,7 +184,7 @@ class GridlineBubble(BoundLabelItem):
 
     def overlay_pens(self) -> list:
         """The screen-only rings to stroke round the outline, in draw order:
-        selection (the gridline's colour, lighter) then duplicate (orange,
+        selection (the parent's colour, lighter) then duplicate (orange,
         last). Empty during a paper pass."""
         gl = self.parentItem()
         if gl is None or getattr(gl, "_paper_render", False):
@@ -259,19 +199,6 @@ class GridlineBubble(BoundLabelItem):
             pen.setCosmetic(True)
             pens.append(pen)
         return pens
-
-    def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
-        pens = self.overlay_pens()
-        if not pens:
-            return
-        outline = self.outline_path()
-        if outline.isEmpty():
-            return
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for pen in pens:
-            painter.setPen(pen)
-            painter.drawPath(outline)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
