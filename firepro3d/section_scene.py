@@ -633,6 +633,7 @@ class ElevDatumItem(QGraphicsLineItem):
         walk (SB4c D4)."""
         S = max(paper_scale, 1e-9)
         saved = {"color_src": self._color_src}
+        self.prepareGeometryChange()
         self._paper_render = True
         self._paper_line_w_mm = line_w_mm
         self._paper_line_w = line_w_mm / S
@@ -643,6 +644,7 @@ class ElevDatumItem(QGraphicsLineItem):
         return saved
 
     def exit_paper_pass(self, saved: dict) -> None:
+        self.prepareGeometryChange()
         self._color_src = saved["color_src"]
         self._paper_render = False
         self._paper_line_w_mm = self._paper_line_w = 0.0
