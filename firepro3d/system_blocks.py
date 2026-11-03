@@ -9,12 +9,17 @@ from __future__ import annotations
 
 # Categories that carry an intrinsic label drawn by a System block (one
 # Project Settings > Annotation row each).
-ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe")
+ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe", "Gridline")
 
 # category -> the host field whose empty raw value means "nothing to show"
 # (SB3 F1, ratified): an unresolved tag draws the orphan placeholder only
 # when this field is present with a non-None raw value.
-LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter"}
+LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter", "Gridline": "Mark"}
+
+# Categories whose static geometry still draws when every host-bound field
+# is blank (SB4b D3, user ruling 2026-11-02: an unlabelled gridline keeps its
+# empty bubble). Every other category follows the Q13 "paints nothing" rule.
+PAINT_WHEN_BLANK: frozenset[str] = frozenset({"Gridline"})
 
 # category -> frozen System block id (concept F4): the id of the promoted
 # ``firepro3d/system_blocks/Tags/RoomTag.fpdb`` (SB3 U2 / U3, 2026-10-28).
@@ -22,4 +27,5 @@ LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter"}
 SYSTEM_DEFAULTS: dict[str, str] = {
     "Room": "system-tags-roomtag",
     "Pipe": "system-tags-pipelabel",
+    "Gridline": "system-tags-gridlinebubble",
 }

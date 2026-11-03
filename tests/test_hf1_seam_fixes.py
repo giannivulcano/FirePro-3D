@@ -140,7 +140,9 @@ def _gridline_and_sprinkler_scene(colour):
     for key in ("Grid Line", "Sprinkler"):
         s.setValue(f"display/{key}/color", colour)
     ms = Model_Space()
-    gl = GridlineItem(QPointF(-1200, 500), QPointF(1200, 500), label="A")
+    # SB4b: +/-600 so the annotative bubbles (9.5 mm at the 1000 mm standoff)
+    # plot inside the viewport window _plot_colours samples.
+    gl = GridlineItem(QPointF(-600, 500), QPointF(600, 500), label="A")
     ms._gridlines.append(gl)
     ms.addItem(gl)
     n = ms.add_node(0, -800)
@@ -155,7 +157,7 @@ def _gridline_and_sprinkler_scene(colour):
     ("token:accent", (0.18, 0.62, 0.39)),
 ], ids=["auto", "accent"])
 def test_i2_latched_dm_categories_plot_paper_colour_on_full_colour(
-        qapp, tmp_path, force_theme, colour, rgb):
+        qapp, tmp_path, force_theme, colour, rgb, real_system_library):   # SB4b: the shipped GridlineBubble block
     """A gridline and a sprinkler symbol whose category is Automatic/Accent
     latch the CANVAS colour; the Full Colour pass must re-resolve them."""
     from firepro3d.paper_display import PaperColorMode, save_paper_color_mode

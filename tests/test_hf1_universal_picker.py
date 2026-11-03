@@ -358,38 +358,6 @@ def _grid_scene():
     return ms, gl
 
 
-@pytest.mark.parametrize("value,alpha", [("", 0), ("#ff0000", 255)])
-def test_dm_category_fill_no_fill_vs_hex_reaches_the_brush(qapp, monkeypatch,
-                                                           value, alpha):
-    from firepro3d.display_manager import DisplayManager
-    ms, gl = _grid_scene()
-    _pick_returns(monkeypatch, value)
-    dm = DisplayManager(ms)
-    try:
-        dm._pick_category_prop("Grid Line", "fill")
-        assert dm._read_category_settings("Grid Line")["fill"] == value
-        brush = gl.bubble1.brush()
-        assert brush.color().alpha() == alpha
-        if value:
-            assert brush.color().name() == value
-    finally:
-        _dispose(dm)
-
-
-def test_dm_category_fill_token_resolves_for_the_brush(qapp, monkeypatch, force_theme):
-    from firepro3d.display_manager import DisplayManager
-    force_theme("dark")
-    ms, gl = _grid_scene()
-    _pick_returns(monkeypatch, TOKEN_AUTO)
-    dm = DisplayManager(ms)
-    try:
-        dm._pick_category_prop("Grid Line", "fill")
-        assert gl.bubble1.brush().color().name() == DARK_INK
-        assert dm._read_category_settings("Grid Line")["fill"] == TOKEN_AUTO
-    finally:
-        _dispose(dm)
-
-
 def test_dm_no_fill_persists_and_is_not_inherit(qapp, monkeypatch):
     from PyQt6.QtCore import QSettings
     from firepro3d.display_manager import (DisplayManager, _CATEGORY_MAP,
@@ -398,14 +366,17 @@ def test_dm_no_fill_persists_and_is_not_inherit(qapp, monkeypatch):
     _pick_returns(monkeypatch, "")
     dm = DisplayManager(ms)
     try:
-        dm._pick_category_prop("Grid Line", "fill")
+        dm._pick_category_prop("Room", "fill")
         dm.accept()
     finally:
         _dispose(dm)
+    # Grid Line has no Fill column since SB4b D11 (the bubble is a block)
+    from firepro3d.display_manager import _category_has_fill
+    assert not _category_has_fill("Grid Line")
     # persisted as "" and read back as "" -- never the factory fill (inherit)
-    assert _read_category_from_settings("Grid Line")["fill"] == ""
-    assert _CATEGORY_MAP["Grid Line"]["fill"] not in ("", None)
-    QSettings("GV", "FirePro3D").remove("display/Grid Line/fill")
+    assert _read_category_from_settings("Room")["fill"] == ""
+    assert _CATEGORY_MAP["Room"]["fill"] not in ("", None)
+    QSettings("GV", "FirePro3D").remove("display/Room/fill")
 
 
 def test_dm_instance_state_no_fill_vs_unset(qapp):
@@ -456,12 +427,13 @@ def test_dm_svg_tint_fill_token_and_no_fill(qapp, force_theme, tmp_path):
 
 
 def _paper_pass_colours(scene, gl):
-    """(grid colour, bubble pen colour) a gridline really draws with during a
-    paper pass."""
+    """(grid colour, bubble ink colour) a gridline really draws with during a
+    paper pass; the bubble is an annotation block, so its ink is the
+    ``_apply_block`` pen-colour hook (SB4b D12)."""
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
     saved = apply_paper_overrides(scene, QRectF(-5000, -5000, 10000, 10000))
     try:
-        return QColor(gl._grid_color), gl.bubble1.pen().color()
+        return QColor(gl._grid_color), QColor(gl.bubble1._paper_pen_color)
     finally:
         restore_model_display(saved)
 
