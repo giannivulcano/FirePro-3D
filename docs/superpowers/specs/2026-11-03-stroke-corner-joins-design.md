@@ -29,11 +29,13 @@ stamps round joint dots where a horizontal base meets a diagonal side.
 - **AC2** Every vertex inside one item (polyline, rect, polygon, a closed seam) is a sharp
   miter; the crisp split never caps or dots over it.
 - **AC3** Two coincident ends (within `CHAIN_WELD_MM`) of separate open strokes — lines,
-  polyline ends, arcs, splines, open ellipse arcs — miter along their end tangents.
+  polyline ends, arcs, splines — miter along their end tangents. (As built: an item never
+  joins itself, same-owner ends never pair; EllipseItem is always closed, so no open
+  ellipse arcs; see As built.)
 - **AC4** Only a clean pair joins: exactly two ends at the point, same weight name and same
   colour string. Three or more ends, or mixed weight / colour, draw each end flat.
 - **AC5** Miter limit = PDF ratio 4 (miter length / width, ≈ 29°); beyond it the tip is
-  bevelled. (P4 probe: Qt's `setMiterLimit` measures the tip's reach *from the join point*
+  bevelled (as built: clipped miter, see As built). (P4 probe: Qt's `setMiterLimit` measures the tip's reach *from the join point*
   in pen widths, so PDF 4 == **Qt 2**, Qt's default; a 20° corner with a 20 px pen is clipped
   at 40 px under Qt 2 and passes at Qt 4.)
 - **AC6** A dashed / patterned stroke joins only when its end is inked at the corner (the
@@ -77,7 +79,7 @@ own math already).
   `joint_wedge(corner, d_a, d_b, half_w, limit=STROKE_MITER_LIMIT) -> QPolygonF | None`.
   `d_a`, `d_b` are unit directions *away* from the corner. Returns the outer wedge (corner,
   outer edge of A at its flat end, miter tip, outer edge of B); past the limit the tip is
-  replaced by the bevel chord; `None` when the strokes are collinear (nothing to fill) or
+  replaced by the bevel chord (as built: clipped miter, see As built); `None` when the strokes are collinear (nothing to fill) or
   overlap (reversed / parallel). Pure math, no Qt painter.
 - **D3 Crisp-split junctions (AC2).** `crisp_stroke.split_axis` records each axis↔other
   junction as `(point, d_in, d_out)` (`CrispSplit.joints`; `joint_points` retired, its
@@ -119,7 +121,8 @@ own math already).
 - **D8 Performance.** Register / unregister are O(1) per end; paint adds two dict lookups
   per styled open item. Bench before any optimisation (Phase 5 Performance rule): (1) 2 000
   loose lines, pan / zoom repaint; (2) drag one line in that scene. Budget: no measurable
-  regression over base — a > 5 % frame-time increase on either fails.
+  regression over base — a > 5 % frame-time increase on either fails (as built: 1.25x, see
+  As built).
 
 ## Plan-time deviations (ratified at plan approval, 2026-11-03)
 
@@ -146,6 +149,54 @@ user and ratified as written here. Account reconciles the D-rows at Phase 6.
   `BlockInstance.boundingRect` pads by the same reach at `MODEL_WEIGHT_PX_MAX` when its
   definition holds any joint.
 
+## As built (2026-11-03)
+
+Account reconciliation; where this section and a D-row differ, this section wins. Commit
+SHAs are on `fix/stroke-corner-joins`.
+
+- **AC5 / D2 — clipped miter, not a bevel** (user ruling at Phase 5; `f86676fb`). Past the
+  miter limit the wedge is a Qt-clipped miter: chord perpendicular to the bisector, clip
+  points `limit_qt * width` along each outer edge from the flat-end foot. Full-miter switch
+  at `half_w / tan(theta/2) <= limit * half_w` (~28.07 deg for ratio 4).
+- **D1 pens** (`0be9aacd`): `stroke_pen` / `apply_stroke_joins` as designed.
+- **D3 — crisp junctions follow the pen's join style** (user ruling, VC9 m4; `75202b11`,
+  `cb41aab5`). `fill_wedges_device`: BevelJoin -> triangle, MiterJoin -> miter with
+  `pen.miterLimit() * 2` as the PDF ratio, RoundJoin -> the previous round dot. Model pens are
+  MiterJoin limit 2, so model junctions miter.
+- **D4** (`50f3c1fa`, `cb41aab5`): end records store geometry only; attrs are matched at
+  paint. The per-item wedge cache is revalidated each paint against a signature of both
+  owners (style record, stroke colour, visibility, NoPen), so a style edit misses the cache.
+- **D5c dropped** (no per-sheet index): sheets show model geometry through viewports, i.e.
+  container (a) under a paper pass.
+- **D5b block path** (`384c499c`, `19218c8e`): definitions compile `joint_indexes(mirrored,
+  scale)` per variant with `_op_groups` (a nested block is its own container); instances fill
+  wedges in `_paint_op_joints` (both partners still fill; follow-up filed); `boundingRect`
+  pads `MODEL_WEIGHT_PX_MAX*2` only when a partnered op exists.
+- **D6 choke point** (`787f2447`, `88e4719b`, `32760332`): mixin `setLine` / `setRect` /
+  `setPath` overrides + `itemChange` (ItemSendsGeometryChanges: scene, pos, transform,
+  rotation, scale). Unregister goes through the raw scene index regardless of eligibility;
+  `_set_reference_flag` re-registers; `prepareGeometryChange` runs before a partner-state
+  flip.
+- **D7 paint** (`386d9d4e`, `cb41aab5`, `a407ec62`): one owner per pair fills (`_owns_pair`:
+  the finish end's owner when `which` differ, else lower `id()`); the selection halo pass
+  passes dedupe=False. The wedge is cached per item as a unit wedge in item-local coords,
+  scaled at paint, memoised for the last device scale; live device-space fallback for
+  linetype-ref / end-id items and sheared painter transforms. Bounds pad `joint_pad(w) =
+  0.5*w*sqrt(1 + STROKE_MITER_LIMIT^2) + CHAIN_WELD_MM/2` (scene units), applied only when
+  some end has a partner; `manip_bounds()` / `union_manip_bounds` exclude it (selection
+  frame, copy base point `b211750a`, flip centre, geometry-import bbox `3f11b182`).
+- **AC3 / AC4 amendment:** an item never joins itself (same-owner ends never pair; user
+  ruling, VC9 m5). "Open ellipse arcs" dropped from AC3 (EllipseItem is always closed).
+- **D8 bar 1.25x** (MW-13 precedent; user ruling 2026-11-03; `74da59a3`, `32760332`): 4
+  interleaved pairs scj-base vs HEAD on the 2000-line / 1000-joint bench: pan median 1.00,
+  zoom 1.22 pooled (pairs 1.02-1.27), drag 1.01. Raw lines at
+  `D:/Custom Code/FPD/run-suite/stroke_joins_*.txt`. Follow-up filed: batch wedges into one
+  scene-level draw.
+- **LT5 parity golden** re-baselined (FlatCap on a rotated nested-block line; user-ratified;
+  `19964ca9`).
+- **Guards:** `tests/test_stroke_joins.py` (sections A-H + FR1 guards); bench
+  `tests/test_stroke_joins_perf.py` (marker-gated, not in the default gate).
+
 ## Verification checklist
 
 Each guard renders to a `QImage` at an exaggerated weight (e.g. `canvas_px` patched to 20)
@@ -164,4 +215,10 @@ and is shown RED at base `c20d2ec3`:
    touching a block's line: flat (AC7).
 7. Move one triangle side away → both former partners flat; undo → sharp (D6).
 8. `joint_wedge` unit table: 90°, 60°, 29° ± 1°, 20°, 180° (None), 0° (None).
-9. Bench D8 at base and HEAD, interleaved pairs, raw lines to a file.
+9. Bench D8 at base and HEAD, interleaved pairs, raw lines to a file. **Passed at 1.25x**
+   (see As built).
+
+Ticked by the guards (`tests/test_stroke_joins.py`, sections A-H + FR1): items 1-8 each have
+a guard (1 lone line, 2 triangle / closed polyline, 3 star + mixed weight, 4 sliver, 5 dashed
++ end type, 6 block instance / Block Editor / sheet, 7 move + undo, 8 `joint_wedge` table).
+Item 9: `tests/test_stroke_joins_perf.py`.
