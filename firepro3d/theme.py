@@ -1121,6 +1121,8 @@ QTreeView#underlayTable::item:selected, QTableView#underlayTable::item:selected,
 QTableWidget#levelTable::item {{ padding: 0 {M.LEVEL_CELL_PAD}px; }}
 QTableWidget#levelTable {{ border: 1px solid {t.line}; border-radius: {M.RADIUS_INPUT}px; }}
 QTreeView#underlayTable::branch {{ background: {t.table}; }}
+/* Cell-widget hosts (setItemWidget containers) let the row paint through. */
+QTreeView#underlayTable QWidget#tableCell {{ background: transparent; }}
 QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
 QTreeView#underlayTable::branch:closed:has-children:has-siblings {{ background: {t.table}; image: url("{chev_r}"); }}
 QTreeView#underlayTable::branch:open:has-children:!has-siblings,
@@ -1148,6 +1150,12 @@ QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
     padding: 7px 11px 8px; margin-right: 2px; font-size: 12px; }}
 {_tab_language_qss(t, 'QDialog[houseDialog="true"] QTabBar#topTabsBar::tab', edge="bottom")}
+/* Selected dialog tab matches the ribbon / canvas tabs: accent-soft fill + 1px
+   accent outline + the 2px accent bar. */
+QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:selected {{
+    background: {t.accent_soft}; border: 1px solid {t.accent};
+    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    border-bottom: 2px solid {t.accent}; }}
 
 /* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}

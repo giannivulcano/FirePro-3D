@@ -199,6 +199,12 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
 # Fill-value helpers  (plain "#rrggbb" = solid, "hatch:#rrggbb" = hatch)
 # ---------------------------------------------------------------------------
 
+def _center_headers(tree, cols) -> None:
+    """Centre the header text over glyph / swatch columns (Underlay Manager parity)."""
+    for c in cols:
+        tree.headerItem().setTextAlignment(c, Qt.AlignmentFlag.AlignCenter)
+
+
 def _parse_fill_value(val: str | None) -> tuple[str, str]:
     """Return (mode, hex_color).  mode is 'solid' or 'hatch'."""
     if val is None:
@@ -1369,8 +1375,9 @@ class DisplayManager(HouseDialog):
         self._tree.setObjectName("underlayTable")   # Underlay Manager table look (theme.build_dialog_qss)
         self._tree.setColumnCount(10)
         self._tree.setHeaderLabels(
-            ["Name", "Vis", "Colour", "Fill", "Section", "Scale", "Opacity",
+            ["NAME", "VIS", "COLOUR", "FILL", "SECTION", "Scale", "OPACITY",
              "Font", "Line Weight", ""])
+        _center_headers(self._tree, (_COL_VIS, _COL_COLOR, _COL_FILL, _COL_SECTION))
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(20)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1671,7 +1678,7 @@ class DisplayManager(HouseDialog):
             tree_item.setSizeHint(_c, QSize(0, th.M.DM_ROW_H))
 
         # ── Visibility eye (R3: painted, like the Underlay Manager) ──
-        vis_container = QWidget()
+        vis_container = QWidget(objectName="tableCell")   # transparent host (theme QSS)
         vis_layout = QHBoxLayout(vis_container)
         vis_layout.setContentsMargins(0, 0, 0, 0)
         vis_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2374,8 +2381,10 @@ class DisplayManager(HouseDialog):
         self._ps_tree.setObjectName("underlayTable")   # Underlay Manager table look
         self._ps_tree.setColumnCount(7)
         self._ps_tree.setHeaderLabels(
-            ["Name", "Vis", "Colour", "Fill", "Section", "Line Weight",
-             "Opacity"])
+            ["NAME", "VIS", "COLOUR", "FILL", "SECTION", "LINE WEIGHT",
+             "OPACITY"])
+        _center_headers(self._ps_tree, (self._PS_COL_VIS, self._PS_COL_COLOR,
+                                        self._PS_COL_FILL, self._PS_COL_SECTION))
         self._ps_tree.setRootIsDecorated(True)
         self._ps_tree.setIndentation(20)
         self._ps_tree.setSelectionMode(
@@ -2439,7 +2448,7 @@ class DisplayManager(HouseDialog):
                 vis_cb.toggled.connect(
                     lambda checked, k=key: self._on_paper_vis_changed(
                         k, checked))
-                vis_box = QWidget()
+                vis_box = QWidget(objectName="tableCell")   # transparent host (theme QSS)
                 vis_lay = QHBoxLayout(vis_box)
                 vis_lay.setContentsMargins(0, 0, 0, 0)
                 vis_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2673,7 +2682,7 @@ class DisplayManager(HouseDialog):
         self._lw_table.setObjectName("underlayTable")   # Underlay Manager table look
         self._lw_table.setColumnCount(3)
         self._lw_table.setHorizontalHeaderLabels(
-            ["Name", "Width (mm)", "Model (px)"])
+            ["NAME", "WIDTH (MM)", "MODEL (PX)"])
         self._lw_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._lw_table.horizontalHeader().setSectionResizeMode(

@@ -69,7 +69,7 @@ def test_model_column_shows_auto_and_tooltips(qapp):
                                  LineWeightDef("Pinned", 0.50, 7)])
     d = _dlg()
     hdr = d._lw_table.horizontalHeaderItem(2)
-    assert hdr.text() == "Model (px)" and hdr.toolTip()
+    assert hdr.text() == "MODEL (PX)" and hdr.toolTip()
     auto = d._lw_table.item(_row(d, "Thin"), 2)
     assert auto.text() == "Auto (3)" and auto.toolTip()
     muted = th.detect().color("muted")

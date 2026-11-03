@@ -348,7 +348,7 @@ class TopTabs(QWidget):
         self._bar = QTabBar(objectName="topTabsBar")
         self._bar.setDrawBase(False)
         self._bar.setExpanding(False)
-        self._bar.setUsesScrollButtons(True)
+        self._bar.setUsesScrollButtons(False)   # peers are few: the strip never scrolls
         self._bar.setElideMode(Qt.TextElideMode.ElideNone)
         # Full-width divider under the strip. A bare stylesheet set DIRECTLY on
         # the divider paints it and beats any parent-background bleed (palette is
