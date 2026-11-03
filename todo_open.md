@@ -103,6 +103,8 @@
   - Details: text-sizing-wrap C2 review 2026-11-01 (M2). The shipped handles can't reach it (the plan's code order). Hardening only: validate the grip and skip a no-op scale before freezing, in `firepro3d/text_item.py` `apply_grip` / `manip_scale`.
 - [ ] [type:bug] Sheet Add-Text template: Border, Line Type, Weight and Corner aren't copied onto the placed text, and no template toggle persists across sessions [P3] [subject:UX]
   - Details: text-sizing-wrap VC9 fix-round reviews 2026-11-01. `PaperScene.begin_place_text` copies a field whitelist; Wrap / Shrink to fit were added there (50581eed), but Border / Line Type / Weight / Corner were already missing before this branch. `text_template_to_settings` / `_TEMPLATE_FIELDS` persist neither those fields nor `wrap` / `shrink`, so the template resets every session. `firepro3d/paper_space.py`.
+- [ ] [type:bug] `test_modify_tools_array.py::test_array_typed_count_is_total[text_rotated]` fails at main: arrayed rotated text copies land at the wrong positions [P2] [subject:Text]
+  - Details: found 2026-11-03 by SB4b keep-green; VC7 alternating fresh runs fail 2/2 at base `c20d2ec3` (main) and 2/2 at the SB4b HEAD (positive control) -- pre-existing, not SB4b. Every one of the 9 copy positions mismatches (e.g. x 192.978 obtained vs 192.5 expected). The other 12 params (incl. non-rotated text) pass. Likely from the text-sizing-wrap merge (`6693013b`, true cap height / Wrap / Shrink): the rotated text's bounds/anchor that Array measures changed. Check whether the test expectation or the Array path is stale against the new text box geometry. `tests/test_modify_tools_array.py`, `firepro3d/text_item.py`, the Array tool.
 
 ## UI follow-ups
 
