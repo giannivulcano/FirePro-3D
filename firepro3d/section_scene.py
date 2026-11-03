@@ -39,6 +39,7 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
+from .bound_label import OutlinedLabel
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
 
 if TYPE_CHECKING:
@@ -504,36 +505,66 @@ class ElevGridlineItem(QGraphicsLineItem):
             }
 
 
-class ElevDatumItem(QGraphicsLineItem):
-    """Interactive level datum in an elevation view — selectable with grip handles."""
+class LevelDatumHead(OutlinedLabel):
+    """The level datum's head (SB4c D3): the project's "Level" annotation block
+    (shipped seed ``LevelDatum``: 4-quadrant symbol + @[Level.Name] /
+    @[Level.Elevation]) at the datum's left end, block origin on the line.
 
-    def __init__(self, v_pos: float, h_min: float, h_max: float,
-                 level_name: str, elev_str: str,
-                 bubble_r: float, datum_color: QColor, fill_color: QColor,
-                 pen_w: float, name_font: QFont, elev_font: QFont,
-                 scale: float = 1.0, opacity: float = 1.0,
-                 color_src: str | None = None, fill_src: str | None = None):
+    A child of its ``ElevDatumItem``, which is also the data host (``_level``):
+    visibility and opacity cascade from it; never rotated. The datum reads
+    ``trim_distance(1, 0)`` to start its line at the outline and
+    ``outline_path`` for its hit shape. The one overlay is the selection ring:
+    screen only -- never with the datum's ``_paper_render`` flag set, never
+    inside a paper pass.
+    """
+
+    def __init__(self, datum):
+        super().__init__(datum)                  # child=True: parent + host
+
+    def overlay_pens(self) -> list:
+        dt = self.parentItem()
+        if dt is None or getattr(dt, "_paper_render", False) or not shows_selection(dt):
+            return []
+        pen = QPen(dt.line_color().lighter(150), 2.0)
+        pen.setCosmetic(True)
+        return [pen]
+
+
+class ElevDatumItem(QGraphicsLineItem):
+    """Interactive level datum in an elevation / section view -- selectable,
+    two grips.
+
+    Keeps its ``Level`` (``_level``, the element_params "Level" host: renames
+    mutate it in place, so the head re-paints with no rebuild) and owns one
+    ``LevelDatumHead`` (``head``) whose block origin sits on the line at
+    ``_bx``. The dash-dot line is painted by ``SectionScene.drawForeground``
+    from ``line_start_h()`` (the head's outline) to ``_h_max``, so it stays
+    visible when the head scrolls off-screen (SB4c D3 / AC4).
+    """
+
+    def __init__(self, v_pos: float, h_min: float, h_max: float, level,
+                 datum_color: QColor, pen_w: float, *, opacity: float = 1.0,
+                 color_src: str | None = None, scale_manager=None):
         super().__init__(h_min, v_pos, h_max, v_pos)
-        # Stored colour strings, resolved per paint (see ElevGridlineItem).
-        self._color_src = color_src
-        self._fill_src = fill_src
+        self._level = level
+        # format_utils.get_scale_manager fallback: a SectionScene has no
+        # ``scale_manager`` attribute, so Level.Elevation formats through this.
+        self._scale_manager_ref = scale_manager
+        self._color_src = color_src   # stored colour string, resolved per paint (HF1)
         self._v = v_pos
         self._h_min = h_min
         self._h_max = h_max
-        self._bubble_r = bubble_r
         self._datum_color = datum_color
-        self._fill_color = fill_color
         self._pen_w = pen_w
-        self._paper_line_w_mm = 0.0   # paper pass (AC4): ON-PAPER mm, dash normaliser
+        self._paper_render = False    # paper pass (SB4c D4): set / cleared by enter / exit_paper_pass
+        self._paper_line_w_mm = 0.0   # paper pass: ON-PAPER mm, dash normaliser
         self._paper_line_w = 0.0      # paper pass: datum line width, scene units
-        self._fill_quad = None        # the fill-coloured quadrant pair (paper pass)
-        self._scale = scale
-        self._level_name = level_name.upper() if level_name else "LEVEL"
-        self._elev_str = elev_str
-
-        # Preserve the original fonts so grip moves don't lose sizing
-        self._name_font = QFont(name_font)
-        self._elev_font = QFont(elev_font)
+        # Head origin = today's circle centre: half a BUBBLE_RADIUS_MM (model
+        # mm) left of the crop edge; the head itself is annotative.
+        from .gridline import BUBBLE_RADIUS_MM
+        self._bx = h_min - BUBBLE_RADIUS_MM * 0.5
+        self.head = LevelDatumHead(self)
+        self.head.set_anchor(QPointF(self._bx, v_pos))
 
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -542,138 +573,96 @@ class ElevDatumItem(QGraphicsLineItem):
         self.setOpacity(opacity)
         self.setData(_ROLE_ELEV_ANNOTATION, True)
 
-        # ── Bubble (4-quadrant) at left end ──────────────────────────────
-        bx = h_min - bubble_r * 0.5
+    # ── Head ─────────────────────────────────────────────────────────────
+
+    def line_color(self) -> QColor:
+        """The line colour now: the stored source resolved per paint (HF1)."""
+        return (self._datum_color if self._color_src is None
+                else resolve_colour(self._color_src, item=self))
+
+    def line_start_h(self) -> float:
+        """Scene h where the datum line starts: where the ray from the head
+        origin toward the line's far end (``_h_max``, the h ``drawForeground``
+        draws to) leaves the head's block outline -- derived, as
+        ``ElevGridlineItem`` derives its bubbles' rays from p1 -> p2; (+1, 0)
+        whenever the head sits left of the far end. No trim when the head is
+        hidden or draws nothing. Screen and paper alike: during a paper pass
+        the head's k is 1 / S, so the outline is the printed one."""
+        ux = 1.0 if self._h_max >= self._bx else -1.0
+        t = self.head.trim_distance(ux, 0.0) if self.head.isVisible() else 0.0
+        return self._bx + ux * t
+
+    def refresh_head(self) -> None:
+        """Re-shape the head (block mapping, drawing scale, units, paper hooks)
+        and this item's bounds + hit shape, which include it."""
+        self.prepareGeometryChange()
+        self.head.refresh()
+        self.update()
+
+    def _move_head(self, bx: float) -> None:
         self._bx = bx
-        self._build_bubble(bx, v_pos, bubble_r, datum_color, fill_color, pen_w)
-
-        # ── Labels ───────────────────────────────────────────────────────
-        self._build_labels()
-
-    def _build_bubble(self, bx, by, r, datum_color, fill_color, pen_w):
-        """Build the 4-quadrant datum bubble as child items."""
-        circle_pen = QPen(datum_color, pen_w)
-        circle_pen.setCosmetic(False)
-        cs, fs = self._color_src, self._fill_src
-
-        circle = _SrcEllipse(bx - r, by - r, r * 2, r * 2, self)
-        circle.setPen(circle_pen)
-        circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        circle.setZValue(51)
-        circle.set_colour_src(pen=cs)
-
-        for ln in (_SrcLine(bx - r, by, bx + r, by, self),
-                   _SrcLine(bx, by - r, bx, by + r, self)):
-            ln.setPen(circle_pen)
-            ln.set_colour_src(pen=cs)
-
-        arc_rect = QRectF(bx - r, by - r, r * 2, r * 2)
-
-        lq = QPainterPath()
-        lq.moveTo(bx, by); lq.arcTo(arc_rect, 0, 90); lq.closeSubpath()
-        lq.moveTo(bx, by); lq.arcTo(arc_rect, 180, 90); lq.closeSubpath()
-        lq_item = _SrcPath(lq, self)
-        lq_item.setPen(QPen(Qt.PenStyle.NoPen))
-        lq_item.setBrush(QBrush(datum_color))
-        lq_item.setZValue(52)
-        lq_item.set_colour_src(brush=cs)
-
-        fq = QPainterPath()
-        fq.moveTo(bx, by); fq.arcTo(arc_rect, 90, 90); fq.closeSubpath()
-        fq.moveTo(bx, by); fq.arcTo(arc_rect, 270, 90); fq.closeSubpath()
-        fq_item = _SrcPath(fq, self)
-        fq_item.setPen(QPen(Qt.PenStyle.NoPen))
-        fq_item.setBrush(QBrush(fill_color))
-        fq_item.setZValue(52)
-        fq_item.set_colour_src(brush=fs)
-        self._fill_quad = fq_item
-
-    def _build_labels(self):
-        """Create or recreate label items using the stored fonts."""
-        tag_gap = 50 * self._scale
-        tag_x = self._bx + self._bubble_r + tag_gap
-
-        self._name_text = _SrcSimpleText(self._level_name, self)
-        self._name_text.setFont(self._name_font)
-        self._name_text.setBrush(QBrush(self._datum_color))
-        self._name_text.set_colour_src(brush=self._color_src)
-        name_br = self._name_text.boundingRect()
-        self._name_text.setPos(tag_x, self._v - name_br.height() - 20)
-        self._name_text.setZValue(53)
-
-        self._elev_text = _SrcSimpleText(self._elev_str, self)
-        self._elev_text.setFont(self._elev_font)
-        self._elev_text.setBrush(QBrush(self._datum_color.lighter(130)))
-        self._elev_text.set_colour_src(brush=self._color_src,
-                                       tint=lambda c: c.lighter(130))
-        self._elev_text.setPos(tag_x, self._v + 20)
-        self._elev_text.setZValue(53)
+        self.head.set_anchor(QPointF(bx, self._v))
 
     # ── Drawing ──────────────────────────────────────────────────────────
 
     def boundingRect(self):
         br = super().boundingRect()
-        m = self._bubble_r * 2
-        return br.adjusted(-m, -m, m, m)
+        head = getattr(self, "head", None)
+        if head is not None:
+            hr = head.boundingRect()
+            if not hr.isEmpty():
+                br = br.united(head.mapRectToParent(hr))
+        return br
 
     def shape(self) -> QPainterPath:
-        path = QPainterPath()
-        r = self._bubble_r
-        path.addEllipse(QPointF(self._bx, self._v), r, r)
-        return path
+        """Hit area: the head's block outline -- a press on the head selects
+        the datum (the line itself is scene foreground, as before)."""
+        head = getattr(self, "head", None)
+        if head is None:
+            return QPainterPath()
+        return head.mapToParent(head.outline_path())
 
     def paint(self, painter, option, widget=None):
         # The datum line is drawn by the scene's drawForeground() so it
-        # remains visible even when the bubble has scrolled off-screen.
-        # Do NOT call super().paint() — the base QGraphicsLineItem must
-        # not draw its own line.
+        # remains visible even when the head has scrolled off-screen; the
+        # head paints itself. Do NOT call super().paint() -- the base
+        # QGraphicsLineItem must not draw its own line.
         pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
+            head = getattr(self, "head", None)
+            if head is not None:
+                head.update()                    # the selection ring (screen only)
         return super().itemChange(change, value)
 
     def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
                          color_src=None, fill_src=None, cap_mm=None) -> dict:
-        """Plot through the "Level Datum" paper row for one sheet-viewport
-        render (AC4): its weight on the line, circle and cross, the gridline's
-        paper-mm dash-dot on the line (``drawForeground``); *color_src* /
-        *fill_src* replace the stored colour strings (B&W / Custom), ``None``
-        keeps them. *cap_mm* is unused (no datum label row)."""
+        """Plot the LINE through the "Level Datum" paper row for one sheet-
+        viewport render: its weight and the gridline's paper-mm dash-dot
+        (``drawForeground``); *color_src* replaces the stored colour string
+        (B&W / Custom), ``None`` keeps it. Sets ``_paper_render`` (the head's
+        ring drops), as ``ElevGridlineItem.enter_paper_pass`` does. The head is
+        an annotation block and takes ``paper_display._apply_block`` in the
+        walk (SB4c D4). *fill_src* / *cap_mm* are accepted and ignored until
+        the paper task stops passing them (same interim contract as the gridline)."""
         S = max(paper_scale, 1e-9)
-        saved = {"color_src": self._color_src, "fill_src": self._fill_src,
-                 "children": []}
+        saved = {"color_src": self._color_src}
+        self._paper_render = True
         self._paper_line_w_mm = line_w_mm
         self._paper_line_w = line_w_mm / S
-        for ch in self.childItems():
-            if not isinstance(ch, _ColourSrcMixin):
-                continue
-            saved["children"].append((ch, ch._pen_src, ch._brush_src,
-                                      ch._src_tint, ch._paper_pen_width))
-            ch._paper_pen_width = line_w_mm / S
-            if ch is self._fill_quad:
-                if fill_src is not None:
-                    ch._brush_src = fill_src
-            elif color_src is not None:
-                if ch._pen_src is not None:
-                    ch._pen_src = color_src
-                if ch._brush_src is not None:
-                    ch._brush_src = color_src
-                ch._src_tint = None
         if color_src is not None:
             self._color_src = color_src
-        if fill_src is not None:
-            self._fill_src = fill_src
+        self.head.update()
         self.update()
         return saved
 
     def exit_paper_pass(self, saved: dict) -> None:
-        for ch, pen_src, brush_src, tint, paper_w in saved["children"]:
-            ch._pen_src, ch._brush_src = pen_src, brush_src
-            ch._src_tint, ch._paper_pen_width = tint, paper_w
-        self._color_src, self._fill_src = saved["color_src"], saved["fill_src"]
+        self._color_src = saved["color_src"]
+        self._paper_render = False
         self._paper_line_w_mm = self._paper_line_w = 0.0
+        self.head.update()
         self.update()
 
     # ── Grip handles ─────────────────────────────────────────────────────
@@ -683,29 +672,19 @@ class ElevDatumItem(QGraphicsLineItem):
         return [line.p1(), line.p2()]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Move grip along the horizontal line (constrained to V position)."""
+        """Move grip along the horizontal line (constrained to V position);
+        the left grip carries the head (moved, never rebuilt)."""
+        from .gridline import BUBBLE_RADIUS_MM
         line = self.line()
         p1, p2 = line.p1(), line.p2()
+        self.prepareGeometryChange()
         if index == 0:
             new_x = new_pos.x()
             self.setLine(new_x, self._v, p2.x(), self._v)
-            r = self._bubble_r
-            self._bx = new_x - r * 0.5
-            self._reposition_children()
+            self._move_head(new_x - BUBBLE_RADIUS_MM * 0.5)
         elif index == 1:
             self.setLine(p1.x(), self._v, new_pos.x(), self._v)
-        self.prepareGeometryChange()
         self.update()
-
-    def _reposition_children(self):
-        """Rebuild child items after left-grip move, preserving fonts."""
-        for child in list(self.childItems()):
-            if self.scene():
-                self.scene().removeItem(child)
-
-        self._build_bubble(self._bx, self._v, self._bubble_r,
-                           self._datum_color, self._fill_color, self._pen_w)
-        self._build_labels()
 
     def manip_handles(self):
         from .manip_handle import default_grip_handles
@@ -716,17 +695,13 @@ class ElevDatumItem(QGraphicsLineItem):
 
         V is pinned to ``self._v`` (a vertical shift would author the datum's
         level elevation), so ``dy`` is dropped; ``dx`` shifts both endpoints,
-        moving the horizontal draw-extent. The left endpoint carries the bubble
-        + labels, so mirror ``apply_grip``'s left branch: advance ``self._bx``
-        and rebuild the children (session-only, not persisted — parity).
+        moving the horizontal draw-extent, and carries the head (session-only,
+        not persisted -- parity).
         """
         line = self.line()
-        new_x1 = line.p1().x() + dx
-        new_x2 = line.p2().x() + dx
-        self.setLine(new_x1, self._v, new_x2, self._v)
-        self._bx += dx
-        self._reposition_children()
         self.prepareGeometryChange()
+        self.setLine(line.p1().x() + dx, self._v, line.p2().x() + dx, self._v)
+        self._move_head(self._bx + dx)
         self.update()
 
 
@@ -768,17 +743,23 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         needs ``refresh()``), then the gridline itself (its trim and hit
         shape follow the outline). Called for every open section by
         ``Model_Space.refresh_annotation_tags`` and by
-        ``annotative.reprepare_annotative``."""
+        ``annotative.reprepare_annotative``. Each level datum's head too
+        (SB4c D3), then the scene foreground (the datum lines start at the
+        head outline)."""
         for it in list(self.items()):
-            if not isinstance(it, ElevGridlineItem):
-                continue
             try:
-                for b in (it.bubble1, it.bubble2):
-                    b.refresh()
-                it.prepareGeometryChange()
-                it.update()
+                if isinstance(it, ElevGridlineItem):
+                    for b in (it.bubble1, it.bubble2):
+                        b.refresh()
+                    it.prepareGeometryChange()
+                    it.update()
+                elif isinstance(it, ElevDatumItem):
+                    # SB4c D3: the head re-shapes; the datum's bounds / hit
+                    # shape include it and drawForeground's line starts at it.
+                    it.refresh_head()
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
+        self.update()                     # foreground datum lines re-trim
 
     def __init__(self, marker, model_space: "Model_Space",
                  level_manager: "LevelManager", scale_manager: "ScaleManager",
@@ -1408,7 +1389,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Foreground (datum lines) ─────────────────────────────────────────
 
     def drawForeground(self, painter, rect):
-        """Draw datum lines from the bubble across the crop box (basis h_min..h_max).
+        """Draw datum lines from the head's outline across the crop box (basis h_min..h_max).
 
         Drawn in foreground so lines remain visible even when the bubble
         has scrolled out of the viewport.
@@ -1420,13 +1401,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if not item.isVisible():
                 continue
             v = item._v
-            h_start = item._bx + item._bubble_r
+            h_start = item.line_start_h()
             h_end = item._h_max
             if h_end <= h_start:
                 continue
 
-            datum_color = (item._datum_color if item._color_src is None
-                           else resolve_colour(item._color_src, item=item))
+            datum_color = item.line_color()
             painter.save()
             if item._paper_line_w_mm:
                 from .gridline import _dash_pattern_mm
@@ -2176,51 +2156,38 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         if not self._show_datums:
             return
 
-        # Use Level Datum display properties from display manager
+        # Level Datum display row: colour tints the line; Visible / Opacity act
+        # on the whole datum (SB4c D4). The head is the "Level" block.
         props = self._datum_display_props()
         if not props.get("visible", True):
             return
         datum_src = props["color"]                      # resolved per paint
-        fill_src = props.get("fill", "#1a1a2e")
         datum_color = resolve_colour(datum_src)
-        fill_color = resolve_colour(fill_src)
         opacity = props["opacity"] / 100.0
-        scale = props.get("scale", 1.0)
 
         h_min, h_max = self._datum_extent()
 
-        # Datum line pen — dash-dot-dash, weight matched to gridline
-        from .gridline import BUBBLE_RADIUS_MM
-        grid_props = self._gridline_display_props()
-        grid_scale = grid_props.get("scale", 1.0)
-        pen_w = max(1.0, BUBBLE_RADIUS_MM * 0.04 * grid_scale)
+        # Datum line pen (model mm): the elevation gridline's frozen scale-1
+        # weight (203.2 * 0.04) -- the Display Manager Scale columns are
+        # retired (SB4b D11, SB4c D4).
+        datum_pen_w = ELEV_GRIDLINE_PEN_W_MM
 
-        # Text size: base 175mm, scaled by display manager font size (pt)
-        font_pt = props.get("font", 10)
-        text_height = 175.0 * scale * (font_pt / 10.0)
-        name_font = QFont("Consolas")
-        name_font.setPixelSize(max(1, int(text_height)))
-        name_font.setBold(True)
-
-        elev_font = QFont("Consolas")
-        elev_font.setPixelSize(max(1, int(text_height * 0.8)))
-
-        # Bubble radius matches gridline bubbles
-        bubble_r = BUBBLE_RADIUS_MM * scale
+        # Level.Elevation formats in the project's live units. A SectionScene
+        # has no ``scale_manager`` attribute, so format_utils.get_scale_manager
+        # returns None for its items; the datum carries the model's live
+        # ScaleManager as ``_scale_manager_ref`` instead of a new
+        # SectionScene.scale_manager property, which would change every
+        # projected proxy's get_scale_manager. ``_sm`` is the fallback (a
+        # project load replaces the model's ScaleManager -- the
+        # annotative._drawing_scale rule).
+        sm = getattr(self._ms, "scale_manager", None) or self._sm
 
         for lvl in self._lm.levels:
-            z = lvl.elevation
-            v = -z  # Qt Y
-
-            elev_str = self._sm.format_length(z) if self._sm else f"{z:.0f} mm"
-
-            item = ElevDatumItem(
-                v, h_min, h_max,
-                lvl.name, elev_str,
-                bubble_r, datum_color, fill_color,
-                pen_w, name_font, elev_font,
-                scale, opacity, color_src=datum_src, fill_src=fill_src)
+            item = ElevDatumItem(-lvl.elevation, h_min, h_max, lvl, datum_color,
+                                 datum_pen_w, opacity=opacity, color_src=datum_src,
+                                 scale_manager=sm)
             self.addItem(item)
+            item.refresh_head()       # the head resolves its block only once in a scene
 
     # ── Selection ────────────────────────────────────────────────────────
     # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable

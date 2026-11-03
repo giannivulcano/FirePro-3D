@@ -137,3 +137,162 @@ def test_shipped_leveldatum_reproduces_todays_head(qapp):
             name["height_mm"], name["bold"]) == (6.25, -0.5, "B", "L", 3.0, True)
     assert (elev["x"], elev["y"], elev["valign"], elev["align"],
             elev["height_mm"], elev["bold"]) == (6.25, 0.5, "T", "L", 2.4, False)
+
+
+# -- T9: the head on the section canvas ----------------------------------------------
+
+def test_ac3_each_datum_owns_one_level_head_at_its_left_end(qapp, section_scene_for):
+    from firepro3d.bound_label import OutlinedLabel
+    from firepro3d.gridline import BUBBLE_RADIUS_MM
+    from firepro3d.section_scene import ElevDatumItem, LevelDatumHead
+    ms, sec, dt, d = _datum_scene(section_scene_for)
+    dts = [i for i in sec.items() if isinstance(i, ElevDatumItem)]
+    assert len(dts) == 3
+    for x in dts:
+        heads = [c for c in x.childItems() if isinstance(c, LevelDatumHead)]
+        assert heads == [x.head]
+        assert isinstance(x.head, OutlinedLabel)
+        assert x.head.host is x and x.head.category == "Level" and x.head.rotation() == 0.0
+        assert x.head.definition() is d
+        # origin on the line at today's circle centre: half a BUBBLE_RADIUS_MM left of h_min
+        assert x._bx == pytest.approx(sec.basis.h_min - 0.5 * BUBBLE_RADIUS_MM)
+        assert x.head.pos() == QPointF(x._bx, x._v)
+        assert x._level in ms._level_manager.levels           # the real Level object (D3)
+
+
+def test_ac3_head_paints_name_and_elevation_and_a_rename_repaints(qapp, section_scene_for):
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    k = ms.scale_manager.drawing_scale                       # 100 (ScaleManager default)
+    rect = QRectF(dt._bx - 6.0 * k, -12.0 * k, 40.0 * k, 24.0 * k)
+    hv = dt.head.host_values({"Level.Name", "Level.Elevation"})
+    assert hv["Level.Name"].text == "Level 1"
+    assert hv["Level.Elevation"].text == ms.scale_manager.format_length(0.0)
+    shown = _digest(_render(sec, rect, 400, 240))
+    lm = ms._level_manager
+    assert lm.rename_level("Level 1", "Roof", [])           # the real rename (mutates the Level)
+    renamed = _digest(_render(sec, rect, 400, 240))
+    assert renamed != shown                                  # pulled on paint, no rebuild
+    assert lm.rename_level("Roof", "Level 1", [])
+    assert _digest(_render(sec, rect, 400, 240)) == shown    # same name -> same ink
+    dt._level.elevation = 1000.0                             # the Elevation field re-paints too
+    assert _digest(_render(sec, rect, 400, 240)) != shown
+    dt._level.elevation = 0.0
+    assert _digest(_render(sec, rect, 400, 240)) == shown
+
+
+def test_ac3_name_is_shown_as_typed(qapp, section_scene_for):
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    k = ms.scale_manager.drawing_scale
+    rect = QRectF(dt._bx - 6.0 * k, -12.0 * k, 40.0 * k, 24.0 * k)
+    lm = ms._level_manager
+    assert lm.rename_level("Level 1", "level one", [])
+    lower = _digest(_render(sec, rect, 400, 240))
+    assert lm.rename_level("level one", "LEVEL ONE", [])
+    assert _digest(_render(sec, rect, 400, 240)) != lower    # an upper-cased paint would match
+
+
+@pytest.mark.parametrize("shape,half", [("circle", HEAD_R), ("square", SQ_TRIM)])
+def test_ac4_screen_datum_line_starts_at_the_head_outline(qapp, section_scene_for, shape, half):
+    """The painted dash-dot line (drawForeground) starts where the ray from the
+    head toward the line's far end (+h) leaves the block outline: 5 mm (circle)
+    or 8 mm (the asymmetric rectangle; the opposite ray would read 4) x k."""
+    ms, sec, dt, _d = _datum_scene(section_scene_for, shape)
+    k = ms.scale_manager.drawing_scale                       # 100 -> 500 / 600 scene mm
+    dt.head.setOpacity(0.0)          # still visible (the trim holds) but paints no ink
+    rect = QRectF(dt._bx - 1000.0, -250.0, 2000.0, 500.0)   # 2 mm per px; v = 0 -> row 125
+    img = _render(sec, rect, 1000, 250)
+    xs = [x for x in range(1000) for y in (123, 124, 125, 126, 127) if img.pixel(x, y) != BG]
+    assert xs, "no datum line painted"
+    first_h = rect.left() + min(xs) * 2.0
+    # tolerance: SquareCap half pen (8.128 / 2 mm) + 2 px antialias
+    assert first_h == pytest.approx(dt._bx + half * k, abs=8.5)
+
+
+def test_ac5_selection_ring_on_screen_never_with_the_paper_flag(qapp, section_scene_for):
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    k = ms.scale_manager.drawing_scale
+    # left of the line start (bx + 5k) and of the text: only the head symbol + ring
+    rect = QRectF(dt._bx - 7.0 * k, -7.0 * k, 11.0 * k, 14.0 * k)
+    off = _digest(_render(sec, rect, 220, 280))
+    assert dt.head.overlay_pens() == []
+    dt.setSelected(True)
+    # the selection manipulator frames the selected datum: hide it so the
+    # digests compare the head's own ink only (it is not under test here)
+    sec._live_manip().setVisible(False)
+    assert len(dt.head.overlay_pens()) == 1
+    assert _digest(_render(sec, rect, 220, 280)) != off      # the ring inks on screen
+    dt._paper_render = True
+    try:
+        assert dt.head.overlay_pens() == []
+        assert _digest(_render(sec, rect, 220, 280)) == off  # never on paper
+    finally:
+        dt._paper_render = False
+
+
+def test_head_scales_with_the_drawing_scale_and_the_datum_bounds_follow(qapp, section_scene_for):
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    for ds in (50.0, 200.0):
+        ms.scale_manager.drawing_scale = ds
+        sec.refresh_annotation_tags()
+        o = dt.head.outline_path().boundingRect()
+        assert o.width() == pytest.approx(2 * HEAD_R * ds, abs=0.02 * ds)
+        assert dt.line_start_h() == pytest.approx(dt._bx + HEAD_R * ds, abs=0.02 * ds)
+        outline_in_parent = dt.head.mapToParent(dt.head.outline_path()).boundingRect()
+        assert dt.boundingRect().contains(outline_in_parent)
+        assert dt.shape().boundingRect().contains(outline_in_parent.center())   # hit shape = outline
+
+
+def test_ac8_a_press_on_the_head_selects_the_datum_and_hover_resolves_to_it(qapp, section_scene_for):
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.elevation_view import SectionView
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    k = ms.scale_manager.drawing_scale
+    inside = QPointF(dt._bx - 0.5 * HEAD_R * k, -0.25 * HEAD_R * k)   # upper-left quadrant: off the cross and the line
+    v = SectionView(sec)
+    try:
+        v.resize(900, 700)
+        v.show()
+        QTest.qWaitForWindowExposed(v)
+        v.fitInView(QRectF(dt._bx - 3000.0, -3000.0, 6000.0, 6000.0),
+                    Qt.AspectRatioMode.KeepAspectRatio)
+        QApplication.processEvents()
+        vp = v.mapFromScene(inside)
+        QTest.mouseMove(v.viewport(), vp)
+        QTest.mouseClick(v.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, vp)
+        assert dt.isSelected()
+    finally:
+        v.close()
+    sec.clearSelection()
+    sec.halo_update(inside, 15.0, QTransform())              # identity: 1 scene unit = 1 px
+    assert sec.halo_item() is dt
+    assert sec._manip_exclude(dt.head)
+
+
+def test_ac8_left_grip_and_interior_move_carry_the_head(qapp, section_scene_for):
+    from firepro3d.gridline import BUBBLE_RADIUS_MM
+    ms, sec, dt, _d = _datum_scene(section_scene_for)
+    x2 = dt.line().p2().x()
+    dt.apply_grip(0, QPointF(dt.line().p1().x() - 700.0, 999.0))    # y ignored (V pinned)
+    new_x = dt.line().p1().x()
+    assert dt.line().p1().y() == 0.0 and dt.line().p2().x() == x2
+    assert dt._bx == pytest.approx(new_x - 0.5 * BUBBLE_RADIUS_MM)
+    assert dt.head.pos() == QPointF(dt._bx, 0.0)
+    bx0 = dt._bx
+    dt.manip_translate(40.0, 20.0)
+    assert dt._bx == pytest.approx(bx0 + 40.0) and dt.head.pos() == QPointF(bx0 + 40.0, 0.0)
+    assert [c for c in dt.childItems()] == [dt.head]          # moved, never rebuilt
+
+
+def test_ac3_shipped_leveldatum_draws_the_head_through_the_system_tier(
+        qapp, section_scene_for, real_system_library):
+    from firepro3d.section_scene import ElevDatumItem
+    ms, sec = section_scene_for("north")
+    ms.annotation_block("Level")          # eager embed, as scene_io / template do (never inside paint)
+    sec.rebuild()
+    dt = next(i for i in sec.items() if isinstance(i, ElevDatumItem) and abs(i._v) < 1e-6)
+    assert dt.head.definition().id == "system-tags-leveldatum"
+    assert dt.head.paints()
+    k = ms.scale_manager.drawing_scale
+    assert dt.line_start_h() == pytest.approx(dt._bx + 5.0 * k, abs=0.02 * k)   # seed r = 5 mm

@@ -181,16 +181,17 @@ def test_level_datum_row_colour_and_opacity_reach_datum_line(qapp, tmp_path, sec
 
 
 def test_paper_pass_restores_elevation_datum(qapp, tmp_path, section_scene_for):
-    from firepro3d.section_scene import ElevDatumItem, _ColourSrcMixin
+    from firepro3d.section_scene import ElevDatumItem
     save_paper_color_mode(PaperColorMode.BW)             # the pass swaps colour srcs
     sec, eg, ce = _elev_scene(section_scene_for)
     (dt,) = [i for i in sec.items()                      # Level 1, inside the crop
              if isinstance(i, ElevDatumItem) and abs(i._v) < 1e-6]
 
     def _state():
-        kids = [(c._pen_src, c._brush_src, c._src_tint, c._paper_pen_width)
-                for c in dt.childItems() if isinstance(c, _ColourSrcMixin)]
-        return (dt._color_src, dt._fill_src, dt._paper_line_w_mm, dt.opacity(), kids)
+        h = dt.head
+        return (dt._color_src, dt._paper_line_w_mm, dt._paper_line_w, dt._paper_render,
+                dt.opacity(), dt.boundingRect(), h._paper_scale, h._paper_pen_width,
+                h._paper_pen_color, h.opacity())
     before = _state()
     seen = []
     orig = dt.enter_paper_pass
