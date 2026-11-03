@@ -49,6 +49,7 @@ def test_ac5_load_notice_reaches_the_status_bar(mw, qapp, tmp_path):
     folder.mkdir(parents=True)
     shutil.copy(system_blocks_path("Tags", "RoomTag.fpdb"), folder / "RoomTag.fpdb")
     shutil.copy(system_blocks_path("Tags", "PipeLabel.fpdb"), folder / "PipeLabel.fpdb")   # SB4a: Pipe is a category too; else its miss notice is the last message
+    shutil.copy(system_blocks_path("Tags", "GridlineBubble.fpdb"), folder / "GridlineBubble.fpdb")   # SB4b: Gridline is a category too; same reason
     block_library.set_system_root(str(tmp_path / "sys"))
     ms = mw.scene
     _room(ms, "Office")

@@ -85,3 +85,21 @@ def test_q13_blank_room_name_still_paints_nothing(qapp):
     ms.addItem(r)
     ms._rooms.append(r)
     assert r._tag._ops(1.0) == []
+
+
+def test_shipped_gridlinebubble_is_eligible_and_binds_mark(qapp):
+    import json, os
+    import firepro3d
+    from firepro3d import block_library
+    from firepro3d.bound_label import eligible_definition
+    path = os.path.join(os.path.dirname(firepro3d.__file__), "system_blocks", "Tags",
+                        "GridlineBubble.fpdb")
+    d = block_library.load_block_file(path)
+    assert d.id == "system-tags-gridlinebubble" and eligible_definition(d, "Gridline")
+    attrs = [a for a in d.effective_attributes() if a.get("source") == "host"]
+    assert [a["host_key"] for a in attrs] == ["Mark"] and attrs[0]["placeholder"] == ""
+    raw = json.load(open(path, encoding="utf-8"))
+    kinds = sorted(p["type"] for p in raw["primitives"])
+    assert kinds == ["draw_circle", "text"]
+    circ = next(p for p in raw["primitives"] if p["type"] == "draw_circle")
+    assert circ["radius"] == pytest.approx(4.75) and (circ["cx"], circ["cy"]) == (0.0, 0.0)
