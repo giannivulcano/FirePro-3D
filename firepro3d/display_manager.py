@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QWidget, QLabel, QComboBox,
     QAbstractItemView, QTabWidget,
 )
-from PyQt6.QtGui import (QColor, QFont, QBrush, QPen,
+from PyQt6.QtGui import (QColor, QFont, QPen,
                          QIcon)
 from PyQt6.QtCore import Qt, QSettings, QByteArray, QSize, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
