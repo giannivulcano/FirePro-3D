@@ -1664,35 +1664,33 @@ class DisplayManager(HouseDialog):
         _disabled_ss = (f"background: {_t.bg_sunken}; color: {_t.text_disabled}; "
                         f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
 
-        # ── Visibility checkbox ──────────────────────────────────────
+        # Every column: QTreeView clamps the row to each fixed-height index
+        # widget (the 22 px spin boxes) and only a later column's delegate hint
+        # lifts it again, so a hint on column 0 alone leaves the row at 22.
+        for _c in range(self._tree.columnCount()):
+            tree_item.setSizeHint(_c, QSize(0, th.M.DM_ROW_H))
+
+        # ── Visibility eye (R3: painted, like the Underlay Manager) ──
         vis_container = QWidget()
         vis_layout = QHBoxLayout(vis_container)
         vis_layout.setContentsMargins(0, 0, 0, 0)
         vis_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        vis_cb = QCheckBox()
-        vis_cb.setChecked(visible)
+        vis_cb = EyeToggle(checked=visible)
         vis_layout.addWidget(vis_cb)
         self._tree.setItemWidget(tree_item, _COL_VIS, vis_container)
 
-        # ── Colour swatch ────────────────────────────────────────────
-        color_btn = QPushButton()
-        color_btn.setFixedSize(40, 20)
-        color_btn.setProperty("_color", color)
-        _apply_swatch_look(color_btn, color, _t)
+        # ── Colour chip (R2: compact property-panel swatch, no hex label) ──
+        color_btn = Swatch(color, context="Colour", show_label=False, auto_pick=False)
         self._tree.setItemWidget(tree_item, _COL_COLOR, color_btn)
 
-        # ── Fill colour swatch (solid only — no hatch option) ────────
-        fill_btn = QPushButton()
-        fill_btn.setFixedSize(40, 20)
+        # ── Fill chip (solid / No Fill only — no hatch option) ───────
         if has_fill and fill is not None:
             # Strip any legacy "hatch:" prefix — fill is now solid-only
             _, hex_col = _parse_fill_value(fill)
-            fill_btn.setProperty("_color", hex_col)
-            _apply_swatch_look(fill_btn, hex_col, _t)
+            fill_btn = Swatch(hex_col, context="Fill", show_label=False, auto_pick=False)
         else:
-            fill_btn.setProperty("_color", "")
-            fill_btn.setStyleSheet(_disabled_ss)
-            fill_btn.setEnabled(False)
+            fill_btn = Swatch("", context="Fill", show_label=False, auto_pick=False)
+            fill_btn.setEnabled(False)       # not applicable: dimmed chip
         self._tree.setItemWidget(tree_item, _COL_FILL, fill_btn)
 
         # ── Section cell: a Fill Type selector (HF5; Wall / Floor only) ──
@@ -1755,10 +1753,10 @@ class DisplayManager(HouseDialog):
             vis_cb.toggled.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "visible", v))
             color_btn.clicked.connect(
-                lambda _, k=category_key: self._pick_category_prop(k, "color"))
+                lambda k=category_key: self._pick_category_prop(k, "color"))
             if has_fill:
                 fill_btn.clicked.connect(
-                    lambda _, k=category_key: self._pick_category_prop(k, "fill"))
+                    lambda k=category_key: self._pick_category_prop(k, "fill"))
             if has_section:
                 section_sel.currentTextChanged.connect(
                     lambda name, k=category_key: self._on_category_changed(
@@ -1774,10 +1772,10 @@ class DisplayManager(HouseDialog):
             vis_cb.toggled.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "visible", v))
             color_btn.clicked.connect(
-                lambda _, ref=item_ref: self._pick_instance_prop(ref, "color"))
+                lambda ref=item_ref: self._pick_instance_prop(ref, "color"))
             if has_fill:
                 fill_btn.clicked.connect(
-                    lambda _, ref=item_ref: self._pick_instance_prop(ref, "fill"))
+                    lambda ref=item_ref: self._pick_instance_prop(ref, "fill"))
             if has_section:
                 section_sel.currentTextChanged.connect(
                     lambda name, ref=item_ref: self._on_instance_section_picked(ref, name))
@@ -1843,9 +1841,14 @@ class DisplayManager(HouseDialog):
 
     def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str):
         """Update a swatch button for 'color' or 'fill'."""
-        _t = th.detect()
         # color and fill are both solid swatches
         _, hex_col = _parse_fill_value(hex_color)
+        if isinstance(btn, Swatch):
+            # Model chips (T3). The Paper tree's cells stay QPushButtons until
+            # T4, which drops this bridge (self-review F5).
+            btn.set_hex(hex_col)
+            return
+        _t = th.detect()
         btn.setProperty("_color", hex_col)
         btn.setIcon(QIcon())
         _apply_swatch_look(btn, hex_col, _t)
