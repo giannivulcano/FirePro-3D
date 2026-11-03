@@ -33,7 +33,17 @@ Z_SPRINKLER      = 100    # sprinkler symbols
 Z_OVERLAY        = 200    # previews, view markers, room labels, badges
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
-Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
+#
+# Annotation band (SB4d D5; the order is owned by view-relationships.md 7.3):
+# every annotation draws above every model item in every view, sub-ordered
+# text / dims < tags + labels + node badge < gridlines + bubbles < view markers.
+Z_ANNOT_BASE     = 10_000
+Z_ANNOT_TEXT     = 10_000   # TextItem
+Z_ANNOT_TAG      = 10_100   # tag blocks, room tag, pipe label, node badge, hosted section copies
+Z_ANNOT_GRID     = 10_200   # gridlines (+ bubbles), elevation gridlines + level datums
+Z_ANNOT_MARKER   = 10_300   # detail + section / elevation markers (+ their heads)
+Z_DEPTH_CEIL     = Z_ANNOT_TEXT - 1.0   # SectionScene depth walk clamp (Q17)
+Z_PREVIEW        = 20_000   # ephemeral array/tool preview overlay, lifted above the band
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset

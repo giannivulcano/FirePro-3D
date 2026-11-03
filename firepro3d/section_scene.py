@@ -31,7 +31,8 @@ from PyQt6.QtGui import (
 from PyQt6.QtCore import QSettings
 
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
-                        ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM)
+                        ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM,
+                        Z_DEPTH_CEIL)
 from . import theme as th
 from .paper_display import paper_pass_active, shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush
@@ -56,6 +57,12 @@ _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 # Footer status when a section placement finds no host gridline (hosted-blocks G9).
 HOSTED_REFUSAL = ("Can't place here — a block in a section needs a "
                   "gridline parallel to the cut inside the view's depth.")
+
+# Depth walk (_assign_depth_z_values): farthest item first from _DEPTH_Z_START
+# in _DEPTH_Z_STEP steps, clamped at constants.Z_DEPTH_CEIL so projected model
+# items never reach the annotation band (SB4d D5 / Q17).
+_DEPTH_Z_START = -50.0
+_DEPTH_Z_STEP = 0.01
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1378,11 +1385,11 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         Farther items get lower Z (drawn first / behind).
         """
         self._depth_items.sort(key=lambda x: x[0])
-        z = -50.0
+        z = _DEPTH_Z_START
         for depth, items in self._depth_items:
             for item in items:
-                item.setZValue(z)
-                z += 0.01
+                item.setZValue(min(z, Z_DEPTH_CEIL))   # bounded below the annotation band (SB4d Q17)
+                z += _DEPTH_Z_STEP
         self._depth_items = []
 
     # ── Foreground (datum lines) ─────────────────────────────────────────
