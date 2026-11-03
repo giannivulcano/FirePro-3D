@@ -101,3 +101,39 @@ def test_category_of_an_elevation_datum_is_level_and_others_are_unchanged(qapp, 
     assert len(dts) == 3                                    # Level 1 / 2 / 3 (DEFAULT_LEVELS)
     assert {ep.category_of(d) for d in dts} == {"Level"}
     assert ep.category_of(object()) is None
+
+
+# -- T8: shipped seed ---------------------------------------------------------------
+
+def test_shipped_leveldatum_reproduces_todays_head(qapp):
+    import json
+    from firepro3d import block_library
+    from firepro3d.assets import system_blocks_path
+    from firepro3d.bound_label import eligible_definition
+    from firepro3d.render_op import FILL, STROKE
+    path = system_blocks_path("Tags", "LevelDatum.fpdb")
+    d = block_library.load_block_file(path)
+    assert d is not None and d.id == "system-tags-leveldatum"
+    assert d.library == block_library.SYSTEM_LIBRARY and d.series == "Tags"
+    assert eligible_definition(d, "Level")
+    host = [a for a in d.effective_attributes() if a.get("source") == "host"]
+    assert [a["host_key"] for a in host] == ["Level.Name", "Level.Elevation"]
+
+    def box(op):
+        r = op.path.boundingRect()
+        return tuple(round(v, 3) for v in (r.x(), r.y(), r.width(), r.height()))
+    ops = d.render_ops()
+    # today's bespoke head: datum-colour quadrants arcTo(0, 90) (upper-right) and
+    # arcTo(180, 90) (lower-left); circle + cross; radius 5 mm (OQ1 option A)
+    assert sorted(box(o) for o in ops if o.kind == FILL) == [(-5.0, 0.0, 5.0, 5.0),
+                                                              (0.0, -5.0, 5.0, 5.0)]
+    assert sorted(box(o) for o in ops if o.kind == STROKE) == [
+        (-5.0, -5.0, 10.0, 10.0), (-5.0, 0.0, 10.0, 0.0), (0.0, -5.0, 0.0, 10.0)]
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    texts = {p["text"]: p for p in raw["primitives"] if p["type"] == "text"}
+    name, elev = texts["@[Level.Name]"], texts["@[Level.Elevation]"]
+    assert (name["x"], name["y"] + name["box_height_mm"], name["valign"], name["align"],
+            name["height_mm"], name["bold"]) == (6.25, -0.5, "B", "L", 3.0, True)
+    assert (elev["x"], elev["y"], elev["valign"], elev["align"],
+            elev["height_mm"], elev["bold"]) == (6.25, 0.5, "T", "L", 2.4, False)

@@ -1,0 +1,377 @@
+{
+  "schema": 1,
+  "id": "system-tags-leveldatum",
+  "version": 1,
+  "name": "LevelDatum",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [
+    {
+      "key": "Level.Name",
+      "label": "Name",
+      "type": "text",
+      "source": "host",
+      "host_key": "Level.Name",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "-"
+    },
+    {
+      "key": "Level.Elevation",
+      "label": "Elevation",
+      "type": "text",
+      "source": "host",
+      "host_key": "Level.Elevation",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "-"
+    }
+  ],
+  "host_category": "Level",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 0.0,
+      "cy": 0.0,
+      "radius": 5.0,
+      "uid": "100fb12063584d9f9034472f3c2e74db",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        -5.0,
+        0.0
+      ],
+      "pt2": [
+        5.0,
+        0.0
+      ],
+      "uid": "868d4e04fad7444eb24391e7f65d1f78",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        -5.0
+      ],
+      "pt2": [
+        0.0,
+        5.0
+      ],
+      "uid": "71bf6284c7c64e33a400d0a8a55cd451",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_line",
+            "pt1": [
+              0.0,
+              0.0
+            ],
+            "pt2": [
+              5.0,
+              -0.0
+            ],
+            "uid": "367f88bf865449f19b31a813a6bdeecd",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "token:auto"
+            }
+          },
+          {
+            "type": "arc",
+            "cx": 0.0,
+            "cy": 0.0,
+            "radius": 5.0,
+            "start_deg": 0.0,
+            "span_deg": 90.0,
+            "uid": "5543f8a28d354b9896f045f32fae55da",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "token:auto"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              3.061616997868383e-16,
+              -5.0
+            ],
+            "pt2": [
+              0.0,
+              0.0
+            ],
+            "uid": "8967b785453a401388ad51bd63f3d80b",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "token:auto"
+            }
+          }
+        ]
+      ],
+      "outline": false,
+      "uid": "51ee892371404e6fa161656b3de81b3e",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      },
+      "fill": {
+        "background": {
+          "color": "token:auto",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_line",
+            "pt1": [
+              0.0,
+              0.0
+            ],
+            "pt2": [
+              -5.0,
+              -6.123233995736766e-16
+            ],
+            "uid": "a90786c178344da48cba6832b2f7f909",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "token:auto"
+            }
+          },
+          {
+            "type": "arc",
+            "cx": 0.0,
+            "cy": 0.0,
+            "radius": 5.0,
+            "start_deg": 180.0,
+            "span_deg": 90.0,
+            "uid": "eda65e1628ab43b8b10a6418ef5c2fe6",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "token:auto"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -9.184850993605148e-16,
+              5.0
+            ],
+            "pt2": [
+              0.0,
+              0.0
+            ],
+            "uid": "8d2149f24068412c8644cb6709406a3d",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "token:auto"
+            }
+          }
+        ]
+      ],
+      "outline": false,
+      "uid": "3364c8d2b9244f368ecfbd14fa4ee9a0",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      },
+      "fill": {
+        "background": {
+          "color": "token:auto",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "text",
+      "text": "@[Level.Name]",
+      "x": 6.25,
+      "y": -5.5,
+      "height_mm": 3.0,
+      "wrap_width_mm": 30.0,
+      "box_height_mm": 5.0,
+      "font_family": "Consolas",
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "L",
+      "valign": "B",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "2b2306a37bf9412dab9a6ad8b893f35d"
+    },
+    {
+      "type": "text",
+      "text": "@[Level.Elevation]",
+      "x": 6.25,
+      "y": 0.5,
+      "height_mm": 2.4,
+      "wrap_width_mm": 30.0,
+      "box_height_mm": 4.0,
+      "font_family": "Consolas",
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "L",
+      "valign": "T",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "f6b5423d37c6432bae2fc26ca468e7a5"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {
+    "Thinner": 0.25
+  }
+}
