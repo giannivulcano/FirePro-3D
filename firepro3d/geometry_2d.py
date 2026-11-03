@@ -1045,8 +1045,8 @@ class Geometry2DMixin:
                 return
             mine = ix.ends_of(self)
             ent = cache[dedupe] = (self._build_joint_entry(ix, mine, dedupe)
-                                   if mine else ((), (), ()))
-        sigs, wedges, pairs = ent
+                                   if mine else ((), (), (), None))
+        sigs, wedges, pairs, memo = ent
         if sigs is None:                        # live path (not cacheable)
             self._paint_joints_live(painter, pen, rs, pairs)
             return
@@ -1066,13 +1066,18 @@ class Geometry2DMixin:
             k = pen.widthF() / 2.0 / (math.sqrt(n2) or 1e-9)
         else:
             k = pen.widthF() / 2.0
+        polys = memo.get(k)             # scaled polygons, kept for the last k (pan: always hits)
+        if polys is None:
+            memo.clear()
+            polys = memo[k] = [QTransform(k, 0.0, 0.0, k, cx * (1.0 - k),
+                                          cy * (1.0 - k)).map(poly)
+                               for cx, cy, poly in wedges]
         painter.save()
         try:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(pen.color())
-            for cx, cy, poly in wedges:
-                painter.drawPolygon(QTransform(k, 0.0, 0.0, k, cx * (1.0 - k),
-                                               cy * (1.0 - k)).map(poly))
+            for poly in polys:
+                painter.drawPolygon(poly)
         finally:
             painter.restore()
 
@@ -1090,10 +1095,10 @@ class Geometry2DMixin:
         item-local coordinates at half_w = 1."""
         pairs = self._joint_pairs(ix, mine, dedupe)
         if not pairs:
-            return ((), (), ())
+            return ((), (), (), None)
         if not (self._joint_cacheable()
                 and all(p.owner._joint_cacheable() for _, p in pairs)):
-            return (None, (), tuple(pairs))
+            return (None, (), tuple(pairs), None)
         to_item = self.sceneTransform().inverted()[0]
         owners = [self] + [p.owner for _, p in pairs]
         sigs = tuple(o._joint_sig() for o in dict.fromkeys(owners))
@@ -1106,7 +1111,7 @@ class Geometry2DMixin:
             if w is not None:
                 c = w.at(0)
                 wedges.append((c.x(), c.y(), w))
-        return (sigs, tuple(wedges), ())
+        return (sigs, tuple(wedges), (), {})
 
     def _paint_joints_live(self, painter, pen, rs, pairs) -> None:
         """The device-space path: attrs and wedges computed from live state
