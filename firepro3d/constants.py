@@ -90,6 +90,13 @@ DEFAULT_GRIDLINE_LENGTH_MM  = 21945.6  # 864 in / 72 ft
 
 GRIDLINE_BUBBLE_OFFSET_MM = 1000.0  # absolute along-axis bubble standoff (mm)
 
+# Elevation / section gridline (SB4c D2): extent padding past the level span
+# and line pen width, scene mm. Both were derived from the retired bespoke
+# 203.2 mm elevation bubble x display/Grid Line/scale; frozen at its scale-1.0
+# values so default extents and label-keyed z-overrides do not move.
+ELEV_GRIDLINE_END_PAD_MM = 253.2     # = 203.2 (old bubble radius) + 50
+ELEV_GRIDLINE_PEN_W_MM = 8.128       # = 203.2 * 0.04
+
 # ── Underlay rendering ───────────────────────────────────────────────────────
 # Cosmetic pen width (device pixels) for batched DXF/PDF underlay geometry, so
 # lines stay a constant thickness regardless of zoom or import scale.

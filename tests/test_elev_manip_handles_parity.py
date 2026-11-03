@@ -5,8 +5,7 @@ from firepro3d.section_scene import ElevGridlineItem, ElevDatumItem
 
 
 def _grid():
-    return ElevGridlineItem(100.0, -50.0, 50.0, "A", 20.0,
-                            QColor("#888"), QColor("#fff"), 1.0)
+    return ElevGridlineItem(100.0, -50.0, 50.0, "A", QColor("#888"), 1.0)
 
 
 def _datum():

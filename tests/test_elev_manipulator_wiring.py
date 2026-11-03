@@ -12,8 +12,7 @@ from firepro3d.section_scene import ElevGridlineItem
 
 
 def _grid(label="A", h=100.0):
-    return ElevGridlineItem(h, -50.0, 50.0, label, 20.0,
-                            QColor("#888"), QColor("#fff"), 1.0)
+    return ElevGridlineItem(h, -50.0, 50.0, label, QColor("#888"), 1.0)
 
 
 def test_manipulator_wraps_selected_gridline(qapp, section_scene_for):

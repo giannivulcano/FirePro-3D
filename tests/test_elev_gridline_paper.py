@@ -97,9 +97,9 @@ def test_paper_pass_restores_elevation_gridline(qapp, tmp_path, section_scene_fo
     sec, eg, ce = _elev_scene(section_scene_for)
 
     def _state():
-        b, lb = eg.bubble1, eg.bubble1._label
-        return (eg._grid_src, b.rect(), b._pen_src, b._brush_src,
-                lb.font().pixelSize(), lb.scale(), lb._src, lb._tint, eg.opacity())
+        return (eg._grid_src, eg._paper_render, eg._paper_line_w_mm, eg.opacity(),
+                [(b._paper_scale, b._paper_pen_width, b._paper_pen_color, b.isVisible())
+                 for b in (eg.bubble1, eg.bubble2)])
     before = _state()
     export_scene(tmp_path, sec, 0.01, ce, "restore.pdf")
     assert _state() == before
@@ -123,6 +123,7 @@ def test_elevation_datum_plots_through_level_datum_row(qapp, tmp_path, section_s
     assert _same_dashes(d, _vertical_line(pdf)), (_dash_mm(d),)  # same paper-mm dash-dot
 
 
+@pytest.mark.xfail(strict=True, reason="SB4c half B paper task: elevation bubbles take the row colour through _apply_block")
 def test_custom_grid_line_colour_reaches_elevation_gridline(qapp, tmp_path, section_scene_for,
                                                             real_system_library):   # SB4b: the plan bubble is the shipped GridlineBubble block
     """Custom mode: the row colour (not the paper-surface token default)

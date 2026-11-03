@@ -29,8 +29,7 @@ from firepro3d.section_scene import ElevGridlineItem
 
 
 def _add_gridline(scene, label="A", h=100.0, v_top=-50.0, v_bot=50.0):
-    g = ElevGridlineItem(h, v_top, v_bot, label, 20.0,
-                         QColor("#888"), QColor("#fff"), 1.0)
+    g = ElevGridlineItem(h, v_top, v_bot, label, QColor("#888"), 1.0)
     scene.addItem(g)
     return g
 
