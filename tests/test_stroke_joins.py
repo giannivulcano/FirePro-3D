@@ -121,3 +121,85 @@ def test_g1_lone_line_dark_extent_equals_endpoints(qapp, monkeypatch):
     img = _render([LineItem(QPointF(50, 100), QPointF(250, 100))], monkeypatch=monkeypatch)
     xs = sorted({x for x, _ in _dark(img)})
     assert (xs[0], xs[-1]) == (50, 249)
+
+
+# ---------------------------------------------------------------- C. joint_wedge (D2)
+from firepro3d.stroke_joints import joint_wedge
+
+
+def _dir(deg):
+    a = math.radians(deg); return (math.cos(a), math.sin(a))
+
+
+def _pts(poly):
+    return [(round(poly.at(i).x(), 6), round(poly.at(i).y(), 6)) for i in range(poly.count())]
+
+
+def _oracle_outline(deg, limit_qt, w=20.0):
+    """Stroker outline of A (arriving along +y into the origin) then B at *deg*."""
+    p = QPainterPath(QPointF(0, 100)); p.lineTo(QPointF(0, 0))
+    a = math.radians(deg); p.lineTo(QPointF(100 * math.sin(a), 100 * math.cos(a)))
+    st = QPainterPathStroker(); st.setWidth(w)
+    st.setJoinStyle(Qt.PenJoinStyle.MiterJoin); st.setMiterLimit(limit_qt)
+    st.setCapStyle(Qt.PenCapStyle.FlatCap)
+    return st.createStroke(p)
+
+
+def test_p4_qt_clip_rule_is_limit_times_width_along_the_edge_extension(qapp):
+    """Derived 2026-11-03 (20 deg, width 20): Qt clips the miter with a chord
+    whose end points lie on the two outer edges, extended past the join point,
+    at distance limit_qt * width from the join point (the foot of the flat
+    end) -- reach (bbox top) 22.2 / 31.6 / 41.0 / 50.4 at limit 1 / 1.5 / 2 /
+    2.5. Not measured from the inner corner."""
+    want_reach = {1.0: 22.214, 1.5: 31.611, 2.0: 41.008, 2.5: 50.405}
+    for lim, reach in want_reach.items():
+        o = _oracle_outline(20.0, lim)
+        assert -o.boundingRect().top() == pytest.approx(reach, abs=0.01)
+        pts = [(o.elementAt(i).x, o.elementAt(i).y) for i in range(o.elementCount())]
+        # A's outer edge (x = -10) continues past the corner to y = -limit * width
+        assert any(abs(x + 10.0) < 1e-3 and abs(y + lim * 20.0) < 1e-3 for x, y in pts)
+
+
+@pytest.mark.parametrize("deg,n,tip_reach", [
+    (90.0, 4, math.sqrt(2.0)),              # square corner: tip at half_w*sqrt2
+    (60.0, 4, 1.0 / math.sin(math.radians(30))),
+    (30.0, 4, 1.0 / math.sin(math.radians(15))),   # edge reach 3.73 < 4: still mitered
+    (28.0, 5, None),                        # edge reach 4.01 > 4: clipped miter
+    (20.0, 5, None),
+])
+def test_joint_wedge_table(deg, n, tip_reach):
+    w = joint_wedge(QPointF(0, 0), _dir(0.0), _dir(deg), 1.0)
+    assert w is not None and w.count() == n
+    pts = _pts(w)
+    assert pts[0] == (0.0, 0.0)                       # the corner
+    if tip_reach is not None:
+        tip = w.at(2)
+        assert math.hypot(tip.x(), tip.y()) == pytest.approx(tip_reach, abs=1e-6)
+        # tip lies on the exterior bisector: opposite to d_a + d_b
+        bx, by = -(1.0 + math.cos(math.radians(deg))), -math.sin(math.radians(deg))
+        assert math.atan2(tip.y(), tip.x()) == pytest.approx(math.atan2(by, bx), abs=1e-9)
+
+
+@pytest.mark.parametrize("deg", [28.0, 20.0, 10.0])
+def test_joint_wedge_clipped_reach_matches_stroker_oracle(deg):
+    """Past the limit the wedge reaches exactly as far as the Qt-clipped miter
+    (oracle: MiterJoin, FlatCap, Qt limit = STROKE_MITER_LIMIT / 2)."""
+    o = _oracle_outline(deg, C.STROKE_MITER_LIMIT / 2.0)
+    a = math.radians(deg)
+    w = joint_wedge(QPointF(0, 0), (0.0, 1.0), (math.sin(a), math.cos(a)), 10.0)
+    assert w is not None and w.count() == 5
+    reach = -min(w.at(i).y() for i in range(w.count()))
+    assert reach == pytest.approx(-o.boundingRect().top(), abs=0.05)
+
+
+def test_joint_wedge_degenerate_none():
+    assert joint_wedge(QPointF(0, 0), _dir(0.0), _dir(180.0), 1.0) is None   # straight through
+    assert joint_wedge(QPointF(0, 0), _dir(0.0), _dir(0.0), 1.0) is None     # overlap
+    assert joint_wedge(QPointF(0, 0), (0.0, 0.0), _dir(90.0), 1.0) is None   # zero tangent
+
+
+def test_joint_wedge_outer_points_sit_on_the_flat_ends():
+    w = joint_wedge(QPointF(10, 10), _dir(0.0), _dir(90.0), 2.0)
+    pts = _pts(w)
+    # A runs +x, B runs +y: the exterior is the (-,-) quadrant
+    assert (10.0, 8.0) in pts and (8.0, 10.0) in pts and (8.0, 8.0) in pts
