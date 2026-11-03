@@ -23,7 +23,7 @@ from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPainterPath
 
 from .gridline import BUBBLE_RADIUS_MM
-from .constants import DEFAULT_LEVEL, Z_DETAIL_MARKER
+from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .paper_display import shows_selection
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ class DetailMarker(QGraphicsPathItem):
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.setZValue(Z_DETAIL_MARKER)
+        self.setZValue(Z_ANNOT_MARKER)
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)

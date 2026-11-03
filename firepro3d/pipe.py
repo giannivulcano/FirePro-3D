@@ -7,7 +7,8 @@ from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
 from .bound_label import BoundLabelItem, TagBlockHost
 
-from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_LABEL_ABOVE_PIPE
+from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
+                        Z_CAT_PIPE, Z_CAT_SYMBOL, RISER_SYMBOL_TAG)
 from .displayable_item import DisplayableItemMixin
 from .assets import asset_path
 from .view_scale import scene_hit_width
@@ -207,6 +208,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             self._riser_symbol = QGraphicsSvgItem(self._RISER_SVG)
             self._riser_symbol.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self._riser_symbol.setAcceptHoverEvents(False)
+            self._riser_symbol.setData(0, RISER_SYMBOL_TAG)   # never a snap target (SB4d)
 
         # Add to scene if not yet added
         sc = self.scene()
@@ -246,12 +248,18 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             self._riser_symbol.setVisible(show)
 
     def sync_label_z(self) -> None:
-        """Keep the top-level label above its pipe at any elevation: the level
-        manager's elevation z pass lifts the pipe (and nodes) past Z_OVERLAY on
-        high levels (AC6)."""
+        """Keep the top-level label in the annotation band's tag sub-band
+        (SB4d D5): above every model item at any elevation (SB4a AC6)."""
         lab = getattr(self, "label", None)
         if lab is not None:
-            lab.setZValue(max(Z_OVERLAY, self.zValue() + Z_LABEL_ABOVE_PIPE))
+            lab.setZValue(Z_ANNOT_TAG)
+
+    def sync_riser_z(self) -> None:
+        """Pin the riser pass-through symbol just above its pipe (SB4d Q16: a
+        symbol is model geometry, elevation-ordered above Node)."""
+        rs = getattr(self, "_riser_symbol", None)
+        if rs is not None:
+            rs.setZValue(self.zValue() + (Z_CAT_SYMBOL - Z_CAT_PIPE))
 
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:
