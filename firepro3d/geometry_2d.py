@@ -869,9 +869,13 @@ class Geometry2DMixin:
             ix.register(self, new)
             for e in new:
                 touched.extend(ix.neighbours(e.point))
+        # The partner memo feeds boundingRect (m3 pad), so every owner whose
+        # partner state may flip tells the scene index before the drop.
+        self.prepareGeometryChange()
         self._drop_joint_cache()
         for e in touched:
             if e.owner is not self:
+                e.owner.prepareGeometryChange()
                 e.owner._drop_joint_cache()
                 e.owner.update()
         self.update()

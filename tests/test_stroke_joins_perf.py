@@ -6,7 +6,7 @@ A/B: copy this file into a worktree at the branch base (it has no
 ``stroke_joints``; the file runs unchanged there) and run it first; pass that
 run's printed medians as SJ_BASE_MS_PAN / SJ_BASE_MS_ZOOM / SJ_BASE_MS_DRAG
 to the HEAD run. With no env var a shape reports only; with it, HEAD / base
-must be <= 1.05 (design D8).
+must be <= 1.25 (design D8, bar ratified 2026-11-03 at the MW-13 precedent).
 
 Scene: 2000 loose LineItems in a 40 x 50 grid, laid out as 1000 L-shaped
 pairs (a horizontal line whose finish meets a vertical line's start at a
@@ -101,10 +101,10 @@ def _check(sc, shape, env, frames):
     _record(sc, shape, frames)
     base = os.environ.get(env)
     print(f"\nSJ {_label(sc)} {shape}: median {ms:.2f} ms/frame"
-          + (f" (base {float(base):.2f}, ratio {ms / float(base):.3f}, bar 1.05)"
+          + (f" (base {float(base):.2f}, ratio {ms / float(base):.3f}, bar 1.25)"
              if base else " (no base given: report only)"))
     if base:
-        assert ms <= 1.05 * float(base), (shape, ms, base)
+        assert ms <= 1.25 * float(base), (shape, ms, base)
 
 
 @pytest.fixture
