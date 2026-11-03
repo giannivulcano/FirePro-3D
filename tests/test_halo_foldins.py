@@ -4,6 +4,7 @@
 bubble's ``QGraphicsTextItem`` label (a grandchild of the gridline/datum)
 never resolved to its owner and was dropped as a HALO candidate. Walk the
 full parent chain instead.
+SB4c: the elevation bubble is now an annotation-block child (GridlineBubble); item (1) guards the child resolve + hover.
 
 (2) The scene-drawn rubber band reused the ``selection``/``ok`` tokens for
 window/crossing; both read green in the dark theme. Add dedicated
@@ -18,29 +19,34 @@ from firepro3d.section_scene import ElevGridlineItem
 from firepro3d.halo import paint_rubber_band
 
 
-def _grid():
-    return ElevGridlineItem(100.0, -50.0, 50.0, "A", 20.0,
-                            QColor("#888"), QColor("#fff"), 1.0)
+from tests.test_sb4b_gridline_bubble import _bubble_def
 
 
-# ── (1) bubble label resolve ────────────────────────────────────────────────
+def _grid(section_scene_for):
+    """A real elevation gridline whose bubbles draw the plan gridline's block (SB4c D2)."""
+    from firepro3d.gridline import GridlineItem
+    ms, elev = section_scene_for("north")
+    _bubble_def(ms)
+    gl = GridlineItem(QPointF(2500.0, -3000.0), QPointF(2500.0, 3000.0), "A")
+    ms.addItem(gl)
+    ms._gridlines.append(gl)
+    elev.rebuild()
+    (g,) = [i for i in elev.items() if isinstance(i, ElevGridlineItem)]
+    return elev, g
 
-def test_bubble_label_grandchild_resolves_to_gridline(qapp, section_scene_for):
-    _ms, elev = section_scene_for("north")
-    g = _grid()
-    elev.addItem(g)
-    label = g.bubble1._label                     # QGraphicsTextItem in the bubble
-    assert elev._halo_resolve(label) is g
+
+# ── (1) bubble resolve ──────────────────────────────────────────────────────
+
+def test_bubble_child_resolves_to_gridline(qapp, section_scene_for):
+    elev, g = _grid(section_scene_for)
+    assert elev._halo_resolve(g.bubble1) is g
 
 
-def test_bubble_label_hover_lights_gridline(qapp, section_scene_for):
-    """Hovering the label text (via halo_update) resolves the gridline as the
+def test_bubble_hover_lights_gridline(qapp, section_scene_for):
+    """Hovering inside the bubble (via halo_update) resolves the gridline as the
     HALO-highlighted item, not just the identity-resolve unit above."""
-    _ms, elev = section_scene_for("north")
-    g = _grid()
-    elev.addItem(g)
-    label = g.bubble1._label
-    center = label.mapToScene(label.boundingRect().center())
+    elev, g = _grid(section_scene_for)
+    center = g.bubble1.scenePos()
     dt = QTransform()  # identity: 1 scene unit == 1 px
     elev.halo_update(center, 15.0, dt)
     assert elev.halo_item() is g

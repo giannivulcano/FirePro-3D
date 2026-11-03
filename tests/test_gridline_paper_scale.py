@@ -11,47 +11,11 @@ from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 from PyQt6.QtWidgets import QGraphicsItem
 
 import firepro3d.paper_display as pd
-from firepro3d.constants import GRIDLINE_BUBBLE_LABEL_EM_FRAC, TEXT_METRIC_REF_PX
-from firepro3d.gridline import GridlineItem, bubble_paper_geometry
+from firepro3d.gridline import GridlineItem
 from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def
 from firepro3d.paper_display import (
     factory_paper_categories, load_paper_categories, save_paper_categories,
     get_paper_display_for_save, apply_paper_display_from_project)
-
-
-@pytest.fixture(autouse=True)
-def _clear_bubble_geometry_cache():
-    """bubble_paper_geometry is a module-level lru_cache — shared session state."""
-    bubble_paper_geometry.cache_clear()
-    yield
-    bubble_paper_geometry.cache_clear()
-
-
-class TestBubblePaperGeometry:
-    def test_radius_exceeds_em_exceeds_cap(self, qapp):
-        radius_mm, em_mm = bubble_paper_geometry(3.0)
-        assert radius_mm > em_mm > 3.0  # cap < em (cap_ratio < 1) < radius (em = 0.9r)
-
-    def test_default_cap_gives_plausible_head(self, qapp):
-        radius_mm, _ = bubble_paper_geometry(3.0)
-        # 3mm cap → head diameter in the 8–12mm drafting band
-        assert 4.0 <= radius_mm <= 6.0
-
-    def test_linear_in_cap_height(self, qapp):
-        r1, e1 = bubble_paper_geometry(3.0)
-        r2, e2 = bubble_paper_geometry(6.0)
-        assert r2 == pytest.approx(2 * r1)
-        assert e2 == pytest.approx(2 * e1)
-
-    def test_absolute_values_in_expected_band(self, qapp):
-        # Independently-derived expectation: Consolas-bold cap/em ratio is
-        # ~0.63-0.72 on Windows, so 3.0mm cap -> em 4.1-4.8mm, radius = em/0.9.
-        # The literal 0.9 is intentional: it guards against the constant being
-        # changed wrongly.  The companion assertion below makes that fail loudly.
-        assert GRIDLINE_BUBBLE_LABEL_EM_FRAC == 0.9
-        radius_mm, em_mm = bubble_paper_geometry(3.0)
-        assert 4.1 <= em_mm <= 4.8
-        assert radius_mm == pytest.approx(em_mm / 0.9)
 
 
 @pytest.fixture

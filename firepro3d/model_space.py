@@ -1857,7 +1857,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.refresh_annotation_tags()
 
     def refresh_annotation_tags(self) -> None:
-        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles): its bounds
+        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, and every open section's elevation bubbles, SB4c D1): its bounds
         rect is cached, so a mapping, registry, units or scale change needs
         ``refresh()``."""
         labels = [r._tag for r in list(self._rooms)]
@@ -1875,6 +1875,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 gl.prepareGeometryChange()
                 gl.update()
             except RuntimeError:
+                pass
+        mgr = getattr(self, "_section_manager", None)   # SB4c D1: open sections too
+        for sc in (list(mgr.open_scenes) if mgr is not None else []):
+            try:
+                sc.refresh_annotation_tags()
+            except RuntimeError:          # scene deleted under us (teardown)
                 pass
 
     def annotation_block(self, category: str, mapped: str | None = None):

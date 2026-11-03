@@ -426,27 +426,6 @@ def test_unstyled_geometry_no_stroke_draws_nothing(ms):
     assert "#ff0000" not in _pixels(r)
 
 
-def test_elevation_gridline_no_fill_bubble_is_transparent(section_scene_for):
-    from PyQt6.QtCore import QSettings
-    from firepro3d.section_scene import ElevGridlineItem
-    from firepro3d.gridline import GridlineItem
-    ms, elev = section_scene_for("north")
-    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="A")
-    ms.addItem(gl)
-    ms._gridlines.append(gl)
-    s = QSettings("GV", "FirePro3D")
-    try:
-        for value, alpha in (("", 0), ("#ff0000", 255)):
-            s.setValue("display/Grid Line/fill", value)
-            for it in [i for i in elev.items() if isinstance(i, ElevGridlineItem)]:
-                elev.removeItem(it)
-            elev._project_gridlines()
-            (g,) = [i for i in elev.items() if isinstance(i, ElevGridlineItem)]
-            assert g.bubble1.brush().color().alpha() == alpha
-    finally:
-        s.remove("display/Grid Line/fill")
-
-
 # ── Slice B follow-ups ──────────────────────────────────────────────────────
 
 @pytest.fixture

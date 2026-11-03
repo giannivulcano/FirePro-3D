@@ -48,7 +48,7 @@ def _bubble_dia(pdf):
     dias = [d["rect"][2] - d["rect"][0] for d in drawings(pdf) if "s" in d["type"]
             and abs((d["rect"][0] + d["rect"][2]) / 2.0 - X_MM) < 0.5
             and abs((d["rect"][2] - d["rect"][0]) - (d["rect"][3] - d["rect"][1])) < 0.2
-            and d["rect"][2] - d["rect"][0] > 1.0]
+            and 1.0 < d["rect"][2] - d["rect"][0] < 20.0]
     assert dias, "no bubble stroke"
     return max(dias)
 
@@ -64,7 +64,7 @@ def _same_dashes(a, b):
 
 
 @pytest.mark.parametrize("scale", [0.01, 0.02])            # 1:100, 1:50
-def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, scale):
+def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, real_system_library, scale):
     save_paper_color_mode(PaperColorMode.BW)
     ms, c = _plan_scene()
     plan_pdf = export_scene(tmp_path, ms, scale, c, f"plan_{scale}.pdf")
@@ -77,6 +77,7 @@ def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, s
     assert _same_dashes(el, pl), (_dash_mm(el), _dash_mm(pl))
     assert tuple(el["color"]) == tuple(pl["color"]) == (0.0, 0.0, 0.0)
     assert _bubble_dia(elev_pdf) == pytest.approx(_bubble_dia(plan_pdf), abs=0.05)
+    assert _bubble_dia(elev_pdf) == pytest.approx(10.0, abs=0.1)
 
 
 def test_hidden_grid_line_row_hides_elevation_gridline(qapp, tmp_path, section_scene_for):
@@ -97,9 +98,9 @@ def test_paper_pass_restores_elevation_gridline(qapp, tmp_path, section_scene_fo
     sec, eg, ce = _elev_scene(section_scene_for)
 
     def _state():
-        b, lb = eg.bubble1, eg.bubble1._label
-        return (eg._grid_src, b.rect(), b._pen_src, b._brush_src,
-                lb.font().pixelSize(), lb.scale(), lb._src, lb._tint, eg.opacity())
+        return (eg._grid_src, eg._paper_render, eg._paper_line_w_mm, eg.opacity(),
+                [(b._paper_scale, b._paper_pen_width, b._paper_pen_color, b.isVisible())
+                 for b in (eg.bubble1, eg.bubble2)])
     before = _state()
     export_scene(tmp_path, sec, 0.01, ce, "restore.pdf")
     assert _state() == before
@@ -180,16 +181,17 @@ def test_level_datum_row_colour_and_opacity_reach_datum_line(qapp, tmp_path, sec
 
 
 def test_paper_pass_restores_elevation_datum(qapp, tmp_path, section_scene_for):
-    from firepro3d.section_scene import ElevDatumItem, _ColourSrcMixin
+    from firepro3d.section_scene import ElevDatumItem
     save_paper_color_mode(PaperColorMode.BW)             # the pass swaps colour srcs
     sec, eg, ce = _elev_scene(section_scene_for)
     (dt,) = [i for i in sec.items()                      # Level 1, inside the crop
              if isinstance(i, ElevDatumItem) and abs(i._v) < 1e-6]
 
     def _state():
-        kids = [(c._pen_src, c._brush_src, c._src_tint, c._paper_pen_width)
-                for c in dt.childItems() if isinstance(c, _ColourSrcMixin)]
-        return (dt._color_src, dt._fill_src, dt._paper_line_w_mm, dt.opacity(), kids)
+        h = dt.head
+        return (dt._color_src, dt._paper_line_w_mm, dt._paper_line_w, dt._paper_render,
+                dt.opacity(), dt.boundingRect(), h._paper_scale, h._paper_pen_width,
+                h._paper_pen_color, h.opacity())
     before = _state()
     seen = []
     orig = dt.enter_paper_pass

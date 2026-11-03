@@ -16,8 +16,7 @@ from firepro3d.elevation_view import SectionView
 # ── helpers ────────────────────────────────────────────────────────────────
 
 def _grid(label="A", h=100.0):
-    return ElevGridlineItem(h, -50.0, 50.0, label, 20.0,
-                            QColor("#888"), QColor("#fff"), 1.0)
+    return ElevGridlineItem(h, -50.0, 50.0, label, QColor("#888"), 1.0)
 
 
 def _proxy(x, y, w, h):

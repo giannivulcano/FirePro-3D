@@ -19,19 +19,19 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsRectItem, QGraphicsLineItem,
-    QGraphicsEllipseItem, QGraphicsSimpleTextItem, QGraphicsPathItem,
-    QGraphicsItem, QGraphicsTextItem, QStyle,
+    QGraphicsEllipseItem,
+    QGraphicsItem, QStyle,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QPointF, QLineF, QTimer
 from PyQt6.QtGui import (
-    QPen, QColor, QBrush, QFont, QFontMetricsF, QPainterPath,
+    QPen, QColor, QBrush, QPainterPath,
     QPainterPathStroker, QPainter,
 )
 
 from PyQt6.QtCore import QSettings
 
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
-                        GRIDLINE_BUBBLE_PAPER_CAP_MM)
+                        ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM)
 from . import theme as th
 from .paper_display import paper_pass_active, shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush
@@ -39,6 +39,7 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
+from .bound_label import OutlinedLabel
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
 
 if TYPE_CHECKING:
@@ -150,46 +151,6 @@ class _SrcEllipse(_ColourSrcMixin, QGraphicsEllipseItem):
         painter.drawEllipse(self.rect())
 
 
-class _SrcPath(_ColourSrcMixin, QGraphicsPathItem):
-    def _draw_shape(self, painter):
-        painter.drawPath(self.path())
-
-
-class _SrcSimpleText(_ColourSrcMixin, QGraphicsSimpleTextItem):
-    def _draw_shape(self, painter):
-        painter.setFont(self.font())
-        painter.setPen(QPen(painter.brush().color()))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawText(QPointF(0, QFontMetricsF(self.font()).ascent()),
-                         self.text())
-
-
-class _ElevLabel(QGraphicsTextItem):
-    """Bubble label whose colour is a stored string resolved per paint."""
-
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self._src = None
-        self._tint = None
-
-    def set_colour_src(self, src, tint=None) -> None:
-        self._src, self._tint = src, tint
-        self.setDefaultTextColor(self._now())     # canvas colour for readers
-
-    def _now(self) -> QColor:
-        c = resolve_colour(self._src, item=self)
-        return self._tint(c) if self._tint is not None else c
-
-    def paint(self, painter, option, widget=None):
-        if self._src is None:
-            super().paint(painter, option, widget)
-            return
-        painter.setFont(self.font())
-        painter.setPen(self._now())
-        painter.drawText(self.boundingRect(), Qt.AlignmentFlag.AlignCenter,
-                         self.toPlainText())
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Read-only proxy items — model entities projected into elevation (§3.1)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,140 +249,46 @@ class _HostedBlockCopy(BlockInstance):
 # ElevGridlineItem — selectable gridline in elevation view
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _ElevBubble(_SrcEllipse):
-    """Bubble at a gridline/datum endpoint in elevation view.
+class ElevGridlineItem(QGraphicsLineItem):
+    """Interactive gridline in an elevation view — selectable with grip handles.
 
-    Clicking selects the parent composite item.  Visual appearance mirrors
-    the plan bubble (a GridlineBubble block since SB4b; this elevation bubble
-    stays bespoke until SB4c).
+    Each end carries a ``GridlineBubble`` (SB4c D2) whose data host is the
+    PLAN gridline *gridline*: it draws that gridline's resolved block
+    (``tag_block`` -> project default, through ``SectionScene.annotation_block``)
+    with the live ``@[Mark]``, annotative (k = the drawing scale on screen,
+    1 / S on paper). ``bubble1`` (plan Bubble 1) sits at the top end
+    (``line().p1()``, v_top), ``bubble2`` (plan Bubble 2) at the bottom.
+    Per-end visibility and the duplicate flag are copied from the plan
+    bubbles at build; a plan edit rebuilds the section through
+    ``sceneModified`` (D6). The line trims at each visible bubble's block
+    outline, on screen and paper. Overlay contract read by
+    ``GridlineBubble.overlay_pens``: ``_paper_render``, ``_grid_color``,
+    ``isSelected()``. *gridline* None = a detached item (unit tests): both
+    bubbles resolve nothing and paint nothing.
     """
 
-    HALO_AREA = True  # HALO: filled bubble — cursor inside = direct hit
-
-    def __init__(self, radius: float, label: str, color: QColor,
-                 fill: QColor, parent: QGraphicsItem | None = None,
-                 color_src: str | None = None, fill_src: str | None = None):
-        super().__init__(-radius, -radius, 2 * radius, 2 * radius, parent)
-        self._radius = radius
-        pen = QPen(color, max(1, radius * 0.04))
-        self.setPen(pen)
-        self.setBrush(QBrush(fill))
-        self.setZValue(500)
-
-        self._label = _ElevLabel(label, self)
-        self._label.setDefaultTextColor(color.lighter(150))
-        font = QFont("Consolas")
-        font.setPixelSize(max(1, int(radius * 0.9)))
-        font.setBold(True)
-        self._label.setFont(font)
-        self._center_label()
-        if color_src is not None or fill_src is not None:
-            # Stored strings: resolved per paint on the surface painted on.
-            self.set_colour_src(pen=color_src, brush=fill_src)
-        if color_src is not None:
-            self._label.set_colour_src(color_src, lambda c: c.lighter(150))
-
-    def set_label(self, text: str):
-        self._label.setPlainText(text)
-        self._center_label()
-
-    def _center_label(self):
-        br = self._label.boundingRect()
-        self._label.setPos(-br.width() / 2, -br.height() / 2)
-
-    def enter_paper_pass(self, r: float, em: float, pen_w: float,
-                         color_src=None, fill_src=None) -> dict:
-        """Scene-unit paper geometry for one sheet-viewport render (AC3).
-        The plan bubble is an annotation block since SB4b; this elevation
-        bubble stays bespoke until SB4c. Radius *r*, label em *em*,
-        a non-cosmetic *pen_w* border; *color_src* / *fill_src* replace the
-        stored colour strings (``None`` keeps them). Undone by
-        ``exit_paper_pass``."""
-        from .constants import TEXT_METRIC_REF_PX
-        lb = self._label
-        saved = {"rect": QRectF(self.rect()), "scale": self.scale(),
-                 "pen_src": self._pen_src, "brush_src": self._brush_src,
-                 "paper_w": self._paper_pen_width,
-                 "font": QFont(lb.font()), "label_scale": lb.scale(),
-                 "label_pos": QPointF(lb.pos()),
-                 "label_src": lb._src, "label_tint": lb._tint}
-        self.setRect(-r, -r, 2 * r, 2 * r)
-        self.setScale(1.0)
-        self._paper_pen_width = pen_w
-        if color_src is not None:
-            self._pen_src = color_src
-            lb._src, lb._tint = color_src, None       # plan: label = pen colour
-        if fill_src is not None:
-            self._brush_src = fill_src
-        f = QFont(lb.font())
-        f.setPixelSize(TEXT_METRIC_REF_PX)            # paper-space s9.4 technique
-        lb.setFont(f)
-        lb.setScale(em / TEXT_METRIC_REF_PX)
-        br, s = lb.boundingRect(), lb.scale()
-        lb.setPos(-br.width() * s / 2, -br.height() * s / 2)
-        return saved
-
-    def exit_paper_pass(self, saved: dict) -> None:
-        lb = self._label
-        self.setRect(saved["rect"])
-        self.setScale(saved["scale"])
-        self._pen_src, self._brush_src = saved["pen_src"], saved["brush_src"]
-        self._paper_pen_width = saved["paper_w"]
-        lb.setFont(saved["font"])
-        lb.setScale(saved["label_scale"])
-        lb.setPos(saved["label_pos"])
-        lb._src, lb._tint = saved["label_src"], saved["label_tint"]
-
-    def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
-        parent = self.parentItem()
-        if (parent is not None and parent.isSelected()
-                and not getattr(parent, "_paper_line_w_mm", 0.0)):
-            r = self._radius
-            base_color = self.resolved_pen_brush()[0].color()
-            highlight = QPen(base_color.lighter(150), max(1, r * 0.08))
-            painter.setPen(highlight)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QRectF(-r, -r, 2 * r, 2 * r))
-
-    def mousePressEvent(self, event):
-        parent = self.parentItem()
-        if parent is not None:
-            scene = parent.scene()
-            if scene is not None:
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    parent.setSelected(not parent.isSelected())
-                else:
-                    scene.clearSelection()
-                    parent.setSelected(True)
-        event.accept()
-
-
-class ElevGridlineItem(QGraphicsLineItem):
-    """Interactive gridline in an elevation view — selectable with grip handles."""
-
     def __init__(self, h_pos: float, v_top: float, v_bot: float,
-                 label: str, bubble_r: float,
-                 color: QColor, fill: QColor, pen_w: float,
-                 opacity: float = 1.0,
-                 color_src: str | None = None, fill_src: str | None = None):
+                 label: str, color: QColor, pen_w: float,
+                 opacity: float = 1.0, color_src: str | None = None,
+                 *, gridline=None):
         super().__init__(h_pos, v_top, h_pos, v_bot)
-        # Stored colour strings (display-manager values): resolved per paint,
-        # so a sheet viewport plots them on paper. ``color`` / ``fill`` are
-        # their canvas resolution, kept for readers and the no-source case.
+        # Stored colour string (display-manager value): resolved per paint, so
+        # a sheet viewport plots it on paper. ``color`` is its canvas
+        # resolution, kept for readers, the selection ring and the no-source case.
         self._grid_src = color_src
         self._h = h_pos
-        self._bubble_r = bubble_r
         self._label = label  # gridline label used as override key
+        self._gridline = gridline  # the plan GridlineItem: the bubbles' data host
 
         # Line pen — suppress default; drawn manually in paint()
         self.setPen(QPen(Qt.PenStyle.NoPen))
 
         self._grid_color = color
         self._pen_w = pen_w
+        # Write-together unit: set by enter_paper_pass, cleared by exit_paper_pass.
+        self._paper_render = False    # paper pass: overlay rings off (GridlineBubble contract)
         self._paper_line_w_mm = 0.0   # paper pass (AC3): ON-PAPER mm, dash normaliser
         self._paper_line_w = 0.0      # paper pass: line width, scene units
-        self._paper_bubble_r = 0.0    # paper pass: bubble radius, scene units
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -429,60 +296,93 @@ class ElevGridlineItem(QGraphicsLineItem):
         self.setOpacity(opacity)
         self.setData(_ROLE_ELEV_ANNOTATION, True)
 
-        # Bubbles at top and bottom
-        self.bubble1 = _ElevBubble(bubble_r, label, color, fill, self,
-                                   color_src, fill_src)
-        self.bubble2 = _ElevBubble(bubble_r, label, color, fill, self,
-                                   color_src, fill_src)
+        # Bubbles: the plan gridline's annotation block, top and bottom (D2).
+        from .gridline import GridlineBubble
+        self.bubble1 = GridlineBubble(gridline, parent=self)   # top    = plan Bubble 1
+        self.bubble2 = GridlineBubble(gridline, parent=self)   # bottom = plan Bubble 2
+        if gridline is not None:
+            # isVisibleTo: the plan end's own toggle, not the plan item's
+            # display visibility (a plan-hidden gridline still shows here).
+            self.bubble1.setVisible(gridline.bubble1.isVisibleTo(gridline))
+            self.bubble2.setVisible(gridline.bubble2.isVisibleTo(gridline))
+            self.bubble1.set_duplicate(gridline.bubble1._duplicate)
+            self.bubble2.set_duplicate(gridline.bubble2._duplicate)
         self._update_bubble_positions()
 
     def _update_bubble_positions(self):
         line = self.line()
-        self.bubble1.setPos(line.p1())
-        self.bubble2.setPos(line.p2())
+        self.bubble1.set_anchor(line.p1())
+        self.bubble2.set_anchor(line.p2())
+        self.prepareGeometryChange()   # the trimmed span + hit shape follow the bubbles
 
     # ── Drawing ──────────────────────────────────────────────────────────
 
     def boundingRect(self):
+        """``QGraphicsLineItem.boundingRect`` derives from the virtual
+        :meth:`shape` (the NoPen pen is 1.0 wide), so it already holds both
+        visible bubble outlines; the margin covers the selection pen
+        (2 x ``_pen_w``) and the paper weight."""
         br = super().boundingRect()
-        m = max(self._bubble_r, self._paper_bubble_r)
+        m = max(self._pen_w, self._paper_line_w, 1.0)
         return br.adjusted(-m, -m, m, m)
 
-    def shape(self) -> QPainterPath:
-        # Include the line segment so Qt paint culling doesn't hide the
-        # line when both bubbles scroll off-screen (same class of bug as
-        # the Room shape() fix — see TODO.md shape() audit).
+    def drawn_endpoints(self) -> tuple[QPointF, QPointF]:
+        """The painted span: each visible end trimmed where the vertical leaves
+        that bubble's block outline (SB4c D2 / AC4). The ray from bubble 1
+        runs toward bubble 2 -- (0, +1) when bubble 1 is the top end
+        (v_top < v_bot, Qt y-down)."""
         line = self.line()
+        p1, p2 = line.p1(), line.p2()
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        length = math.hypot(dx, dy)
+        if length <= 1e-9:
+            return p1, p2
+        ux, uy = dx / length, dy / length
+        t1 = self.bubble1.trim_distance(ux, uy) if self.bubble1.isVisible() else 0.0
+        t2 = self.bubble2.trim_distance(-ux, -uy) if self.bubble2.isVisible() else 0.0
+        return (QPointF(p1.x() + ux * t1, p1.y() + uy * t1),
+                QPointF(p2.x() - ux * t2, p2.y() - uy * t2))
+
+    def _outlines_local(self) -> QPainterPath:
+        p = QPainterPath()
+        for b in (self.bubble1, self.bubble2):
+            if b.isVisible():
+                p.addPath(self.mapFromItem(b, b.outline_path()))
+        return p
+
+    def shape(self) -> QPainterPath:
+        """Hit area: the drawn line with a generous stroke (so Qt paint
+        culling keeps the line when both bubbles scroll off-screen) plus both
+        visible bubble outlines, so a press on a bubble finds the gridline."""
+        p1, p2 = self.drawn_endpoints()
         line_path = QPainterPath()
-        line_path.moveTo(line.p1())
-        line_path.lineTo(line.p2())
+        line_path.moveTo(p1)
+        line_path.lineTo(p2)
         stroker = QPainterPathStroker()
         stroker.setWidth(max(self._pen_w * 4, 8))
         path = stroker.createStroke(line_path)
-        r = self._bubble_r
-        path.addEllipse(self.bubble1.pos(), r, r)
-        path.addEllipse(self.bubble2.pos(), r, r)
+        path.addPath(self._outlines_local())   # hit area: the visible bubble outlines
         return path
+
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """Composite HALO trace: the trimmed line plus both visible bubble
+        outlines, mirroring :meth:`paint` (plan ``GridlineItem`` parity).
+        ``scene_scale`` is accepted for the hook signature and unused."""
+        p1, p2 = self.drawn_endpoints()
+        path = QPainterPath()
+        path.moveTo(p1)
+        path.lineTo(p2)
+        path.addPath(self._outlines_local())
+        return path
+
+    def halo_area_path(self) -> QPainterPath:
+        """HALO: a cursor inside a bubble outline is a direct hit (as the
+        filled bespoke bubble was); ``halo_pick_distance_px`` reads this hook."""
+        return self._outlines_local()
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-
-        # Shorten to meet bubbles at edge
-        dy = p2.y() - p1.y()
-        length = abs(dy)
-        if length > 1e-9:
-            uy = dy / length
-            if self._paper_line_w_mm:
-                r1 = r2 = self._paper_bubble_r
-            else:
-                r1 = self._bubble_r * self.bubble1.scale()
-                r2 = self._bubble_r * self.bubble2.scale()
-            draw_p1 = QPointF(p1.x(), p1.y() + uy * r1) if self.bubble1.isVisible() else p1
-            draw_p2 = QPointF(p2.x(), p2.y() - uy * r2) if self.bubble2.isVisible() else p2
-        else:
-            draw_p1, draw_p2 = p1, p2
+        draw_p1, draw_p2 = self.drawn_endpoints()
 
         grid_color = (self._grid_color if self._grid_src is None
                       else resolve_colour(self._grid_src, item=self))
@@ -508,35 +408,35 @@ class ElevGridlineItem(QGraphicsLineItem):
         return super().itemChange(change, value)
 
     def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
-                         color_src=None, fill_src=None, cap_mm=None) -> dict:
-        """Plot like the plan gridline for one sheet-viewport render (AC3,
-        parity with ``paper_display._apply_gridline``): the "Grid Line" row's
-        weight, the paper-mm dash-dot (``_dash_pattern_mm``) and true-scale
-        bubbles (``bubble_paper_geometry``); *color_src* / *fill_src* replace
-        the stored colour strings (B&W / Custom), ``None`` keeps them."""
-        from .gridline import bubble_paper_geometry
+                         color_src=None) -> dict:
+        """Plot the LINE like the plan gridline for one sheet-viewport render
+        (AC3, parity with ``paper_display._apply_gridline``): the "Grid Line"
+        row's weight and the paper-mm dash-dot; *color_src* replaces the
+        stored colour string (B&W / Custom), ``None`` keeps it. Sets
+        ``_paper_render`` (the bubbles' rings drop). The bubbles are
+        annotation blocks: the paper walk gives each visible one
+        ``_apply_block`` (SB4c D4), and the trim then follows their printed
+        outline."""
         S = max(paper_scale, 1e-9)
-        r_mm, em_mm = bubble_paper_geometry(
-            GRIDLINE_BUBBLE_PAPER_CAP_MM if cap_mm is None else cap_mm)
         saved = {"grid_src": self._grid_src}
         self.prepareGeometryChange()
+        self._paper_render = True
         self._paper_line_w_mm = line_w_mm
         self._paper_line_w = line_w_mm / S
-        self._paper_bubble_r = r_mm / S
         if color_src is not None:
             self._grid_src = color_src
-        saved["bubbles"] = [b.enter_paper_pass(r_mm / S, em_mm / S, line_w_mm / S,
-                                               color_src, fill_src)
-                            for b in (self.bubble1, self.bubble2)]
+        self.bubble1.update()
+        self.bubble2.update()
         self.update()
         return saved
 
     def exit_paper_pass(self, saved: dict) -> None:
         self.prepareGeometryChange()
         self._grid_src = saved["grid_src"]
-        self._paper_line_w_mm = self._paper_line_w = self._paper_bubble_r = 0.0
-        for b, s in zip((self.bubble1, self.bubble2), saved["bubbles"]):
-            b.exit_paper_pass(s)
+        self._paper_render = False
+        self._paper_line_w_mm = self._paper_line_w = 0.0
+        self.bubble1.update()
+        self.bubble2.update()
         self.update()
 
     # ── Grip handles ─────────────────────────────────────────────────────
@@ -590,36 +490,66 @@ class ElevGridlineItem(QGraphicsLineItem):
             }
 
 
-class ElevDatumItem(QGraphicsLineItem):
-    """Interactive level datum in an elevation view — selectable with grip handles."""
+class LevelDatumHead(OutlinedLabel):
+    """The level datum's head (SB4c D3): the project's "Level" annotation block
+    (shipped seed ``LevelDatum``: 4-quadrant symbol + @[Level.Name] /
+    @[Level.Elevation]) at the datum's left end, block origin on the line.
 
-    def __init__(self, v_pos: float, h_min: float, h_max: float,
-                 level_name: str, elev_str: str,
-                 bubble_r: float, datum_color: QColor, fill_color: QColor,
-                 pen_w: float, name_font: QFont, elev_font: QFont,
-                 scale: float = 1.0, opacity: float = 1.0,
-                 color_src: str | None = None, fill_src: str | None = None):
+    A child of its ``ElevDatumItem``, which is also the data host (``_level``):
+    visibility and opacity cascade from it; never rotated. The datum reads
+    ``trim_distance(1, 0)`` to start its line at the outline and
+    ``outline_path`` for its hit shape. The one overlay is the selection ring:
+    screen only -- never with the datum's ``_paper_render`` flag set, never
+    inside a paper pass.
+    """
+
+    def __init__(self, datum):
+        super().__init__(datum)                  # child=True: parent + host
+
+    def overlay_pens(self) -> list:
+        dt = self.parentItem()
+        if dt is None or getattr(dt, "_paper_render", False) or not shows_selection(dt):
+            return []
+        pen = QPen(dt.line_color().lighter(150), 2.0)
+        pen.setCosmetic(True)
+        return [pen]
+
+
+class ElevDatumItem(QGraphicsLineItem):
+    """Interactive level datum in an elevation / section view -- selectable,
+    two grips.
+
+    Keeps its ``Level`` (``_level``, the element_params "Level" host: renames
+    mutate it in place, so the head re-paints with no rebuild) and owns one
+    ``LevelDatumHead`` (``head``) whose block origin sits on the line at
+    ``_bx``. The dash-dot line is painted by ``SectionScene.drawForeground``
+    from ``line_start_h()`` (the head's outline) to ``_h_max``, so it stays
+    visible when the head scrolls off-screen (SB4c D3 / AC4).
+    """
+
+    def __init__(self, v_pos: float, h_min: float, h_max: float, level,
+                 datum_color: QColor, pen_w: float, *, opacity: float = 1.0,
+                 color_src: str | None = None, scale_manager=None):
         super().__init__(h_min, v_pos, h_max, v_pos)
-        # Stored colour strings, resolved per paint (see ElevGridlineItem).
-        self._color_src = color_src
-        self._fill_src = fill_src
+        self._level = level
+        # format_utils.get_scale_manager fallback: a SectionScene has no
+        # ``scale_manager`` attribute, so Level.Elevation formats through this.
+        self._scale_manager_ref = scale_manager
+        self._color_src = color_src   # stored colour string, resolved per paint (HF1)
         self._v = v_pos
         self._h_min = h_min
         self._h_max = h_max
-        self._bubble_r = bubble_r
         self._datum_color = datum_color
-        self._fill_color = fill_color
         self._pen_w = pen_w
-        self._paper_line_w_mm = 0.0   # paper pass (AC4): ON-PAPER mm, dash normaliser
+        self._paper_render = False    # paper pass (SB4c D4): set / cleared by enter / exit_paper_pass
+        self._paper_line_w_mm = 0.0   # paper pass: ON-PAPER mm, dash normaliser
         self._paper_line_w = 0.0      # paper pass: datum line width, scene units
-        self._fill_quad = None        # the fill-coloured quadrant pair (paper pass)
-        self._scale = scale
-        self._level_name = level_name.upper() if level_name else "LEVEL"
-        self._elev_str = elev_str
-
-        # Preserve the original fonts so grip moves don't lose sizing
-        self._name_font = QFont(name_font)
-        self._elev_font = QFont(elev_font)
+        # Head origin = today's circle centre: half a BUBBLE_RADIUS_MM (model
+        # mm) left of the crop edge; the head itself is annotative.
+        from .gridline import BUBBLE_RADIUS_MM
+        self._bx = h_min - BUBBLE_RADIUS_MM * 0.5
+        self.head = LevelDatumHead(self)
+        self.head.set_anchor(QPointF(self._bx, v_pos))
 
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -628,138 +558,110 @@ class ElevDatumItem(QGraphicsLineItem):
         self.setOpacity(opacity)
         self.setData(_ROLE_ELEV_ANNOTATION, True)
 
-        # ── Bubble (4-quadrant) at left end ──────────────────────────────
-        bx = h_min - bubble_r * 0.5
+    # ── Head ─────────────────────────────────────────────────────────────
+
+    def line_color(self) -> QColor:
+        """The line colour now: the stored source resolved per paint (HF1)."""
+        return (self._datum_color if self._color_src is None
+                else resolve_colour(self._color_src, item=self))
+
+    def line_start_h(self) -> float:
+        """Scene h where the datum line starts: where the ray from the head
+        origin toward the line's far end (``_h_max``, the h ``drawForeground``
+        draws to) leaves the head's block outline -- derived, as
+        ``ElevGridlineItem`` derives its bubbles' rays from p1 -> p2; (+1, 0)
+        whenever the head sits left of the far end. No trim when the head is
+        hidden or draws nothing. Screen and paper alike: during a paper pass
+        the head's k is 1 / S, so the outline is the printed one."""
+        ux = 1.0 if self._h_max >= self._bx else -1.0
+        t = self.head.trim_distance(ux, 0.0) if self.head.isVisible() else 0.0
+        return self._bx + ux * t
+
+    def refresh_head(self) -> None:
+        """Re-shape the head (block mapping, drawing scale, units, paper hooks)
+        and this item's bounds + hit shape, which include it."""
+        self.prepareGeometryChange()
+        self.head.refresh()
+        self.update()
+
+    def _move_head(self, bx: float) -> None:
         self._bx = bx
-        self._build_bubble(bx, v_pos, bubble_r, datum_color, fill_color, pen_w)
-
-        # ── Labels ───────────────────────────────────────────────────────
-        self._build_labels()
-
-    def _build_bubble(self, bx, by, r, datum_color, fill_color, pen_w):
-        """Build the 4-quadrant datum bubble as child items."""
-        circle_pen = QPen(datum_color, pen_w)
-        circle_pen.setCosmetic(False)
-        cs, fs = self._color_src, self._fill_src
-
-        circle = _SrcEllipse(bx - r, by - r, r * 2, r * 2, self)
-        circle.setPen(circle_pen)
-        circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        circle.setZValue(51)
-        circle.set_colour_src(pen=cs)
-
-        for ln in (_SrcLine(bx - r, by, bx + r, by, self),
-                   _SrcLine(bx, by - r, bx, by + r, self)):
-            ln.setPen(circle_pen)
-            ln.set_colour_src(pen=cs)
-
-        arc_rect = QRectF(bx - r, by - r, r * 2, r * 2)
-
-        lq = QPainterPath()
-        lq.moveTo(bx, by); lq.arcTo(arc_rect, 0, 90); lq.closeSubpath()
-        lq.moveTo(bx, by); lq.arcTo(arc_rect, 180, 90); lq.closeSubpath()
-        lq_item = _SrcPath(lq, self)
-        lq_item.setPen(QPen(Qt.PenStyle.NoPen))
-        lq_item.setBrush(QBrush(datum_color))
-        lq_item.setZValue(52)
-        lq_item.set_colour_src(brush=cs)
-
-        fq = QPainterPath()
-        fq.moveTo(bx, by); fq.arcTo(arc_rect, 90, 90); fq.closeSubpath()
-        fq.moveTo(bx, by); fq.arcTo(arc_rect, 270, 90); fq.closeSubpath()
-        fq_item = _SrcPath(fq, self)
-        fq_item.setPen(QPen(Qt.PenStyle.NoPen))
-        fq_item.setBrush(QBrush(fill_color))
-        fq_item.setZValue(52)
-        fq_item.set_colour_src(brush=fs)
-        self._fill_quad = fq_item
-
-    def _build_labels(self):
-        """Create or recreate label items using the stored fonts."""
-        tag_gap = 50 * self._scale
-        tag_x = self._bx + self._bubble_r + tag_gap
-
-        self._name_text = _SrcSimpleText(self._level_name, self)
-        self._name_text.setFont(self._name_font)
-        self._name_text.setBrush(QBrush(self._datum_color))
-        self._name_text.set_colour_src(brush=self._color_src)
-        name_br = self._name_text.boundingRect()
-        self._name_text.setPos(tag_x, self._v - name_br.height() - 20)
-        self._name_text.setZValue(53)
-
-        self._elev_text = _SrcSimpleText(self._elev_str, self)
-        self._elev_text.setFont(self._elev_font)
-        self._elev_text.setBrush(QBrush(self._datum_color.lighter(130)))
-        self._elev_text.set_colour_src(brush=self._color_src,
-                                       tint=lambda c: c.lighter(130))
-        self._elev_text.setPos(tag_x, self._v + 20)
-        self._elev_text.setZValue(53)
+        self.head.set_anchor(QPointF(bx, self._v))
 
     # ── Drawing ──────────────────────────────────────────────────────────
 
     def boundingRect(self):
         br = super().boundingRect()
-        m = self._bubble_r * 2
-        return br.adjusted(-m, -m, m, m)
+        head = getattr(self, "head", None)
+        if head is not None:
+            hr = head.boundingRect()
+            if not hr.isEmpty():
+                br = br.united(head.mapRectToParent(hr))
+        return br
 
     def shape(self) -> QPainterPath:
+        """Hit area: the head's block outline -- a press on the head selects
+        the datum (the line itself is scene foreground, as before)."""
+        head = getattr(self, "head", None)
+        if head is None:
+            return QPainterPath()
+        return head.mapToParent(head.outline_path())
+
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath:
+        """Composite HALO trace mirroring what is drawn: the line from the
+        head's outline to ``_h_max`` (``drawForeground``) plus the head
+        outline -- never the raw ``line()`` from ``h_min`` inside the head
+        (``ElevGridlineItem`` parity). ``scene_scale`` is unused."""
         path = QPainterPath()
-        r = self._bubble_r
-        path.addEllipse(QPointF(self._bx, self._v), r, r)
+        h_start = self.line_start_h()
+        if self._h_max > h_start:
+            path.moveTo(QPointF(h_start, self._v))
+            path.lineTo(QPointF(self._h_max, self._v))
+        path.addPath(self.shape())
         return path
 
     def paint(self, painter, option, widget=None):
         # The datum line is drawn by the scene's drawForeground() so it
-        # remains visible even when the bubble has scrolled off-screen.
-        # Do NOT call super().paint() — the base QGraphicsLineItem must
-        # not draw its own line.
+        # remains visible even when the head has scrolled off-screen; the
+        # head paints itself. Do NOT call super().paint() -- the base
+        # QGraphicsLineItem must not draw its own line.
         pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
+            head = getattr(self, "head", None)
+            if head is not None:
+                head.update()                    # the selection ring (screen only)
         return super().itemChange(change, value)
 
     def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
-                         color_src=None, fill_src=None, cap_mm=None) -> dict:
-        """Plot through the "Level Datum" paper row for one sheet-viewport
-        render (AC4): its weight on the line, circle and cross, the gridline's
-        paper-mm dash-dot on the line (``drawForeground``); *color_src* /
-        *fill_src* replace the stored colour strings (B&W / Custom), ``None``
-        keeps them. *cap_mm* is unused (no datum label row)."""
+                         color_src=None) -> dict:
+        """Plot the LINE through the "Level Datum" paper row for one sheet-
+        viewport render: its weight and the gridline's paper-mm dash-dot
+        (``drawForeground``); *color_src* replaces the stored colour string
+        (B&W / Custom), ``None`` keeps it. Sets ``_paper_render`` (the head's
+        ring drops), as ``ElevGridlineItem.enter_paper_pass`` does. The head is
+        an annotation block and takes ``paper_display._apply_block`` in the
+        walk (SB4c D4)."""
         S = max(paper_scale, 1e-9)
-        saved = {"color_src": self._color_src, "fill_src": self._fill_src,
-                 "children": []}
+        saved = {"color_src": self._color_src}
+        self.prepareGeometryChange()
+        self._paper_render = True
         self._paper_line_w_mm = line_w_mm
         self._paper_line_w = line_w_mm / S
-        for ch in self.childItems():
-            if not isinstance(ch, _ColourSrcMixin):
-                continue
-            saved["children"].append((ch, ch._pen_src, ch._brush_src,
-                                      ch._src_tint, ch._paper_pen_width))
-            ch._paper_pen_width = line_w_mm / S
-            if ch is self._fill_quad:
-                if fill_src is not None:
-                    ch._brush_src = fill_src
-            elif color_src is not None:
-                if ch._pen_src is not None:
-                    ch._pen_src = color_src
-                if ch._brush_src is not None:
-                    ch._brush_src = color_src
-                ch._src_tint = None
         if color_src is not None:
             self._color_src = color_src
-        if fill_src is not None:
-            self._fill_src = fill_src
+        self.head.update()
         self.update()
         return saved
 
     def exit_paper_pass(self, saved: dict) -> None:
-        for ch, pen_src, brush_src, tint, paper_w in saved["children"]:
-            ch._pen_src, ch._brush_src = pen_src, brush_src
-            ch._src_tint, ch._paper_pen_width = tint, paper_w
-        self._color_src, self._fill_src = saved["color_src"], saved["fill_src"]
+        self.prepareGeometryChange()
+        self._color_src = saved["color_src"]
+        self._paper_render = False
         self._paper_line_w_mm = self._paper_line_w = 0.0
+        self.head.update()
         self.update()
 
     # ── Grip handles ─────────────────────────────────────────────────────
@@ -769,29 +671,19 @@ class ElevDatumItem(QGraphicsLineItem):
         return [line.p1(), line.p2()]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Move grip along the horizontal line (constrained to V position)."""
+        """Move grip along the horizontal line (constrained to V position);
+        the left grip carries the head (moved, never rebuilt)."""
+        from .gridline import BUBBLE_RADIUS_MM
         line = self.line()
         p1, p2 = line.p1(), line.p2()
+        self.prepareGeometryChange()
         if index == 0:
             new_x = new_pos.x()
             self.setLine(new_x, self._v, p2.x(), self._v)
-            r = self._bubble_r
-            self._bx = new_x - r * 0.5
-            self._reposition_children()
+            self._move_head(new_x - BUBBLE_RADIUS_MM * 0.5)
         elif index == 1:
             self.setLine(p1.x(), self._v, new_pos.x(), self._v)
-        self.prepareGeometryChange()
         self.update()
-
-    def _reposition_children(self):
-        """Rebuild child items after left-grip move, preserving fonts."""
-        for child in list(self.childItems()):
-            if self.scene():
-                self.scene().removeItem(child)
-
-        self._build_bubble(self._bx, self._v, self._bubble_r,
-                           self._datum_color, self._fill_color, self._pen_w)
-        self._build_labels()
 
     def manip_handles(self):
         from .manip_handle import default_grip_handles
@@ -802,17 +694,13 @@ class ElevDatumItem(QGraphicsLineItem):
 
         V is pinned to ``self._v`` (a vertical shift would author the datum's
         level elevation), so ``dy`` is dropped; ``dx`` shifts both endpoints,
-        moving the horizontal draw-extent. The left endpoint carries the bubble
-        + labels, so mirror ``apply_grip``'s left branch: advance ``self._bx``
-        and rebuild the children (session-only, not persisted — parity).
+        moving the horizontal draw-extent, and carries the head (session-only,
+        not persisted -- parity).
         """
         line = self.line()
-        new_x1 = line.p1().x() + dx
-        new_x2 = line.p2().x() + dx
-        self.setLine(new_x1, self._v, new_x2, self._v)
-        self._bx += dx
-        self._reposition_children()
         self.prepareGeometryChange()
+        self.setLine(line.p1().x() + dx, self._v, line.p2().x() + dx, self._v)
+        self._move_head(self._bx + dx)
         self.update()
 
 
@@ -833,6 +721,44 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         """The model scene's BlockRegistry (hatch_render reads it off the
         scene it is handed)."""
         return getattr(self._ms, "block_registry", None)
+
+    def annotation_block(self, category: str, mapped: str | None = None):
+        """The ``BlockDefinition`` that draws *category*'s intrinsic label in
+        this scene: forwarded to the model scene's resolver (SB4c D1;
+        ``Model_Space.annotation_block``, system-blocks.md section 3), so a
+        ``BoundLabelItem`` here -- an elevation gridline bubble, a datum head
+        -- draws the project's block. None when the model scene is gone
+        (a queued paint during teardown)."""
+        fn = getattr(self._ms, "annotation_block", None)
+        try:
+            return fn(category, mapped) if fn is not None else None
+        except RuntimeError:          # model scene deleted under a queued paint
+            return None
+
+    def refresh_annotation_tags(self) -> None:
+        """Re-shape the annotation-block labels this scene draws (SB4c D1):
+        each elevation gridline's two bubbles (their bounds rect and outline
+        are cached, so a mapping / registry / units / drawing-scale change
+        needs ``refresh()``), then the gridline itself (its trim and hit
+        shape follow the outline). Called for every open section by
+        ``Model_Space.refresh_annotation_tags`` and by
+        ``annotative.reprepare_annotative``. Each level datum's head too
+        (SB4c D3), then the scene foreground (the datum lines start at the
+        head outline)."""
+        for it in list(self.items()):
+            try:
+                if isinstance(it, ElevGridlineItem):
+                    for b in (it.bubble1, it.bubble2):
+                        b.refresh()
+                    it.prepareGeometryChange()
+                    it.update()
+                elif isinstance(it, ElevDatumItem):
+                    # SB4c D3: the head re-shapes; the datum's bounds / hit
+                    # shape include it and drawForeground's line starts at it.
+                    it.refresh_head()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
+        self.update()                     # foreground datum lines re-trim
 
     def __init__(self, marker, model_space: "Model_Space",
                  level_manager: "LevelManager", scale_manager: "ScaleManager",
@@ -914,10 +840,11 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return self._create_manipulator()
 
     def _manip_exclude(self, item) -> bool:
-        """Items the manipulator must never wrap: the gridline/datum bubble
-        decoration (child ``_ElevBubble``), so only the top-level selectable
-        gridline/datum is framed."""
-        return isinstance(item, _ElevBubble)
+        """Items the manipulator must never wrap: annotation-block decoration
+        children (the elevation gridline bubbles, SB4c D2; datum heads), so
+        only the top-level selectable gridline / datum is framed."""
+        from .bound_label import BoundLabelItem
+        return isinstance(item, BoundLabelItem)
 
     def _commit_elev_grip(self, mode):
         """Manipulator commit hook (no undo). Persist each selected gridline's
@@ -1461,9 +1388,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Foreground (datum lines) ─────────────────────────────────────────
 
     def drawForeground(self, painter, rect):
-        """Draw datum lines from the bubble across the crop box (basis h_min..h_max).
+        """Draw datum lines from the head's outline across the crop box (basis h_min..h_max).
 
-        Drawn in foreground so lines remain visible even when the bubble
+        Drawn in foreground so lines remain visible even when the head
         has scrolled out of the viewport.
         """
         super().drawForeground(painter, rect)
@@ -1473,13 +1400,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if not item.isVisible():
                 continue
             v = item._v
-            h_start = item._bx + item._bubble_r
+            h_start = item.line_start_h()
             h_end = item._h_max
             if h_end <= h_start:
                 continue
 
-            datum_color = (item._datum_color if item._color_src is None
-                           else resolve_colour(item._color_src, item=item))
+            datum_color = item.line_color()
             painter.save()
             if item._paper_line_w_mm:
                 from .gridline import _dash_pattern_mm
@@ -2128,26 +2054,25 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return {"section": s.value("display/Pipe/section", None)}
 
     def _gridline_display_props(self) -> dict:
-        """Read Grid Line display properties from QSettings (display manager)."""
+        """Read the Grid Line row from QSettings (Display Manager): colour
+        (tints the line), opacity and visibility. The bubbles are annotation
+        blocks; the Fill / Scale columns are retired (SB4b D11, SB4c D4)."""
         s = QSettings("GV", "FirePro3D")
         return {
             "color":   s.value("display/Grid Line/color",   "#4488cc"),
-            "fill":    s.value("display/Grid Line/fill",    "#1a1a2e"),
             "opacity": int(float(s.value("display/Grid Line/opacity", 100))),
             "visible": str(s.value("display/Grid Line/visible", "true")).lower() not in ("false", "0"),
-            "scale":   float(s.value("display/Grid Line/scale", 1.0)),
         }
 
     def _datum_display_props(self) -> dict:
-        """Read Level Datum display properties from QSettings (display manager)."""
+        """Read the Level Datum row from QSettings (Display Manager): colour
+        (tints the line), opacity and visibility (the whole datum). The head is
+        the "Level" annotation block; Fill / Font / Scale are retired (SB4c D4)."""
         s = QSettings("GV", "FirePro3D")
         return {
             "color":   s.value("display/Level Datum/color",   "#4488cc"),
-            "fill":    s.value("display/Level Datum/fill",    "#1a1a2e"),
             "opacity": int(float(s.value("display/Level Datum/opacity", 100))),
             "visible": str(s.value("display/Level Datum/visible", "true")).lower() not in ("false", "0"),
-            "scale":   float(s.value("display/Level Datum/scale", 1.0)),
-            "font":    int(float(s.value("display/Level Datum/font", 10))),
         }
 
     # ── Gridlines ────────────────────────────────────────────────────────
@@ -2157,13 +2082,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         if not props["visible"]:
             return
 
-        grid_src, fill_src = props["color"], props["fill"]   # resolved per paint
+        grid_src = props["color"]                  # resolved per paint
         grid_color = resolve_colour(grid_src)
-        fill_color = resolve_colour(fill_src)
         opacity = props["opacity"] / 100.0
-        bubble_scale = props["scale"]
-        BUBBLE_R = 203.2 * bubble_scale  # 8" in mm, scaled
-        gl_pen_w = max(1.0, BUBBLE_R * 0.04)
+        # SB4c D2: the bubbles are the plan gridline's annotation block; the
+        # Display Manager Grid Line Fill / Scale (retired from the UI in SB4b)
+        # are no longer read here.
 
         for gl in getattr(self._ms, "_gridlines", []):
             line_geom = gl.line()
@@ -2183,8 +2107,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             z_max = max(l.elevation for l in levels) + 4000
 
             label_text = getattr(gl, "_label_text", "")
-            v_top = -z_max - BUBBLE_R - 50
-            v_bot = -z_min + BUBBLE_R + 50
+            v_top = -z_max - ELEV_GRIDLINE_END_PAD_MM
+            v_bot = -z_min + ELEV_GRIDLINE_END_PAD_MM
 
             # Apply per-view override if the user has grip-dragged this gridline
             if label_text in self._gridline_z_overrides:
@@ -2193,9 +2117,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 v_bot = ov.get("v_bot", v_bot)
 
             item = ElevGridlineItem(
-                h_avg, v_top, v_bot, label_text, BUBBLE_R,
-                grid_color, fill_color, gl_pen_w, opacity,
-                color_src=grid_src, fill_src=fill_src)
+                h_avg, v_top, v_bot, label_text,
+                grid_color, ELEV_GRIDLINE_PEN_W_MM, opacity,
+                color_src=grid_src, gridline=gl)
             self.addItem(item)
 
     # ── Construction geometry ────────────────────────────────────────────
@@ -2230,51 +2154,38 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         if not self._show_datums:
             return
 
-        # Use Level Datum display properties from display manager
+        # Level Datum display row: colour tints the line; Visible / Opacity act
+        # on the whole datum (SB4c D4). The head is the "Level" block.
         props = self._datum_display_props()
         if not props.get("visible", True):
             return
         datum_src = props["color"]                      # resolved per paint
-        fill_src = props.get("fill", "#1a1a2e")
         datum_color = resolve_colour(datum_src)
-        fill_color = resolve_colour(fill_src)
         opacity = props["opacity"] / 100.0
-        scale = props.get("scale", 1.0)
 
         h_min, h_max = self._datum_extent()
 
-        # Datum line pen — dash-dot-dash, weight matched to gridline
-        from .gridline import BUBBLE_RADIUS_MM
-        grid_props = self._gridline_display_props()
-        grid_scale = grid_props.get("scale", 1.0)
-        pen_w = max(1.0, BUBBLE_RADIUS_MM * 0.04 * grid_scale)
+        # Datum line pen (model mm): the elevation gridline's frozen scale-1
+        # weight (203.2 * 0.04) -- the Display Manager Scale columns are
+        # retired (SB4b D11, SB4c D4).
+        datum_pen_w = ELEV_GRIDLINE_PEN_W_MM
 
-        # Text size: base 175mm, scaled by display manager font size (pt)
-        font_pt = props.get("font", 10)
-        text_height = 175.0 * scale * (font_pt / 10.0)
-        name_font = QFont("Consolas")
-        name_font.setPixelSize(max(1, int(text_height)))
-        name_font.setBold(True)
-
-        elev_font = QFont("Consolas")
-        elev_font.setPixelSize(max(1, int(text_height * 0.8)))
-
-        # Bubble radius matches gridline bubbles
-        bubble_r = BUBBLE_RADIUS_MM * scale
+        # Level.Elevation formats in the project's live units. A SectionScene
+        # has no ``scale_manager`` attribute, so format_utils.get_scale_manager
+        # returns None for its items; the datum carries the model's live
+        # ScaleManager as ``_scale_manager_ref`` instead of a new
+        # SectionScene.scale_manager property, which would change every
+        # projected proxy's get_scale_manager. ``_sm`` is the fallback (a
+        # project load replaces the model's ScaleManager -- the
+        # annotative._drawing_scale rule).
+        sm = getattr(self._ms, "scale_manager", None) or self._sm
 
         for lvl in self._lm.levels:
-            z = lvl.elevation
-            v = -z  # Qt Y
-
-            elev_str = self._sm.format_length(z) if self._sm else f"{z:.0f} mm"
-
-            item = ElevDatumItem(
-                v, h_min, h_max,
-                lvl.name, elev_str,
-                bubble_r, datum_color, fill_color,
-                pen_w, name_font, elev_font,
-                scale, opacity, color_src=datum_src, fill_src=fill_src)
+            item = ElevDatumItem(-lvl.elevation, h_min, h_max, lvl, datum_color,
+                                 datum_pen_w, opacity=opacity, color_src=datum_src,
+                                 scale_manager=sm)
             self.addItem(item)
+            item.refresh_head()       # the head resolves its block only once in a scene
 
     # ── Selection ────────────────────────────────────────────────────────
     # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable

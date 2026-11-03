@@ -1,18 +1,16 @@
 from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor
 
 from firepro3d.section_scene import ElevGridlineItem, ElevDatumItem
 
 
 def _grid():
-    return ElevGridlineItem(100.0, -50.0, 50.0, "A", 20.0,
-                            QColor("#888"), QColor("#fff"), 1.0)
+    return ElevGridlineItem(100.0, -50.0, 50.0, "A", QColor("#888"), 1.0)
 
 
 def _datum():
-    return ElevDatumItem(200.0, -50.0, 50.0, "Level 1", "0'-0\"", 20.0,
-                         QColor("#48c"), QColor("#fff"), 1.0,
-                         QFont("Consolas"), QFont("Consolas"))
+    from firepro3d.level_manager import Level
+    return ElevDatumItem(200.0, -50.0, 50.0, Level("Level 1"), QColor("#48c"), 1.0)
 
 
 def test_gridline_manip_handles_two_round_grips(qapp):
@@ -44,10 +42,12 @@ def test_datum_interior_move_keeps_V_pinned(qapp):
     d = _datum()   # V=200, extent h_min=-50 .. h_max=50
     line0 = d.line()
     x1_0, x2_0 = line0.p1().x(), line0.p2().x()
+    bx0 = d._bx
     d.manip_translate(40.0, 20.0)          # dy ignored, dx shifts extent
     line = d.line()
     assert line.p1().y() == 200.0 and line.p2().y() == 200.0   # V pinned (§3.1)
     assert line.p1().x() == x1_0 + 40.0 and line.p2().x() == x2_0 + 40.0
+    assert d._bx == bx0 + 40.0 and d.head.pos() == QPointF(bx0 + 40.0, 200.0)
 
 
 def test_gridline_manip_handle_apply_matches_apply_grip(qapp):

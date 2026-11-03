@@ -22,7 +22,7 @@ from .format_utils import get_scale_manager
 from .scale_manager import ScaleManager
 
 CATEGORIES = ("Room", "Pipe", "Sprinkler", "Wall", "Door", "Window", "Opening",
-              "Gridline")
+              "Gridline", "Level")
 TIER_NAMES = {1: "Stored", 2: "Geometry", 3: "Hydraulic", 4: "Related"}
 KINDS = ("text", "number", "length", "area", "volume", "area_sqft", "pressure",
          "flow", "velocity", "pipe_id", "angle", "diameter")
@@ -366,6 +366,14 @@ _TABLE = {
         _P("Length", "length", 2, lambda g: g.length() / _ppm(g)),
         _P("Angle", "angle", 2, lambda g: g.angle_deg()),
     ],
+    # SB4c D3: an elevation / section level datum (ElevDatumItem) hosts the
+    # datum head. Its own stored fields keep the "Level." spelling so one token
+    # (@[Level.Name]) reads the level's name on every host; PARAMS is per
+    # category, so these never collide with the tier-4 related keys above.
+    "Level": [
+        _P("Level.Name", "text", 1, lambda d: d._level.name, "Name"),          # as typed (D3)
+        _P("Level.Elevation", "length", 1, lambda d: d._level.elevation, "Elevation"),
+    ],
 }
 
 PARAMS: dict[str, dict[str, ParamSpec]] = {
@@ -375,11 +383,13 @@ _OPENING_CATEGORY = {"door": "Door", "window": "Window", "blank": "Opening"}
 
 
 def category_of(item) -> Optional[str]:
-    """The element category of *item*, or None (E1; WallOpening splits by kind).
+    """The element category of *item*, or None (E1; WallOpening splits by kind;
+    an elevation / section level datum is "Level", SB4c D3).
     No candidate class subclasses another today; put a new subclass first."""
     from .gridline import GridlineItem
     from .pipe import Pipe
     from .room import Room
+    from .section_scene import ElevDatumItem
     from .sprinkler import Sprinkler
     from .wall import WallSegment
     from .wall_opening import WallOpening
@@ -389,7 +399,8 @@ def category_of(item) -> Optional[str]:
     if isinstance(item, FloorOpening):
         return "Opening"      # a floor void shares the Opening sequence (floor-opening A8)
     for cls, cat in ((Room, "Room"), (Pipe, "Pipe"), (Sprinkler, "Sprinkler"),
-                     (WallSegment, "Wall"), (GridlineItem, "Gridline")):
+                     (WallSegment, "Wall"), (GridlineItem, "Gridline"),
+                     (ElevDatumItem, "Level")):
         if isinstance(item, cls):
             return cat
     return None

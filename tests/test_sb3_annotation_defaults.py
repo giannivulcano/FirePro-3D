@@ -64,7 +64,7 @@ def _scene():
 
 
 def test_categories_and_defaults_table_shape():
-    assert ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline")
+    assert ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level")
     assert isinstance(SYSTEM_DEFAULTS, dict)
     assert all(k in ANNOTATION_CATEGORIES for k in SYSTEM_DEFAULTS)
 
@@ -481,8 +481,8 @@ def test_shipped_tier_is_parsed_once_per_load(qapp, tmp_path, monkeypatch):
     calls = []
     real = block_library.load_block_file
     monkeypatch.setattr(block_library, "load_block_file", lambda p: calls.append(p) or real(p))
-    monkeypatch.setattr("firepro3d.system_blocks.ANNOTATION_CATEGORIES", ("Room", "Pipe", "Gridline"))
+    monkeypatch.setattr("firepro3d.system_blocks.ANNOTATION_CATEGORIES", ("Room", "Pipe", "Gridline", "Level"))
     pane = AnnotationPane(scene=ms)
-    assert set(pane._combos) == {"Room", "Pipe", "Gridline"}
+    assert set(pane._combos) == {"Room", "Pipe", "Gridline", "Level"}
     pane.load()
     assert len(calls) == 1

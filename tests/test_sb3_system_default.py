@@ -60,6 +60,7 @@ def _digest(img):
 def test_every_annotation_category_has_a_frozen_default():
     assert set(SYSTEM_DEFAULTS) == set(ANNOTATION_CATEGORIES)
     assert SYSTEM_DEFAULTS["Room"] == FROZEN_ID
+    assert SYSTEM_DEFAULTS["Level"] == "system-tags-leveldatum"
 
 
 def test_system_default_is_the_shipped_roomtag(real_system_library):

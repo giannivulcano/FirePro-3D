@@ -272,7 +272,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal", "section_type": "Floor Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Grid Line",        "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Level Datum",      "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Elevation Marker", "label": "Section Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "2D Geometry",      "color": TOKEN_AUTO, "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
@@ -513,7 +513,7 @@ def _fill_type_icon(layers, registry=None) -> QIcon:
 _CUT_ATTRS = ("_display_section_type", "_display_color", "_display_fill_color",
               "_display_scale", "_fill_mode")
 
-_NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line"}
+_NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line", "Level Datum"}
 
 
 def _category_has_scale(key: str) -> bool:
