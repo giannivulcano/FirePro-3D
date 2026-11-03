@@ -1848,6 +1848,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         labels = [r._tag for r in list(self._rooms)]
         labels += [p.label for p in list(self.sprinkler_system.pipes)
                    if isinstance(getattr(p, "label", None), BoundLabelItem)]
+        for gl in list(self._gridlines):
+            labels += [b for b in (gl.bubble1, gl.bubble2)
+                       if isinstance(b, BoundLabelItem)]
         for lab in labels:
             try:
                 lab.refresh()

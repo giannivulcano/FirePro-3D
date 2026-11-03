@@ -24,7 +24,7 @@ from . import element_params
 from .annotative import SCREEN_SCALE
 from .block_attributes import bound_text_ops
 from .render_op import paint_ops
-from .system_blocks import LABEL_FIELD
+from .system_blocks import LABEL_FIELD, PAINT_WHEN_BLANK
 
 _log = logging.getLogger(__name__)
 
@@ -100,7 +100,9 @@ class BoundLabelItem(QGraphicsItem):
     ``boundingRect`` / ``shape`` / the paper pass need no extra code.
     ``_paper_scale`` / ``_paper_pen_width`` / ``_paper_pen_color`` are set by
     ``paper_display._apply_block`` during a viewport pass. Paints nothing when
-    every host-bound field resolves to raw None (Q13); draws the orphan
+    every host-bound field resolves to raw None (Q13), except for
+    ``system_blocks.PAINT_WHEN_BLANK`` categories, whose static ops still
+    draw (SB4b D3); draws the orphan
     placeholder when the scene has a resolver that returned None (never
     vanishes) AND the host has a label to lose (``system_blocks.LABEL_FIELD``
     present with a non-None raw value -- user-ratified SB3 F1: a nameless room
@@ -208,7 +210,8 @@ class BoundLabelItem(QGraphicsItem):
             return []
         bound, self._bound_cache = bound_text_ops(d, {}, hv, False, k, None,
                                                   self._bound_cache)
-        if hv is not None and self._host_fields_empty(d, hv):
+        if (hv is not None and self._host_fields_empty(d, hv)
+                and self._category not in PAINT_WHEN_BLANK):
             return []                                       # Q13: paints nothing
         static = d.render_ops_variant(False, k)
         if not bound:
