@@ -110,6 +110,8 @@ Close-only Manager footer is `set_footer_buttons(cancel=False, close=("Close", s
 
 **HouseDialog consumer (2026-10-30): `LevelDialog`** (`level_dialog.py`, resizable, Close-only footer as above, body = a `LevelWidget` using the kit `glyph_button` row and `SortHeader`; its table chrome is the `QTableWidget#levelTable` additions to the `#underlayTable` selector groups in `build_dialog_qss`). Behaviour is owned by `view-relationships.md` section 12.
 
+**HouseDialog consumer (2026-11-03): `DisplayManager`** (`display_manager.py`; resizable, min/max/close header with the placeholder icon, body = `TopTabs` [Model / Paper Space / Line Weights / Fill Types], footer = `set_footer_buttons(primary=("OK", accept), extra_left=<Reset All, Set as Default>)`). Its Model and Paper trees and the Line Weights table are given objectName `underlayTable` (the shared table QSS), Colour / Fill / Section cells are compact `Swatch` chips (`show_label=False, auto_pick=False`) and the Vis column is an `EyeToggle`. Behaviour is owned by `display-system.md`.
+
 ### D4 — `SideTabs` is a general vertical tab rail with optional numbering
 
 Extracted from `_StepRow`/`_StepRail` but generalized: a column of exclusive
@@ -169,6 +171,7 @@ interpolation in `build_dialog_qss` (`{M.RADIUS_INPUT}` alongside `{t.accent}`).
 | `LEVEL_DLG_SIZE` / `LEVEL_DLG_MIN` | (520, 460) / (420, 350) | `LevelDialog` initial / minimum size (w, h) |
 | `LEVEL_TOOLBAR_TOP` | 10 | table to glyph-row gap |
 | `GLYPH_BTN_PX` / `GLYPH_BTN_GAP` / `GLYPH_FONT_PX` | 28 / 8 / 15 | `ui_kit.glyph_button` square edge / spacing between glyph buttons / label font px (`QToolButton[glyph="true"]` rule) |
+| `EYE_GLYPH_PX` / `EYE_TOGGLE_PX` / `DM_ROW_H` | 17 / 22 / 28 | painted eye glyph box / EyeToggle edge / Display Manager tree row height |
 | `TABLE_HEADER_PAD_X` / `TABLE_HEADER_PX` | 8 / 10 | `QHeaderView::section` horizontal padding / font px; `ui_kit.SortHeader` reads both to place its caret |
 | `SORT_CARET_W` / `SORT_CARET_H` / `SORT_CARET_GAP` | 6 / 5 / 6 | `SortHeader` accent caret width / height / gap after the header text |
 | `RADIUS_INPUT` / `RADIUS_CARD` / `RADIUS_PILL` / `RADIUS_CHIP` | 6 / 7 / 11 / 8 | existing radii |
@@ -361,7 +364,10 @@ class PaintSwatch(QWidget):             # fixed-height strip painted by a callba
 
 ```python
 class Swatch(QWidget):                  # painted chip + label → opens the house picker
-    def __init__(self, hex_color="#000000", parent=None, *, context="Colour"): ...
+    def __init__(self, hex_color="#000000", parent=None, *, context="Colour",
+                 show_label=True, auto_pick=True): ...
+    clicked = pyqtSignal()              # chip pressed (the only effect with auto_pick=False)
+    # set_hex mirrors the value into the dynamic property "_color" (DM pick flows read it).
     colorChanged = pyqtSignal(str)      # "#rrggbb", "" (No Fill — chip shows the No-Fill glyph, label "None"),
                                         # or "token:auto" / "token:accent" (chip = resolved colour + small "A"
                                         # corner badge, label "Automatic" / "Accent")
@@ -371,6 +377,7 @@ class FillSwatch(QWidget):              # fill-layer chip + label → colour_pic
                  registry=None, exclude=(), show_label=True): ...
     layerChanged = pyqtSignal(object)   # a BackgroundLayer / PatternLayer, or fill_layers.NO_LAYER (layer off)
     # Layer model + picker modes -> docs/superpowers/specs/2026-10-18-up1-two-layer-fill-design.md
+class EyeToggle(QAbstractButton):  # painted visibility eye for table cells (accent open eye = visible, faint closed eye = hidden); checkable, toggled(bool); painter = ui_kit.paint_eye (shared with underlay_manager_delegates); sized by M.EYE_TOGGLE_PX / M.EYE_GLYPH_PX
 def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None  # the ONE No-Fill glyph
 def no_fill_icon(w: int, h: int) -> QIcon                             # same glyph for QPushButton swatches
 ```
@@ -604,8 +611,11 @@ follows these rules so every column reads as a proper rail:
 1. **20 native-title-bar dialogs → `HouseDialog`** conversion waves. **Migrated
    2026-09-15 (title-block bundle Task D): `TitleBlockEditorDialog` +
    `RevisionsDialog`** (both wrap existing content into `set_body`; the editor
-   keeps its 3-button `Save / Save && Close / Close` box in-body). Remaining:
-   `PreferencesDialog`, `DisplayManager`,
+   keeps its 3-button `Save / Save && Close / Close` box in-body). **Migrated
+   2026-11-03 (DM chrome revision): `DisplayManager`** (HouseDialog + `TopTabs`
+   + Underlay-table look; see the consumer paragraph below the D3 section).
+   Remaining:
+   `PreferencesDialog`,
    `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`, `WallDialog`,
    `PaperExportDialog`, `CalibrateDialog`,
    `ViewRangeDialog`, `ThermalRadiationDialog`, `DesignPointDialog`,

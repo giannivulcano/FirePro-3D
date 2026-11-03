@@ -988,7 +988,7 @@ Tasks to add to `TODO.md` after this spec is approved:
 
 The Underlay Manager is a **modeless `QDialog`** opened via the Ribbon "Underlay Manager" button. It is the single surface for all post-import underlay management. The Display Manager no longer has an Underlays tab. The browser tree is navigation-only (§9.3).
 
-**Modules:** `firepro3d/underlay_manager.py`, `underlay_manager_model.py`, `underlay_manager_delegates.py`, `underlay_manager_theme.py`.
+**Modules:** `firepro3d/underlay_manager.py`, `underlay_manager_model.py`, `underlay_manager_delegates.py`, `underlay_manager_theme.py`. The eye glyph painter and round pen live in `ui_kit` (`paint_eye`, `round_pen`, `eye_color`, shared with `ui_kit.EyeToggle`); the delegates import them under their old private names `_draw_eye` / `_round_pen`.
 
 ### 16.2 Tree table layout
 

@@ -133,11 +133,11 @@ When a wall or floor slab straddles the view's cut plane (i.e., `_is_section_cut
 
 ## Display Manager dialog
 
-The `DisplayManager` class in `display_manager.py` is a `QDialog` with a tree widget showing all categories grouped by type. Users can modify:
+The `DisplayManager` class in `display_manager.py` is a modal `HouseDialog` (house chrome and table look: [`ui-design-system.md`](../specs/ui-design-system.md)) whose `TopTabs` pages are Model, Paper Space, Line Weights and Fill Types. The Model and Paper pages are category trees grouped by type. Users can modify:
 
-- Visibility (checkbox)
-- Colour (colour picker button)
-- Fill colour (solid or hatch mode)
+- Visibility (eye toggle)
+- Colour (compact swatch chip opening the house colour picker)
+- Fill colour (solid or No Fill; compact swatch chip)
 - Section colour and pattern
 - Scale factor (spin box)
 - Opacity (0-100 slider)
