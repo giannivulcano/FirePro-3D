@@ -420,6 +420,9 @@ class TopTabs(QWidget):
         prior = widget.styleSheet()
         rule = f"QWidget#{name} {{ background: {_detect().surface}; }}"
         widget.setStyleSheet(f"{prior}\n{rule}" if prior else rule)
+        # QSS polish auto-sets WA_StyledBackground only on a PLAIN QWidget; a
+        # QWidget subclass page (FillTypesTab) would skip the rule and paint black live.
+        widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._stack.addWidget(widget)
         self._keys.append(key)
         return len(self._keys) - 1
@@ -1272,8 +1275,10 @@ class Swatch(QWidget):
         self._chip.clicked.connect(self._on_chip)
         self._label = QLabel(self._text_for(self._hex))
         self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
-        self._label.setVisible(bool(show_label))
         if not show_label:
+            # hide() only: setVisible(True) on the still-parentless label shows it
+            # as its own top-level window (a flash on every Swatch build).
+            self._label.hide()
             lay.insertStretch(0, 1)      # centre the lone chip in a table cell
         lay.addWidget(self._chip)
         lay.addWidget(self._label)

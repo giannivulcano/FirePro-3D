@@ -2,9 +2,9 @@
 stylesheet, a shown dialog, observable ground truth (grabbed pixels, header-model
 text / alignment, widget geometry). QSettings is isolated by conftest."""
 from PyQt6.QtCore import QPoint, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import (QApplication, QDoubleSpinBox, QLabel, QToolButton,
-                             QTreeWidget)
+                             QTreeWidget, QWidget)
 
 from firepro3d.theme import detect
 from tests._dm_theme_helpers import dispose_dm, mw, open_dm  # noqa: F401
@@ -183,5 +183,29 @@ def test_tables_sit_flush_under_the_divider_and_to_the_page_edges(mw):
         tl = _flush(dlg, dlg._ps_tree, below_divider=False)   # colour-mode row sits above it
         div = dlg._tabs._divider
         assert tl.y() > div.mapTo(dlg._tabs, QPoint(0, div.height())).y()
+    finally:
+        dispose_dm(dlg)
+
+
+# 8 ───────────────────────────────────────────────────────────────────────────
+def test_every_page_paints_its_own_surface_background(mw):
+    """Each page, rendered alone (no parent bg, no children) onto a magenta
+    sentinel, paints the surface itself. A page that skips its QSS rule
+    (QWidget subclass without WA_StyledBackground: Fill Types) leaves the
+    sentinel, which is the live black page."""
+    dlg = open_dm(mw)
+    try:
+        t, stack = detect(), dlg._tabs._stack
+        assert stack.indexOf(dlg._ft_tab) >= 0
+        for i in range(stack.count()):
+            dlg._tabs.setCurrentIndex(i)
+            QApplication.processEvents()
+            page = stack.widget(i)
+            img = QImage(page.size(), QImage.Format.Format_ARGB32)
+            img.fill(QColor("#ff00ff"))
+            page.render(img, QPoint(0, 0), flags=QWidget.RenderFlag(0))
+            for p in (QPoint(3, 3), QPoint(page.width() - 4, page.height() - 4)):
+                c = img.pixelColor(p)
+                assert _near(c, t.surface, 2), (dlg._tabs.tabText(i), p, c.name())
     finally:
         dispose_dm(dlg)
