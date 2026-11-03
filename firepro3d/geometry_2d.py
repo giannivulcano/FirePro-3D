@@ -23,7 +23,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
-from .constants import CRISP_AXIS_TOL, TOKEN_AUTO, TOKEN_ELEMENT
+from .constants import CRISP_AXIS_TOL, STROKE_MITER_LIMIT, TOKEN_AUTO, TOKEN_ELEMENT
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
@@ -245,9 +245,21 @@ class Geometry2DMixin:
             if ends_r is not None:
                 base = base.united(ends_r)
         pen = self.pen()
-        if not pen.isCosmetic() or pen.style() == Qt.PenStyle.NoPen:
+        if pen.style() == Qt.PenStyle.NoPen:
+            return base
+        joined = (self._joint_pad and self._joint_index() is not None
+                  and self._ends_open())
+        if not pen.isCosmetic():
+            if joined:
+                # A joined end's miter tip reaches STROKE_MITER_LIMIT / 2 pen
+                # widths past the corner; Qt already pads w / 2 (D7 pad).
+                w = pen.widthF() * (STROKE_MITER_LIMIT / 2.0 - 0.5)
+                return base.adjusted(-w, -w, w, w)
             return base
         px = pen.widthF() / 2.0 + 0.75
+        if joined:
+            # ... same reach for a cosmetic pen, in device px (design D7).
+            px = max(px, pen.widthF() * STROKE_MITER_LIMIT / 2.0)
         # A missing linetype (LT3-10) draws its canvas glyph at the stroke's
         # mid-length: pad for it only while the reference is unresolved,
         # decided by a registry lookup (right before the first paint; a
@@ -766,6 +778,87 @@ class Geometry2DMixin:
             paint_stroke(painter, pieces, rs.lt, hl, factor=factor, anchor=anchor,
                          fixed=fixed, trims=trims)
         return True
+
+    # ── Stroke corner joints (design D5a / D6 / D7) ─────────────────────────
+
+    def _joint_index(self):
+        """The container's ``JointIndex``: the scene's for a loose item
+        (Block Editor scenes included); None outside a scene, for ghosts,
+        reference items and unstyled items (nothing to register)."""
+        if (getattr(self, "style", None) is None or self._ghost_pen
+                or self.reference):
+            return None
+        sc = self.scene()
+        return getattr(sc, "stroke_joints", None) if sc is not None else None
+
+    def _joint_ends(self) -> tuple:
+        """This item's two ``JointEnd``s in scene coordinates; ``()`` for a
+        closed stroke (``stroke_style.open_stroke``) or a degenerate one."""
+        if not self._ends_open():
+            return ()
+        from .stroke_joints import ends_of_pieces
+        return ends_of_pieces(self.stroke_pieces(), self, self.sceneTransform())
+
+    def _stroke_geometry_changed(self) -> None:
+        """D6 choke point: re-register this item's ends and repaint the
+        former and new partners, so a moved line's old partner draws flat in
+        the same frame. Called by the setter overrides below and from
+        ``itemChange`` on scene changes."""
+        ix = self._joint_index()
+        if ix is None:
+            return
+        old = ix.unregister(self)
+        touched = []
+        for e in old:
+            touched.extend(ix.neighbours(e.point))
+        new = self._joint_ends()
+        if new:
+            ix.register(self, new)
+            for e in new:
+                touched.extend(ix.neighbours(e.point))
+        for e in touched:
+            if e.owner is not self:
+                e.owner.update()
+        self.update()
+
+    # False while ``manip_bounds`` reads the bounds: the miter-reach pad is a
+    # repaint margin, not part of the shape the selection frame wraps.
+    _joint_pad = True
+
+    def manip_bounds(self) -> QRectF:
+        """Scene box the selection frame wraps: the pen-padded scene bounds
+        WITHOUT the joint miter-reach pad (same as the manipulator's
+        ``sceneBoundingRect`` fallback before the pad existed)."""
+        self._joint_pad = False
+        try:
+            return self.sceneBoundingRect()
+        finally:
+            self._joint_pad = True
+
+    def setLine(self, *args):
+        super().setLine(*args)
+        self._stroke_geometry_changed()
+
+    def setRect(self, *args):
+        super().setRect(*args)
+        self._stroke_geometry_changed()
+
+    def setPath(self, path):
+        super().setPath(path)
+        self._stroke_geometry_changed()
+
+    def itemChange(self, change, value):
+        gc = self.GraphicsItemChange
+        if change == gc.ItemSceneChange:
+            ix = self._joint_index()          # the OLD scene's index, before the move
+            if ix is not None:
+                for e in ix.unregister(self):
+                    for n in ix.neighbours(e.point):
+                        n.owner.update()
+        r = super().itemChange(change, value)
+        if change == gc.ItemSceneHasChanged:
+            self._stroke_geometry_changed()
+        return r
 
     def _paint_lt_badge(self, painter) -> None:
         """Missing-linetype glyph at mid-length; canvas only (LT3-10)."""

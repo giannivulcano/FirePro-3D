@@ -47,6 +47,33 @@ def test_p4_item_scene_has_changed_fires_without_geometry_flag(qapp):
     sc.cleanup()
 
 
+def test_p4_scene_clear_does_not_reach_item_change(qapp):
+    """Qt's QGraphicsScene.clear() deletes items in C++ without dispatching
+    the scene-change events to Python -- so the scene's joint index must be
+    cleared explicitly at every clear() site (cleanup, scene_io reset)."""
+    seen = []
+
+    class Probe(LineItem):
+        def itemChange(self, change, value):
+            seen.append(change)
+            return super().itemChange(change, value)
+
+    sc = Model_Space(); ln = Probe(QPointF(0, 0), QPointF(10, 0))
+    sc.addItem(ln); seen.clear()
+    sc.clear()
+    gc = ln.GraphicsItemChange
+    assert gc.ItemSceneChange not in seen and gc.ItemSceneHasChanged not in seen
+    sc.cleanup()
+
+
+def test_p4_transform_order(qapp):
+    """QTransform multiplication is row-vector: ``a * b`` applies a, then b."""
+    from PyQt6.QtGui import QTransform
+    a = QTransform.fromTranslate(10, 0); b = QTransform.fromScale(2, 2)
+    assert (a * b).map(QPointF(0, 0)) == QPointF(20, 0)      # translate, then scale
+    assert (b * a).map(QPointF(0, 0)) == QPointF(10, 0)
+
+
 def test_p4_qt_miter_limit_2_equals_pdf_ratio_4(qapp):
     """A 20 deg corner (ratio 1/sin(10 deg) = 5.76 > 4) is bevelled under Qt
     limit 2 and mitered under Qt limit 4 -- Qt measures the tip's reach from
@@ -338,3 +365,81 @@ def test_end_inked_reads_the_dash_path_ends():
     assert end_inked(dash, QPointF(12, 0)) is True
     assert end_inked(dash, QPointF(14, 0)) is False       # the stroke ends in a gap
     assert end_inked(QPainterPath(), QPointF(0, 0)) is False
+
+
+# ---------------------------------------------------------------- F. scene index (D5a / D6)
+def test_scene_registers_open_styled_items_and_tracks_moves(qapp):
+    sc = Model_Space()
+    a = LineItem(QPointF(0, 0), QPointF(100, 0)); b = LineItem(QPointF(100, 0), QPointF(100, 100))
+    for it in (a, b):
+        sc.addItem(it); sc._draw_lines.append(it)
+    ix = sc.stroke_joints
+    assert len(ix) == 4
+    ea = [e for e in ix.neighbours(QPointF(100, 0)) if e.owner is a][0]
+    assert ix.partner(ea).owner is b
+    a.apply_grip(2, QPointF(100, 50))            # move a's end off the corner
+    assert ix.partner([e for e in ix.neighbours(QPointF(100, 0)) if e.owner is b][0]) is None
+    assert len(ix.neighbours(QPointF(100, 50))) == 1
+    sc.removeItem(a)
+    assert len(ix) == 2
+    sc.cleanup()
+
+
+def test_closed_reference_and_ghost_items_register_nothing(qapp):
+    from firepro3d.geometry_2d import RectangleItem
+    sc = Model_Space()
+    sc.addItem(RectangleItem(QPointF(0, 0), QPointF(10, 10)))
+    assert len(sc.stroke_joints) == 0
+    ln = LineItem(QPointF(0, 0), QPointF(10, 0)); ln.reference = True
+    sc.addItem(ln)
+    assert len(sc.stroke_joints) == 0
+    sc.cleanup()
+
+
+def test_cleanup_and_scene_clear_sites_empty_the_index(qapp):
+    sc = Model_Space()
+    sc.addItem(LineItem(QPointF(0, 0), QPointF(100, 0)))
+    assert len(sc.stroke_joints) == 2
+    sc.clear()                                   # the load / new reset path
+    assert len(sc.stroke_joints) == 0
+    sc.addItem(LineItem(QPointF(0, 0), QPointF(100, 0)))
+    assert len(sc.stroke_joints) == 2
+    sc.cleanup()
+    assert len(sc.stroke_joints) == 0
+
+
+def test_geometry_change_repaints_former_and_new_partners(qapp, monkeypatch):
+    sc = Model_Space()
+    a = LineItem(QPointF(0, 0), QPointF(100, 0)); b = LineItem(QPointF(100, 0), QPointF(100, 100))
+    c = LineItem(QPointF(0, 100), QPointF(-50, 100))
+    for it in (a, b, c):
+        sc.addItem(it); sc._draw_lines.append(it)
+    calls = []
+    for it in (a, b, c):
+        monkeypatch.setattr(it, "update", lambda *args, _it=it: calls.append(_it))
+    a.apply_grip(0, QPointF(0, 100))             # a's start now meets c's start
+    assert b in calls and c in calls             # former partner and new partner repaint
+    sc.cleanup()
+
+
+def test_open_item_bounds_pad_covers_the_miter_reach(qapp, monkeypatch):
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space(); ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+    sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
+    r = ln.boundingRect()
+    assert r.left() <= -40.0 and r.right() >= 140.0     # 2 w = 40 px at identity zoom
+    sc.cleanup()
+
+
+def test_selection_frame_ignores_the_joint_pad(qapp, monkeypatch):
+    """The miter-reach pad is a repaint margin: the manipulator frame
+    (manip_bounds) keeps the plain pen-padded bounds."""
+    import firepro3d.geometry_2d as g2
+    monkeypatch.setattr(g2, "canvas_px", lambda w: 20.0)
+    sc = Model_Space(); ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+    sc.addItem(ln); sc._draw_lines.append(ln); ln._sync_stroke_pen()
+    frame = ln.manip_bounds()
+    assert frame.left() > -20.0 and frame.right() < 120.0      # w / 2 + 0.75 = 10.75, not 2 w
+    assert ln.boundingRect().left() <= -40.0                    # paint bounds still padded
+    sc.cleanup()
