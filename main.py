@@ -416,6 +416,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         )
         self.scene._detail_manager = self.detail_manager
         self.scene._on_detail_created = self._refresh_detail_browser
+        self.detail_manager.on_renamed = lambda _old, _new: self._refresh_detail_browser()
 
         # Block Editor Manager
         from firepro3d.block_editor import BlockEditorManager
@@ -2668,6 +2669,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 w.plan_view_name = new_title
         if getattr(self.scene, "active_view_key", None) == f"plan:{old_title}":
             self.scene.active_view_key = f"plan:{new_title}"
+        from firepro3d.note_controller import rekey_notes
+        rekey_notes(self.scene, f"plan:{old_title}", f"plan:{new_title}")   # D10: before the level step
 
     def _on_levels_removed(self, names) -> None:
         """Section 12.4 Delete: close each deleted level's plan tab (the widget already
