@@ -215,9 +215,10 @@ class SceneIOMixin:
         try:
             with open(filename, "r") as f:
                 payload = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError, PermissionError) as e:
+        except (FileNotFoundError, json.JSONDecodeError, PermissionError,
+                UnicodeDecodeError) as e:
             self._show_status(f"Failed to open: {e}")
-            return
+            return False
 
         version = payload.get("version", 1)
         migrate_project_payload(payload)    # HF1 (D-A20): before display_settings is read
@@ -577,6 +578,7 @@ class SceneIOMixin:
         for _cat in ANNOTATION_CATEGORIES:
             self.annotation_block(_cat)
         self.refresh_annotation_tags()          # tags built before the mapping existed drop their cached rect
+        return True
 
     # ------------------------------------------------------------------
     # CLEAR

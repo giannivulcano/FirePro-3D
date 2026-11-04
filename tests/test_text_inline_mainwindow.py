@@ -161,7 +161,7 @@ def test_load_project_commits_first(win, editing, monkeypatch):
     """I2: _load_project() itself must also commit first (belt-and-suspenders
     with open_file/_open_recent, and the sole guard for any other caller)."""
     ed, s, t = editing
-    monkeypatch.setattr(win, "_apply_loaded_file", lambda file: None)
+    monkeypatch.setattr(win, "_apply_loaded_file", lambda file: True)
     monkeypatch.setattr(win, "_add_recent_file", lambda path: None)
     monkeypatch.setattr(win, "_maybe_offer_template_push", lambda: None)
     win._load_project("dummy.fpd")

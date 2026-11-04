@@ -69,3 +69,42 @@ def test_open_detail_free_project_leaves_no_dead_markers(mw, tmp_path):
     mw._load_project(str(empty))
     assert mw.detail_manager.detail_names == []
     assert mw.scene._detail_manager.to_list() == []
+
+
+def _boom(*a, **k):
+    raise RuntimeError("forced restore failure")
+
+
+def test_exception_mid_restore_detaches_and_save_cannot_reach_the_file(mw, tmp_path, monkeypatch):
+    from firepro3d import themed_message as tm
+    import main as main_mod
+    path = tmp_path / "project.FPD"
+    _saved_project(mw, path)
+    original = path.read_bytes()
+    errors = []
+    monkeypatch.setattr(tm, "themed_error", lambda p, t, m: errors.append(m))
+    monkeypatch.setattr(main_mod, "ERROR_LOG_PATH", str(tmp_path / "error.log"))
+    monkeypatch.setattr(mw.scene._level_manager, "from_list", _boom)
+    mw._load_project(str(path))
+    assert len(errors) == 1 and "not changed" in errors[0]
+    assert mw._current_file is None
+    assert "failed to load" in mw.windowTitle()
+    assert "forced restore failure" in (tmp_path / "error.log").read_text()
+    monkeypatch.setattr(main_mod.QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
+    mw.save_file()                                  # Save As dialog, cancelled
+    assert path.read_bytes() == original
+
+
+def test_corrupt_file_keeps_project_and_target_untouched(mw, tmp_path, monkeypatch):
+    from firepro3d import themed_message as tm
+    good = tmp_path / "good.FPD"
+    _saved_project(mw, good)
+    bad = tmp_path / "bad.FPD"
+    bad.write_text("{ not json")
+    errors = []
+    monkeypatch.setattr(tm, "themed_error", lambda p, t, m: errors.append(m))
+    mw._load_project(str(bad))
+    assert len(errors) == 1
+    assert mw._current_file == str(good)            # old project still current
+    mw.save_file()
+    assert bad.read_text() == "{ not json"
