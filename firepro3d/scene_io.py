@@ -685,6 +685,11 @@ class SceneIOMixin:
         _sec_mgr = getattr(self, "_section_manager", None)
         if _sec_mgr is not None:
             _sec_mgr.clear()
+        # Detail markers are scene items too: the manager must drop them while
+        # they are alive, or a load's from_list touches deleted wrappers.
+        _det_mgr = getattr(self, "_detail_manager", None)
+        if _det_mgr is not None:
+            _det_mgr.clear()
         self.clear()
         # self.clear() deleted the shared close-cue ring too (DD8); drop the
         # dead wrapper so show_close_ring lazily recreates it.

@@ -52,3 +52,20 @@ def test_reload_with_detail_view_keeps_the_project(mw, tmp_path):
     assert len(after["gridlines"]) == len(before["gridlines"])
     assert len(after["detail_views"]) == 1
     assert len(after["sections"]) == len(before["sections"])
+
+
+def test_reload_with_two_details_needs_one_reload(mw, tmp_path):
+    path = tmp_path / "project.FPD"
+    _saved_project(mw, path, details=2)
+    mw._load_project(str(path))
+    assert sorted(mw.detail_manager.detail_names) == ["D0", "D1"]
+
+
+def test_open_detail_free_project_leaves_no_dead_markers(mw, tmp_path):
+    empty = tmp_path / "empty.FPD"
+    mw._current_file = str(empty)
+    mw.save_file()
+    _saved_project(mw, tmp_path / "with.FPD")
+    mw._load_project(str(empty))
+    assert mw.detail_manager.detail_names == []
+    assert mw.scene._detail_manager.to_list() == []
