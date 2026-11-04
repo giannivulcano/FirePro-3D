@@ -142,12 +142,14 @@ class RemoveViewportCommand(QUndoCommand):
 class ViewportGeometryCommand(QUndoCommand):
     def __init__(self, scene, data, old_geom, new_geom):
         super().__init__("Move/Resize Viewport"); self._scene, self._data = scene, data
-        self._old, self._new = old_geom, new_geom   # (x, y, w, h, (cx,cy,cw,ch))
+        self._old, self._new = old_geom, new_geom   # (x, y, w, h, (cx,cy,cw,ch)[, title_offset])
     def _set(self, g):
         def op():
             self._data.x, self._data.y, self._data.w, self._data.h = g[0], g[1], g[2], g[3]
             cx, cy, cw, ch = g[4]
             self._data.crop_rect = QRectF(cx, cy, cw, ch)
+            if len(g) > 5:
+                self._data.title_offset = tuple(g[5])
             self._scene._resync_viewport(self._data)
         self._scene._apply(op)
     def redo(self): self._set(self._new)

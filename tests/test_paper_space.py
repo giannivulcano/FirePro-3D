@@ -404,6 +404,7 @@ class TestSheetViewData:
             "scale", "x", "y", "w", "h",
             "show_border", "view_number",
             "crop_rect", "hidden_detail_ids",
+            "show_title", "title_offset",
         }
 
 

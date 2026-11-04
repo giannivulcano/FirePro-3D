@@ -282,7 +282,9 @@ class SheetViewData:
     serialized for compatibility. An empty ``crop_rect`` means "resolve the
     full source extent lazily" (set on first reconnect). ``hidden_detail_ids``
     is the per-sheet set of detail-marker names hidden in THIS host-plan
-    viewport's paper output.
+    viewport's paper output. ``show_title`` / ``title_offset`` = the view
+    title's per-viewport visibility and its offset from the default spot
+    (SB4f).
     """
     source_view_type: str
     source_view_name: str
@@ -296,6 +298,8 @@ class SheetViewData:
     view_number: str = ""
     crop_rect: QRectF = field(default_factory=QRectF)
     hidden_detail_ids: set[str] = field(default_factory=set)
+    show_title: bool = True
+    title_offset: tuple[float, float] = (0.0, 0.0)
 
     def to_dict(self) -> dict:
         cr = self.crop_rect
@@ -311,6 +315,8 @@ class SheetViewData:
             "crop_rect": {"x": cr.x(), "y": cr.y(),
                           "w": cr.width(), "h": cr.height()},
             "hidden_detail_ids": sorted(self.hidden_detail_ids),
+            "show_title": self.show_title,
+            "title_offset": list(self.title_offset),
         }
 
     @classmethod
@@ -329,6 +335,8 @@ class SheetViewData:
             view_number=d.get("view_number", ""),
             crop_rect=crop,
             hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
+            show_title=d.get("show_title", True),
+            title_offset=tuple(d.get("title_offset", (0.0, 0.0))),
         )
 
 
@@ -357,6 +365,27 @@ class Sheet:
             annotations=[],
             orientation="",
         )
+
+    def next_view_number(self) -> str:
+        """The lowest positive integer no viewport here uses (AC4)."""
+        used = {sv.view_number for sv in self.sheet_views}
+        n = 1
+        while str(n) in used:
+            n += 1
+        return str(n)
+
+    def view_number_refusal(self, number: str,
+                            ignore: "SheetViewData | None" = None) -> "str | None":
+        """Why *number* cannot be a view number here, or None when it can.
+        The ``SheetManager.validate_number`` rule: non-blank and unused
+        (excluding *ignore*)."""
+        number = number.strip()
+        if not number:
+            return "A view number cannot be blank."
+        if any(sv.view_number == number
+               for sv in self.sheet_views if sv is not ignore):
+            return f"View number {number} is already used on sheet {self.number}."
+        return None
 
     def to_dict(self) -> dict:
         return {
@@ -636,11 +665,11 @@ class SheetProperties:
 class ViewportProperties:
     """Property-panel adapter for a SheetViewport (spec §19.4).
 
-    Duck-typed (get_properties/set_property) like SheetProperties. Supersedes
-    the double-click SheetViewPropertiesDialog: every edit routes through
-    PaperScene.commit_viewport_edit → ChangeViewportPropertiesCommand, so the
-    panel shares the dialog's crop×scale derivation and is fully undoable.
-    Width/Height are derived (crop × scale) and shown read-only.
+    Duck-typed (get_properties/set_property) like SheetProperties. Every edit
+    routes through PaperScene.commit_viewport_edit →
+    ChangeViewportPropertiesCommand, so the size derivation has one home and
+    every edit is undoable. Width/Height are derived (crop × scale) and shown
+    read-only.
     """
 
     def __init__(self, scene, viewport):
@@ -660,9 +689,11 @@ class ViewportProperties:
             "Title": {"type": "string",
                       "value": (self._vp.display_title()
                                 if self._vp._is_schematic() else d.title)},
+            "Number": {"type": "string", "value": d.view_number},
             "Scale": {"type": "enum", "value": scale_val,
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},
+            "Show Title": {"type": "bool", "value": d.show_title},
             "Position X": {"type": "string", "value": f"{d.x:.1f}"},
             "Position Y": {"type": "string", "value": f"{d.y:.1f}"},
             "Width": {"type": "label", "value": f"{d.w:.1f} mm"},
@@ -680,6 +711,17 @@ class ViewportProperties:
             self._scene.commit_viewport_edit(self._vp, scale=s)
         elif key == "Show Border":
             self._scene.commit_viewport_edit(self._vp, show_border=bool(value))
+        elif key == "Number":
+            number = str(value).strip()
+            if number == d.view_number:
+                return                     # a bare focus-out commits the row too
+            refusal = self._scene.sheet.view_number_refusal(number, ignore=d)
+            if refusal is not None:
+                self._scene.notify(refusal)
+                return                     # the panel refresh re-shows the old value
+            self._scene.commit_viewport_edit(self._vp, view_number=number)
+        elif key == "Show Title":
+            self._scene.commit_viewport_edit(self._vp, show_title=bool(value))
         elif key == "Position X":
             try:
                 x = float(value)
@@ -2980,8 +3022,7 @@ class PaperScene(QGraphicsScene):
     def _do_add_viewport(self, data: SheetViewData) -> SheetViewport:
         """Silent primitive: register *data* in the sheet and build its viewport.
 
-        Preserves the original add_viewport behaviour: assigns a view_number
-        when blank, appends to sheet.sheet_views (idempotent), creates the
+        Preserves the original add_viewport behaviour: appends to sheet.sheet_views (idempotent), creates the
         viewport item, and refreshes the title-block Scale field. Called by
         AddViewportCommand.redo / RemoveViewportCommand.undo.
 
@@ -2991,8 +3032,6 @@ class PaperScene(QGraphicsScene):
         Returns:
             The newly created SheetViewport.
         """
-        if not data.view_number:
-            data.view_number = str(len(self._sheet.sheet_views) + 1)
         # Identity check (not value `in`): SheetViewData has value-equality, so a
         # value-identical second viewport must still be tracked separately.
         if all(v is not data for v in self._sheet.sheet_views):
@@ -3074,6 +3113,8 @@ class PaperScene(QGraphicsScene):
         Returns:
             The created SheetViewport.
         """
+        if not data.view_number:
+            data.view_number = self._sheet.next_view_number()
         self._undo_stack.push(AddViewportCommand(self, data))
         return _find_viewport(self, data)
 
@@ -3100,11 +3141,12 @@ class PaperScene(QGraphicsScene):
 
     @staticmethod
     def _viewport_geom(data) -> tuple:
-        """Snapshot tuple of a SheetViewData's geometry (matches the retired
-        ViewportGeometryCommand format: (x, y, w, h, (cx, cy, cw, ch)))."""
+        """Snapshot of a SheetViewData's geometry: (x, y, w, h, (cx, cy, cw, ch),
+        title_offset). The native-move path keeps the 5-tuple form."""
         cr = data.crop_rect
         return (data.x, data.y, data.w, data.h,
-                (cr.x(), cr.y(), cr.width(), cr.height()))
+                (cr.x(), cr.y(), cr.width(), cr.height()),
+                tuple(data.title_offset))
 
     # Per-item-type manipulator snapshot + undo-command adapter.  The gesture
     # path is generic: on press each dragged record is snapshotted with its
@@ -3254,14 +3296,14 @@ class PaperScene(QGraphicsScene):
         QTimer.singleShot(0, lambda vp=viewport: self.remove_viewport(vp))
 
     def commit_viewport_edit(self, viewport, *, title=None, show_border=None,
-                             scale=None, pos=None) -> bool:
+                             scale=None, pos=None, show_title=None,
+                             title_offset=None, view_number=None) -> bool:
         """Push a ChangeViewportPropertiesCommand for one or more field edits.
 
         Any keyword left ``None`` keeps the viewport's current value. On-paper
         size (``w``/``h``) is always **derived** from crop × scale (concern 5)
         and never set directly — a stale W/H silently defeats scale changes.
-        This is the single home for that derivation, shared by the double-click
-        dialog and the property panel (spec §19.4).
+        This is the single home for that derivation (spec §19.4).
 
         Args:
             viewport: The SheetViewport being edited.
@@ -3269,6 +3311,9 @@ class PaperScene(QGraphicsScene):
             show_border: New border flag, or None to keep.
             scale: New scale (0.0 = NTS), or None to keep.
             pos: New (x, y) on-paper position, or None to keep.
+            show_title: New title visibility, or None to keep.
+            title_offset: New (dx, dy) from the title's default spot, or None to keep.
+            view_number: New number, already validated, or None to keep.
 
         Returns:
             True if a command was pushed (values actually changed).
@@ -3278,6 +3323,9 @@ class PaperScene(QGraphicsScene):
             "title": data.title, "show_border": data.show_border,
             "scale": data.scale, "x": data.x, "y": data.y,
             "w": data.w, "h": data.h,
+            "show_title": data.show_title,
+            "title_offset": tuple(data.title_offset),
+            "view_number": data.view_number,
         }
         new_title = data.title if title is None else title
         new_show_border = data.show_border if show_border is None else show_border
@@ -3296,6 +3344,10 @@ class PaperScene(QGraphicsScene):
             "title": new_title, "show_border": new_show_border,
             "scale": new_scale, "x": new_x, "y": new_y,
             "w": new_w, "h": new_h,
+            "show_title": data.show_title if show_title is None else show_title,
+            "title_offset": (tuple(data.title_offset) if title_offset is None
+                             else tuple(title_offset)),
+            "view_number": data.view_number if view_number is None else view_number,
         }
         if new_fields != old_fields:
             self._undo_stack.push(
