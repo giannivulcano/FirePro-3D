@@ -3562,28 +3562,48 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         else:
             self.save_file_as()
 
-    def save_file(self):
-        self._commit_text_edits()
-        if self._current_file:
-            if self.scene.save_to_file(self._current_file):
-                self._modified = False
-                self.scene.mark_saved()
-                self._update_title()
-                self._cleanup_autosave()
-        else:
-            self.save_file_as()
+    def _confirm_content_loss(self, file: str) -> bool:
+        """Ask before writing away most of the project on disk (True = go on)."""
+        from firepro3d import project_backup as pb
+        from firepro3d import themed_message as tm
+        on_disk = pb.file_item_count(file)
+        in_scene = pb.scene_item_count(self.scene)
+        if not pb.loses_content(on_disk, in_scene):
+            return True
+        return tm.themed_confirm(
+            self, "Most of This Project Is Missing",
+            f"This project has {in_scene} model items, but the file on disk "
+            f"has {on_disk}. Saving replaces the file.\n\nSave anyway?",
+            danger=True, ok_label="Save anyway", cancel_label="Cancel")
 
-    def save_file_as(self):
+    def save_file(self) -> bool:
+        self._commit_text_edits()
+        if not self._current_file:
+            return self.save_file_as()
+        if not self._confirm_content_loss(self._current_file):
+            return False
+        if not self.scene.save_to_file(self._current_file):
+            return False
+        self._modified = False
+        self.scene.mark_saved()
+        self._update_title()
+        self._cleanup_autosave()
+        return True
+
+    def save_file_as(self) -> bool:
         self._commit_text_edits()
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
-        if file:
-            self._current_file = file
-            self._detached_name = None
-            if self.scene.save_to_file(file):
-                self._modified = False
-                self.scene.mark_saved()
-                self._update_title()
-                self._add_recent_file(file)
+        if not file or not self._confirm_content_loss(file):
+            return False
+        self._current_file = file
+        self._detached_name = None
+        if not self.scene.save_to_file(file):
+            return False
+        self._modified = False
+        self.scene.mark_saved()
+        self._update_title()
+        self._add_recent_file(file)
+        return True
 
     def open_file(self):
         self._commit_text_edits()
@@ -3796,8 +3816,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         if any(editing_text_item(sc) is not None for sc in self._text_edit_scenes()):
             return
-        if not self._modified:
-            return
+        if not self._modified or self._detached_name:
+            return      # a failed load's partial scene never replaces the recovery file
         path = self._autosave_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.scene.save_to_file(path, backup=False)
@@ -3815,9 +3835,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # File→Open only in _current_file (None → first Save prompts
             # Save-As), _modified (True — unsaved by definition), and no
             # recent-files entry.
-            if self._guarded_load(path):
-                self._modified = True
-                self._update_title()
+            if not self._guarded_load(path):
+                return                          # the error said the file is intact
+            self._modified = True
+            self._update_title()
         self._cleanup_autosave()
 
     def _cleanup_autosave(self):
@@ -3866,8 +3887,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
              ("Discard", "discard", None),
              ("Save", "save", "primary")])
         if choice == "save":
-            self.save_file()
-            return True
+            return self.save_file()
         if choice == "discard":
             return True
         return False   # "cancel" or closed (None) → do not proceed

@@ -156,3 +156,55 @@ def test_write_failure_leaves_the_original(tmp_path):
         pb.write_atomic(str(path), {"bad": object()})
     assert path.read_text() == '{"keep": 1}'
     assert not (tmp_path / "project.FPD.tmp").exists()
+
+
+def _big_project(path):
+    path.write_text(json.dumps({"gridlines": [{}] * 20}))
+
+
+def test_save_warns_and_cancel_leaves_the_file(mw, tmp_path, monkeypatch):
+    from firepro3d import themed_message as tm
+    path = tmp_path / "project.FPD"
+    _big_project(path)
+    before = path.read_bytes()
+    mw._current_file = str(path)
+    asks = []
+    monkeypatch.setattr(tm, "themed_confirm", lambda *a, **k: asks.append(a) or False)
+    assert mw.save_file() is False
+    assert len(asks) == 1 and path.read_bytes() == before
+
+
+def test_small_file_saves_without_warning(mw, tmp_path, monkeypatch):
+    from firepro3d import themed_message as tm
+    path = tmp_path / "project.FPD"
+    path.write_text(json.dumps({"gridlines": [{}] * 9}))
+    mw._current_file = str(path)
+    monkeypatch.setattr(tm, "themed_confirm", lambda *a, **k: pytest.fail("asked"))
+    assert mw.save_file() is True
+
+
+@pytest.mark.parametrize("disk,scene,warn", [
+    (10, 4, True), (10, 5, False), (9, 0, False), (None, 0, False),
+])
+def test_loses_content_boundary(disk, scene, warn):
+    from firepro3d.project_backup import loses_content
+    assert loses_content(disk, scene) is warn
+
+
+def test_failed_recovery_keeps_the_recovery_file(mw, tmp_path, monkeypatch):
+    from firepro3d import themed_message as tm
+    import main as main_mod
+    recovery = tmp_path / "recovery.FPD"
+    _saved_project(mw, recovery)
+    original = recovery.read_bytes()
+    monkeypatch.setattr(type(mw), "_autosave_path",
+                        staticmethod(lambda: str(recovery)))
+    monkeypatch.setattr(main_mod, "themed_confirm", lambda *a, **k: True)
+    monkeypatch.setattr(tm, "themed_error", lambda p, t, m: None)
+    monkeypatch.setattr(main_mod, "ERROR_LOG_PATH", str(tmp_path / "error.log"))
+    monkeypatch.setattr(mw.scene._level_manager, "from_list", _boom)
+    mw._check_recovery()
+    assert recovery.read_bytes() == original
+    mw._modified = True
+    mw._autosave()                                  # the timer, on the partial scene
+    assert recovery.read_bytes() == original
