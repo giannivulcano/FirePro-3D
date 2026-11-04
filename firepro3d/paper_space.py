@@ -2728,6 +2728,22 @@ class PaperScene(QGraphicsScene):
         land there — ``hatch_patterns.ensure_pattern_available``), or None."""
         return getattr(self._resolver, "_scene", None)
 
+    def annotation_block(self, category: str, mapped: str | None = None):
+        """The ``BlockDefinition`` that draws *category*'s label on this sheet:
+        forwarded to the model scene's resolver (the ``SectionScene`` pattern,
+        system-blocks.md section 3). None when the model scene is gone."""
+        fn = getattr(self._block_registry_owner, "annotation_block", None)
+        try:
+            return fn(category, mapped) if fn is not None else None
+        except RuntimeError:          # model scene deleted under a queued paint
+            return None
+
+    def notify(self, message: str, timeout_ms: int = 6000) -> None:
+        """Show *message* on the model scene's status channel (no-op without one)."""
+        show = getattr(self._block_registry_owner, "_show_status", None)
+        if callable(show):
+            show(message, timeout_ms)
+
     def device_independent_text(self) -> bool:
         """Text sizing-mode hook (containment C5).
 

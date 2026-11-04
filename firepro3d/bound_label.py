@@ -110,6 +110,8 @@ class BoundLabelItem(QGraphicsItem):
     scene teardown never re-resolve through the scene.
     """
 
+    placeholder_mm = PLACEHOLDER_MM   # orphan box side; a paper label sets its own
+
     def __init__(self, host, *, child: bool = True, parent=None):
         super().__init__(parent if parent is not None else (host if child else None))
         self._host = host             # the data source (== parentItem() unless *parent* / child=False)
@@ -261,8 +263,8 @@ class BoundLabelItem(QGraphicsItem):
         else:
             if not self._orphan_visible(st):
                 return QRectF()
-            h = PLACEHOLDER_MM / 2.0
-            r = QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM)
+            h = self.placeholder_mm / 2.0
+            r = QRectF(-h, -h, self.placeholder_mm, self.placeholder_mm)
         return r.adjusted(-PEN_MARGIN, -PEN_MARGIN, PEN_MARGIN, PEN_MARGIN)
 
     def shape(self) -> QPainterPath:
@@ -275,12 +277,12 @@ class BoundLabelItem(QGraphicsItem):
         ops = self._ops(self._k(painter, st[0]), st)
         if not ops:
             if self._orphan_visible(st):              # orphan placeholder (G5: never vanishes)
-                h = PLACEHOLDER_MM / 2.0
+                h = self.placeholder_mm / 2.0
                 pen = QPen(QColor(PLACEHOLDER_COLOUR))
                 pen.setCosmetic(True)
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRect(QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM))
+                painter.drawRect(QRectF(-h, -h, self.placeholder_mm, self.placeholder_mm))
                 painter.drawLine(QPointF(-h, -h), QPointF(h, h))
             return
         paint_ops(painter, ops, _IDENTITY, self)
@@ -324,8 +326,8 @@ class OutlinedLabel(BoundLabelItem):
         out = QPainterPath()
         if d is None:
             if self._orphan_visible(st):
-                h = PLACEHOLDER_MM / 2.0
-                out.addRect(QRectF(-h, -h, PLACEHOLDER_MM, PLACEHOLDER_MM))
+                h = self.placeholder_mm / 2.0
+                out.addRect(QRectF(-h, -h, self.placeholder_mm, self.placeholder_mm))
         else:
             for op in d.render_ops_variant(False, k):
                 if op.kind == "text":

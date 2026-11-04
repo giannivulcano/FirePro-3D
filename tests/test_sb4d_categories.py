@@ -11,13 +11,13 @@ from tests._sb4d_helpers import add_sheet, dispose, plan_scene
 def test_registries(qapp):
     from firepro3d import element_params as ep
     from firepro3d import system_blocks as sb
-    assert ep.CATEGORIES[-3:] == ("Elevation", "Section", "Detail")
+    assert ep.CATEGORIES[-4:] == ("Elevation", "Section", "Detail", "View Title")
     assert [(k, s.tier, s.kind) for k, s in ep.PARAMS["Elevation"].items()] == [("Direction", 1, "text")]
     for cat in ("Section", "Detail"):
         assert [(k, s.tier, s.kind) for k, s in ep.PARAMS[cat].items()] == [
             ("Mark", 1, "text"), ("Sheet", 4, "text")]
     assert sb.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level",
-                                        "Elevation", "Section", "Detail")
+                                        "Elevation", "Section", "Detail", "View Title")
     assert (sb.LABEL_FIELD["Elevation"], sb.LABEL_FIELD["Section"], sb.LABEL_FIELD["Detail"]) == (
         "Direction", "Mark", "Mark")
     assert "Elevation" in sb.PAINT_WHEN_BLANK and "Section" not in sb.PAINT_WHEN_BLANK

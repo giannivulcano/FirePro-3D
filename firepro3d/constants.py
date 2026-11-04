@@ -364,6 +364,12 @@ FLOOR_OPENING_HOST_HL_COLOR = "#ff4400"     # floor-void host-pick outline (= sc
 FLOOR_SKETCH_MODES = ("floor", "floor_opening")
 SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
 SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
+# Sheet viewport view title (SB4f). Local viewport mm: the block origin's default
+# spot is the old bubble centre, x from the box's left edge, y below its bottom edge.
+VIEW_TITLE_ORIGIN_X_MM = 4.0
+VIEW_TITLE_ORIGIN_Y_MM = 4.5
+VIEW_TITLE_LINE_PEN_MM = 0.3          # the composite line (paper mm)
+VIEW_TITLE_PLACEHOLDER_MM = 8.0       # orphan box side on paper (k = 1)
 
 # ── Selection-manipulator handle style (docs/specs/selection-manipulator.md) ──
 # Mockup-approved 2026-08-30 (style A): dark-filled square handles with a
