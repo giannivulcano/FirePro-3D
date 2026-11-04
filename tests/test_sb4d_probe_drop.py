@@ -14,13 +14,14 @@ def test_p4_a_browser_detail_drop_reaches_dropevent_before_its_dialog(qapp, monk
     PaperGraphicsView.dropEvent and decodes to the properties dialog -- the
     refusal must sit before that dialog. A cancelled dialog places nothing."""
     ms, sec, det, tabs = plan_scene()
+    seen = []
+    browser = None
     try:
         det.create_detail("Detail 1", QRectF(0.0, 0.0, 4000.0, 3000.0))
         browser = ProjectBrowser()
         browser.refresh_details(det.detail_names)
         sheet = add_sheet(ms, "FP-1.0")
         view, _ps = paper_view(ms, sec, det, sheet)
-        seen = []
 
         def _exec(dlg):
             seen.append(dlg)
@@ -29,10 +30,11 @@ def test_p4_a_browser_detail_drop_reaches_dropevent_before_its_dialog(qapp, monk
         drop_leaf(view, browser, "detail", "Detail 1")
         assert len(seen) == 1
         assert sheet.sheet_views == []
+    finally:
         for dlg in seen:
             dlg.deleteLater()
-        browser.deleteLater()
-    finally:
+        if browser is not None:
+            browser.deleteLater()
         dispose(ms, sec, tabs)
 
 

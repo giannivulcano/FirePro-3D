@@ -1,8 +1,8 @@
 """SB4d D4 on the real MainWindow wiring (T16 review minors): a viewport
 add / undo / redo, a sheet renumber, reorder and delete each reach
 ``MainWindow._on_paper_modified`` -> the browser's drag flag and the model
-marker head's Sheet slot. Drives the shipped paper scene / sheet manager; the
-window is the module singleton the other MainWindow suites use."""
+marker head's Sheet slot. Drives the shipped paper scene / sheet manager on
+a MainWindow built by this module and disposed through dispose_main_window."""
 import pytest
 from PyQt6.QtCore import QRectF, Qt
 

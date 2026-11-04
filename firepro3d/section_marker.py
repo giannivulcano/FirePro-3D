@@ -5,8 +5,9 @@ Section view geometry and the plan marker (spec ``section-view-subsystem.md``).
 
 ``SectionBasis`` is the pure projection / classification math of one section
 (world mm).  ``SectionMarker`` is the single plan-scene item per section: a cut
-line A->B with an annotation-block head and a look-side arrow at each end, plus a crop box
-(``depth`` beyond the line) that is drawn only while the marker is selected.
+line A->B with an annotation-block head and a look-side arrow at each end, plus
+a crop box (``depth`` beyond the line) that is drawn only while the marker is
+selected.
 The four cardinal elevations are permanent cardinal ``SectionMarker`` s.
 """
 

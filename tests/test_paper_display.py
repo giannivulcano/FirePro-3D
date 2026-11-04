@@ -333,8 +333,10 @@ class TestRoomPaperNoFill:
         restore_model_display(saved)
         assert room._tag.opacity() == pytest.approx(0.5)
 
-    def test_marker_rows_carry_no_fill_on_paper(self):
-        """SB4d D7: the marker rows are line-only on paper as on screen."""
+    def test_marker_rows_factory_config_carries_no_fill_on_paper(self):
+        """SB4d D7 config pin (not a render guard): the three marker rows
+        ship with no paper fill slot. This pins the config only; it does not
+        render a paper marker (T18 review minor 4, optional)."""
         from firepro3d.paper_display import _HAS_FILL
         for key in ("Elevation Marker", "Section Marker", "Detail Marker"):
             assert key not in _HAS_FILL
