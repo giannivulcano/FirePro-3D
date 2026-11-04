@@ -23,6 +23,7 @@ from .constants import (
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
+    VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -881,7 +882,6 @@ class ViewResolver:
 _GRIP_SIZE = SELECTION_GRIP_SIZE_MM   # alias kept for SheetViewport internal use
 _MIN_VIEWPORT_SIZE = 20.0
 _MIN_CROP_MODEL = 1.0   # min crop extent in model mm
-_VIEW_TITLE_H = 8.0  # mm height for view title below viewport
 
 
 class SheetViewport(QGraphicsObject):
@@ -915,7 +915,11 @@ class SheetViewport(QGraphicsObject):
         # ``changed`` signal is per-scene, so a per-viewport flag would let one
         # viewport's echo reach sibling viewports of the same scene and start a
         # permanent alternating repaint ping-pong.  See paint().
+        self._title_label = None
         self._reconnect_source()
+        from .view_title_label import ViewTitleLabel
+        self._title_label = ViewTitleLabel(self)
+        self._sync_title()
 
     @property
     def data(self) -> SheetViewData:
@@ -990,7 +994,30 @@ class SheetViewport(QGraphicsObject):
         """Re-resolve the source (fresh extent / placeholder) and repaint."""
         self.prepareGeometryChange()
         self._reconnect_source()
+        self._sync_title()
         self.mark_dirty()
+
+    def _title_shown(self) -> bool:
+        """The title draws when enabled and the view resolves (placeholders
+        never had one)."""
+        return self._data.show_title and not self._placeholder
+
+    def _title_anchor(self) -> QPointF:
+        """The block origin, local: the default spot plus ``title_offset``, so
+        the title stays with the box's lower-left on resize."""
+        dx, dy = self._data.title_offset
+        return QPointF(VIEW_TITLE_ORIGIN_X_MM + dx,
+                       self._data.h + VIEW_TITLE_ORIGIN_Y_MM + dy)
+
+    def _sync_title(self) -> None:
+        """Re-apply the title's position, visibility and shape (its line reads
+        the box, its text the data)."""
+        lab = self._title_label
+        if lab is None:
+            return                    # still inside __init__
+        lab.set_anchor(self._title_anchor())
+        lab.setVisible(self._title_shown())
+        lab.refresh()
 
     def _effective_crop(self) -> QRectF:
         """The model-space window actually rendered.
@@ -1017,6 +1044,7 @@ class SheetViewport(QGraphicsObject):
             self.prepareGeometryChange()
             self._data.w = crop.width() * self._data.scale
             self._data.h = crop.height() * self._data.scale
+            self._sync_title()
 
     def _on_source_changed(self, rects=None):
         # Scene-scoped guard: Qt delivers one coalesced ``changed`` emission to
@@ -1098,6 +1126,7 @@ class SheetViewport(QGraphicsObject):
         d.x, d.y, d.w, d.h = state[0], state[1], state[2], state[3]
         d.crop_rect = QRectF(state[4])
         self.setPos(d.x, d.y)
+        self._sync_title()
         self.mark_dirty()
 
     def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
@@ -1120,6 +1149,7 @@ class SheetViewport(QGraphicsObject):
         anchor_left = abs(anchor.x() - x) <= abs(anchor.x() - (x + w)) + eps
         anchor_top = abs(anchor.y() - y) <= abs(anchor.y() - (y + h)) + eps
         self._resize_on_paper(new_w, new_h, anchor_left, anchor_top)
+        self._sync_title()
 
     def _resize_on_paper(self, new_w: float, new_h: float,
                          anchor_left: bool, anchor_top: bool) -> None:
@@ -1184,7 +1214,7 @@ class SheetViewport(QGraphicsObject):
         margin = _GRIP_SIZE if self.isSelected() else 0
         return QRectF(-margin, -margin,
                       self._data.w + 2 * margin,
-                      self._data.h + _VIEW_TITLE_H + 2 * margin)
+                      self._data.h + 2 * margin)
 
     def _begin_isolation(self):
         """Apply this viewport's level context to the shared source scene.
@@ -1328,60 +1358,6 @@ class SheetViewport(QGraphicsObject):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
             painter.drawRect(vp_rect)
-
-        # View title below viewport (Revit-style)
-        title_y = h + 0.5
-
-        # Bubble
-        bubble_r = 3.0
-        bubble_cx = bubble_r + 1.0
-        bubble_cy = title_y + bubble_r + 1.0
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.25))
-        painter.setBrush(QBrush(Qt.GlobalColor.white))
-        painter.drawEllipse(QPointF(bubble_cx, bubble_cy), bubble_r, bubble_r)
-        # Number in bubble
-        _draw_mm_text(
-            painter,
-            QRectF(bubble_cx - bubble_r, bubble_cy - bubble_r,
-                   bubble_r * 2, bubble_r * 2),
-            self._data.view_number or "1",
-            2.0,
-            bold=True,
-            align=Qt.AlignmentFlag.AlignCenter,
-        )
-
-        # Horizontal line from bubble right perimeter to viewport edge
-        line_x_start = bubble_cx + bubble_r
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
-        painter.drawLine(QPointF(line_x_start, bubble_cy),
-                         QPointF(w, bubble_cy))
-
-        # Title text — ALL CAPS, bold, ABOVE the line
-        text_x = line_x_start + 1.5
-        title_rect_above = QRectF(text_x, title_y, w - text_x, bubble_cy - title_y - 0.3)
-        _draw_mm_text(
-            painter,
-            title_rect_above,
-            self.display_title().upper(),
-            2.2,
-            bold=True,
-            align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
-        )
-
-        # Scale text below the line
-        if self._data.scale == 0.0:
-            scale_text = "NTS"
-        else:
-            scale_text = float_to_scale_str(self._data.scale)
-        title_rect_below = QRectF(text_x, bubble_cy + 0.3, w - text_x, bubble_r + 0.5)
-        _draw_mm_text(
-            painter,
-            title_rect_below,
-            scale_text,
-            1.6,
-            align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            color="#444444",
-        )
 
         # Selection feedback (dashed boundary + resize handles) is drawn by the
         # scene's SelectionManipulator frame — the per-item grip code is retired.
@@ -3099,6 +3075,8 @@ class PaperScene(QGraphicsScene):
             vp.setPos(data.x, data.y)
             vp.prepareGeometryChange()
             vp.mark_dirty()
+            vp._sync_title()
+            vp._rebake_manipulator()      # the grip appears or goes with show_title
         self._update_scale_field()
 
     def add_viewport(self, data: SheetViewData) -> SheetViewport:

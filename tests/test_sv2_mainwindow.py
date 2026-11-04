@@ -187,7 +187,7 @@ def test_g1_sheet_round_trip_renders(mw, monkeypatch, tmp_path):
     assert _interior_ink(mw, vps[0]) > 50
 
 
-def test_g3_pdf_strokes_weights_and_nts(mw, monkeypatch, tmp_path):
+def test_g3_pdf_strokes_weights_and_nts(mw, monkeypatch, tmp_path, real_system_library):
     from firepro3d import paper_export
     save_paper_color_mode(PaperColorMode.BW)
     w, defn, _ = _new_saved_schematic(mw, monkeypatch)
@@ -222,12 +222,17 @@ def test_g3_pdf_strokes_weights_and_nts(mw, monkeypatch, tmp_path):
                     raw.append(width)
                 elif abs(length - 10.0) < 0.5:
                     nested.append(width)
-        text = page.get_text()
+        # SB4f: the title is a block, its glyphs are paths (no text layer), so
+        # the title line shows as ink in the strip under the box.
+        strip = fitz.Rect(d.x / PT, (d.y + d.h + 0.6) / PT,
+                          (d.x + d.w) / PT, (d.y + d.h + 8.5) / PT)
+        pix = page.get_pixmap(dpi=100, clip=strip, colorspace=fitz.csGRAY)
+        title_ink = sum(1 for b in pix.samples if b < 128)
     finally:
         doc.close()
     assert raw and all(abs(wd - constr) < 0.01 for wd in raw), (raw, constr)
     assert nested and all(abs(wd - blocks) < 0.01 for wd in nested), (nested, blocks)
-    assert "NTS" in text
+    assert title_ink > 0                        # the View Title block drew below the box
 
 
 def test_g5_delete_placed_refused_then_allowed(mw, monkeypatch):
