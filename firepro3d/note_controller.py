@@ -32,6 +32,36 @@ def remove_notes(scene, view_key: str) -> None:
         scene.remove_block_instance(inst)
 
 
+def rekey_history(scene, old: str, new: str) -> None:
+    """Re-key every note record of every undo / redo state from *old* to *new*.
+
+    For a DETAIL rename only: a detail has no undo step, so a snapshot taken
+    before the rename would restore notes under a name that no longer exists
+    (permanently hidden). Rewrites history in place and pushes nothing. A level
+    rename is undoable, so its snapshots keep the old key and must not be passed
+    here.
+    """
+    for state in getattr(scene, "_undo_stack", ()):
+        for rec in state.get("blocks", ()):
+            note = rec.get("note")
+            if note and note.get("view") == old:
+                note["view"] = new
+
+
+def drop_history(scene, view_key: str) -> None:
+    """Remove every note record owned by *view_key* from every undo / redo state.
+
+    For a DETAIL delete only (not undoable): an undo past it would otherwise
+    bring back notes keyed to a view that no longer exists. Pushes nothing. A
+    level delete is undoable and restores its notes, so it never calls this.
+    """
+    for state in getattr(scene, "_undo_stack", ()):
+        blocks = state.get("blocks")
+        if blocks:
+            state["blocks"] = [r for r in blocks
+                               if (r.get("note") or {}).get("view") != view_key]
+
+
 class NoteController:
     """Note placement and the canvas edit overlay (design D8, D13).
 

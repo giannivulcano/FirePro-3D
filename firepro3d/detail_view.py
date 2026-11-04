@@ -593,8 +593,9 @@ class DetailViewManager:
             i = self._tabs.indexOf(view)
             if i >= 0:
                 self._tabs.setTabText(i, f"Detail: {new}")
-        from .note_controller import rekey_notes
+        from .note_controller import rekey_history, rekey_notes
         rekey_notes(self._ms, f"detail:{old}", f"detail:{new}")
+        rekey_history(self._ms, f"detail:{old}", f"detail:{new}")   # no undo step: rewrite history
         if getattr(self._ms, "active_view_key", "") == f"detail:{old}":
             self._ms.active_view_key = f"detail:{new}"
         for sheet in getattr(self._ms, "_sheets", []) or []:     # as section_manager does
@@ -608,8 +609,9 @@ class DetailViewManager:
     def delete_detail(self, name: str):
         """Delete a detail (marker + tab) and the notes it owns. Used from the
         project browser. Not undoable (details have no undo step; spec Divergences)."""
-        from .note_controller import remove_notes
+        from .note_controller import drop_history, remove_notes
         remove_notes(self._ms, f"detail:{name}")
+        drop_history(self._ms, f"detail:{name}")      # no undo step: rewrite history
         self.close_detail(name)
 
     def clear(self):

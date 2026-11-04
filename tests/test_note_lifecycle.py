@@ -183,3 +183,43 @@ def test_level_delete_removes_its_notes_in_the_one_step_and_undo_restores(mw, mo
     scene.undo()
     views = sorted(i.note["view"] for i in scene._block_instances if i.note)
     assert views == ["plan:Plan: Level 1", "plan:Plan: Level 2"]
+
+
+# -- detail rename / delete versus the undo history (no undo step of their own) --
+
+def _live_notes(ms):
+    return [i for i in ms._block_instances if i.note]
+
+
+def test_undo_past_a_detail_rename_keeps_the_note_visible_in_the_renamed_detail(qapp):
+    fx = view_fixture()
+    ms, det, lm = fx["ms"], fx["det"], fx["lm"]
+    place_note(ms, "detail:D1")
+    ms.push_undo_state()                      # state A: note under D1
+    det.rename_detail("D1", "D9")
+    ms.push_undo_state()                      # state B: note under D9
+    place_note(ms, "detail:D9", pos=(900.0, 900.0))
+    ms.push_undo_state()                      # state C
+    ms.undo()                                 # back to B
+    ms.undo()                                 # past the rename, to A
+    ms.active_view_key, ms.active_level = "detail:D9", "Level 1"
+    lm.apply_to_scene(ms, "Level 1")
+    (n,) = _live_notes(ms)
+    assert n.note["view"] == "detail:D9" and n.isVisible()
+    ms.redo()
+    ms.redo()
+    lm.apply_to_scene(ms, "Level 1")
+    assert [i.note["view"] for i in _live_notes(ms)] == ["detail:D9"] * 2
+    assert all(i.isVisible() for i in _live_notes(ms))
+
+
+def test_undo_past_a_detail_delete_brings_back_no_note_with_the_dead_key(qapp):
+    fx = view_fixture()
+    ms, det = fx["ms"], fx["det"]
+    place_note(ms, "detail:D1")
+    keep = place_note(ms, PLAN, pos=(900.0, 900.0))
+    ms.push_undo_state()
+    det.delete_detail("D1")
+    ms.push_undo_state()
+    ms.undo()
+    assert [i.note["view"] for i in _live_notes(ms)] == [PLAN]
