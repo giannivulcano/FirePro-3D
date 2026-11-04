@@ -1,8 +1,9 @@
 """Smoke round 1: the knee snap (item 2), and a Note's Text rows at placement and
 after it, with a border by default (items 3, 4). Design D8 as amended at smoke."""
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter
+from PyQt6.QtTest import QTest
 
 from firepro3d import paper_display as pd
 from firepro3d.block_instance import BlockInstance
@@ -10,7 +11,7 @@ from firepro3d.display_manager import DisplayManager
 from firepro3d.paper_display import LineWeightDef
 from firepro3d.text_item import TextAnnotationData, TextItem
 from firepro3d.text_leader import solve_knee
-from tests._note_helpers import click
+from tests._note_helpers import click, mouse
 from tests.test_note_ribbon import main_window  # noqa: F401  (module MainWindow fixture)
 
 PLAN = "plan:Plan: Level 1"
@@ -64,6 +65,10 @@ def test_the_knee_lands_on_the_midpoint_inside_the_band(y, snapped):
 
 def test_no_band_means_no_snap():
     assert solve_knee(BOX, QPointF(120.0, 20.5), REC)["t"] == pytest.approx(20.5 / 40.0)
+
+
+def test_a_band_wider_than_the_edge_still_lets_the_knee_leave_the_midpoint():
+    assert solve_knee(BOX, QPointF(120.0, 35.0), REC, 500.0)["t"] == pytest.approx(35.0 / 40.0)
 
 
 def test_a_note_knee_drag_snaps_at_the_screen_aperture_and_honours_the_toggle(
@@ -147,10 +152,85 @@ def test_only_the_overridden_field_stops_following_the_definition(
     inst.set_property("Fill Color", "#112233")
     prim = inst._note_prim()
     prim["height_mm"] = 5.0
-    inst.note_changed()
-    assert inst.get_properties()["Height"]["value_mm"] == 5.0    # untouched: follows the block
-    assert inst.get_properties()["Fill Color"]["value"] == "#112233"
-    prim["height_mm"] = 3.0
+    try:
+        inst.note_changed()
+        assert inst.get_properties()["Height"]["value_mm"] == 5.0    # untouched: follows the block
+        assert inst.get_properties()["Fill Color"]["value"] == "#112233"
+    finally:
+        prim["height_mm"] = 3.0
+
+
+def test_a_mixed_selection_never_writes_another_type_rows_into_a_note(
+        shown_model_view, real_system_library):
+    view, scene, inst = _note(shown_model_view)
+    other = TextItem(TextAnnotationData(text="n", wrap_width_mm=300.0, height_mm=30.0))
+    scene.addItem(other)
+    scene._texts.append(other)
+    scene.clearSelection()
+    inst.setSelected(True)
+    other.setSelected(True)
+    inst.set_property("Height", 9.0)
+    assert "style" not in inst.note
+    other.setSelected(False)
+    inst.set_property("Height", 9.0)                   # alone, the row is the note's own
+    assert inst.note["style"] == {"height_mm": 9.0}
+
+
+def test_two_selected_notes_both_take_a_row(shown_model_view, real_system_library):
+    view, scene, a = _note(shown_model_view)
+    scene.set_mode("note")
+    click(view, QPointF(-1200.0, 600.0))
+    click(view, QPointF(1200.0, 1000.0))
+    b = scene._block_instances[-1]
+    scene._note_ctl.overlay.setPlainText("Two")
+    scene._text_edit_ctl.commit()
+    a.setSelected(True)
+    b.setSelected(True)
+    a.set_property("Bold", True)
+    b.set_property("Bold", True)
+    assert a.note["style"] == b.note["style"] == {"bold": True}
+
+
+def _patch_lit(scene, centre, half=60.0):
+    """Lit pixels in a square round *centre*, rendered through the real scene."""
+    for it in getattr(scene, "_origin_cross_items", ()):
+        it.setVisible(False)
+    area = QRectF(centre.x() - half, centre.y() - half, 2 * half, 2 * half)
+    img = QImage(60, 60, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 60, 60), area)
+    p.end()
+    return sum(QColor(img.pixel(x, y)).lightness() > 60 for y in range(60) for x in range(60))
+
+
+def test_the_tip_stays_pinned_while_a_note_move_is_held(shown_model_view, real_system_library):
+    view, scene, inst = _note(shown_model_view)
+    inst.set_property("Leader", True)
+    knee = inst.grip_points()[inst.note_grip_index("knee")]
+    tip = QPointF(knee.x() + 800.0, knee.y() - 800.0)
+    inst.apply_grip(inst.note_grip_index("tip"), tip)
+    d = QPointF(0.0, 300.0)
+    moved = tip + d
+    scene.clearSelection()
+    assert _patch_lit(scene, tip) > 0                  # the tip really draws there
+    assert _patch_lit(scene, moved) == 0
+    inst.setSelected(True)
+    c = inst.note_box_scene().center()
+    mouse(view, QEvent.Type.MouseButtonPress, c)
+    for i in (1, 2, 3):
+        mouse(view, QEvent.Type.MouseMove, c + d * (i / 3.0), buttons=Qt.MouseButton.LeftButton,
+              button=Qt.MouseButton.NoButton)
+    assert not inst.sceneTransform().isIdentity()      # the gesture is really held
+    m = scene._live_manip()
+    m.setOpacity(0.0)                                  # its grips ride the frame: the leader alone
+    lit = _patch_lit(scene, moved)
+    pinned = _patch_lit(scene, tip)
+    m.setOpacity(1.0)
+    mouse(view, QEvent.Type.MouseButtonRelease, c + d, buttons=Qt.MouseButton.NoButton)
+    assert pinned > 0
+    assert lit == 0
+    assert inst.note_tip_scene() == tip
 
 
 def test_the_box_memo_sees_a_style_change(shown_model_view, real_system_library):
@@ -166,6 +246,7 @@ def test_the_edit_overlay_wears_the_note_style(shown_model_view, real_system_lib
     scene._note_ctl.begin(inst)
     ov = scene._note_ctl.overlay
     assert ov.data.border_line_type == "dashed" and ov.data.border is True
+    assert not inst.isSelected()                       # hidden: the panel cannot restyle it mid-edit
     scene._text_edit_ctl.commit()
 
 
@@ -182,24 +263,45 @@ def test_arming_note_shows_the_template_and_the_next_note_takes_it(
     for k in ("Line Type", "Border Weight", "Font", "Leader"):
         assert k in win.prop_manager._prop_widgets, k
     depth = len(scene._undo_stack)
-    tmpl.set_property("Line Type", "dotted")
-    tmpl.set_property("Bold", True)
-    tmpl.set_property("Leader", True)
-    assert len(scene._undo_stack) == depth             # the template is not the model
-    assert "Leader End" in tmpl.get_properties()
-    tmpl.set_property("Leader Weight", "Medium")
+    panel = win.prop_manager
+    try:
+        panel._apply_property("Line Type", "dotted")
+        panel._apply_property("Bold", True)
+        panel._apply_property("Leader", True)
+        assert len(scene._undo_stack) == depth         # the template is not the model
+        QTest.qWait(panel._refresh_timer.interval() + 50)
+        assert "Leader End" in panel._prop_widgets     # the panel refreshed from the template
+        panel._apply_property("Leader Weight", "Medium")
+        vr = view.viewport().rect()
+        a = view.mapToScene(int(vr.width() * .55), int(vr.height() * .3))
+        b = view.mapToScene(int(vr.width() * .9), int(vr.height() * .7))
+        click(view, a)
+        click(view, b)
+        inst = scene._block_instances[-1]
+        assert inst.note["style"] == {"border_line_type": "dotted", "bold": True}
+        assert inst.note["leader"]["weight"] == "Medium"
+        assert inst.note["style"] is not tmpl.style
+        scene._note_ctl.overlay.setPlainText("Hold")
+        scene._text_edit_ctl.commit()
+    finally:
+        tmpl.style, tmpl.leader = {}, None
+
+
+def test_rearming_with_the_last_note_selected_keeps_the_template(
+        main_window, real_system_library):
+    win = main_window
+    scene = win.scene
+    view = scene._snap_view()
+    win._activate_note_tool()
     vr = view.viewport().rect()
-    a = view.mapToScene(int(vr.width() * .55), int(vr.height() * .3))
-    b = view.mapToScene(int(vr.width() * .9), int(vr.height() * .7))
-    click(view, a)
-    click(view, b)
-    inst = scene._block_instances[-1]
-    assert inst.note["style"] == {"border_line_type": "dotted", "bold": True}
-    assert inst.note["leader"]["weight"] == "Medium"
-    assert inst.note["style"] is not tmpl.style
+    click(view, view.mapToScene(int(vr.width() * .55), int(vr.height() * .3)))
+    click(view, view.mapToScene(int(vr.width() * .9), int(vr.height() * .7)))
     scene._note_ctl.overlay.setPlainText("Hold")
     scene._text_edit_ctl.commit()
-    tmpl.style, tmpl.leader = {}, None
+    assert scene.selectedItems()                       # the fresh note is selected
+    win._activate_note_tool()
+    assert win.prop_manager._targets == [scene._note_ctl.template]
+    scene.set_mode(None)
 
 
 def test_leaving_the_note_tool_clears_the_template(main_window, real_system_library):

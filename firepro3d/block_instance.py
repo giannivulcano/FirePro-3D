@@ -264,8 +264,11 @@ class BlockInstance(QGraphicsObject):
         if rec:
             g = self._note_geometry()
             inv, ok = g[1].inverted() if g is not None else (QTransform(), False)
-            if ok:
-                p = inv.map(self.note_tip_scene())
+            held, held_ok = self.sceneTransform().inverted()
+            if ok and held_ok:
+                # Identity at rest. A manipulator preview paints the ops under a
+                # held transform, which must not carry the pinned tip (D7).
+                p = inv.map(held.map(self.note_tip_scene()))
                 patch["leader"] = dict(rec, tip_x=p.x(), tip_y=p.y())
         return patch
 
@@ -1800,12 +1803,19 @@ class BlockInstance(QGraphicsObject):
         """Apply a Format / Frame / Fill row to this note (design D8, amended
         at smoke). The note keeps only what differs from the definition.
 
+        The panel commits a row to every selected item, so in a mixed selection
+        these keys are another item type's rows (a Rectangle's Height, a Pipe's
+        Line Type) and a note takes none of them.
+
         Returns:
             False when *key* is not one of those rows.
         """
         from .note_controller import STYLE_KEYS, style_after
         prim = self._note_prim()
         if prim is None or key not in STYLE_KEYS:
+            return False
+        sc = self.scene()
+        if sc is not None and not all(getattr(i, "note", None) for i in sc.selectedItems()):
             return False
         style = style_after(prim, self.note.get("style"), key, value)
         if style:

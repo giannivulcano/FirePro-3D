@@ -5632,7 +5632,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # Don't override template properties during placement modes
             if sc.mode in ("pipe", "sprinkler", "wall",
                            "floor", "roof", "roof_rect",
-                           "set_scale", "design_area"):
+                           "set_scale", "design_area", "note"):
                 return
             items = sc.selectedItems()
         except RuntimeError:

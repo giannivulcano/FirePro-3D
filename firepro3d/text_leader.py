@@ -64,7 +64,7 @@ def solve_knee(box: QRectF, drag: QPointF, rec: dict, snap_mm: float = 0.0) -> d
     else:
         span, pos = box.width(), drag.x() - box.left()
     t = 0.5 if span <= 0.0 else max(0.0, min(1.0, pos / span))
-    if abs(pos - span / 2.0) <= snap_mm:
+    if abs(pos - span / 2.0) <= min(snap_mm, span / 4.0):    # a coarse zoom never pins it
         t = 0.5
     return {"edge": edge, "t": t, "shoulder_mm": shoulder}
 
