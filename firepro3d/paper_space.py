@@ -3022,8 +3022,9 @@ class PaperScene(QGraphicsScene):
     def _do_add_viewport(self, data: SheetViewData) -> SheetViewport:
         """Silent primitive: register *data* in the sheet and build its viewport.
 
-        Preserves the original add_viewport behaviour: appends to sheet.sheet_views (idempotent), creates the
-        viewport item, and refreshes the title-block Scale field. Called by
+        Preserves the original add_viewport behaviour: appends to
+        sheet.sheet_views (idempotent), creates the viewport item, and
+        refreshes the title-block Scale field. Called by
         AddViewportCommand.redo / RemoveViewportCommand.undo.
 
         Args:
@@ -3133,8 +3134,9 @@ class PaperScene(QGraphicsScene):
 
         Args:
             data: SheetViewData whose geometry changed.
-            old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture.
-            new: (x, y, w, h, (cx, cy, cw, ch)) after the gesture.
+            old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture, plus
+                title_offset as a sixth element from ``_viewport_geom``.
+            new: the same shape after the gesture.
         """
         if not self._applying_command and old != new:
             self._undo_stack.push(ViewportGeometryCommand(self, data, old, new))
