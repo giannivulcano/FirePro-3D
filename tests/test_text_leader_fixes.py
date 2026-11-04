@@ -38,15 +38,17 @@ def _exploded_points(item):
     return [_to_parent(item, a), _to_parent(item, k), QPointF(rec["tip_x"], rec["tip_y"])]
 
 
+@pytest.mark.parametrize("t", [0.0, 0.3, 1.0])      # 0 and 1: a corner, two edges tie on distance
 @pytest.mark.parametrize("edge", ["R", "L", "T", "B"])
 @pytest.mark.parametrize("mirrored,rotation,scale", [
-    (True, 0.0, 1.0), (True, 30.0, 1.0), (False, 30.0, 1.0), (True, 30.0, 2.0)])
-def test_explode_draws_the_leader_the_placement_drew(qapp, edge, mirrored, rotation, scale):
+    (False, 0.0, 1.0), (True, 0.0, 1.0), (True, 30.0, 1.0), (False, 30.0, 1.0),
+    (False, 90.0, 1.0), (True, 30.0, 2.0)])
+def test_explode_draws_the_leader_the_placement_drew(qapp, edge, mirrored, rotation, scale, t):
     from tests.test_block_explode import _proj_and_editor
     rec = TextItem(TextAnnotationData(
         text="AB", x=-20.0, y=10.0, wrap_width_mm=30.0, box_height_mm=10.0,
         height_mm=3.0, color="#ffffff",
-        leader=_leader(edge=edge, t=0.3))).to_dict()
+        leader=_leader(edge=edge, t=t))).to_dict()
     b = BlockDefinition.new(name="B", library="L", series="S", origin=(0.0, 0.0),
                             primitives=[rec])
     proj, w, es = _proj_and_editor(b)

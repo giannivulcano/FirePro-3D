@@ -172,7 +172,11 @@ def _seat_leader(item, inst, pts, ox, oy) -> None:
     ab, kb = _from_parent(item, a), _from_parent(item, k)
     dist = {"L": abs(ab.x() - box.left()), "R": abs(ab.x() - box.right()),
             "T": abs(ab.y() - box.top()), "B": abs(ab.y() - box.bottom())}
-    edge = min(dist, key=dist.get)
+    # The shoulder leaves its edge at a right angle, so its direction names the
+    # edge (a corner attach ties on distance); distance only breaks a tie.
+    sx, sy = kb.x() - ab.x(), kb.y() - ab.y()
+    normal = {"L": (-1.0, 0.0), "R": (1.0, 0.0), "T": (0.0, -1.0), "B": (0.0, 1.0)}
+    edge = min(normal, key=lambda e: (-(normal[e][0] * sx + normal[e][1] * sy), dist[e]))
     span, pos = ((box.height(), ab.y() - box.top()) if edge in ("L", "R")
                  else (box.width(), ab.x() - box.left()))
     rec = item.data.leader
