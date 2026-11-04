@@ -87,14 +87,16 @@ class TestPaperColorMode:
 
 
 class TestPaperCategories:
-    def test_factory_defaults_all_20_categories(self):
-        # 14 model-mirrored categories + the paper-only "Construction" category
+    def test_factory_defaults_all_21_categories(self):
+        # 15 model-mirrored categories (SB4d D7 split the Elevation Marker row
+        # into Elevation / Section Marker) + the paper-only "Construction" category
         # (bug #3: construction/draw geometry plots via a pen-only paper category)
         # + the paper-only Hatch pattern-line weight (hatch D-A31)
         # + the paper-only "Blocks" category (linetypes.md LT1-2 / H6)
         # + Door / Window / Opening (2026-10-04 opening split).
         cats = factory_paper_categories()
-        assert len(cats) == 20
+        assert len(cats) == 21
+        assert "Section Marker" in cats
 
     def test_factory_opening_categories_light(self):
         for k in ("Door", "Window", "Opening"):
