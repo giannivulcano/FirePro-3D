@@ -63,6 +63,9 @@ def prim_refs(primitives) -> set[str]:
                 e = st.get(which)
                 if isinstance(e, dict) and is_end_ref(e.get("end")):
                     out.add(e["end"])
+        ld = p.get("leader") if p.get("type") == "text" else None
+        if isinstance(ld, dict) and is_end_ref(ld.get("end")):
+            out.add(ld["end"])                    # a text's leader End (same keyword exclusions)
     return out
 
 
@@ -115,6 +118,18 @@ def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
     tools = getattr(scene, "_tools", None)
     if tools is None:
         return []
+    out = []
+    # A text's leader End (text-leader-annotations): text items of this scene
+    # (a Block Editor's, a plan's), and every Note's leader. Sheet text lives on
+    # the paper scenes, which _user_scenes() does not reach (see the caller).
+    for item in tools._all_geometry_items():
+        ld = getattr(getattr(item, "data", None), "leader", None)
+        if isinstance(ld, dict) and ld.get("end") == block_id:
+            out.append(item)
+    for inst in getattr(scene, "_block_instances", []) or []:
+        ld = (getattr(inst, "note", None) or {}).get("leader")
+        if isinstance(ld, dict) and ld.get("end") == block_id:
+            out.append(inst)
     lt_ids = set()
     reg = getattr(scene, "block_registry", None) if via_linetype else None
     if reg is not None:
@@ -122,7 +137,6 @@ def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
             d = reg.get(i)
             if block_id in _default_end_ids(d):
                 lt_ids.add(i)
-    out = []
     for item in tools._all_geometry_items():
         if getattr(item, "reference", False):
             continue                  # RG15: a reference shape's style is hidden

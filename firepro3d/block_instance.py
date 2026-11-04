@@ -392,9 +392,10 @@ class BlockInstance(QGraphicsObject):
         sc = self.scene()
         reg = getattr(sc, "block_registry", None) if sc is not None else None
         mm = _tl._box_mm(item)
+        from .hatch_patterns import picker_exclude
         chg = _tl.leader_change(self.note.get("leader"), key, value,
                                 QRectF(0.0, 0.0, mm.width(), mm.height()), QPointF(0.0, 0.0),
-                                reg, sc)
+                                reg, sc, picker_exclude(sc))
         if key == "Leader" and chg[0]:
             # the default tip comes back relative to the box origin: seat it in the scene
             rec = chg[0]
@@ -1689,7 +1690,8 @@ class BlockInstance(QGraphicsObject):
             d = self.definition()
             bp = d.bound_prims() if d is not None else []
             frame_w = str(bp[0].prim.get("border_weight", "")) if bp else ""
-            props.update(panel_rows(self.note.get("leader"), reg, fallback_weight=frame_w))
+            props.update(panel_rows(self.note.get("leader"), reg, picker_exclude(sc),
+                                    fallback_weight=frame_w))
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}

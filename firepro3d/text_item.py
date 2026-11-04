@@ -1647,7 +1647,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         if self._on_paper():
             from .paper_space import _text_panel_properties
-            return _text_panel_properties(self._data, self._tile_registry())
+            from .hatch_patterns import picker_exclude
+            return _text_panel_properties(self._data, self._tile_registry(),
+                                          picker_exclude(self.scene()))
         from .paper_display import picker_weight_name, weight_names
         d = self._data
         props = {
@@ -1702,7 +1704,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
             props["Hide when empty"] = {"type": "bool", "value": d.hide_empty}
         from .text_leader import panel_rows
+        from .hatch_patterns import picker_exclude
         props.update(panel_rows(d.leader, self._tile_registry(),
+                                exclude=picker_exclude(self.scene()),
                                 fallback_weight=d.border_weight))
         return props
 
@@ -1713,9 +1717,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         r = self._box_rect_local()
         s = self.scale() or 1.0
         box = QRectF(0.0, 0.0, r.width() * s, r.height() * s)
+        from .hatch_patterns import picker_exclude
         return _tl.leader_change(self._data.leader, key, value, box,
                                  QPointF(self._data.x, self._data.y),
-                                 self._tile_registry(), self.scene())
+                                 self._tile_registry(), self.scene(),
+                                 picker_exclude(self.scene()))
 
     def _height_row(self) -> dict:
         """The model-surface Height row (text-sizing-wrap D2).

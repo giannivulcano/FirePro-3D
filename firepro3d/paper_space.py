@@ -1554,7 +1554,7 @@ _PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
 _PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
 
 
-def _text_panel_properties(data: "TextAnnotationData", registry=None) -> dict:
+def _text_panel_properties(data: "TextAnnotationData", registry=None, exclude=()) -> dict:
     """Property-panel form dict for a sheet text annotation (§9.6 panel path).
 
     Formatting only — content is edited inline on the canvas and wrap width
@@ -1567,6 +1567,7 @@ def _text_panel_properties(data: "TextAnnotationData", registry=None) -> dict:
         data: The TextAnnotationData to render.
         registry: Project block registry the Leader End picker resolves
             through (``TextItem._tile_registry()``); None lists folder ends.
+        exclude: End block ids the picker leaves out (``picker_exclude``).
 
     Returns:
         An ordered property dict in PropertyManager meta format.
@@ -1599,7 +1600,7 @@ def _text_panel_properties(data: "TextAnnotationData", registry=None) -> dict:
                    "options": ["square", "round", "chamfer"]},
         "Wrap": {"type": "bool", "value": data.wrap_on()},                   # D7
         "Shrink to fit": {"type": "bool", "value": data.shrink_on()},       # D7
-        **panel_rows(data.leader, registry, fallback_weight=data.border_weight),
+        **panel_rows(data.leader, registry, exclude, fallback_weight=data.border_weight),
     }
 
 

@@ -377,6 +377,8 @@ def used_weight_names(records) -> set[str]:
         for prim in rec.get("primitives", []) or []:
             if prim.get("type") == "text" and prim.get("border_weight"):
                 names.add(canonical_weight_name(prim["border_weight"]))
+            if prim.get("type") == "text" and (prim.get("leader") or {}).get("weight"):
+                names.add(canonical_weight_name(prim["leader"]["weight"]))   # a text's leader weight
             w = (prim.get("style") or {}).get("weight")
             if is_named_weight(w):
                 names.add(canonical_weight_name(w))
