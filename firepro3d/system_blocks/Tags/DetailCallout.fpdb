@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "system-tags-detailcallout",
-  "version": 2,
+  "version": 4,
   "name": "DetailCallout",
   "library": "System",
   "series": "Tags",
@@ -41,12 +41,12 @@
     {
       "type": "draw_line",
       "pt1": [
-        -5.0,
-        0.0
+        -3.9999999999999982,
+        -4.947230726566845e-25
       ],
       "pt2": [
-        5.0,
-        0.0
+        3.9999999999999982,
+        -4.947230726566845e-25
       ],
       "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
       "style": {
@@ -67,7 +67,7 @@
       "type": "draw_circle",
       "cx": 0.0,
       "cy": 0.0,
-      "radius": 5.0,
+      "radius": 4.0,
       "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
       "style": {
         "linetype": "continuous",
@@ -86,9 +86,9 @@
     {
       "type": "text",
       "text": "@[Mark]",
-      "x": -4.686243950854817,
-      "y": -4.065855103989144,
-      "height_mm": 3.0302729166666658,
+      "x": -4.8768,
+      "y": -4.167011111111111,
+      "height_mm": 2.020181944444444,
       "wrap_width_mm": 9.7536,
       "box_height_mm": 5.1816,
       "font_family": "Arial",
@@ -114,9 +114,9 @@
     {
       "type": "text",
       "text": "@[Sheet]",
-      "x": -4.8768,
-      "y": -1.010965800394826,
-      "height_mm": 2.026195703125,
+      "x": -4.8767999999982425,
+      "y": -1.408641666666269,
+      "height_mm": 1.5161617187499998,
       "wrap_width_mm": 9.7536,
       "box_height_mm": 5.1816,
       "font_family": "Arial",
@@ -151,18 +151,121 @@
           "h": "curve"
         }
       ],
-      "value": 10.0,
+      "value": 8.0,
       "driving": true,
       "enabled": true,
       "helper": {},
       "label": {
         "angle": 57.850982649304086
       }
+    },
+    {
+      "id": "1f8962b1d7614278857829be9706664a",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
+          "h": "p2"
+        },
+        {
+          "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+          "h": "curve"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "04f32924717344fb93e221cbf5ea915d",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+          "h": "center"
+        },
+        {
+          "uid": "e5a6c7d8194a51f2d3e4f5061728394a",
+          "h": "tm"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "11cab552b667444f8b38e7ea7115476b",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+          "h": "center"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "35c3b13842db48ebb79f9070e0d30b3f",
+      "type": "point_on_curve",
+      "refs": [
+        {
+          "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
+          "h": "p1"
+        },
+        {
+          "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+          "h": "curve"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "af71b86d80314662a8aadac8783c4d47",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
+          "h": "mid"
+        },
+        {
+          "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+          "h": "center"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "67031dc433b94a4fa8cb9c980c617a4c",
+      "type": "horizontal",
+      "refs": [
+        {
+          "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
     }
   ],
   "tile": null,
   "repeat": null,
-  "base_version": 2,
+  "base_version": 4,
   "colour_tokens": 1,
   "weights": {
     "Thinner": 0.25

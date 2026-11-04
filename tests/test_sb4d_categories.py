@@ -76,9 +76,10 @@ def _first_cut_mm(radius_r):
 
 @pytest.mark.parametrize("fname,bid,cat,keys,r_mm,split", [
     ("ElevationHead.fpdb", "system-tags-elevationhead", "Elevation", ["Direction"], _first_cut_mm(3.0), False),
-    ("SectionHead.fpdb", "system-tags-sectionhead", "Section", ["Mark", "Sheet"], _first_cut_mm(2.0), True),
-    # Restyled at smoke (Q19, 2026-11-04): 10 mm diameter driven by a dim_diameter constraint.
-    ("DetailCallout.fpdb", "system-tags-detailcallout", "Detail", ["Mark", "Sheet"], 5.0, True),
+    # Section + Detail restyled at smoke (Q19, 2026-11-04): 8 mm diameter driven by a
+    # dim_diameter constraint (the second restyle; the first cut was 10 mm).
+    ("SectionHead.fpdb", "system-tags-sectionhead", "Section", ["Mark", "Sheet"], 4.0, True),
+    ("DetailCallout.fpdb", "system-tags-detailcallout", "Detail", ["Mark", "Sheet"], 4.0, True),
 ])
 def test_shipped_seed(qapp, fname, bid, cat, keys, r_mm, split):
     """Shipped seeds: Elevation / Section at the first-cut proportions (D2, 3R / 2R),
