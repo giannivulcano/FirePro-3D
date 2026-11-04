@@ -133,6 +133,7 @@ def test_default_patterns_match_spec_m3():
     assert marks.DEFAULT_PATTERNS == {
         "Door": "D{n}", "Window": "W{n}", "Opening": "O{n}", "Wall": "WL{n}",
         "Pipe": "P{n}", "Sprinkler": "S{n}", "Room": "{level}{n:02}",
+        "Section": "{n}", "Detail": "{n}",           # SB4d D3 (Q8b)
     }
     assert marks.RENUMBER_CATEGORIES == marks.MARK_CATEGORIES + ("Gridline",)
 
