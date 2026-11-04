@@ -26,6 +26,7 @@ from PyQt6.QtGui import (
 from . import paper_display as _pd
 from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .gridline import BUBBLE_RADIUS_MM, GRID_COLOR
+from .view_marker_head import ViewMarkerHead
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -281,6 +282,12 @@ class SectionMarker(QGraphicsItem):
         self.setZValue(Z_ANNOT_MARKER)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        # SB4d D1: the head(s) are Elevation / Section annotation blocks
+        # (ViewMarkerHead children, upright); the wedge / triangle stay bespoke.
+        self.head = ViewMarkerHead(self) if cardinal else None
+        self.head_a = None
+        self.head_b = None
+        self._sync_heads()
 
     @classmethod
     def for_cardinal(cls, direction: str, box: QRectF) -> "SectionMarker":
@@ -348,12 +355,14 @@ class SectionMarker(QGraphicsItem):
         self._a, self._b, self._depth = QPointF(a), QPointF(b), float(depth)
         if user and self._cardinal:
             self._auto_extent = False            # first user edit owns the box (s4.3)
+        self._sync_heads()
         self.update()
         self._notify()
 
     def flip(self):
         self.prepareGeometryChange()             # the glyph / apex / box move to the other side
         self._look = -self._look
+        self._sync_heads()
         self.update()
         self._notify()
 
@@ -372,6 +381,7 @@ class SectionMarker(QGraphicsItem):
             return False
         self.prepareGeometryChange()
         self._a, self._b, self._depth = a, b, depth
+        self._sync_heads()
         self.update()
         return True
 
@@ -379,8 +389,7 @@ class SectionMarker(QGraphicsItem):
     # Cardinal glyph: the pre-build ``ViewMarkerArrow`` look, unchanged (smoke ruling
     # 2026-10-21): one circle with the cardinal letter plus a filled wedge whose tip
     # sits _CARDINAL_GAP outside the crop-box edge, on the edge's midline.
-    _R_CARDINAL = BUBBLE_RADIUS_MM * 3.0
-    _WEDGE_DIST = BUBBLE_RADIUS_MM * 3.0 / math.sin(math.radians(40))   # old _POINT_DIST
+    _R_CARDINAL = BUBBLE_RADIUS_MM * 3.0    # seed proportion + the no-block fallback (SB4d D7)
     _CARDINAL_GAP = 25.0            # mm between the wedge tip and the crop-box edge (old manager)
     # Section head (CAD standard, tuner-ratified 2026-10-21): a bubble centred on each
     # cut endpoint with a full filled triangle whose base lies on the cut line through
@@ -391,7 +400,60 @@ class SectionMarker(QGraphicsItem):
 
     @property
     def _R(self) -> float:
+        """The head radius the bespoke geometry is built from: R_k (D1)."""
+        return self._rk()
+
+    # -- heads (SB4d D1) ---------------------------------------------------------
+    def heads(self) -> list:
+        """This marker's head items (one for a cardinal, two for a placed section)."""
+        return [h for h in (getattr(self, "head", None), getattr(self, "head_a", None),
+                            getattr(self, "head_b", None)) if h is not None]
+
+    def _rk(self) -> float:
+        """R_k: the head outline's enclosing-circle radius at the current k
+        (D1 / Q5); today's model radius when no outline resolves (off-scene
+        / no block anywhere / a bounds query before __init__ made the heads)."""
+        h = getattr(self, "head" if self._cardinal else "head_a", None)
+        r = h.enclosing_radius() if h is not None else 0.0
+        if r > 0.0:
+            return r
         return self._R_CARDINAL if self._cardinal else self._R_SECTION
+
+    def _wedge_dist(self) -> float:
+        """Centre-to-tip distance of the cardinal wedge: R_k / sin 40 deg (D1)."""
+        return self._rk() / math.sin(math.radians(40))
+
+    def _sync_heads(self) -> None:
+        """Anchor each head: the cardinal head at ``_cardinal_centre()``, a
+        placed section's heads on the cut endpoints (D1)."""
+        if getattr(self, "head", None) is not None:
+            self.head.set_anchor(self._cardinal_centre())
+        if getattr(self, "head_a", None) is not None:
+            self.head_a.set_anchor(QPointF(self._a))
+            self.head_b.set_anchor(QPointF(self._b))
+
+    def refresh_heads(self) -> None:
+        """Re-shape the heads (a mapping / registry / units / drawing-scale /
+        Mark / sheet change reaches here) and re-fit the arrow built from
+        their outline."""
+        self.prepareGeometryChange()
+        for h in self.heads():
+            h.refresh()
+        self._sync_heads()
+        self.update()
+
+    def _update_label(self) -> None:
+        """``marks.set_mark`` hook (SB2b): the head re-reads its Mark."""
+        self.refresh_heads()
+
+    @staticmethod
+    def _outside_head(path: QPainterPath, head) -> QPainterPath:
+        """*path* minus the head's block outline (the arrow never paints
+        under the head's text)."""
+        if head is None:
+            return path
+        outline = head.mapToParent(head.outline_path())
+        return path if outline.isEmpty() else path.subtracted(outline)
 
     def _unit(self):
         dx, dy = self._b.x() - self._a.x(), self._b.y() - self._a.y()
@@ -402,15 +464,15 @@ class SectionMarker(QGraphicsItem):
         return QPointF((self._a.x() + self._b.x()) / 2.0, (self._a.y() + self._b.y()) / 2.0)
 
     def _cardinal_centre(self) -> QPointF:
-        """Circle centre of a cardinal glyph: outside the cut edge on its midline."""
+        """Head origin of a cardinal: outside the cut edge on its midline."""
         nx, ny = self.normal_scene()
-        d = self._WEDGE_DIST + self._CARDINAL_GAP
+        d = self._wedge_dist() + self._CARDINAL_GAP
         mid = self._mid()
         return QPointF(mid.x() - nx * d, mid.y() - ny * d)
 
     def _wedge_geometry(self):
         """``(centre, t1, t2, tip, a2_deg, sweep)`` of the cardinal wedge (old maths)."""
-        c, R, D = self._cardinal_centre(), self._R_CARDINAL, self._WEDGE_DIST
+        c, R, D = self._cardinal_centre(), self._rk(), self._wedge_dist()
         nx, ny = self.normal_scene()
         base = math.atan2(ny, nx)
         alpha = math.acos(min(R / D, 1.0))
@@ -428,7 +490,7 @@ class SectionMarker(QGraphicsItem):
 
     def _wedge_path(self) -> QPainterPath:
         c, t1, t2, tip, a2_deg, sweep = self._wedge_geometry()
-        R = self._R_CARDINAL
+        R = self._rk()
         path = QPainterPath(t1)
         path.lineTo(tip)
         path.lineTo(t2)
@@ -464,8 +526,8 @@ class SectionMarker(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         r = self.box_polygon().boundingRect()
         if self._cardinal:
-            c, R = self._cardinal_centre(), self._R_CARDINAL
-            m = self._WEDGE_DIST + R
+            c, R = self._cardinal_centre(), self._rk()
+            m = self._wedge_dist() + R
             r = r.united(QRectF(c.x() - m, c.y() - m, 2 * m, 2 * m))
         else:
             m = self._R_SECTION * self._TRI
@@ -480,7 +542,11 @@ class SectionMarker(QGraphicsItem):
         path = QPainterPath()
         if self._cardinal:
             c, t1, t2, tip, _a2, _sweep = self._wedge_geometry()
-            path.addEllipse(c, self._R_CARDINAL, self._R_CARDINAL)
+            outline = self.head.mapToParent(self.head.outline_path())
+            if outline.isEmpty():
+                path.addEllipse(c, self._rk(), self._rk())
+            else:
+                path.addPath(outline)            # a press on the head selects the marker
             path.addPolygon(QPolygonF([t1, tip, t2]))
             path.closeSubpath()
         else:
@@ -505,23 +571,16 @@ class SectionMarker(QGraphicsItem):
         pen_w = max(1.0, R * 0.04)
         selected = self.isSelected() and not _pd.paper_pass_active()
         if self._cardinal:
-            # The old ViewMarkerArrow paint: filled wedge, circle, letter.
+            # SB4d D1: only the bespoke wedge (Q9) -- the circle + letter are
+            # the Elevation block (self.head), and the wedge stops at its outline.
             c, t1, t2, tip, _a2, _sweep = self._wedge_geometry()
             painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(col))
-            painter.drawPath(self._wedge_path())
-            painter.setBrush(QBrush(fill))
-            painter.drawEllipse(c, R, R)
+            painter.drawPath(self._outside_head(self._wedge_path(), self.head))
             if selected:
                 painter.setPen(QPen(col.lighter(150), max(1.0, R * 0.08)))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(c, R, R)
                 painter.drawLine(t1, tip)
                 painter.drawLine(t2, tip)
-            letter = self._cardinal[0].upper()
-            painter.setFont(self._label_font(letter))
-            painter.setPen(QPen(col.lighter(150)))
-            painter.drawText(QRectF(c.x() - R, c.y() - R, 2 * R, 2 * R),
-                             Qt.AlignmentFlag.AlignCenter, letter)
         else:
             line_pen = QPen(col, 1); line_pen.setCosmetic(True)
             painter.setPen(line_pen)
@@ -622,6 +681,9 @@ class SectionMarker(QGraphicsItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.prepareGeometryChange()          # shape() grows / shrinks with selection
             self.update()
+        elif (change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged
+              and value is not None):
+            self.refresh_heads()                  # k resolves only in a scene (D1)
         return super().itemChange(change, value)
 
     # -- interaction -----------------------------------------------------------------

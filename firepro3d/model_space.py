@@ -1876,11 +1876,35 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 gl.update()
             except RuntimeError:
                 pass
+        self.refresh_view_marker_heads()                # SB4d D1: marker heads
         mgr = getattr(self, "_section_manager", None)   # SB4c D1: open sections too
         for sc in (list(mgr.open_scenes) if mgr is not None else []):
             try:
                 sc.refresh_annotation_tags()
             except RuntimeError:          # scene deleted under us (teardown)
+                pass
+
+    def refresh_view_marker_heads(self) -> None:
+        """Re-shape every view-marker head (SB4d D1 / D4): each section /
+        elevation marker and each detail marker re-reads its block, Mark and
+        Sheet slot and re-fits the arrow built from the head outline. Called
+        by ``refresh_annotation_tags``, a detail / section viewport placement
+        or removal (``PaperScene``) and a sheet create / delete / renumber
+        (``MainWindow._on_paper_modified``)."""
+        markers = []
+        mgr = getattr(self, "_section_manager", None)
+        if mgr is not None:
+            markers += list(mgr.markers.values())
+        dm = getattr(self, "_detail_manager", None)
+        if dm is not None:
+            markers += list(dm._markers.values())
+        for m in markers:
+            fn = getattr(m, "refresh_heads", None)
+            if fn is None:
+                continue
+            try:
+                fn()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
 
     def annotation_block(self, category: str, mapped: str | None = None):
