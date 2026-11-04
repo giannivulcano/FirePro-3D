@@ -2650,8 +2650,41 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     # ── Level helpers ──────────────────────────────────────────────────────────
 
+    def _retarget_plan_viewports(self, old_title: str, new_title: str) -> None:
+        """Point every sheet viewport bound to plan *old_title* at *new_title*
+        (what ``rename_detail`` / ``rename_section`` do for their kinds), so the
+        viewport still resolves, still isolates its own view's notes, and saves
+        under the live name."""
+        for sheet in self.sheet_mgr.sheets:
+            for sv in sheet.sheet_views:
+                if sv.source_view_type == "plan" and sv.source_view_name == old_title:
+                    sv.source_view_name = new_title
+
+    def _heal_plan_viewports(self) -> None:
+        """After a level undo / redo, re-follow the renames the model history
+        crossed. Sheets are not part of the model undo snapshot, so a viewport
+        keeps the name it last had while the levels (and plan views) jump back;
+        a viewport whose plan no longer resolves walks the recorded rename pairs
+        (newest first) to the name that does."""
+        pairs = getattr(self, "_plan_renames", [])
+        for sheet in self.sheet_mgr.sheets:
+            for sv in sheet.sheet_views:
+                if sv.source_view_type != "plan":
+                    continue
+                for _ in range(len(pairs)):
+                    if self.plan_view_mgr.get(sv.source_view_name) is not None:
+                        break
+                    for old, new in reversed(pairs):
+                        if sv.source_view_name == new and self.plan_view_mgr.get(old) is not None:
+                            sv.source_view_name = old
+                            break
+                        if sv.source_view_name == old and self.plan_view_mgr.get(new) is not None:
+                            sv.source_view_name = new
+                            break
+
     def _on_levels_restored(self):
         """Undo / redo replaced the level list (SB2b M15): refresh every level view."""
+        self._heal_plan_viewports()
         active = self.scene.active_level            # BEFORE closing tabs: a close re-targets it
         live = {l.name for l in self.level_mgr.levels}
         stale = [self.central_tabs.tabText(i)[len("Plan: "):]
@@ -2686,6 +2719,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.scene.active_view_key = f"plan:{new_title}"
         from firepro3d.note_controller import rekey_notes
         rekey_notes(self.scene, f"plan:{old_title}", f"plan:{new_title}")   # D10: before the level step
+        self._retarget_plan_viewports(old_title, new_title)
+        if not hasattr(self, "_plan_renames"):
+            self._plan_renames = []
+        self._plan_renames.append((old_title, new_title))        # for the undo / redo direction
 
     def _on_levels_removed(self, names) -> None:
         """Section 12.4 Delete: close each deleted level's plan tab (the widget already
