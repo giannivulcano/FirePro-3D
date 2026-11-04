@@ -67,19 +67,26 @@ def test_sheet_slot_reads_the_first_holding_sheet_in_sheet_order(qapp):
         dispose(ms, sec, tabs)
 
 
-@pytest.mark.parametrize("fname,bid,cat,keys,radius_r,split", [
-    ("ElevationHead.fpdb", "system-tags-elevationhead", "Elevation", ["Direction"], 3.0, False),
-    ("SectionHead.fpdb", "system-tags-sectionhead", "Section", ["Mark", "Sheet"], 2.0, True),
-    ("DetailCallout.fpdb", "system-tags-detailcallout", "Detail", ["Mark", "Sheet"], 3.0, True),
+def _first_cut_mm(radius_r):
+    """First-cut seed radius (D2): r x BUBBLE_RADIUS_MM model mm at the default
+    drawing scale 100 (ScaleManager._drawing_scale = 100.0) = r * R / 100 authored mm."""
+    from firepro3d.gridline import BUBBLE_RADIUS_MM
+    return radius_r * BUBBLE_RADIUS_MM / 100.0
+
+
+@pytest.mark.parametrize("fname,bid,cat,keys,r_mm,split", [
+    ("ElevationHead.fpdb", "system-tags-elevationhead", "Elevation", ["Direction"], _first_cut_mm(3.0), False),
+    ("SectionHead.fpdb", "system-tags-sectionhead", "Section", ["Mark", "Sheet"], _first_cut_mm(2.0), True),
+    # Restyled at smoke (Q19, 2026-11-04): 10 mm diameter driven by a dim_diameter constraint.
+    ("DetailCallout.fpdb", "system-tags-detailcallout", "Detail", ["Mark", "Sheet"], 5.0, True),
 ])
-def test_shipped_seed(qapp, fname, bid, cat, keys, radius_r, split):
-    """First-cut seeds at today's proportions (D2): circle radius = 3R / 2R /
-    3R x BUBBLE_RADIUS_MM model mm at the default drawing scale 100
-    (ScaleManager._drawing_scale = 100.0), i.e. authored mm = r * R / 100."""
+def test_shipped_seed(qapp, fname, bid, cat, keys, r_mm, split):
+    """Shipped seeds: Elevation / Section at the first-cut proportions (D2, 3R / 2R),
+    Detail at its smoke restyle (Q19) -- circle radius r_mm authored mm, the split
+    line spanning the full diameter, the bound text in host-key order."""
     from firepro3d import block_library
     from firepro3d.assets import system_blocks_path
     from firepro3d.bound_label import eligible_definition
-    from firepro3d.gridline import BUBBLE_RADIUS_MM
     from firepro3d.render_op import STROKE
     path = system_blocks_path("Tags", fname)
     d = block_library.load_block_file(path)
@@ -88,9 +95,9 @@ def test_shipped_seed(qapp, fname, bid, cat, keys, radius_r, split):
     assert eligible_definition(d, cat)
     assert [a["host_key"] for a in d.effective_attributes() if a.get("source") == "host"] == keys
     strokes = [o.path.boundingRect() for o in d.render_ops() if o.kind == STROKE]
-    r_mm = radius_r * BUBBLE_RADIUS_MM / 100.0
     assert any(abs(b.width() - 2 * r_mm) < 1e-6 and abs(b.height() - 2 * r_mm) < 1e-6 for b in strokes)
-    assert any(abs(b.height()) < 1e-9 and abs(b.width() - 2 * r_mm) < 1e-6 for b in strokes) is split
+    assert any(abs(b.height()) < 1e-9 and abs(b.width() - 2 * r_mm) < 1e-6
+               and abs(b.left() + r_mm) < 1e-6 for b in strokes) is split      # centred on the circle
     with open(path, encoding="utf-8") as fh:
         texts = [p["text"] for p in json.load(fh)["primitives"] if p["type"] == "text"]
     assert texts == [f"@[{k}]" for k in keys]

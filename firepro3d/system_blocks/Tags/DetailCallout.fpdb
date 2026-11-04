@@ -1,56 +1,170 @@
 {
   "schema": 1,
   "id": "system-tags-detailcallout",
-  "version": 1,
+  "version": 2,
   "name": "DetailCallout",
   "library": "System",
   "series": "Tags",
   "scale_mode": "annotative",
-  "origin": [0.0, 0.0],
+  "origin": [
+    0.0,
+    0.0
+  ],
   "attributes": [
-    {"key": "Mark", "label": "Mark", "type": "text", "source": "host",
-     "host_key": "Mark", "default": "", "prefix": "", "suffix": "",
-     "precision": 0, "placeholder": ""},
-    {"key": "Sheet", "label": "Sheet", "type": "text", "source": "host",
-     "host_key": "Sheet", "default": "", "prefix": "", "suffix": "",
-     "precision": 0, "placeholder": ""}
+    {
+      "key": "Mark",
+      "label": "Mark",
+      "type": "text",
+      "source": "host",
+      "host_key": "Mark",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": ""
+    },
+    {
+      "key": "Sheet",
+      "label": "Sheet",
+      "type": "text",
+      "source": "host",
+      "host_key": "Sheet",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": ""
+    }
   ],
   "host_category": "Detail",
   "primitives": [
-    {"type": "draw_circle", "cx": 0.0, "cy": 0.0, "radius": 6.096,
-     "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
-     "style": {"linetype": "continuous", "weight": "by_linetype",
-               "start": {"end": "by_linetype", "visible": true},
-               "finish": {"end": "by_linetype", "visible": true},
-               "colour": "token:auto"}},
-    {"type": "draw_line", "pt1": [-6.096, 0.0], "pt2": [6.096, 0.0],
-     "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
-     "style": {"linetype": "continuous", "weight": "by_linetype",
-               "start": {"end": "by_linetype", "visible": true},
-               "finish": {"end": "by_linetype", "visible": true},
-               "colour": "token:auto"}},
-    {"type": "text", "text": "@[Mark]", "x": -4.8768, "y": -5.4864,
-     "height_mm": 3.0, "wrap_width_mm": 9.7536, "box_height_mm": 5.1816,
-     "font_family": "Consolas", "bold": true, "italic": false, "underline": false,
-     "color": "token:auto", "align": "C", "valign": "M", "fill_color": "",
-     "fill_opacity": 100.0, "cell_padding_mm": 0.0, "border": false,
-     "border_weight": "Thinner", "border_line_type": "solid", "border_corner": "round",
-     "border_corner_radius_mm": 1.0, "angle": 0.0, "wrap": false, "shrink": true,
-     "uid": "d4f5b6c7183940e1c2d3e4f506172839"},
-    {"type": "text", "text": "@[Sheet]", "x": -4.8768, "y": 0.3048,
-     "height_mm": 2.2, "wrap_width_mm": 9.7536, "box_height_mm": 5.1816,
-     "font_family": "Consolas", "bold": false, "italic": false, "underline": false,
-     "color": "token:auto", "align": "C", "valign": "M", "fill_color": "",
-     "fill_opacity": 100.0, "cell_padding_mm": 0.0, "border": false,
-     "border_weight": "Thinner", "border_line_type": "solid", "border_corner": "round",
-     "border_corner_radius_mm": 1.0, "angle": 0.0, "wrap": false, "shrink": true,
-     "uid": "e5a6c7d8194a51f2d3e4f5061728394a"}
+    {
+      "type": "draw_line",
+      "pt1": [
+        -5.0,
+        0.0
+      ],
+      "pt2": [
+        5.0,
+        0.0
+      ],
+      "uid": "9b8c4a5e3f1d4c6ec0a75d0f4e3c1a95",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    },
+    {
+      "type": "draw_circle",
+      "cx": 0.0,
+      "cy": 0.0,
+      "radius": 5.0,
+      "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    },
+    {
+      "type": "text",
+      "text": "@[Mark]",
+      "x": -4.686243950854817,
+      "y": -4.065855103989144,
+      "height_mm": 3.0302729166666658,
+      "wrap_width_mm": 9.7536,
+      "box_height_mm": 5.1816,
+      "font_family": "Arial",
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "d4f5b6c7183940e1c2d3e4f506172839"
+    },
+    {
+      "type": "text",
+      "text": "@[Sheet]",
+      "x": -4.8768,
+      "y": -1.010965800394826,
+      "height_mm": 2.026195703125,
+      "wrap_width_mm": 9.7536,
+      "box_height_mm": 5.1816,
+      "font_family": "Arial",
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "e5a6c7d8194a51f2d3e4f5061728394a"
+    }
   ],
   "render_mode": "default",
-  "constraints": [],
+  "constraints": [
+    {
+      "id": "e9412cc0ab8f4cbe817e2bd6781c44bf",
+      "type": "dim_diameter",
+      "refs": [
+        {
+          "uid": "8a7b3f4d2e0c4b5dbf6a4c9e3d2b0f84",
+          "h": "curve"
+        }
+      ],
+      "value": 10.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "angle": 57.850982649304086
+      }
+    }
+  ],
   "tile": null,
   "repeat": null,
-  "base_version": 1,
+  "base_version": 2,
   "colour_tokens": 1,
-  "weights": {"Thinner": 0.25}
+  "weights": {
+    "Thinner": 0.25
+  }
 }
