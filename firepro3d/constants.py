@@ -29,7 +29,7 @@ Z_PIPE           = 5      # pipes (initial; overridden at runtime)
 Z_NODE           = 10     # nodes (initial; overridden at runtime)
 Z_WATER_SUPPLY   = 50     # water supply symbol (initial; elevation-based at runtime, Z_CAT_SYMBOL)
 Z_SPRINKLER      = 100    # sprinkler symbols
-Z_OVERLAY        = 200    # previews, view markers, room labels, badges
+Z_OVERLAY        = 200    # feature-placement + sprinkler-workflow overlays; riser symbol add-time z (sync_riser_z re-pins)
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
 #

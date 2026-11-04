@@ -63,7 +63,10 @@ Openings have one category per Feature (Door / Window / Opening) — contract, d
 | Grid Line | `#4488cc` |
 | Level Datum | `#4488cc` |
 | Elevation Marker | `#4488cc` |
+| Section Marker | `#4488cc` |
 | Detail Marker | `#4488cc` |
+
+The three marker rows (SB4d) act on the marker lines only, like Grid Line and Level Datum -- the row rule is owned by [`grid-system.md`](../specs/grid-system.md) 10.1 and the heads by [`system-blocks.md`](../specs/system-blocks.md) 8d.
 
 Each category has: colour, fill, section colour/pattern/scale, font size, scale factor, opacity (0-100), and visibility (bool).
 

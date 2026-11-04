@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-11-04  # SB4d Account: s5 depth-walk + annotation draw-order pointer, s6 glyphs / panel / persistence (heads are System blocks, upright label), s3.3 / s7.3 DM-row notes only, rest not re-audited; prior 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle; prior 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -63,7 +63,9 @@ gridline-hosted block copy (s16.4).
 - Cardinal sections render **identically** to today's elevations on today's elevation test scenes
   (acceptance d). The projection is origin-free (s4.1) so `h` values are bit-identical.
 - No new Display Manager columns (D2b); the "Elevation Marker" row is relabelled "Section Marker"
-  with its settings key unchanged (D8).
+  with its settings key unchanged (D8). **Superseded by SB4d:** the row is split into
+  "Elevation Marker" (cardinals) and "Section Marker" (placed sections) plus "Detail Marker",
+  all line-only (`grid-system.md` 10.1).
 - No `SAVE_VERSION` bump: the project file gains a `sections` key, absence seeds cardinals (D4).
 - No `_STATE_VERSION` bump: no dock or toolbar changes (S4 -- the 2026-04 "5 -> 6" item is dropped).
 - No new `Model_Space` signals beyond the existing `openViewRequested(view_type, name)`.
@@ -97,8 +99,10 @@ Cardinal equivalence (probed 2026-10-20 against `_world_to_elev` and the per-typ
 | East | (0, 1) | (-1, 0) | wy | wy | +x = -d |
 | West | (0, -1) | (1, 0) | -wy | -wy | -x = -d |
 
-`_register_depth_item` / `_assign_depth_z_values` are unchanged (ascending on the key, Z from -50
-up by 0.01). Roofs keep their fixed Z, as today. Cut items register at `d = 0`.
+`_register_depth_item` / `_assign_depth_z_values` keep the ascending-key walk (Z from -50 up by
+0.01) but the walk is now **clamped at `Z_DEPTH_CEIL`** so projected model items never reach the
+annotation band (SB4d; the band and the bound: [`view-relationships.md`](view-relationships.md)
+7.3). Roofs keep their fixed Z, as today. Cut items register at `d = 0`.
 
 ### 4.2 Crop box = classification volume
 
@@ -143,6 +147,12 @@ elevation and break acceptance (d). **Cut** adds the section columns only.
 | Roof | **not cut-rendered in v1** (follow-up: mesh / plane intersection); a crossing roof shows as today's projected rect | today's rect, fixed Z |
 | Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`; label-keyed z-overrides as today; its two bubbles are the plan gridline's System block (`GridlineBubble` children of `ElevGridlineItem`, SB4c; per-end visibility, trim and hit shape: [`system-blocks.md`](system-blocks.md) 8c, [`grid-system.md`](grid-system.md) 8.2); parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
 | Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`); the head at the left end is the `Level` System block (`LevelDatumHead`, SB4c), and `SectionScene.drawForeground` draws the line from `ElevDatumItem.line_start_h()` (the head outline) to `_h_max`; `ElevDatumItem.shape()` is the head outline, so a press on the head selects the datum. Block contract: [`system-blocks.md`](system-blocks.md) 8c | -- |
+
+**Draw order of the annotations (SB4d).** The gridline and level-datum items draw in the annotation
+band's grid sub-band and a hosted-block copy (`_HostedBlockCopy`) in its tag sub-band, so they sit
+above every projected model item at any depth; the values and the rule are owned by
+[`view-relationships.md`](view-relationships.md) 7.3 (Rule A). Ratified record:
+[`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026-11-03-sb4d-view-marker-heads-design.md).
 
 Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at plan approval):
 
@@ -215,18 +225,25 @@ plan approval): s4.1's "world mm" is the derived basis, converted at `SectionSce
 - `PAPER_EXCLUDED = True` **only when `cardinal` is set** (view-relationships s6.4: cardinal markers
   never plot; placed sections plot by the default path). `_exclude_from_bulk_select = True`.
 - Visual -- two glyphs (smoke ruling 2026-10-21, served-tuner mockup; supersedes the D6 "carried
-  over" wording that Phase 3 approved from text alone):
-  - **Cardinal**: the pre-build `ViewMarkerArrow` look unchanged -- one circle of radius
-    `3 x BUBBLE_RADIUS_MM` with the cardinal letter and a filled wedge (tangents at +/-40 deg)
-    whose tip sits 25 mm outside its own crop-box edge on the edge's midline
-    (`_R_CARDINAL`, `_WEDGE_DIST`, `_CARDINAL_GAP`). No cut line is drawn for a cardinal.
-  - **Placed section**: the cut line (solid cosmetic) with a CAD-standard head at each end -- a
-    bubble of radius `2 x BUBBLE_RADIUS_MM` centred on the endpoint and a full filled triangle
-    whose base lies on the cut line through the centre, sides tangent to the circle, equal
-    stick-out all round (half-base = height = `R * sqrt(2)`, `_R_SECTION`, `_TRI`), apex on
-    the look side; the label (last token of the name) is rotated to read along the cut and
-    flipped 180 deg when the line points left so it is never upside down.
-  - Both: the crop box (SharedCropBox's dashed look) and grips only while selected.
+  over" wording that Phase 3 approved from text alone). Since SB4d the **heads are System
+  blocks** ([`system-blocks.md`](system-blocks.md) 8d: `ViewMarkerHead` children, annotative,
+  upright, the Elevation / Section annotation categories); the bespoke arrow geometry is built
+  from the head outline's enclosing circle `R_k` (`_rk()`), so a restyled head carries its arrow:
+  - **Cardinal**: one `head` (the Elevation block, bound to the Direction letter) at
+    `_cardinal_centre()` and a filled wedge (tangents at +/-40 deg, centre-to-tip
+    `R_k / sin 40 deg`) whose tip sits 25 mm outside its own crop-box edge on the edge's midline
+    (`_WEDGE_DIST`, `_CARDINAL_GAP`). No cut line is drawn for a cardinal. `_R_CARDINAL`
+    (3 x `BUBBLE_RADIUS_MM`) is only the seed proportion and the no-block fallback.
+  - **Placed section**: the cut line (solid cosmetic) with a head at each end (`head_a` /
+    `head_b`, origins on the endpoints, the Section block bound to Mark over Sheet; the line is
+    trimmed at each head's outline) and a full filled triangle whose base lies on the cut line
+    through the centre, sides tangent to the head's enclosing circle, equal stick-out all round
+    (half-base = height = `R_k * sqrt(2)`, `_TRI`), apex on the look side. The label is now
+    **upright** (breaking: it used to rotate along the cut). `_R_SECTION` is the seed
+    proportion / fallback.
+  - Both: the crop box (SharedCropBox's dashed look) and grips only while selected. The marker
+    draws in the annotation band's marker sub-band ([`view-relationships.md`](view-relationships.md)
+    7.3); the Display Manager rows tint the lines only (`grid-system.md` 10.1).
 - Grips -- the crop box edits **as a rectangle in the cut frame** (DetailMarker's 8-grip layout;
   corners are never independent -- smoke ruling 2026-10-21): `0` A / `1` B (near corners: that
   end slides along the cut and the whole cut line moves along N, the far edge fixed), `2` / `3`
@@ -244,7 +261,8 @@ plan approval): s4.1's "world mm" is the derived basis, converted at `SectionSce
 - Context menu (new; no marker has one today): **Open - Rename - Flip - Delete**. Cardinals:
   Rename and Delete disabled (D5b, D8). Rename cascades by name to the open tab title and any sheet
   viewport bound as `section:<name>`. Delete closes the tab and removes the marker.
-- Property panel (`get_properties`, DetailMarker pattern): Name, Depth (mm, `ScaleManager`
+- Property panel (`get_properties`, DetailMarker pattern): Name, Mark (placed sections only; a
+  Marks category, `element-parameters.md`; blank refused), Depth (mm, `ScaleManager`
   formatters), Flip toggle, read-only Cardinal.
 - Undo: grip commits (the manipulator's commit hook) and menu Flip / Rename / Delete call
   `push_undo_state` **after** mutating -- the post-action snapshot convention (s8; G3 ruling
@@ -290,7 +308,8 @@ which would leave a sheet blank after reload -- acceptance a). `resolve_level_co
 ### 7.3 Other consumers
 
 - `display_manager._is_elevation_marker` and `paper_display._category_for_item` match
-  `"SectionMarker"` instead of `"ViewMarkerArrow"`; row label "Section Marker", key kept.
+  `"SectionMarker"` instead of `"ViewMarkerArrow"`; row label "Section Marker", key kept
+  (SB4d: a cardinal maps to the "Elevation Marker" row, a placed section to "Section Marker").
 - `rebuild_all` call sites bind to `scene._section_manager`.
 - `main.py`: the three `_create_elevation_markers()` calls become `seed_cardinals()` after load;
   `_views.clear()` / `_views.pop` become `close_all()` / `close_section()`; `_live_scenes` reads
@@ -302,7 +321,9 @@ which would leave a sheet blank after reload -- acceptance a). `resolve_level_co
 ## 8. Persistence and undo
 
 **Project file (D4).** `scene_io` payload gains `"sections": [marker.to_dict() ...]` with keys
-`name, cut_a, cut_b, look_sign, depth, cardinal, auto_extent, gridline_z_overrides`. Load:
+`name, cut_a, cut_b, look_sign, depth, cardinal, auto_extent, gridline_z_overrides` (+ `mark` for a
+placed section, always written, SB4d; a record without it adopts the name token on load,
+`element-parameters.md` Marks). Load:
 `payload.get("sections")` -> `from_list` when present, then `seed_cardinals()` always (an old file
 or one missing a cardinal gets it re-seeded). No `SAVE_VERSION` bump.
 
