@@ -1915,10 +1915,7 @@ class PaperGraphicsView(QGraphicsView):
 
         refusal = self._one_sheet_refusal(view_type, view_name)
         if refusal is not None:                   # SB4d D4: one sheet per detail / section view
-            show = getattr(getattr(self._paper_scene._resolver, "_scene", None),
-                           "_show_status", None)
-            if callable(show):
-                show(refusal, 6000)
+            self._paper_scene.notify(refusal)
             event.ignore()
             return
 
@@ -2741,8 +2738,12 @@ class PaperScene(QGraphicsScene):
     def notify(self, message: str, timeout_ms: int = 6000) -> None:
         """Show *message* on the model scene's status channel (no-op without one)."""
         show = getattr(self._block_registry_owner, "_show_status", None)
-        if callable(show):
+        if not callable(show):
+            return
+        try:
             show(message, timeout_ms)
+        except RuntimeError:          # model scene deleted under a queued call
+            pass
 
     def device_independent_text(self) -> bool:
         """Text sizing-mode hook (containment C5).
