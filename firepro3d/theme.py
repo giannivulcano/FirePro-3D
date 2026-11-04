@@ -214,6 +214,9 @@ class _Metrics:
     PROP_SWATCH_W = 34          # colour chip width
     PROP_SWATCH_H = 14          # colour chip height
     PROP_HEX_GAP = 8            # colour chip -> hex label gap
+    EYE_GLYPH_PX = 17           # painted eye glyph box (Underlay Manager delegate + ui_kit.EyeToggle)
+    EYE_TOGGLE_PX = 22          # EyeToggle widget edge (table-cell visibility toggle)
+    DM_ROW_H = 28               # Display Manager tree row height (22 px spin boxes + the 1 px row line)
     PROP_CONTENT_H = 110        # content text-box height
     PROP_DOCK_W = 240           # default properties-dock width
     PROP_FORM_MARGIN = (6, 4, 6, 4)   # form contents margin
@@ -1118,6 +1121,8 @@ QTreeView#underlayTable::item:selected, QTableView#underlayTable::item:selected,
 QTableWidget#levelTable::item {{ padding: 0 {M.LEVEL_CELL_PAD}px; }}
 QTableWidget#levelTable {{ border: 1px solid {t.line}; border-radius: {M.RADIUS_INPUT}px; }}
 QTreeView#underlayTable::branch {{ background: {t.table}; }}
+/* Cell-widget hosts (setItemWidget containers) let the row paint through. */
+QTreeView#underlayTable QWidget#tableCell {{ background: transparent; }}
 QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
 QTreeView#underlayTable::branch:closed:has-children:has-siblings {{ background: {t.table}; image: url("{chev_r}"); }}
 QTreeView#underlayTable::branch:open:has-children:!has-siblings,
@@ -1145,6 +1150,12 @@ QDialog[houseDialog="true"] QTabBar#topTabsBar {{ background: transparent; }}
 QDialog[houseDialog="true"] QTabBar#topTabsBar::tab {{
     padding: 7px 11px 8px; margin-right: 2px; font-size: 12px; }}
 {_tab_language_qss(t, 'QDialog[houseDialog="true"] QTabBar#topTabsBar::tab', edge="bottom")}
+/* Selected dialog tab matches the ribbon / canvas tabs: accent-soft fill + 1px
+   accent outline + the 2px accent bar. */
+QDialog[houseDialog="true"] QTabBar#topTabsBar::tab:selected {{
+    background: {t.accent_soft}; border: 1px solid {t.accent};
+    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    border-bottom: 2px solid {t.accent}; }}
 
 /* ── Kit: SwitchBar (segmented) ─────────────────────────────────────────── */
 QDialog[houseDialog="true"] QPushButton[switch="true"] {{ padding: 5px 14px; border-radius: 0; }}

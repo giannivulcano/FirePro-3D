@@ -33,6 +33,8 @@ GUARDED = [
     # Level Manager (view-relationships s12; chrome via build_dialog_qss, no own QSS).
     "level_widget.py",
     "level_dialog.py",
+    # Display Manager chrome revision (ui-design-system.md): token-clean on HouseDialog.
+    "display_manager.py",
 ]
 
 _HEX = re.compile(r"#[0-9a-fA-F]{3,6}\b")

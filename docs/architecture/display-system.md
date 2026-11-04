@@ -133,17 +133,16 @@ When a wall or floor slab straddles the view's cut plane (i.e., `_is_section_cut
 
 ## Display Manager dialog
 
-The `DisplayManager` class in `display_manager.py` is a `QDialog` with a tree widget showing all categories grouped by type. Users can modify:
+The `DisplayManager` class in `display_manager.py` is a modal `HouseDialog` (house chrome and table look: [`ui-design-system.md`](../specs/ui-design-system.md)) whose `TopTabs` pages are Model, Paper Space, Line Weights and Fill Types. The Model and Paper pages are category trees grouped by type. Users can modify:
 
-- Visibility (checkbox)
-- Colour (colour picker button)
-- Fill colour (solid or hatch mode)
+- Visibility (eye toggle)
+- Colour (compact swatch chip opening the house colour picker)
+- Fill colour (solid or No Fill; compact swatch chip)
 - Section colour and pattern
-- Scale factor (spin box)
 - Opacity (0-100 slider)
-- Font size (for label-bearing categories)
 - Per-category reset button
-- Line weight — only on the weight-only **Blocks** row (canvas weight of block linework whose weight resolves to the Blocks fallback; see [`specs/linetypes.md`](../specs/linetypes.md) "LT2" H-e and WM-5)
+
+The Model tab's Scale, Font and Line Weight columns were retired 2026-11-03 (DM chrome revision): saved per-category scale / font values are no longer applied (the apply path uses scale 1.0 and the category's default font). The Blocks weight (canvas weight of block linework whose weight resolves to the Blocks fallback; see [`specs/linetypes.md`](../specs/linetypes.md) "LT2" H-e and WM-5) is the **Model blocks weight** picker on the Line Weights tab.
 
 Changes apply live to the canvas. Cancelling the dialog reverts all changes to their prior state.
 

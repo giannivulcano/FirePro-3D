@@ -1,7 +1,7 @@
 ---
 status: partial           # core system BUILT + code-verified; "Deferred waves" section is partly future/unbuilt (wave #2 LANDED 2026-09-19)
-last-verified: 2026-10-30  # Level Manager dialog Account: LevelDialog consumer, set_footer_buttons close=, glyph_button + SortHeader, LEVEL_/GLYPH_/SORT_CARET_ metrics (verified at 461da025); prior 2026-10-19  # UP1 Account: D6 picker modes / pick_fill / FillSwatch signatures + No-alpha amendment (verified at 902c5c0e); prior 2026-10-18 HF1 Account: D6 "Colour inputs" / colour_picker block rewritten to the shipped signatures (Swatch / pick_colour / ColourPickerDialog take no opt-in flags; Theme row; "A" badge; theme_bus relatch); prior AC2 Account: ActionRowList / PatternList parent-before-setVisible kit rule verified against ui_kit.py + its guard; prior ET1 Account: new "Tooltips" section verified against firepro3d/tooltips.py + the G7 guards; prior LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
-verified-commit: 461da025   # Level Manager dialog Account (those blocks only); prior 902c5c0e   # UP1 Account (D6 fill-mode block only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; D6 colour block only); prior 312b8dd1 AC2 ui_kit window-flash fix (kit rule only); prior e221ca0e ET1 tooltip wrap (Tooltips section only); prior b9b1094 LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
+last-verified: 2026-11-03  # DM chrome revision Account: DisplayManager consumer (smoke round 2 look), TopTabs signature + add_tab WA_StyledBackground only; prior 2026-10-30  # Level Manager dialog Account: LevelDialog consumer, set_footer_buttons close=, glyph_button + SortHeader, LEVEL_/GLYPH_/SORT_CARET_ metrics (verified at 461da025); prior 2026-10-19  # UP1 Account: D6 picker modes / pick_fill / FillSwatch signatures + No-alpha amendment (verified at 902c5c0e); prior 2026-10-18 HF1 Account: D6 "Colour inputs" / colour_picker block rewritten to the shipped signatures (Swatch / pick_colour / ColourPickerDialog take no opt-in flags; Theme row; "A" badge; theme_bus relatch); prior AC2 Account: ActionRowList / PatternList parent-before-setVisible kit rule verified against ui_kit.py + its guard; prior ET1 Account: new "Tooltips" section verified against firepro3d/tooltips.py + the G7 guards; prior LT4 Account: PatternList + PaintSwatch (ui_kit) catalogue entries verified against the shipped widgets (signature, chrome, M.PATTERN_* tokens, ▲/▼/✕ glyph choice); prior 2026-10-02 CS2 Account: StatusBadge + ActionRowList footer_state / row state catalogue entries verified against the shipped widgets; prior 2026-10-02 CS1 Account: ActionRowList (ui_kit) catalogue entry verified against the shipped widget (signature, row dict keys, accessors); prior 2026-09-30 setFont-override fix (Selector + dense tables own-QSS size, DENSE_TABLE_PT); prior Block Editor ribbon tab account: BlockOpenDialog added as a HouseDialog consumer (feat/block-editor-ribbon-tab); prior 2026-09-30 chrome polish: shared HEADER_* re-dialed (34px), dock header tokens + QSS-owned size; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-23  # 2026-09-23: ui_kit.CreatableSelector added (block polish; first consumer BlockSaveDialog). prior: 2026-09-22: D6 house colour picker (colour_picker.py, todo #70) replaces native QColorDialog. prior: 2026-09-19: MainWindow re-shell (wave #2) LANDED (merge 0a7b44a) — frameless-fullscreen MainWindow + header/footer rails; governing contract: docs/specs/mainwindow-chrome-revamp.md (status: current). prior: 2026-09-15 TopTabs composed QWidget + SwitchBar expanding=False + multi-rail tab-page recipe; 2026-09-06 core system
+verified-commit: 6c03cd1c   # DM chrome revision Account: DisplayManager consumer (smoke round 2 look), TopTabs signature + add_tab WA_StyledBackground only (ff to main); prior 461da025   # Level Manager dialog Account (those blocks only); prior 902c5c0e   # UP1 Account (D6 fill-mode block only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; D6 colour block only); prior 312b8dd1 AC2 ui_kit window-flash fix (kit rule only); prior e221ca0e ET1 tooltip wrap (Tooltips section only); prior b9b1094 LT4 repeat authoring (PatternList / PaintSwatch); prior 7853334 CS2 Vertical + diagnostics; prior 2a22ba9 CS1 constraint foundation (ActionRowList); prior fa80cb0 setFont-override fix; prior 44325e5 Block Editor ribbon tab (BlockOpenDialog consumer); prior 416584c chrome polish; prior d34aeb0 batch A dead-code sweep; prior 434066c   # block polish (CreatableSelector); prior af36ed6 (D6 colour picker, feat/colour-picker); prior 2330ae8 (Stage-2 chrome: tab catalog += LeftTabs + canvas-tabs restyle); prior 0a7b44a (MainWindow chrome revamp), 9fe9985 (TopTabs/SwitchBar/Section)
 related-contract: docs/specs/mainwindow-chrome-revamp.md  # governs header/footer-rail invariants + frameless MainWindow shell (wave #2)
 applies-to:
   - firepro3d/theme.py
@@ -110,6 +110,8 @@ Close-only Manager footer is `set_footer_buttons(cancel=False, close=("Close", s
 
 **HouseDialog consumer (2026-10-30): `LevelDialog`** (`level_dialog.py`, resizable, Close-only footer as above, body = a `LevelWidget` using the kit `glyph_button` row and `SortHeader`; its table chrome is the `QTableWidget#levelTable` additions to the `#underlayTable` selector groups in `build_dialog_qss`). Behaviour is owned by `view-relationships.md` section 12.
 
+**HouseDialog consumer (2026-11-03): `DisplayManager`** (`display_manager.py`; resizable, min/max/close header with the placeholder icon, body = `TopTabs` [Model / Paper Space / Line Weights / Fill Types], footer = `set_footer_buttons(primary=("OK", accept), extra_left=<Reset All, Set as Default>)`). Its Model and Paper trees and the Line Weights table are given objectName `underlayTable` (the shared table QSS), Colour / Fill / Section cells are compact `Swatch` chips (`show_label=False, auto_pick=False`) and the Vis column is an `EyeToggle`. Smoke round 2 (2026-11-03): table headers are ALL CAPS with the glyph columns centred, tables sit flush under the divider (`TopTabs(page_top=0)`), and the selected top tab takes the accent-soft fill (`theme.py` houseDialog `#topTabsBar::tab:selected`, kit-wide). Behaviour is owned by `display-system.md`.
+
 ### D4 — `SideTabs` is a general vertical tab rail with optional numbering
 
 Extracted from `_StepRow`/`_StepRail` but generalized: a column of exclusive
@@ -169,6 +171,7 @@ interpolation in `build_dialog_qss` (`{M.RADIUS_INPUT}` alongside `{t.accent}`).
 | `LEVEL_DLG_SIZE` / `LEVEL_DLG_MIN` | (520, 460) / (420, 350) | `LevelDialog` initial / minimum size (w, h) |
 | `LEVEL_TOOLBAR_TOP` | 10 | table to glyph-row gap |
 | `GLYPH_BTN_PX` / `GLYPH_BTN_GAP` / `GLYPH_FONT_PX` | 28 / 8 / 15 | `ui_kit.glyph_button` square edge / spacing between glyph buttons / label font px (`QToolButton[glyph="true"]` rule) |
+| `EYE_GLYPH_PX` / `EYE_TOGGLE_PX` / `DM_ROW_H` | 17 / 22 / 28 | painted eye glyph box / EyeToggle edge / Display Manager tree row height |
 | `TABLE_HEADER_PAD_X` / `TABLE_HEADER_PX` | 8 / 10 | `QHeaderView::section` horizontal padding / font px; `ui_kit.SortHeader` reads both to place its caret |
 | `SORT_CARET_W` / `SORT_CARET_H` / `SORT_CARET_GAP` | 6 / 5 / 6 | `SortHeader` accent caret width / height / gap after the header text |
 | `RADIUS_INPUT` / `RADIUS_CARD` / `RADIUS_PILL` / `RADIUS_CHIP` | 6 / 7 / 11 / 8 | existing radii |
@@ -235,13 +238,16 @@ class TopTabs(QWidget):                 # #topTabs/#topTabsBar — peer pages in
     # default, accent-underline + semibold selected, accent-soft hover. Key API
     # mirrors SideTabs; a QTabWidget-COMPAT subset (count/tabText/widget/
     # currentWidget/setCurrentWidget/currentChanged) keeps callers+tests working.
-    def __init__(self, *, page_inset=12, page_top=14): ...
-    #   page_inset — horizontal inset on the tab BAR only; the STACK is full-bleed
-    #                (0 horizontal) so a page that leads with a rail sits flush-
-    #                left like the main dialog rail — each page owns its padding.
-    #   page_top   — top inset on page content (breathing room below the divider
-    #                so Section overline labels don't crowd the tab ribbon).
+    def __init__(self, parent=None, *, page_top=None): ...
+    #   The tab BAR is inset M.TOPTABS_BAR_INSET; the STACK is full-bleed
+    #   (0 horizontal) so a page that leads with a rail sits flush-left like
+    #   the main dialog rail — each page owns its padding.
+    #   page_top   — top inset on page content, default M.TOPTABS_PAGE_TOP
+    #                (breathing room below the divider); 0 = flush (Display Manager).
+    #   No scroll buttons: the strip never scrolls (peers are few).
     def add_tab(self, key, label, widget, *, icon=None) -> int: ...
+    #   Pins QWidget#<page> { background: surface } AND sets WA_StyledBackground
+    #   (QSS polish sets it only on a plain QWidget; a subclass page painted black live).
     def set_current(self, key); def current(self) -> str | None
     tabSelected = pyqtSignal(str)
     # Rail → tabs is the MAX depth — never nest TopTabs.
@@ -361,7 +367,10 @@ class PaintSwatch(QWidget):             # fixed-height strip painted by a callba
 
 ```python
 class Swatch(QWidget):                  # painted chip + label → opens the house picker
-    def __init__(self, hex_color="#000000", parent=None, *, context="Colour"): ...
+    def __init__(self, hex_color="#000000", parent=None, *, context="Colour",
+                 show_label=True, auto_pick=True): ...
+    clicked = pyqtSignal()              # chip pressed (the only effect with auto_pick=False)
+    # set_hex mirrors the value into the dynamic property "_color" (DM pick flows read it).
     colorChanged = pyqtSignal(str)      # "#rrggbb", "" (No Fill — chip shows the No-Fill glyph, label "None"),
                                         # or "token:auto" / "token:accent" (chip = resolved colour + small "A"
                                         # corner badge, label "Automatic" / "Accent")
@@ -371,6 +380,7 @@ class FillSwatch(QWidget):              # fill-layer chip + label → colour_pic
                  registry=None, exclude=(), show_label=True): ...
     layerChanged = pyqtSignal(object)   # a BackgroundLayer / PatternLayer, or fill_layers.NO_LAYER (layer off)
     # Layer model + picker modes -> docs/superpowers/specs/2026-10-18-up1-two-layer-fill-design.md
+class EyeToggle(QAbstractButton):  # painted visibility eye for table cells (accent open eye = visible, faint closed eye = hidden); checkable, toggled(bool); painter = ui_kit.paint_eye (shared with underlay_manager_delegates); sized by M.EYE_TOGGLE_PX / M.EYE_GLYPH_PX
 def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None  # the ONE No-Fill glyph
 def no_fill_icon(w: int, h: int) -> QIcon                             # same glyph for QPushButton swatches
 ```
@@ -604,8 +614,11 @@ follows these rules so every column reads as a proper rail:
 1. **20 native-title-bar dialogs → `HouseDialog`** conversion waves. **Migrated
    2026-09-15 (title-block bundle Task D): `TitleBlockEditorDialog` +
    `RevisionsDialog`** (both wrap existing content into `set_body`; the editor
-   keeps its 3-button `Save / Save && Close / Close` box in-body). Remaining:
-   `PreferencesDialog`, `DisplayManager`,
+   keeps its 3-button `Save / Save && Close / Close` box in-body). **Migrated
+   2026-11-03 (DM chrome revision): `DisplayManager`** (HouseDialog + `TopTabs`
+   + Underlay-table look; see the DisplayManager consumer paragraph in D3).
+   Remaining:
+   `PreferencesDialog`,
    `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`, `WallDialog`,
    `PaperExportDialog`, `CalibrateDialog`,
    `ViewRangeDialog`, `ThermalRadiationDialog`, `DesignPointDialog`,
