@@ -8,6 +8,8 @@ from __future__ import annotations
 from PyQt6 import sip
 from PyQt6.QtCore import QPointF, Qt
 
+from . import text_leader as _tl
+
 
 def notes_of(scene, view_key: str) -> list:
     """The Note instances of *scene* owned by *view_key* (``plan:Plan: L1``)."""
@@ -99,7 +101,12 @@ class NoteController:
         item, xf = g
         prim = next(b.prim for b in inst.definition().bound_prims())
         k = inst.note_k()
-        origin = xf.map(QPointF(float(prim.get("x", 0.0)), float(prim.get("y", 0.0))))
+        px, py = float(prim.get("x", 0.0)), float(prim.get("y", 0.0))
+        mirrored = inst.block_mirrored()
+        # A mirrored pose flips the box about the insertion point, so its scene
+        # top-left (the overlay's unmirrored anchor) is the far end of the box
+        # along the prim's x: xf already carries the mirror.
+        origin = xf.map(QPointF(px + (_tl._box_mm(item).width() if mirrored else 0.0), py))
         rec = dict(prim, text=str(inst.attributes.get("Text", "")),
                    x=origin.x(), y=origin.y(),
                    wrap_width_mm=inst.note["wrap_width_mm"] * k,
@@ -111,6 +118,15 @@ class NoteController:
         lead = inst.note.get("leader")
         if lead:
             rec["leader"] = dict(lead, shoulder_mm=lead["shoulder_mm"] * k)
+            if mirrored:
+                # The ops draw the leader through the variant mirror; the overlay
+                # is unmirrored, so mirror the record: L <-> R, and the attach
+                # runs the other way along a top / bottom edge.
+                ld = rec["leader"]
+                if ld["edge"] in ("L", "R"):
+                    ld["edge"] = "R" if ld["edge"] == "L" else "L"
+                else:
+                    ld["t"] = 1.0 - float(ld["t"])
         ov = TextItem.from_dict(rec)
         s.addItem(ov)
         turn = float(prim.get("angle", 0.0)) + inst.block_rotation()

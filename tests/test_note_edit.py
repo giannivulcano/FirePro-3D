@@ -153,17 +153,47 @@ def test_double_click_opens_the_editor_through_the_real_event_path(
     ms._text_edit_ctl.commit()
 
 
+@pytest.mark.parametrize("mirrored", [False, True], ids=["plain", "mirrored"])
 @pytest.mark.parametrize("rotation", [0.0, 90.0, 30.0])
-def test_the_overlay_box_lands_on_the_note_box(shown_model_view, real_system_library, rotation):
+def test_the_overlay_box_lands_on_the_note_box(shown_model_view, real_system_library,
+                                               rotation, mirrored):
     view, ms = shown_model_view
     inst = _note(ms)
     inst.set_block_rotation(rotation)
+    inst.set_block_mirrored(mirrored)
     want = inst.note_box_scene()
     ms._note_ctl.begin(inst)
     ov = ms._note_ctl.overlay
     got = ov.mapRectToScene(ov._box_rect_local())
     assert (got.x(), got.y(), got.width(), got.height()) == pytest.approx(
         (want.x(), want.y(), want.width(), want.height()), abs=1.0)
+    ms._text_edit_ctl.commit()
+
+
+@pytest.mark.parametrize("mirrored", [False, True], ids=["plain", "mirrored"])
+@pytest.mark.parametrize("rotation", [0.0, 90.0, 30.0])
+@pytest.mark.parametrize("edge,t", [("R", 0.5), ("L", 0.3), ("T", 0.25), ("B", 0.8)])
+def test_the_overlay_leader_leaves_the_same_side_as_the_notes(
+        shown_model_view, real_system_library, rotation, mirrored, edge, t):
+    """The note's shoulder, knee and attach as the ops draw them (variant mirror,
+    pose) against the overlay's own leader: same points in the scene."""
+    view, ms = shown_model_view
+    inst = _note(ms, leader=dict(LEADER, edge=edge, t=t))
+    inst.set_block_rotation(rotation)
+    inst.set_block_mirrored(mirrored)
+    from tests.test_note_instance import leader_op
+    op = leader_op(inst)
+    pose = inst.pose_transform()
+    knee = pose.map(QPointF(op.pieces[0].x1, op.pieces[0].y1))
+    attach = pose.map(QPointF(op.pieces[0].x0, op.pieces[0].y0))
+    ms._note_ctl.begin(inst)
+    ov = ms._note_ctl.overlay
+    ok = ov.grip_points()[ov.LEADER_KNEE_GRIP]
+    from firepro3d import text_leader as _tl
+    oa, _k, _t = _tl.box_frame_points(ov)
+    oa = _tl._to_parent(ov, oa)                    # the overlay is top level: parent = scene
+    assert (ok.x(), ok.y()) == pytest.approx((knee.x(), knee.y()), abs=1.0)
+    assert (oa.x(), oa.y()) == pytest.approx((attach.x(), attach.y()), abs=1.0)
     ms._text_edit_ctl.commit()
 
 
