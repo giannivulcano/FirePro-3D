@@ -10,7 +10,8 @@ applies-to:
   - firepro3d/block_instance.py   # note record, serialization, panel rows
   - firepro3d/level_manager.py    # apply_to_scene view_key filter; rename / remove hooks
   - firepro3d/paper_space.py      # viewport isolation key; paper panel rows
-  - firepro3d/section_scene.py    # skip view-owned instances
+  - firepro3d/section_marker.py   # plan bbox skips notes
+  - firepro3d/level_widget.py     # level delete removes owned notes
   - firepro3d/detail_view.py      # delete_detail removes owned notes
   - firepro3d/model_space.py      # note mode, placement, edit session
   - firepro3d/text_edit_controller.py # Note edit overlay
@@ -69,7 +70,7 @@ All ratified by the user at the grill (Q1-Q11) or at design approval, 2026-11-04
 | D4 | **Knee drag.** Free, like a detail bubble. The edge is the one the knee is furthest outside of (ties keep the current edge). The knee's along-edge coordinate clamps to the edge's extent, so the attach slides and stops at the edge end and the shoulder stays perpendicular. A knee inside the box lands on the nearest edge at `TEXT_LEADER_MIN_SHOULDER_MM`. |
 | D5 | **Independent grips.** Knee and tip each have a grip; dragging the tip leaves the shoulder alone. Grips exist only while Leader is on and follow the existing grips, so `MOVE_GRIP_INDEX` keeps its value. |
 | D6 | **Style.** Named weight (`leader_weight`, same picker as the frame) and the text colour (Decision 4 of the text spec). Solid line. |
-| D7 | **Pinned tip.** Moving the text keeps the tip on its target and stretches the leader, on every surface. Copy, rotate, mirror and paper scale move the leader with the box. |
+| D7 | **Pinned tip.** Moving the text keeps the tip on its target and stretches the leader, on every surface: the tip is stored absolute, so a box move never touches it. Copy, rotate, mirror, scale and whole-definition shifts carry it explicitly. |
 | D8 | **Note model.** One shipped System block, `Note.fpdb` (Annotative, one `@[Text]` primitive). Text is the `Text` attribute. Box size, leader and owning view are per placement. Font, height and frame come from the definition, so editing the block restyles every note. Per-note formatting is out of scope. |
 | D9 | **View ownership.** A Note belongs to exactly one plan or detail view, keyed in the `scene.active_view_key` format (`plan:Plan: Level 1`, `detail:D1`). It shows only in that view and in that view's sheet viewports. A detail cropping the same spot does not show it. |
 | D10 | **Lifecycle.** A view rename re-keys its notes. A view delete deletes its notes in the same undo step. Notes are not attached to model elements; hosting is a follow-up. |
@@ -88,7 +89,7 @@ set (the `keep_upright` convention):
 | `edge` | `"L" \| "R" \| "T" \| "B"` | Box edge the shoulder leaves |
 | `t` | `float` 0-1 | Attach position along that edge |
 | `shoulder_mm` | `float` | Shoulder length |
-| `tip_dx`, `tip_dy` | `float` | Tip, relative to the knee, in the text's unrotated frame |
+| `tip_x`, `tip_y` | `float` | Tip, absolute in the surface frame (the same frame as `x` / `y`), which is what pins it (D7) |
 | `end` | end ref | End type; default `Arrow` |
 | `weight` | `str` | Named weight, canonicalised like `border_weight` |
 
@@ -100,7 +101,7 @@ set (the `keep_upright` convention):
 |---|---|---|
 | `view` | `str` | Owning view key (D9) |
 | `wrap_width_mm`, `box_height_mm` | `float` | Box, in printed mm |
-| `leader` | dict or absent | As above, with `tip_x`, `tip_y` in scene mm relative to the instance origin (D14) |
+| `leader` | dict or absent | As above; `tip_x`, `tip_y` are absolute scene mm (D14) |
 
 An instance with `note` set is a Note. `BlockInstance.to_dict` / `from_dict` and
 `place_kwargs` carry it, so save, undo and every rebuild site agree.
@@ -128,15 +129,17 @@ An instance with `note` set is a Note. `BlockInstance.to_dict` / `from_dict` and
 - The viewport no-op skip compares `(level, height, depth)` only, so a detail sharing
   its plan's context would skip isolation and show the plan's notes. The comparison
   gains the view key.
-- `section_scene` skips instances with `note` set when it copies block instances.
+- `section_scene` already copies hosted instances only, so a Note cannot reach it; a guard pins that. `section_marker`'s plan bbox skips notes, so a note cannot grow a crop.
 
 ## Lifecycle
 
-- **Rename:** plan renames (`main.py`, `PlanViewManager.rename_level`) and detail renames
-  re-key owned notes.
-- **Delete:** `delete_detail` and plan-view removal delete owned notes in one undo step.
-  Whether level delete, which re-points refs, removes a plan view is probed in plan step
-  1; the rule stands either way: if the view goes, its notes go.
+- **Rename:** `_on_level_renamed` re-keys plan notes. A detail's Name row today changes
+  only `marker._name`, leaving the manager key, the tab and viewports on the old name,
+  so a save and reload would orphan its notes. `DetailViewManager.rename_detail` re-keys
+  all of them, and the Name row calls it.
+- **Delete:** level delete is the only way a plan view goes (`level_widget` ->
+  `pvm.remove_level`); owned notes go before its one `_push_level_step`. `delete_detail`
+  removes owned notes too. Detail delete has no undo step today, so see Divergences.
 
 ## Acceptance Criteria
 
@@ -152,7 +155,8 @@ An instance with `note` set is a Note. `BlockInstance.to_dict` / `from_dict` and
 - [ ] Note is disabled with a tooltip on section, paper, 3D, block and schematic canvases.
 - [ ] A note on Plan L1 shows on Plan L1 and its viewport, not in an overlapping detail
       or its viewport, and the reverse.
-- [ ] Renaming a view keeps its notes; deleting one removes them, and undo restores them.
+- [ ] Renaming a view keeps its notes through save and reload; deleting one removes them;
+      undo of a level delete restores them.
 - [ ] Notes never appear in sections or 3D.
 - [ ] The tip stays on target when the drawing scale changes.
 - [ ] Editing the Note block restyles existing notes without moving their boxes or tips.
@@ -180,7 +184,13 @@ An instance with `note` set is a Note. `BlockInstance.to_dict` / `from_dict` and
 - **Block Editor constraints:** the solver keeps driving the box; the leader follows and
   adds no constraint refs.
 
+## Divergences
+
+- **Detail delete is not undoable** (details are saved in the file but have no undo step).
+  D10's "same undo step" holds for level delete only until that follow-up lands.
+
 ## Follow-ups to file
 
 Multi-leader; tips hosted on elements; Notes in section / elevation; Dimension in the
-Annotations group; Keyed Notes; per-note formatting; Note types (more than one Note block).
+Annotations group; Keyed Notes; per-note formatting; Note types (more than one Note block);
+undoable detail delete.
