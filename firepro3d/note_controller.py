@@ -28,7 +28,11 @@ def remove_notes(scene, view_key: str) -> None:
 
     No undo push of its own: the caller's one step carries the removal.
     """
-    for inst in notes_of(scene, view_key):
+    doomed = notes_of(scene, view_key)
+    ctl = getattr(scene, "constraint_ctl", None)
+    if ctl is not None and doomed:
+        ctl.on_items_removed(doomed)      # section 8: cascade-delete, inside the caller's step
+    for inst in doomed:
         scene.remove_block_instance(inst)
 
 
@@ -58,8 +62,14 @@ def drop_history(scene, view_key: str) -> None:
     for state in getattr(scene, "_undo_stack", ()):
         blocks = state.get("blocks")
         if blocks:
-            state["blocks"] = [r for r in blocks
-                               if (r.get("note") or {}).get("view") != view_key]
+            dead = {r.get("uid") for r in blocks
+                    if (r.get("note") or {}).get("view") == view_key}
+            state["blocks"] = [r for r in blocks if r.get("uid") not in dead]
+            if dead and state.get("constraints"):      # no constraint may name a dropped note
+                state["constraints"] = [
+                    c for c in state["constraints"]
+                    if not any(isinstance(r, dict) and r.get("uid") in dead
+                               for r in c.get("refs", ()))]
 
 
 class NoteController:
@@ -145,6 +155,7 @@ class NoteController:
                    cell_padding_mm=float(prim.get("cell_padding_mm", 1.0)) * k,
                    angle=0.0)
         rec.pop("uid", None)
+        rec.pop("leader", None)         # prim-frame record of the definition: the note's own below
         lead = inst.note.get("leader")
         if lead:
             rec["leader"] = dict(lead, shoulder_mm=lead["shoulder_mm"] * k)

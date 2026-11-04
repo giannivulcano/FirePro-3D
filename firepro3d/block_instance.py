@@ -257,7 +257,8 @@ class BlockInstance(QGraphicsObject):
         if not self.note:
             return None
         patch = {"wrap_width_mm": self.note["wrap_width_mm"],
-                 "box_height_mm": self.note["box_height_mm"]}
+                 "box_height_mm": self.note["box_height_mm"],
+                 "leader": None}            # the row owns it: a definition's leader never draws
         rec = self.note.get("leader")
         if rec:
             g = self._note_geometry()
