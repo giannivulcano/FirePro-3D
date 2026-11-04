@@ -644,7 +644,7 @@ class LevelManager:
                 if view_depth < slab_top <= view_height:
                     slab._is_occluding = True
 
-        def _set_level_vis(item):
+        def _set_level_vis(item, view_owned=False):
             # Guard against deleted C++ objects (e.g. after undo)
             try:
                 item.isVisible()
@@ -659,6 +659,16 @@ class LevelManager:
             # Reset section-cut flag
             if hasattr(item, "_is_section_cut"):
                 item._is_section_cut = False
+
+            if view_owned:
+                # A view-owned Note (design D9) is gated by its view key alone,
+                # which the caller already matched: neither the level gate nor
+                # the z-range filter applies, so a note whose level differs from
+                # its view's (pasted, edited, or a detail's level changed) shows.
+                item.setVisible(True)
+                item.setOpacity(1.0)
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                return
 
             # Pure z-range items (floors) ignore .level entirely: their
             # vertical extent alone drives visibility + section-cut.
@@ -721,7 +731,7 @@ class LevelManager:
             if note and note.get("view") != view:
                 item.setVisible(False)   # view-owned Note: shows in its view only (design D9)
                 continue
-            _set_level_vis(item)
+            _set_level_vis(item, view_owned=bool(note))
 
         # ── Gridlines (always visible on all levels) ─────────────────────
         for item in getattr(scene, "_gridlines", []):

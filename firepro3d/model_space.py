@@ -6630,6 +6630,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.addItem(preview)
         self._text_preview = preview
 
+    def _join_active_view(self, inst) -> None:
+        """Make the copied Note *inst* belong to the active view, on the active
+        level, so its view key and its level agree in the data (D9)."""
+        inst.note["view"] = self.active_view_key
+        inst.level = self.active_level
+
     def note_allowed(self) -> bool:
         """Whether this canvas can hold a Note: a plan scene showing a plan or
         detail view (design D11)."""
@@ -9263,7 +9269,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return None
             inst.attributes = dict(d.get("attributes", {}))
             if inst.note is not None:
-                inst.note["view"] = self.active_view_key   # the copy joins this view (spec)
+                self._join_active_view(inst)               # the copy joins this view (spec)
             return inst
         entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
         if entry is None:
@@ -9531,7 +9537,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         continue
                     inst.attributes = dict(obj.get("attributes", {}))
                     if inst.note is not None:
-                        inst.note["view"] = self.active_view_key        # the copy joins this view
+                        self._join_active_view(inst)                    # the copy joins this view
                         inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
                     inst.setSelected(True)
                     if obj.get("uid"):
