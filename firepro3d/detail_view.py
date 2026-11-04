@@ -464,8 +464,10 @@ class DetailMarker(QGraphicsPathItem):
             "bubble_pos": {"x": self._bubble_pos.x(),
                            "y": self._bubble_pos.y()},
         }
-        if self._mark:
-            d["mark"] = self._mark                  # sparse (SB4d D3)
+        # Always written, "" included (SB4d D3, Phase 5 ruling): an absent key is
+        # the pre-SB4d signal that adopts the name token on load (Q20), so a
+        # deliberately blank Mark must stay blank (M7).
+        d["mark"] = self._mark
         if self._view_height is not None:
             d["view_height"] = self._view_height
         if self._view_depth is not None:

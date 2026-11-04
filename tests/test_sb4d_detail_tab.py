@@ -50,12 +50,16 @@ def test_guard8_own_callout_paints_bright_above_the_mask_and_drags(qapp):
         # the leader is vertical (head below the crop), so the x extent is the head's
         half_w = (max(xs) - min(xs)) / 2.0
         assert abs(half_w - expected_px) <= 3.0, (half_w, expected_px)
-        m.apply_grip(8, QPointF(m._bubble_pos.x() + 2000.0, m._bubble_pos.y()))
+        old_pos = QPointF(m._bubble_pos)
+        new_pos = QPointF(old_pos.x() + 2000.0, old_pos.y())
+        m.apply_grip(8, new_pos)
         QApplication.processEvents()
-        assert m.bubble.pos() == m._bubble_pos
-        v.centerOn(m._bubble_pos)
+        assert m._bubble_pos == new_pos                    # the grip moved the head
+        assert m.bubble.pos() == new_pos
+        v.centerOn(old_pos)                                # old and new spot both in view
         QApplication.processEvents()
-        assert _bright_red_near(v, m._bubble_pos)          # repainted at the dragged spot
+        assert _bright_red_near(v, new_pos)                # repainted at the dragged spot
+        assert not _bright_red_near(v, old_pos, half_px=20)   # and gone from the old one
         handles = m.manip_handles()
         assert len(handles) == 9                           # grip 8 = the round head grip (unchanged)
     finally:

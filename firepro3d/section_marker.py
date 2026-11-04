@@ -786,8 +786,11 @@ class SectionMarker(QGraphicsItem):
                "look_sign": self._look, "depth": self._depth,
                "cardinal": self._cardinal, "auto_extent": self._auto_extent,
                "gridline_z_overrides": dict(self.gridline_z_overrides)}
-        if self._mark:
-            out["mark"] = self._mark                # sparse (SB4d D3)
+        if not self._cardinal:
+            # Always written for a placed section, "" included (SB4d D3, Phase 5
+            # ruling): an absent key is the pre-SB4d signal that adopts the name
+            # token on load, so a deliberately blank Mark must stay blank (M7).
+            out["mark"] = self._mark
         return out
 
     @classmethod

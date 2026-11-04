@@ -66,7 +66,7 @@ def test_load_adopts_the_name_token_once(qapp, tmp_path):
         rec_s = next(r for r in payload["sections"] if r["name"] == s.name)
         rec_d = payload["detail_views"][0]
         assert rec_s["mark"] == "A7" and rec_d["mark"] == "1"
-        assert all("mark" not in r for r in payload["sections"] if r.get("cardinal"))   # sparse
+        assert all("mark" not in r for r in payload["sections"] if r.get("cardinal"))   # cardinals: key-less
         rec_s.pop("mark")                                           # a pre-SB4d file
         rec_d.pop("mark")
         path.write_text(json.dumps(payload), encoding="utf-8")
@@ -99,3 +99,30 @@ def test_blank_panel_edit_is_refused(qapp, monkeypatch):
         assert msgs == ["Mark can't be blank - restored to 1"]
     finally:
         dispose(ms, sec, tabs)
+
+
+def test_blank_mark_survives_save_load_and_undo_recreate(qapp, tmp_path):
+    """Phase 5 ruling (T15 review I1): a blank pattern mints "" and the record
+    always carries the ``mark`` key, so neither a reload nor an undo re-create
+    adopts the name token (M7) -- only a key-less pre-SB4d record does (Q20)."""
+    ms, sec, det, tabs = plan_scene()
+    try:
+        ms.mark_patterns = {"Section": "", "Detail": ""}
+        s = sec.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+        d = det.create_detail("Detail 4", QRectF(0.0, 0.0, 2000.0, 2000.0))
+        assert s._mark == "" and d._mark == ""
+        assert s.to_dict()["mark"] == "" and d.to_dict()["mark"] == ""
+        # undo re-create path: the record rebuilt through the manager keeps blank
+        rebuilt = sec._marker_from_record(s.to_dict())
+        assert rebuilt is not None and rebuilt._mark == ""
+        path = tmp_path / "blank.fp3d"
+        ms.save_to_file(str(path))
+    finally:
+        dispose(ms, sec, tabs)
+    ms2, sec2, det2, tabs2 = plan_scene()
+    try:
+        ms2.load_from_file(str(path))
+        assert sec2.marker(s.name)._mark == ""
+        assert det2.get_marker("Detail 4")._mark == ""
+    finally:
+        dispose(ms2, sec2, tabs2)
