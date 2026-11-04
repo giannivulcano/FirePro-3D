@@ -233,6 +233,13 @@ class BlockInstance(QGraphicsObject):
         self._note_geom = None
         self.update()
 
+    def note_k(self) -> float:
+        """Scene mm per printed mm of this note: the drawing scale (variant k),
+        the pose scale and the Fixed-size frame k together (a note's box is
+        authored in printed mm, D14)."""
+        kv, kf = self._annot_ks()
+        return self._pose_scale * kv * kf
+
     def note_tip_scene(self) -> "QPointF | None":
         """The leader tip in scene mm (stored absolute, D14), or None."""
         rec = (self.note or {}).get("leader")

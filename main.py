@@ -16,7 +16,7 @@ from firepro3d.themed_message import (
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
-from firepro3d.model_space import Model_Space, NO_VIEW_HINT
+from firepro3d.model_space import Model_Space, NO_VIEW_HINT, NOTE_OFF_HINT
 from firepro3d.modify_tools_controller import ModifyToolsController
 from firepro3d.model_view import Model_View
 from firepro3d.text_item import editing_text_item
@@ -1784,6 +1784,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # (The Block group moved to the permanent Build tab's left edge —
         # _init_build_tab. Quick Block + Text Block stay retired (C7).)
 
+        # --- Annotations (Dimension + Keyed Notes unbuilt, design D1) ---
+        g_ann = build_page.add_group("Annotations")
+        _note_btn = _mode_btn(g_ann, "Note", _I("note_icon.svg"), "note")
+        _note_tip = "Place a text note owned by this view"
+        _note_btn.setToolTip(_note_tip)
+        self._arch_note_gate = (_note_btn, _note_tip)       # registered in _init_build_tab
+        self._ann_dimension_btn = g_ann.add_small_button(
+            "Dimension", _I("dimension_icon.svg"), None)
+        self._ann_keyed_btn = g_ann.add_small_button(
+            "Keyed Notes", _I("keyed_note_icon.svg"), None)
+        for _b, _what in ((self._ann_dimension_btn, "Dimensions"),
+                          (self._ann_keyed_btn, "Keyed notes")):
+            _b.setEnabled(False)
+            _b.setToolTip(f"{_what} are coming soon")
+
         # --- Underlay (moved from Manage to Architecture; contract C7, shipped) ---
         g_ul = build_page.add_group("Underlay")
         _b = g_ul.add_large_button(
@@ -2724,6 +2739,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_arc":       "Click the arc points for the active variant (←/→ cycles Center / Start / End Points)",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
         "text":           "Click first corner, then drag to define text area",
+        "note":           "Click first corner, then drag to define the note",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
         "offset":         "Pick object to offset",
@@ -2760,7 +2776,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_line": "Line", "draw_rectangle": "Rectangle",
         "draw_circle": "Circle", "draw_ellipse": "Ellipse", "draw_arc": "Arc",
         "draw_spline": "Spline", "polyline": "Polyline", "polygon": "Polygon",
-        "text": "Text", "dimension": "Dimension", "pick_region": "Pick Point",
+        "text": "Text", "note": "Note", "dimension": "Dimension", "pick_region": "Pick Point",
         # Edit / Modify (scene-tools.md)
         "copy_base": "Copy", ModifyToolsController.CUT_BUTTON_KEY: "Cut",
         "paste": "Paste", "duplicate": "Duplicate", "move": "Move",
@@ -4603,6 +4619,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Slice 2: plan + detail too (design s1 note (d), s2).
         "constrain": frozenset({"plan", "detail", "block", "schematic"}),
         "inspect": frozenset({"plan", "detail", "block", "schematic"}),
+        # Note: view-owned, so plan + detail only (text-leader-annotations D11).
+        "annotate": frozenset({"plan", "detail"}),
     }
     # Edit-group caption -> ModifyToolsController tool (can_start / start).
     _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
@@ -4627,6 +4645,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._pre_editor_tab = None   # G14: tab before a selection jump
         # (button, real tooltip, _GROUP_LIVE_KINDS key) of every gated button.
         self._canvas_gated: list = []
+        # The Architecture > Annotations Note button follows the canvas kind too (D11).
+        self._gate(*self._arch_note_gate, "annotate")
 
         # --- Block (entry verbs; always live) ---
         gb = page.add_group("Block")
@@ -5102,7 +5122,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if sip.isdeleted(b):
                 continue
             live = kind in self._GROUP_LIVE_KINDS[group]
-            b.setToolTip(tip if live else off_tip)
+            b.setToolTip(tip if live else
+                         (NOTE_OFF_HINT if group == "annotate" else off_tip))
             b.setEnabled(live)
         if kind in self._GROUP_LIVE_KINDS["edit"]:
             self._connect_modify_refresh(self._active_scene())
