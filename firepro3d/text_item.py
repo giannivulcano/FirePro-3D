@@ -1710,24 +1710,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """The new ``leader`` value for a Leader row, as ``(value,)``, or
         ``(False,)`` when *key* is not one. Off drops the record, so on starts
         fresh (spec edge case)."""
-        from .capabilities import ensure_end_available
-        from .text_leader import DEFAULT_END_ID, default_leader, normalise, set_panel_row
-        if key == "Leader":
-            if not value:
-                return (None,)
-            if not ensure_end_available(DEFAULT_END_ID, self.scene()):
-                return (False,)
-            r = self._box_rect_local()
-            s = self.scale() or 1.0
-            box = QRectF(0.0, 0.0, r.width() * s, r.height() * s)
-            return (normalise(default_leader(box, QPointF(self._data.x, self._data.y))),)
-        if key in ("Leader End", "Leader Weight") and self._data.leader:
-            rec = dict(self._data.leader)
-            set_panel_row(rec, key, value, self._tile_registry())
-            if key == "Leader End" and not ensure_end_available(rec["end"], self.scene()):
-                return (False,)
-            return (rec,)
-        return (False,)
+        r = self._box_rect_local()
+        s = self.scale() or 1.0
+        box = QRectF(0.0, 0.0, r.width() * s, r.height() * s)
+        return _tl.leader_change(self._data.leader, key, value, box,
+                                 QPointF(self._data.x, self._data.y),
+                                 self._tile_registry(), self.scene())
 
     def _height_row(self) -> dict:
         """The model-surface Height row (text-sizing-wrap D2).

@@ -315,6 +315,92 @@ class BlockInstance(QGraphicsObject):
             rec["tip_y"] += dy
             self.note_changed()
 
+    # -- Note grips (D5): box corner, knee, tip ------------------------------
+    NOTE_BOX_GRIP, NOTE_KNEE_GRIP, NOTE_TIP_GRIP = 0, 1, 2
+
+    def note_grip_index(self, which: str) -> int:
+        """Grip index of ``"box"``, ``"knee"`` or ``"tip"`` (knee / tip exist
+        only while the leader is on)."""
+        return {"box": self.NOTE_BOX_GRIP, "knee": self.NOTE_KNEE_GRIP,
+                "tip": self.NOTE_TIP_GRIP}[which]
+
+    def grip_points(self) -> list:
+        """Scene points of this note's grips: the box's bottom-right corner,
+        then the leader's knee and tip. EMPTY for every plain block, so nothing
+        that reads ``grip_points`` as a capability changes for them."""
+        if not self.note:
+            return []
+        g = self._note_geometry()
+        if g is None:
+            return []
+        from . import text_leader as _tl
+        item, xf = g
+        pts = [xf.map(_tl._to_parent(item, _tl._box_mm(item).bottomRight()))]
+        if self.note.get("leader"):
+            pts += [self._note_knee_scene(), self.note_tip_scene()]
+        return pts
+
+    def apply_grip(self, index: int, pos: "QPointF") -> None:
+        """Drag a note grip to scene *pos*. A plain block ignores it.
+
+        The box corner resizes the box (floored at ``MIN_NOTE_BOX_MM``); the
+        knee re-seats the shoulder (``solve_knee``); the tip moves alone (D5).
+        The tip is absolute, so a box resize never moves it (D7 ruling)."""
+        if not self.note:
+            return
+        g = self._note_geometry()
+        if g is None:
+            return
+        from . import text_leader as _tl
+        from .constants import MIN_NOTE_BOX_MM
+        item, xf = g
+        rec = self.note.get("leader")
+        if index == self.NOTE_TIP_GRIP and rec:
+            rec["tip_x"], rec["tip_y"] = pos.x(), pos.y()
+        else:
+            inv, ok = xf.inverted()
+            if not ok:
+                return
+            local = _tl._from_parent(item, inv.map(pos))      # box frame, printed mm
+            box = _tl._box_mm(item)
+            if index == self.NOTE_BOX_GRIP:
+                self.note["wrap_width_mm"] = max(local.x() - box.left(), MIN_NOTE_BOX_MM)
+                self.note["box_height_mm"] = max(local.y() - box.top(), MIN_NOTE_BOX_MM)
+            elif index == self.NOTE_KNEE_GRIP and rec:
+                rec.update(_tl.solve_knee(box, local, rec))
+            else:
+                return
+        self.note_changed()
+
+    def manip_extra_handles(self):
+        """Handles drawn IN ADDITION to the rigid frame set (the selection
+        manipulator's additive seam): a note's box, knee and tip grips. Nothing
+        for a plain block, which keeps the rigid set alone."""
+        if not self.note:
+            return []
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={self.NOTE_KNEE_GRIP, self.NOTE_TIP_GRIP})
+
+    def _note_leader_change(self, key: str, value):
+        """``(new leader,)`` for a Leader row on this note, or ``(False,)``."""
+        g = self._note_geometry()
+        if g is None:
+            return (False,)
+        from . import text_leader as _tl
+        item, xf = g
+        sc = self.scene()
+        reg = getattr(sc, "block_registry", None) if sc is not None else None
+        mm = _tl._box_mm(item)
+        chg = _tl.leader_change(self.note.get("leader"), key, value,
+                                QRectF(0.0, 0.0, mm.width(), mm.height()), QPointF(0.0, 0.0),
+                                reg, sc)
+        if key == "Leader" and chg[0]:
+            # the default tip comes back relative to the box origin: seat it in the scene
+            rec = chg[0]
+            tip = xf.map(_tl._to_parent(item, QPointF(rec["tip_x"], rec["tip_y"])))
+            rec["tip_x"], rec["tip_y"] = tip.x(), tip.y()
+        return chg
+
     def set_attributes(self, values: dict) -> None:
         """Replace the instance's attribute values / host overrides (A4 / D4:
         a host key's presence is its override); repaint. Undo is the
@@ -530,9 +616,13 @@ class BlockInstance(QGraphicsObject):
         from .cad_math import CAD_Math
         p = CAD_Math.rotate_point(QPointF(self._pose_x, self._pose_y),
                                   pivot, -angle_deg)
+        tip = self.note_tip_scene()
         self.prepareGeometryChange()
         self._pose_x, self._pose_y = p.x(), p.y()
         self._pose_rot += float(angle_deg)
+        if tip is not None:                       # D7: a note's tip turns with its box
+            t = CAD_Math.rotate_point(tip, pivot, -angle_deg)
+            self.note["leader"]["tip_x"], self.note["leader"]["tip_y"] = t.x(), t.y()
         self.update()
 
     def manip_reflect(self, p1: "QPointF", p2: "QPointF") -> None:
@@ -550,9 +640,13 @@ class BlockInstance(QGraphicsObject):
         p = CAD_Math.mirror_point(QPointF(self._pose_x, self._pose_y), p1, p2)
         rot, mir = reflect_pose(self._pose_rot, self._pose_mirrored,
                                 yup_angle(p1, p2))
+        tip = self.note_tip_scene()
         self.prepareGeometryChange()
         self._pose_x, self._pose_y = p.x(), p.y()
         self._pose_rot, self._pose_mirrored = rot, mir
+        if tip is not None:                       # D7: a note's tip mirrors with its box
+            t = CAD_Math.mirror_point(tip, p1, p2)
+            self.note["leader"]["tip_x"], self.note["leader"]["tip_y"] = t.x(), t.y()
         self.update()
 
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
@@ -563,7 +657,7 @@ class BlockInstance(QGraphicsObject):
         p = CAD_Math.scale_point(QPointF(self._pose_x, self._pose_y), base, f)
         self.prepareGeometryChange()
         self._pose_x, self._pose_y = p.x(), p.y()
-        self._pose_scale *= f
+        self._pose_scale *= f          # a note's tip is NOT scaled: it stays on target (D7 ruling)
         self.update()
 
     def _text_path(self, op) -> QPainterPath:
@@ -1554,7 +1648,7 @@ class BlockInstance(QGraphicsObject):
 
     def get_properties(self) -> dict:
         props = {
-            "Type":         {"type": "label",     "value": "Block"},
+            "Type":         {"type": "label",     "value": "Note" if self.note else "Block"},
             "Level":        {"type": "level_ref", "value": self.level},
             "Level Offset": {"type": "dimension", "value": self._fmt(self._level_offset_mm),
                              "value_mm": self._level_offset_mm},
@@ -1589,6 +1683,12 @@ class BlockInstance(QGraphicsObject):
         # the scene's can_edit_attributes gate, shared with the context menus.
         has_attrs = bool(sc is not None and hasattr(sc, "can_edit_attributes")
                          and sc.can_edit_attributes(self))
+        if self.note:
+            from .text_leader import panel_rows
+            d = self.definition()
+            bp = d.bound_prims() if d is not None else []
+            frame_w = str(bp[0].prim.get("border_weight", "")) if bp else ""
+            props.update(panel_rows(self.note.get("leader"), reg, fallback_weight=frame_w))
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}
@@ -1658,7 +1758,8 @@ class BlockInstance(QGraphicsObject):
         """The values the Level / Level Offset / Rotation / Mirrored / Scale
         rows edit, compared before and after a commit (G9)."""
         return (self.level, self._level_offset_mm, self._pose_rot,
-                self._pose_mirrored, self._pose_scale)
+                self._pose_mirrored, self._pose_scale,
+                repr(self.note.get("leader")) if self.note else None)
 
     def set_property(self, key: str, value) -> None:
         """Apply one panel row commit.
@@ -1694,6 +1795,15 @@ class BlockInstance(QGraphicsObject):
             f = self._parse_factor(value)
             if f is not None:           # refused input: unchanged, no step
                 self.set_block_scale(f)
+        elif key in ("Leader", "Leader End", "Leader Weight") and self.note is not None:
+            chg = self._note_leader_change(key, value)
+            if chg[0] is False:
+                return
+            if chg[0] is None:
+                self.note.pop("leader", None)     # off drops the record (spec edge case)
+            else:
+                self.note["leader"] = chg[0]
+            self.note_changed()
         elif key in ("Weight", "Linetype"):
             if self._overrides_locked():
                 return                  # Q12: a mixed selection can't bypass the lock

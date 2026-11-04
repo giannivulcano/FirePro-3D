@@ -208,6 +208,40 @@ def ends_extent(item) -> QRectF | None:
     return r
 
 
+def leader_change(rec, key: str, value, box: QRectF, to_surface: QPointF,
+                  registry, scene, exclude=()):
+    """The new ``leader`` value for a Leader panel row, as ``(value,)``, or
+    ``(False,)`` when *key* is not one or the End cannot be loaded.
+
+    One home for the toggle rules of a Text primitive and a Note (design D12).
+    Off drops the record, so on starts fresh (spec edge case).
+
+    Args:
+        rec: The stored leader record, or None when off.
+        key: The panel row (``Leader`` / ``Leader End`` / ``Leader Weight``).
+        value: The committed value.
+        box: The box in the box frame, mm (``default_leader``'s input).
+        to_surface: Box-frame origin in the surface frame (see ``default_leader``).
+        registry: Project block registry the End picker resolves through.
+        scene: The scene an End is loaded into (``ensure_end_available``).
+        exclude: Block ids the End picker leaves out.
+    """
+    from .capabilities import ensure_end_available
+    if key == "Leader":
+        if not value:
+            return (None,)
+        if not ensure_end_available(DEFAULT_END_ID, scene):
+            return (False,)
+        return (normalise(default_leader(box, to_surface)),)
+    if key in ("Leader End", "Leader Weight") and rec:
+        out = dict(rec)
+        set_panel_row(out, key, value, registry, exclude)
+        if key == "Leader End" and not ensure_end_available(out["end"], scene):
+            return (False,)
+        return (out,)
+    return (False,)
+
+
 def panel_rows(rec: dict | None, registry, exclude=(), fallback_weight: str = "") -> dict:
     """Leader rows: the toggle, plus End and Weight while on (design D6).
 

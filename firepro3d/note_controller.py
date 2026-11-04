@@ -70,7 +70,10 @@ class NoteController:
             return
         note = {"view": s.active_view_key, "wrap_width_mm": MIN_NOTE_BOX_MM,
                 "box_height_mm": MIN_NOTE_BOX_MM}
-        inst = s.place_block_instance(NOTE_BLOCK_ID, (rect.x(), rect.y()), note=note)
+        from .block_instance import BlockInstance
+        inst = s.place_block_instance(                 # fresh placement, through the one
+            NOTE_BLOCK_ID, (rect.x(), rect.y()),       # field-carrying choke point (DD7)
+            **BlockInstance.place_kwargs({"note": note}))
         if inst is None:
             return
         k = inst.note_k()
@@ -103,13 +106,17 @@ class NoteController:
                    box_height_mm=inst.note["box_height_mm"] * k,
                    height_mm=float(prim.get("height_mm", 3.0)) * k,
                    cell_padding_mm=float(prim.get("cell_padding_mm", 1.0)) * k,
-                   angle=float(prim.get("angle", 0.0)) + inst.block_rotation())
+                   angle=0.0)
         rec.pop("uid", None)
         lead = inst.note.get("leader")
         if lead:
             rec["leader"] = dict(lead, shoulder_mm=lead["shoulder_mm"] * k)
         ov = TextItem.from_dict(rec)
         s.addItem(ov)
+        turn = float(prim.get("angle", 0.0)) + inst.block_rotation()
+        if turn:
+            ov.set_angle(turn, origin)     # a block turns about its insertion point, a
+                                           # text about its centre unless given a pivot
         ov._note_host = inst
         self._host, self._overlay = inst, ov
         inst.setVisible(False)

@@ -105,6 +105,7 @@ NO_VIEW_HINT = "Open a view from the Project Browser"
 # Status hint shown when the Note tool is refused: a Note is owned by one plan or
 # detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
 NOTE_OFF_HINT = "Notes can be placed on plan and detail views"
+NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
 
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
@@ -9251,6 +9252,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn = self.get_block_definition(d.get("block_id"))
             if defn is None or place_refusal(defn) is not None:
                 return None
+            if d.get("note") and not self.note_allowed():
+                self._show_status(NOTE_PASTE_REFUSED)
+                return None
             p = d.get("pos", [0.0, 0.0])
             inst = self.place_block_instance(
                 d["block_id"], (p[0], p[1]),
@@ -9258,6 +9262,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if inst is None:
                 return None
             inst.attributes = dict(d.get("attributes", {}))
+            if inst.note is not None:
+                inst.note["view"] = self.active_view_key   # the copy joins this view (spec)
             return inst
         entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
         if entry is None:
@@ -9511,6 +9517,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     # became a pattern / linetype / end type / schematic since the copy
                     pattern_skipped += 1
                     skip_reason = _why
+                elif obj.get("note") and not self.note_allowed():
+                    # a Note belongs to one plan / detail view (D9 / D11): refuse here
+                    pattern_skipped += 1
+                    skip_reason = NOTE_PASTE_REFUSED
                 elif _d is not None:
                     from .block_instance import BlockInstance
                     inst = self.place_block_instance(
@@ -9520,6 +9530,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     if inst is None:
                         continue
                     inst.attributes = dict(obj.get("attributes", {}))
+                    if inst.note is not None:
+                        inst.note["view"] = self.active_view_key        # the copy joins this view
+                        inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
                     inst.setSelected(True)
                     if obj.get("uid"):
                         uid_map[obj["uid"]] = inst._uid
