@@ -394,6 +394,8 @@ class BlockInstance(QGraphicsObject):
             if index == self.NOTE_BOX_GRIP:
                 if item.shrink_on():            # a resize ends the hug (text-sizing D6)
                     self.note.setdefault("style", {})["shrink"] = False
+                if not item.wrap_on():          # a width write turns Wrap on (G14)
+                    self.note.setdefault("style", {})["wrap"] = True
                 self.note["wrap_width_mm"] = max(local.x() - box.left(), MIN_NOTE_BOX_MM)
                 self.note["box_height_mm"] = max(local.y() - box.top(), MIN_NOTE_BOX_MM)
             elif index == self.NOTE_KNEE_GRIP and rec:

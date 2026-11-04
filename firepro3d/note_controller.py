@@ -9,6 +9,7 @@ from PyQt6 import sip
 from PyQt6.QtCore import QPointF, Qt
 
 from . import text_leader as _tl
+from .constants import Z_NOTE
 
 # The Text panel rows a Note carries, in panel order. Content stays out: the text
 # is typed on the canvas.
@@ -268,6 +269,7 @@ class NoteController:
                 else:
                     ld["t"] = 1.0 - float(ld["t"])
         ov = TextItem.from_dict(rec)
+        ov.setZValue(Z_NOTE)            # typed text stays above the geometry, as the note does
         s.addItem(ov)
         turn = float(prim.get("angle", 0.0)) + inst.block_rotation()
         if turn:

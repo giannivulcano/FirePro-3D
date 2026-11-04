@@ -33,11 +33,12 @@ def _note(shown_model_view):
     return view, scene, inst
 
 
-def _edge_lit(scene, inst):
+def _edge_lit(scene, inst, clear=True):
     """Lit pixels along the note's top edge, rendered through the real scene."""
     for it in getattr(scene, "_origin_cross_items", ()):
         it.setVisible(False)
-    scene.clearSelection()
+    if clear:
+        scene.clearSelection()
     box = inst.note_box_scene()
     area = box.adjusted(-200.0, -200.0, 200.0, 200.0)
     px = 0.25
@@ -331,6 +332,30 @@ def test_a_box_grip_drag_ends_shrink_and_takes_the_size(shown_model_view, real_s
     assert inst.note["style"]["shrink"] is False
     now = inst.grip_points()[inst.note_grip_index("box")]
     assert (now.x(), now.y()) == pytest.approx((target.x(), target.y()), abs=20.0)
+
+
+def test_a_box_grip_drag_on_a_wrap_off_note_takes_the_width(
+        shown_model_view, real_system_library):
+    _view, _scene, inst = _note(shown_model_view)
+    inst.set_property("Wrap", False)
+    grip = inst.grip_points()[inst.note_grip_index("box")]
+    target = QPointF(grip.x() + 1500.0, grip.y())
+    inst.apply_grip(inst.note_grip_index("box"), target)
+    now = inst.grip_points()[inst.note_grip_index("box")]
+    assert now.x() == pytest.approx(target.x(), abs=20.0)
+
+
+def test_typed_text_stays_above_the_geometry(shown_model_view, real_system_library):
+    _view, scene, inst = _note(shown_model_view)
+    cover = QGraphicsRectItem(inst.note_box_scene().adjusted(-100.0, -100.0, 100.0, 100.0))
+    cover.setBrush(QColor("#000000"))
+    cover.setPen(QPen(Qt.PenStyle.NoPen))
+    cover.setZValue(900.0)
+    scene.addItem(cover)
+    scene._note_ctl.begin(inst)
+    lit, span = _edge_lit(scene, inst, clear=False)    # a clear would commit the live edit
+    scene._text_edit_ctl.commit()
+    assert lit > span * 0.9
 
 
 def test_the_template_offers_wrap_and_shrink_and_stamps_them(
