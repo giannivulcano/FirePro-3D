@@ -89,6 +89,26 @@ def place_refusal(defn) -> str | None:
     return capability_place_reason(defn)
 
 
+NOTE_PICK_REASON = "A Note is placed with the Note tool, not as a symbol"
+
+
+def pick_refusal(defn) -> str | None:
+    """Why *defn* can't be picked for placement or nesting, or None.
+
+    :func:`place_refusal` plus the Note block: a Note is a view-owned instance
+    (``note`` record) made only by the Note tool, so placing it as a plain symbol
+    from the Blocks browser, a drag or a nest would make a Note-less block. Used
+    at the PICK entry points only; ``place_refusal`` itself also guards the paste
+    paths, which must keep copying notes.
+    """
+    why = place_refusal(defn)
+    if why is None:
+        from .system_blocks import NOTE_BLOCK_ID
+        if getattr(defn, "id", None) == NOTE_BLOCK_ID:
+            return NOTE_PICK_REASON
+    return why
+
+
 def with_article(kind: str) -> str:
     """The kind's message noun with its indefinite article.
 

@@ -1198,8 +1198,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # commit_reflect re-checks.
             return
         if mode == "place_block" and isinstance(template, str):
-            from .capabilities import place_refusal
-            reason = place_refusal(self.get_block_definition(template))
+            from .capabilities import pick_refusal
+            reason = pick_refusal(self.get_block_definition(template))
             if reason is not None:
                 # hatch D-A34 / LT3-2 / LT5 Q12: a pattern fills regions, a
                 # linetype styles lines, an end type finishes them - never a
@@ -7719,8 +7719,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         pose (rotation + flips) and re-arm."""
         if self._place_block_id is None:
             return
-        from .capabilities import place_refusal
-        reason = place_refusal(
+        from .capabilities import pick_refusal
+        reason = pick_refusal(
             self.get_block_definition(self._place_block_id))
         if reason is not None:
             # hatch D-A34 / LT3-2 / LT5 Q12: the block became a capability

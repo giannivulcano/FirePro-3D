@@ -56,5 +56,5 @@ def resolve_block_drag(sc, payload):
         return defn, pool, (f"{defn.name} contains {host_name} — "
                             f"{block_library.LOOP_REASON}")
     # hatch D-A34 / LT3-2 / LT5 Q12 / schematics D-S3: never a symbol.
-    from .capabilities import place_refusal
-    return defn, pool, place_refusal(defn)
+    from .capabilities import pick_refusal
+    return defn, pool, pick_refusal(defn)

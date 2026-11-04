@@ -2913,6 +2913,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         A block that would contain itself (the editor's block, or one that
         nests it) is refused with the same footer reason as a drag-drop.
         """
+        from firepro3d.system_blocks import NOTE_BLOCK_ID
+        if block_id == NOTE_BLOCK_ID:
+            self._activate_note_tool()
+            return
         if self._block_activation_refusal(block_id) is not None:
             return
         # A Section tab places gridline-hosted blocks in the section itself
@@ -2936,6 +2940,24 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self.central_tabs.currentWidget()
         view = w if isinstance(w, Model_View) else getattr(w, "view", None)
         if isinstance(view, Model_View) and view.scene() is scene:
+            QTimer.singleShot(0, view.setFocus)
+
+    def _activate_note_tool(self) -> None:
+        """The Note block was activated in the browser: a Note is never placed as
+        a symbol, so arm the Note tool where the canvas can hold one, else refuse
+        with the footer reason (design D11). Edit Block stays a separate path."""
+        sc = self._active_scene()
+        if not (hasattr(sc, "note_allowed") and sc.note_allowed()):
+            if hasattr(sc, "instructionChanged"):
+                sc.instructionChanged.emit(NOTE_OFF_HINT)
+            else:
+                self.statusBar().showMessage(NOTE_OFF_HINT, 5000)
+            return
+        sc.set_mode("note")
+        from firepro3d.model_view import Model_View
+        w = self.central_tabs.currentWidget()
+        view = w if isinstance(w, Model_View) else getattr(w, "view", None)
+        if isinstance(view, Model_View) and view.scene() is sc:
             QTimer.singleShot(0, view.setFocus)
 
     def _block_activation_refusal(self, block_id: str,
