@@ -92,6 +92,13 @@ ELEV_Z_SNAPPABLE_CLASSES = frozenset({
     "FloorSlab", "RoofItem", "Room", "WallSegment",
     "WallOpening", "DoorOpening", "WindowOpening",
     "FloorOpening",     # floor void: z follows its host slab (floor-opening A7)
+    "WaterSupply",      # elevation-ordered symbol (SB4d Q16)
+})
+# Classes that were snap targets below z 150 before SB4d lifted them into the
+# annotation band (D5); exempt only while their z is inside the band, so a
+# preview ghost parked at the literal overlay z (200) stays excluded.
+ANNOT_Z_SNAPPABLE_CLASSES = frozenset({
+    "TextItem", "BlockInstance",
 })
 
 # The riser pass-through symbol's QGraphicsItem.data(0) tag: never a snap
