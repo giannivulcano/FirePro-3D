@@ -93,3 +93,13 @@ mkdocs build
 ```
 
 Output goes to `site/`.
+
+## Project files and backups
+
+Every Save keeps a dated copy of the previous file in a `Backups` folder beside the project,
+newest 10 per project. To go back, copy one out of that folder and open it. Autosave does not
+add to this folder.
+
+If a save would write away most of the project on disk, FirePro3D asks first; Cancel leaves the
+file alone. If a project fails to load, the file is not changed and what is on screen is not
+connected to it, so Save asks for a new name.

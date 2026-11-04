@@ -1,9 +1,10 @@
 ---
 status: current
-last-verified: 2026-10-30  # SB3b + L283 Account: s2 additive keys paragraph + s5 undo-capture note only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: 7e5d3b15   # SB3b + L283 merge on main; prior db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-11-04  # data-loss Account: s2 backups + atomic write, s3 load failure contract + marker drop, acceptance lines only (verified at db3c357b), rest not re-audited; prior 2026-10-30  # SB3b + L283 Account: s2 additive keys paragraph + s5 undo-capture note only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: db3c357b   # data-loss merge on main (save / load failure clauses only); prior 7e5d3b15   # SB3b + L283 merge on main; prior db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
+  - firepro3d/project_backup.py
   - firepro3d/network_codec.py
 related-contract: model-space-containment-contract.md
 source-tasks:
@@ -94,8 +95,16 @@ The undo snapshot carries the same Marks data through the same `to_dict` / codec
 level list (`levels`), `plan_views`, `active_level` and per-underlay `underlay_levels`;
 network_codec's load and undo paths add pipes and sprinklers with `mint=False`, so neither re-mints a Mark.
 
-**Atomic write:** the existing file is copied to `<name>.bak` first; on write
-failure the backup is restored; on success the backup is removed.
+**Backups and atomic write** (`project_backup.py`): a Save first copies the existing file to
+`Backups/<stem> <YYYY-MM-DD HHMMSS><ext>` beside it, keeping the newest `PROJECT_BACKUP_KEEP` per
+project. A failed backup fails the Save: nothing is overwritten without one. The payload is written
+to `<name>.tmp`, flushed and fsynced, then moved over the target with `os.replace`, so the original
+survives any failure. Autosave passes `backup=False`.
+
+**Content-loss warning:** before a Save or Save As, `MainWindow._confirm_content_loss` asks for
+confirmation when the target holds at least `CONTENT_LOSS_MIN_ITEMS` model items and the scene holds
+under half of them; Cancel leaves the file alone. Autosave never asks. `save_file` and `save_file_as`
+return a bool, so a cancelled or failed save also stops a Close.
 
 ### §3 — Load
 
@@ -105,6 +114,17 @@ rehydrated into a `id → Node` map that pipes/design-areas reference. Constrain
 reference geometry by index into the same ordered `_all_geometry_items()` list.
 Load is **best-effort on migrations** (title-block field migration failures log
 and continue; missing underlay files warn via `themed_warn` but do not abort).
+
+`_clear_scene` drops section and detail markers through their managers before `self.clear()`, so no
+manager keeps a wrapper the clear deletes.
+
+**Failure contract:** `load_from_file` returns False for a file it cannot open or parse, before
+`_clear_scene`, so the open project stays open; it returns True when it finishes.
+`MainWindow._load_project` claims `_current_file` only after a finished load. `_guarded_load` reports
+a failure. An exception mid-restore leaves a partial scene: it is logged, `_current_file` is cleared
+and `_detached_name` is set (title `Untitled (<name> failed to load)`), so Save asks for a new name.
+While `_detached_name` is set, autosave and Close leave the recovery file alone. Crash recovery runs
+the same guard and keeps its file when it fails.
 
 ### §4 — Legacy migrations (load-only)
 
@@ -148,8 +168,12 @@ invariant**:
   metadata persist normally.
 
 ## Acceptance Criteria
-- [x] Save→load round-trips every surviving entity collection; `.bak`
-      atomic-write behaviour holds.
+- [x] Save→load round-trips every surviving entity collection; the
+      `Backups` copy and atomic write hold.
+- [x] Re-opening a project restores every detail view, and a project with none leaves no dead markers.
+- [x] A failed load shows an error and never reaches the file: a parse failure keeps the open project,
+      and a mid-restore failure detaches the partial scene from any file.
+- [x] Saving under half of a file of `CONTENT_LOSS_MIN_ITEMS` or more warns, and Cancel leaves it intact.
 - [x] (C8) A legacy `.fpd` with loose geometry / model text / notes / dimensions /
       constraints / hatch loads with those discarded, no exceptions, counts
       logged; a re-save omits them (plan wall / gridline constraints whose refs resolve are the slice-2 exception and are kept).

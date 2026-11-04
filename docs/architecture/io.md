@@ -64,18 +64,24 @@ entry = {
 
 Pipes store their `_properties` dict values directly. Annotations store endpoint positions and property values.
 
+Backups, the atomic write and the content-loss warning are owned by
+[`scene-io.md`](../specs/scene-io.md) s2.
+
 ### Load process
 
 `SceneIOMixin.load_from_file(filename)` reverses the process:
 
-1. Clear the scene (`_clear_scene()`)
-2. Read JSON and check version
+1. Read JSON and check version
+2. Clear the scene (`_clear_scene()`)
 3. Recreate nodes at saved positions, restoring sprinklers and fittings
 4. Recreate pipes by resolving node ID references
 5. Restore annotations, construction geometry, walls, floors, roofs, rooms
 6. Restore manager state (levels, plan views, scale calibration)
 7. Apply display settings
 8. Push initial undo state
+
+A failed load never reaches the file: see the failure contract in
+[`scene-io.md`](../specs/scene-io.md) s3.
 
 ### Backward compatibility
 
