@@ -126,3 +126,20 @@ def test_blank_mark_survives_save_load_and_undo_recreate(qapp, tmp_path):
         assert det2.get_marker("Detail 4")._mark == ""
     finally:
         dispose(ms2, sec2, tabs2)
+
+
+def test_detail_from_dict_adopts_the_name_token_only_when_the_record_has_no_mark(qapp):
+    """T15 review: DetailMarker.from_dict's Q20 line -- a key-less record adopts
+    the name token; a present key (blank included, M7) is taken as stored."""
+    from firepro3d.detail_view import DetailMarker
+    ms, sec, det, tabs = plan_scene()
+    try:
+        m = det.create_detail("Detail 7", QRectF(0.0, 0.0, 2000.0, 2000.0))
+        rec = m.to_dict()
+        assert rec["mark"] == marks.get_mark(m)
+        legacy = {k: v for k, v in rec.items() if k != "mark"}
+        assert marks.get_mark(DetailMarker.from_dict(legacy)) == "7"
+        assert marks.get_mark(DetailMarker.from_dict({**rec, "mark": ""})) == ""
+        assert marks.get_mark(DetailMarker.from_dict({**rec, "mark": "B"})) == "B"
+    finally:
+        dispose(ms, sec, tabs)

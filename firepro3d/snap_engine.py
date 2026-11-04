@@ -563,9 +563,13 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     Returns:
         False for a hidden item, a child of a non-underlay parent (gridline
         bubbles/labels, sprinkler & fitting symbols, ...), an overlay item
-        above z 150 (elevation-ordered building classes, ELEV_Z_SNAPPABLE_CLASSES,
-        are exempt: tall levels push their z past 150), the fixed white (0,0) origin cross, or a pipe when
-        *skip_pipes*; True otherwise.
+        above z 150 (exempt: the elevation-ordered building classes,
+        ELEV_Z_SNAPPABLE_CLASSES, whose z tall levels push past 150; and the
+        ANNOT_Z_SNAPPABLE_CLASSES -- text / block instances -- while their z
+        lies inside the annotation band, ``Z_ANNOT_BASE <= z < Z_PREVIEW``),
+        an item tagged non-target in ``_NON_TARGET_TAGS`` (the white (0,0)
+        origin cross, the capability frame, the riser pass-through symbol),
+        or a pipe when *skip_pipes*; True otherwise.
     """
     if not item.isVisible():
         return False

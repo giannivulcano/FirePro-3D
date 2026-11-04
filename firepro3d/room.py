@@ -94,9 +94,10 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         self._display_opacity: float = 100
         self._display_visible: bool = True
 
-        # Room tag (SB3; concept F5): a BoundLabelItem (top-level, synced by the room) draws the block
-        # mapped for "Room" at centroid + label_offset. The room owns
-        # show_label / label_offset; the item is never serialised.
+        # Room tag (SB3; concept F5): a BoundLabelItem (top-level, synced by
+        # the room) draws the block mapped for "Room" at centroid +
+        # label_offset. The room owns show_label / label_offset; the item is
+        # never serialised.
         self._label_offset: QPointF = QPointF(0, 0)  # user drag offset from centroid
         # SB4d D5: TOP-LEVEL (Qt child z is local to the room) -- synced by
         # itemChange below: joins / leaves the room's scene, hides with it,

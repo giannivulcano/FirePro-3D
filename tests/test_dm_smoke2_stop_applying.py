@@ -52,8 +52,10 @@ def _factory_width(spr):
 def _assert_factory(spr, marker, detail, factory_w):
     assert spr.sceneBoundingRect().width() == pytest.approx(factory_w)   # rendered size
     assert spr._display_scale == 1.0
+    # SB4d D7: the marker rows are line-only -- a stale scale / font never reaches
+    # setScale() or a dynamic _display_* attr. (QGraphicsItem.scale() defaults to
+    # 1.0, so these two lines guard against a write, not a read-back.)
     assert detail.scale() == 1.0
-    # SB4d D7: the marker rows are line-only -- a stale scale / font writes nothing
     assert marker.scale() == 1.0
     assert not hasattr(marker, "_display_scale") and not hasattr(marker, "_display_font_size")
     assert _CATEGORY_MAP["Elevation Marker"]["font"] is None

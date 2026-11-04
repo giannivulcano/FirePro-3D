@@ -10,7 +10,8 @@ import math
 import pytest
 from PyQt6.QtCore import QPointF, QRectF
 
-from tests._sb4d_helpers import HEAD_R, SQ_HALF, dispose, head_def, plan_scene
+from tests._sb4d_helpers import (HEAD_R, SQ_HALF, dispose, head_def, pixel_at,
+                                 plan_scene, wall)
 
 SIN40 = math.sin(math.radians(40))
 
@@ -231,5 +232,82 @@ def test_detail_head_follows_the_drawing_scale(qapp):
             ms.scale_manager.drawing_scale = ds
             ms.refresh_annotation_tags()
             assert m.bubble.enclosing_radius() == pytest.approx(HEAD_R * ds, rel=1e-3)
+    finally:
+        dispose(ms, sec, tabs)
+
+
+# -- heads re-anchor, the wedge stops at the head, the head is hittable -----------
+
+def test_heads_follow_set_geometry_flip_and_auto_fit(qapp):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Section")
+        head_def(ms, "Elevation")
+        placed = _placed(ms, sec)
+        placed.set_geometry(QPointF(100.0, 200.0), QPointF(4100.0, 1200.0), 3000.0)
+        assert placed.head_a.pos() == QPointF(100.0, 200.0)
+        assert placed.head_b.pos() == QPointF(4100.0, 1200.0)
+        sec.seed_cardinals()
+        north = sec.marker("north")
+        north.refresh_heads()
+        before = QPointF(north.head.pos())
+        north.flip()                                      # the look side (and so the centre) swaps
+        assert north.head.pos() == north._cardinal_centre() and north.head.pos() != before
+        north.flip()
+        assert north.head.pos() == before
+        north.set_geometry(QPointF(-3000.0, -9000.0), QPointF(3000.0, -9000.0), 2500.0)
+        assert north.head.pos() == north._cardinal_centre() and north.head.pos() != before
+        south = sec.marker("south")
+        south.refresh_heads()
+        old = QPointF(south.head.pos())
+        wall(ms)                                          # the building grows: an auto-extent cardinal re-fits
+        assert south.auto_fit(ms) and south.head.pos() == south._cardinal_centre()
+        assert south.head.pos() != old
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_section_arrow_stops_at_the_head_outline_and_paints_beyond_it(qapp):
+    """The triangle's base is on the cut line through the head centre, so it
+    covers the head's interior; _outside_head keeps it out (the cardinal wedge
+    only grazes the enclosing circle, so there the subtraction is invisible)."""
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Section")
+        head_def(ms, "Elevation")
+        m = _placed(ms, sec)
+        nx, ny = m.normal_scene()
+        r, end = m._rk(), m.cut_a
+        arrow = m._marker_color.name()
+        inside = QPointF(end.x() + nx * 0.5 * r, end.y() + ny * 0.5 * r)    # in the triangle, inside the head
+        beyond = QPointF(end.x() + nx * 1.2 * r, end.y() + ny * 1.2 * r)    # in the triangle, past the head
+        background = pixel_at(ms, QPointF(end.x() - nx * 0.5 * r, end.y() - ny * 0.5 * r + 3000.0))
+        assert pixel_at(ms, beyond) == arrow
+        assert pixel_at(ms, inside) == background != arrow
+        sec.seed_cardinals()
+        north = sec.marker("north")
+        north.refresh_heads()
+        c, rc = north._cardinal_centre(), north._rk()
+        nx, ny = north.normal_scene()
+        assert pixel_at(ms, QPointF(c.x() + nx * 1.3 * rc, c.y() + ny * 1.3 * rc)) == north._marker_color.name()
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_shape_covers_each_head_outline(qapp):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Section")
+        head_def(ms, "Elevation")
+        placed = _placed(ms, sec)                                       # A (0, 0) -> B (6000, 0), look +y
+        r = placed._rk()
+        nx, ny = placed.normal_scene()
+        for end in (placed.cut_a, placed.cut_b):
+            behind = QPointF(end.x() - nx * 0.8 * r, end.y() - ny * 0.8 * r)   # off the line, off the arrow
+            assert placed.shape().contains(behind)
+        sec.seed_cardinals()
+        north = sec.marker("north")
+        north.refresh_heads()
+        assert north.shape().contains(north._cardinal_centre())          # the head itself, not just the wedge
     finally:
         dispose(ms, sec, tabs)

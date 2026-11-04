@@ -5,7 +5,7 @@ Section view geometry and the plan marker (spec ``section-view-subsystem.md``).
 
 ``SectionBasis`` is the pure projection / classification math of one section
 (world mm).  ``SectionMarker`` is the single plan-scene item per section: a cut
-line A->B with a bubble and look-side arrow head at each end, plus a crop box
+line A->B with an annotation-block head and a look-side arrow at each end, plus a crop box
 (``depth`` beyond the line) that is drawn only while the marker is selected.
 The four cardinal elevations are permanent cardinal ``SectionMarker`` s.
 """
@@ -384,9 +384,9 @@ class SectionMarker(QGraphicsItem):
         return True
 
     # -- geometry helpers ------------------------------------------------------
-    # Cardinal glyph: the pre-build ``ViewMarkerArrow`` look, unchanged (smoke ruling
-    # 2026-10-21): one circle with the cardinal letter plus a filled wedge whose tip
-    # sits _CARDINAL_GAP outside the crop-box edge, on the edge's midline.
+    # Cardinal glyph (smoke ruling 2026-10-21, SB4d D1): the Elevation annotation
+    # block head (self.head) plus a bespoke filled wedge whose tip sits
+    # _CARDINAL_GAP outside the crop-box edge, on the edge's midline.
     _R_CARDINAL = BUBBLE_RADIUS_MM * 3.0    # seed proportion + the no-block fallback (SB4d D7)
     _CARDINAL_GAP = 25.0            # mm between the wedge tip and the crop-box edge (old manager)
     # Section head (CAD standard, tuner-ratified 2026-10-21): a bubble centred on each

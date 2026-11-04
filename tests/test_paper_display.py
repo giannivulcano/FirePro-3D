@@ -319,6 +319,27 @@ class TestRoomPaperNoFill:
             "_paper_no_fill must be cleaned up on restore (round-trip)"
         )
 
+    def test_room_tag_opacity_is_one_on_paper_and_restored(self, scene_with_room):
+        """SB4d D5: the top-level tag inherits the room's opacity on screen;
+        the paper pass plots it at 1 and restore puts the screen value back."""
+        scene, room = scene_with_room
+        cats = load_paper_categories()
+        cats["Room"]["opacity"] = 50           # paper == screen opacity: the room's own
+        save_paper_categories(cats)            # restore fires no change, so only the tag's
+        room.setOpacity(0.5)                   # saved opacity can bring the tag back
+        assert room._tag.isVisible() and room._tag.opacity() == pytest.approx(0.5)
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 1000, 1000))
+        assert room._tag.opacity() == pytest.approx(1.0)
+        restore_model_display(saved)
+        assert room._tag.opacity() == pytest.approx(0.5)
+
+    def test_marker_rows_carry_no_fill_on_paper(self):
+        """SB4d D7: the marker rows are line-only on paper as on screen."""
+        from firepro3d.paper_display import _HAS_FILL
+        for key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+            assert key not in _HAS_FILL
+            assert factory_paper_categories()[key].get("fill") is None
+
     def _render_interior_pixel(self, scene):
         from PyQt6.QtGui import QImage, QPainter
         img = QImage(100, 100, QImage.Format.Format_ARGB32)

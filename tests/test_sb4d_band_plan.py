@@ -76,7 +76,7 @@ def test_riser_symbol_pins_just_above_its_pipe(qapp):
             ms.sprinkler_system.add_node(n)
         p = ms.add_pipe(top, bot)          # add_pipe propagates the ceiling: set the heights after it
         for n, z in ((top, 3000.0), (bot, 0.0)):
-            n.ceiling_level, n.ceiling_offset = "Level 1", z    # apply_to_scene re-derives z_pos from these
+            n.ceiling_level, n.ceiling_offset = "Level 1", z    # keep the ceiling fields consistent; the z pass reads z_pos
             n.z_pos = z
         p.update_label()
         assert p._riser_symbol is not None
@@ -93,7 +93,7 @@ def test_pipe_label_takes_the_tag_band_at_any_elevation(qapp, z_mm):
     try:
         p = ms.add_pipe(ms.add_node(0.0, 0.0), ms.add_node(3000.0, 0.0))
         for n in (p.node1, p.node2):
-            n.ceiling_level, n.ceiling_offset = "Level 1", z_mm   # apply_to_scene re-derives z_pos from these
+            n.ceiling_level, n.ceiling_offset = "Level 1", z_mm   # keep the ceiling fields consistent; the z pass reads z_pos
             n.z_pos = z_mm
         ms._level_manager.apply_to_scene(ms)
         assert p.label.zValue() == Z_ANNOT_TAG

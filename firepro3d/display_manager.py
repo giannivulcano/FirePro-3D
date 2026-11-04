@@ -252,15 +252,6 @@ def _fill_or(value, default):
     return default if value is None else value
 
 
-def _fill_qcolor(value) -> QColor:
-    """QColor for a stored fill/section colour string: a ``token:*`` resolves
-    (canvas surface), ``""`` (No Fill) is fully transparent so a brush, pen or
-    icon built from it draws nothing."""
-    if value == "":
-        return QColor(0, 0, 0, 0)
-    return resolve_colour(value)
-
-
 # ---------------------------------------------------------------------------
 # Category definitions — order matches the tree from top to bottom
 # ---------------------------------------------------------------------------

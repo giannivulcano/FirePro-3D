@@ -34,8 +34,16 @@ def plan_scene():
     return ms, sec, det, tabs
 
 
+_PAPER_VIEWS = []        # (view, paper_scene) pairs paper_view() made; dispose() frees them
+
+
 def dispose(ms, sec, tabs):
-    """Tear a plan_scene down (section scenes, managers, the DXF worker)."""
+    """Tear a plan_scene down (section scenes, managers, the DXF worker, and
+    every paper view / scene ``paper_view`` handed out)."""
+    while _PAPER_VIEWS:
+        view, ps = _PAPER_VIEWS.pop()
+        view.deleteLater()
+        ps.deleteLater()
     scenes = list(sec.open_scenes)
     sec.close_all()
     for s in scenes:
@@ -71,6 +79,7 @@ def paper_view(ms, sec, det, sheet):
     ps = PaperScene(sheet, resolver)
     view = PaperGraphicsView(ps)
     view.resize(900, 700)
+    _PAPER_VIEWS.append((view, ps))
     return view, ps
 
 
@@ -181,6 +190,20 @@ def ink(img, pred):
     from PyQt6.QtGui import QColor
     return [(x, y) for y in range(img.height()) for x in range(img.width())
             if pred(QColor(img.pixel(x, y)))]
+
+
+def pixel_at(ms, pt):
+    """``#rrggbb`` of the scene as rendered at *pt* (10 mm per px, *pt* on a
+    pixel centre so a 1 px cosmetic line through it covers that pixel fully)."""
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    img = QImage(200, 200, QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    p = QPainter(img)
+    ms.render(p, QRectF(0, 0, 200, 200),
+              QRectF(pt.x() - 1005.0, pt.y() - 1005.0, 2000.0, 2000.0),
+              Qt.AspectRatioMode.IgnoreAspectRatio)
+    p.end()
+    return QColor(img.pixel(100, 100)).name()
 
 
 def is_red(c):

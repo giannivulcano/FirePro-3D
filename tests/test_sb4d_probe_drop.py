@@ -29,13 +29,18 @@ def test_p4_a_browser_detail_drop_reaches_dropevent_before_its_dialog(qapp, monk
         drop_leaf(view, browser, "detail", "Detail 1")
         assert len(seen) == 1
         assert sheet.sheet_views == []
+        for dlg in seen:
+            dlg.deleteLater()
+        browser.deleteLater()
     finally:
         dispose(ms, sec, tabs)
 
 
 def test_p4_b_clearing_the_leaf_drag_flag_reaches_the_tree_model(qapp):
-    """QAbstractItemView.startDrag only drags indexes whose model flags carry
-    ItemIsDragEnabled; a QTreeWidgetItem flag edit is what the model reports."""
+    """Pins the model-flag half of the drag gate: the tree model reports
+    ItemIsDragEnabled from the QTreeWidgetItem's flags, so clearing the flag
+    on the leaf is what a view's startDrag would see. (No startDrag is driven
+    here; the shipped drag refusal is asserted in test_sb4d_one_sheet.py.)"""
     browser = ProjectBrowser()
     browser.refresh_details(["Detail 1"])
     leaf = find_leaf(browser, "detail", "Detail 1")
