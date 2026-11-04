@@ -1091,7 +1091,9 @@ class SelectionManipulator(QGraphicsObject):
             h = host.handle
             fn = getattr(getattr(h, "item", None), "grip_pinned", None)
             if fn is not None and host.isVisible() and fn(h.index):
-                host.setPos(inv.map(h.item.grip_points()[h.index]))
+                pts = h.item.grip_points()
+                if h.index < len(pts):       # a host left stale by a leader turned off
+                    host.setPos(inv.map(pts[h.index]))
 
     def _resize_cursor(self, role: HandleRole) -> QCursor:
         return self._cursor_for(role)
