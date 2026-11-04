@@ -143,3 +143,46 @@ def test_detail_from_dict_adopts_the_name_token_only_when_the_record_has_no_mark
         assert marks.get_mark(DetailMarker.from_dict({**rec, "mark": "B"})) == "B"
     finally:
         dispose(ms, sec, tabs)
+
+
+def test_detail_mark_change_undoes_and_redoes_with_its_head(qapp):
+    """VC9 I1: Detail markers ride the undo snapshot. Renumber (apply_marks) and a
+    panel edit are each undone to Mark "1" -- the head re-renders its bound text --
+    and redone forward; the Section beside it undoes the same way."""
+    from firepro3d.property_manager import PropertyManager
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Detail", texts=(("Mark", -2.0),))
+        d = det.create_detail("Detail 1", QRectF(0.0, 0.0, 2000.0, 2000.0))
+        s = sec.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+        assert (d._mark, s._mark) == ("1", "1")
+        ms.push_undo_state()
+        assert marks.apply_marks(ms, {d: "77", s: "88"})
+        assert (d._mark, s._mark) == ("77", "88")
+        assert d.bubble.host_values({"Mark"})["Mark"].text == "77"
+        ms.undo()
+        assert (d._mark, s._mark) == ("1", "1")
+        assert d.bubble.host_values({"Mark"})["Mark"].text == "1"
+        assert det.get_marker("Detail 1") is d                   # restored in place, never recreated
+        ms.redo()
+        assert (d._mark, s._mark) == ("77", "88")
+        assert d.bubble.host_values({"Mark"})["Mark"].text == "77"
+
+        # panel path: PropertyManager commits the edit through set_property("Mark")
+        ms.undo()
+        ms.push_undo_state()
+        pm = PropertyManager()
+        pm.show_properties(d)
+        edit = pm._prop_widgets["Mark"]
+        edit.setText("D5")
+        edit.editingFinished.emit()
+        assert d._mark == "D5"
+        assert d.bubble.host_values({"Mark"})["Mark"].text == "D5"
+        ms.undo()
+        assert d._mark == "1"
+        assert d.bubble.host_values({"Mark"})["Mark"].text == "1"
+        ms.redo()
+        assert d._mark == "D5"
+        assert d.bubble.host_values({"Mark"})["Mark"].text == "D5"
+    finally:
+        dispose(ms, sec, tabs)

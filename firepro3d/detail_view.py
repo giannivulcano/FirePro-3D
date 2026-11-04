@@ -440,8 +440,11 @@ class DetailMarker(QGraphicsPathItem):
 
     def set_property(self, key: str, value):
         if key == "Name":
-            self._name = str(value)
-            self.update()
+            if self._manager is not None:
+                self._manager.rename_detail(self._name, str(value))   # VC9 I2: bindings follow
+            else:
+                self._name = str(value)
+                self.update()
         elif key == "Mark":
             from . import marks
             marks.set_mark(self, str(value))       # PropertyManager pushes the undo step (M16 refuses blank)
@@ -527,6 +530,8 @@ class DetailViewManager:
         # name → Model_View (open tabs only)
         self._open_views: dict[str, object] = {}
         self._counter = 0
+        # main.py hook: browser Details list + placed-view italics after a rename
+        self.on_renamed = None
 
     @property
     def detail_names(self) -> list[str]:
@@ -635,6 +640,65 @@ class DetailViewManager:
 
     def get_marker(self, name: str) -> DetailMarker | None:
         return self._markers.get(name)
+
+    def rename_detail(self, old: str, new: str) -> bool:
+        """Rename a placed detail (mirrors ``SectionManager.rename_section``):
+        the manager key, an open view's ``_detail_name`` / tab title and every
+        sheet viewport bound as ``detail:<old>`` follow the name. Refuses a
+        blank, unchanged or duplicate name; True when renamed."""
+        marker = self._markers.get(old)
+        if marker is None or not new or new == old or new in self._markers:
+            return False
+        self._markers.pop(old)
+        marker._name = new
+        self._markers[new] = marker
+        view = self._open_views.pop(old, None)
+        if view is not None:
+            self._open_views[new] = view
+            view._detail_name = new
+            view.setObjectName(f"detail_view_{new}")
+            for i in range(self._tabs.count()):
+                if self._tabs.widget(i) is view:
+                    self._tabs.setTabText(i, f"Detail: {new}")
+        for sheet in getattr(self._ms, "_sheets", []) or []:
+            for sv in getattr(sheet, "sheet_views", []):
+                if sv.source_view_type == "detail" and sv.source_view_name == old:
+                    sv.source_view_name = new
+        marker.update()
+        marker.refresh_heads()                    # the Sheet slot re-reads under the new name
+        if self.on_renamed is not None:
+            self.on_renamed()
+        return True
+
+    def restore_marks(self, data: list[dict]) -> None:
+        """Undo restore: update surviving markers in place (never recreate or
+        destroy one -- open detail tabs reference them). A wanted name that is
+        missing is paired with an unwanted marker of identical crop rect and
+        treated as a rename, so undoing a rename keeps the marker and its
+        sheet bindings. Each survivor takes the snapshot's Mark."""
+        want = {d["name"]: d for d in data if isinstance(d, dict) and "name" in d}
+
+        def _same_crop(m, d):
+            cr = d.get("crop_rect") or {}
+            r = m.crop_rect
+            return (abs(r.x() - cr.get("x", 1e18)) < 1e-6 and abs(r.y() - cr.get("y", 1e18)) < 1e-6
+                    and abs(r.width() - cr.get("w", 1e18)) < 1e-6
+                    and abs(r.height() - cr.get("h", 1e18)) < 1e-6)
+
+        unwanted = [k for k in self._markers if k not in want]
+        for name, d in want.items():
+            if name in self._markers:
+                continue
+            for old in unwanted:
+                if _same_crop(self._markers[old], d):
+                    self.rename_detail(old, name)
+                    unwanted.remove(old)
+                    break
+        for name, d in want.items():
+            m = self._markers.get(name)
+            if m is not None:
+                m._mark = d.get("mark", "")
+                m.refresh_heads()
 
     # ── Serialization ────────────────────────────────────────────────────
 

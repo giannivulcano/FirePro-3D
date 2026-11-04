@@ -3534,6 +3534,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         extra = {}
         if sec_mgr is not None and hasattr(sec_mgr, "to_list"):
             extra["sections"] = sec_mgr.to_list()         # spec s8: markers join the snapshot
+        det_mgr = getattr(self, "_detail_manager", None)
+        if det_mgr is not None and hasattr(det_mgr, "to_list"):
+            extra["details"] = det_mgr.to_list()          # VC9 I1: Detail Marks / names ride undo
         lm = self._level_manager
         if lm is not None:                                # SB2b M15: Level-manager edits undo
             extra["levels"] = lm.to_list()
@@ -3887,6 +3890,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             sec_mgr = getattr(self, "_section_manager", None)
             if sec_mgr is not None and "sections" in state and hasattr(sec_mgr, "restore_from_list"):
                 sec_mgr.restore_from_list(state["sections"])
+
+            # ── Detail markers (VC9 I1): Mark + name by survivor; no recreate ──
+            det_mgr = getattr(self, "_detail_manager", None)
+            if det_mgr is not None and "details" in state and hasattr(det_mgr, "restore_marks"):
+                det_mgr.restore_marks(state["details"])
 
             # ── Capability (Block Editor tile / repeat; D-A32, LT4) ───────
             cap = state.get("block_capability")

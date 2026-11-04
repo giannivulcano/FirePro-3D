@@ -416,6 +416,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         )
         self.scene._detail_manager = self.detail_manager
         self.scene._on_detail_created = self._refresh_detail_browser
+        self.detail_manager.on_renamed = self._on_detail_renamed       # VC9 I2
 
         # Block Editor Manager
         from firepro3d.block_editor import BlockEditorManager
@@ -1526,6 +1527,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Delete a detail view (marker + tab)."""
         self.detail_manager.delete_detail(name)
         self._refresh_detail_browser()
+
+    def _on_detail_renamed(self):
+        """A detail was renamed: browser leaves + placed-view italics re-key."""
+        self._refresh_detail_browser()
+        self._recompute_placed_views()
 
     def _refresh_detail_browser(self):
         """Update the project browser's Details section."""

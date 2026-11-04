@@ -115,3 +115,48 @@ def test_guard6_legacy_two_placement_file_loads_and_cites_the_first_sheet(qapp, 
         assert m.bubble.host_values({"Sheet"})["Sheet"].text == "FP-3.0"
     finally:
         dispose(ms2, sec2, tabs2)
+
+
+def test_renaming_a_placed_detail_keeps_its_sheet_binding_and_the_one_sheet_rule(qapp, monkeypatch):
+    """VC9 I2: set_property("Name") moves the sheet binding + manager key (like
+    rename_section); the Sheet slot still cites the sheet, a second drop of the
+    new name is still refused, and undoing the rename restores name + binding."""
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Detail", texts=(("Mark", -2.0), ("Sheet", 9.0)))
+        m = det.create_detail("Detail 1", QRectF(0.0, 0.0, 4000.0, 3000.0))
+        first = add_sheet(ms, "A-501", [("detail", "Detail 1")])
+        second = add_sheet(ms, "A-502")
+        assert m.bubble.host_values({"Sheet"})["Sheet"].text == "A-501"
+        ms.push_undo_state()
+        m.set_property("Name", "Stair Detail")
+        ms.push_undo_state()                                     # the PropertyManager's post-action step
+        assert m.bubble.host_values({"Sheet"})["Sheet"].text == "A-501"
+        assert first.sheet_views[0].source_view_name == "Stair Detail"
+        assert det.detail_names == ["Stair Detail"] and det.get_marker("Stair Detail") is m
+
+        browser = ProjectBrowser()
+        browser.refresh_details(det.detail_names)
+        browser.set_placed_views({(sv.source_view_type, sv.source_view_name) for sv in first.sheet_views})
+        view, _ps = paper_view(ms, sec, det, second)
+        msgs = []
+        monkeypatch.setattr(SheetViewPropertiesDialog, "exec", lambda dlg: QDialog.DialogCode.Accepted)
+        monkeypatch.setattr(ms, "_show_status", lambda msg, timeout=5000: msgs.append(msg))
+        assert not (find_leaf(browser, "detail", "Stair Detail").flags() & Qt.ItemFlag.ItemIsDragEnabled)
+        drop_leaf(view, browser, "detail", "Stair Detail")
+        assert second.sheet_views == []
+        assert msgs == ["Stair Detail is already placed on sheet A-501 - "
+                        "a detail view can be placed on one sheet only."]
+
+        ms.undo()
+        assert m.name == "Detail 1" and det.detail_names == ["Detail 1"]
+        assert first.sheet_views[0].source_view_name == "Detail 1"
+        assert m.bubble.host_values({"Sheet"})["Sheet"].text == "A-501"
+        ms.redo()
+        assert m.name == "Stair Detail" and first.sheet_views[0].source_view_name == "Stair Detail"
+
+        det.create_detail("Other", QRectF(9000.0, 0.0, 1000.0, 1000.0))
+        m.set_property("Name", "Other")                          # a duplicate name is refused
+        assert m.name == "Stair Detail"
+    finally:
+        dispose(ms, sec, tabs)
