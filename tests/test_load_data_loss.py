@@ -253,3 +253,11 @@ def test_save_to_file_goes_through_the_atomic_write(mw, tmp_path, monkeypatch):
     monkeypatch.setattr("firepro3d.project_backup.json.dump", _boom)
     assert mw.scene.save_to_file(str(path)) is False
     assert path.read_bytes() == original
+
+
+def test_cancelled_save_stops_close(mw, tmp_path, monkeypatch):
+    import main as main_mod
+    mw._modified = True
+    monkeypatch.setattr(main_mod, "themed_choice", lambda *a, **k: "save")
+    monkeypatch.setattr(main_mod.QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
+    assert mw._ask_save_changes("closing") is False
