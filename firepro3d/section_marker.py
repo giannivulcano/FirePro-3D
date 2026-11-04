@@ -274,6 +274,7 @@ class SectionMarker(QGraphicsItem):
         self._exclude_from_bulk_select = True
         self.level = DEFAULT_LEVEL               # display-manager categorization
         self._display_overrides: dict = {}
+        self._mark = ""                          # Section Mark (SB4d D3); a cardinal never mints
         self._marker_color = QColor(GRID_COLOR)
         self._fill_color = QColor("#1a1a2e")
         self._display_font_size: int | None = None

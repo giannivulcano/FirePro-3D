@@ -1946,10 +1946,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Sheet numbers holding a viewport of schematic *block_id*, in sheet
         order (schematics.md D-S11a). Reads ``self._sheets`` — the list
         ``SheetManager`` wraps."""
-        return [s.number for s in self._sheets
-                if any(sv.source_view_type == "schematic"
-                       and sv.source_view_name == block_id
-                       for sv in s.sheet_views)]
+        from .paper_space import sheets_holding
+        return [s.number for s in sheets_holding(self._sheets, "schematic", block_id)]
 
     def pattern_use_refusal(self, block_id) -> "str | None":
         """HF2 name of :meth:`symbol_use_refusal` for a tile."""

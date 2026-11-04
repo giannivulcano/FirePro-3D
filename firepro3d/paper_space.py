@@ -392,6 +392,16 @@ class Sheet:
         )
 
 
+def sheets_holding(sheets, view_type: str, view_name: str) -> "list[Sheet]":
+    """The sheets of *sheets*, in sheet order, holding a viewport bound to
+    ``(view_type, view_name)`` (SB4d D4: the one sheet-by-view lookup -- the
+    schematic delete refusal, the marker heads' Sheet slot and the one-sheet
+    drop refusal all read it). Pure Python, no Qt."""
+    return [s for s in sheets
+            if any(sv.source_view_type == view_type and sv.source_view_name == view_name
+                   for sv in s.sheet_views)]
+
+
 class SheetManager:
     """Ordered sheet list + multi-sheet invariants (spec §19.2).
 
@@ -417,6 +427,11 @@ class SheetManager:
             if s.number == number:
                 return s
         return None
+
+    def sheets_holding(self, view_type: str, view_name: str) -> "list[Sheet]":
+        """Sheets holding a viewport of ``(view_type, view_name)``, in sheet
+        order (SB4d D4) -- the module function over this manager's list."""
+        return sheets_holding(self._sheets, view_type, view_name)
 
     def validate_number(self, number: str,
                         ignore: "Sheet | None" = None) -> bool:

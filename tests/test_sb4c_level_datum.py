@@ -103,10 +103,10 @@ def _digest(img):
 def test_level_is_an_element_and_annotation_category(qapp):
     from firepro3d import element_params as ep
     from firepro3d import system_blocks as sb
-    assert ep.CATEGORIES[-1] == "Level"
+    assert "Level" in ep.CATEGORIES                          # SB4d appends the three marker categories
     assert [(k, s.tier, s.kind, s.label) for k, s in ep.PARAMS["Level"].items()] == [
         ("Level.Name", 1, "text", "Name"), ("Level.Elevation", 1, "length", "Elevation")]
-    assert sb.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level")
+    assert sb.ANNOTATION_CATEGORIES[:4] == ("Room", "Pipe", "Gridline", "Level")   # SB4d appends three
     assert sb.LABEL_FIELD["Level"] == "Level.Name"
     assert sb.SYSTEM_DEFAULTS["Level"] == "system-tags-leveldatum"
     assert "Level" not in sb.PAINT_WHEN_BLANK

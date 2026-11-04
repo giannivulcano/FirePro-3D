@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "id": "system-tags-elevationhead",
+  "version": 1,
+  "name": "ElevationHead",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [0.0, 0.0],
+  "attributes": [
+    {"key": "Direction", "label": "Direction", "type": "text", "source": "host",
+     "host_key": "Direction", "default": "", "prefix": "", "suffix": "",
+     "precision": 0, "placeholder": "-"}
+  ],
+  "host_category": "Elevation",
+  "primitives": [
+    {"type": "draw_circle", "cx": 0.0, "cy": 0.0, "radius": 6.096,
+     "uid": "5d4e0c1a9b7f4e2a8c3d1f6b0a9e7c51",
+     "style": {"linetype": "continuous", "weight": "by_linetype",
+               "start": {"end": "by_linetype", "visible": true},
+               "finish": {"end": "by_linetype", "visible": true},
+               "colour": "token:auto"}},
+    {"type": "text", "text": "@[Direction]", "x": -4.8768, "y": -4.8768,
+     "height_mm": 4.5, "wrap_width_mm": 9.7536, "box_height_mm": 9.7536,
+     "font_family": "Consolas", "bold": true, "italic": false, "underline": false,
+     "color": "token:auto", "align": "C", "valign": "M", "fill_color": "",
+     "fill_opacity": 100.0, "cell_padding_mm": 0.0, "border": false,
+     "border_weight": "Thinner", "border_line_type": "solid", "border_corner": "round",
+     "border_corner_radius_mm": 1.0, "angle": 0.0, "wrap": false, "shrink": true,
+     "uid": "a1c2e3f405164728b9a0c1d2e3f40516"}
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {"Thinner": 0.25}
+}

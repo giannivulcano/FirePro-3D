@@ -81,6 +81,7 @@ class DetailMarker(QGraphicsPathItem):
         # For display manager categorization
         self.level = level_name
         self._display_overrides: dict = {}
+        self._mark = ""                          # Detail Mark (SB4d D3)
 
         # Bubble position (defaults to below center of rect)
         self._bubble_pos = QPointF(
