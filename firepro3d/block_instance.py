@@ -308,6 +308,20 @@ class BlockInstance(QGraphicsObject):
         _a, k = _tl.attach_and_knee(_tl._box_mm(item), self.note["leader"])
         return xf.map(_tl._to_parent(item, k))
 
+    def _mirror_note_tip(self) -> None:
+        """Carry a note's tip with a Mirrored row flip (D7): the flag flips local
+        x about the insertion point, so the tip mirrors across the line through
+        it along the block's local y axis -- as ``manip_reflect`` does for the
+        same pose change. No-op without a leader."""
+        tip = self.note_tip_scene()
+        if tip is None:
+            return
+        from .cad_math import CAD_Math
+        rigid = self._rigid_pose()
+        p1, p2 = rigid.map(QPointF(0.0, 0.0)), rigid.map(QPointF(0.0, 1.0))
+        t = CAD_Math.mirror_point(tip, p1, p2)
+        self.note["leader"]["tip_x"], self.note["leader"]["tip_y"] = t.x(), t.y()
+
     def shift_note_leader(self, dx: float, dy: float) -> None:
         """Carry the tip with a rigid shift (D7); a plain move never calls this."""
         rec = (self.note or {}).get("leader")
@@ -1786,13 +1800,21 @@ class BlockInstance(QGraphicsObject):
                 self._level_offset_mm = parsed
         elif key == "Rotation":
             try:
-                self.set_block_rotation(float(value))
+                new = float(value)
             except (TypeError, ValueError):
-                pass
+                return
+            if self.note_tip_scene() is not None:
+                # D7: a note's tip turns with its box, as manip_rotate carries it
+                # (about the insertion point, which stays put).
+                self.manip_rotate(new - self._pose_rot, QPointF(self._pose_x, self._pose_y))
+            else:
+                self.set_block_rotation(new)
         elif key == "Mirrored":
             # The checkbox always hands a bool; anything else is ignored.
             if not isinstance(value, bool):
                 return
+            if value != self._pose_mirrored:
+                self._mirror_note_tip()
             self.set_block_mirrored(bool(value))
         elif key == "Scale":
             f = self._parse_factor(value)

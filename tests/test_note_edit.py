@@ -469,3 +469,47 @@ def test_a_note_in_a_multi_selection_keeps_its_tip_through_a_scale(placed_note_w
     for it in (plain, inst):
         it.manip_scale_about(QPointF(-3000.0, 0.0), 0.5)
     assert _tip(inst) == tip
+
+
+# -- panel rows carry the tip (D7) ----------------------------------------------
+
+def _clone(ms, inst):
+    return ms._add_from_dict(inst.to_dict())
+
+
+def test_the_rotation_row_carries_the_tip_like_manip_rotate_in_one_step(placed_note_with_leader):
+    ms, inst = placed_note_with_leader
+    ref = _clone(ms, inst)
+    ref.manip_rotate(90.0, QPointF(*inst.block_pos()))
+    depth = len(ms._undo_stack)
+    inst.set_property("Rotation", "90")
+    assert _tip(inst) == pytest.approx(_tip(ref))
+    assert _tip(inst) != (1400.0, 300.0) and inst.block_rotation() == 90.0
+    assert _drawn_tip(inst) == pytest.approx(_tip(inst))
+    assert len(ms._undo_stack) == depth + 1
+
+
+def test_the_mirrored_row_carries_the_tip_like_manip_reflect_in_one_step(placed_note_with_leader):
+    ms, inst = placed_note_with_leader
+    inst.set_block_rotation(30.0)
+    ref = _clone(ms, inst)
+    pos = QPointF(*inst.block_pos())
+    from PyQt6.QtGui import QTransform
+    rigid = QTransform()
+    rigid.translate(pos.x(), pos.y())
+    rigid.rotate(-30.0)
+    ref.manip_reflect(pos, rigid.map(QPointF(0.0, 1.0)))     # the axis the flag flip implies
+    depth = len(ms._undo_stack)
+    inst.set_property("Mirrored", True)
+    assert inst.block_mirrored() and ref.block_mirrored()
+    assert _tip(inst) == pytest.approx(_tip(ref))
+    assert _drawn_tip(inst) == pytest.approx(_tip(inst))
+    assert len(ms._undo_stack) == depth + 1
+    inst.set_property("Mirrored", False)                      # and back: the tip returns
+    assert _tip(inst) == pytest.approx((1400.0, 300.0))
+
+
+def test_the_raw_pose_setters_stay_raw(placed_note_with_leader):
+    ms, inst = placed_note_with_leader
+    inst.set_block_rotation(90.0)                             # section_scene's path: no carry
+    assert _tip(inst) == (1400.0, 300.0)
