@@ -2121,8 +2121,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Live primitives (plan + open editors) naming *block_id* as an
         explicit end (LT5 Q13); By Linetype users count via their linetype."""
         from .block_registry import end_users_in
-        return sum(len(end_users_in(sc, block_id))
-                   for _label, sc in self._user_scenes())
+        n = sum(len(end_users_in(sc, block_id))
+                for _label, sc in self._user_scenes())
+        # Sheet text lives on the sheets, which no user scene reaches: count the
+        # annotations whose leader End is *block_id* (text-leader-annotations).
+        for sheet in getattr(self, "_sheets", None) or []:
+            for ann in getattr(sheet, "annotations", ()):
+                if (getattr(ann, "leader", None) or {}).get("end") == block_id:
+                    n += 1
+        return n
 
     def end_off_refusal(self, block_id) -> "str | None":
         """Why an end type can't stop being one (LT5 Q12): lines use it.

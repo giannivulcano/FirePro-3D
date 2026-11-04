@@ -120,8 +120,8 @@ def end_users_in(scene, block_id: str, *, via_linetype: bool = False) -> list:
         return []
     out = []
     # A text's leader End (text-leader-annotations): text items of this scene
-    # (a Block Editor's, a plan's), and every Note's leader. Sheet text lives on
-    # the paper scenes, which _user_scenes() does not reach (see the caller).
+    # (a Block Editor's, a plan's), and every Note's leader. Sheet text is not in
+    # any scene this walks; Model_Space._live_end_users counts it from the sheets.
     for item in tools._all_geometry_items():
         ld = getattr(getattr(item, "data", None), "leader", None)
         if isinstance(ld, dict) and ld.get("end") == block_id:

@@ -180,3 +180,21 @@ def test_the_end_picker_leaves_out_the_end_block_being_edited(qapp):
     assert "Arrow" in t.get_properties()["Leader End"]["options"]
     ed._editing_block_id = arrow.id
     assert "Arrow" not in t.get_properties()["Leader End"]["options"]
+
+
+def test_a_sheet_text_leader_protects_its_end(qapp):
+    from firepro3d.paper_space import Sheet
+    arrow = _arrow()
+    ms = _project(arrow)
+    sheet = Sheet.create_default()
+    ms._sheets = [sheet]
+    assert ms.block_users_message(arrow.id) is None and ms.end_off_refusal(arrow.id) is None
+    ann = TextAnnotationData(text="s", leader=dict(LEADER, tip_x=90.0, tip_y=60.0))
+    sheet.annotations.append(ann)
+    assert ms.block_users_message(arrow.id) is not None
+    assert ms.end_off_refusal(arrow.id) is not None
+    assert ms.delete_block_definition(arrow.id) is False          # delete refused
+    assert ms.get_block_definition(arrow.id) is not None
+    ann.leader = None                                              # remove the leader: all clear
+    assert ms.block_users_message(arrow.id) is None and ms.end_off_refusal(arrow.id) is None
+    assert ms.delete_block_definition(arrow.id) is True
