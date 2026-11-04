@@ -167,3 +167,69 @@ def test_section_head_follows_the_drawing_scale(qapp):
                 HEAD_R * ds * math.sqrt(2.0), rel=1e-3)
     finally:
         dispose(ms, sec, tabs)
+
+
+def _detail(ms, det, rect=QRectF(0.0, 0.0, 4000.0, 3000.0)):
+    m = det.create_detail("Detail 1", rect)
+    m.refresh_heads()
+    return m
+
+
+def test_detail_owns_one_upright_callout_head_at_its_bubble(qapp):
+    from firepro3d.view_marker_head import ViewMarkerHead
+    ms, sec, det, tabs = plan_scene()
+    try:
+        d = head_def(ms, "Detail", texts=(("Mark", -2.0), ("Sheet", 2.0)))
+        m = _detail(ms, det)
+        b = m.bubble
+        assert isinstance(b, ViewMarkerHead) and b.parentItem() is m and b.host is m
+        assert b.category == "Detail" and b.definition() is d and b.rotation() == 0.0
+        assert b.pos() == m._bubble_pos
+        assert b.enclosing_radius() == pytest.approx(HEAD_R * ms.scale_manager.drawing_scale, rel=1e-3)
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_detail_head_follows_grip_resize_translate_and_load(qapp):
+    from firepro3d.detail_view import DetailMarker
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Detail")
+        m = _detail(ms, det)
+        m.apply_grip(8, QPointF(9000.0, 9000.0))                   # bubble drag
+        assert m.bubble.pos() == QPointF(9000.0, 9000.0)
+        m.apply_grip(2, QPointF(5000.0, 4000.0))                   # resize: bubble follows the centre delta
+        assert m.bubble.pos() == m._bubble_pos
+        m.manip_translate(100.0, 50.0)
+        assert m.bubble.pos() == m._bubble_pos
+        back = DetailMarker.from_dict(m.to_dict())
+        ms.addItem(back)
+        assert back.bubble.pos() == m._bubble_pos
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_detail_leader_is_trimmed_at_the_head_outline(qapp):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Detail")
+        m = _detail(ms, det)                                        # bubble straight below the crop rect
+        start, end = m._leader()
+        rk = HEAD_R * ms.scale_manager.drawing_scale
+        assert _dist(end, m._bubble_pos) == pytest.approx(rk, rel=1e-3)
+        assert start == m._closest_rect_point(m.crop_rect, m._bubble_pos)
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_detail_head_follows_the_drawing_scale(qapp):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Detail")
+        m = _detail(ms, det)
+        for ds in (50.0, 200.0):
+            ms.scale_manager.drawing_scale = ds
+            ms.refresh_annotation_tags()
+            assert m.bubble.enclosing_radius() == pytest.approx(HEAD_R * ds, rel=1e-3)
+    finally:
+        dispose(ms, sec, tabs)
