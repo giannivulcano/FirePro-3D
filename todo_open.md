@@ -4,6 +4,21 @@
 >
 > **Task shape** (governed by the task-taxonomy spec): every task is a top-level `- [ ]` line carrying exactly one `[type:bug|feature|design|maint]` tag (first bracket), a plain-English summary, a `[P1|P2|P3]` marker, and an optional `[subject:*]` area tag — with a nested `- Details:` bullet holding file refs, metadata, edge cases, and lineage. Subsystem `##`/`###` headers group by *area*, never by type.
 
+## Project file safety (2026-11-04 data loss)
+
+- [ ] [type:bug] One `recovery.FPD` path is shared by every running FirePro3D, and any Save or Close deletes it [P2] [subject:Architecture]
+  - Details: found in the data-loss plan, 2026-11-04. `MainWindow._autosave_path` is a single path under `~/.firepro3d/autosave`, so two open apps overwrite each other's recovery file, and `_cleanup_autosave` runs on a successful Save and on Close even when another instance wrote that file. `_autosave` and `closeEvent` skip it only while the scene is detached (`_detached_name`). Give each instance or project its own recovery file, and clean up only your own.
+- [ ] [type:bug] `save_to_file` sets `scene._project_path` before it writes, so autosave and a failed Save As repoint it [P3] [subject:Architecture]
+  - Details: `SceneIOMixin.save_to_file` assigns `_project_path` as its first statement. Autosave calls it with the recovery path, so the path moves to `recovery.FPD`; a failed Save As leaves it on a file that was never written (review of 5a40483c, 2026-11-04). Readers: `hydraulic_report`, `underlay_controller`. Set it only after a successful write of a real project path.
+- [ ] [type:bug] A failed load detaches an intact scene when the file is non-dict JSON or hits another `OSError` [P3] [subject:Architecture]
+  - Details: `load_from_file` catches `FileNotFoundError`, `JSONDecodeError`, `PermissionError` and `UnicodeDecodeError` only. Valid JSON that is not an object raises at `payload.get`, and any other `OSError` raises at `open`, both before `_clear_scene`, yet `_guarded_load` reports a partial load and detaches the open project although nothing changed. Treat both as the parse-failure `return False`.
+- [ ] [type:bug] `clone_template_into` never retries a corrupt template: `load_from_file` now returns False instead of raising [P4] [subject:Architecture]
+  - Details: the regenerate-and-retry in `settings/template.py` sits in an `except Exception`, but a parse failure returns False (it returned None before this fix, so the gap predates it). Check the return value and regenerate on False.
+- [ ] [type:bug] `project_backup._prune` matches the extension case-sensitively, so `.fpd` and `.FPD` saves prune apart [P4] [subject:Architecture]
+  - Details: `_prune` builds its pattern from the saved name's own extension, so the same project saved under both spellings on Windows keeps up to 10 of each. Match on `re.IGNORECASE`.
+- [ ] [type:bug] `test_sb2b_settings_dialog_size.py::test_g_s1_marks_table_fits` fails at the default and minimum sizes [P4] [subject:Testing]
+  - Details: found by the data-loss keep-green, 2026-11-04. `test_g_s1_marks_table_fits_at_default_size` and `_at_minimum_size` fail identically at base `5185b8cc` (VC7, detached worktree) and at HEAD `d09406ca`, so this branch did not cause them. Cause not investigated.
+
 ## Paper-space sheet output
 
 - [ ] [type:bug] Ctrl (from-centre) resize of a sheet viewport grows from the top-left instead of the centre [P3] [subject:UX]
@@ -473,6 +488,8 @@
   - +1 occurrence 2026-10-31 (floor-opening T7 keep-green, VC7-proved at branch base 83196632 and HEAD 9bd0e31a, 1 failed both).
   - +1 occurrence 2026-10-31 (Block Editor select-all perf T4 keep-green, VC7-proved by the orchestrator at branch base f20268e1 and HEAD: 'Arrow' != 'Brick' ordering).
   - +1 occurrence 2026-11-01 (text-sizing-wrap Part A T5 keep-green, VC7-proved in a detached worktree at base 2109fb02 and HEAD 796b26dc, 6 failed / 33 passed both): the tier test + the same 5 browser tests.
+  - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
+  - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
 - [ ] [type:bug] `tests/test_sb3_parity.py::test_ac10_bound_instance_render_unchanged_by_the_lift` fails on a render-digest mismatch [P4] [subject:Architecture]
   - Details: SB4d T5 keep-green 2026-11-03, VC7-proved pre-existing by the orchestrator in a detached worktree at branch base 22bb5bdd and HEAD bb5d4802 (identical `1cb4fa70...` != `58438ac4...` both). The guard pins a bound-instance render digest against a pre-lift golden; some shipped change since re-baselined the render (candidates: SB3b room-tag style, SB4a/b/c OutlinedLabel changes). Re-derive which commit moved the digest (`git bisect` on the test), then either re-baseline deliberately or rewrite the guard as a before/after parity check in one process. `tests/test_sb3_parity.py`.
 
@@ -526,6 +543,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - +1 occurrence 2026-10-27 (editor-build S3 T1 keep-green): fails identically at branch base `88c146c1` and HEAD `848e2172` (one worktree, alternating runs, VC7).
   - +1 occurrence 2026-11-04 (SB4d FIX2 keep-green chunk 3 + partial VC6, VC7-proved by the orchestrator at branch base 22bb5bdd and HEAD 1c81b6a3): same `polish` TypeError both.
   - +1 occurrence 2026-11-04 (text-leaders keep-green, base `660f7e75`): failed 2/2 at base and 2/2 at HEAD, alternating in worktrees.
+  - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
 - [ ] [type:design] Pattern relation for Array copies (Linear / 2D / Polar) — rigid copies + spacing + angle [P3] [subject:CAD]
   - Details: 2026-10-16 auto-constrain grill Q13 (user ruling: nothing in v1). `commit_array` already copies each copy's internal constraints (D30) but no spacing relation exists; faking one with two-point `dim_distance` records fixes a distance but not the copy's pose. Design the deferred `pattern` catalogue row (spec §12 "patterns"): a SolidWorks-style sketch pattern relation (instances rigid to the seed, spacing + angle / count driving), its file record, edit seams (Delete / Explode pattern), copy rule, and whether Array commits create it automatically under the Auto Constrain toggle. ref: parametric-constraint-system §7.3 / §8 Array row; `modify_tools_controller.commit_array`, `_array_transforms`.
   - +1 occurrence 2026-11-01 (scene-tool polish batch, user ask): "children of the array are one group that can be deleted, like how SolidWorks handles it" — split out of the 2026-11-01 batch to its own run.
@@ -602,6 +620,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - +1 occurrence 2026-10-26 (editor-build S1 T1 keep-green): Shift+I / Shift+S fail alone at base `e1073f95` and HEAD `30b32df9` in alternating runs (Shift+F fails only in-module), VC7.
   - +1 occurrence 2026-11-01 (Block Editor select-all perf keep-green at 8609cf8c): same 3 fail, VC7-proved at branch base f20268e1 vs HEAD, 2 failed both alone.
   - +1 occurrence 2026-11-01 (scene-tool polish D6-D10 review + fix-round keep-green): same 3 fail at 6b1040ff and base `2109fb02` (scratch worktree, VC7, task-reviewer) and at HEAD 7d64db60.
+  - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
 - [ ] [type:bug] `tests/test_[a-d]*.py` chunk aborts natively in `test_block_open_dialog.py`'s `live_env` teardown (access violation on the QSS restore) -- pre-existing [P3] [subject:Testing]
   - Details: D18 perf task VC6 (2026-10-03): deterministic at 536 passed, identical at base 8128f6a in the main checkout (VC7); the file passes alone (7/7) and the chunk without it passes (1558). Likely `qapp.setStyleSheet(prev)` repolishing widgets leaked by earlier tests. Workaround until fixed: run the file in its own process.
   - 2026-10-15 (suite-stability gate): `[a-d]` ran clean in one process at BOTH HEAD (2009 passed, after the dispose_main_window migration) and base `1f4cbbcb` (1979) -- intermittent, so not proven fixed; `test_block_open_dialog.py` is isolated in `tests/run-suite.psd1` meanwhile.
@@ -1185,6 +1204,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - +1 occurrence 2026-10-29 (SB3b keep-green): `test_sb3_bound_label.py` ac1/ac8 failed by file order; root cause PROVEN = the physical OS cursor over the cascaded shown test window (hover halo between grabs; stray move in a posted drag), reproduced at base `75e3cb0f` with the cursor parked over the view. Fixed for the `shown_model_view` fixture only (`tests/conftest.py` `_DropOsPointerInput`, 0501ef6e, ratified keep). Remaining: generalize -- one shared filter (fold `_NoRealMouse` in `tests/test_constraint_live_drag.py` AND `_OsMouseBlocker` / `ignore_os_mouse` in `tests/_modify_tools_helpers.py` into the conftest one; the three differ in event-type sets -- Wheel, Enter/Leave/Hover; note QTest.mouse* widget events are spontaneous and get dropped too, VC9 2026-10-29) applied to every shown test window outside the fixture; re-check the L470 (`test_constraint_panel` hover) and L663 (`test_selection_readouts_live_drag`) flakes against it.
   - +1 occurrence 2026-11-01 (transform per-move perf run): `tests/test_transform_per_move_perf.py` opens a shown MainWindow + Block Editor without any OS-pointer filter; it sidesteps the OS cursor by sending QMouseEvents to the viewport (`tests/_snap_polish_helpers` move/click) because QTest's OS-cursor moves never reached a second window in one process. Fold it under the shared filter when generalized.
   - +1 occurrence 2026-11-04 (SB4d partial VC6 runs, VC7 at branch base 22bb5bdd): `tests/test_ghost_glow_cache.py::test_editor_rotate_cached_glow_matches_live` is order-dependent -- fails at base inside its chunk group; `tests/test_block_place_paste_ghost.py::test_g4_space_rotates_the_placement_on_screen` flaky under host load.
+  - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
 - [ ] [type:bug] Copy-to-Level carries the source level onto pasted node copies [P2] [subject:CAD]
   - Details: found 2026-09-25 (G5 review) — `copy_items_to_level` (`model_space.py`) passes node records whose level/ceiling fields override the target level `add_node` just set. Pre-existing. Repro + guard first.
 - [ ] [type:bug] Copy-to-Level pushes its undo step before the paste, so the copies have no post-state step [P3] [subject:CAD]

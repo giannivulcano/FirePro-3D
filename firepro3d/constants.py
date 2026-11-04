@@ -11,6 +11,9 @@ hard-coded across multiple modules.
 DEFAULT_LEVEL = "Level 1"
 DEFAULT_LEVEL_GAP_MM = 3048.0   # 10'-0": default storey gap — Level Manager Add with one level
                                 # (view-relationships section 12.4) and the shipped Level 2 / 3 datums
+PROJECT_BACKUP_DIR = "Backups"          # rolling Save backups, beside the project file
+PROJECT_BACKUP_KEEP = 10                # newest backups kept per project
+CONTENT_LOSS_MIN_ITEMS = 10             # below this a file is too small to warn about
 # Annotation grouping label (the per-entity "layer" system was removed; this is
 # now only a category for CAD annotations — see annotations.py).
 DEFAULT_ANNOTATION_GROUP = "Default"

@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 
 from .colour_migration import migrate_project_payload
 from .constants import DEFAULT_LEVEL
@@ -56,8 +55,14 @@ class SceneIOMixin:
     # SAVE
     # ------------------------------------------------------------------
 
-    def save_to_file(self, filename: str):
-        """Serialise the full scene to JSON."""
+    def save_to_file(self, filename: str, *, backup: bool = True):
+        """Serialise the full scene to JSON.
+
+        Args:
+            filename: Target project file.
+            backup: Keep a dated copy of the existing file first (False for
+                autosave).
+        """
         self._project_path = os.path.abspath(filename)
         from .display_manager import get_display_settings_for_save
 
@@ -177,22 +182,16 @@ class SceneIOMixin:
         # Ensure all underlays have cache entries
         self._underlay_ctl._ensure_underlay_caches(os.path.abspath(filename))
 
-        bak_path = filename + ".bak"
-        if os.path.exists(filename):
-            shutil.copy2(filename, bak_path)
-
+        from .project_backup import write_atomic, write_backup
         try:
-            with open(filename, "w") as f:
-                json.dump(payload, f, indent=2)
-            self._show_status(f"Saved to {filename}")
-            if os.path.exists(bak_path):
-                os.remove(bak_path)
-            return True
+            if backup:
+                write_backup(filename)
+            write_atomic(filename, payload)
         except Exception as e:
             self._show_status(f"Save failed: {e}")
-            if os.path.exists(bak_path):
-                shutil.copy2(bak_path, filename)
             return False
+        self._show_status(f"Saved to {filename}")
+        return True
 
     # ------------------------------------------------------------------
     # LOAD
@@ -215,9 +214,10 @@ class SceneIOMixin:
         try:
             with open(filename, "r") as f:
                 payload = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError, PermissionError) as e:
+        except (FileNotFoundError, json.JSONDecodeError, PermissionError,
+                UnicodeDecodeError) as e:
             self._show_status(f"Failed to open: {e}")
-            return
+            return False
 
         version = payload.get("version", 1)
         migrate_project_payload(payload)    # HF1 (D-A20): before display_settings is read
@@ -577,6 +577,7 @@ class SceneIOMixin:
         for _cat in ANNOTATION_CATEGORIES:
             self.annotation_block(_cat)
         self.refresh_annotation_tags()          # tags built before the mapping existed drop their cached rect
+        return True
 
     # ------------------------------------------------------------------
     # CLEAR
@@ -685,6 +686,11 @@ class SceneIOMixin:
         _sec_mgr = getattr(self, "_section_manager", None)
         if _sec_mgr is not None:
             _sec_mgr.clear()
+        # Detail markers are scene items too: the manager must drop them while
+        # they are alive, or a load's from_list touches deleted wrappers.
+        _det_mgr = getattr(self, "_detail_manager", None)
+        if _det_mgr is not None:
+            _det_mgr.clear()
         self.clear()
         # self.clear() deleted the shared close-cue ring too (DD8); drop the
         # dead wrapper so show_close_ring lazily recreates it.

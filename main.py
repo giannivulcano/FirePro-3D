@@ -3562,27 +3562,48 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         else:
             self.save_file_as()
 
-    def save_file(self):
-        self._commit_text_edits()
-        if self._current_file:
-            if self.scene.save_to_file(self._current_file):
-                self._modified = False
-                self.scene.mark_saved()
-                self._update_title()
-                self._cleanup_autosave()
-        else:
-            self.save_file_as()
+    def _confirm_content_loss(self, file: str) -> bool:
+        """Ask before writing away most of the project on disk (True = go on)."""
+        from firepro3d import project_backup as pb
+        from firepro3d import themed_message as tm
+        on_disk = pb.file_item_count(file)
+        in_scene = pb.scene_item_count(self.scene)
+        if not pb.loses_content(on_disk, in_scene):
+            return True
+        return tm.themed_confirm(
+            self, "Most of This Project Is Missing",
+            f"This project has {in_scene} model items, but the file on disk "
+            f"has {on_disk}. Saving replaces the file.\n\nSave anyway?",
+            danger=True, ok_label="Save anyway", cancel_label="Cancel")
 
-    def save_file_as(self):
+    def save_file(self) -> bool:
+        self._commit_text_edits()
+        if not self._current_file:
+            return self.save_file_as()
+        if not self._confirm_content_loss(self._current_file):
+            return False
+        if not self.scene.save_to_file(self._current_file):
+            return False
+        self._modified = False
+        self.scene.mark_saved()
+        self._update_title()
+        self._cleanup_autosave()
+        return True
+
+    def save_file_as(self) -> bool:
         self._commit_text_edits()
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
-        if file:
-            self._current_file = file
-            if self.scene.save_to_file(file):
-                self._modified = False
-                self.scene.mark_saved()
-                self._update_title()
-                self._add_recent_file(file)
+        if not file or not self._confirm_content_loss(file):
+            return False
+        if not self.scene.save_to_file(file):
+            return False
+        self._current_file = file
+        self._detached_name = None
+        self._modified = False
+        self.scene.mark_saved()
+        self._update_title()
+        self._add_recent_file(file)
+        return True
 
     def open_file(self):
         self._commit_text_edits()
@@ -3593,10 +3614,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self._load_project(file)
 
     def _load_project(self, file: str):
-        """Load a project file and update all UI state."""
+        """Load a project file and update all UI state. ``_current_file`` is
+        claimed only after a load that finished, so Save cannot reach a file
+        whose load failed."""
         self._commit_text_edits()
+        if not self._guarded_load(file):
+            return
         self._current_file = file
-        self._apply_loaded_file(file)
+        self._detached_name = None
         # Clear dirty flag before the divergence prompt so the autosave timer
         # cannot fire during the modal (autosave is gated on _modified).
         self._modified = False
@@ -3609,6 +3634,32 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # the user has enough dialogs during recovery — divergence re-offers on
         # the next normal File→Open).
         self._maybe_offer_template_push()
+
+    def _guarded_load(self, file: str) -> bool:
+        """Run ``_apply_loaded_file``; report a failure. Returns True on success.
+
+        A parse failure left the scene alone, so the open project stays open.
+        An exception mid-restore left it partial: detach it from any file."""
+        name = os.path.basename(file)
+        from firepro3d import themed_message as tm
+        try:
+            ok = self._apply_loaded_file(file)
+        except Exception:  # noqa: BLE001 -- any restore failure must not reach Save
+            _log_unhandled_exception(*sys.exc_info())
+            self._current_file = None
+            self._detached_name = name
+            self._modified = True
+            self._update_title()
+            tm.themed_error(
+                self, "Project Failed to Load",
+                f"{name} could not be fully loaded. The file was not changed.\n\n"
+                "What is on screen is incomplete and is not connected to the "
+                "file. Save will ask for a new name.")
+            return False
+        if not ok:
+            tm.themed_error(self, "Project Failed to Open",
+                            f"{name} could not be read. The file was not changed.")
+        return ok
 
     def _apply_loaded_file(self, file: str):
         """Shared post-load restore — used by open AND crash recovery.
@@ -3625,7 +3676,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # below) may switch the tab away before that happens, so we note it now.
         _paper_was_current = isinstance(
             self.central_tabs.currentWidget(), PaperSpaceWidget)
-        self.scene.load_from_file(file)
+        if self.scene.load_from_file(file) is False:
+            return False
         # load_from_file replaced scene.scale_manager — re-seed open editors.
         self._sync_editor_units()
         self.level_widget.populate()
@@ -3711,6 +3763,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # the new sheet so any immediate switch back shows the right adapter.
             self.prop_manager.show_properties(
                 self._sheet_props_adapter(self._sheet))
+        return True
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -3763,11 +3816,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """
         if any(editing_text_item(sc) is not None for sc in self._text_edit_scenes()):
             return
-        if not self._modified:
-            return
+        if not self._modified or self._detached_name:
+            return      # a failed load's partial scene never replaces the recovery file
         path = self._autosave_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.scene.save_to_file(path)
+        self.scene.save_to_file(path, backup=False)
 
     def _check_recovery(self):
         path = self._autosave_path()
@@ -3782,7 +3835,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # File→Open only in _current_file (None → first Save prompts
             # Save-As), _modified (True — unsaved by definition), and no
             # recent-files entry.
-            self._apply_loaded_file(path)
+            if not self._guarded_load(path):
+                return                          # the error said the file is intact
             self._modified = True
             self._update_title()
         self._cleanup_autosave()
@@ -3833,8 +3887,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
              ("Discard", "discard", None),
              ("Save", "save", "primary")])
         if choice == "save":
-            self.save_file()
-            return True
+            return self.save_file()
         if choice == "discard":
             return True
         return False   # "cancel" or closed (None) → do not proceed
@@ -3872,6 +3925,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if not self._ask_save_changes("starting a new project"):
             return
         self._current_file = None
+        self._detached_name = None
         self.detail_manager.clear()
         self.plan_view_mgr.clear()
         self.project_browser.refresh_details(self.detail_manager.detail_names)
@@ -3948,6 +4002,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _update_title(self):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
+        if self._detached_name:
+            name = f"Untitled ({self._detached_name} failed to load)"
         star = " *" if self._modified else ""
         self.setWindowTitle(f"FirePro 3D {APP_VERSION} \u2014 {name}{star}")
         self._refresh_header_state()
@@ -5736,7 +5792,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             event.ignore()
             return
         self.save_settings()
-        self._cleanup_autosave()
+        if not self._detached_name:     # a failed recovery keeps its file
+            self._cleanup_autosave()
         try:
             th.theme_bus().changed.disconnect(self._on_theme_bus_changed)
         except (TypeError, RuntimeError):
@@ -5757,6 +5814,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.view_3d.cleanup()
         super().closeEvent(event)
 
+    _detached_name = None  # a failed load's file name while the scene is detached
     _STATE_VERSION = 5  # bump when dock layout changes between sprints
 
     def save_settings(self):
