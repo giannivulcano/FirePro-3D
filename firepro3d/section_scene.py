@@ -32,7 +32,7 @@ from PyQt6.QtCore import QSettings
 
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM,
-                        Z_DEPTH_CEIL)
+                        Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG)
 from . import theme as th
 from .paper_display import paper_pass_active, shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush
@@ -63,6 +63,9 @@ HOSTED_REFUSAL = ("Can't place here — a block in a section needs a "
 # items never reach the annotation band (SB4d D5 / Q17).
 _DEPTH_Z_START = -50.0
 _DEPTH_Z_STEP = 0.01
+# Hosted section copies sit in the tag band, near over far (SB4d D5): 100,000
+# copies fit below Z_ANNOT_GRID.
+_HOSTED_Z_STEP = 0.001
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -299,7 +302,7 @@ class ElevGridlineItem(QGraphicsLineItem):
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.setZValue(50)   # in front of walls/floors/roofs
+        self.setZValue(Z_ANNOT_GRID)   # annotation band: gridline sub-band (SB4d D5)
         self.setOpacity(opacity)
         self.setData(_ROLE_ELEV_ANNOTATION, True)
 
@@ -561,7 +564,7 @@ class ElevDatumItem(QGraphicsLineItem):
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.setZValue(50)   # in front of walls/floors/roofs
+        self.setZValue(Z_ANNOT_GRID)   # annotation band: gridline sub-band (SB4d D5)
         self.setOpacity(opacity)
         self.setData(_ROLE_ELEV_ANNOTATION, True)
 
@@ -1300,6 +1303,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._place_ghost = None            # clear() deletes it; re-armed below
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
+        self._hosted_depth: list[tuple[float, object]] = []   # (sort key, top item), tag band
         self._project_level_datums()
         self._project_walls()
         self._project_hosted_blocks()
@@ -1371,7 +1375,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 cp.setParentItem(clip)
                 top = clip
             wx, wy = hb.world_point(gl, host, ppm)
-            self._register_depth_item(b.sort_key(wx, wy), top)
+            self._hosted_depth.append((b.sort_key(wx, wy), top))   # tag band, not the depth walk (D5)
             self._hosted_copies[id(src)] = cp
 
     def _register_depth_item(self, depth: float, *items):
@@ -1391,6 +1395,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 item.setZValue(min(z, Z_DEPTH_CEIL))   # bounded below the annotation band (SB4d Q17)
                 z += _DEPTH_Z_STEP
         self._depth_items = []
+        hosted = sorted(getattr(self, "_hosted_depth", ()), key=lambda x: x[0])
+        for i, (_key, top) in enumerate(hosted):
+            top.setZValue(Z_ANNOT_TAG + i * _HOSTED_Z_STEP)   # farthest first: near over far
+        self._hosted_depth = []
 
     # ── Foreground (datum lines) ─────────────────────────────────────────
 
