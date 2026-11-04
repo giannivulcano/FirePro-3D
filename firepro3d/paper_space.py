@@ -1870,6 +1870,23 @@ class PaperGraphicsView(QGraphicsView):
         else:
             event.ignore()
 
+    # Detail and section views are placed on one sheet (SB4d D4, Q6e); plans,
+    # elevations and schematics stay multi-placeable.
+    ONE_SHEET_VIEW_TYPES = ("detail", "section")
+
+    def _one_sheet_refusal(self, view_type: str, view_name: str) -> "str | None":
+        """The status notice refusing a second placement of a detail /
+        section view, or None when the drop may proceed. A legacy project
+        holding two placements loads as-is; only new drops are blocked (Q6g)."""
+        if view_type not in self.ONE_SHEET_VIEW_TYPES:
+            return None
+        ms = getattr(self._paper_scene._resolver, "_scene", None)
+        hits = sheets_holding(getattr(ms, "_sheets", None) or [], view_type, view_name)
+        if not hits:
+            return None
+        return (f"{view_name} is already placed on sheet {hits[0].number} - "
+                f"a {view_type} view can be placed on one sheet only.")
+
     def dropEvent(self, event):
         if not event.mimeData().hasFormat(MIME_VIEW):
             event.ignore()
@@ -1878,6 +1895,15 @@ class PaperGraphicsView(QGraphicsView):
         payload = json.loads(raw)
         view_type = payload["view_type"]
         view_name = payload["view_name"]
+
+        refusal = self._one_sheet_refusal(view_type, view_name)
+        if refusal is not None:                   # SB4d D4: one sheet per detail / section view
+            show = getattr(getattr(self._paper_scene._resolver, "_scene", None),
+                           "_show_status", None)
+            if callable(show):
+                show(refusal, 6000)
+            event.ignore()
+            return
 
         drop_pos = self.mapToScene(event.position().toPoint())
 
@@ -2939,7 +2965,17 @@ class PaperScene(QGraphicsScene):
             self._sheet.sheet_views.append(data)
         vp = self._create_viewport(data)
         self._update_scale_field()
+        self._refresh_source_heads(data)
         return vp
+
+    def _refresh_source_heads(self, data: SheetViewData) -> None:
+        """A detail / section placement or removal re-shapes the model's
+        marker heads: their bottom slot is the sheet number (SB4d D4)."""
+        if data.source_view_type not in ("detail", "section"):
+            return
+        fn = getattr(getattr(self._resolver, "_scene", None), "refresh_view_marker_heads", None)
+        if callable(fn):
+            fn()
 
     def _do_remove_viewport_by_data(self, data: SheetViewData) -> None:
         """Silent primitive: remove the viewport(s) matching *data*.
@@ -2966,6 +3002,7 @@ class PaperScene(QGraphicsScene):
             v for v in self._sheet.sheet_views if v is not data
         ]
         self._update_scale_field()
+        self._refresh_source_heads(data)
 
     def _resync_viewport(self, data: SheetViewData) -> None:
         """Re-apply *data*'s position/size to its live viewport item.

@@ -3928,6 +3928,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._update_title()
         self._push_sheet_list()
         self._recompute_placed_views()
+        self.scene.refresh_view_marker_heads()   # SB4d D4: a sheet create / delete / renumber
 
     def _on_scene_modified(self):
         self._modified = True
