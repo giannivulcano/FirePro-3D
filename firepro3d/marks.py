@@ -13,13 +13,21 @@ from typing import Iterable, Optional
 
 from .constants import MARK_ROW_TOLERANCE_MM
 
-MARK_CATEGORIES = ("Door", "Window", "Opening", "Wall", "Pipe", "Sprinkler", "Room")
+MARK_CATEGORIES = ("Door", "Window", "Opening", "Wall", "Pipe", "Sprinkler", "Room", "Section", "Detail")
 RENUMBER_CATEGORIES = MARK_CATEGORIES + ("Gridline",)
 
 DEFAULT_PATTERNS = {
     "Door": "D{n}", "Window": "W{n}", "Opening": "O{n}", "Wall": "WL{n}",
     "Pipe": "P{n}", "Sprinkler": "S{n}", "Room": "{level}{n:02}",
+    "Section": "{n}", "Detail": "{n}",           # SB4d D3 (Q8b)
 }
+
+
+def name_token(name: str) -> str:
+    """The last whitespace token of a view name ("Section 3" -> "3"), the
+    Mark a pre-SB4d record adopts once on load (Q20); "" for a blank name."""
+    parts = (name or "").split()
+    return parts[-1] if parts else ""
 
 _TOKEN_RE = re.compile(r"\{n(?::0(\d+))?\}|\{level\}")
 
@@ -258,11 +266,18 @@ def items_of_category(scene, category: str) -> list:
         return [n.sprinkler for n in scene.sprinkler_system.nodes if n.has_sprinkler()]
     if category == "Gridline":
         return list(scene._gridlines)
+    if category == "Section":           # placed sections only (cardinals never mint, SB4d D3)
+        mgr = getattr(scene, "_section_manager", None)
+        return [m for m in mgr.markers.values() if not m.cardinal] if mgr is not None else []
+    if category == "Detail":
+        dm = getattr(scene, "_detail_manager", None)
+        return list(dm._markers.values()) if dm is not None else []
     return []
 
 
 _PLURAL = {"Door": "doors", "Window": "windows", "Opening": "openings", "Wall": "walls",
-           "Pipe": "pipes", "Sprinkler": "sprinklers", "Room": "rooms", "Gridline": "gridlines"}
+           "Pipe": "pipes", "Sprinkler": "sprinklers", "Room": "rooms", "Gridline": "gridlines",
+           "Section": "sections", "Detail": "details"}
 
 
 def duplicate_info(scene, item) -> Optional[str]:
@@ -393,6 +408,14 @@ def sort_point(item) -> tuple:
     from .wall import WallSegment
     from .wall_opening import WallOpening
     from .floor_opening import FloorOpening
+    from .section_marker import SectionMarker
+    from .detail_view import DetailMarker
+    if isinstance(item, SectionMarker):           # cut midpoint (SB4d D3)
+        a, b = item.cut_a, item.cut_b
+        return ((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+    if isinstance(item, DetailMarker):            # crop centre
+        c = item.crop_rect.center()
+        return (c.x(), c.y())
     if isinstance(item, FloorOpening):            # floor void: its outline centroid
         pts = item.points
         return (sum(q.x() for q in pts) / len(pts), sum(q.y() for q in pts) / len(pts))

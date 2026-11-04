@@ -745,17 +745,25 @@ class SectionMarker(QGraphicsItem):
         return sm.scene_to_display(mm) if sm else f"{mm:.1f} mm"
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Name": {"value": self._name, "type": "string", "readonly": bool(self._cardinal)},
+        }
+        if not self._cardinal:                     # SB4d D3: a placed section's Mark
+            props["Mark"] = {"value": self._mark, "type": "string"}
+        props.update({
             "Depth": {"value": self._fmt(self._depth), "type": "string"},
             "Flip": {"value": self._look < 0, "type": "bool"},
             "Cardinal": {"value": self._cardinal.title() if self._cardinal else "-",
                          "type": "string", "readonly": True},
-        }
+        })
+        return props
 
     def set_property(self, key: str, value):
         if key == "Name" and not self._cardinal:
             self._rename_with_undo(str(value))
+        elif key == "Mark" and not self._cardinal:
+            from . import marks
+            marks.set_mark(self, str(value))       # PropertyManager pushes the undo step (M16 refuses blank)
         elif key == "Depth":
             from .scale_manager import ScaleManager
             mm = ScaleManager.parse_dimension(str(value))
@@ -772,17 +780,25 @@ class SectionMarker(QGraphicsItem):
 
     # -- serialization (spec s8) ------------------------------------------------
     def to_dict(self) -> dict:
-        return {"name": self._name,
-                "cut_a": [self._a.x(), self._a.y()],
-                "cut_b": [self._b.x(), self._b.y()],
-                "look_sign": self._look, "depth": self._depth,
-                "cardinal": self._cardinal, "auto_extent": self._auto_extent,
-                "gridline_z_overrides": dict(self.gridline_z_overrides)}
+        out = {"name": self._name,
+               "cut_a": [self._a.x(), self._a.y()],
+               "cut_b": [self._b.x(), self._b.y()],
+               "look_sign": self._look, "depth": self._depth,
+               "cardinal": self._cardinal, "auto_extent": self._auto_extent,
+               "gridline_z_overrides": dict(self.gridline_z_overrides)}
+        if self._mark:
+            out["mark"] = self._mark                # sparse (SB4d D3)
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> "SectionMarker":
+        from .marks import name_token
         m = cls(d["name"], QPointF(*d["cut_a"]), QPointF(*d["cut_b"]),
                 int(d.get("look_sign", 1)), float(d.get("depth", DEFAULT_DEPTH)),
                 cardinal=d.get("cardinal"), auto_extent=bool(d.get("auto_extent", False)))
         m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+        if not m.cardinal:
+            # Q20: a pre-SB4d record adopts its name token once; a record
+            # carrying a Mark keeps it (M7 never re-mints).
+            m._mark = d["mark"] if "mark" in d else name_token(m._name)
         return m

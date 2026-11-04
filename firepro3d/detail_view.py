@@ -420,6 +420,7 @@ class DetailMarker(QGraphicsPathItem):
         """Return properties for the property panel."""
         props = {}
         props["Name"] = {"value": self._name, "type": "string"}
+        props["Mark"] = {"value": self._mark, "type": "string"}      # SB4d D3
         props["Level"] = {"value": self._level_name, "type": "level_ref"}
         r = self._crop_rect
         props["Width"] = {"value": self._fmt(r.width()), "type": "string",
@@ -441,6 +442,9 @@ class DetailMarker(QGraphicsPathItem):
         if key == "Name":
             self._name = str(value)
             self.update()
+        elif key == "Mark":
+            from . import marks
+            marks.set_mark(self, str(value))       # PropertyManager pushes the undo step (M16 refuses blank)
         elif key == "Level":
             self._level_name = str(value)
             self.level = self._level_name
@@ -460,6 +464,8 @@ class DetailMarker(QGraphicsPathItem):
             "bubble_pos": {"x": self._bubble_pos.x(),
                            "y": self._bubble_pos.y()},
         }
+        if self._mark:
+            d["mark"] = self._mark                  # sparse (SB4d D3)
         if self._view_height is not None:
             d["view_height"] = self._view_height
         if self._view_depth is not None:
@@ -481,6 +487,8 @@ class DetailMarker(QGraphicsPathItem):
             marker._rebuild_path()
         marker._view_height = data.get("view_height")
         marker._view_depth = data.get("view_depth")
+        from .marks import name_token
+        marker._mark = data["mark"] if "mark" in data else name_token(marker._name)   # Q20
         return marker
 
 
@@ -528,14 +536,19 @@ class DetailViewManager:
         return f"Detail {self._counter}"
 
     def create_detail(self, name: str, crop_rect: QRectF,
-                      level_name: str = DEFAULT_LEVEL) -> DetailMarker:
-        """Create a detail marker and add it to the scene."""
+                      level_name: str = DEFAULT_LEVEL, *, mint: bool = True) -> DetailMarker:
+        """Create a detail marker and add it to the scene. *mint* (the user
+        creation site) gives it the next Detail Mark (SB4d D3); ``from_list``
+        passes False -- load never mints (M7)."""
         from .display_manager import apply_category_defaults
         marker = DetailMarker(name, crop_rect, level_name)
         marker._manager = self
         self._markers[name] = marker
         self._ms.addItem(marker)
         apply_category_defaults(marker)
+        if mint:
+            from . import marks
+            marks.mint(self._ms, marker)
         return marker
 
     def open_detail(self, name: str):
@@ -638,7 +651,10 @@ class DetailViewManager:
             cr = d["crop_rect"]
             rect = QRectF(cr["x"], cr["y"], cr["w"], cr["h"])
             level = d.get("level_name", DEFAULT_LEVEL)
-            marker = self.create_detail(name, rect, level)
+            marker = self.create_detail(name, rect, level, mint=False)
+            from .marks import name_token
+            marker._mark = d["mark"] if "mark" in d else name_token(name)   # Q20: adopt once
+            marker.refresh_heads()                  # the head was built before the Mark was set
             # Restore bubble position
             bp = d.get("bubble_pos")
             if bp:
