@@ -10,6 +10,7 @@ All functions work in one frame, the box frame, with *box* in mm.
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtGui import QTransform
 
 from .constants import (TEXT_LEADER_DEFAULT_SHOULDER_MM, TEXT_LEADER_DEFAULT_TIP_MM,
                         TEXT_LEADER_END_ID, TEXT_LEADER_MIN_SHOULDER_MM)
@@ -84,3 +85,77 @@ def normalise(rec) -> dict | None:
                 "weight": str(rec.get("weight") or "")}
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _to_parent(item, p: QPointF) -> QPointF:
+    """A box-frame point (mm) to the item's parent frame (rotation, scale, pos)."""
+    s = item.scale() or 1.0
+    return item.mapToParent(item._rotation_transform().map(QPointF(p.x() / s, p.y() / s)))
+
+
+def _from_parent(item, p: QPointF) -> QPointF:
+    """Inverse of :func:`_to_parent`: a parent-frame point to the box frame, mm."""
+    s = item.scale() or 1.0
+    inv, ok = item._rotation_transform().inverted()
+    local = (inv if ok else QTransform()).map(item.mapFromParent(p))
+    return QPointF(local.x() * s, local.y() * s)
+
+
+def _box_mm(item) -> QRectF:
+    """The item's box in the box frame (local frame scaled to mm)."""
+    s = item.scale() or 1.0
+    r = item._box_rect_local()
+    return QRectF(r.left() * s, r.top() * s, r.width() * s, r.height() * s)
+
+
+def box_frame_points(item) -> tuple | None:
+    """``(attach, knee, tip)`` of *item*'s leader in the item's box frame, mm.
+
+    The box frame is the unrotated local frame scaled to mm. The tip is mapped
+    in from the surface (parent frame, where ``x`` / ``y`` live) through the
+    item's own rotation, so a rotated box keeps its shoulder perpendicular and
+    its tip on target.
+    """
+    rec = item.data.leader
+    if not rec:
+        return None
+    a, k = attach_and_knee(_box_mm(item), rec)
+    return a, k, _from_parent(item, QPointF(rec["tip_x"], rec["tip_y"]))
+
+
+def style_record(rec: dict, colour: str) -> dict:
+    """The stroke style of a leader: no start end, *rec*'s end on the tip."""
+    from .stroke_style import NONE, default_style
+    st = default_style(colour)
+    st["start"] = {"end": NONE, "visible": True}
+    st["finish"] = {"end": rec.get("end") or DEFAULT_END_ID, "visible": True}
+    return st
+
+
+def surface_stroke_op(item, t: QTransform):
+    """The leader as one STROKE ``RenderOp`` through *t* (parent -> ops frame).
+
+    Mirrors ``text_box_ops``: box-frame points go through rotation, scale and
+    pos, then *t*. The tip is the stored absolute point mapped by *t* alone, so
+    it is exact.
+    """
+    pts = box_frame_points(item)
+    if pts is None:
+        return None
+    from PyQt6.QtGui import QPainterPath, QPen
+    from .path_walk import Seg
+    from .render_op import STROKE, RenderOp
+    d = item.data
+    a = t.map(_to_parent(item, pts[0]))
+    k = t.map(_to_parent(item, pts[1]))
+    tip = t.map(QPointF(d.leader["tip_x"], d.leader["tip_y"]))
+    path = QPainterPath(a)
+    path.lineTo(k)
+    path.lineTo(tip)
+    st = style_record(d.leader, d.color)
+    return RenderOp(STROKE, path, pen=QPen(), weight=d.leader.get("weight") or d.border_weight,
+                    colour=d.color,
+                    pieces=(Seg(a.x(), a.y(), k.x(), k.y()), Seg(k.x(), k.y(), tip.x(), tip.y())),
+                    linetype=st["linetype"], origin=QPointF(0.0, 0.0),
+                    ends=(st["start"], st["finish"]))
+

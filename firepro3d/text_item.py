@@ -258,7 +258,7 @@ from PyQt6.QtWidgets import (                                      # noqa: E402
 from . import crisp_stroke as _cs                                   # noqa: E402
 from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
-    DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
+    DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM, TEXT_LEADER_BOUNDS_PAD_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_CARET_WIDTH_PX, TEXT_HEIGHT_MM_PRECISION, TEXT_METRIC_REF_PX,
     TEXT_SELECTION_ALPHA,
@@ -838,6 +838,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         s = self.scale() or 1.0
         pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
         base = rect.adjusted(-pad, -pad, pad, pad)
+        lr = self._leader_rect_local()
+        if lr is not None:
+            base = base.united(lr)
         if self._angle == 0.0:
             return base
         return self._rotation_transform().mapRect(base)
@@ -851,8 +854,40 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         path = QPainterPath()
         path.addRect(self._box_rect_local())
+        lp = self._leader_path_local()
+        if not lp.isEmpty():
+            from PyQt6.QtGui import QPainterPathStroker
+            st = QPainterPathStroker()
+            st.setWidth(TEXT_LEADER_BOUNDS_PAD_MM / (self.scale() or 1.0))
+            path.addPath(st.createStroke(lp))
         if self._angle != 0.0:
             path = self._rotation_transform().map(path)
+        return path
+
+    def _leader_rect_local(self) -> "QRectF | None":
+        """The leader's extent in item-local units, padded for its end."""
+        from .text_leader import box_frame_points
+        pts = box_frame_points(self)
+        if pts is None:
+            return None
+        s = self.scale() or 1.0
+        xs = [p.x() / s for p in pts]
+        ys = [p.y() / s for p in pts]
+        pad = TEXT_LEADER_BOUNDS_PAD_MM / s
+        return QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)).adjusted(
+            -pad, -pad, pad, pad)
+
+    def _leader_path_local(self) -> QPainterPath:
+        """The leader polyline, item-local unrotated (hit test, before rotation)."""
+        from .text_leader import box_frame_points
+        path = QPainterPath()
+        pts = box_frame_points(self)
+        if pts is not None:
+            s = self.scale() or 1.0
+            a, k, tip = (QPointF(p.x() / s, p.y() / s) for p in pts)
+            path.moveTo(a)
+            path.lineTo(k)
+            path.lineTo(tip)
         return path
 
     def contains(self, point) -> bool:
@@ -994,7 +1029,51 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(box)
+        if self._data.leader:
+            self._paint_leader(painter)
         painter.restore()
+
+    def _paint_leader(self, painter: QPainter) -> None:
+        """Shoulder + leader + End type (design D3), in the mm box frame."""
+        from . import end_render as _er
+        from .hatch_render import _device_scale
+        from .linetype_render import printed_factor
+        from .path_walk import Seg
+        from .stroke_style import resolve_ends
+        from .text_leader import box_frame_points, style_record
+        a, k, tip = box_frame_points(self)
+        pieces = (Seg(a.x(), a.y(), k.x(), k.y()), Seg(k.x(), k.y(), tip.x(), tip.y()))
+        s = self.scale() or 1.0
+        painter.save()
+        painter.scale(1.0 / s, 1.0 / s)
+        pen = self._leader_pen(s)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        args = self._lt_args()
+        ends = resolve_ends(style_record(self._data.leader, self._data.color), None,
+                            self._tile_registry())
+        ff = printed_factor(**args)
+        sf = _er.screen_factor(paper_scale=args["paper_scale"], role=args["role"],
+                               device_scale=_device_scale(painter))
+        trims = _er.end_trims(ends, printed=ff, screen=sf)
+        painter.drawPath(_er.trimmed_path(pieces, *trims))
+        _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf,
+                       scene=self.scene())
+        painter.restore()
+
+    def _leader_pen(self, s: float) -> "QPen":
+        """The frame pen, with the leader's own weight, in the mm box frame.
+        ``_frame_pen`` works in item-local units, so its width is rescaled."""
+        d = self._data
+        saved = d.border_weight, d.border_line_type
+        d.border_weight, d.border_line_type = (d.leader.get("weight") or saved[0]), "solid"
+        try:
+            pen = QPen(self._frame_pen())
+        finally:
+            d.border_weight, d.border_line_type = saved
+        if not pen.isCosmetic():
+            pen.setWidthF(pen.widthF() * s)
+        return pen
 
     def _paint_document_shifted(self, painter: QPainter, option, widget) -> None:
         """Paper document paint at the Shrink offset (D5, T20 probe).
