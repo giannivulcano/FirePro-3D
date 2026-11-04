@@ -305,6 +305,7 @@ NFPA_MAX_COVERAGE_SQFT: dict[str, float] = {
 # ── Wall join tolerances (mm) ────────────────────────────────────────────────
 MITER_TOL = 1.0               # max gap to treat endpoints as coincident for miter
 MAX_MITER_FACTOR = 4.0        # miter extension cap: half_thickness * this factor
+WALL_JOIN_TOP_TOL_MM = 1.0    # wall tops closer than this count as equal for joins
 # Wall outline (wall polish D6).  Scene units are mm.  Union vertices are input
 # vertices or Qt edge intersections (double precision, error << 1e-6 mm at
 # building coordinates), so 1e-3 mm separates "on this edge" from "not" with

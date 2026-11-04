@@ -150,11 +150,6 @@ _PX_PER_MM = 0.25            # 200 mm wall = 50 px; cosmetic pen = 1 px
 _SKIP_MM = 40.0              # stay clear of the outer outline near seam ends
 _PROBE_MM = 5.0              # outward step that decides "interior seam"
 _VERTEX_CLEAR_MM = 8.0       # > the 1-px (4 mm) read window around a sample
-# Explicit-Butt L at Right alignment: the bodies only touch along an edge
-# (the butt wall hangs off the mitered wall's face), so there is no overlap
-# and thus no interior seam to sample.
-_NO_OVERLAP = {("L-butt", ALIGN_RIGHT)}
-
 
 def _render(scene, rect):
     img = QImage(int(rect.width() * _PX_PER_MM),
@@ -270,7 +265,9 @@ def _junction_case(s, case, align):
     raise ValueError(case)
 
 
-_CASES = ["L", "L-butt", "T", "3way", "4way", "failed-tee"]
+# No "L-butt": a stopping wall draws a seam on purpose, see
+# tests/test_wall_joint_stops.py.
+_CASES = ["L", "T", "3way", "4way", "failed-tee"]
 _ALIGNS = [ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT]
 
 
@@ -282,9 +279,6 @@ def test_junction_seam_has_no_outline_pixels(qapp, case, align):
     s = _ms()
     walls = _junction_case(s, case, align)
     samples = _seam_samples(walls)
-    if (case, align) in _NO_OVERLAP:
-        assert not samples, "scenario unexpectedly overlaps"
-        return
     assert samples, "scenario produced no interior seam to check"
     rect = QRectF(-4000, -4000, 11000, 8000)
     img = _render(s, rect)

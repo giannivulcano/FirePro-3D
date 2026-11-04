@@ -606,6 +606,9 @@ class LevelManager:
             ceil_lvl = lvl_map.get(getattr(node, "ceiling_level", DEFAULT_LEVEL))
             ceil_elev = ceil_lvl.elevation if ceil_lvl else 0.0
             node.z_pos = ceil_elev + getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM)
+        # Wall joins read wall tops, so a level move can change a joint
+        for wall in list(getattr(scene, "_walls", [])):
+            wall.invalidate_geometry()
 
     # ── Z-range helpers (module-level to avoid repeated closure overhead) ────
 

@@ -29,12 +29,13 @@ from .colour_tokens import normalize_colour, resolve_colour
 _DEFAULT_COLOUR = "#cccccc"
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR,
-                       WALL_OUTLINE_ON_EDGE_TOL)
+                       WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL)
 from .view_scale import scene_hit_width
 from PyQt6 import sip
 from .wall_outline import (JunctionArm, WallOutline, _poly_path,
                            boundary_segments, cluster_union, intersect_lines,
-                           junction_pie, stroke_segments, visible_corners)
+                           junction_pie, stop_end, stroke_segments,
+                           visible_corners)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -383,7 +384,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         u1, u2 = e["tee_union"]
         u1l, u1r = u1 if u1 is not None else (p1l, p1r)
         u2l, u2r = u2 if u2 is not None else (p2l, p2r)
-        union_body = QPolygonF([u1l, u2l, *w2, u2r, u1r, *w1])
+        # A stopping end's union operand overlaps the joined walls with area
+        # (run to the junction), as a coped tee's does.
+        uw1 = e["union_wedge"][0] if e["union_wedge"][0] is not None else w1
+        uw2 = e["union_wedge"][1] if e["union_wedge"][1] is not None else w2
+        union_body = QPolygonF([u1l, u2l, *uw2, u2r, u1r, *uw1])
         for i in (0, 1):
             if e["tee_union"][i] is not None:
                 union_body = self._clip_tee_extension(
@@ -407,7 +412,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             faces=((QPointF(p1l), QPointF(p2l)), (QPointF(p1r), QPointF(p2r))),
             caps=tuple(caps),
             centerline=(self.centerline_pt1, self.centerline_pt2),
-            neighbours=tuple(neighbours))
+            neighbours=tuple(neighbours), seams=e["seams"])
         self._outline_key = self._geometry_key()
         # legacy paint-coordination readers
         self._solid_pt1, self._solid_pt2 = e["solid"]
@@ -459,7 +464,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 if not sip.isdeleted(w):
                     polys.append(w.outline_geometry().union_body)
             boundary = boundary_segments(cluster_union(polys))
-            o.stroke_segments = stroke_segments(o.body, boundary)
+            o.stroke_segments = (stroke_segments(o.body, boundary)
+                                 + list(o.seams))
             o.corners = visible_corners(o.body, boundary)
         return o
 
@@ -1391,6 +1397,71 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 return True
         return False
 
+    def _junction_stops(self, my_idx: int, mine: list) -> list["WallSegment"]:
+        """Walls that stop at this junction; [] for a plain join.
+
+        Every member computes the same answer: the rule reads only the
+        member set, never which member is asking.
+
+        Args:
+            my_idx: This wall's end at the junction.
+            mine: Endpoint partners as ``(wall, endpoint_idx)``.
+
+        Returns:
+            Butt walls plus lower Auto walls, or [] when too few walls
+            would stay joined.
+        """
+        members = [(self, my_idx), *mine]
+
+        def raw(wall, ep):
+            return wall._join_mode_pt1 if ep == 0 else wall._join_mode_pt2
+
+        butts = [w for w, ep in members if raw(w, ep) == "Butt"]
+
+        def valid(stops):
+            left = len(members) - len(stops)
+            return bool(stops) and left >= (1 if len(members) == 2 else 2)
+
+        lower = self._lower_auto_walls(members, raw)
+        stops = butts + [w for w in lower if not any(w is b for b in butts)]
+        if valid(stops):
+            return stops
+        return butts if valid(butts) else []
+
+    @staticmethod
+    def _lower_auto_walls(members: list, raw) -> list["WallSegment"]:
+        """Auto walls below the highest top; [] when the height rule is off.
+
+        Three or more walls need two at the highest top.  Unknown tops
+        (no level manager) switch the rule off.
+        """
+        ranges = [w.z_range_mm() for w, _ep in members]
+        if any(r is None for r in ranges):
+            return []
+        top = max(r[1] for r in ranges)
+        tall = sum(1 for r in ranges if r[1] >= top - WALL_JOIN_TOP_TOL_MM)
+        if tall == len(members) or (len(members) >= 3 and tall < 2):
+            return []
+        return [w for (w, ep), r in zip(members, ranges)
+                if r[1] < top - WALL_JOIN_TOP_TOL_MM and raw(w, ep) == "Auto"]
+
+    def _stop_corners(self, my_idx: int, my_pt: QPointF, joined: list, quad,
+                      clamp: float):
+        """Stop this end on *joined*: ``(left, right, wedge)`` or None."""
+        if len(joined) == 1:
+            tee = self._tee_cope_corners(my_idx, my_pt, joined[0][0], quad,
+                                         clamp)
+            return None if tee is None else (tee[0], tee[1], [])
+        arm = self._junction_arm(my_idx)
+        arms = [w._junction_arm(ep) for w, ep in joined]
+        if arm is None or any(a is None for a in arms):
+            return None
+        res = stop_end(arm, arms, my_pt, clamp)
+        if res is None:
+            return None
+        ccw, cw, ends = res
+        return (ccw, cw, ends) if my_idx == 0 else (cw, ccw, ends)
+
     def _tee_union_end(self, host: "WallSegment", quad):
         """Union-only end for a coped tee (G0): this wall's face lines run
         to the host's TRUE centerline, so the stub's union polygon overlaps
@@ -1489,6 +1560,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         partners: list[list] = [[], []]
         hosts: list = [None, None]
         tee_union: list = [None, None]
+        union_wedge: list = [None, None]
+        seams: list = []
         pool = self._join_pool(extra)
 
         if pool:
@@ -1505,9 +1578,47 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
                 raw_mode = (self._join_mode_pt1 if my_idx == 0
                             else self._join_mode_pt2)
-                if raw_mode == "Auto" and len(mine) >= 2:
+                active = mine
+                stops = self._junction_stops(my_idx, mine) if mine else []
+                if stops:
+                    members = [(self, my_idx), *mine]
+                    joined = [m for m in members
+                              if not any(m[0] is w for w in stops)]
+                    clamp = MAX_MITER_FACTOR * max(
+                        w.half_thickness_scene() for w, _ep in members)
+                    quad = (p1l, p1r, p2r, p2l)
+                    if any(self is w for w in stops):
+                        res = self._stop_corners(my_idx, my_pt, joined, quad,
+                                                 clamp)
+                        if res is not None:
+                            int_l, int_r, ends = res
+                            if my_idx == 0:
+                                p1l, p1r = int_l, int_r
+                            else:
+                                p2l, p2r = int_l, int_r
+                            solid[my_idx] = True
+                            wedge[my_idx] = ends
+                            union_wedge[my_idx] = [QPointF(my_pt)]
+                            chain = [int_l, *ends, int_r]
+                            seams.extend(zip(chain, chain[1:]))
+                        continue
+                    active = [m for m in joined if m[0] is not self]
+                    if len(members) == 2:
+                        # Lone joined wall runs to the stopper's far face
+                        far = self._tee_cope_corners(
+                            my_idx, my_pt, stops[0], quad, clamp, far=True)
+                        if far is not None:
+                            int_l, int_r = far
+                            if my_idx == 0:
+                                p1l, p1r = int_l, int_r
+                            else:
+                                p2l, p2r = int_l, int_r
+                            solid[my_idx] = True
+                        continue
+
+                if raw_mode in ("Auto", "Solid") and len(active) >= 2:
                     # 3+ walls: full pie (D5); degenerate -> Butt
-                    pie = self._pie_corners(my_idx, my_pt, mine, MAX_MITER)
+                    pie = self._pie_corners(my_idx, my_pt, active, MAX_MITER)
                     if pie is not None:
                         int_l, int_r, hub = pie
                         if my_idx == 0:
@@ -1535,11 +1646,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                         tee_union[my_idx] = self._tee_union_end(host, quad)
                     continue
 
-                mode = self._resolve_join_mode(my_idx, 1 + len(mine))
-                if mode == "Butt" or not mine:
+                mode = self._resolve_join_mode(my_idx, 1 + len(active))
+                if mode == "Butt" or not active:
                     continue
 
-                other, other_ep = mine[0]
+                other, other_ep = active[0]
                 o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
                 cross = (my_idx == other_ep)
                 if cross:
@@ -1569,16 +1680,20 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 "wedge": (wedge[0], wedge[1]),
                 "partners": (partners[0], partners[1]),
                 "hosts": (hosts[0], hosts[1]),
-                "tee_union": (tee_union[0], tee_union[1]), "pool": pool}
+                "tee_union": (tee_union[0], tee_union[1]), "pool": pool,
+                "union_wedge": (union_wedge[0], union_wedge[1]),
+                "seams": tuple(seams)}
 
     def _tee_cope_corners(self, my_idx: int, my_pt: QPointF, host,
-                          quad, max_miter: float):
+                          quad, max_miter: float, far: bool = False):
         """Cope an endpoint that tees into *host* mid-span.
 
         Both of this wall's face lines are intersected with the host's
         *near* face (the face on this wall's body side), so the end hugs
         the host face at any angle.  Works for endpoints on the host
         centerline (tee snap) and for legacy endpoints snapped to the face.
+        With *far* the host's other face is used instead, so a wall that
+        another wall stops on runs across that wall's end.
 
         Returns ``(int_left, int_right)`` or ``None`` (ref on the host
         centerline, parallel faces, or miter beyond the clamp).
@@ -1593,6 +1708,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if abs(s_ref) < 1e-9:
             return None    # running along the host — no usable cope
         sign = 1.0 if s_ref > 0 else -1.0
+        if far:
+            sign = -sign
         o_p1l, o_p1r, o_p2r, o_p2l = host.quad_points()
         s_l = hdx * (o_p1l.y() - hay) - hdy * (o_p1l.x() - hax)
         s_r = hdx * (o_p1r.y() - hay) - hdy * (o_p1r.x() - hax)
