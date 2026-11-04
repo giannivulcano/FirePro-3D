@@ -128,18 +128,20 @@ def test_marker_grip_rebuilds_open_scene(mgr):
     assert sc._rebuild_timer.isActive()                                 # scheduled by on_marker_geometry_changed
 
 
-def test_dm_row_label_section_marker_key_unchanged():
+def test_dm_rows_split_elevation_section_detail():
+    """SB4d D7: the one "Section Marker"-labelled row split into three."""
     from firepro3d.display_manager import _CATEGORY_MAP, category_label
-    assert "Elevation Marker" in _CATEGORY_MAP and "Section Marker" not in _CATEGORY_MAP
-    assert category_label("Elevation Marker") == "Section Marker"
+    for key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+        assert key in _CATEGORY_MAP and category_label(key) == key
     assert category_label("Wall") == "Wall"
 
 
 def test_dm_and_paper_display_categorise_section_marker(qapp):
-    from firepro3d.display_manager import _is_elevation_marker
+    from firepro3d.display_manager import _is_elevation_marker, _marker_dm_key
     from firepro3d.paper_display import _category_for_item
     m = SectionMarker("Section 1", QPointF(0, 0), QPointF(100, 0))
-    assert _is_elevation_marker(m) and _category_for_item(m) == "Elevation Marker"
+    assert _is_elevation_marker(m) and _category_for_item(m) == "Section Marker"
+    assert _marker_dm_key(m) == "Section Marker"
 
 
 def test_ribbon_section_button_enters_section_mode(qapp):

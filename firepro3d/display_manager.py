@@ -282,8 +282,10 @@ _CATEGORIES: list[dict] = [
     {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal", "section_type": "Floor Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Grid Line",        "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "Elevation Marker", "label": "Section Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    # SB4d D7: the marker rows act on the LINE only (the heads are annotation blocks).
+    {"key": "Elevation Marker", "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Section Marker",   "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Detail Marker",    "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "2D Geometry",      "color": TOKEN_AUTO, "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
     {"key": "Reference Geometry", "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
 ]
@@ -516,7 +518,8 @@ def _fill_type_icon(layers, registry=None) -> QIcon:
 _CUT_ATTRS = ("_display_section_type", "_display_color", "_display_fill_color",
               "_display_scale", "_fill_mode")
 
-_NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line", "Level Datum"}
+_NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line", "Level Datum",
+                        "Elevation Marker", "Section Marker", "Detail Marker"}
 
 
 def _category_has_scale(key: str) -> bool:
@@ -727,27 +730,27 @@ def _is_floor_slab(item) -> bool:
     return type(item).__name__ == "FloorSlab"
 
 
+def _marker_dm_key(item) -> str | None:
+    """Display Manager row of a view marker (SB4d D7): a cardinal
+    SectionMarker is "Elevation Marker", a placed one "Section Marker", a
+    DetailMarker "Detail Marker"; None for anything else."""
+    if _is_elevation_marker(item):
+        return "Elevation Marker" if getattr(item, "cardinal", None) else "Section Marker"
+    if _is_detail_marker(item):
+        return "Detail Marker"
+    return None
+
+
 def _apply_elevation_marker(marker, color, scale, opacity, visible, fill_color,
                             font_size=None):
-    """Apply display settings to a SectionMarker.
+    """Apply display settings to a SectionMarker (SB4d D7: the line only).
 
-    The marker is a bare QGraphicsItem whose geometry is in scene units, so
-    colour / fill land on its paint fields and the scale is only recorded
-    (``setScale`` would move the cut line about the item origin).
-    """
+    Colour tints the cut line, crop box and arrow (``_marker_color``); the
+    head is an annotation block in its authored colours. *scale*,
+    *fill_color* and *font_size* are accepted for the shared signature and
+    ignored -- stale stored values included."""
     if color:
         marker._marker_color = resolve_colour(color)
-    if fill_color is not None:
-        marker._fill_color = _fill_qcolor(fill_color)
-    marker._display_scale = scale if scale else 1.0
-    if font_size is not None:
-        marker._display_font_size = font_size
-        # Update the label text size if the marker has a label child
-        label = getattr(marker, "_label", None)
-        if label is not None:
-            f = label.font()
-            f.setPointSize(int(font_size))
-            label.setFont(f)
     marker.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     marker.setVisible(visible)
     marker.update()
@@ -755,20 +758,13 @@ def _apply_elevation_marker(marker, color, scale, opacity, visible, fill_color,
 
 def _apply_detail_marker(marker, color, scale, opacity, visible, fill_color,
                          font_size=None):
-    """Apply display settings to a DetailMarker."""
+    """Apply display settings to a DetailMarker (SB4d D7: the line only --
+    crop box and leader); scale / fill / font ignored as for sections."""
     if color:
         marker._tag_color = resolve_colour(color)
         pen = marker.pen()
         pen.setColor(resolve_colour(color))
         marker.setPen(pen)
-    if fill_color is not None:
-        marker._fill_color = _fill_qcolor(fill_color)
-    if scale and scale != 1.0:
-        marker.setScale(scale)
-    elif scale == 1.0:
-        marker.setScale(1.0)
-    if font_size is not None:
-        marker._display_font_size = font_size
     marker.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     marker.setVisible(visible)
     marker.update()
@@ -848,11 +844,34 @@ def _migrate_2d_geometry_auto(settings: QSettings) -> None:
     settings.setValue(_HF1_AUTO_MARK, True)
 
 
+# The single Section Marker row (key "Elevation Marker") split into Elevation
+# / Section / Detail rows (SB4d D7): a store written before seeds the new
+# Section Marker keys from it.
+_SECTION_SPLIT_MARK = "display/_section_marker_split_v1"
+
+
+def _migrate_section_marker_split(settings: QSettings) -> None:
+    """One-shot (SB4d D7): copy ``display/Elevation Marker/*`` (current +
+    ``default_*``) to the absent ``display/Section Marker/*`` keys.
+    Idempotent via a store marker."""
+    if settings.value(_SECTION_SPLIT_MARK):
+        return
+    settings.beginGroup("display/Elevation Marker")
+    legacy = {p: settings.value(p) for p in settings.childKeys()}
+    settings.endGroup()
+    for prop, val in legacy.items():
+        k = f"display/Section Marker/{prop}"
+        if not settings.contains(k):
+            settings.setValue(k, val)
+    settings.setValue(_SECTION_SPLIT_MARK, True)
+
+
 def _migrate_display_keys(settings: QSettings) -> None:
     """Every one-shot display-key migration, in order."""
     _migrate_opening_split(settings)
     _migrate_reference_rename(settings)
     _migrate_2d_geometry_auto(settings)
+    _migrate_section_marker_split(settings)
 
 
 def _project_entry(display_dict: dict, key: str) -> dict:
@@ -865,6 +884,8 @@ def _project_entry(display_dict: dict, key: str) -> dict:
         return display_dict.get("Opening", {})
     if key == "Reference Geometry":
         return display_dict.get("Reference Lines", {})
+    if key == "Section Marker":              # SB4d D7: split from the one marker row
+        return display_dict.get("Elevation Marker", {})
     return {}
 
 
@@ -909,10 +930,8 @@ def apply_category_defaults(item):
         key = "Design Area"
     elif _is_floor_slab(item):
         key = "Floor"
-    elif _is_elevation_marker(item):
-        key = "Elevation Marker"
-    elif _is_detail_marker(item):
-        key = "Detail Marker"
+    elif _is_elevation_marker(item) or _is_detail_marker(item):
+        key = _marker_dm_key(item)
     else:
         return
 
@@ -1090,7 +1109,7 @@ class DisplayManager(HouseDialog):
 
         # Snapshot QSettings for elevation-only categories so cancel can revert
         self._elev_settings_snapshot: dict[str, dict] = {}
-        for key in ("Grid Line", "Level Datum", "Elevation Marker", "Wall", "Roof", "Floor"):
+        for key in ("Grid Line", "Level Datum", "Elevation Marker", "Section Marker", "Wall", "Roof", "Floor"):
             snap: dict = {}
             for prop in ("color", "fill", "section", "section_pattern", "section_scale", "opacity", "visible"):
                 v = self._settings.value(f"display/{key}/{prop}")
@@ -1323,13 +1342,13 @@ class DisplayManager(HouseDialog):
             fill = _fill_or(getattr(item, "_display_fill_color", None),
                             cat_def.get("fill"))
             font = None
-        elif _is_elevation_marker(item):
-            color = (getattr(item, "_marker_color", cat_def["color"])
-                     if not isinstance(getattr(item, "_marker_color", None), QColor)
-                     else item._marker_color.name())
-            fill_c = getattr(item, "_fill_color", None)
-            fill = fill_c.name() if isinstance(fill_c, QColor) else cat_def.get("fill")
-            font = getattr(item, "_display_font_size", cat_def.get("font"))
+        elif _is_elevation_marker(item) or _is_detail_marker(item):
+            # SB4d D7: the marker rows read the LINE colour only; a DetailMarker
+            # reads its _tag_color (no branch read it before -- the divergence).
+            c = getattr(item, "_marker_color" if _is_elevation_marker(item) else "_tag_color", None)
+            color = c.name() if isinstance(c, QColor) else cat_def["color"]
+            fill = None
+            font = None
         else:
             # Generic items (FloorSlab, RoofItem, Room, Node, etc.)
             color = _fill_or(
@@ -2158,7 +2177,7 @@ class DisplayManager(HouseDialog):
 
     # Categories whose display is read from QSettings by the elevation scene
     _ELEV_CATEGORIES = {"Grid Line", "Level Datum", "Elevation Marker",
-                         "Wall", "Roof", "Floor"}
+                         "Section Marker", "Wall", "Roof", "Floor"}
 
     def _apply_preview(self):
         """Apply current dialog state to all scene items (live preview)."""
@@ -2232,7 +2251,7 @@ class DisplayManager(HouseDialog):
         ],
         "Architecture": ["Wall", "Door", "Window", "Opening", "Roof", "Room", "Floor"],
         "Grids & Levels": [
-            "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
+            "Grid Line", "Level Datum", "Elevation Marker", "Section Marker", "Detail Marker",
         ],
         "Drafting": ["Hatch", "Blocks"],
     }
@@ -3227,8 +3246,8 @@ def _items_for_category_static(scene, key: str) -> list:
         return list(getattr(scene, "_rooms", []))
     elif key == "Floor":
         return list(getattr(scene, "_floor_slabs", []))
-    elif key == "Elevation Marker":
-        return [i for i in scene.items() if _is_elevation_marker(i)]
+    elif key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+        return [i for i in scene.items() if _marker_dm_key(i) == key]
     elif key == "2D Geometry":
         items = []
         items.extend(getattr(scene, "_polylines", []))
