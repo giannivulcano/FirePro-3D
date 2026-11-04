@@ -77,6 +77,7 @@ def _assert_shaft_stop(left, down, right):
     assert (HALF, -HALF) in _pts(left) and (-HALF, HALF) in _pts(left)
     assert (HALF, -HALF) in _pts(down) and (-HALF, HALF) in _pts(down)
     assert _stroked(right, HALF, 0.0), "seam on the contact edge"
+    assert not _stroked(down, HALF, 0.0), "the stopper alone owns the seam"
     assert _stroked(right, 800.0, -HALF), "far face kept"
     assert not _stroked(left, 0.0, 0.0), "the L's own mitre stays unlined"
     assert not _stroked(down, 0.0, 0.0), "the L's own mitre stays unlined"
@@ -248,3 +249,33 @@ def test_stop_survives_save_and_reload(qapp, tmp_path):
     stopped = [w for w in fresh._walls if w.outline().seams]
     assert len(fresh._walls) == 3 and len(stopped) == 1
     assert min(x for x, _y in _pts(stopped[0])) == pytest.approx(HALF)
+
+
+def test_one_tallest_wall_stays_a_pie_with_a_solid_low_wall(qapp):
+    s = _ms()
+    walls = [_left(s), _down(s, top_offset=LOW, j1="Solid"),
+             _right(s, top_offset=LOW)]
+    assert _is_pie(*walls)
+    assert not walls[2].outline().seams
+
+
+def _rot(x, y, deg):
+    a = math.radians(deg)
+    return (x * math.cos(a) - y * math.sin(a),
+            x * math.sin(a) + y * math.cos(a))
+
+
+@pytest.mark.parametrize("deg", [17.3, 33.0, 61.7, 123.4, 207.9, 301.1])
+def test_rotated_shaft_keeps_every_body_and_owns_one_seam(qapp, deg):
+    """Float-noisy shared edges: the union must keep all three bodies."""
+    s = _ms()
+    left = _wall(s, _rot(-1500, 0, deg), (0, 0))
+    down = _wall(s, (0, 0), _rot(0, 1500, deg))
+    right = _wall(s, (0, 0), _rot(1500, 0, deg), top_offset=LOW)
+    assert _stroked(left, *_rot(-800, -HALF, deg)), "left far face"
+    assert _stroked(left, *_rot(-800, HALF, deg)), "left near face"
+    assert _stroked(down, *_rot(HALF, 800, deg)), "down far face"
+    assert _stroked(right, *_rot(800, HALF, deg)), "right face"
+    assert _stroked(right, *_rot(HALF, 0, deg)), "seam"
+    assert not _stroked(down, *_rot(HALF, 0, deg)), "stopper owns the seam"
+    assert not _stroked(left, 0.0, 0.0), "no line on the mitre"
