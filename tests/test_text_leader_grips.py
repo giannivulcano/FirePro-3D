@@ -112,15 +112,16 @@ def test_rotate_turns_the_tip_through_the_same_angle_as_the_box(qapp):
     assert math.hypot(tx, ty) == pytest.approx(100.0, abs=1e-6)
 
 
-def test_scale_carries_the_tip_about_the_anchor(qapp):
+def test_a_box_scale_never_moves_the_tip(qapp):
+    """User ruling on review finding 2: scale pins the tip like a move; the
+    old carry-about-the-anchor contract is retired."""
     item = _text()
     b = item.manip_bounds()
     w0 = b.width()
     item.manip_scale(2.0, 1.0, QPointF(b.x(), b.y() + b.height() / 2))   # ML anchor
     assert item.manip_bounds().width() == pytest.approx(w0 * 2.0, abs=1e-3)
-    # x doubles about the box's left edge (x = 0); fy == 1 leaves y alone
-    assert _tip(item)[0] == pytest.approx(160.0, abs=1e-3)
-    assert _tip(item)[1] == pytest.approx(60.0, abs=1e-3)
+    assert _tip(item) == (80.0, 60.0)
+    assert item.data.leader["edge"] == "R"
 
 
 # ── paper: real manipulator path and undo ───────────────────────────────────
@@ -189,6 +190,39 @@ def test_paper_knee_grip_drag_undoes(qapp):
     assert scene.undo_stack.index() == idx0 + 1
     scene.undo_stack.undo()
     assert data.leader == before
+
+
+def test_paper_resize_handle_pins_the_tip_and_the_knee_follows_the_edge(qapp):
+    """The real paper RIGHT resize handle (press, drag, release): the tip does
+    not move, the knee stays on the box's right edge, and undo restores the box."""
+    from PyQt6.QtWidgets import QGraphicsView
+    from firepro3d.manip_math import HandleRole
+    scene, item, data = _paper_text(qapp)
+    view = QGraphicsView(scene)
+    manip = scene._manipulator
+    manip.rebake()
+    box0 = item.manip_bounds()
+    tip0, w0, leader0 = _tip(item), data.wrap_width_mm, dict(data.leader)
+    handle = manip._rigid[HandleRole.RIGHT]
+    start = QPointF(box0.right(), box0.center().y())
+    target = QPointF(start.x() + 15.0, start.y())
+    idx0 = scene.undo_stack.index()
+    manip._begin_handle(handle, start, QPointF(0, 0))
+    manip._moved = True
+    handle.on_drag(manip, target, Qt.KeyboardModifier.NoModifier)
+    manip._finish(target, Qt.KeyboardModifier.NoModifier)      # release: sets the press state, calls on_release
+    assert data.wrap_width_mm == pytest.approx(w0 + 15.0, abs=1e-3)          # the box grew
+    assert _tip(item) == pytest.approx(tip0, abs=1e-9)                       # the tip did not
+    box1 = item.manip_bounds()
+    knee = item.grip_points()[TextItem.LEADER_KNEE_GRIP]
+    assert knee.x() == pytest.approx(box1.right() + data.leader["shoulder_mm"], abs=1e-3)
+    assert data.leader["edge"] == "R"
+    assert scene.undo_stack.index() == idx0 + 1
+    scene.undo_stack.undo()
+    assert data.wrap_width_mm == pytest.approx(w0)
+    assert (data.x, data.y) == pytest.approx((20.0, 20.0))
+    assert data.leader == leader0
+    del view
 
 
 def test_paper_text_box_geom_snapshot_carries_a_copy_of_the_leader(qapp):

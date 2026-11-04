@@ -259,6 +259,7 @@ from . import crisp_stroke as _cs                                   # noqa: E402
 from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
     DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM, TEXT_LEADER_BOUNDS_PAD_MM,
+    TEXT_LEADER_HIT_PX,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_CARET_WIDTH_PX, TEXT_HEIGHT_MM_PRECISION, TEXT_METRIC_REF_PX,
     TEXT_SELECTION_ALPHA,
@@ -267,6 +268,7 @@ from .colour_tokens import is_token, normalize_colour, resolve_colour  # noqa: E
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
 from .scale_manager import DisplayUnit, ScaleManager                # noqa: E402
+from . import text_leader as _tl                                   # noqa: E402
 
 
 # ── Height display / parse helpers (one home; text-sizing-wrap D2) ─────────
@@ -799,7 +801,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         path.lineTo(l, t + rad); path.closeSubpath()
         return path
 
-    def _frame_pen(self) -> "QPen":
+    def _frame_pen(self, weight: "str | None" = None,
+                   line_type: "str | None" = None) -> "QPen":
         """Pen for the border: text colour + line-type, aligned with the sibling
         2D primitives.
 
@@ -810,20 +813,27 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         Lines -> 1 px).
         On the paper surface the true named mm weight is used (divided by scale
         like the other paper pens) so the border still plots at its real width.
+
+        Args:
+            weight: Named weight to use instead of ``border_weight`` (the
+                leader's own); None keeps the border's.
+            line_type: Line type to use instead of ``border_line_type``.
         """
+        weight = self._data.border_weight if weight is None else weight
+        line_type = self._data.border_line_type if line_type is None else line_type
         pen = QPen(resolve_colour(self._data.color, item=self))
         pen.setStyle({
             "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
             "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
-        }.get(self._data.border_line_type, Qt.PenStyle.SolidLine))
+        }.get(line_type, Qt.PenStyle.SolidLine))
         if self.is_device_independent():
             from .paper_display import resolve_line_weight_mm
             scale = self.scale() or 1.0
-            pen.setWidthF(max(resolve_line_weight_mm(self._data.border_weight) / scale, 1e-4))
+            pen.setWidthF(max(resolve_line_weight_mm(weight) / scale, 1e-4))
         else:
             from .paper_display import canvas_px_for_weight
             pen.setCosmetic(True)
-            pen.setWidthF(canvas_px_for_weight(self._data.border_weight))
+            pen.setWidthF(canvas_px_for_weight(weight))
         return pen
 
     def boundingRect(self) -> QRectF:
@@ -858,30 +868,39 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if not lp.isEmpty():
             from PyQt6.QtGui import QPainterPathStroker
             st = QPainterPathStroker()
-            st.setWidth(TEXT_LEADER_BOUNDS_PAD_MM / (self.scale() or 1.0))
+            st.setWidth(self._leader_hit_mm() / (self.scale() or 1.0))
             path.addPath(st.createStroke(lp))
         if self._angle != 0.0:
             path = self._rotation_transform().map(path)
         return path
 
+    def _leader_hit_mm(self) -> float:
+        """Width of the leader's hit strip in surface mm: ~10 screen px at the
+        view's zoom, as the 2D primitives (``scene_hit_width``)."""
+        from .view_scale import scene_hit_width
+        return scene_hit_width(self, TEXT_LEADER_HIT_PX, TEXT_LEADER_BOUNDS_PAD_MM)
+
     def _leader_rect_local(self) -> "QRectF | None":
-        """The leader's extent in item-local units, padded for its end."""
-        from .text_leader import box_frame_points
-        pts = box_frame_points(self)
+        """The leader's extent in item-local units: the stroke, padded to hold
+        the hit strip, united with the bounds of its End blocks."""
+        pts = _tl.box_frame_points(self)
         if pts is None:
             return None
         s = self.scale() or 1.0
         xs = [p.x() / s for p in pts]
         ys = [p.y() / s for p in pts]
-        pad = TEXT_LEADER_BOUNDS_PAD_MM / s
-        return QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)).adjusted(
+        pad = max(TEXT_LEADER_BOUNDS_PAD_MM, self._leader_hit_mm() / 2.0) / s
+        r = QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)).adjusted(
             -pad, -pad, pad, pad)
+        er = _tl.ends_extent(self)           # box frame mm -> local units
+        if er is not None:
+            r = r.united(QRectF(er.x() / s, er.y() / s, er.width() / s, er.height() / s))
+        return r
 
     def _leader_path_local(self) -> QPainterPath:
         """The leader polyline, item-local unrotated (hit test, before rotation)."""
-        from .text_leader import box_frame_points
         path = QPainterPath()
-        pts = box_frame_points(self)
+        pts = _tl.box_frame_points(self)
         if pts is not None:
             s = self.scale() or 1.0
             a, k, tip = (QPointF(p.x() / s, p.y() / s) for p in pts)
@@ -1038,11 +1057,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         from . import end_render as _er
         from .hatch_render import _device_scale
         from .linetype_render import printed_factor
-        from .path_walk import Seg
-        from .stroke_style import resolve_ends
-        from .text_leader import box_frame_points, style_record
-        a, k, tip = box_frame_points(self)
-        pieces = (Seg(a.x(), a.y(), k.x(), k.y()), Seg(k.x(), k.y(), tip.x(), tip.y()))
+        pieces = _tl.leader_pieces(self)
         s = self.scale() or 1.0
         painter.save()
         painter.scale(1.0 / s, 1.0 / s)
@@ -1050,27 +1065,23 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         args = self._lt_args()
-        ends = resolve_ends(style_record(self._data.leader, self._data.color), None,
-                            self._tile_registry())
+        ends = _tl.leader_ends(self)
         ff = printed_factor(**args)
         sf = _er.screen_factor(paper_scale=args["paper_scale"], role=args["role"],
                                device_scale=_device_scale(painter))
         trims = _er.end_trims(ends, printed=ff, screen=sf)
         painter.drawPath(_er.trimmed_path(pieces, *trims))
-        _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf,
-                       scene=self.scene())
+        drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf,
+                              scene=self.scene())
+        if sf is not None:           # a paper pass never touches the mark (ET1 spec C)
+            _er.mark_screen_ends(self, drew)
         painter.restore()
 
     def _leader_pen(self, s: float) -> "QPen":
-        """The frame pen, with the leader's own weight, in the mm box frame.
-        ``_frame_pen`` works in item-local units, so its width is rescaled."""
-        d = self._data
-        saved = d.border_weight, d.border_line_type
-        d.border_weight, d.border_line_type = (d.leader.get("weight") or saved[0]), "solid"
-        try:
-            pen = QPen(self._frame_pen())
-        finally:
-            d.border_weight, d.border_line_type = saved
+        """The frame pen in the leader's own weight, solid, in the mm box frame.
+        ``_frame_pen`` works in item-local units, so a non-cosmetic width is
+        rescaled by the item scale (the painter is scaled by 1/scale here)."""
+        pen = self._frame_pen(self._data.leader.get("weight") or None, "solid")
         if not pen.isCosmetic():
             pen.setWidthF(pen.widthF() * s)
         return pen
@@ -1379,9 +1390,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         ]
         out = [self.mapToScene(p) for p in local]
         if self._data.leader:
-            from .text_leader import box_frame_points
             s = self.scale() or 1.0
-            _a, k, _t = box_frame_points(self)
+            _a, k, _t = _tl.box_frame_points(self)
             out.append(self.mapToScene(QPointF(k.x() / s, k.y() / s)))
             out.append(QPointF(self._data.leader["tip_x"], self._data.leader["tip_y"]))
         return out
@@ -1454,7 +1464,6 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def _apply_leader_grip(self, index: int, pos: QPointF) -> None:
         """Knee or tip drag (D5): each leaves the other alone."""
-        from .text_leader import solve_knee
         rec = self._data.leader
         if not rec:
             return
@@ -1462,8 +1471,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if index == self.LEADER_TIP_GRIP:
             rec["tip_x"], rec["tip_y"] = pos.x(), pos.y()
         else:
-            from .text_leader import _box_mm, _from_parent
-            rec.update(solve_knee(_box_mm(self), _from_parent(self, pos), rec))
+            rec.update(_tl.solve_knee(_tl._box_mm(self), _tl._from_parent(self, pos), rec))
         self.update()
 
     def shift_leader(self, dx: float, dy: float) -> None:
@@ -1589,12 +1597,6 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._freeze_shrink()          # D6: a manipulator resize turns Shrink OFF
         r = self._box_rect_local()
         a = self.mapFromScene(anchor)
-        rec = self._data.leader
-        tip = None
-        if rec:                        # D7: the tip scales with the box, in the box frame
-            tl = self.mapFromScene(QPointF(rec["tip_x"], rec["tip_y"]))
-            tip = self.mapToScene(QPointF(a.x() + (tl.x() - a.x()) * fx,
-                                          a.y() + (tl.y() - a.y()) * fy))
         left   = a.x() + (r.left()   - a.x()) * fx
         right  = a.x() + (r.right()  - a.x()) * fx
         top    = a.y() + (r.top()    - a.y()) * fy
@@ -1611,9 +1613,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_r.width() if abs(fx - 1.0) > eps else None,
             new_r.height() if abs(fy - 1.0) > eps else None,
         )
-        self.sync_data_from_item()
-        if tip is not None:
-            self._carry_tip(tip)
+        self.sync_data_from_item()      # the tip is pinned: a box scale never moves it
 
     # ── Closed-path protocol (Text is NOT fillable) ─────────────────────────
 

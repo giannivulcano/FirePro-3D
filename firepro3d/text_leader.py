@@ -160,6 +160,54 @@ def surface_stroke_op(item, t: QTransform):
                     ends=(st["start"], st["finish"]))
 
 
+def leader_pieces(item) -> tuple:
+    """The leader's two analytic pieces in the item's box frame (mm), or ()."""
+    pts = box_frame_points(item)
+    if pts is None:
+        return ()
+    from .path_walk import Seg
+    a, k, tip = pts
+    return (Seg(a.x(), a.y(), k.x(), k.y()), Seg(k.x(), k.y(), tip.x(), tip.y()))
+
+
+def leader_ends(item) -> tuple:
+    """``(start, finish)`` resolved ends of *item*'s leader."""
+    from .stroke_style import resolve_ends
+    return resolve_ends(style_record(item.data.leader, item.data.color), None,
+                        item._tile_registry())
+
+
+def ends_extent(item) -> QRectF | None:
+    """Box-frame bounds (mm) of the End blocks on *item*'s leader, or None.
+
+    The twin of ``Geometry2DMixin._ends_rect`` for a stroke that is not a path
+    item: Scale-with-zoom ends at the surface's printed factor, a Fixed-size
+    end on a model canvas at the screen factor for the current zoom, a missing
+    end as the badge pad. A Fixed-size end marks the item (and its scene) for
+    the zoom hook, so a zoom re-prepares the bounds (ET1 spec C).
+    """
+    pieces = leader_pieces(item)
+    if not pieces:
+        return None
+    from . import end_render as _er
+    from .linetype_render import badge_pad_px, printed_factor
+    from .stroke_style import has_ends
+    from .view_scale import scene_hit_width
+    ends = leader_ends(item)
+    if not has_ends(ends):
+        return None
+    a = item._lt_args()
+    unit = scene_hit_width(item, 1.0, 1.0)            # scene units per device px
+    sf = _er.screen_factor(paper_scale=a["paper_scale"], role=a["role"],
+                           device_scale=1.0 / unit)
+    bp = badge_pad_px()
+    r = _er.ends_rect(pieces, ends, printed=printed_factor(**a), screen=sf,
+                      badge=scene_hit_width(item, bp, bp))
+    if sf is not None and _er.has_fixed(ends):
+        _er.mark_screen_ends(item, True)
+    return r
+
+
 def panel_rows(rec: dict | None, registry, exclude=(), fallback_weight: str = "") -> dict:
     """Leader rows: the toggle, plus End and Weight while on (design D6).
 
