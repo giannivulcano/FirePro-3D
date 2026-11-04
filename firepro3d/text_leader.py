@@ -230,13 +230,13 @@ def leader_change(rec, key: str, value, box: QRectF, to_surface: QPointF,
     if key == "Leader":
         if not value:
             return (None,)
-        if not ensure_end_available(DEFAULT_END_ID, scene):
+        if not ensure_end_available(DEFAULT_END_ID, scene, outside_history=True):
             return (False,)
         return (normalise(default_leader(box, to_surface)),)
     if key in ("Leader End", "Leader Weight") and rec:
         out = dict(rec)
         set_panel_row(out, key, value, registry, exclude)
-        if key == "Leader End" and not ensure_end_available(out["end"], scene):
+        if key == "Leader End" and not ensure_end_available(out["end"], scene, outside_history=True):
             return (False,)
         return (out,)
     return (False,)
