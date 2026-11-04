@@ -1,7 +1,7 @@
 ---
 status: built            # ratified 2026-11-04 (grill Q1-Q12 + design approval); D4, D7, D8 amended at smoke
 last-verified: 2026-11-04
-verified-commit: a71e3443
+verified-commit: 820f47c8  # merge on main (v0.85.0)
 applies-to:
   - firepro3d/text_leader.py      # new: pure leader geometry + ops
   - firepro3d/text_item.py        # leader fields, paint, bounds, grips, panel rows

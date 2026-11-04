@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-10-31   # plan-block-constraints Account: C8 amendment pointer only, rest not re-audited; prior 2026-10-29   # SB3 Account: C9 host-bound annotation amendment built for intrinsic labels (pointer only); rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
-verified-commit: ce88ae5a   # plan-block-constraints Account; prior 8be9034a   # SB3 Account; prior db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
+last-verified: 2026-11-04  # text leaders Account: C9 view-owned note amendment pointer only, rest not re-audited; prior 2026-10-31   # plan-block-constraints Account: C8 amendment pointer only, rest not re-audited; prior 2026-10-29   # SB3 Account: C9 host-bound annotation amendment built for intrinsic labels (pointer only); rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: C7/C8 amendment pointers + D6 row only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-22   # gridline-hosted blocks Account: C3 amendment pointer (gridline-scoped instance); prior 2026-10-09 SV4 Account: C2 / C3 / C9 paper pointers to schematics.md D-S2 (pointers only); prior 2026-09-30 nested-blocks account (C3 nested-Blocks clause); prior 2026-09-16
+verified-commit: 820f47c8  # text leaders merge on main (v0.85.0); prior ce88ae5a   # plan-block-constraints Account; prior 8be9034a   # SB3 Account; prior db16090a   # Editor/Build slice 2 Account (pointers only); prior 58769fc5   # Editor/Build design (pointer only); prior d44b0e11   # gridline-hosted blocks Account (C3 pointer only); prior f2a059d6 SV4 Account (pointers only); prior 345f1b7 feat/nested-blocks; prior bf332b2
 applies-to:
   # Cross-subsystem containment contract. Owns the containment INVARIANTS only;
   # each subsystem spec below owns its own mechanics and links up to this doc (Rule A).
@@ -193,6 +193,10 @@ The line between "allowed in the model" and "paper-space only":
 - **Paper only:** **free-drawn linework** and **document annotations** that
   describe the *sheet* — text, dimensions, leaders, revision clouds, match lines,
   legends, keynotes, drawing tags.
+- **Amendment (text leaders, 2026-11-04):** a free note may live in the model when a
+  view instance owns it: a placed Note block with a `note` record, visible only in
+  that plan or detail view. Keynotes and legends stay paper-only until designed.
+  Contract: [design D9](../superpowers/specs/2026-11-04-text-leader-annotations-design.md).
 - **The test:** *"Does it have a meaningful position in the building model?"* →
   model. *"Is it a note about the drawing?"* → paper. (Consequence: a north
   arrow / legend is **paper** content, not a model object — re-read by
