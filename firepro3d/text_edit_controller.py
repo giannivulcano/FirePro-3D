@@ -133,6 +133,8 @@ class TextEditController:
         item._edit_before, item._edit_is_new = None, False
         item.commit_edit()                 # writes _data.text, clears the marker
         item.clearFocus()
+        if getattr(item, "_note_host", None) is not None:
+            return self._commit_note(item, before, is_new)
         if item.is_effectively_empty():
             s._remove_item_from_lists(item)
             # §8 delete cascade, inside the undo step pushed below.
@@ -150,8 +152,33 @@ class TextEditController:
         s.requestPropertyUpdate.emit(item)
         return "committed"
 
+    def _commit_note(self, item, before, is_new) -> str:
+        """End a Note's overlay session: it never reaches an undo snapshot (D13).
+        The empty rules match a Text box: a new empty note is discarded with no
+        step, an existing one emptied is deleted with one."""
+        s = self._scene
+        inst = item._note_host
+        changed = item.data.text != (before or {}).get("text", "")
+        state = s._note_ctl.finish(item)       # removes the overlay before any push
+        if state == "gone":
+            s.requestPropertyUpdate.emit(None)
+            return "committed"
+        if state == "emptied":
+            s.requestPropertyUpdate.emit(None)
+            if is_new:
+                return "discarded"
+            s.push_undo_state()
+            return "committed"
+        if is_new or changed:
+            s.push_undo_state()
+        s.requestPropertyUpdate.emit(inst)
+        return "committed"
+
     def abandon(self, item: TextItem) -> None:
         """End *item*'s session WITHOUT committing (it is being deleted)."""
+        if getattr(item, "_note_host", None) is not None:
+            self._scene._note_ctl.discard_overlay()
+            return
         item._stop_caret_blink()
         item._editing = False
         item._edit_before, item._edit_is_new = None, False
@@ -372,6 +399,10 @@ class TextEditController:
                 event.accept()
                 return True
             return False
+        if s._note_ctl.handle_double_click(pos):      # a Note opens its overlay (D13)
+            self._swallow_release = True
+            event.accept()
+            return True
         target = self.item_at(pos)
         if target is None:
             return False

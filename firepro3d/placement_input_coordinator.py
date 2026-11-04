@@ -644,6 +644,12 @@ class PlacementInputCoordinator:
             # depth HUD steps.
             a = self._scene._draw_rect_anchor
             return QPointF(a) if a is not None else None
+        if self._scene.mode == "note":
+            # Note box: the first corner. A tab change must tear a note in
+            # progress down (MainWindow._on_tab_changed), or it would finish on
+            # the other view.
+            a = self._scene._text_anchor
+            return QPointF(a) if a is not None else None
         if self._scene.mode == "section":
             # Section cut: the first click anchors ALIGN's H/V rays (spec s9).
             a = self._scene._section_anchor

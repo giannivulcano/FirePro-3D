@@ -610,6 +610,8 @@ class BlockEditorWidget(QWidget):
                 it.translate(dx, dy)
             else:
                 it.manip_translate(dx, dy)     # TextItem (no translate())
+                if hasattr(it, "shift_leader"):
+                    it.shift_leader(dx, dy)    # rigid whole-definition shift: carries the tip (D7)
 
     def _rebaseline_undo(self) -> None:
         """Make the current editor state the undo baseline (index 0)."""

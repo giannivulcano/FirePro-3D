@@ -86,6 +86,7 @@ class Model_View(QGraphicsView):
             "water_supply":           _C.CrossCursor,
             "dimension":              _C.CrossCursor,
             "text":                   _C.CrossCursor,
+            "note":                   _C.CrossCursor,
             "set_scale":              _C.CrossCursor,
             "trim":                   _C.CrossCursor,
             "trim_pick":              _C.CrossCursor,

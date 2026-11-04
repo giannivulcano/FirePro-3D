@@ -66,18 +66,11 @@ def resolve_annotation_block(scene, category: str, mapped: str, *, fallback: boo
     Returns:
         ``(block id or None, notice text or None)``.
     """
-    from . import block_library
     from .system_blocks import SYSTEM_DEFAULTS
     default = SYSTEM_DEFAULTS.get(category, "") if fallback else ""
     for bid in (b for b in dict.fromkeys((mapped, default)) if b):
-        d = scene._block_definitions.get(bid)
-        if d is None:
-            found = block_library._find_by_id(bid, None)
-            path = found[3]["path"] if found is not None else None
-            cand = block_library.load_block_file(path) if path is not None else None
-            if cand is not None and eligible_definition(cand, category):   # never embed an ineligible file
-                scene.load_blocks_outside_history([path])
-                d = scene._block_definitions.get(bid)
+        d = scene.ensure_system_block(            # never embeds an ineligible file
+            bid, lambda cand: eligible_definition(cand, category))
         if d is not None and eligible_definition(d, category):
             if bid == mapped:
                 return bid, None

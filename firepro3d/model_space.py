@@ -83,6 +83,7 @@ from .wall_placement_controller import WallPlacementController
 from .modify_tools_controller import ModifyToolsController, flip_refusal_targets
 from .feature_placement_controller import FeaturePlacementController
 from .text_edit_controller import TextEditController
+from .note_controller import NoteController
 from .network_codec import (
     serialize_node, serialize_pipe,
     serialize_note, serialize_water_supply, serialize_design_area,
@@ -100,6 +101,11 @@ _LOOSE_AUTHORING_MODES = frozenset({
 # Status hint shown when an authoring/modify mode is refused because the
 # canvas shows no view (view-3d.md §10 I5).
 NO_VIEW_HINT = "Open a view from the Project Browser"
+
+# Status hint shown when the Note tool is refused: a Note is owned by one plan or
+# detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
+NOTE_OFF_HINT = "Notes can be placed on plan and detail views"
+NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
 
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
@@ -235,6 +241,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._paste_payload = None  # armed clipboard payload while in "paste" (D5)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
+        self._note_ctl = NoteController(self)           # Note placement + edit overlay (D13)
         # Selection dimension readouts (selection-mode §15). Composed before
         # anything can emit selectionChanged/modeChanged/changed.
         from .selection_readouts import SelectionReadoutController
@@ -673,6 +680,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
         self._in_undo_restore: bool = False
+        # ``(old, new)`` when the level restore in flight was a pure rename (same
+        # count, one name gone, one added); set only around ``levelsRestored``.
+        self.last_level_rename: "tuple[str, str] | None" = None
         self.init_preview_node()
         self.init_preview_pipe()
         self._suppress_preview_node = False  # True while the crosshair owns the cursor
@@ -1167,6 +1177,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).
             return
+        if mode == "note" and not self.note_allowed():
+            # Notes are view-owned (design D9 / D11): plan and detail canvases only.
+            self.instructionChanged.emit(NOTE_OFF_HINT)
+            return
         if (isinstance(mode, str) and mode.startswith("constrain_")
                 and not self.constraint_ctl.enabled):
             # Constraint pick modes need a constraint-capable scene (Block
@@ -1187,8 +1201,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # commit_reflect re-checks.
             return
         if mode == "place_block" and isinstance(template, str):
-            from .capabilities import place_refusal
-            reason = place_refusal(self.get_block_definition(template))
+            from .capabilities import pick_refusal
+            reason = pick_refusal(self.get_block_definition(template))
             if reason is not None:
                 # hatch D-A34 / LT3-2 / LT5 Q12: a pattern fills regions, a
                 # linetype styles lines, an end type finishes them - never a
@@ -1309,7 +1323,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # the per-primitive "keep if staying in that mode" guards live inside
         # clear(). Text/dimension teardown stays inline below (other concerns).
         self._geom_ctl.clear(mode)
-        if mode != "text":
+        if mode not in ("text", "note"):
             self._text_anchor = None
             if self._text_preview is not None:
                 if self._text_preview.scene() is self:
@@ -1524,6 +1538,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
             "text":           "Pick first corner",
+            "note":           "Pick first corner",
             "set_scale":      "Pick first calibration point",
             "move":           "Pick base point",
             "copy_base":      "Pick base point",
@@ -1847,6 +1862,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Resolve a BlockDefinition by id (the BlockInstance resolver)."""
         return self._block_registry.get(block_id)
 
+    def ensure_system_block(self, block_id: str, accept=None):
+        """The project definition of System block *block_id*, embedding it from
+        the System tier / library roots when the project lacks it.
+
+        A file hit is embedded outside undo (``load_blocks_outside_history``,
+        SB3 D-C) and only when *accept* (a predicate on the loaded candidate;
+        None = always) says so, so an ineligible file is never embedded.
+
+        Returns:
+            The ``BlockDefinition``, or None when it is neither in the project
+            nor found (or accepted) on disk.
+        """
+        from . import block_library
+        d = self._block_definitions.get(block_id)
+        if d is None:
+            found = block_library._find_by_id(block_id, None)
+            path = found[3]["path"] if found is not None else None
+            cand = block_library.load_block_file(path) if path is not None else None
+            if cand is not None and (accept is None or accept(cand)):
+                self.load_blocks_outside_history([path])
+                d = self._block_definitions.get(block_id)
+        return d
+
     def _on_block_definitions_changed(self) -> None:
         """Registry version = the annotation memo's life: drop the memo and
         re-shape every intrinsic label (their bounds rect is cached, so a changed
@@ -2083,8 +2121,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Live primitives (plan + open editors) naming *block_id* as an
         explicit end (LT5 Q13); By Linetype users count via their linetype."""
         from .block_registry import end_users_in
-        return sum(len(end_users_in(sc, block_id))
-                   for _label, sc in self._user_scenes())
+        n = sum(len(end_users_in(sc, block_id))
+                for _label, sc in self._user_scenes())
+        # Sheet text lives on the sheets, which no user scene reaches: count the
+        # annotations whose leader End is *block_id* (text-leader-annotations).
+        for sheet in getattr(self, "_sheets", None) or []:
+            for ann in getattr(sheet, "annotations", ()):
+                if (getattr(ann, "leader", None) or {}).get("end") == block_id:
+                    n += 1
+        return n
 
     def end_off_refusal(self, block_id) -> "str | None":
         """Why an end type can't stop being one (LT5 Q12): lines use it.
@@ -2809,7 +2854,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None, mirrored: bool = False,
                              scale: float = 1.0, level_offset_mm: float = 0.0,
-                             host: dict | None = None):
+                             host: dict | None = None, note: dict | None = None):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2827,7 +2872,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             host: Gridline host record (hosted-blocks D2); pos is then derived
                 from it. An unresolved gridline places nothing and returns
                 None.
+            note: A Note record (text-leader-annotations D8): owning view, box
+                and leader. None for every ordinary block.
         """
+        import copy
         from .block_instance import BlockInstance
         if host:
             from .hosted_blocks import ppm_of, scene_pos, valid_host
@@ -2850,6 +2898,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst.set_block_scale(scale)
         if overrides:
             inst.set_overrides(overrides)
+        if note:
+            from .constants import Z_NOTE
+            inst.note = copy.deepcopy(note)
+            inst.setZValue(Z_NOTE)
         if host:
             inst.host = dict(host)
             inst.setVisible(False)   # hosted: section-only from birth (D11); LevelManager keeps it so
@@ -2891,8 +2943,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         for b in self.hosted_blocks_on(gl):
             b.host["along_mm"] = float(b.host["along_mm"]) - da
 
+    def editing_note(self):
+        """The Note instance whose edit overlay is live, or None (D13)."""
+        return self._note_ctl.host
+
     def remove_block_instance(self, inst) -> None:
         """Remove a BlockInstance from the scene and registry backref."""
+        if inst is self._note_ctl.host:
+            self._note_ctl.discard_overlay(delete_new=False)   # its editor goes with it
         if inst.scene() is self:
             self.removeItem(inst)
         if inst in self._block_instances:
@@ -3556,6 +3614,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
+        self._note_ctl.discard_overlay()      # a live Note overlay's host dies below
         # Every item below is rebuilt from the snapshot, so a HALO candidate is
         # now a detached object at its pre-restore geometry — drop it (and
         # repaint) or drawForeground paints a ghost outline there until the
@@ -3886,10 +3945,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             # ── Level list, plan views, active level, underlay levels (SB2b M15) ──
             lm = self._level_manager
+            level_rename = None
             if "levels" in state and lm is not None:
                 before = lm.to_list()
                 lm.from_list(state["levels"])
                 levels_restored = lm.to_list() != before
+                gone = {l["name"] for l in before} - {l["name"] for l in state["levels"]}
+                added = {l["name"] for l in state["levels"]} - {l["name"] for l in before}
+                if len(before) == len(state["levels"]) and len(gone) == len(added) == 1:
+                    level_rename = (next(iter(gone)), next(iter(added)))    # that step was a rename
             pvm = self._plan_view_manager
             if "plan_views" in state and pvm is not None:
                 before_pv = pvm.to_list()
@@ -3915,7 +3979,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         finally:
             self._in_undo_restore = False
         if levels_restored:
-            self.levelsRestored.emit()      # listeners see a settled scene
+            self.last_level_rename = level_rename
+            try:
+                self.levelsRestored.emit()      # listeners see a settled scene
+            finally:
+                self.last_level_rename = None
 
     def commit_text_edit(self) -> "str | None":  # shell → TextEditController
         """End any live inline text edit on this scene (idempotent).
@@ -5554,6 +5622,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "text":                     "_move_text",
+        "note":                     "_move_text",
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
@@ -6195,13 +6264,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
         "wall", "floor", "floor_opening", "roof", "roof_rect", "opening", "door", "window",
-        "text",
+        "text", "note",
     })
 
     _ALIGN_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle", "draw_ellipse",
         "draw_arc", "draw_spline", "polyline", "polygon", "pipe", "sprinkler",
-        "text", "place_block", "set_scale", "water_supply", "design_area",
+        "text", "note", "place_block", "set_scale", "water_supply", "design_area",
         "wall", "floor", "floor_opening", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail", "section",
         "gridline_offset", "gridline_array",
@@ -6216,6 +6285,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "pipe":                     "_press_pipe",
         "set_scale":                "_press_set_scale",
         "text":                     "_press_text",
+        "note":                     "_press_note",
         "draw_arc":                 "_press_draw_arc",
         "draw_gridline":            "_press_draw_line",
         "water_supply":             "_press_water_supply",
@@ -6567,19 +6637,47 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._cal_point1 = None
             self.set_mode(None)
 
+    def _begin_text_box(self, snapped) -> None:
+        """First click of a two-corner text box (Text and Note): set the anchor
+        and create the dashed preview rectangle."""
+        self._text_anchor = snapped
+        self.update_preview_node(snapped)
+        preview = QGraphicsRectItem(QRectF(snapped, snapped))
+        _prev_pen = QPen(resolve_colour(TOKEN_AUTO), 2, Qt.PenStyle.DashLine)
+        _prev_pen.setCosmetic(True)
+        preview.setPen(_prev_pen)
+        preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        preview.setZValue(200)
+        self.addItem(preview)
+        self._text_preview = preview
+
+    def _join_active_view(self, inst) -> None:
+        """Make the copied Note *inst* belong to the active view, on the active
+        level, so its view key and its level agree in the data (D9)."""
+        inst.note["view"] = self.active_view_key
+        inst.level = self.active_level
+
+    def note_allowed(self) -> bool:
+        """Whether this canvas can hold a Note: a plan scene showing a plan or
+        detail view (design D11)."""
+        return (self.scene_role == "plan"
+                and self.active_view_key.partition(":")[0] in ("plan", "detail"))
+
+    def _press_note(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._text_anchor is None:
+            self._begin_text_box(snapped)
+            return
+        rect = QRectF(self._text_anchor, snapped).normalized()
+        if self._text_preview is not None:
+            self.removeItem(self._text_preview)
+            self._text_preview = None
+        self._text_anchor = None
+        self._note_ctl.place(rect)
+
     def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._text_anchor is None:
             # First click — set anchor, create dashed preview rectangle
-            self._text_anchor = snapped
-            self.update_preview_node(snapped)
-            preview = QGraphicsRectItem(QRectF(snapped, snapped))
-            _prev_pen = QPen(resolve_colour(TOKEN_AUTO), 2, Qt.PenStyle.DashLine)
-            _prev_pen.setCosmetic(True)
-            preview.setPen(_prev_pen)
-            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            preview.setZValue(200)
-            self.addItem(preview)
-            self._text_preview = preview
+            self._begin_text_box(snapped)
         else:
             # Second click — commit text box at the DRAGGED size (width AND
             # height), mirroring rectangle placement.  Previously only the width
@@ -7642,8 +7740,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         pose (rotation + flips) and re-arm."""
         if self._place_block_id is None:
             return
-        from .capabilities import place_refusal
-        reason = place_refusal(
+        from .capabilities import pick_refusal
+        reason = pick_refusal(
             self.get_block_definition(self._place_block_id))
         if reason is not None:
             # hatch D-A34 / LT3-2 / LT5 Q12: the block became a capability
@@ -9181,6 +9279,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn = self.get_block_definition(d.get("block_id"))
             if defn is None or place_refusal(defn) is not None:
                 return None
+            if d.get("note") and not self.note_allowed():
+                self._show_status(NOTE_PASTE_REFUSED)
+                return None
             p = d.get("pos", [0.0, 0.0])
             inst = self.place_block_instance(
                 d["block_id"], (p[0], p[1]),
@@ -9188,6 +9289,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if inst is None:
                 return None
             inst.attributes = dict(d.get("attributes", {}))
+            if inst.note is not None:
+                self._join_active_view(inst)               # the copy joins this view (spec)
             return inst
         entry = self._GEOM_TYPE_REGISTRY.get(d.get("type", ""))
         if entry is None:
@@ -9354,6 +9457,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         item.translate(offset.x(), offset.y())
                     else:
                         item.manip_translate(offset.x(), offset.y())
+                        if hasattr(item, "shift_leader"):
+                            item.shift_leader(offset.x(), offset.y())   # a copy is rigid: D7
                     new_items.append(item)
                 continue
             if obj_type == "node":
@@ -9439,6 +9544,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     # became a pattern / linetype / end type / schematic since the copy
                     pattern_skipped += 1
                     skip_reason = _why
+                elif obj.get("note") and not self.note_allowed():
+                    # a Note belongs to one plan / detail view (D9 / D11): refuse here
+                    pattern_skipped += 1
+                    skip_reason = NOTE_PASTE_REFUSED
                 elif _d is not None:
                     from .block_instance import BlockInstance
                     inst = self.place_block_instance(
@@ -9448,6 +9557,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     if inst is None:
                         continue
                     inst.attributes = dict(obj.get("attributes", {}))
+                    if inst.note is not None:
+                        self._join_active_view(inst)                    # the copy joins this view
+                        inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
                     inst.setSelected(True)
                     if obj.get("uid"):
                         uid_map[obj["uid"]] = inst._uid

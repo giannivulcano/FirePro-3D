@@ -838,11 +838,15 @@ class SelectionManipulator(QGraphicsObject):
             return []
         item_handles = []
         any_provider = False
+        extras = []
         for it in self._items:
             fn = getattr(it, "manip_handles", None)
             if fn is not None:
                 any_provider = True
                 item_handles.extend(fn())
+            more = getattr(it, "manip_extra_handles", None)
+            if more is not None:             # additive: the rigid set stays (a Note's grips)
+                extras.extend(more())
         # An item that *declares* manip_handles is authoritative — honour its
         # (possibly EMPTY) set. A read-only elevation proxy returns [] to get the
         # frame with zero editing handles (design decision #4); returning the
@@ -850,8 +854,8 @@ class SelectionManipulator(QGraphicsObject):
         # The rigid fallback applies only when NO selected item provides handles
         # (e.g. a Node / sprinkler, which is translate-only via pos()).
         if any_provider:
-            return item_handles
-        return list(self._rigid.values())
+            return item_handles + extras
+        return list(self._rigid.values()) + extras
 
     def _sync_host_pool(self, handles: list) -> None:
         """Ensure one _HandleItem host per widget-less handle (stub/U3). The
@@ -1075,6 +1079,21 @@ class SelectionManipulator(QGraphicsObject):
         self.setTransform(self._B0)
         for it, _s0, _inv, t0 in self._items0:
             it.setTransform(t0)
+        self._hold_pinned_grips(self._B0)
+
+    def _hold_pinned_grips(self, frame: QTransform) -> None:
+        """Keep a pinned grip (a leader tip, D7) on its point while the frame
+        holds *frame*: its host is a child of this item, so it would ride along."""
+        inv, ok = frame.inverted()
+        if not ok:
+            return
+        for host in self._host_pool:
+            h = host.handle
+            fn = getattr(getattr(h, "item", None), "grip_pinned", None)
+            if fn is not None and host.isVisible() and fn(h.index):
+                pts = h.item.grip_points()
+                if h.index < len(pts):       # a host left stale by a leader turned off
+                    host.setPos(inv.map(pts[h.index]))
 
     def _resize_cursor(self, role: HandleRole) -> QCursor:
         return self._cursor_for(role)
@@ -1184,8 +1203,14 @@ class SelectionManipulator(QGraphicsObject):
         if self._anchored_only:
             return                      # nothing movable: the box stays put too
         self.setTransform(self._B0 * d)
-        for it, s0, s0_inv, t0 in self._items0:
-            it.setTransform(s0 * d * s0_inv * t0)
+        for it, _s0, _inv, t0 in self._items0:
+            # Qt composes an item as scale/rotation -> transform() -> pos -> parent,
+            # so d conjugates by the frame AFTER transform(); going through
+            # sceneTransform() would count a Qt scale (TextItem) as well.
+            q = it.parentItem().sceneTransform() if it.parentItem() is not None else QTransform()
+            q = QTransform.fromTranslate(it.x(), it.y()) * q
+            it.setTransform(t0 * q * d * q.inverted()[0])
+        self._hold_pinned_grips(self._B0 * d)
 
     def _finish(self, scene_pos: QPointF, mods: Qt.KeyboardModifier) -> None:
         if self._mode is None:

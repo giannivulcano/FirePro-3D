@@ -89,6 +89,26 @@ def place_refusal(defn) -> str | None:
     return capability_place_reason(defn)
 
 
+NOTE_PICK_REASON = "A Note is placed with the Note tool, not as a symbol"
+
+
+def pick_refusal(defn) -> str | None:
+    """Why *defn* can't be picked for placement or nesting, or None.
+
+    :func:`place_refusal` plus the Note block: a Note is a view-owned instance
+    (``note`` record) made only by the Note tool, so placing it as a plain symbol
+    from the Blocks browser, a drag or a nest would make a Note-less block. Used
+    at the PICK entry points only; ``place_refusal`` itself also guards the paste
+    paths, which must keep copying notes.
+    """
+    why = place_refusal(defn)
+    if why is None:
+        from .system_blocks import NOTE_BLOCK_ID
+        if getattr(defn, "id", None) == NOTE_BLOCK_ID:
+            return NOTE_PICK_REASON
+    return why
+
+
 def with_article(kind: str) -> str:
     """The kind's message noun with its indefinite article.
 
@@ -205,7 +225,8 @@ def capability_needs_load(ref, scene, folder_fn, *, keywords=()) -> bool:
     return any(bid == ref for _name, bid, _path in folder_fn())
 
 
-def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
+def ensure_capability_available(ref, scene, folder_fn, *, keywords=(),
+                                outside_history: bool = False) -> bool:
     """Load a folder block into the project before its id is stored.
 
     A keyword, an id already in the project registry, or a ref no folder
@@ -218,6 +239,11 @@ def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
         scene: The scene the picked value lives in (plan or Block Editor).
         folder_fn: Zero-arg callable -> ``[(name, block_id, path)]``.
         keywords: Refs that are never block ids (nothing to load).
+        outside_history: Embed the block as part of the undo BASELINE
+            (``load_blocks_outside_history``, no undo step) instead of one
+            undoable batch. For a ref a separate undo stack also holds (a sheet
+            text's leader End): undoing the load would drop the definition
+            under a live user.
 
     Returns:
         False only when *ref* is a folder block that failed to load (the
@@ -228,6 +254,9 @@ def ensure_capability_available(ref, scene, folder_fn, *, keywords=()) -> bool:
     project = getattr(scene, "_block_registry_owner", None) or scene
     for name, bid, path in folder_fn():
         if bid == ref:
+            if outside_history:
+                project.load_blocks_outside_history([path])
+                return project.block_registry.get(bid) is not None
             from .blocks_browser import ensure_block_loaded
             return ensure_block_loaded(project, bid, path, name) == bid
     return True
@@ -285,12 +314,14 @@ def end_ref_from_value(value, registry=None, exclude=()) -> str | None:
     return ref if ref is not None else end_from_label(v)
 
 
-def ensure_end_available(ref, scene) -> bool:
+def ensure_end_available(ref, scene, *, outside_history: bool = False) -> bool:
     """Load an End Types folder end into the project before its id is stored.
 
     Args:
         ref: The picked end value (an id or an end keyword).
         scene: The scene the picked line lives in (plan or Block Editor).
+        outside_history: Load outside undo (see ``ensure_capability_available``);
+            the leader path sets it, open primitives keep the undoable batch.
 
     Returns:
         False only when *ref* is a folder end that failed to load (the
@@ -298,4 +329,5 @@ def ensure_end_available(ref, scene) -> bool:
     """
     from .stroke_style import END_KEYWORDS
     return ensure_capability_available(ref, scene, _folder_ends,
-                                       keywords=END_KEYWORDS)
+                                       keywords=END_KEYWORDS,
+                                       outside_history=outside_history)

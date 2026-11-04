@@ -7,6 +7,8 @@ exploded item (design DD9); see ``block_pose``.
 
 from __future__ import annotations
 
+import math
+
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 
@@ -130,6 +132,60 @@ def _text_centre(rec) -> QPointF:
     ``text_frame`` centre: ``grip_points()[8]`` of the un-posed item)."""
     from .text_item import TextItem
     return TextItem.from_dict(rec).grip_points()[8]
+
+
+def _leader_def_points(rec):
+    """``(attach, knee, tip)`` of a text record's leader in the definition
+    frame (what a placement's leader op maps), or None when it has none."""
+    from .text_item import TextItem
+    from .text_leader import _to_parent, box_frame_points
+    item = TextItem.from_dict(rec)
+    if not item.data.leader:
+        return None
+    a, k, _t = box_frame_points(item)
+    return (_to_parent(item, a), _to_parent(item, k),
+            QPointF(item.data.leader["tip_x"], item.data.leader["tip_y"]))
+
+
+def _seat_leader(item, inst, pts, ox, oy) -> None:
+    """Make an exploded text's leader draw what the placement drew.
+
+    Attach, knee and tip go through the instance's full pose (mirror, scale,
+    rotation). The box does not mirror on explode, so the pose image of the
+    attach point is re-expressed on the exploded box: its nearest edge, the
+    fraction along it, and the shoulder length (the placement's shoulder
+    leaves the reflected edge at a right angle, so it leaves the same
+    rectangle's edge here).
+
+    Args:
+        item: The posed exploded ``TextItem``.
+        inst: The instance being exploded.
+        pts: ``(attach, knee, tip)`` of the definition record, definition frame.
+        ox: Definition origin x.
+        oy: Definition origin y.
+    """
+    from .text_leader import _box_mm, _from_parent
+    from .constants import TEXT_LEADER_MIN_SHOULDER_MM
+    m = inst.full_pose_transform()
+    a, k, tip = (m.map(QPointF(p.x() - ox, p.y() - oy)) for p in pts)
+    box = _box_mm(item)
+    ab, kb = _from_parent(item, a), _from_parent(item, k)
+    dist = {"L": abs(ab.x() - box.left()), "R": abs(ab.x() - box.right()),
+            "T": abs(ab.y() - box.top()), "B": abs(ab.y() - box.bottom())}
+    # The shoulder leaves its edge at a right angle, so its direction names the
+    # edge (a corner attach ties on distance); distance only breaks a tie.
+    sx, sy = kb.x() - ab.x(), kb.y() - ab.y()
+    normal = {"L": (-1.0, 0.0), "R": (1.0, 0.0), "T": (0.0, -1.0), "B": (0.0, 1.0)}
+    edge = min(normal, key=lambda e: (-(normal[e][0] * sx + normal[e][1] * sy), dist[e]))
+    span, pos = ((box.height(), ab.y() - box.top()) if edge in ("L", "R")
+                 else (box.width(), ab.x() - box.left()))
+    rec = item.data.leader
+    item.prepareGeometryChange()
+    rec["edge"] = edge
+    rec["t"] = 0.5 if span <= 0.0 else max(0.0, min(1.0, pos / span))
+    rec["shoulder_mm"] = max(TEXT_LEADER_MIN_SHOULDER_MM,
+                             math.hypot(kb.x() - ab.x(), kb.y() - ab.y()))
+    rec["tip_x"], rec["tip_y"] = tip.x(), tip.y()
 
 
 def _scaled_text_record(rec, s: float) -> dict:
@@ -290,6 +346,7 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 continue   # non-printed reference line: scaffolding (D23)
             is_text = rec.get("type") == _TEXT_TYPE
             keep = False
+            lead_pts = None
             if is_text:
                 # Bound text explodes to the box it was drawn in: the hugged
                 # record (box re-fit round the value, re-anchored), then the
@@ -303,6 +360,7 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 rec["text"] = value
                 keep = bool(rec.pop("keep_upright", False))
                 c_def = _text_centre(rec)
+                lead_pts = _leader_def_points(rec)
                 if s != 1.0:
                     rec = _scaled_text_record(rec, s)
             item = scene._add_from_dict(rec)
@@ -315,6 +373,8 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 _pose_text(item, inst, c_def, ox, oy)
                 if keep and not inst.block_mirrored() and not is_upright(item._angle):
                     item.manip_rotate(180.0, item.grip_points()[8])
+                if lead_pts is not None and item.data.leader:
+                    _seat_leader(item, inst, lead_pts, ox, oy)      # D7
                 created.append(item)
                 continue
             pose_primitive(item, pose, ox, oy)

@@ -34,6 +34,7 @@ Z_OVERLAY        = 200    # previews, view markers, room labels, badges
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
 Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
+Z_NOTE           = 10_000 # a view-owned Note: above every model item at any elevation
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset
@@ -355,6 +356,15 @@ HANDLE_SNAP_COLLECT_PAD_FRAC = 0.5  # S2: targets collected over the visible rec
 
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
+
+# ── Text leader (text-leader-annotations design D3/D4) ──────────────────────
+TEXT_LEADER_MIN_SHOULDER_MM = 2.0     # shortest shoulder (design D4)
+TEXT_LEADER_DEFAULT_SHOULDER_MM = 6.0 # shoulder of a new leader
+TEXT_LEADER_DEFAULT_TIP_MM = 12.0     # tip offset of a new leader, past the knee
+TEXT_LEADER_END_ID = "system-endtypes-arrow"  # shipped Arrow end (design D3)
+TEXT_LEADER_BOUNDS_PAD_MM = 5.0       # flat bounds pad round the leader stroke (floor; see hit pad)
+TEXT_LEADER_HIT_PX = 10.0             # leader hit-strip width in screen px (like the 2D primitives)
+MIN_NOTE_BOX_MM = 10.0                # smallest Note box edge, printed mm (design D13)
 
 # ── Model-surface inline edit (text-annotation-system.md § Inline edit) ─────
 TEXT_CARET_WIDTH_PX = 1.5        # cosmetic inline-edit caret width (screen px)
