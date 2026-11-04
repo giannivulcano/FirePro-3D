@@ -1188,8 +1188,13 @@ class SelectionManipulator(QGraphicsObject):
         if self._anchored_only:
             return                      # nothing movable: the box stays put too
         self.setTransform(self._B0 * d)
-        for it, s0, s0_inv, t0 in self._items0:
-            it.setTransform(s0 * d * s0_inv * t0)
+        for it, _s0, _inv, t0 in self._items0:
+            # Qt composes an item as scale/rotation -> transform() -> pos -> parent,
+            # so d conjugates by the frame AFTER transform(); going through
+            # sceneTransform() would count a Qt scale (TextItem) as well.
+            q = it.parentItem().sceneTransform() if it.parentItem() is not None else QTransform()
+            q = QTransform.fromTranslate(it.x(), it.y()) * q
+            it.setTransform(t0 * q * d * q.inverted()[0])
 
     def _finish(self, scene_pos: QPointF, mods: Qt.KeyboardModifier) -> None:
         if self._mode is None:
