@@ -680,6 +680,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
         self._in_undo_restore: bool = False
+        # ``(old, new)`` when the level restore in flight was a pure rename (same
+        # count, one name gone, one added); set only around ``levelsRestored``.
+        self.last_level_rename: "tuple[str, str] | None" = None
         self.init_preview_node()
         self.init_preview_pipe()
         self._suppress_preview_node = False  # True while the crosshair owns the cursor
@@ -3933,10 +3936,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
             # ── Level list, plan views, active level, underlay levels (SB2b M15) ──
             lm = self._level_manager
+            level_rename = None
             if "levels" in state and lm is not None:
                 before = lm.to_list()
                 lm.from_list(state["levels"])
                 levels_restored = lm.to_list() != before
+                gone = {l["name"] for l in before} - {l["name"] for l in state["levels"]}
+                added = {l["name"] for l in state["levels"]} - {l["name"] for l in before}
+                if len(before) == len(state["levels"]) and len(gone) == len(added) == 1:
+                    level_rename = (next(iter(gone)), next(iter(added)))    # that step was a rename
             pvm = self._plan_view_manager
             if "plan_views" in state and pvm is not None:
                 before_pv = pvm.to_list()
@@ -3962,7 +3970,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         finally:
             self._in_undo_restore = False
         if levels_restored:
-            self.levelsRestored.emit()      # listeners see a settled scene
+            self.last_level_rename = level_rename
+            try:
+                self.levelsRestored.emit()      # listeners see a settled scene
+            finally:
+                self.last_level_rename = None
 
     def commit_text_edit(self) -> "str | None":  # shell → TextEditController
         """End any live inline text edit on this scene (idempotent).

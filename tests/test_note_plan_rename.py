@@ -115,3 +115,91 @@ def test_the_retargeted_name_survives_save_and_reload(win, tmp_path):
     assert "Plan: Mezz" in loaded
     assert [i.note["view"] for i in back._block_instances if i.note
             and i.level == "Mezz"] == ["plan:Plan: Mezz"]
+
+
+# -- the undo / redo direction is derived from the restore, not remembered ------------
+
+def _vp(sheet, name):
+    sv = SheetViewData("plan", name, "V", SCALE, 0, 0, 10, 10)
+    sheet.sheet_views.append(sv)
+    return sv
+
+
+def _rename(win, old, new):
+    w = win.level_widget
+    w.table.item(_row(w, old), _COL_NAME).setText(new)
+
+
+def test_a_rename_chain_follows_undo_and_redo(win):
+    sheet = win.sheet_mgr.sheets[0]
+    sv = _vp(sheet, "Plan: Level 2")
+    _rename(win, "Level 2", "B")
+    _rename(win, "B", "C")
+    assert sv.source_view_name == "Plan: C"
+    win.scene.undo()
+    assert sv.source_view_name == "Plan: B"
+    win.scene.undo()
+    assert sv.source_view_name == "Plan: Level 2"
+    win.scene.redo()
+    assert sv.source_view_name == "Plan: B"
+    win.scene.redo()
+    assert sv.source_view_name == "Plan: C"
+    _rename(win, "C", "Level 2")                        # leave the shared window as found
+
+
+def test_a_name_swap_by_three_renames_follows_undo_and_redo(win):
+    sheet = win.sheet_mgr.sheets[0]
+    a, b = _vp(sheet, "Plan: Level 1"), _vp(sheet, "Plan: Level 2")
+    _rename(win, "Level 2", "Tmp")
+    _rename(win, "Level 1", "Level 2")
+    _rename(win, "Tmp", "Level 1")
+    assert (a.source_view_name, b.source_view_name) == ("Plan: Level 2", "Plan: Level 1")
+    for _ in range(3):
+        win.scene.undo()
+    assert (a.source_view_name, b.source_view_name) == ("Plan: Level 1", "Plan: Level 2")
+    for _ in range(3):
+        win.scene.redo()
+    assert (a.source_view_name, b.source_view_name) == ("Plan: Level 2", "Plan: Level 1")
+    for _ in range(3):
+        win.scene.undo()                                # leave the shared window as found
+
+
+def test_a_viewport_bound_to_a_freed_name_is_not_moved_by_undoing_the_create(win):
+    scene, lm = win.scene, win.level_mgr
+    _rename(win, "Level 2", "B")
+    lm.add_level("Level 2", elevation=9000.0)           # a NEW level takes the freed name
+    win.plan_view_mgr.create("Level 2", lm)
+    scene.push_undo_state()
+    sv = _vp(win.sheet_mgr.sheets[0], "Plan: Level 2")
+    scene.undo()                                        # undo the create: not a rename
+    assert win.plan_view_mgr.get("Plan: Level 2") is None
+    assert sv.source_view_name == "Plan: Level 2"       # stays, unresolved; NOT moved to B
+    scene.undo()                                        # and the rename itself, to leave it clean
+
+
+def test_a_level_delete_and_its_undo_leave_the_viewport_name_alone(win, monkeypatch):
+    from firepro3d import level_widget as lw_mod
+    monkeypatch.setattr(lw_mod, "themed_confirm", lambda *a, **k: True)
+    sv = _vp(win.sheet_mgr.sheets[0], "Plan: Level 2")
+    w = win.level_widget
+    w.table.selectRow(_row(w, "Level 2"))
+    w._delete_level()
+    assert sv.source_view_name == "Plan: Level 2"       # as at base: unresolved while it is gone
+    assert win.plan_view_mgr.get("Plan: Level 2") is None
+    win.scene.undo()
+    assert sv.source_view_name == "Plan: Level 2"
+    assert win.plan_view_mgr.get("Plan: Level 2") is not None      # resolves again
+
+
+def test_a_rename_in_one_project_does_not_touch_the_next_project(win):
+    _rename(win, "Level 2", "Mezz")
+    win._modified = False
+    win.new_file()
+    sheet = win.sheet_mgr.sheets[0]
+    sv = _vp(sheet, "Plan: Level 2")                    # project 2: no such plan view yet
+    assert win.plan_view_mgr.get("Plan: Level 2") is None
+    lm = win.level_mgr
+    lm.add_level("Probe", elevation=12000.0)
+    win.scene.push_undo_state()
+    win.scene.undo()                                    # an unrelated level undo
+    assert sv.source_view_name == "Plan: Level 2"       # not re-pointed to Mezz
