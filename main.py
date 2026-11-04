@@ -3595,10 +3595,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
         if not file or not self._confirm_content_loss(file):
             return False
-        self._current_file = file
-        self._detached_name = None
         if not self.scene.save_to_file(file):
             return False
+        self._current_file = file
+        self._detached_name = None
         self._modified = False
         self.scene.mark_saved()
         self._update_title()
@@ -5792,7 +5792,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             event.ignore()
             return
         self.save_settings()
-        self._cleanup_autosave()
+        if not self._detached_name:     # a failed recovery keeps its file
+            self._cleanup_autosave()
         try:
             th.theme_bus().changed.disconnect(self._on_theme_bus_changed)
         except (TypeError, RuntimeError):

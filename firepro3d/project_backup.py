@@ -6,7 +6,7 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .constants import (
     CONTENT_LOSS_MIN_ITEMS, PROJECT_BACKUP_DIR, PROJECT_BACKUP_KEEP,
@@ -27,11 +27,19 @@ def write_backup(path: str, now: datetime | None = None) -> str | None:
     folder = os.path.join(os.path.dirname(os.path.abspath(path)), PROJECT_BACKUP_DIR)
     os.makedirs(folder, exist_ok=True)
     stem, ext = os.path.splitext(os.path.basename(path))
-    stamp = (now or datetime.now()).strftime("%Y-%m-%d %H%M%S")
-    target = os.path.join(folder, f"{stem} {stamp}{ext}")
+    when = now or datetime.now()
+    target = _backup_name(folder, stem, ext, when)
+    while os.path.exists(target):       # a second Save inside one second keeps both
+        when += timedelta(seconds=1)
+        target = _backup_name(folder, stem, ext, when)
     shutil.copy2(path, target)
     _prune(folder, stem, ext)
     return target
+
+
+def _backup_name(folder: str, stem: str, ext: str, when: datetime) -> str:
+    """Backup path for *when*; the name sorts by time."""
+    return os.path.join(folder, f"{stem} {when:%Y-%m-%d %H%M%S}{ext}")
 
 
 def _prune(folder: str, stem: str, ext: str) -> None:

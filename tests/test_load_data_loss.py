@@ -208,3 +208,48 @@ def test_failed_recovery_keeps_the_recovery_file(mw, tmp_path, monkeypatch):
     mw._modified = True
     mw._autosave()                                  # the timer, on the partial scene
     assert recovery.read_bytes() == original
+
+
+def test_second_save_in_one_second_keeps_the_first_backup(tmp_path):
+    from datetime import datetime
+    from firepro3d import project_backup as pb
+    path = tmp_path / "project.FPD"
+    moment = datetime(2026, 1, 1)
+    path.write_text("good")
+    first = pb.write_backup(str(path), moment)
+    path.write_text("blank")
+    second = pb.write_backup(str(path), moment)
+    assert first != second
+    assert open(first).read() == "good" and open(second).read() == "blank"
+
+
+def test_failed_save_as_stays_detached(mw, tmp_path, monkeypatch):
+    import main as main_mod
+    target = tmp_path / "new.FPD"
+    mw._detached_name = "project.FPD"
+    monkeypatch.setattr(main_mod.QFileDialog, "getSaveFileName",
+                        lambda *a, **k: (str(target), ""))
+    monkeypatch.setattr(mw.scene, "save_to_file", lambda path: False)
+    assert mw.save_file_as() is False
+    assert mw._current_file is None and mw._detached_name == "project.FPD"
+
+
+def test_close_while_detached_keeps_the_recovery_file(mw, tmp_path, monkeypatch):
+    recovery = tmp_path / "recovery.FPD"
+    recovery.write_text("{}")
+    monkeypatch.setattr(type(mw), "_autosave_path",
+                        staticmethod(lambda: str(recovery)))
+    monkeypatch.setattr(mw, "_ask_save_changes", lambda action: True)
+    mw._detached_name = "recovery.FPD"
+    from PyQt6.QtGui import QCloseEvent
+    mw.closeEvent(QCloseEvent())
+    assert recovery.exists()
+
+
+def test_save_to_file_goes_through_the_atomic_write(mw, tmp_path, monkeypatch):
+    path = tmp_path / "project.FPD"
+    _saved_project(mw, path)
+    original = path.read_bytes()
+    monkeypatch.setattr("firepro3d.project_backup.json.dump", _boom)
+    assert mw.scene.save_to_file(str(path)) is False
+    assert path.read_bytes() == original
