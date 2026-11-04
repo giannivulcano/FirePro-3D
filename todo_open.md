@@ -4,6 +4,13 @@
 >
 > **Task shape** (governed by the task-taxonomy spec): every task is a top-level `- [ ]` line carrying exactly one `[type:bug|feature|design|maint]` tag (first bracket), a plain-English summary, a `[P1|P2|P3]` marker, and an optional `[subject:*]` area tag — with a nested `- Details:` bullet holding file refs, metadata, edge cases, and lineage. Subsystem `##`/`###` headers group by *area*, never by type.
 
+## Project file safety (2026-11-04 data loss)
+
+- [ ] [type:bug] Re-opening a project with a detail view comes back blank, and Save then writes the blank scene over the file [P1] [subject:Architecture]
+  - Details: cost the user `26307 Model_new.FPD` on 2026-11-04 (error.log 10:41:43, blank save 10:45:16). Root cause: `_clear_scene` runs `self.clear()` without dropping `DetailManager._markers`, so `load_from_file` -> `DetailManager.from_list` -> `clear` -> `close_detail` calls `marker.scene()` on a deleted wrapper (`scene_io.py:276`). The excepthook keeps the app alive, `_load_project` has already set `_current_file`, and only levels and plan views are restored; the blank file's 0 sections (a finished load always seeds 4) and null title block date the stop. `close_detail` pops before it raises, so each failed reload drops one marker: one detail = "reload twice". 15 such errors in error.log; of its 11 `load_from_file` tracebacks, the last 8 (all that were inspected) stop at this line. Same family: a parse failure in `load_from_file` returns None, `_load_project` carries on, and a Save writes the OLD project over the file that failed to open. Repro: `tests/test_load_data_loss.py`.
+- [ ] [type:bug] Save deletes its own backup and cannot notice a project that lost its content [P1] [subject:Architecture]
+  - Details: `scene_io.save_to_file` copies to `<name>.bak`, then `os.remove`s it after a successful write, so a successful save of a blank scene destroys the only backup; `open(filename, "w")` truncates in place, so the "atomic write" of `scene-io.md` s2 is not atomic. No `.bak` test exists. Would have saved the model on its own.
+
 ## Paper-space sheet output
 
 - [ ] [type:bug] Ctrl (from-centre) resize of a sheet viewport grows from the top-left instead of the centre [P3] [subject:UX]
