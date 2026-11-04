@@ -95,3 +95,75 @@ def test_cardinal_never_plots(qapp):
         assert m.isVisible() and m.head.isVisible()
     finally:
         dispose(ms, sec, tabs)
+
+
+def _placed(ms, sec, a=(0.0, 0.0), b=(6000.0, 0.0)):
+    m = sec.place_section(QPointF(*a), QPointF(*b))
+    m.refresh_heads()
+    return m
+
+
+def test_placed_section_owns_two_upright_heads_on_the_cut_ends(qapp):
+    from firepro3d import marks
+    from firepro3d.view_marker_head import ViewMarkerHead
+    ms, sec, det, tabs = plan_scene()
+    try:
+        d = head_def(ms, "Section", texts=(("Mark", -2.0), ("Sheet", 2.0)))
+        a, b = (0.0, 0.0), (5196.152, -3000.0)                 # a 30 deg cut
+        m = _placed(ms, sec, a, b)
+        assert m.head is None
+        for h, end in ((m.head_a, QPointF(*a)), (m.head_b, QPointF(*b))):
+            assert isinstance(h, ViewMarkerHead) and h.parentItem() is m
+            assert h.category == "Section" and h.definition() is d
+            assert h.pos() == end
+            t = h.sceneTransform()
+            assert h.rotation() == 0.0 and t.m12() == 0.0 and t.m21() == 0.0   # upright on a 30 deg cut (Q3)
+        marks.set_mark(m, "7")
+        assert m.head_a.host_values({"Mark"})["Mark"].text == "7"
+    finally:
+        dispose(ms, sec, tabs)
+
+
+@pytest.mark.parametrize("shape,r_mm", [("circle", HEAD_R), ("square", SQ_HALF * math.sqrt(2.0))])
+def test_section_triangle_is_tangent_to_the_heads_enclosing_circle(qapp, shape, r_mm):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Section", shape=shape)
+        m = _placed(ms, sec)
+        rk = r_mm * ms.scale_manager.drawing_scale
+        for end in (m.cut_a, m.cut_b):
+            p0, apex, p1 = list(m._triangle(end))
+            for s, e in ((p0, apex), (apex, p1)):
+                dx, dy = e.x() - s.x(), e.y() - s.y()
+                dist = abs(dy * (end.x() - s.x()) - dx * (end.y() - s.y())) / math.hypot(dx, dy)
+                assert dist == pytest.approx(rk, rel=1e-3)                        # sides tangent
+            assert _dist(apex, end) == pytest.approx(rk * math.sqrt(2.0), rel=1e-3)
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_cut_line_is_trimmed_at_each_head_outline(qapp):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Section")
+        m = _placed(ms, sec)                                     # A (0, 0) -> B (6000, 0)
+        rk = HEAD_R * ms.scale_manager.drawing_scale             # 500
+        a, b = m._trimmed_cut()
+        assert a.x() == pytest.approx(rk, rel=1e-3) and b.x() == pytest.approx(6000.0 - rk, rel=1e-3)
+    finally:
+        dispose(ms, sec, tabs)
+
+
+def test_section_head_follows_the_drawing_scale(qapp):
+    ms, sec, det, tabs = plan_scene()
+    try:
+        head_def(ms, "Section")
+        m = _placed(ms, sec)
+        for ds in (50.0, 200.0):
+            ms.scale_manager.drawing_scale = ds
+            ms.refresh_annotation_tags()
+            assert m.head_a.enclosing_radius() == pytest.approx(HEAD_R * ds, rel=1e-3)
+            assert _dist(list(m._triangle(m.cut_a))[1], m.cut_a) == pytest.approx(
+                HEAD_R * ds * math.sqrt(2.0), rel=1e-3)
+    finally:
+        dispose(ms, sec, tabs)

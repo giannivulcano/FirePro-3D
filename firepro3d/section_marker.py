@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
-    QPen, QColor, QBrush, QPolygonF, QFont, QPainter, QPainterPath,
+    QPen, QColor, QBrush, QPolygonF, QPainter, QPainterPath,
     QPainterPathStroker,
 )
 
@@ -277,16 +277,14 @@ class SectionMarker(QGraphicsItem):
         self._display_overrides: dict = {}
         self._mark = ""                          # Section Mark (SB4d D3); a cardinal never mints
         self._marker_color = QColor(GRID_COLOR)
-        self._fill_color = QColor("#1a1a2e")
-        self._display_font_size: int | None = None
         self.setZValue(Z_ANNOT_MARKER)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         # SB4d D1: the head(s) are Elevation / Section annotation blocks
         # (ViewMarkerHead children, upright); the wedge / triangle stay bespoke.
         self.head = ViewMarkerHead(self) if cardinal else None
-        self.head_a = None
-        self.head_b = None
+        self.head_a = None if cardinal else ViewMarkerHead(self)   # cut end A
+        self.head_b = None if cardinal else ViewMarkerHead(self)   # cut end B
         self._sync_heads()
 
     @classmethod
@@ -498,30 +496,25 @@ class SectionMarker(QGraphicsItem):
         path.closeSubpath()
         return path
 
-    def _head_polygon(self, c: QPointF) -> QPolygonF:
-        """Section head triangle at bubble centre *c*: base on the cut line, apex on the look side."""
-        R = self._R_SECTION * self._TRI
+    def _triangle(self, c: QPointF) -> QPolygonF:
+        """Section arrow at head origin *c* (D1): base on the cut line, apex on
+        the look side, sides tangent to the head's enclosing circle R_k --
+        half-base = height = R_k * sqrt 2."""
+        R = self._rk() * self._TRI
         nx, ny = self.normal_scene()
         ux, uy = -ny, nx
         return QPolygonF([QPointF(c.x() - ux * R, c.y() - uy * R),
                           QPointF(c.x() + nx * R, c.y() + ny * R),
                           QPointF(c.x() + ux * R, c.y() + uy * R)])
 
-    def _label_angle(self) -> float:
-        """Degrees to rotate the section label so it reads along the cut, never upside down."""
+    def _trimmed_cut(self) -> tuple[QPointF, QPointF]:
+        """The painted cut line: each end trimmed where the cut leaves that
+        head's block outline (the gridline D5 rule)."""
         ux, uy, _L = self._unit()
-        ang = math.degrees(math.atan2(uy, ux))
-        if ux < -1e-9 or (abs(ux) < 1e-9 and uy > 0):
-            ang += 180.0
-        return ang
-
-    def _label_font(self, label: str) -> QFont:
-        font = QFont("Consolas")
-        font.setBold(True)
-        fs = self._display_font_size if self._display_font_size else 10
-        shrink = 1.0 if len(label) <= 1 else 0.7
-        font.setPixelSize(max(1, int(self._R * (fs / 10.0) * shrink)))
-        return font
+        ta = self.head_a.trim_distance(ux, uy) if self.head_a is not None else 0.0
+        tb = self.head_b.trim_distance(-ux, -uy) if self.head_b is not None else 0.0
+        return (QPointF(self._a.x() + ux * ta, self._a.y() + uy * ta),
+                QPointF(self._b.x() - ux * tb, self._b.y() - uy * tb))
 
     def boundingRect(self) -> QRectF:
         r = self.box_polygon().boundingRect()
@@ -530,7 +523,7 @@ class SectionMarker(QGraphicsItem):
             m = self._wedge_dist() + R
             r = r.united(QRectF(c.x() - m, c.y() - m, 2 * m, 2 * m))
         else:
-            m = self._R_SECTION * self._TRI
+            m = self._rk() * self._TRI
             for end in (self._a, self._b):
                 r = r.united(QRectF(end.x() - m, end.y() - m, 2 * m, 2 * m))
         pad = max(1.0, self._R * 0.08)
@@ -553,9 +546,13 @@ class SectionMarker(QGraphicsItem):
             line = QPainterPath(self._a); line.lineTo(self._b)
             stroker = QPainterPathStroker(); stroker.setWidth(max(20.0, self._R * 0.5))
             path.addPath(stroker.createStroke(line))
-            for end in (self._a, self._b):
-                path.addEllipse(end, self._R_SECTION, self._R_SECTION)
-                path.addPolygon(self._head_polygon(end))
+            for end, head in ((self._a, self.head_a), (self._b, self.head_b)):
+                outline = head.mapToParent(head.outline_path())
+                if outline.isEmpty():
+                    path.addEllipse(end, self._rk(), self._rk())
+                else:
+                    path.addPath(outline)        # a press on a head selects the marker
+                path.addPolygon(self._triangle(end))
                 path.closeSubpath()
         if self.isSelected():
             box = QPainterPath(); box.addPolygon(self.box_polygon()); box.closeSubpath()
@@ -566,7 +563,7 @@ class SectionMarker(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        col, fill = self._marker_color, self._fill_color
+        col = self._marker_color
         R = self._R
         pen_w = max(1.0, R * 0.04)
         selected = self.isSelected() and not _pd.paper_pass_active()
@@ -582,24 +579,18 @@ class SectionMarker(QGraphicsItem):
                 painter.drawLine(t1, tip)
                 painter.drawLine(t2, tip)
         else:
+            # SB4d D1: the cut line trimmed at each head outline + the bespoke
+            # triangles outside it; both heads are Section blocks, upright (Q3).
             line_pen = QPen(col, 1); line_pen.setCosmetic(True)
             painter.setPen(line_pen)
-            painter.drawLine(self._a, self._b)
-            label = self._name.split()[-1] if self._name.split() else "?"
-            font = self._label_font(label)
-            ang = self._label_angle()
-            for end in (self._a, self._b):
-                painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(col))
-                painter.drawPolygon(self._head_polygon(end))
-                painter.setBrush(QBrush(fill))
-                painter.drawEllipse(end, R, R)
-                painter.save()
-                painter.translate(end)
-                painter.rotate(ang)
-                painter.setFont(font)
-                painter.setPen(QPen(col.lighter(150)))
-                painter.drawText(QRectF(-R, -R, 2 * R, 2 * R), Qt.AlignmentFlag.AlignCenter, label)
-                painter.restore()
+            a, b = self._trimmed_cut()
+            painter.drawLine(a, b)
+            painter.setPen(QPen(col, pen_w)); painter.setBrush(QBrush(col))
+            for end, head in ((self._a, self.head_a), (self._b, self.head_b)):
+                tri = QPainterPath()
+                tri.addPolygon(self._triangle(end))
+                tri.closeSubpath()
+                painter.drawPath(self._outside_head(tri, head))
         if selected:
             # Crop box: the retired SharedCropBox's dashed look, only while selected (s6)
             # and never on a sheet / PDF -- the paper pass does not clear selection (VC9 M4).
