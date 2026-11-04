@@ -15,6 +15,7 @@ assumes ``transform()`` carries no pose).
 
 from __future__ import annotations
 
+import copy
 import math
 import uuid
 from typing import Callable, Optional
@@ -119,6 +120,12 @@ class BlockInstance(QGraphicsObject):
         # instance; else the host record, single source of truth -- the plan
         # pose is derived from it (C3 amendment: gridline-scoped).
         self.host: Optional[dict] = None
+        # Note record (text-leader-annotations D8 / D9): None for every ordinary
+        # block; else ``{view, wrap_width_mm, box_height_mm, leader?}`` -- the
+        # per-placement box, the owning view and the leader (tip absolute in
+        # scene mm, D14). An instance with it set is a Note.
+        self.note: Optional[dict] = None
+        self._note_geom = None     # (box, box item, bound prims) -- _note_geometry
         # Element host (element-parameters.md, SB2a D-a): the element whose
         # keyed values feed host-sourced attributes. Code-set only (SB3 / SB6
         # set it), never serialized (ledger D3). Distinct from ``host`` above.
@@ -217,6 +224,90 @@ class BlockInstance(QGraphicsObject):
         self.prepareGeometryChange()
         self.update()
 
+    # ── Note (text-leader-annotations D8 / D9 / D14) ─────────────────────
+    def note_changed(self) -> None:
+        """A note field changed: rebuild the bound ops and bounds."""
+        self.prepareGeometryChange()
+        self._bound_values = None
+        self._bound_cache = None
+        self._note_geom = None
+        self.update()
+
+    def note_tip_scene(self) -> "QPointF | None":
+        """The leader tip in scene mm (stored absolute, D14), or None."""
+        rec = (self.note or {}).get("leader")
+        return QPointF(rec["tip_x"], rec["tip_y"]) if rec else None
+
+    def _note_patch(self) -> "dict | None":
+        """The per-placement text fields (design D8), tip in the prim frame.
+
+        The ops frame is the prim frame mapped through the variant (mirror,
+        scale), and the pose (rotation, position, Fixed-size frame k) takes
+        that to the scene; the stored tip is scene mm, so it comes back
+        through the inverse pose, then out of the variant.
+        """
+        if not self.note:
+            return None
+        patch = {"wrap_width_mm": self.note["wrap_width_mm"],
+                 "box_height_mm": self.note["box_height_mm"]}
+        rec = self.note.get("leader")
+        if rec:
+            inv, ok = self.pose_transform().inverted()
+            local = (inv if ok else QTransform()).map(self.note_tip_scene())
+            k = self._variant_scale() or 1.0
+            x = -local.x() if self._pose_mirrored else local.x()
+            patch["leader"] = dict(rec, tip_x=x / k, tip_y=local.y() / k)
+        return patch
+
+    def _note_geometry(self):
+        """``(box item, prim -> scene transform)`` of this note's one Text
+        primitive: a ``TextItem`` carrying the placement's box and no leader.
+        The transform is the one ``bound_text_ops`` applies to the prim (its
+        definition-local shift, then the variant) then the pose. The item is
+        memoised on the bound prim list and the box."""
+        d = self.definition()
+        bps = d.bound_prims() if d is not None else []
+        if not bps or not self.note:
+            return None
+        b = bps[0]
+        key = (self.note["wrap_width_mm"], self.note["box_height_mm"])
+        c = self._note_geom
+        if c is not None and c[0] == key and c[2] is bps:
+            item = c[1]
+        else:
+            from .text_item import TextItem
+            rec = dict(b.prim, wrap_width_mm=key[0], box_height_mm=key[1], text="")
+            rec.pop("leader", None)
+            item = TextItem.from_dict(rec)
+            self._note_geom = (key, item, bps)
+        sm = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored, self._variant_scale())
+        return item, b.transform * sm * self.pose_transform()
+
+    def note_box_scene(self) -> QRectF:
+        """The note's box in scene mm (bounding box of the posed box)."""
+        g = self._note_geometry()
+        if g is None:
+            return QRectF()
+        item, xf = g
+        box = QPainterPath()
+        box.addRect(item._box_rect_local())
+        return xf.map(item.mapToParent(item._rotation_transform().map(box))).boundingRect()
+
+    def _note_knee_scene(self) -> QPointF:
+        """The leader's knee in scene mm."""
+        from . import text_leader as _tl
+        item, xf = self._note_geometry()
+        _a, k = _tl.attach_and_knee(_tl._box_mm(item), self.note["leader"])
+        return xf.map(_tl._to_parent(item, k))
+
+    def shift_note_leader(self, dx: float, dy: float) -> None:
+        """Carry the tip with a rigid shift (D7); a plain move never calls this."""
+        rec = (self.note or {}).get("leader")
+        if rec:
+            rec["tip_x"] += dx
+            rec["tip_y"] += dy
+            self.note_changed()
+
     def set_attributes(self, values: dict) -> None:
         """Replace the instance's attribute values / host overrides (A4 / D4:
         a host key's presence is its override); repaint. Undo is the
@@ -235,7 +326,7 @@ class BlockInstance(QGraphicsObject):
         before = self._bound_cache
         out, c = bound_text_ops(self.definition(), self.attributes, self.host_values(),
                                 self._pose_mirrored, self._variant_scale(),
-                                self._ov_args, before)
+                                self._ov_args, before, patch=self._note_patch())
         if c is not None and c is not before:
             self._bound_builds += 1
         self._bound_cache = c
@@ -569,7 +660,12 @@ class BlockInstance(QGraphicsObject):
 
     def manip_bounds(self) -> QRectF:
         """Scene box the selection frame wraps (selection-manipulator
-        ``manip_bounds``): the frame rect, independent of the hit band."""
+        ``manip_bounds``): the frame rect, independent of the hit band. A Note's
+        is its box alone, so the leader does not move the box handles (D5)."""
+        if self.note:
+            box = self.note_box_scene()
+            if not box.isNull():
+                return box
         return self.sceneTransform().mapRect(self._frame_rect())
 
     def _frame_rect(self) -> QRectF:
@@ -582,6 +678,8 @@ class BlockInstance(QGraphicsObject):
         r = self._posed_path(ops).boundingRect()
         m = 2.0  # pen margin (mm)
         r = r.adjusted(-m, -m, m, m)
+        if self.note:
+            r = r.united(self.note_box_scene())     # the box is a frame even with no border
         lc = self._lt_ref_cache               # inline hit of _linetype_ids
         ids = lc[1] if lc is not None and lc[0] is ops else self._linetype_ids(ops)
         if ids and self._has_missing_linetype(ops):
@@ -801,6 +899,10 @@ class BlockInstance(QGraphicsObject):
                                         pose.map(r.bottomRight()), pose.map(r.bottomLeft())]))
                 p.closeSubpath()
                 area = area.united(p)
+            if self.note:                  # the Note's box is a hit area, empty or not (D13)
+                nb = self.note_box_scene()
+                if not nb.isEmpty():
+                    area.addRect(nb)
             d = self.definition()
             if d is not None:
                 full = self.display_pose_transform()
@@ -1679,6 +1781,8 @@ class BlockInstance(QGraphicsObject):
             d["overrides"] = dict(self.overrides)
         if self.host:
             d["host"] = dict(self.host)
+        if self.note:
+            d["note"] = copy.deepcopy(self.note)
         return d
 
     @classmethod
@@ -1698,6 +1802,7 @@ class BlockInstance(QGraphicsObject):
             inst._uid = str(data["uid"])
         if data.get("host"):
             inst.host = dict(data["host"])
+        inst.note = copy.deepcopy(data["note"]) if data.get("note") else None
         return inst
 
     @classmethod
@@ -1721,4 +1826,5 @@ class BlockInstance(QGraphicsObject):
                 "level": rec.get("level", default_level),
                 "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
                 "overrides": rec.get("overrides"),
-                "host": rec.get("host")}
+                "host": rec.get("host"),
+                "note": rec.get("note")}

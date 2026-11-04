@@ -2809,7 +2809,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None, mirrored: bool = False,
                              scale: float = 1.0, level_offset_mm: float = 0.0,
-                             host: dict | None = None):
+                             host: dict | None = None, note: dict | None = None):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2827,7 +2827,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             host: Gridline host record (hosted-blocks D2); pos is then derived
                 from it. An unresolved gridline places nothing and returns
                 None.
+            note: A Note record (text-leader-annotations D8): owning view, box
+                and leader. None for every ordinary block.
         """
+        import copy
         from .block_instance import BlockInstance
         if host:
             from .hosted_blocks import ppm_of, scene_pos, valid_host
@@ -2850,6 +2853,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst.set_block_scale(scale)
         if overrides:
             inst.set_overrides(overrides)
+        if note:
+            inst.note = copy.deepcopy(note)
         if host:
             inst.host = dict(host)
             inst.setVisible(False)   # hosted: section-only from birth (D11); LevelManager keeps it so

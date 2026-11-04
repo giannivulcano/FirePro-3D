@@ -207,7 +207,10 @@ def building_bbox(model_space) -> QRectF:
     rect = QRectF()
     lists = (getattr(model_space, "_gridlines", []), getattr(model_space, "_walls", []),
              getattr(model_space, "_floor_slabs", []), getattr(model_space, "_roofs", []),
-             getattr(model_space, "_rooms", []), getattr(model_space, "_block_instances", []))
+             getattr(model_space, "_rooms", []),
+             # a view-owned Note is annotation, not building (text-leader-annotations D9)
+             [b for b in getattr(model_space, "_block_instances", [])
+              if not getattr(b, "note", None)])
     ss = getattr(model_space, "sprinkler_system", None)
     if ss is not None:
         lists = lists + (list(ss.nodes), list(ss.pipes))

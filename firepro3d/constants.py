@@ -363,6 +363,7 @@ TEXT_LEADER_DEFAULT_TIP_MM = 12.0     # tip offset of a new leader, past the kne
 TEXT_LEADER_END_ID = "system-endtypes-arrow"  # shipped Arrow end (design D3)
 TEXT_LEADER_BOUNDS_PAD_MM = 5.0       # flat bounds pad round the leader stroke (floor; see hit pad)
 TEXT_LEADER_HIT_PX = 10.0             # leader hit-strip width in screen px (like the 2D primitives)
+MIN_NOTE_BOX_MM = 10.0                # smallest Note box edge, printed mm (design D13)
 
 # ── Model-surface inline edit (text-annotation-system.md § Inline edit) ─────
 TEXT_CARET_WIDTH_PX = 1.5        # cosmetic inline-edit caret width (screen px)
