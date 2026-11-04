@@ -44,7 +44,7 @@
       "fill_color": "",
       "fill_opacity": 100.0,
       "cell_padding_mm": 1.0,
-      "border": false,
+      "border": true,
       "border_weight": "Thinner",
       "border_line_type": "solid",
       "border_corner": "round",

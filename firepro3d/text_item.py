@@ -1471,7 +1471,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if index == self.LEADER_TIP_GRIP:
             rec["tip_x"], rec["tip_y"] = pos.x(), pos.y()
         else:
-            rec.update(_tl.solve_knee(_tl._box_mm(self), _tl._from_parent(self, pos), rec))
+            rec.update(_tl.solve_knee(_tl._box_mm(self), _tl._from_parent(self, pos), rec,
+                                      _tl.knee_snap_mm(self)))
         self.update()
 
     def shift_leader(self, dx: float, dy: float) -> None:
@@ -1729,11 +1730,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         Text in an annotative Block Editor block is printed text: Height shows
         and parses as a Word-style pt font size (``10.5 pt``), like sheet
         text. Real-size model / block text shows decimal mm (``2.50 mm``).
-        Storage stays cap height in mm either way; the row commits mm.
+        Storage stays cap height in mm either way; the row commits mm. A Note's
+        style item (``_printed_height``) is printed text too, with no editor.
         """
         from .annotative import editor_is_annotative
         d = self._data
-        if editor_is_annotative(self.scene()):
+        if getattr(self, "_printed_height", False) or editor_is_annotative(self.scene()):
             return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
                     "parser": lambda text, dd=d: _parse_height_pt(dd, text),
                     "formatter": lambda mm, dd=d: _format_height_pt(dd, mm),

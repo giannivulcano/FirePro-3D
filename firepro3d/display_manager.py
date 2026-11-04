@@ -2693,6 +2693,9 @@ class DisplayManager(HouseDialog):
                 lw = ((getattr(inst, "note", None) or {}).get("leader") or {}).get("weight")
                 if lw:
                     yield lw, ("lead_inst", inst)      # a Note's leader weight
+                bw = ((getattr(inst, "note", None) or {}).get("style") or {}).get("border_weight")
+                if bw:
+                    yield bw, ("style_inst", inst)     # a Note's own border weight
         reg = getattr(self._scene, "block_registry", None)
         if reg is not None:
             for bid in reg.ids():
@@ -2773,6 +2776,9 @@ class DisplayManager(HouseDialog):
                 ref.update()
             elif kind == "lead_inst":
                 ref.note["leader"]["weight"] = new
+                ref.note_changed()
+            elif kind == "style_inst":
+                ref.note["style"]["border_weight"] = new
                 ref.note_changed()
             elif kind == "lead_prim":
                 bid, rec = ref

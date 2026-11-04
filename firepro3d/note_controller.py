@@ -10,6 +10,46 @@ from PyQt6.QtCore import QPointF, Qt
 
 from . import text_leader as _tl
 
+# The Text panel rows a Note carries, in panel order. Content and Wrap stay out:
+# the text is typed on the canvas and the box is authored by its corners.
+_STYLE_ROWS = ("Format", "Font", "Height", "Padding", "Style", "Alignment", "V Align",
+               "Font Color", "Frame", "Line Type", "Border Weight", "Corner",
+               "Corner Radius", "Fill", "Fill Color", "Fill Opacity")
+# Every key those rows commit under (the Style row commits per button).
+STYLE_KEYS = frozenset(_STYLE_ROWS) | {"Bold", "Italic", "Underline"}
+_STYLE_FIELDS = ("font_family", "height_mm", "cell_padding_mm", "bold", "italic", "underline",
+                 "align", "valign", "color", "border", "border_line_type", "border_weight",
+                 "border_corner", "border_corner_radius_mm", "fill_color", "fill_opacity")
+
+
+def _style_item(prim: dict, style: "dict | None"):
+    """A free ``TextItem`` of a Note's text primitive under *style*: it owns the
+    rows and their parsing, so a Note cannot drift from the Text primitive."""
+    from .text_item import TextItem
+    rec = dict(prim, text="")
+    rec.update(style or {})
+    rec.pop("uid", None)
+    rec.pop("leader", None)
+    item = TextItem.from_dict(rec)
+    item._printed_height = True        # a Note's box and text are in printed mm (D14)
+    return item
+
+
+def style_rows(prim: dict, style: "dict | None") -> dict:
+    """The Format / Frame / Fill rows of a Note's text primitive under *style*."""
+    props = _style_item(prim, style).get_properties()
+    return {k: props[k] for k in _STYLE_ROWS if k in props}
+
+
+def style_after(prim: dict, style: "dict | None", key: str, value) -> dict:
+    """*style* after one row commit: only the fields that differ from *prim*, so
+    every field a note leaves alone still follows the Note block (D8)."""
+    item = _style_item(prim, style)
+    item._set_property_model(key, value)
+    base = _style_item(prim, None).data
+    return {f: getattr(item.data, f) for f in _STYLE_FIELDS
+            if getattr(item.data, f) != getattr(base, f)}
+
 
 def notes_of(scene, view_key: str) -> list:
     """The Note instances of *scene* owned by *view_key* (``plan:Plan: L1``)."""
@@ -72,6 +112,53 @@ def drop_history(scene, view_key: str) -> None:
                                for r in c.get("refs", ()))]
 
 
+class NoteTemplate:
+    """Property-panel target while the Note tool is armed: the rows of the Text
+    primitive, stamped on the next note. Duck-typed (``get_properties`` /
+    ``set_property``) like the other pre-placement templates; it changes nothing
+    in the model, so it never asks for an undo step.
+    """
+
+    def __init__(self, scene):
+        self._scene = scene
+        self.style: dict = {}
+        self.leader: "dict | None" = None      # ``{end, weight}`` while Leader is on
+
+    def _prim(self) -> "dict | None":
+        from .system_blocks import NOTE_BLOCK_ID
+        d = self._scene.ensure_system_block(NOTE_BLOCK_ID)
+        bps = d.bound_prims() if d is not None else []
+        return bps[0].prim if bps else None
+
+    def get_properties(self) -> dict:
+        prim = self._prim()
+        if prim is None:
+            return {}
+        from .hatch_patterns import picker_exclude
+        props = style_rows(prim, self.style)
+        props.update(_tl.panel_rows(
+            self.leader, getattr(self._scene, "block_registry", None),
+            picker_exclude(self._scene),
+            fallback_weight=str(self.style.get("border_weight")
+                                or prim.get("border_weight", ""))))
+        return props
+
+    def set_property(self, key: str, value) -> None:
+        prim = self._prim()
+        if prim is None:
+            return
+        if key == "Leader":
+            self.leader = {"end": _tl.DEFAULT_END_ID, "weight": ""} if value else None
+        elif key in ("Leader End", "Leader Weight"):
+            if self.leader is not None:
+                from .hatch_patterns import picker_exclude
+                _tl.set_panel_row(self.leader, key, value,
+                                  getattr(self._scene, "block_registry", None),
+                                  picker_exclude(self._scene))
+        elif key in STYLE_KEYS:
+            self.style = style_after(prim, self.style, key, value)
+
+
 class NoteController:
     """Note placement and the canvas edit overlay (design D8, D13).
 
@@ -87,6 +174,7 @@ class NoteController:
         self._scene = scene
         self._host = None        # the instance under edit
         self._overlay = None     # its transient TextItem
+        self.template = NoteTemplate(scene)
 
     @property
     def overlay(self):
@@ -112,6 +200,8 @@ class NoteController:
             return
         note = {"view": s.active_view_key, "wrap_width_mm": MIN_NOTE_BOX_MM,
                 "box_height_mm": MIN_NOTE_BOX_MM}
+        if self.template.style:
+            note["style"] = dict(self.template.style)
         from .block_instance import BlockInstance
         inst = s.place_block_instance(                 # fresh placement, through the one
             NOTE_BLOCK_ID, (rect.x(), rect.y()),       # field-carrying choke point (DD7)
@@ -122,6 +212,13 @@ class NoteController:
         inst.note["wrap_width_mm"] = max(rect.width() / k, MIN_NOTE_BOX_MM)
         inst.note["box_height_mm"] = max(rect.height() / k, MIN_NOTE_BOX_MM)
         inst.note_changed()
+        lead = self.template.leader
+        if lead is not None:
+            from .capabilities import ensure_end_available
+            chg = inst._note_leader_change("Leader", True)
+            if chg[0] and ensure_end_available(lead["end"], s, outside_history=True):
+                inst.note["leader"] = dict(chg[0], **lead)
+                inst.note_changed()
         s._end_placement_switch(inst)
         self.begin(inst, is_new=True)
 
@@ -139,7 +236,7 @@ class NoteController:
         if self._overlay is not None:
             s._text_edit_ctl.commit()
         item, xf = g
-        prim = next(b.prim for b in inst.definition().bound_prims())
+        prim = dict(inst._note_prim(), **(inst.note.get("style") or {}))
         k = inst.note_k()
         px, py = float(prim.get("x", 0.0)), float(prim.get("y", 0.0))
         mirrored = inst.block_mirrored()
@@ -153,6 +250,7 @@ class NoteController:
                    box_height_mm=inst.note["box_height_mm"] * k,
                    height_mm=float(prim.get("height_mm", 3.0)) * k,
                    cell_padding_mm=float(prim.get("cell_padding_mm", 1.0)) * k,
+                   border_corner_radius_mm=float(prim.get("border_corner_radius_mm", 0.0)) * k,
                    angle=0.0)
         rec.pop("uid", None)
         rec.pop("leader", None)         # prim-frame record of the definition: the note's own below

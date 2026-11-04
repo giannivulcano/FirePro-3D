@@ -36,12 +36,19 @@ def _outside(box: QRectF, p: QPointF) -> dict:
             "T": box.top() - p.y(), "B": p.y() - box.bottom()}
 
 
-def solve_knee(box: QRectF, drag: QPointF, rec: dict) -> dict:
+def solve_knee(box: QRectF, drag: QPointF, rec: dict, snap_mm: float = 0.0) -> dict:
     """The edge, fraction and shoulder for a knee dragged to *drag* (D4).
 
     The edge the point is furthest outside of wins, a tie keeps the current
     edge. The along-edge coordinate clamps to the edge. A point inside the box
     lands on the nearest edge at the minimum shoulder.
+
+    Args:
+        box: The box in the box frame, mm.
+        drag: The drag point in the box frame, mm.
+        rec: The stored leader record.
+        snap_mm: The along-edge distance within which the knee lands on the
+            edge's midpoint; 0 never snaps (see :func:`knee_snap_mm`).
     """
     out = _outside(box, drag)
     best = max(out.values())
@@ -57,7 +64,27 @@ def solve_knee(box: QRectF, drag: QPointF, rec: dict) -> dict:
     else:
         span, pos = box.width(), drag.x() - box.left()
     t = 0.5 if span <= 0.0 else max(0.0, min(1.0, pos / span))
+    if abs(pos - span / 2.0) <= snap_mm:
+        t = 0.5
     return {"edge": edge, "t": t, "shoulder_mm": shoulder}
+
+
+def knee_snap_mm(item, scene_per_mm: float = 1.0) -> float:
+    """The knee's edge-midpoint snap band: the shared snap aperture at *item*'s
+    view zoom, in the box frame. 0 while snapping or the Midpoint toggle is off.
+
+    Args:
+        item: The item carrying the leader (its scene and view give the zoom).
+        scene_per_mm: Scene mm per box-frame mm (a Note's box is in printed mm).
+    """
+    sc = item.scene()
+    engine = getattr(sc, "_snap_engine", None)
+    if not (getattr(sc, "_snap_enabled", True) and getattr(engine, "enabled", True)
+            and getattr(engine, "snap_midpoint", True)):
+        return 0.0
+    from . import snap_engine as _se
+    from .view_scale import scene_hit_width
+    return scene_hit_width(item, float(_se.SNAP_TOLERANCE_PX), 0.0) / scene_per_mm
 
 
 def default_leader(box: QRectF, to_surface: QPointF) -> dict:

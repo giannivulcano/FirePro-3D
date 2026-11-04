@@ -2739,6 +2739,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.prop_manager.show_properties(template)
         elif mode in self._GEOMETRY_DRAW_MODES:
             self.prop_manager.show_properties(sc._get_geometry_template())
+        elif mode == "note":
+            self.prop_manager.show_properties(sc._note_ctl.template)
         else:
             # Exiting a template mode — clear stale template properties
             self.prop_manager.show_properties(None)

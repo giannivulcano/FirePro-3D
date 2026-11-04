@@ -259,6 +259,7 @@ class BlockInstance(QGraphicsObject):
         patch = {"wrap_width_mm": self.note["wrap_width_mm"],
                  "box_height_mm": self.note["box_height_mm"],
                  "leader": None}            # the row owns it: a definition's leader never draws
+        patch.update(self.note.get("style") or {})
         rec = self.note.get("leader")
         if rec:
             g = self._note_geometry()
@@ -279,13 +280,15 @@ class BlockInstance(QGraphicsObject):
         if not bps or not self.note:
             return None
         b = bps[0]
-        key = (self.note["wrap_width_mm"], self.note["box_height_mm"])
+        style = self.note.get("style") or {}
+        key = (self.note["wrap_width_mm"], self.note["box_height_mm"], repr(sorted(style.items())))
         c = self._note_geom
         if c is not None and c[0] == key and c[2] is bps:
             item = c[1]
         else:
             from .text_item import TextItem
             rec = dict(b.prim, wrap_width_mm=key[0], box_height_mm=key[1], text="")
+            rec.update(style)
             rec.pop("leader", None)
             item = TextItem.from_dict(rec)
             self._note_geom = (key, item, bps)
@@ -383,7 +386,8 @@ class BlockInstance(QGraphicsObject):
                 self.note["wrap_width_mm"] = max(local.x() - box.left(), MIN_NOTE_BOX_MM)
                 self.note["box_height_mm"] = max(local.y() - box.top(), MIN_NOTE_BOX_MM)
             elif index == self.NOTE_KNEE_GRIP and rec:
-                rec.update(_tl.solve_knee(box, local, rec))
+                rec.update(_tl.solve_knee(box, local, rec,
+                                          _tl.knee_snap_mm(self, self.note_k())))
             else:
                 return
         self.note_changed()
@@ -1700,13 +1704,18 @@ class BlockInstance(QGraphicsObject):
         # the scene's can_edit_attributes gate, shared with the context menus.
         has_attrs = bool(sc is not None and hasattr(sc, "can_edit_attributes")
                          and sc.can_edit_attributes(self))
-        if self.note:
+        prim = self._note_prim()
+        if prim is not None:
+            from .note_controller import style_rows
             from .text_leader import panel_rows
-            d = self.definition()
-            bp = d.bound_prims() if d is not None else []
-            frame_w = str(bp[0].prim.get("border_weight", "")) if bp else ""
+            style = self.note.get("style") or {}
+            props.update(style_rows(prim, style))
+            frame_w = str(style.get("border_weight") or prim.get("border_weight", ""))
             props.update(panel_rows(self.note.get("leader"), reg, picker_exclude(sc),
                                     fallback_weight=frame_w))
+        elif self.note:
+            from .text_leader import panel_rows
+            props.update(panel_rows(self.note.get("leader"), reg, picker_exclude(sc)))
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}
@@ -1777,7 +1786,34 @@ class BlockInstance(QGraphicsObject):
         rows edit, compared before and after a commit (G9)."""
         return (self.level, self._level_offset_mm, self._pose_rot,
                 self._pose_mirrored, self._pose_scale,
-                repr(self.note.get("leader")) if self.note else None)
+                repr((self.note.get("leader"), self.note.get("style"))) if self.note else None)
+
+    def _note_prim(self) -> "dict | None":
+        """The definition's Text primitive record of this note, else None."""
+        if not self.note:
+            return None
+        d = self.definition()
+        bps = d.bound_prims() if d is not None else []
+        return bps[0].prim if bps else None
+
+    def _set_note_style(self, key: str, value) -> bool:
+        """Apply a Format / Frame / Fill row to this note (design D8, amended
+        at smoke). The note keeps only what differs from the definition.
+
+        Returns:
+            False when *key* is not one of those rows.
+        """
+        from .note_controller import STYLE_KEYS, style_after
+        prim = self._note_prim()
+        if prim is None or key not in STYLE_KEYS:
+            return False
+        style = style_after(prim, self.note.get("style"), key, value)
+        if style:
+            self.note["style"] = style
+        else:
+            self.note.pop("style", None)
+        self.note_changed()
+        return True
 
     def set_property(self, key: str, value) -> None:
         """Apply one panel row commit.
@@ -1835,7 +1871,7 @@ class BlockInstance(QGraphicsObject):
                 return                  # Q12: a mixed selection can't bypass the lock
             self._set_override_from_panel(key, str(value))
             return                      # requests its own undo step
-        else:
+        elif not self._set_note_style(key, value):
             return
         if self._panel_state() != before:
             sc = self.scene()
