@@ -94,7 +94,7 @@ def best_position_for_node(node) -> str:
 class HydraulicNodeBadge(QGraphicsSvgItem):
     """Selectable SVG badge showing the hydraulic node number.
 
-    Created as a child of Node when hydraulic results are available.
+    Created by Node (top-level, synced by it) when hydraulic results are available.
     """
 
     def __init__(self, parent_node, node_number: int,

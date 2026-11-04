@@ -592,7 +592,9 @@ def apply_display_to_item(item, color: str | None, scale: float,
         item._display_scale = scale
         item._centre_on_origin()
     elif isinstance(item, HydraulicNodeBadge):
-        _apply_svg_item(item, color, scale, opacity, visible, fill_color)
+        # Top-level (SB4d D5): Qt no longer hides it with a hidden node.
+        _apply_svg_item(item, color, scale, opacity,
+                        visible and item._parent_node.isVisible(), fill_color)
         item._display_scale = scale
         item._centre_on_offset()
     elif isinstance(item, GridlineItem):

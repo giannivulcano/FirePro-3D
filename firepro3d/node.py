@@ -276,13 +276,18 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if badge is not None:
             gc = QGraphicsItem.GraphicsItemChange
             if change == gc.ItemVisibleHasChanged:
-                badge.setVisible(self.isVisible())
+                # A badge the user hid through the DM row stays hidden.
+                badge.setVisible(self.isVisible()
+                                 and badge._display_overrides.get("visible") is not False)
+            elif change == gc.ItemOpacityHasChanged:
+                badge.setOpacity(self.opacity())
             elif change == gc.ItemSceneChange:
                 old = self.scene()
                 if old is not None and badge.scene() is old:
                     old.removeItem(badge)
             elif change == gc.ItemSceneHasChanged and value is not None and badge.scene() is None:
                 value.addItem(badge)
+                badge.setOpacity(self.opacity())
                 badge._centre_on_offset()
 
         return super().itemChange(change, value)
@@ -293,7 +298,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     def create_hydraulic_badge(self, node_number, pressure, required_pressure,
                                flow_out, total_flow, position="Right",
                                stack_index=0, stack_total=1, node_label=""):
-        """Create a selectable hydraulic node badge as a child item."""
+        """Create a selectable hydraulic node badge (top-level, synced by this node)."""
         from .hydraulic_node_badge import HydraulicNodeBadge
         self.remove_hydraulic_badge()
         self._hydraulic_badge = HydraulicNodeBadge(
@@ -306,6 +311,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if sc is not None:                    # top-level (SB4d D5): joins the node's scene
             sc.addItem(self._hydraulic_badge)
         self._hydraulic_badge.setVisible(self.isVisible())
+        self._hydraulic_badge.setOpacity(self.opacity())
 
     def remove_hydraulic_badge(self):
         """Remove the hydraulic badge if present."""
@@ -369,8 +375,8 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(0, 0), r, r)
 
-        # Pressure and node-number badges are now separate child items
-        # (HydraulicNodeBadge) — no in-paint badge drawing needed.
+        # Pressure and node-number badges are now separate top-level items
+        # synced by this node (HydraulicNodeBadge) — no in-paint badge drawing needed.
 
         # Coverage overlay — translucent green circle sized from sprinkler’s
         # Coverage Area property (sq ft).  Drawn only when the class-level

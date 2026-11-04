@@ -1260,6 +1260,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _tag = item._tag
                 entry["tag_paper"] = (_tag._paper_pen_width, _tag._paper_pen_color,
                                       _tag._paper_scale)
+                entry["tag_opacity"] = _tag.opacity()   # top-level (SB4d D5)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -1585,6 +1586,8 @@ def restore_model_display(saved: list[dict]):
                 (_tag._paper_pen_width, _tag._paper_pen_color,
                  _tag._paper_scale) = entry["tag_paper"]
                 _tag.update()
+                if "tag_opacity" in entry:
+                    _tag.setOpacity(entry["tag_opacity"])
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             # Restore WallOpening gap colour: prior value (None means unset →

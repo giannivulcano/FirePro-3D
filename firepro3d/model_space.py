@@ -8657,7 +8657,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if hasattr(item, "_display_overrides"):
                 if item._display_overrides.get("visible") is False:
                     item._display_overrides.pop("visible", None)
-                    item.setVisible(True)
+                    # A top-level node badge follows its node (SB4d D5).
+                    pn = getattr(item, "_parent_node", None)
+                    item.setVisible(pn.isVisible() if pn is not None else True)
         # Also clear fitting overrides (Fitting is not a QGraphicsItem)
         ss = getattr(self, "sprinkler_system", None)
         if ss:

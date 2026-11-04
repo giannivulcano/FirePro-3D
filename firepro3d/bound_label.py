@@ -1,7 +1,8 @@
 """bound_label.py -- an element's intrinsic label drawn by an annotation block
 (System Blocks concept F5; SB3 slice design D-A).
 
-``BoundLabelItem`` is a child of its host element: the host is the data source
+``BoundLabelItem`` is a child of its host element, or top-level
+(``child=False``) and synced by the host (SB4d D5): the host is the data source
 (``element_params`` getters), the block comes from
 ``scene.annotation_block(category)`` and the paint is the lifted
 ``block_attributes.bound_text_ops`` + ``render_op.paint_ops`` pipeline a placed
