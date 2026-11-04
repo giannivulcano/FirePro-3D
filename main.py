@@ -16,7 +16,7 @@ from firepro3d.themed_message import (
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
-from firepro3d.model_space import Model_Space, NO_VIEW_HINT
+from firepro3d.model_space import Model_Space, NO_VIEW_HINT, NOTE_OFF_HINT
 from firepro3d.modify_tools_controller import ModifyToolsController
 from firepro3d.model_view import Model_View
 from firepro3d.text_item import editing_text_item
@@ -416,7 +416,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         )
         self.scene._detail_manager = self.detail_manager
         self.scene._on_detail_created = self._refresh_detail_browser
-        self.detail_manager.on_renamed = self._on_detail_renamed       # VC9 I2
+        self.detail_manager.on_renamed = self._on_detail_renamed       # (old, new); VC9 I2
 
         # Block Editor Manager
         from firepro3d.block_editor import BlockEditorManager
@@ -1528,7 +1528,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.detail_manager.delete_detail(name)
         self._refresh_detail_browser()
 
-    def _on_detail_renamed(self):
+    def _on_detail_renamed(self, _old=None, _new=None):
         """A detail was renamed: browser leaves + placed-view italics re-key."""
         self._refresh_detail_browser()
         self._recompute_placed_views()
@@ -1788,6 +1788,21 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # (The Block group moved to the permanent Build tab's left edge —
         # _init_build_tab. Quick Block + Text Block stay retired (C7).)
+
+        # --- Annotations (Dimension + Keyed Notes unbuilt, design D1) ---
+        g_ann = build_page.add_group("Annotations")
+        _note_btn = _mode_btn(g_ann, "Note", _I("note_icon.svg"), "note")
+        _note_tip = "Place a text note owned by this view"
+        _note_btn.setToolTip(_note_tip)
+        self._arch_note_gate = (_note_btn, _note_tip)       # registered in _init_build_tab
+        self._ann_dimension_btn = g_ann.add_small_button(
+            "Dimension", _I("dimension_icon.svg"), None)
+        self._ann_keyed_btn = g_ann.add_small_button(
+            "Keyed Notes", _I("keyed_note_icon.svg"), None)
+        for _b, _what in ((self._ann_dimension_btn, "Dimensions"),
+                          (self._ann_keyed_btn, "Keyed notes")):
+            _b.setEnabled(False)
+            _b.setToolTip(f"{_what} are coming soon")
 
         # --- Underlay (moved from Manage to Architecture; contract C7, shipped) ---
         g_ul = build_page.add_group("Underlay")
@@ -2640,8 +2655,24 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     # ── Level helpers ──────────────────────────────────────────────────────────
 
+    def _retarget_plan_viewports(self, old_title: str, new_title: str) -> None:
+        """Point every sheet viewport bound to plan *old_title* at *new_title*
+        (what ``rename_detail`` / ``rename_section`` do for their kinds), so the
+        viewport still resolves, still isolates its own view's notes, and saves
+        under the live name."""
+        for sheet in self.sheet_mgr.sheets:
+            for sv in sheet.sheet_views:
+                if sv.source_view_type == "plan" and sv.source_view_name == old_title:
+                    sv.source_view_name = new_title
+
     def _on_levels_restored(self):
         """Undo / redo replaced the level list (SB2b M15): refresh every level view."""
+        # Sheets are not in the model undo snapshot: when the restore was a level
+        # RENAME (the scene derived it from the level lists), the viewports follow it
+        # in whichever direction the step went. Anything else leaves them alone.
+        rename = getattr(self.scene, "last_level_rename", None)
+        if rename is not None:
+            self._retarget_plan_viewports(f"Plan: {rename[0]}", f"Plan: {rename[1]}")
         active = self.scene.active_level            # BEFORE closing tabs: a close re-targets it
         live = {l.name for l in self.level_mgr.levels}
         stale = [self.central_tabs.tabText(i)[len("Plan: "):]
@@ -2674,6 +2705,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 w.plan_view_name = new_title
         if getattr(self.scene, "active_view_key", None) == f"plan:{old_title}":
             self.scene.active_view_key = f"plan:{new_title}"
+        from firepro3d.note_controller import rekey_notes
+        rekey_notes(self.scene, f"plan:{old_title}", f"plan:{new_title}")   # D10: before the level step
+        self._retarget_plan_viewports(old_title, new_title)
 
     def _on_levels_removed(self, names) -> None:
         """Section 12.4 Delete: close each deleted level's plan tab (the widget already
@@ -2710,6 +2744,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self.prop_manager.show_properties(template)
         elif mode in self._GEOMETRY_DRAW_MODES:
             self.prop_manager.show_properties(sc._get_geometry_template())
+        elif mode == "note":
+            self.prop_manager.show_properties(sc._note_ctl.template)
         else:
             # Exiting a template mode — clear stale template properties
             self.prop_manager.show_properties(None)
@@ -2727,6 +2763,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_arc":       "Click the arc points for the active variant (←/→ cycles Center / Start / End Points)",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
         "text":           "Click first corner, then drag to define text area",
+        "note":           "Click first corner, then drag to define the note",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
         "offset":         "Pick object to offset",
@@ -2763,7 +2800,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_line": "Line", "draw_rectangle": "Rectangle",
         "draw_circle": "Circle", "draw_ellipse": "Ellipse", "draw_arc": "Arc",
         "draw_spline": "Spline", "polyline": "Polyline", "polygon": "Polygon",
-        "text": "Text", "dimension": "Dimension", "pick_region": "Pick Point",
+        "text": "Text", "note": "Note", "dimension": "Dimension", "pick_region": "Pick Point",
         # Edit / Modify (scene-tools.md)
         "copy_base": "Copy", ModifyToolsController.CUT_BUTTON_KEY: "Cut",
         "paste": "Paste", "duplicate": "Duplicate", "move": "Move",
@@ -2900,6 +2937,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         A block that would contain itself (the editor's block, or one that
         nests it) is refused with the same footer reason as a drag-drop.
         """
+        from firepro3d.system_blocks import NOTE_BLOCK_ID
+        if block_id == NOTE_BLOCK_ID:
+            self._activate_note_tool()
+            return
         if self._block_activation_refusal(block_id) is not None:
             return
         # A Section tab places gridline-hosted blocks in the section itself
@@ -2923,6 +2964,24 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         w = self.central_tabs.currentWidget()
         view = w if isinstance(w, Model_View) else getattr(w, "view", None)
         if isinstance(view, Model_View) and view.scene() is scene:
+            QTimer.singleShot(0, view.setFocus)
+
+    def _activate_note_tool(self) -> None:
+        """The Note block was activated in the browser: a Note is never placed as
+        a symbol, so arm the Note tool where the canvas can hold one, else refuse
+        with the footer reason (design D11). Edit Block stays a separate path."""
+        sc = self._active_scene()
+        if not (hasattr(sc, "note_allowed") and sc.note_allowed()):
+            if hasattr(sc, "instructionChanged"):
+                sc.instructionChanged.emit(NOTE_OFF_HINT)
+            else:
+                self.statusBar().showMessage(NOTE_OFF_HINT, 5000)
+            return
+        sc.set_mode("note")
+        from firepro3d.model_view import Model_View
+        w = self.central_tabs.currentWidget()
+        view = w if isinstance(w, Model_View) else getattr(w, "view", None)
+        if isinstance(view, Model_View) and view.scene() is sc:
             QTimer.singleShot(0, view.setFocus)
 
     def _block_activation_refusal(self, block_id: str,
@@ -4607,6 +4666,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Slice 2: plan + detail too (design s1 note (d), s2).
         "constrain": frozenset({"plan", "detail", "block", "schematic"}),
         "inspect": frozenset({"plan", "detail", "block", "schematic"}),
+        # Note: view-owned, so plan + detail only (text-leader-annotations D11).
+        "annotate": frozenset({"plan", "detail"}),
     }
     # Edit-group caption -> ModifyToolsController tool (can_start / start).
     _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
@@ -4631,6 +4692,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._pre_editor_tab = None   # G14: tab before a selection jump
         # (button, real tooltip, _GROUP_LIVE_KINDS key) of every gated button.
         self._canvas_gated: list = []
+        # The Architecture > Annotations Note button follows the canvas kind too (D11).
+        self._gate(*self._arch_note_gate, "annotate")
 
         # --- Block (entry verbs; always live) ---
         gb = page.add_group("Block")
@@ -5106,7 +5169,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if sip.isdeleted(b):
                 continue
             live = kind in self._GROUP_LIVE_KINDS[group]
-            b.setToolTip(tip if live else off_tip)
+            b.setToolTip(tip if live else
+                         (NOTE_OFF_HINT if group == "annotate" else off_tip))
             b.setEnabled(live)
         if kind in self._GROUP_LIVE_KINDS["edit"]:
             self._connect_modify_refresh(self._active_scene())
@@ -5574,7 +5638,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # Don't override template properties during placement modes
             if sc.mode in ("pipe", "sprinkler", "wall",
                            "floor", "roof", "roof_rect",
-                           "set_scale", "design_area"):
+                           "set_scale", "design_area", "note"):
                 return
             items = sc.selectedItems()
         except RuntimeError:

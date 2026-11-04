@@ -580,7 +580,8 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     if (z > 150
             and type(item).__name__ not in ELEV_Z_SNAPPABLE_CLASSES
             and not (Z_ANNOT_BASE <= z < Z_PREVIEW
-                     and type(item).__name__ in ANNOT_Z_SNAPPABLE_CLASSES)):
+                     and type(item).__name__ in ANNOT_Z_SNAPPABLE_CLASSES)
+            and not getattr(item, "note", None)):     # a Note sits in the band too
         return False
     if QGraphicsItem.data(item, 0) in _NON_TARGET_TAGS:
         return False

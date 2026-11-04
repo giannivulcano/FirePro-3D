@@ -432,7 +432,8 @@ Free-placed **multi-line text blocks** are the MVP annotation type and the last 
 | Type | Status |
 |------|--------|
 | **Text** (multi-line, font/height/bold/italic/color/alignment; box fill + frame since the C5 unification) | **Built** |
-| Leader · Line / Rectangle · Revision cloud · North arrow · Scale bar | Deferred (§17) |
+| Leader on sheet text (Leader rows + grips; [design](../superpowers/specs/2026-11-04-text-leader-annotations-design.md)) | Built 2026-11-04 |
+| Line / Rectangle · Revision cloud · North arrow · Scale bar | Deferred (§17) |
 | Legends / schedules | A separate Revit-style **placed-table** feature (built elsewhere, dropped on a sheet like a viewport) — *not* a text annotation |
 
 The `type` discriminator on `TextAnnotationData` reserves the `annotations` array for the deferred types.
@@ -698,7 +699,7 @@ User modifies model while PDF export is in progress → export captures state at
 - **Paper-space undo/redo [this cycle — §17]:**
   - [ ] Undo/redo works for text create/edit/move/format/wrap-resize **and** viewport add/move/resize/delete; Ctrl+Z/Y/Shift+Z + ribbon both route to the paper stack when a sheet is active; stack resets on project load / new file
   - [ ] One canonical `PaperScene` drives the visible tab, edits, save, and export (duplicate-widget prerequisite collapsed)
-- [ ] Leader / line / rectangle / revision cloud / north arrow / scale bar annotations (deferred — §18)
+- [ ] Line / rectangle / revision cloud / north arrow / scale bar annotations (deferred — §18)
 - [ ] Per-sheet revision history (rev, date, description, drawn_by)
 - [x] True-scale labels — gridline bubbles through sheet viewports (§9.9.1, built 2026-08-08); room / pipe / plan-gridline label adoption built (SB3 / SB4a / SB4b); thin-lines toggle remains a follow-up
 - [ ] Constraint rendering filter in sheet views

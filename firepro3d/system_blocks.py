@@ -37,3 +37,7 @@ SYSTEM_DEFAULTS: dict[str, str] = {
     "Section": "system-tags-sectionhead",
     "Detail": "system-tags-detailcallout",
 }
+
+# The shipped Note block (design 2026-11-04-text-leader-annotations D8). Kept out of
+# SYSTEM_DEFAULTS: it is not an intrinsic-label category, so no Annotation row.
+NOTE_BLOCK_ID = "system-annotations-note"

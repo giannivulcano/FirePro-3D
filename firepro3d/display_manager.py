@@ -2683,6 +2683,8 @@ class DisplayManager(HouseDialog):
         for sheet in getattr(self._scene, "_sheets", []) or []:
             for ann in getattr(sheet, "annotations", []):
                 yield ann.border_weight, ("ann", ann)
+                if (getattr(ann, "leader", None) or {}).get("weight"):
+                    yield ann.leader["weight"], ("lead_ann", ann.leader)
         scenes = [self._scene]
         prov = getattr(self._scene, "_editor_scenes_provider", None)
         if callable(prov):
@@ -2690,6 +2692,8 @@ class DisplayManager(HouseDialog):
         for sc in scenes:
             for item in getattr(sc, "_texts", []) or []:
                 yield item._data.border_weight, ("item", item)
+                if (item._data.leader or {}).get("weight"):
+                    yield item._data.leader["weight"], ("lead_item", item)
             for item in sc.items():
                 st = getattr(item, "style", None)
                 if isinstance(st, dict) and is_named_weight(st.get("weight")):
@@ -2698,6 +2702,12 @@ class DisplayManager(HouseDialog):
                 w = getattr(inst, "overrides", {}).get("weight")
                 if is_named_weight(w):
                     yield w, ("inst", inst)
+                lw = ((getattr(inst, "note", None) or {}).get("leader") or {}).get("weight")
+                if lw:
+                    yield lw, ("lead_inst", inst)      # a Note's leader weight
+                bw = ((getattr(inst, "note", None) or {}).get("style") or {}).get("border_weight")
+                if bw:
+                    yield bw, ("style_inst", inst)     # a Note's own border weight
         reg = getattr(self._scene, "block_registry", None)
         if reg is not None:
             for bid in reg.ids():
@@ -2705,6 +2715,9 @@ class DisplayManager(HouseDialog):
                 for prim in getattr(defn, "primitives", []) or []:
                     if prim.get("type") == "text" and "border_weight" in prim:
                         yield prim["border_weight"], ("prim", (bid, prim))
+                    if (prim.get("type") == "text"
+                            and (prim.get("leader") or {}).get("weight")):
+                        yield prim["leader"]["weight"], ("lead_prim", (bid, prim["leader"]))
                     st = prim.get("style")
                     if isinstance(st, dict) and is_named_weight(st.get("weight")):
                         yield st["weight"], ("sprim", (bid, st))
@@ -2768,7 +2781,22 @@ class DisplayManager(HouseDialog):
         for cur, (kind, ref) in list(self._weight_refs()):
             if cur != old:
                 continue
-            if kind == "ann":
+            if kind == "lead_ann":
+                ref["weight"] = new         # a sheet text's leader record
+            elif kind == "lead_item":
+                ref._data.leader["weight"] = new
+                ref.update()
+            elif kind == "lead_inst":
+                ref.note["leader"]["weight"] = new
+                ref.note_changed()
+            elif kind == "style_inst":
+                ref.note["style"]["border_weight"] = new
+                ref.note_changed()
+            elif kind == "lead_prim":
+                bid, rec = ref
+                rec["weight"] = new
+                touched_defs.add(bid)
+            elif kind == "ann":
                 ref.border_weight = new     # live paper TextItems alias this data
             elif kind == "item":
                 ref._data.border_weight = new

@@ -44,7 +44,7 @@ def test_get_properties_shape(qapp):
     assert props["Alignment"]["options"] == ["Left", "Center", "Right"]
     assert props["Fill Color"]["type"] == "color"
     assert props["Fill Opacity"]["type"] == "percent"
-    assert props["Leader"]["type"] == "label"     # placeholder for leader follow-up
+    assert props["Leader"] == {"type": "bool", "value": False}   # D6: toggle replaces the placeholder
 
 
 def test_set_property_pushes_single_undo_command(qapp):

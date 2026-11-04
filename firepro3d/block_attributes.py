@@ -343,7 +343,7 @@ def hugged_text_record(rec: dict, value: str | None = None) -> dict:
 
 
 def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: bool,
-                   scale: float, ov_args, cache):
+                   scale: float, ov_args, cache, patch: dict | None = None):
     """The per-placement bound text ops of *defn* (SB1a design S2; lifted from
     ``BlockInstance._bound_ops`` for the SB3 ``BoundLabelItem`` -- one
     implementation).
@@ -365,7 +365,11 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
         ov_args: ``stroke_style.override_args`` tuple or None.
         cache: The caller's last ``(bound prim list, key, ops)`` triple or
             None. Memoised on (prim list identity, resolved strings, mirror,
-            scale, override).
+            scale, override, patch).
+        patch: A Note's per-placement text fields (box size, leader; design
+            D8), merged into every text record. With a patch hugging is
+            skipped -- the box is authored per placement. None for every
+            ordinary placement.
 
     Returns:
         ``(ops, cache)`` -- *cache* is the same object as the argument on a
@@ -380,7 +384,8 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
     values = resolve_values(defn.effective_attributes(), attributes, host_values)
     strings = tuple(resolve_fields(str(b.prim.get("text", "")), values)[0] for b in bps)
     blank = blank_keys(defn.effective_attributes(), attributes, host_values)
-    key = (strings, blank, bool(mirrored), float(f"{scale:.9g}"), ov_args)
+    key = (strings, blank, bool(mirrored), float(f"{scale:.9g}"), ov_args,
+           repr(sorted(patch.items())) if patch else None)
     if cache is not None and cache[0] is bps and cache[1] == key:
         return cache[2], cache
     from PyQt6.QtGui import QTransform
@@ -394,8 +399,10 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
     for b, s, dy in zip(bps, strings, shifts):
         if dy is None:
             continue                                 # Hide when empty (D6): glyphs, border, fill
-        rec = dict(hugged_text_record(b.prim, s))   # hug round the value, then bind it
-        rec["text"] = s
+        rec = dict(hugged_text_record(b.prim, s)) if patch is None else dict(b.prim)
+        rec["text"] = s                              # hug round the value, then bind it
+        if patch:
+            rec.update(patch)                        # design D8: the box is authored per placement
         item = TextItem.from_dict(rec)
         path = item.mapToParent(_local_path(item))
         centre = item.grip_points()[8]

@@ -33,6 +33,16 @@ def default_border_weight() -> str:
     return nearest_weight_name(TEXT_BORDER_DEFAULT_MM)
 
 
+def _leader_of(d: dict):
+    """The stored leader, normalised; canonical weight name (H-g)."""
+    from .paper_display import canonical_weight_name
+    from .text_leader import normalise
+    rec = normalise(d.get("leader"))
+    if rec is not None and rec["weight"]:
+        rec["weight"] = canonical_weight_name(rec["weight"])
+    return rec
+
+
 @dataclass
 class TextAnnotationData:
     """Serialisable data for one text annotation.
@@ -115,6 +125,7 @@ class TextAnnotationData:
     hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
     wrap: bool | None = None                     # D4: None = legacy (see wrap_on)
     shrink: bool | None = None                   # D4: None = legacy (see shrink_on)
+    leader: dict | None = None                   # sparse leader record (text_leader); None = off
     type: str = "text"                           # discriminator for future annotation types
 
     def shrink_on(self, bound: bool = False) -> bool:
@@ -171,6 +182,8 @@ class TextAnnotationData:
             d["wrap"] = bool(self.wrap)          # sparse: absent = legacy default (D4)
         if self.shrink is not None:
             d["shrink"] = bool(self.shrink)      # sparse, same rule
+        if self.leader:
+            d["leader"] = dict(self.leader)      # sparse, same rule
         return d
 
     @classmethod
@@ -202,6 +215,7 @@ class TextAnnotationData:
             hide_empty=bool(d.get("hide_empty", False)),
             wrap=None if d.get("wrap") is None else bool(d["wrap"]),
             shrink=None if d.get("shrink") is None else bool(d["shrink"]),
+            leader=_leader_of(d),
             type=d.get("type", "text"),
         )
 
@@ -244,7 +258,8 @@ from PyQt6.QtWidgets import (                                      # noqa: E402
 from . import crisp_stroke as _cs                                   # noqa: E402
 from . import theme                                                 # noqa: E402
 from .constants import (                                           # noqa: E402
-    DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM,
+    DEFAULT_LEVEL, MIN_TEXT_WRAP_WIDTH_MM, TEXT_LEADER_BOUNDS_PAD_MM,
+    TEXT_LEADER_HIT_PX,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_CARET_WIDTH_PX, TEXT_HEIGHT_MM_PRECISION, TEXT_METRIC_REF_PX,
     TEXT_SELECTION_ALPHA,
@@ -253,6 +268,7 @@ from .colour_tokens import is_token, normalize_colour, resolve_colour  # noqa: E
 from .displayable_item import DisplayableItemMixin                 # noqa: E402
 from .geometry_2d import Geometry2DMixin                           # noqa: E402
 from .scale_manager import DisplayUnit, ScaleManager                # noqa: E402
+from . import text_leader as _tl                                   # noqa: E402
 
 
 # ── Height display / parse helpers (one home; text-sizing-wrap D2) ─────────
@@ -785,7 +801,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         path.lineTo(l, t + rad); path.closeSubpath()
         return path
 
-    def _frame_pen(self) -> "QPen":
+    def _frame_pen(self, weight: "str | None" = None,
+                   line_type: "str | None" = None) -> "QPen":
         """Pen for the border: text colour + line-type, aligned with the sibling
         2D primitives.
 
@@ -796,20 +813,27 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         Lines -> 1 px).
         On the paper surface the true named mm weight is used (divided by scale
         like the other paper pens) so the border still plots at its real width.
+
+        Args:
+            weight: Named weight to use instead of ``border_weight`` (the
+                leader's own); None keeps the border's.
+            line_type: Line type to use instead of ``border_line_type``.
         """
+        weight = self._data.border_weight if weight is None else weight
+        line_type = self._data.border_line_type if line_type is None else line_type
         pen = QPen(resolve_colour(self._data.color, item=self))
         pen.setStyle({
             "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
             "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
-        }.get(self._data.border_line_type, Qt.PenStyle.SolidLine))
+        }.get(line_type, Qt.PenStyle.SolidLine))
         if self.is_device_independent():
             from .paper_display import resolve_line_weight_mm
             scale = self.scale() or 1.0
-            pen.setWidthF(max(resolve_line_weight_mm(self._data.border_weight) / scale, 1e-4))
+            pen.setWidthF(max(resolve_line_weight_mm(weight) / scale, 1e-4))
         else:
             from .paper_display import canvas_px_for_weight
             pen.setCosmetic(True)
-            pen.setWidthF(canvas_px_for_weight(self._data.border_weight))
+            pen.setWidthF(canvas_px_for_weight(weight))
         return pen
 
     def boundingRect(self) -> QRectF:
@@ -824,6 +848,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         s = self.scale() or 1.0
         pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
         base = rect.adjusted(-pad, -pad, pad, pad)
+        lr = self._leader_rect_local()
+        if lr is not None:
+            base = base.united(lr)
         if self._angle == 0.0:
             return base
         return self._rotation_transform().mapRect(base)
@@ -837,8 +864,49 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         path = QPainterPath()
         path.addRect(self._box_rect_local())
+        lp = self._leader_path_local()
+        if not lp.isEmpty():
+            from PyQt6.QtGui import QPainterPathStroker
+            st = QPainterPathStroker()
+            st.setWidth(self._leader_hit_mm() / (self.scale() or 1.0))
+            path.addPath(st.createStroke(lp))
         if self._angle != 0.0:
             path = self._rotation_transform().map(path)
+        return path
+
+    def _leader_hit_mm(self) -> float:
+        """Width of the leader's hit strip in surface mm: ~10 screen px at the
+        view's zoom, as the 2D primitives (``scene_hit_width``)."""
+        from .view_scale import scene_hit_width
+        return scene_hit_width(self, TEXT_LEADER_HIT_PX, TEXT_LEADER_BOUNDS_PAD_MM)
+
+    def _leader_rect_local(self) -> "QRectF | None":
+        """The leader's extent in item-local units: the stroke, padded to hold
+        the hit strip, united with the bounds of its End blocks."""
+        pts = _tl.box_frame_points(self)
+        if pts is None:
+            return None
+        s = self.scale() or 1.0
+        xs = [p.x() / s for p in pts]
+        ys = [p.y() / s for p in pts]
+        pad = max(TEXT_LEADER_BOUNDS_PAD_MM, self._leader_hit_mm() / 2.0) / s
+        r = QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)).adjusted(
+            -pad, -pad, pad, pad)
+        er = _tl.ends_extent(self)           # box frame mm -> local units
+        if er is not None:
+            r = r.united(QRectF(er.x() / s, er.y() / s, er.width() / s, er.height() / s))
+        return r
+
+    def _leader_path_local(self) -> QPainterPath:
+        """The leader polyline, item-local unrotated (hit test, before rotation)."""
+        path = QPainterPath()
+        pts = _tl.box_frame_points(self)
+        if pts is not None:
+            s = self.scale() or 1.0
+            a, k, tip = (QPointF(p.x() / s, p.y() / s) for p in pts)
+            path.moveTo(a)
+            path.lineTo(k)
+            path.lineTo(tip)
         return path
 
     def contains(self, point) -> bool:
@@ -980,7 +1048,43 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(box)
+        if self._data.leader:
+            self._paint_leader(painter)
         painter.restore()
+
+    def _paint_leader(self, painter: QPainter) -> None:
+        """Shoulder + leader + End type (design D3), in the mm box frame."""
+        from . import end_render as _er
+        from .hatch_render import _device_scale
+        from .linetype_render import printed_factor
+        pieces = _tl.leader_pieces(self)
+        s = self.scale() or 1.0
+        painter.save()
+        painter.scale(1.0 / s, 1.0 / s)
+        pen = self._leader_pen(s)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        args = self._lt_args()
+        ends = _tl.leader_ends(self)
+        ff = printed_factor(**args)
+        sf = _er.screen_factor(paper_scale=args["paper_scale"], role=args["role"],
+                               device_scale=_device_scale(painter))
+        trims = _er.end_trims(ends, printed=ff, screen=sf)
+        painter.drawPath(_er.trimmed_path(pieces, *trims))
+        drew = _er.paint_ends(painter, pieces, ends, pen, printed=ff, screen=sf,
+                              scene=self.scene())
+        if sf is not None:           # a paper pass never touches the mark (ET1 spec C)
+            _er.mark_screen_ends(self, drew)
+        painter.restore()
+
+    def _leader_pen(self, s: float) -> "QPen":
+        """The frame pen in the leader's own weight, solid, in the mm box frame.
+        ``_frame_pen`` works in item-local units, so a non-cosmetic width is
+        rescaled by the item scale (the painter is scaled by 1/scale here)."""
+        pen = self._frame_pen(self._data.leader.get("weight") or None, "solid")
+        if not pen.isCosmetic():
+            pen.setWidthF(pen.widthF() * s)
+        return pen
 
     def _paint_document_shifted(self, painter: QPainter, option, widget) -> None:
         """Paper document paint at the Shrink offset (D5, T20 probe).
@@ -1284,7 +1388,13 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             QPointF(r.right(), cy),         QPointF(r.right(), r.bottom()), QPointF(cx, r.bottom()),
             QPointF(r.left(),  r.bottom()), QPointF(r.left(),  cy),        QPointF(cx, cy),
         ]
-        return [self.mapToScene(p) for p in local]
+        out = [self.mapToScene(p) for p in local]
+        if self._data.leader:
+            s = self.scale() or 1.0
+            _a, k, _t = _tl.box_frame_points(self)
+            out.append(self.mapToScene(QPointF(k.x() / s, k.y() / s)))
+            out.append(QPointF(self._data.leader["tip_x"], self._data.leader["tip_y"]))
+        return out
 
     # Which axes a grip drag touches (containment C5.7 review I2 — the
     # axis-isolated box resize ported from the legacy paper
@@ -1295,6 +1405,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # The centre grip translates the box (``apply_grip`` index 8) — the one
     # grip the inline editor never treats as a handle (text wins there).
     MOVE_GRIP_INDEX = 8
+    LEADER_KNEE_GRIP = 9      # present only while a leader is on (D5)
+    LEADER_TIP_GRIP = 10
 
     _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
     _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
@@ -1313,6 +1425,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         A resize on a Shrink box first freezes its drawn box (D6,
         :meth:`_freeze_shrink`); the centre move keeps Shrink.
         """
+        if index in (self.LEADER_KNEE_GRIP, self.LEADER_TIP_GRIP):
+            self._apply_leader_grip(index, pos)
+            return
         if index != self.MOVE_GRIP_INDEX:
             self._freeze_shrink()      # D6: a resize grip; the centre move keeps Shrink
         local = self.mapFromScene(pos)
@@ -1346,6 +1461,38 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_r.height() if index in self._GRIP_CHANGES_Y else None,
         )
         self.sync_data_from_item()
+
+    def grip_pinned(self, index: int) -> bool:
+        """True for the leader tip: it stays put through a held move (D7)."""
+        return index == self.LEADER_TIP_GRIP
+
+    def _apply_leader_grip(self, index: int, pos: QPointF) -> None:
+        """Knee or tip drag (D5): each leaves the other alone."""
+        rec = self._data.leader
+        if not rec:
+            return
+        self.prepareGeometryChange()
+        if index == self.LEADER_TIP_GRIP:
+            rec["tip_x"], rec["tip_y"] = pos.x(), pos.y()
+        else:
+            rec.update(_tl.solve_knee(_tl._box_mm(self), _tl._from_parent(self, pos), rec,
+                                      _tl.knee_snap_mm(self)))
+        self.update()
+
+    def shift_leader(self, dx: float, dy: float) -> None:
+        """Carry the tip with a rigid shift (D7). A plain move does not call this."""
+        rec = self._data.leader
+        if rec:
+            self.prepareGeometryChange()
+            rec["tip_x"] += dx
+            rec["tip_y"] += dy
+
+    def _carry_tip(self, p: QPointF) -> None:
+        """Put the tip at surface point *p* (a rigid carry of the leader)."""
+        rec = self._data.leader
+        if rec:
+            self.prepareGeometryChange()
+            rec["tip_x"], rec["tip_y"] = p.x(), p.y()
 
     def _content_height_mm(self) -> float:
         """Current text-content height in surface mm (the auto-height seed)."""
@@ -1408,12 +1555,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def manip_handles(self):
         from .manip_handle import default_grip_handles
         # S2: the centre move grip is a TranslateGripHandle (handle snap).
-        return default_grip_handles(self, circular={0, 2, 4, 6, 8},
+        return default_grip_handles(self, circular={0, 2, 4, 6, 8, 9, 10},
                                     translate={self.MOVE_GRIP_INDEX})
 
     def manip_box_extra_handles(self):
         from .manip_handle import TranslateGripHandle
-        return [TranslateGripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
+        out = [TranslateGripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
+        if self._data.leader:
+            from .manip_handle import GripHandle
+            out += [GripHandle(self, i, circular=True)
+                    for i in (self.LEADER_KNEE_GRIP, self.LEADER_TIP_GRIP)]
+        return out
 
     def grip_render_angle(self, index: int) -> float:
         return self._angle
@@ -1434,9 +1586,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # fixed point of its own rotation, so the data rotation is irrelevant).
         o = QGraphicsTextItem.mapToScene(self, self._rotation_origin())
         new_o = CAD_Math.rotate_point(o, pivot, -angle_deg)
+        rec = self._data.leader
+        tip = (CAD_Math.rotate_point(QPointF(rec["tip_x"], rec["tip_y"]), pivot, -angle_deg)
+               if rec else None)           # D7: the tip turns with the box, same map as `o`
         self.set_angle(self._angle + angle_deg,
                        None if self._pivot is None else o)
         self.manip_translate(new_o.x() - o.x(), new_o.y() - o.y())
+        if tip is not None:
+            self._carry_tip(tip)
 
     def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
         """Baked resize about a scene *anchor* by (fx, fy) in the box's own
@@ -1461,7 +1618,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_r.width() if abs(fx - 1.0) > eps else None,
             new_r.height() if abs(fy - 1.0) > eps else None,
         )
-        self.sync_data_from_item()
+        self.sync_data_from_item()      # the tip is pinned: a box scale never moves it
 
     # ── Closed-path protocol (Text is NOT fillable) ─────────────────────────
 
@@ -1495,7 +1652,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         if self._on_paper():
             from .paper_space import _text_panel_properties
-            return _text_panel_properties(self._data)
+            from .hatch_patterns import picker_exclude
+            return _text_panel_properties(self._data, self._tile_registry(),
+                                          picker_exclude(self.scene()))
         from .paper_display import picker_weight_name, weight_names
         d = self._data
         props = {
@@ -1549,7 +1708,25 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             props["Insert field"] = {"type": "enum", "options": [""] + keys, "value": ""}
             props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
             props["Hide when empty"] = {"type": "bool", "value": d.hide_empty}
+        from .text_leader import panel_rows
+        from .hatch_patterns import picker_exclude
+        props.update(panel_rows(d.leader, self._tile_registry(),
+                                exclude=picker_exclude(self.scene()),
+                                fallback_weight=d.border_weight))
         return props
+
+    def _leader_change(self, key: str, value):
+        """The new ``leader`` value for a Leader row, as ``(value,)``, or
+        ``(False,)`` when *key* is not one. Off drops the record, so on starts
+        fresh (spec edge case)."""
+        r = self._box_rect_local()
+        s = self.scale() or 1.0
+        box = QRectF(0.0, 0.0, r.width() * s, r.height() * s)
+        from .hatch_patterns import picker_exclude
+        return _tl.leader_change(self._data.leader, key, value, box,
+                                 QPointF(self._data.x, self._data.y),
+                                 self._tile_registry(), self.scene(),
+                                 picker_exclude(self.scene()))
 
     def _height_row(self) -> dict:
         """The model-surface Height row (text-sizing-wrap D2).
@@ -1557,11 +1734,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         Text in an annotative Block Editor block is printed text: Height shows
         and parses as a Word-style pt font size (``10.5 pt``), like sheet
         text. Real-size model / block text shows decimal mm (``2.50 mm``).
-        Storage stays cap height in mm either way; the row commits mm.
+        Storage stays cap height in mm either way; the row commits mm. A Note's
+        style item (``_printed_height``) is printed text too, with no editor.
         """
         from .annotative import editor_is_annotative
         d = self._data
-        if editor_is_annotative(self.scene()):
+        if getattr(self, "_printed_height", False) or editor_is_annotative(self.scene()):
             return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
                     "parser": lambda text, dd=d: _parse_height_pt(dd, text),
                     "formatter": lambda mm, dd=d: _format_height_pt(dd, mm),
@@ -1586,6 +1764,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def _set_property_model(self, key: str, value) -> None:
         """Apply a model-surface panel commit to ``_data`` (no undo push)."""
+        chg = self._leader_change(key, value)
+        if chg[0] is not False:
+            self.prepareGeometryChange()
+            self._data.leader = chg[0]
+            self._apply_format()
+            return
         if key == "Text":
             if str(value) == self._data.text:
                 return   # stale panel replay (e.g. focus-out during a live
@@ -1680,7 +1864,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         from .paper_space import _text_panel_change
         from .paper_commands import FormatTextCommand
-        if key in ("Wrap", "Shrink to fit"):
+        chg = self._leader_change(key, value)
+        if chg[0] is not False:
+            change = {"leader": chg[0]}
+            if change["leader"] == self._data.leader:
+                change = None
+        elif key in ("Wrap", "Shrink to fit"):
             change = self._toggle_change(key, value) or None     # D7: may be 2 fields
         else:
             change = _text_panel_change(self._data, key, value)

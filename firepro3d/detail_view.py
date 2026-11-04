@@ -530,7 +530,8 @@ class DetailViewManager:
         # name → Model_View (open tabs only)
         self._open_views: dict[str, object] = {}
         self._counter = 0
-        # main.py hook: browser Details list + placed-view italics after a rename
+        # Called with (old, new) after a rename: the project browser's Details
+        # list and the placed-view italics refresh there (main.py).
         self.on_renamed = None
 
     @property
@@ -614,8 +615,49 @@ class DetailViewManager:
         if marker is not None and marker.scene() is self._ms:
             self._ms.removeItem(marker)
 
+    def rename_detail(self, old: str, new: str) -> bool:
+        """Rename a detail everywhere its name is a key: the marker, the manager
+        tables, the open tab and view, its notes, the scene's view key and every
+        sheet viewport bound to it. A save and reload then keeps its notes.
+
+        Returns:
+            False when refused (empty, unchanged, taken or unknown name).
+        """
+        new = str(new).strip()
+        if not new or new == old or new in self._markers or old not in self._markers:
+            return False
+        marker = self._markers.pop(old)
+        marker._name = new
+        marker.update()
+        self._markers[new] = marker
+        view = self._open_views.pop(old, None)
+        if view is not None:
+            view._detail_name = new
+            view.setObjectName(f"detail_view_{new}")
+            self._open_views[new] = view
+            i = self._tabs.indexOf(view)
+            if i >= 0:
+                self._tabs.setTabText(i, f"Detail: {new}")
+        from .note_controller import rekey_history, rekey_notes
+        rekey_notes(self._ms, f"detail:{old}", f"detail:{new}")
+        rekey_history(self._ms, f"detail:{old}", f"detail:{new}")   # no undo step: rewrite history
+        if getattr(self._ms, "active_view_key", "") == f"detail:{old}":
+            self._ms.active_view_key = f"detail:{new}"
+        for sheet in getattr(self._ms, "_sheets", []) or []:     # as section_manager does
+            for sv in getattr(sheet, "sheet_views", []):
+                if sv.source_view_type == "detail" and sv.source_view_name == old:
+                    sv.source_view_name = new
+        marker.refresh_heads()                    # the Sheet slot re-reads under the new name (SB4d)
+        if self.on_renamed is not None:
+            self.on_renamed(old, new)
+        return True
+
     def delete_detail(self, name: str):
-        """Delete a detail (marker + tab). Used from project browser."""
+        """Delete a detail (marker + tab) and the notes it owns. Used from the
+        project browser. Not undoable (details have no undo step; spec Divergences)."""
+        from .note_controller import drop_history, remove_notes
+        remove_notes(self._ms, f"detail:{name}")
+        drop_history(self._ms, f"detail:{name}")      # no undo step: rewrite history
         self.close_detail(name)
 
     def clear(self):
@@ -640,35 +682,6 @@ class DetailViewManager:
 
     def get_marker(self, name: str) -> DetailMarker | None:
         return self._markers.get(name)
-
-    def rename_detail(self, old: str, new: str) -> bool:
-        """Rename a placed detail (mirrors ``SectionManager.rename_section``):
-        the manager key, an open view's ``_detail_name`` / tab title and every
-        sheet viewport bound as ``detail:<old>`` follow the name. Refuses a
-        blank, unchanged or duplicate name; True when renamed."""
-        marker = self._markers.get(old)
-        if marker is None or not new or new == old or new in self._markers:
-            return False
-        self._markers.pop(old)
-        marker._name = new
-        self._markers[new] = marker
-        view = self._open_views.pop(old, None)
-        if view is not None:
-            self._open_views[new] = view
-            view._detail_name = new
-            view.setObjectName(f"detail_view_{new}")
-            for i in range(self._tabs.count()):
-                if self._tabs.widget(i) is view:
-                    self._tabs.setTabText(i, f"Detail: {new}")
-        for sheet in getattr(self._ms, "_sheets", []) or []:
-            for sv in getattr(sheet, "sheet_views", []):
-                if sv.source_view_type == "detail" and sv.source_view_name == old:
-                    sv.source_view_name = new
-        marker.update()
-        marker.refresh_heads()                    # the Sheet slot re-reads under the new name
-        if self.on_renamed is not None:
-            self.on_renamed()
-        return True
 
     def restore_marks(self, data: list[dict]) -> None:
         """Undo restore: update surviving markers in place (never recreate or

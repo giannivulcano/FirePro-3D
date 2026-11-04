@@ -202,6 +202,10 @@ def text_box_ops(item, t: QTransform) -> tuple[list, list]:
         pen.setStyle(_BORDER_STYLES.get(d.border_line_type, Qt.PenStyle.SolidLine))
         over.append(RenderOp(STROKE, _mapped(item._frame_path()), pen=pen,
                              weight=d.border_weight, colour=d.color))
+    from .text_leader import surface_stroke_op
+    lop = surface_stroke_op(item, t)
+    if lop is not None:
+        over.append(lop)
     return under, over
 
 

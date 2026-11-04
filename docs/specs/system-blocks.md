@@ -1,7 +1,7 @@
 ---
 status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d-e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+last-verified: 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, OutlinedLabel (SB4c), TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/section_scene.py        # SB4c: ElevGridlineItem bubbles, LevelDatumHead / ElevDatumItem, SectionScene.annotation_block + refresh_annotation_tags (the block side; the section projection is section-view-subsystem.md)
@@ -61,6 +61,8 @@ source-tasks:
 > 8 / 10.1 and in [`section-view-subsystem.md`](section-view-subsystem.md)).
 
 ## Ownership (Rule A)
+
+- The shipped Note block (`system_blocks/Annotations/Note.fpdb`, a view-owned note, no host category): [text leaders design D8](../superpowers/specs/2026-11-04-text-leader-annotations-design.md).
 
 This spec owns: the `BoundLabelItem` contract, the annotation-block resolver and its
 fallback chain, `annotation_defaults` (model, persistence, pane), `SYSTEM_DEFAULTS`,

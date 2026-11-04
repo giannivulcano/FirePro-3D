@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "id": "system-annotations-note",
+  "version": 1,
+  "name": "Note",
+  "library": "System",
+  "series": "Annotations",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [
+    {
+      "key": "Text",
+      "label": "Text",
+      "type": "text",
+      "source": "instance",
+      "host_key": "",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": ""
+    }
+  ],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "text",
+      "text": "@[Text]",
+      "x": 0.0,
+      "y": 0.0,
+      "height_mm": 3.0,
+      "wrap_width_mm": 60.0,
+      "box_height_mm": 12.0,
+      "font_family": "Arial",
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "L",
+      "valign": "T",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 1.0,
+      "border": true,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "uid": "ac127fd0864443f38fc30cfe14e7d2b9"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {}
+}

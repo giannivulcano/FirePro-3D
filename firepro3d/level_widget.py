@@ -439,6 +439,10 @@ class LevelWidget(QWidget):
         if pvm is not None:
             for n in names:
                 pvm.remove_level(n)                  # section 12.4: the PlanView is dropped
+        if self.scene is not None:
+            from .note_controller import remove_notes
+            for n in names:                          # the view's notes go with it (D10); they
+                remove_notes(self.scene, f"plan:Plan: {n}")   # ride the one step pushed below
         self.populate()
         self.levelsRemoved.emit(list(names))
         self.levelsChanged.emit()

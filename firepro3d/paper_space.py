@@ -58,6 +58,16 @@ from .paper_commands import (
     _find_viewport,
 )
 
+def _same_view_context(key_a: str, ctx_a, key_b: str, ctx_b) -> bool:
+    """True when two views render identically, so isolation can be skipped.
+
+    A view owns its Notes (text-leader-annotations D9), so the view key counts
+    as well as the level / range: a detail sharing its plan's context still
+    shows different notes.
+    """
+    return ctx_a is not None and ctx_a == ctx_b and key_a == key_b
+
+
 def _split_view_key(key: str):
     """'plan:Plan: Level 1' -> ('plan', 'Plan: Level 1'); '' -> ('', '')."""
     if not key or ":" not in key:
@@ -1159,13 +1169,17 @@ class SheetViewport(QGraphicsObject):
         onscreen_key = getattr(scene, "active_view_key", "")
         onscreen_ctx = (resolver.resolve_level_context(*_split_view_key(onscreen_key))
                         if onscreen_key else None)
-        if onscreen_ctx is not None and onscreen_ctx == target:
+        target_key = f"{self._data.source_view_type}:{self._data.source_view_name}"
+        if _same_view_context(onscreen_key, onscreen_ctx, target_key, target):
             return None                              # no-op skip
         level, vh, vd = target
-        lm.apply_to_scene(scene, level, view_height=vh, view_depth=vd)
         scene.active_level = level
-        scene.active_view_key = (f"{self._data.source_view_type}:"
-                                 f"{self._data.source_view_name}")
+        scene.active_view_key = target_key           # before the sweep: a Note reads it (D9)
+        try:
+            lm.apply_to_scene(scene, level, view_height=vh, view_depth=vd)
+        except BaseException:
+            scene.active_level, scene.active_view_key = onscreen_level, onscreen_key
+            raise                                    # no token: the caller cannot restore
         return {"lm": lm, "scene": scene,
                 "level": onscreen_level, "key": onscreen_key, "ctx": onscreen_ctx}
 
@@ -1555,23 +1569,26 @@ _PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
 _PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
 
 
-def _text_panel_properties(data: "TextAnnotationData") -> dict:
+def _text_panel_properties(data: "TextAnnotationData", registry=None, exclude=()) -> dict:
     """Property-panel form dict for a sheet text annotation (§9.6 panel path).
 
     Formatting only — content is edited inline on the canvas and wrap width
     via the drag grip; Wrap / Shrink to fit toggle the box (text-sizing D7).
     Height displays/parses as a Word-style pt font size
-    (storage stays cap-height mm). The trailing "Leader" label row is a
-    placeholder for the leader follow-up task (real leader rows will replace
-    it).
+    (storage stays cap-height mm). The tail is the Leader toggle, plus its End
+    and Weight rows while a leader is on (``text_leader.panel_rows``).
 
     Args:
         data: The TextAnnotationData to render.
+        registry: Project block registry the Leader End picker resolves
+            through (``TextItem._tile_registry()``); None lists folder ends.
+        exclude: End block ids the picker leaves out (``picker_exclude``).
 
     Returns:
         An ordered property dict in PropertyManager meta format.
     """
     from .paper_display import picker_weight_name, weight_names
+    from .text_leader import panel_rows
     return {
         "Font": {"type": "font", "value": data.font_family or "Arial"},
         "Height": {"type": "dimension", "value": data.height_mm,
@@ -1598,7 +1615,7 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
                    "options": ["square", "round", "chamfer"]},
         "Wrap": {"type": "bool", "value": data.wrap_on()},                   # D7
         "Shrink to fit": {"type": "bool", "value": data.shrink_on()},       # D7
-        "Leader": {"type": "label", "value": "None"},
+        **panel_rows(data.leader, registry, exclude, fallback_weight=data.border_weight),
     }
 
 
@@ -3113,9 +3130,11 @@ class PaperScene(QGraphicsScene):
     def _text_box_geom(data) -> tuple:
         """Snapshot tuple of a TextAnnotationData box state (matches the
         ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm,
-        wrap, shrink))."""
+        wrap, shrink, leader)). The leader is a copy, so a later grip drag
+        cannot mutate the snapshot."""
         return (data.x, data.y, data.wrap_width_mm, data.box_height_mm,
-                data.wrap, data.shrink)
+                data.wrap, data.shrink,
+                dict(data.leader) if data.leader else None)
 
     def _manip_capture_press(self, items) -> None:
         """SelectionManipulator press_hook: snapshot pre-drag record state.

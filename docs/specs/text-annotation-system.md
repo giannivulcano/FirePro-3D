@@ -1,7 +1,7 @@
 ---
 status: partial            # frame axis + FontSelect + Frame group + fill model + annotation panel LANDED 2026-09-22; model-surface render + panel polish LANDED 2026-09-22 (feat/model-text-outline-render); model-surface inline edit LANDED 2026-09-23 (feat/model-text-inline-edit); style presets/SHX/overrides deferred
-last-verified: 2026-11-02  # text-sizing-wrap Account: Decision 5 + divergence D4 superseded (Wrap / Shrink to fit, true cap height) -- pointers only, rest not re-audited; prior 2026-11-01  # SB4a Account (hide_empty pointer only); prior 2026-10-21  # SB1a Account (pointer paragraph: keep_upright + Insert field / @[key]); prior 2026-10-18 HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
-verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6  # SB4a (pointer only); prior 0c06b766  # SB1a Account (pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
+last-verified: 2026-11-04  # text leaders Account: leader pointer only, rest not re-audited; prior 2026-11-02  # text-sizing-wrap Account: Decision 5 + divergence D4 superseded (Wrap / Shrink to fit, true cap height) -- pointers only, rest not re-audited; prior 2026-11-01  # SB4a Account (hide_empty pointer only); prior 2026-10-21  # SB1a Account (pointer paragraph: keep_upright + Insert field / @[key]); prior 2026-10-18 HF1 Account: text colour default -> Automatic, picker flags retired (pointers to hatch-and-fill.md); prior CS3c Account: box rect width = exact textWidth(), height rule, constraint pointer; prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-09-23
+verified-commit: 820f47c8  # text leaders merge on main (v0.85.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6  # SB4a (pointer only); prior 0c06b766  # SB1a Account (pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; pointers only); prior 503c6959 CS3c Account (feat/cs3c-text-box-constraints merge); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c2c78cb
 applies-to:
   - firepro3d/text_item.py        # TextItem + TextAnnotationData (unified primitive + data model; frame + fill fields; SB1a keep_upright flag + Block Editor Insert field row)
   - firepro3d/font_group.py       # ribbon "Text" group controller (FontGroupController)
@@ -18,6 +18,8 @@ source-tasks:
 ---
 
 # Text Annotation System — Design Spec (forged on first touch)
+
+> **Text leaders (2026-11-04):** every Text primitive can carry one leader (`TextAnnotationData.leader`, `text_leader.py`); the build contract is [the design spec](../superpowers/specs/2026-11-04-text-leader-annotations-design.md). Pointer only.
 
 > **Status: partial.** Forged 2026-09-21 to close the SPEC-INDEX orphan for the
 > **Text primitive + Text ribbon** (previously split across `ribbon-bar.md`,

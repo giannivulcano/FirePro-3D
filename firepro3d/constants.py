@@ -37,11 +37,12 @@ Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry +
 # every annotation draws above every model item in every view, sub-ordered
 # text / dims < tags + labels + node badge < gridlines + bubbles < view markers.
 Z_ANNOT_BASE     = 10_000
-Z_ANNOT_TEXT     = 10_000   # TextItem
+Z_ANNOT_TEXT     = 10_000   # TextItem, view-owned Notes (Z_NOTE)
 Z_ANNOT_TAG      = 10_100   # tag blocks, room tag, pipe label, node badge, hosted section copies
 Z_ANNOT_GRID     = 10_200   # gridlines (+ bubbles), elevation gridlines + level datums
 Z_ANNOT_MARKER   = 10_300   # detail + section / elevation markers (+ their heads)
 Z_DEPTH_CEIL     = Z_ANNOT_TEXT - 1.0   # SectionScene depth walk clamp (Q17)
+Z_NOTE           = Z_ANNOT_TEXT   # a view-owned Note: the band's text sub-band
 Z_PREVIEW        = 20_000   # ephemeral array/tool preview overlay, lifted above the band
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
@@ -376,6 +377,15 @@ HANDLE_SNAP_COLLECT_PAD_FRAC = 0.5  # S2: targets collected over the visible rec
 
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
+
+# ── Text leader (text-leader-annotations design D3/D4) ──────────────────────
+TEXT_LEADER_MIN_SHOULDER_MM = 2.0     # shortest shoulder (design D4)
+TEXT_LEADER_DEFAULT_SHOULDER_MM = 6.0 # shoulder of a new leader
+TEXT_LEADER_DEFAULT_TIP_MM = 12.0     # tip offset of a new leader, past the knee
+TEXT_LEADER_END_ID = "system-endtypes-arrow"  # shipped Arrow end (design D3)
+TEXT_LEADER_BOUNDS_PAD_MM = 5.0       # flat bounds pad round the leader stroke (floor; see hit pad)
+TEXT_LEADER_HIT_PX = 10.0             # leader hit-strip width in screen px (like the 2D primitives)
+MIN_NOTE_BOX_MM = 10.0                # smallest Note box edge, printed mm (design D13)
 
 # ── Model-surface inline edit (text-annotation-system.md § Inline edit) ─────
 TEXT_CARET_WIDTH_PX = 1.5        # cosmetic inline-edit caret width (screen px)

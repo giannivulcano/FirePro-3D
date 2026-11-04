@@ -64,7 +64,7 @@ from .constants import (
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
     Z_CAT_CONSTRUCTION, Z_CATEGORY_BY_CLASS, Z_OPENING_ABOVE_HOST,
-    Z_ANNOT_GRID, Z_ANNOT_MARKER, Z_ANNOT_TAG,
+    Z_ANNOT_GRID, Z_ANNOT_MARKER, Z_ANNOT_TAG, Z_NOTE,
 )
 
 
@@ -652,7 +652,7 @@ class LevelManager:
                 if view_depth < slab_top <= view_height:
                     slab._is_occluding = True
 
-        def _set_level_vis(item):
+        def _set_level_vis(item, view_owned=False):
             # Guard against deleted C++ objects (e.g. after undo)
             try:
                 item.isVisible()
@@ -667,6 +667,16 @@ class LevelManager:
             # Reset section-cut flag
             if hasattr(item, "_is_section_cut"):
                 item._is_section_cut = False
+
+            if view_owned:
+                # A view-owned Note (design D9) is gated by its view key alone,
+                # which the caller already matched: neither the level gate nor
+                # the z-range filter applies, so a note whose level differs from
+                # its view's (pasted, edited, or a detail's level changed) shows.
+                item.setVisible(True)
+                item.setOpacity(1.0)
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                return
 
             # Pure z-range items (floors) ignore .level entirely: their
             # vertical extent alone drives visibility + section-cut.
@@ -720,11 +730,16 @@ class LevelManager:
         # instance below.
 
         # ── Placed block instances (level-scoped — containment C3) ────────
+        view = getattr(scene, "active_view_key", "")
         for item in getattr(scene, "_block_instances", []):
             if getattr(item, "host", None):
                 item.setVisible(False)   # gridline-hosted: section-only (hosted-blocks D11)
                 continue
-            _set_level_vis(item)
+            note = getattr(item, "note", None)
+            if note and note.get("view") != view:
+                item.setVisible(False)   # view-owned Note: shows in its view only (design D9)
+                continue
+            _set_level_vis(item, view_owned=bool(note))
 
         # ── Gridlines (always visible on all levels) ─────────────────────
         for item in getattr(scene, "_gridlines", []):
@@ -820,6 +835,9 @@ class LevelManager:
             overlay_z = _Z_OVERLAY.get(type(item).__name__)
             if overlay_z is not None:
                 item.setZValue(overlay_z)
+                return
+            if getattr(item, "note", None):
+                item.setZValue(Z_NOTE)           # a view-owned Note: text sub-band, whatever its level
                 return
             if type(item).__name__ == "BlockInstance" and _is_tag_block(item):
                 item.setZValue(Z_ANNOT_TAG)      # a host-bound tag block: annotation band (D5)
