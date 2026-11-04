@@ -9354,6 +9354,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         item.translate(offset.x(), offset.y())
                     else:
                         item.manip_translate(offset.x(), offset.y())
+                        if hasattr(item, "shift_leader"):
+                            item.shift_leader(offset.x(), offset.y())   # a copy is rigid: D7
                     new_items.append(item)
                 continue
             if obj_type == "node":

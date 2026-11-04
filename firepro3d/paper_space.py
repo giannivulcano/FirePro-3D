@@ -3061,9 +3061,11 @@ class PaperScene(QGraphicsScene):
     def _text_box_geom(data) -> tuple:
         """Snapshot tuple of a TextAnnotationData box state (matches the
         ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm,
-        wrap, shrink))."""
+        wrap, shrink, leader)). The leader is a copy, so a later grip drag
+        cannot mutate the snapshot."""
         return (data.x, data.y, data.wrap_width_mm, data.box_height_mm,
-                data.wrap, data.shrink)
+                data.wrap, data.shrink,
+                dict(data.leader) if data.leader else None)
 
     def _manip_capture_press(self, items) -> None:
         """SelectionManipulator press_hook: snapshot pre-drag record state.

@@ -1377,7 +1377,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             QPointF(r.right(), cy),         QPointF(r.right(), r.bottom()), QPointF(cx, r.bottom()),
             QPointF(r.left(),  r.bottom()), QPointF(r.left(),  cy),        QPointF(cx, cy),
         ]
-        return [self.mapToScene(p) for p in local]
+        out = [self.mapToScene(p) for p in local]
+        if self._data.leader:
+            from .text_leader import box_frame_points
+            s = self.scale() or 1.0
+            _a, k, _t = box_frame_points(self)
+            out.append(self.mapToScene(QPointF(k.x() / s, k.y() / s)))
+            out.append(QPointF(self._data.leader["tip_x"], self._data.leader["tip_y"]))
+        return out
 
     # Which axes a grip drag touches (containment C5.7 review I2 — the
     # axis-isolated box resize ported from the legacy paper
@@ -1388,6 +1395,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # The centre grip translates the box (``apply_grip`` index 8) — the one
     # grip the inline editor never treats as a handle (text wins there).
     MOVE_GRIP_INDEX = 8
+    LEADER_KNEE_GRIP = 9      # present only while a leader is on (D5)
+    LEADER_TIP_GRIP = 10
 
     _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
     _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
@@ -1406,6 +1415,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         A resize on a Shrink box first freezes its drawn box (D6,
         :meth:`_freeze_shrink`); the centre move keeps Shrink.
         """
+        if index in (self.LEADER_KNEE_GRIP, self.LEADER_TIP_GRIP):
+            self._apply_leader_grip(index, pos)
+            return
         if index != self.MOVE_GRIP_INDEX:
             self._freeze_shrink()      # D6: a resize grip; the centre move keeps Shrink
         local = self.mapFromScene(pos)
@@ -1439,6 +1451,35 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_r.height() if index in self._GRIP_CHANGES_Y else None,
         )
         self.sync_data_from_item()
+
+    def _apply_leader_grip(self, index: int, pos: QPointF) -> None:
+        """Knee or tip drag (D5): each leaves the other alone."""
+        from .text_leader import solve_knee
+        rec = self._data.leader
+        if not rec:
+            return
+        self.prepareGeometryChange()
+        if index == self.LEADER_TIP_GRIP:
+            rec["tip_x"], rec["tip_y"] = pos.x(), pos.y()
+        else:
+            from .text_leader import _box_mm, _from_parent
+            rec.update(solve_knee(_box_mm(self), _from_parent(self, pos), rec))
+        self.update()
+
+    def shift_leader(self, dx: float, dy: float) -> None:
+        """Carry the tip with a rigid shift (D7). A plain move does not call this."""
+        rec = self._data.leader
+        if rec:
+            self.prepareGeometryChange()
+            rec["tip_x"] += dx
+            rec["tip_y"] += dy
+
+    def _carry_tip(self, p: QPointF) -> None:
+        """Put the tip at surface point *p* (a rigid carry of the leader)."""
+        rec = self._data.leader
+        if rec:
+            self.prepareGeometryChange()
+            rec["tip_x"], rec["tip_y"] = p.x(), p.y()
 
     def _content_height_mm(self) -> float:
         """Current text-content height in surface mm (the auto-height seed)."""
@@ -1501,12 +1542,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     def manip_handles(self):
         from .manip_handle import default_grip_handles
         # S2: the centre move grip is a TranslateGripHandle (handle snap).
-        return default_grip_handles(self, circular={0, 2, 4, 6, 8},
+        return default_grip_handles(self, circular={0, 2, 4, 6, 8, 9, 10},
                                     translate={self.MOVE_GRIP_INDEX})
 
     def manip_box_extra_handles(self):
         from .manip_handle import TranslateGripHandle
-        return [TranslateGripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
+        out = [TranslateGripHandle(self, self.MOVE_GRIP_INDEX, circular=True)]   # centre move grip (unrotated)
+        if self._data.leader:
+            from .manip_handle import GripHandle
+            out += [GripHandle(self, i, circular=True)
+                    for i in (self.LEADER_KNEE_GRIP, self.LEADER_TIP_GRIP)]
+        return out
 
     def grip_render_angle(self, index: int) -> float:
         return self._angle
@@ -1527,9 +1573,14 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # fixed point of its own rotation, so the data rotation is irrelevant).
         o = QGraphicsTextItem.mapToScene(self, self._rotation_origin())
         new_o = CAD_Math.rotate_point(o, pivot, -angle_deg)
+        rec = self._data.leader
+        tip = (CAD_Math.rotate_point(QPointF(rec["tip_x"], rec["tip_y"]), pivot, -angle_deg)
+               if rec else None)           # D7: the tip turns with the box, same map as `o`
         self.set_angle(self._angle + angle_deg,
                        None if self._pivot is None else o)
         self.manip_translate(new_o.x() - o.x(), new_o.y() - o.y())
+        if tip is not None:
+            self._carry_tip(tip)
 
     def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
         """Baked resize about a scene *anchor* by (fx, fy) in the box's own
@@ -1538,6 +1589,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._freeze_shrink()          # D6: a manipulator resize turns Shrink OFF
         r = self._box_rect_local()
         a = self.mapFromScene(anchor)
+        rec = self._data.leader
+        tip = None
+        if rec:                        # D7: the tip scales with the box, in the box frame
+            tl = self.mapFromScene(QPointF(rec["tip_x"], rec["tip_y"]))
+            tip = self.mapToScene(QPointF(a.x() + (tl.x() - a.x()) * fx,
+                                          a.y() + (tl.y() - a.y()) * fy))
         left   = a.x() + (r.left()   - a.x()) * fx
         right  = a.x() + (r.right()  - a.x()) * fx
         top    = a.y() + (r.top()    - a.y()) * fy
@@ -1555,6 +1612,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_r.height() if abs(fy - 1.0) > eps else None,
         )
         self.sync_data_from_item()
+        if tip is not None:
+            self._carry_tip(tip)
 
     # ── Closed-path protocol (Text is NOT fillable) ─────────────────────────
 

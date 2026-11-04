@@ -140,10 +140,13 @@ def _scaled_text_record(rec, s: float) -> dict:
     Shrink to fit flags included (text-sizing D6) -- is copied unchanged."""
     from .text_item import TextAnnotationData
     data = TextAnnotationData.from_dict(rec)
-    return {**rec, "height_mm": data.height_mm * s,
-            "wrap_width_mm": data.wrap_width_mm * s,
-            "box_height_mm": data.box_height_mm * s,
-            "cell_padding_mm": data.cell_padding_mm * s}
+    out = {**rec, "height_mm": data.height_mm * s,
+           "wrap_width_mm": data.wrap_width_mm * s,
+           "box_height_mm": data.box_height_mm * s,
+           "cell_padding_mm": data.cell_padding_mm * s}
+    if data.leader:        # the shoulder is a box-frame length; the tip is posed apart
+        out["leader"] = {**data.leader, "shoulder_mm": data.leader["shoulder_mm"] * s}
+    return out
 
 
 def _pose_text(item, inst, c_def, ox, oy) -> None:
@@ -290,6 +293,10 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 continue   # non-printed reference line: scaffolding (D23)
             is_text = rec.get("type") == _TEXT_TYPE
             keep = False
+            lead_tip = None
+            if is_text and isinstance(rec.get("leader"), dict):
+                lt = rec["leader"]      # definition-frame tip: posed like the box centre
+                lead_tip = (lt.get("tip_x"), lt.get("tip_y"))
             if is_text:
                 # Bound text explodes to the box it was drawn in: the hugged
                 # record (box re-fit round the value, re-anchored), then the
@@ -315,6 +322,11 @@ def explode_instances(scene, instances, flatten: bool, uid_map: dict | None = No
                 _pose_text(item, inst, c_def, ox, oy)
                 if keep and not inst.block_mirrored() and not is_upright(item._angle):
                     item.manip_rotate(180.0, item.grip_points()[8])
+                if lead_tip is not None and item.data.leader:
+                    # D7: a rigid pose carries the leader; the tip lands on the
+                    # pose image of its definition point (what a placement draws).
+                    item._carry_tip(inst.full_pose_transform().map(
+                        QPointF(float(lead_tip[0]) - ox, float(lead_tip[1]) - oy)))
                 created.append(item)
                 continue
             pose_primitive(item, pose, ox, oy)

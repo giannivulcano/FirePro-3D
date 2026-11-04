@@ -56,15 +56,17 @@ class ResizeTextBoxCommand(QUndoCommand):
     Args:
         scene: The PaperScene that owns the annotation.
         data: The TextAnnotationData being resized.
-        old_state: ``(x, y, wrap_width_mm, box_height_mm, wrap, shrink)``
-                   — state before the gesture (flags as stored: None = legacy).
-        new_state: The same 6-tuple after the gesture.
+        old_state: ``(x, y, wrap_width_mm, box_height_mm, wrap, shrink,
+                   leader)`` — state before the gesture (flags as stored:
+                   None = legacy; leader a record copy or None). A bare
+                   6-tuple leaves the leader untouched.
+        new_state: The same 7-tuple after the gesture.
     """
     def __init__(self, scene, data, old_state, new_state):
         super().__init__("Resize Text Box"); self._scene, self._data = scene, data
         self._old, self._new = old_state, new_state
     def _set(self, state):
-        x, y, w, bh, wrap, shrink = state
+        x, y, w, bh, wrap, shrink, *rest = state
         def op():
             self._data.x = x
             self._data.y = y
@@ -72,6 +74,8 @@ class ResizeTextBoxCommand(QUndoCommand):
             self._data.box_height_mm = bh
             self._data.wrap = wrap
             self._data.shrink = shrink
+            if rest:
+                self._data.leader = dict(rest[0]) if rest[0] else None
             it = _find_text_item(self._scene, self._data)
             if it is not None:
                 it.setPos(x, y)
