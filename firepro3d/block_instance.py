@@ -248,10 +248,11 @@ class BlockInstance(QGraphicsObject):
     def _note_patch(self) -> "dict | None":
         """The per-placement text fields (design D8), tip in the prim frame.
 
-        The ops frame is the prim frame mapped through the variant (mirror,
-        scale), and the pose (rotation, position, Fixed-size frame k) takes
-        that to the scene; the stored tip is scene mm, so it comes back
-        through the inverse pose, then out of the variant.
+        The ops frame is the prim frame mapped through the definition-local
+        shift (the origin), the variant (mirror, scale) and the pose
+        (rotation, position, Fixed-size frame k) -- exactly the transform
+        ``_note_geometry`` returns. The stored tip is scene mm, so it comes
+        back through the inverse of that one transform.
         """
         if not self.note:
             return None
@@ -259,11 +260,11 @@ class BlockInstance(QGraphicsObject):
                  "box_height_mm": self.note["box_height_mm"]}
         rec = self.note.get("leader")
         if rec:
-            inv, ok = self.pose_transform().inverted()
-            local = (inv if ok else QTransform()).map(self.note_tip_scene())
-            k = self._variant_scale() or 1.0
-            x = -local.x() if self._pose_mirrored else local.x()
-            patch["leader"] = dict(rec, tip_x=x / k, tip_y=local.y() / k)
+            g = self._note_geometry()
+            inv, ok = g[1].inverted() if g is not None else (QTransform(), False)
+            if ok:
+                p = inv.map(self.note_tip_scene())
+                patch["leader"] = dict(rec, tip_x=p.x(), tip_y=p.y())
         return patch
 
     def _note_geometry(self):

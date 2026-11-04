@@ -171,3 +171,21 @@ def test_a_note_never_grows_a_section_crop(qapp):
     assert building_bbox(ms) == before
     ms.place_block_instance(NOTE_BLOCK_ID, (90000.0, 90000.0))     # a plain block does count
     assert building_bbox(ms) != before
+
+
+@pytest.mark.parametrize("mirrored,rotation", [(False, 0.0), (True, 30.0)])
+def test_editing_the_block_origin_never_drags_the_tip(qapp, mirrored, rotation):
+    """The ops frame includes the definition-origin shift; the tip's way back from
+    the scene must invert it too. (The box moves with the origin: the insertion
+    point stays put and the box hangs from it, so it shifts by minus the origin.)"""
+    ms = note_scene()
+    inst = ms.place_block_instance(NOTE_BLOCK_ID, (30.0, 10.0), rotation=rotation,
+                                   mirrored=mirrored, note=dict(NOTE, leader=dict(LEADER)))
+    inst.set_attributes({"Text": "hello"})
+    tip = drawn_tip_scene(inst)
+    d = ms.get_block_definition(NOTE_BLOCK_ID)
+    d.origin = (7.0, 4.0)
+    inst.note_changed()
+    now = drawn_tip_scene(inst)
+    assert (now.x(), now.y()) == pytest.approx((tip.x(), tip.y()))
+    assert (inst.note["leader"]["tip_x"], inst.note["leader"]["tip_y"]) == (500.0, 400.0)
