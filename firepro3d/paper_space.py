@@ -58,6 +58,16 @@ from .paper_commands import (
     _find_viewport,
 )
 
+def _same_view_context(key_a: str, ctx_a, key_b: str, ctx_b) -> bool:
+    """True when two views render identically, so isolation can be skipped.
+
+    A view owns its Notes (text-leader-annotations D9), so the view key counts
+    as well as the level / range: a detail sharing its plan's context still
+    shows different notes.
+    """
+    return ctx_a is not None and ctx_a == ctx_b and key_a == key_b
+
+
 def _split_view_key(key: str):
     """'plan:Plan: Level 1' -> ('plan', 'Plan: Level 1'); '' -> ('', '')."""
     if not key or ":" not in key:
@@ -1144,13 +1154,17 @@ class SheetViewport(QGraphicsObject):
         onscreen_key = getattr(scene, "active_view_key", "")
         onscreen_ctx = (resolver.resolve_level_context(*_split_view_key(onscreen_key))
                         if onscreen_key else None)
-        if onscreen_ctx is not None and onscreen_ctx == target:
+        target_key = f"{self._data.source_view_type}:{self._data.source_view_name}"
+        if _same_view_context(onscreen_key, onscreen_ctx, target_key, target):
             return None                              # no-op skip
         level, vh, vd = target
-        lm.apply_to_scene(scene, level, view_height=vh, view_depth=vd)
         scene.active_level = level
-        scene.active_view_key = (f"{self._data.source_view_type}:"
-                                 f"{self._data.source_view_name}")
+        scene.active_view_key = target_key           # before the sweep: a Note reads it (D9)
+        try:
+            lm.apply_to_scene(scene, level, view_height=vh, view_depth=vd)
+        except BaseException:
+            scene.active_level, scene.active_view_key = onscreen_level, onscreen_key
+            raise                                    # no token: the caller cannot restore
         return {"lm": lm, "scene": scene,
                 "level": onscreen_level, "key": onscreen_key, "ctx": onscreen_ctx}
 

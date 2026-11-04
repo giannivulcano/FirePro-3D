@@ -712,9 +712,14 @@ class LevelManager:
         # instance below.
 
         # ── Placed block instances (level-scoped — containment C3) ────────
+        view = getattr(scene, "active_view_key", "")
         for item in getattr(scene, "_block_instances", []):
             if getattr(item, "host", None):
                 item.setVisible(False)   # gridline-hosted: section-only (hosted-blocks D11)
+                continue
+            note = getattr(item, "note", None)
+            if note and note.get("view") != view:
+                item.setVisible(False)   # view-owned Note: shows in its view only (design D9)
                 continue
             _set_level_vis(item)
 
