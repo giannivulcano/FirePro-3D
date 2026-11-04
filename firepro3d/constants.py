@@ -356,6 +356,13 @@ HANDLE_SNAP_COLLECT_PAD_FRAC = 0.5  # S2: targets collected over the visible rec
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 TEXT_FRAME_CORNER_FRAC = 0.14  # fillet/chamfer size as a fraction of the shorter box side
 
+# ── Text leader (text-leader-annotations design D3/D4) ──────────────────────
+TEXT_LEADER_MIN_SHOULDER_MM = 2.0     # shortest shoulder (design D4)
+TEXT_LEADER_DEFAULT_SHOULDER_MM = 6.0 # shoulder of a new leader
+TEXT_LEADER_DEFAULT_TIP_MM = 12.0     # tip offset of a new leader, past the knee
+TEXT_LEADER_END_ID = "system-endtypes-arrow"  # shipped Arrow end (design D3)
+TEXT_LEADER_BOUNDS_PAD_MM = 5.0       # leader bounds pad for its end block
+
 # ── Model-surface inline edit (text-annotation-system.md § Inline edit) ─────
 TEXT_CARET_WIDTH_PX = 1.5        # cosmetic inline-edit caret width (screen px)
 TEXT_SELECTION_ALPHA = 100        # 0-255 alpha of the inline-edit selection highlight
