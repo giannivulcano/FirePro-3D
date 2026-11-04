@@ -1540,23 +1540,25 @@ _PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
 _PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
 
 
-def _text_panel_properties(data: "TextAnnotationData") -> dict:
+def _text_panel_properties(data: "TextAnnotationData", registry=None) -> dict:
     """Property-panel form dict for a sheet text annotation (§9.6 panel path).
 
     Formatting only — content is edited inline on the canvas and wrap width
     via the drag grip; Wrap / Shrink to fit toggle the box (text-sizing D7).
     Height displays/parses as a Word-style pt font size
-    (storage stays cap-height mm). The trailing "Leader" label row is a
-    placeholder for the leader follow-up task (real leader rows will replace
-    it).
+    (storage stays cap-height mm). The tail is the Leader toggle, plus its End
+    and Weight rows while a leader is on (``text_leader.panel_rows``).
 
     Args:
         data: The TextAnnotationData to render.
+        registry: Project block registry the Leader End picker resolves
+            through (``TextItem._tile_registry()``); None lists folder ends.
 
     Returns:
         An ordered property dict in PropertyManager meta format.
     """
     from .paper_display import picker_weight_name, weight_names
+    from .text_leader import panel_rows
     return {
         "Font": {"type": "font", "value": data.font_family or "Arial"},
         "Height": {"type": "dimension", "value": data.height_mm,
@@ -1583,7 +1585,7 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
                    "options": ["square", "round", "chamfer"]},
         "Wrap": {"type": "bool", "value": data.wrap_on()},                   # D7
         "Shrink to fit": {"type": "bool", "value": data.shrink_on()},       # D7
-        "Leader": {"type": "label", "value": "None"},
+        **panel_rows(data.leader, registry, fallback_weight=data.border_weight),
     }
 
 

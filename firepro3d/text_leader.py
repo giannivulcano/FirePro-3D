@@ -159,3 +159,39 @@ def surface_stroke_op(item, t: QTransform):
                     linetype=st["linetype"], origin=QPointF(0.0, 0.0),
                     ends=(st["start"], st["finish"]))
 
+
+def panel_rows(rec: dict | None, registry, exclude=(), fallback_weight: str = "") -> dict:
+    """Leader rows: the toggle, plus End and Weight while on (design D6).
+
+    Args:
+        rec: The stored leader record, or None when off.
+        registry: Project block registry the End picker resolves through.
+        exclude: Block ids the End picker leaves out.
+        fallback_weight: The weight a leader with no weight of its own draws
+            at (the frame's), shown as the Weight row's value.
+    """
+    rows = {"Leader": {"type": "bool", "value": bool(rec)}}
+    if not rec:
+        return rows
+    from .capabilities import end_choices
+    from .paper_display import picker_weight_name, weight_names
+    choices = end_choices(registry, exclude)
+    value = next((n for n, r in choices if r == rec["end"]), None)
+    rows["Leader End"] = {"type": "enum", "options": [n for n, _ in choices],
+                          "value": value or (choices[0][0] if choices else "")}
+    shown = rec["weight"] or fallback_weight
+    rows["Leader Weight"] = {"type": "enum", "options": weight_names(),
+                             "value": picker_weight_name(shown) if shown
+                             else weight_names()[0]}
+    return rows
+
+
+def set_panel_row(rec: dict, key: str, value, registry, exclude=()) -> None:
+    """Apply a Leader End / Leader Weight commit to *rec*."""
+    if key == "Leader End":
+        from .capabilities import end_choices
+        ref = next((r for n, r in end_choices(registry, exclude) if n == value), None)
+        if ref is not None:
+            rec["end"] = ref
+    elif key == "Leader Weight":
+        rec["weight"] = str(value)

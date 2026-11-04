@@ -1647,7 +1647,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         if self._on_paper():
             from .paper_space import _text_panel_properties
-            return _text_panel_properties(self._data)
+            return _text_panel_properties(self._data, self._tile_registry())
         from .paper_display import picker_weight_name, weight_names
         d = self._data
         props = {
@@ -1701,7 +1701,33 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             props["Insert field"] = {"type": "enum", "options": [""] + keys, "value": ""}
             props["Keep upright"] = {"type": "bool", "value": d.keep_upright}
             props["Hide when empty"] = {"type": "bool", "value": d.hide_empty}
+        from .text_leader import panel_rows
+        props.update(panel_rows(d.leader, self._tile_registry(),
+                                fallback_weight=d.border_weight))
         return props
+
+    def _leader_change(self, key: str, value):
+        """The new ``leader`` value for a Leader row, as ``(value,)``, or
+        ``(False,)`` when *key* is not one. Off drops the record, so on starts
+        fresh (spec edge case)."""
+        from .capabilities import ensure_end_available
+        from .text_leader import DEFAULT_END_ID, default_leader, normalise, set_panel_row
+        if key == "Leader":
+            if not value:
+                return (None,)
+            if not ensure_end_available(DEFAULT_END_ID, self.scene()):
+                return (False,)
+            r = self._box_rect_local()
+            s = self.scale() or 1.0
+            box = QRectF(0.0, 0.0, r.width() * s, r.height() * s)
+            return (normalise(default_leader(box, QPointF(self._data.x, self._data.y))),)
+        if key in ("Leader End", "Leader Weight") and self._data.leader:
+            rec = dict(self._data.leader)
+            set_panel_row(rec, key, value, self._tile_registry())
+            if key == "Leader End" and not ensure_end_available(rec["end"], self.scene()):
+                return (False,)
+            return (rec,)
+        return (False,)
 
     def _height_row(self) -> dict:
         """The model-surface Height row (text-sizing-wrap D2).
@@ -1738,6 +1764,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def _set_property_model(self, key: str, value) -> None:
         """Apply a model-surface panel commit to ``_data`` (no undo push)."""
+        chg = self._leader_change(key, value)
+        if chg[0] is not False:
+            self.prepareGeometryChange()
+            self._data.leader = chg[0]
+            self._apply_format()
+            return
         if key == "Text":
             if str(value) == self._data.text:
                 return   # stale panel replay (e.g. focus-out during a live
@@ -1832,7 +1864,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         from .paper_space import _text_panel_change
         from .paper_commands import FormatTextCommand
-        if key in ("Wrap", "Shrink to fit"):
+        chg = self._leader_change(key, value)
+        if chg[0] is not False:
+            change = {"leader": chg[0]}
+            if change["leader"] == self._data.leader:
+                change = None
+        elif key in ("Wrap", "Shrink to fit"):
             change = self._toggle_change(key, value) or None     # D7: may be 2 fields
         else:
             change = _text_panel_change(self._data, key, value)

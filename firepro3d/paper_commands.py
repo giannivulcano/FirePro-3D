@@ -107,7 +107,10 @@ class FormatTextCommand(QUndoCommand):
         self._old, self._new = old_fields, new_fields
     def _set(self, fields):
         def op():
-            for k, v in fields.items(): setattr(self._data, k, v)
+            for k, v in fields.items():
+                # A dict field (the leader record) is copied in: later grip
+                # drags edit the live record in place and must not reach this command.
+                setattr(self._data, k, dict(v) if isinstance(v, dict) else v)
             it = _find_text_item(self._scene, self._data)
             if it is not None:
                 it.setPlainText(self._data.text); it.prepareGeometryChange(); it._apply_format()
