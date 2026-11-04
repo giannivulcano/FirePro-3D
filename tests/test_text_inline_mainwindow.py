@@ -187,7 +187,8 @@ def test_autosave_skips_while_editing(win, editing, monkeypatch):
     the edit ends."""
     ed, s, t = editing
     calls = []
-    monkeypatch.setattr(win.scene, "save_to_file", lambda path: calls.append(path))
+    monkeypatch.setattr(win.scene, "save_to_file",
+                        lambda path, **k: calls.append(path))
     monkeypatch.setattr(win, "_modified", True)
     win._autosave()
     assert calls == [] and editing_text_item(s) is not None

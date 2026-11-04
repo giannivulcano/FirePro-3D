@@ -3800,7 +3800,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         path = self._autosave_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self.scene.save_to_file(path)
+        self.scene.save_to_file(path, backup=False)
 
     def _check_recovery(self):
         path = self._autosave_path()

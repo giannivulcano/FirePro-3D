@@ -4,6 +4,7 @@ the real file."""
 from __future__ import annotations
 
 import json
+import shutil
 
 import pytest
 from PyQt6.QtCore import QRectF
@@ -108,3 +109,50 @@ def test_corrupt_file_keeps_project_and_target_untouched(mw, tmp_path, monkeypat
     assert mw._current_file == str(good)            # old project still current
     mw.save_file()
     assert bad.read_text() == "{ not json"
+
+
+def test_blank_save_keeps_a_backup_of_the_real_file(mw, tmp_path):
+    path = tmp_path / "project.FPD"
+    _saved_project(mw, path)
+    original = path.read_bytes()
+    mw.scene._clear_scene()
+    mw.save_file()
+    backups = list((tmp_path / "Backups").glob("project *.FPD"))
+    assert len(backups) == 1 and backups[0].read_bytes() == original
+
+
+def test_backups_prune_to_ten_and_ignore_other_projects(tmp_path):
+    from datetime import datetime, timedelta
+    from firepro3d import project_backup as pb
+    path = tmp_path / "project.FPD"
+    path.write_text("{}")
+    other = tmp_path / "Backups" / "project 2 2020-01-01 000000.FPD"
+    other.parent.mkdir()
+    other.write_text("{}")
+    start = datetime(2026, 1, 1)
+    for i in range(12):
+        pb.write_backup(str(path), start + timedelta(seconds=i))
+    kept = sorted(p.name for p in other.parent.glob("project 2026-*.FPD"))
+    assert len(kept) == 10 and kept[0] == "project 2026-01-01 000002.FPD"
+    assert other.exists()
+
+
+def test_autosave_makes_no_backup(mw, tmp_path, monkeypatch):
+    path = tmp_path / "project.FPD"
+    _saved_project(mw, path)
+    shutil.rmtree(tmp_path / "Backups", ignore_errors=True)
+    monkeypatch.setattr(type(mw), "_autosave_path",
+                        staticmethod(lambda: str(path)))
+    mw._modified = True
+    mw._autosave()
+    assert not (tmp_path / "Backups").exists()
+
+
+def test_write_failure_leaves_the_original(tmp_path):
+    from firepro3d import project_backup as pb
+    path = tmp_path / "project.FPD"
+    path.write_text('{"keep": 1}')
+    with pytest.raises(TypeError):
+        pb.write_atomic(str(path), {"bad": object()})
+    assert path.read_text() == '{"keep": 1}'
+    assert not (tmp_path / "project.FPD.tmp").exists()
