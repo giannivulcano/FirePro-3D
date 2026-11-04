@@ -966,6 +966,14 @@ def _elev_heads(item) -> list:
                         getattr(item, "head", None)) if h is not None]
 
 
+def _marker_heads(item) -> list:
+    """The annotation-block heads a view marker owns (SB4d D1): a cardinal's
+    ``head``, a placed section's ``head_a`` / ``head_b``, a detail's ``bubble``."""
+    return [h for h in (getattr(item, "head", None), getattr(item, "head_a", None),
+                        getattr(item, "head_b", None), getattr(item, "bubble", None))
+            if h is not None]
+
+
 def _model_colour_token(item, cat_key: str, cache: dict | None = None):
     """The token colour string the MODEL side stores for *item*, else None.
 
@@ -1249,8 +1257,12 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["gridline"] = _save_gridline_state(item)
             elif cat_key == "Elevation Marker":
                 entry["marker"] = _save_marker_state(item, "_marker_color")
+                entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
+                                  for h in _marker_heads(item)]
             elif cat_key == "Detail Marker":
                 entry["marker"] = _save_marker_state(item, "_tag_color")
+                entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
+                                  for h in _marker_heads(item)]
             elif cat_key == "Blocks":
                 entry["block_paper"] = (item._paper_pen_width,
                                         item._paper_pen_color,
@@ -1300,12 +1312,15 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         _set_svg_tint(item, _tok,
                                       getattr(item, "_display_fill_color", None))
                 item.setOpacity(cat["opacity"] / 100.0)
-            elif cat_key == "Elevation Marker":
-                _apply_marker(item, cat, color_mode, lw_mm, "_marker_color",
+            elif cat_key in ("Elevation Marker", "Detail Marker"):
+                _apply_marker(item, cat, color_mode, lw_mm,
+                              "_tag_color" if cat_key == "Detail Marker" else "_marker_color",
                               _full_tok(item, cat_key))
-            elif cat_key == "Detail Marker":
-                _apply_marker(item, cat, color_mode, lw_mm, "_tag_color",
-                              _full_tok(item, cat_key))
+                for h in _marker_heads(item):          # SB4d D1: annotative heads print at authored mm
+                    if h.isVisible():
+                        _apply_block(h, cat, color_mode, lw_mm, paper_scale)   # SB4d: marker heads
+                        h.setOpacity(1.0)
+                item.prepareGeometryChange()           # the arrow / leader follow the paper k
             elif cat_key == "Blocks":
                 _apply_block(item, cat, color_mode, lw_mm, paper_scale)
             elif cat_key == "Construction":
@@ -1547,6 +1562,12 @@ def restore_model_display(saved: list[dict]):
                 item.setPen(ms["pen"])
             if ms.get("brush") is not None:
                 item.setBrush(ms["brush"])
+            for h, pen_w, pen_c, scale in entry.get("heads", ()):
+                if _is_annot(h.definition()):
+                    h.prepareGeometryChange()            # SB1c D6
+                h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
+                h.refresh()
+            item.prepareGeometryChange()
             item.update()
 
         elif cat_key == "Blocks":
