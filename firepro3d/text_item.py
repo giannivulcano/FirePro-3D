@@ -33,6 +33,16 @@ def default_border_weight() -> str:
     return nearest_weight_name(TEXT_BORDER_DEFAULT_MM)
 
 
+def _leader_of(d: dict):
+    """The stored leader, normalised; canonical weight name (H-g)."""
+    from .paper_display import canonical_weight_name
+    from .text_leader import normalise
+    rec = normalise(d.get("leader"))
+    if rec is not None and rec["weight"]:
+        rec["weight"] = canonical_weight_name(rec["weight"])
+    return rec
+
+
 @dataclass
 class TextAnnotationData:
     """Serialisable data for one text annotation.
@@ -115,6 +125,7 @@ class TextAnnotationData:
     hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
     wrap: bool | None = None                     # D4: None = legacy (see wrap_on)
     shrink: bool | None = None                   # D4: None = legacy (see shrink_on)
+    leader: dict | None = None                   # sparse leader record (text_leader); None = off
     type: str = "text"                           # discriminator for future annotation types
 
     def shrink_on(self, bound: bool = False) -> bool:
@@ -171,6 +182,8 @@ class TextAnnotationData:
             d["wrap"] = bool(self.wrap)          # sparse: absent = legacy default (D4)
         if self.shrink is not None:
             d["shrink"] = bool(self.shrink)      # sparse, same rule
+        if self.leader:
+            d["leader"] = dict(self.leader)      # sparse, same rule
         return d
 
     @classmethod
@@ -202,6 +215,7 @@ class TextAnnotationData:
             hide_empty=bool(d.get("hide_empty", False)),
             wrap=None if d.get("wrap") is None else bool(d["wrap"]),
             shrink=None if d.get("shrink") is None else bool(d["shrink"]),
+            leader=_leader_of(d),
             type=d.get("type", "text"),
         )
 
