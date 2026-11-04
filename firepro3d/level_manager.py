@@ -63,9 +63,17 @@ from .constants import (
     DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, DEFAULT_LEVEL_GAP_MM,
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
-    Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE, Z_CATEGORY_BY_CLASS,
-    Z_OPENING_ABOVE_HOST, Z_NOTE,
+    Z_CAT_CONSTRUCTION, Z_CATEGORY_BY_CLASS, Z_OPENING_ABOVE_HOST,
+    Z_ANNOT_GRID, Z_ANNOT_MARKER, Z_ANNOT_TAG, Z_NOTE,
 )
+
+
+def _is_tag_block(inst) -> bool:
+    """True for a placed block whose definition binds a host category (a
+    tag, SB4d D5: annotation band); a symbol block (no host category) stays
+    model geometry at ``Z_CAT_CONSTRUCTION``."""
+    d = inst.definition() if hasattr(inst, "definition") else None
+    return bool(getattr(d, "host_category", "")) if d is not None else False
 @dataclass
 class Level:
     name:         str
@@ -814,9 +822,10 @@ class LevelManager:
         # render on top of lower items.  Small category offsets preserve
         # draw order within the same elevation (slab < room < wall < pipe < node).
         _Z_CATEGORY = Z_CATEGORY_BY_CLASS
-        # Items that always overlay on top regardless of elevation
-        _Z_OVERLAY = {"DetailMarker": Z_GRIDLINE_BUBBLE,
-                      "GridlineItem": Z_GRIDLINE_BUBBLE}
+        # Annotation band (SB4d D5): above every model item regardless of elevation.
+        _Z_OVERLAY = {"DetailMarker": Z_ANNOT_MARKER,
+                      "SectionMarker": Z_ANNOT_MARKER,
+                      "GridlineItem": Z_ANNOT_GRID}
 
         def _apply_elev_z(item):
             try:
@@ -828,7 +837,10 @@ class LevelManager:
                 item.setZValue(overlay_z)
                 return
             if getattr(item, "note", None):
-                item.setZValue(Z_NOTE)           # an annotation, whatever its level's height
+                item.setZValue(Z_NOTE)           # a view-owned Note: text sub-band, whatever its level
+                return
+            if type(item).__name__ == "BlockInstance" and _is_tag_block(item):
+                item.setZValue(Z_ANNOT_TAG)      # a host-bound tag block: annotation band (D5)
                 return
             cat_offset = _Z_CATEGORY.get(type(item).__name__)
             if cat_offset is None:
@@ -858,7 +870,11 @@ class LevelManager:
             _apply_elev_z(node)
         for pipe in scene.sprinkler_system.pipes:
             _apply_elev_z(pipe)
-            pipe.sync_label_z()          # AC6: the label stays above its pipe at any elevation
+            pipe.sync_label_z()          # the label sits in the tag band (SB4d D5)
+            pipe.sync_riser_z()          # the riser symbol pins just above its pipe (Q16)
+        ws_item = getattr(scene, "water_supply_node", None)
+        if ws_item is not None:
+            _apply_elev_z(ws_item)       # Z_CATEGORY_BY_CLASS["WaterSupply"] (Q16)
         for item in getattr(scene, "_walls", []):
             _apply_elev_z(item)
             wall_z = item.zValue()
@@ -916,6 +932,12 @@ class LevelManager:
         dm = getattr(scene, "_detail_manager", None)
         if dm is not None:
             for marker in dm._markers.values():
+                _apply_elev_z(marker)
+
+        # ── Section / elevation markers (walked from SB4d: marker band) ──
+        sm = getattr(scene, "_section_manager", None)
+        if sm is not None:
+            for marker in list(sm.markers.values()):
                 _apply_elev_z(marker)
 
 

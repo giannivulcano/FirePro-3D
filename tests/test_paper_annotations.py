@@ -261,7 +261,8 @@ def test_item_default_color_automatic_and_z(qapp):
     assert item.data.color == TOKEN_AUTO   # HF1 AC5: default is Automatic
     # off-scene item resolves as canvas (theme ink); on paper it is #000000
     # (covered by tests/test_hf1_token_render.py::test_g8b_paper_text_annotation_is_black)
-    assert item.zValue() == 15
+    from firepro3d.constants import Z_ANNOT_TEXT
+    assert item.zValue() == Z_ANNOT_TEXT     # SB4d D5: text is born in the annotation band
     assert item.data is item._data
 
 

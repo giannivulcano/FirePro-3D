@@ -100,7 +100,7 @@ def test_tag_bounds_are_the_ops_bbox_times_the_drawing_scale(qapp):
     d = _tag_def(ms)
     room = _add_room(ms, "Office")
     tag = room._tag
-    assert isinstance(tag, BoundLabelItem) and tag.parentItem() is room
+    assert isinstance(tag, BoundLabelItem) and tag.parentItem() is None and tag.host is room
     assert tag.paints()
     k = ms.scale_manager.drawing_scale                       # 100.0 (ScaleManager default)
     g = _glyph_rect(d, room)

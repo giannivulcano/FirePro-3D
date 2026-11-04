@@ -17,14 +17,15 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsItem, QGraphicsEllipseItem,
     QGraphicsSimpleTextItem, QGraphicsLineItem, QGraphicsPathItem,
-    QTabWidget, QStyle,
+    QTabWidget, QStyle, QStyleOptionGraphicsItem,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
-from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPainterPath
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainter, QPainterPath
 
 from .gridline import BUBBLE_RADIUS_MM
-from .constants import DEFAULT_LEVEL, Z_DETAIL_MARKER
+from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .paper_display import shows_selection
+from .view_marker_head import ViewMarkerHead
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -37,17 +38,18 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _MARKER_COLOR = "#4488cc"
-_FILL_COLOR = "#1a1a2e"
-_TAG_RADIUS = BUBBLE_RADIUS_MM * 3.0   # match elevation marker bubble size
+_BUBBLE_DROP = BUBBLE_RADIUS_MM * 7.5    # default head origin below the crop rect (today's 2.5 x 3R)
+_HIT_W = BUBBLE_RADIUS_MM * 1.5          # stroke width of the crop / leader hit shape (today's 0.5 x 3R)
 _FILLET_RADIUS = BUBBLE_RADIUS_MM * 1.5  # corner radius for crop rect
 
 
 class DetailMarker(QGraphicsPathItem):
     """Detail view crop boundary on a plan view.
 
-    Visual: rounded-corner dashed rectangle + circular callout bubble
-    (circle with horizontal divider, detail number top, view ref bottom)
-    connected by a leader line.  The bubble is draggable.
+    Visual: rounded-corner dashed rectangle + the callout head (``bubble``,
+    a ``ViewMarkerHead`` drawing the Detail annotation block: ``@[Mark]``
+    over the sheet number, SB4d D1) connected by a bespoke leader trimmed
+    at the head outline. The head is draggable (grip 8).
     """
 
     def __init__(self, name: str, rect: QRectF, level_name: str = DEFAULT_LEVEL,
@@ -63,16 +65,14 @@ class DetailMarker(QGraphicsPathItem):
         self._view_depth: float | None = None
         self._on_view_range = None  # callback set by main.py
 
-        # Visual style
+        # Visual style (SB4d D7: the line colour only; the head is a block)
         self._tag_color = QColor(_MARKER_COLOR)
-        self._fill_color = QColor(_FILL_COLOR)
-        self._display_font_size: int | None = None
 
         pen = QPen(self._tag_color, 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.setZValue(Z_DETAIL_MARKER)
+        self.setZValue(Z_ANNOT_MARKER)
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -81,14 +81,43 @@ class DetailMarker(QGraphicsPathItem):
         # For display manager categorization
         self.level = level_name
         self._display_overrides: dict = {}
+        self._mark = ""                          # Detail Mark (SB4d D3)
 
-        # Bubble position (defaults to below center of rect)
-        self._bubble_pos = QPointF(
-            rect.center().x(),
-            rect.bottom() + _TAG_RADIUS * 2.5)
+        # Head origin (defaults to below center of rect)
+        self._bubble_pos = QPointF(rect.center().x(), rect.bottom() + _BUBBLE_DROP)
         self._bubble_dragging = False
+        self.bubble = ViewMarkerHead(self)       # SB4d D1: the Detail block
+        self.bubble.set_anchor(self._bubble_pos)
 
         self._rebuild_path()
+
+    # ── Head (SB4d D1) ───────────────────────────────────────────────────
+
+    def heads(self) -> list:
+        return [self.bubble]
+
+    def _set_bubble_pos(self, pt: QPointF) -> None:
+        """The one writer of the head origin: field + head anchor."""
+        self._bubble_pos = QPointF(pt)
+        self.bubble.set_anchor(self._bubble_pos)
+
+    def refresh_heads(self) -> None:
+        """Re-shape the head (mapping / registry / units / drawing scale /
+        Mark / sheet change) and the bounds that hold the leader."""
+        self.prepareGeometryChange()
+        self.bubble.refresh()
+        self.bubble.set_anchor(self._bubble_pos)
+        self.update()
+
+    def _update_label(self) -> None:
+        """``marks.set_mark`` hook (SB2b): the head re-reads its Mark."""
+        self.refresh_heads()
+
+    def itemChange(self, change, value):
+        if (change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged
+                and value is not None):
+            self.refresh_heads()                  # k resolves only in a scene
+        return super().itemChange(change, value)
 
     # ── Properties ───────────────────────────────────────────────────────
 
@@ -163,7 +192,6 @@ class DetailMarker(QGraphicsPathItem):
         if view is not None and getattr(view, "_clip_rect", None) is not None:
             return
 
-        R = _TAG_RADIUS
         r = self._crop_rect
         fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
         # Cosmetic width 1 dashed crop box — matches the placement reference line.
@@ -173,53 +201,46 @@ class DetailMarker(QGraphicsPathItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(r, fr, fr)
 
-        self._paint_callout(painter)
+        self._paint_leader(painter)              # the head paints itself (a child item)
 
         if shows_selection(self):
-            hl_pen = QPen(self._tag_color.lighter(150), max(1, R * 0.08))
+            hl_pen = QPen(self._tag_color.lighter(150), max(1.0, _HIT_W * 0.16))
             painter.setPen(hl_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(self._bubble_pos, R, R)
-            painter.drawRoundedRect(r, fr, fr)
+            painter.drawRoundedRect(r, fr, fr)   # the head rings itself (overlay_pens)
+
+    def _leader(self) -> tuple[QPointF, QPointF]:
+        """``(start, end)`` of the leader: from the crop edge point nearest
+        the head to where that ray meets the head's block outline."""
+        bp = self._bubble_pos
+        start = self._closest_rect_point(self._crop_rect, bp)
+        dx, dy = start.x() - bp.x(), start.y() - bp.y()
+        L = math.hypot(dx, dy)
+        if L <= 1e-9:
+            return start, QPointF(bp)
+        t = self.bubble.trim_distance(dx / L, dy / L)
+        return start, QPointF(bp.x() + dx / L * t, bp.y() + dy / L * t)
+
+    def _paint_leader(self, painter):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        start, end = self._leader()
+        painter.setPen(QPen(self._tag_color, max(1.0, _HIT_W * 0.08)))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(start, end)
 
     def _paint_callout(self, painter):
-        """Draw the leader + bubble + tag text (NO crop rect).
-
-        Called by ``paint`` in the plan view, and by ``Model_View.drawForeground``
-        in a detail view so the callout renders bright ON TOP of the crop mask
-        (exempt from the dim). Painter is in scene coordinates in both cases."""
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        R = _TAG_RADIUS
-        pen_w = max(1.0, R * 0.04)
-        r = self._crop_rect
-        bp = self._bubble_pos
-        # Leader
-        painter.setPen(QPen(self._tag_color, pen_w))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawLine(self._closest_rect_point(r, bp), bp)
-        # Bubble + divider
-        painter.setPen(QPen(self._tag_color, pen_w))
-        painter.setBrush(QBrush(self._fill_color))
-        painter.drawEllipse(bp, R, R)
-        painter.drawLine(QPointF(bp.x() - R, bp.y()), QPointF(bp.x() + R, bp.y()))
-        # Detail number (top half)
-        parts = self._name.split()
-        number = parts[-1] if parts else "1"
-        font = QFont("Consolas")
-        font_pt = self._display_font_size if self._display_font_size else 10
-        font.setPixelSize(max(1, int(R * (font_pt / 10.0))))
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(QPen(self._tag_color.lighter(150)))
-        painter.drawText(QRectF(bp.x() - R, bp.y() - R, R * 2, R),
-                         Qt.AlignmentFlag.AlignCenter, number)
-        # View reference (bottom half)
-        ref_font = QFont("Consolas")
-        ref_font.setPixelSize(max(1, int(R * (font_pt / 10.0) * 0.7)))
-        painter.setFont(ref_font)
-        ref_text = self._level_name.replace("Level ", "L") if self._level_name else "—"
-        painter.drawText(QRectF(bp.x() - R, bp.y(), R * 2, R),
-                         Qt.AlignmentFlag.AlignCenter, ref_text)
+        """Leader + head, NO crop rect -- for ``Model_View.drawForeground``
+        in a detail view, so the own callout renders bright ON TOP of the
+        crop mask (SB4d D6). Painter is in scene coordinates; the head paints
+        through its own ``paint`` under its scene transform (widget None: the
+        clip-view item skip does not apply here)."""
+        self._paint_leader(painter)
+        head = self.bubble
+        if head.isVisible():
+            painter.save()
+            painter.setTransform(head.sceneTransform(), True)
+            head.paint(painter, QStyleOptionGraphicsItem(), None)
+            painter.restore()
 
     @staticmethod
     def _closest_rect_point(rect: QRectF, pt: QPointF) -> QPointF:
@@ -260,9 +281,9 @@ class DetailMarker(QGraphicsPathItem):
     def apply_grip(self, index: int, new_pos: QPointF):
         """Resize crop rect (grips 0-7) or move bubble (grip 8)."""
         if index == 8:
-            # Move bubble
-            self._bubble_pos = new_pos
+            # Move the head
             self.prepareGeometryChange()
+            self._set_bubble_pos(new_pos)
             self._rebuild_path()
             self.update()
             return
@@ -290,8 +311,8 @@ class DetailMarker(QGraphicsPathItem):
         # The bubble follows the resize by the crop-centre delta (constant offset,
         # radius unchanged → no warp) so the callout tracks the box.
         dc = r.center() - old_center
-        self._bubble_pos = QPointF(self._bubble_pos.x() + dc.x(),
-                                   self._bubble_pos.y() + dc.y())
+        self._set_bubble_pos(QPointF(self._bubble_pos.x() + dc.x(),
+                                     self._bubble_pos.y() + dc.y()))
         self._crop_rect = r
         self.prepareGeometryChange()
         self._rebuild_path()
@@ -321,10 +342,10 @@ class DetailMarker(QGraphicsPathItem):
 
     def manip_translate(self, dx: float, dy: float):
         """Move the whole marker — crop rect + bubble — and refresh the tab clip."""
-        self._crop_rect.translate(dx, dy)
-        self._bubble_pos = QPointF(self._bubble_pos.x() + dx,
-                                   self._bubble_pos.y() + dy)
         self.prepareGeometryChange()
+        self._crop_rect.translate(dx, dy)
+        self._set_bubble_pos(QPointF(self._bubble_pos.x() + dx,
+                                     self._bubble_pos.y() + dy))
         self._rebuild_path()
         self.update()
         if self._manager is not None:
@@ -341,11 +362,14 @@ class DetailMarker(QGraphicsPathItem):
 
     def boundingRect(self):
         br = self.path().boundingRect()
-        # Extend to include bubble
-        R = _TAG_RADIUS
-        bp = self._bubble_pos
-        bubble_br = QRectF(bp.x() - R, bp.y() - R, R * 2, R * 2)
-        return br.united(bubble_br).adjusted(-10, -10, 10, 10)
+        bubble = getattr(self, "bubble", None)    # None during __init__'s early pen / path calls
+        if bubble is None:
+            return br.adjusted(-10, -10, 10, 10)
+        # Extend to include the leader and the head (a child: its own bounds)
+        start = self._closest_rect_point(self._crop_rect, self._bubble_pos)
+        lead = QRectF(start, self._bubble_pos).normalized()
+        head = self.mapRectFromItem(bubble, bubble.boundingRect())
+        return br.united(lead).united(head).adjusted(-10, -10, 10, 10)
 
     def shape(self) -> QPainterPath:
         """Hit-test shape: only the border stroke + leader + bubble.
@@ -360,7 +384,7 @@ class DetailMarker(QGraphicsPathItem):
         outline = QPainterPath()
         outline.addRoundedRect(r, fr, fr)
         stroker = QPainterPathStroker()
-        stroker.setWidth(max(20.0, _TAG_RADIUS * 0.5))  # generous hit margin
+        stroker.setWidth(max(20.0, _HIT_W))      # generous hit margin
         path = stroker.createStroke(outline)
 
         # Leader line
@@ -370,11 +394,16 @@ class DetailMarker(QGraphicsPathItem):
         leader.moveTo(leader_start)
         leader.lineTo(bp)
         stroker2 = QPainterPathStroker()
-        stroker2.setWidth(max(20.0, _TAG_RADIUS * 0.5))
+        stroker2.setWidth(max(20.0, _HIT_W))
         path.addPath(stroker2.createStroke(leader))
 
-        # Bubble circle
-        path.addEllipse(bp, _TAG_RADIUS, _TAG_RADIUS)
+        # Head outline: a press on the head selects the marker
+        bubble = getattr(self, "bubble", None)
+        head = bubble.mapToParent(bubble.outline_path()) if bubble is not None else QPainterPath()
+        if head.isEmpty():
+            path.addEllipse(bp, BUBBLE_RADIUS_MM * 3.0, BUBBLE_RADIUS_MM * 3.0)
+        else:
+            path.addPath(head)
         return path
 
     # ── Properties (for property panel) ─────────────────────────────────
@@ -391,6 +420,7 @@ class DetailMarker(QGraphicsPathItem):
         """Return properties for the property panel."""
         props = {}
         props["Name"] = {"value": self._name, "type": "string"}
+        props["Mark"] = {"value": self._mark, "type": "string"}      # SB4d D3
         props["Level"] = {"value": self._level_name, "type": "level_ref"}
         r = self._crop_rect
         props["Width"] = {"value": self._fmt(r.width()), "type": "string",
@@ -411,10 +441,13 @@ class DetailMarker(QGraphicsPathItem):
     def set_property(self, key: str, value):
         if key == "Name":
             if self._manager is not None:
-                self._manager.rename_detail(self._name, str(value))   # every key follows (D10)
+                self._manager.rename_detail(self._name, str(value))   # VC9 I2: bindings follow
             else:
                 self._name = str(value)
-            self.update()
+                self.update()
+        elif key == "Mark":
+            from . import marks
+            marks.set_mark(self, str(value))       # PropertyManager pushes the undo step (M16 refuses blank)
         elif key == "Level":
             self._level_name = str(value)
             self.level = self._level_name
@@ -434,6 +467,10 @@ class DetailMarker(QGraphicsPathItem):
             "bubble_pos": {"x": self._bubble_pos.x(),
                            "y": self._bubble_pos.y()},
         }
+        # Always written, "" included (SB4d D3, Phase 5 ruling): an absent key is
+        # the pre-SB4d signal that adopts the name token on load (Q20), so a
+        # deliberately blank Mark must stay blank (M7).
+        d["mark"] = self._mark
         if self._view_height is not None:
             d["view_height"] = self._view_height
         if self._view_depth is not None:
@@ -451,10 +488,12 @@ class DetailMarker(QGraphicsPathItem):
         )
         bp = data.get("bubble_pos")
         if bp:
-            marker._bubble_pos = QPointF(bp["x"], bp["y"])
+            marker._set_bubble_pos(QPointF(bp["x"], bp["y"]))
             marker._rebuild_path()
         marker._view_height = data.get("view_height")
         marker._view_depth = data.get("view_depth")
+        from .marks import name_token
+        marker._mark = data["mark"] if "mark" in data else name_token(marker._name)   # Q20
         return marker
 
 
@@ -491,7 +530,8 @@ class DetailViewManager:
         # name → Model_View (open tabs only)
         self._open_views: dict[str, object] = {}
         self._counter = 0
-        # Called with (old, new) after a rename; the project browser refreshes here.
+        # Called with (old, new) after a rename: the project browser's Details
+        # list and the placed-view italics refresh there (main.py).
         self.on_renamed = None
 
     @property
@@ -504,14 +544,19 @@ class DetailViewManager:
         return f"Detail {self._counter}"
 
     def create_detail(self, name: str, crop_rect: QRectF,
-                      level_name: str = DEFAULT_LEVEL) -> DetailMarker:
-        """Create a detail marker and add it to the scene."""
+                      level_name: str = DEFAULT_LEVEL, *, mint: bool = True) -> DetailMarker:
+        """Create a detail marker and add it to the scene. *mint* (the user
+        creation site) gives it the next Detail Mark (SB4d D3); ``from_list``
+        passes False -- load never mints (M7)."""
         from .display_manager import apply_category_defaults
         marker = DetailMarker(name, crop_rect, level_name)
         marker._manager = self
         self._markers[name] = marker
         self._ms.addItem(marker)
         apply_category_defaults(marker)
+        if mint:
+            from . import marks
+            marks.mint(self._ms, marker)
         return marker
 
     def open_detail(self, name: str):
@@ -602,6 +647,7 @@ class DetailViewManager:
             for sv in getattr(sheet, "sheet_views", []):
                 if sv.source_view_type == "detail" and sv.source_view_name == old:
                     sv.source_view_name = new
+        marker.refresh_heads()                    # the Sheet slot re-reads under the new name (SB4d)
         if self.on_renamed is not None:
             self.on_renamed(old, new)
         return True
@@ -637,6 +683,36 @@ class DetailViewManager:
     def get_marker(self, name: str) -> DetailMarker | None:
         return self._markers.get(name)
 
+    def restore_marks(self, data: list[dict]) -> None:
+        """Undo restore: update surviving markers in place (never recreate or
+        destroy one -- open detail tabs reference them). A wanted name that is
+        missing is paired with an unwanted marker of identical crop rect and
+        treated as a rename, so undoing a rename keeps the marker and its
+        sheet bindings. Each survivor takes the snapshot's Mark."""
+        want = {d["name"]: d for d in data if isinstance(d, dict) and "name" in d}
+
+        def _same_crop(m, d):
+            cr = d.get("crop_rect") or {}
+            r = m.crop_rect
+            return (abs(r.x() - cr.get("x", 1e18)) < 1e-6 and abs(r.y() - cr.get("y", 1e18)) < 1e-6
+                    and abs(r.width() - cr.get("w", 1e18)) < 1e-6
+                    and abs(r.height() - cr.get("h", 1e18)) < 1e-6)
+
+        unwanted = [k for k in self._markers if k not in want]
+        for name, d in want.items():
+            if name in self._markers:
+                continue
+            for old in unwanted:
+                if _same_crop(self._markers[old], d):
+                    self.rename_detail(old, name)
+                    unwanted.remove(old)
+                    break
+        for name, d in want.items():
+            m = self._markers.get(name)
+            if m is not None:
+                m._mark = d.get("mark", "")
+                m.refresh_heads()
+
     # ── Serialization ────────────────────────────────────────────────────
 
     def to_list(self) -> list[dict]:
@@ -654,11 +730,14 @@ class DetailViewManager:
             cr = d["crop_rect"]
             rect = QRectF(cr["x"], cr["y"], cr["w"], cr["h"])
             level = d.get("level_name", DEFAULT_LEVEL)
-            marker = self.create_detail(name, rect, level)
+            marker = self.create_detail(name, rect, level, mint=False)
+            from .marks import name_token
+            marker._mark = d["mark"] if "mark" in d else name_token(name)   # Q20: adopt once
+            marker.refresh_heads()                  # the head was built before the Mark was set
             # Restore bubble position
             bp = d.get("bubble_pos")
             if bp:
-                marker._bubble_pos = QPointF(bp["x"], bp["y"])
+                marker._set_bubble_pos(QPointF(bp["x"], bp["y"]))
                 marker._rebuild_path()
             # Restore view range
             marker._view_height = d.get("view_height")

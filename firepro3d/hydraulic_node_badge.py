@@ -1,8 +1,10 @@
 """
 hydraulic_node_badge.py
 =======================
-Selectable badge child of Node that displays the hydraulic node number
-using the hydraulic_node.svg graphic.  Clicking it shows read-only
+Selectable TOP-LEVEL badge of a Node (SB4d D5: the annotation band's tag
+sub-band; Qt child z would be local to the node) that displays the
+hydraulic node number using the hydraulic_node.svg graphic.  The node adds
+it to its scene, moves, hides and removes it.  Clicking it shows read-only
 hydraulic properties (P, q, Q) in the PropertyManager.
 """
 
@@ -16,7 +18,7 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QTransform, QFont
 
-from .constants import Z_OVERLAY
+from .constants import Z_ANNOT_TAG
 from .paper_display import shows_selection
 
 _SVG_PATH = os.path.join(
@@ -92,7 +94,7 @@ def best_position_for_node(node) -> str:
 class HydraulicNodeBadge(QGraphicsSvgItem):
     """Selectable SVG badge showing the hydraulic node number.
 
-    Created as a child of Node when hydraulic results are available.
+    Created by Node (top-level, synced by it) when hydraulic results are available.
     """
 
     def __init__(self, parent_node, node_number: int,
@@ -100,7 +102,7 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
                  flow_out: float, total_flow: float,
                  position: str = "Right", stack_index: int = 0,
                  stack_total: int = 1, node_label: str = ""):
-        super().__init__(_SVG_PATH, parent_node)
+        super().__init__(_SVG_PATH)          # top-level (SB4d D5); the node syncs it
         self._svg_source_path = os.path.abspath(_SVG_PATH)
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0
@@ -116,7 +118,7 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
         self._stack_index = stack_index      # 0-based stack offset
         self._stack_total = stack_total      # total badges at this position
 
-        self.setZValue(Z_OVERLAY)
+        self.setZValue(Z_ANNOT_TAG)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
         # Scale and centre the SVG
@@ -152,7 +154,7 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
             # Vertical stacking for Right/Left
             offset += QPointF(0, center_shift * _BADGE_DIAMETER_MM)
 
-        self.setPos(offset)
+        self.setPos(self._parent_node.scenePos() + offset)   # top-level: scene coords
 
     # ------------------------------------------------------------------
     # Property API  (matches Sprinkler / Pipe / Node pattern)

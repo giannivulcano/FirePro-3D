@@ -1914,11 +1914,35 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 gl.update()
             except RuntimeError:
                 pass
+        self.refresh_view_marker_heads()                # SB4d D1: marker heads
         mgr = getattr(self, "_section_manager", None)   # SB4c D1: open sections too
         for sc in (list(mgr.open_scenes) if mgr is not None else []):
             try:
                 sc.refresh_annotation_tags()
             except RuntimeError:          # scene deleted under us (teardown)
+                pass
+
+    def refresh_view_marker_heads(self) -> None:
+        """Re-shape every view-marker head (SB4d D1 / D4): each section /
+        elevation marker and each detail marker re-reads its block, Mark and
+        Sheet slot and re-fits the arrow built from the head outline. Called
+        by ``refresh_annotation_tags``, a detail / section viewport placement
+        or removal (``PaperScene``) and a sheet create / delete / renumber
+        (``MainWindow._on_paper_modified``)."""
+        markers = []
+        mgr = getattr(self, "_section_manager", None)
+        if mgr is not None:
+            markers += list(mgr.markers.values())
+        dm = getattr(self, "_detail_manager", None)
+        if dm is not None:
+            markers += list(dm._markers.values())
+        for m in markers:
+            fn = getattr(m, "refresh_heads", None)
+            if fn is None:
+                continue
+            try:
+                fn()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
 
     def annotation_block(self, category: str, mapped: str | None = None):
@@ -1984,10 +2008,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Sheet numbers holding a viewport of schematic *block_id*, in sheet
         order (schematics.md D-S11a). Reads ``self._sheets`` — the list
         ``SheetManager`` wraps."""
-        return [s.number for s in self._sheets
-                if any(sv.source_view_type == "schematic"
-                       and sv.source_view_name == block_id
-                       for sv in s.sheet_views)]
+        from .paper_space import sheets_holding
+        return [s.number for s in sheets_holding(self._sheets, "schematic", block_id)]
 
     def pattern_use_refusal(self, block_id) -> "str | None":
         """HF2 name of :meth:`symbol_use_refusal` for a tile."""
@@ -3570,6 +3592,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         extra = {}
         if sec_mgr is not None and hasattr(sec_mgr, "to_list"):
             extra["sections"] = sec_mgr.to_list()         # spec s8: markers join the snapshot
+        det_mgr = getattr(self, "_detail_manager", None)
+        if det_mgr is not None and hasattr(det_mgr, "to_list"):
+            extra["details"] = det_mgr.to_list()          # VC9 I1: Detail Marks / names ride undo
         lm = self._level_manager
         if lm is not None:                                # SB2b M15: Level-manager edits undo
             extra["levels"] = lm.to_list()
@@ -3924,6 +3949,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             sec_mgr = getattr(self, "_section_manager", None)
             if sec_mgr is not None and "sections" in state and hasattr(sec_mgr, "restore_from_list"):
                 sec_mgr.restore_from_list(state["sections"])
+
+            # ── Detail markers (VC9 I1): Mark + name by survivor; no recreate ──
+            det_mgr = getattr(self, "_detail_manager", None)
+            if det_mgr is not None and "details" in state and hasattr(det_mgr, "restore_marks"):
+                det_mgr.restore_marks(state["details"])
 
             # ── Capability (Block Editor tile / repeat; D-A32, LT4) ───────
             cap = state.get("block_capability")
@@ -8755,7 +8785,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if hasattr(item, "_display_overrides"):
                 if item._display_overrides.get("visible") is False:
                     item._display_overrides.pop("visible", None)
-                    item.setVisible(True)
+                    # A top-level node badge follows its node (SB4d D5).
+                    pn = getattr(item, "_parent_node", None)
+                    item.setVisible(pn.isVisible() if pn is not None else True)
         # Also clear fitting overrides (Fitting is not a QGraphicsItem)
         ss = getattr(self, "sprinkler_system", None)
         if ss:

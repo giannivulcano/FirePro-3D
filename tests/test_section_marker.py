@@ -10,13 +10,19 @@ def test_to_dict_round_trip_all_fields():
     m = SectionMarker("Section 7", QPointF(100.0, 200.0), QPointF(900.0, 650.0),
                       look_sign=-1, depth=3200.0)
     m.gridline_z_overrides["A"] = {"v_top": -5000.0, "v_bot": 500.0}
+    m._mark = "7"                                   # SB4d D3: "mark" key on a placed section
     d = m.to_dict()
     assert d == {"name": "Section 7", "cut_a": [100.0, 200.0], "cut_b": [900.0, 650.0],
                  "look_sign": -1, "depth": 3200.0, "cardinal": None,
-                 "auto_extent": False,
+                 "auto_extent": False, "mark": "7",
                  "gridline_z_overrides": {"A": {"v_top": -5000.0, "v_bot": 500.0}}}
     m2 = SectionMarker.from_dict(d)
     assert m2.to_dict() == d
+    # A blank Mark is still written (only a key-less pre-SB4d record adopts the
+    # name token on load, Q20), so a blank round-trips blank (M7).
+    m._mark = ""
+    assert m.to_dict()["mark"] == ""
+    assert SectionMarker.from_dict(m.to_dict())._mark == ""
 
 
 def test_cardinal_cut_scene_coordinates_match_basis_table():
@@ -290,25 +296,29 @@ def _dist_point_line(p, a, b):
     return abs(dy * (p.x() - a.x()) - dx * (p.y() - a.y())) / math.hypot(dx, dy)
 
 
-def test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side(qapp):
+def test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side(qapp, real_system_library):
+    """SB4d D1: the triangle is built from the head outline's R_k; the shipped
+    SectionHead seed is today's 2R circle at drawing scale 100."""
     from firepro3d.gridline import BUBBLE_RADIUS_MM
     ms, m = _plan_with_marker()                        # A(0,0) B(6000,0), look side = scene-up
+    m.refresh_heads()
     R = 2.0 * BUBBLE_RADIUS_MM
+    assert m._rk() == pytest.approx(R, rel=1e-3)
     for end in (m.cut_a, m.cut_b):
-        tri = m._head_polygon(end)
+        tri = m._triangle(end)
         p0, apex, p1 = tri[0], tri[1], tri[2]
         assert p0.y() == pytest.approx(end.y()) and p1.y() == pytest.approx(end.y())   # base on the cut line
         assert apex.y() < end.y()                                                        # apex on the look side
         for a, b in ((p0, apex), (apex, p1)):                                            # sides tangent to the circle
-            assert _dist_point_line(end, a, b) == pytest.approx(R, rel=1e-9)
-        stick_side = abs(p0.x() - end.x()) - R
-        stick_front = abs(apex.y() - end.y()) - R
+            assert _dist_point_line(end, a, b) == pytest.approx(R, rel=1e-3)
+        stick_side = abs(p0.x() - end.x()) - m._rk()
+        stick_front = abs(apex.y() - end.y()) - m._rk()
         assert stick_side == pytest.approx(stick_front)                                  # equal stick-out
     m.flip()
-    assert m._head_polygon(m.cut_a)[1].y() > 0.0                                         # apex follows the flip
+    assert m._triangle(m.cut_a)[1].y() > 0.0                                             # apex follows the flip
 
 
-def test_cardinal_glyph_tip_sits_25mm_outside_its_own_box_edge(qapp):
+def test_cardinal_glyph_tip_sits_25mm_outside_its_own_box_edge(qapp, real_system_library):
     from PyQt6.QtCore import QRectF
     from firepro3d.gridline import BUBBLE_RADIUS_MM
     import math
@@ -318,27 +328,22 @@ def test_cardinal_glyph_tip_sits_25mm_outside_its_own_box_edge(qapp):
             ("south", QPointF(6000.0, 11025.0), (0.0, 1.0)),
             ("east", QPointF(14025.0, 5000.0), (1.0, 0.0)),
             ("west", QPointF(-2025.0, 5000.0), (-1.0, 0.0))):
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
         m = SectionMarker.for_cardinal(d, box)
+        ms.addItem(m)                                  # k resolves in a scene (ElevationHead seed, 3R)
         c, _t1, _t2, tip, _a2, _sw = m._wedge_geometry()
         assert tip.x() == pytest.approx(tip_expected.x()) and tip.y() == pytest.approx(tip_expected.y()), d
         D = 3.0 * BUBBLE_RADIUS_MM / math.sin(math.radians(40))
-        assert c.x() == pytest.approx(tip.x() + outward[0] * D) and c.y() == pytest.approx(tip.y() + outward[1] * D), d
-        assert m._R == pytest.approx(3.0 * BUBBLE_RADIUS_MM)
-
-
-def test_label_angle_reads_along_the_cut_and_never_upside_down(qapp):
-    ms, m = _plan_with_marker()
-    for a, b, want in (((0, 0), (6000, 0), 0.0), ((6000, 0), (0, 0), 0.0),        # rightward / leftward
-                       ((0, 0), (3000, 3000), 45.0), ((3000, 3000), (0, 0), 45.0),
-                       ((0, 0), (0, -4000), -90.0), ((0, 0), (0, 4000), -90.0)):  # exactly vertical, both signs
-        m.set_geometry(QPointF(*a), QPointF(*b), 3000.0)
-        assert m._label_angle() % 360.0 == pytest.approx(want % 360.0), (a, b)
+        assert c.x() == pytest.approx(tip.x() + outward[0] * D, rel=1e-3) and \
+            c.y() == pytest.approx(tip.y() + outward[1] * D, rel=1e-3), d
+        assert m._R == pytest.approx(3.0 * BUBBLE_RADIUS_MM, rel=1e-3)
 
 
 def test_shape_covers_the_drawn_glyphs(qapp):
     ms, m = _plan_with_marker()
     sh = m.shape()
-    assert sh.contains(m._head_polygon(m.cut_b)[1] + QPointF(0.0, 5.0))      # just inside the apex
+    assert sh.contains(m._triangle(m.cut_b)[1] + QPointF(0.0, 5.0))          # just inside the apex
     assert sh.contains(QPointF(3000.0, 0.0))                                  # a cut-line point
     from PyQt6.QtCore import QRectF
     c = SectionMarker.for_cardinal("north", QRectF(0.0, 0.0, 6000.0, 6000.0))

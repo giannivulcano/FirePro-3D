@@ -27,19 +27,27 @@ Z_FILLED_REGION  = -1     # Filled Region: under every 2D shape (default z 0), a
 Z_DESIGN_AREA    = 2      # design area boundary
 Z_PIPE           = 5      # pipes (initial; overridden at runtime)
 Z_NODE           = 10     # nodes (initial; overridden at runtime)
-Z_DETAIL_MARKER  = 45     # detail view markers
-Z_WATER_SUPPLY   = 50     # water supply symbol
+Z_WATER_SUPPLY   = 50     # water supply symbol (initial; elevation-based at runtime, Z_CAT_SYMBOL)
 Z_SPRINKLER      = 100    # sprinkler symbols
 Z_OVERLAY        = 200    # previews, view markers, room labels, badges
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
-Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
-Z_NOTE           = 10_000 # a view-owned Note: above every model item at any elevation
+#
+# Annotation band (SB4d D5; the order is owned by view-relationships.md 7.3):
+# every annotation draws above every model item in every view, sub-ordered
+# text / dims < tags + labels + node badge < gridlines + bubbles < view markers.
+Z_ANNOT_BASE     = 10_000
+Z_ANNOT_TEXT     = 10_000   # TextItem, view-owned Notes (Z_NOTE)
+Z_ANNOT_TAG      = 10_100   # tag blocks, room tag, pipe label, node badge, hosted section copies
+Z_ANNOT_GRID     = 10_200   # gridlines (+ bubbles), elevation gridlines + level datums
+Z_ANNOT_MARKER   = 10_300   # detail + section / elevation markers (+ their heads)
+Z_DEPTH_CEIL     = Z_ANNOT_TEXT - 1.0   # SectionScene depth walk clamp (Q17)
+Z_NOTE           = Z_ANNOT_TEXT   # a view-owned Note: the band's text sub-band
+Z_PREVIEW        = 20_000   # ephemeral array/tool preview overlay, lifted above the band
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset
 Z_ELEV_SCALE     = 1.0 / 100.0  # mm → Z units (keeps values manageable)
-Z_LABEL_ABOVE_PIPE = 1.0  # a pipe label sits this far above its pipe (clears the node category offset)
 Z_CAT_FLOOR      = 0.0    # FloorSlab
 Z_CAT_UNDERLAY   = 0.05   # DXF/PDF imports
 Z_CAT_ROOF       = 0.1    # RoofItem
@@ -55,6 +63,7 @@ OPENING_ALIGNMENTS   = [OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN
 OPENING_TYPES        = ["door", "window", "blank"]
 Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
+Z_CAT_SYMBOL     = Z_CAT_NODE + 0.05   # water supply / riser symbol: model, above Node (SB4d Q16)
 Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
 # A hosted opening is pinned just above its host's z (level_manager.apply_to_scene):
 # a wall's openings and a floor slab's voids (FloorOpening, floor-opening A1).
@@ -72,6 +81,7 @@ Z_CATEGORY_BY_CLASS = {
     "WindowOpening":  Z_CAT_OPENING,
     "Pipe":           Z_CAT_PIPE,
     "Node":           Z_CAT_NODE,
+    "WaterSupply":    Z_CAT_SYMBOL,
     # Placed 2D block instance: above all building geometry.
     "BlockInstance":  Z_CAT_CONSTRUCTION,
 }
@@ -83,7 +93,18 @@ ELEV_Z_SNAPPABLE_CLASSES = frozenset({
     "FloorSlab", "RoofItem", "Room", "WallSegment",
     "WallOpening", "DoorOpening", "WindowOpening",
     "FloorOpening",     # floor void: z follows its host slab (floor-opening A7)
+    "WaterSupply",      # elevation-ordered symbol (SB4d Q16)
 })
+# Classes that were snap targets below z 150 before SB4d lifted them into the
+# annotation band (D5); exempt only while their z is inside the band, so a
+# preview ghost parked at the literal overlay z (200) stays excluded.
+ANNOT_Z_SNAPPABLE_CLASSES = frozenset({
+    "TextItem", "BlockInstance",
+})
+
+# The riser pass-through symbol's QGraphicsItem.data(0) tag: never a snap
+# target (it sat above the z > 150 overlay rule until SB4d pinned it to its pipe).
+RISER_SYMBOL_TAG = "riser_symbol"
 
 # ── Default gridline geometry ────────────────────────────────────────────────
 DEFAULT_GRIDLINE_SPACING_MM = 7315.2   # 288 in / 24 ft

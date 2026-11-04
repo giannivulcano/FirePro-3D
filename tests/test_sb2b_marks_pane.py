@@ -107,7 +107,8 @@ def test_pane_metrics_match_mockup(qapp, shown_model_view):
     pane = MarksPane(scene=scene)
     t = pane._table
     assert [t.horizontalHeaderItem(c).text() for c in range(3)] == ["Category", "Pattern", "Next"]
-    assert t.rowCount() == 7 and t.columnWidth(0) == 110 and t.columnWidth(1) == 200
+    assert t.rowCount() == len(marks.MARK_CATEGORIES) == 9   # 7 + Section, Detail (SB4d D3)
+    assert t.columnWidth(0) == 110 and t.columnWidth(1) == 200
     assert t.verticalHeader().defaultSectionSize() == 30
     assert not (t.item(0, 0).flags() & Qt.ItemFlag.ItemIsEditable)
     assert not (t.item(0, 2).flags() & Qt.ItemFlag.ItemIsEditable)

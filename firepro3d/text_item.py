@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM, TOKEN_AUTO
+from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_BOX_MARGIN_MM, TOKEN_AUTO, Z_ANNOT_TEXT
 
 
 def default_border_weight() -> str:
@@ -486,7 +486,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
 
-        self.setZValue(15)
+        self.setZValue(Z_ANNOT_TEXT)          # annotation band, text sub-band (SB4d D5)
         self.setTransformOriginPoint(0, 0)
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable

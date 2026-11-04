@@ -45,7 +45,8 @@ from .wall import WallSegment
 from .block_instance import BlockInstance
 from .render_op import STROKE
 from .capability_frame import CAPABILITY_FRAME_TAG
-from .constants import ELEV_Z_SNAPPABLE_CLASSES
+from .constants import (ELEV_Z_SNAPPABLE_CLASSES, ANNOT_Z_SNAPPABLE_CLASSES,
+                        RISER_SYMBOL_TAG, Z_ANNOT_BASE, Z_PREVIEW)
 from .view_scale import held_view_scale
 from .sketch_model import AXIS_DIRS
 
@@ -522,7 +523,7 @@ _UNDERLAY_TAGS = ("DXF Underlay", "PDF Underlay")
 # POSITION is offered as the ``origin`` kind by SnapEngine._origin_points, DD6)
 # and the Block Editor capability frame (an overlay: hatch D-A32 tile /
 # linetypes LT4 repeat).
-_NON_TARGET_TAGS = frozenset({"origin", CAPABILITY_FRAME_TAG})
+_NON_TARGET_TAGS = frozenset({"origin", CAPABILITY_FRAME_TAG, RISER_SYMBOL_TAG})
 # Scene distance (mm) within which a real snap candidate counts as lying ON an
 # origin point, so the winning ``origin`` result adopts its source (I-1).
 _ORIGIN_COINCIDE_EPS = 1e-6
@@ -562,18 +563,25 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     Returns:
         False for a hidden item, a child of a non-underlay parent (gridline
         bubbles/labels, sprinkler & fitting symbols, ...), an overlay item
-        above z 150 (elevation-ordered building classes, ELEV_Z_SNAPPABLE_CLASSES,
-        are exempt: tall levels push their z past 150), the fixed white (0,0) origin cross, or a pipe when
-        *skip_pipes*; True otherwise.
+        above z 150 (exempt: the elevation-ordered building classes,
+        ELEV_Z_SNAPPABLE_CLASSES, whose z tall levels push past 150; and the
+        ANNOT_Z_SNAPPABLE_CLASSES -- text / block instances -- while their z
+        lies inside the annotation band, ``Z_ANNOT_BASE <= z < Z_PREVIEW``),
+        an item tagged non-target in ``_NON_TARGET_TAGS`` (the white (0,0)
+        origin cross, the capability frame, the riser pass-through symbol),
+        or a pipe when *skip_pipes*; True otherwise.
     """
     if not item.isVisible():
         return False
     parent = item.parentItem()
     if parent is not None and not _is_underlay_group(parent):
         return False
-    if (item.zValue() > 150
+    z = item.zValue()
+    if (z > 150
             and type(item).__name__ not in ELEV_Z_SNAPPABLE_CLASSES
-            and not getattr(item, "note", None)):     # a Note sits above the geometry
+            and not (Z_ANNOT_BASE <= z < Z_PREVIEW
+                     and type(item).__name__ in ANNOT_Z_SNAPPABLE_CLASSES)
+            and not getattr(item, "note", None)):     # a Note sits in the band too
         return False
     if QGraphicsItem.data(item, 0) in _NON_TARGET_TAGS:
         return False

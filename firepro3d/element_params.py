@@ -22,7 +22,7 @@ from .format_utils import get_scale_manager
 from .scale_manager import ScaleManager
 
 CATEGORIES = ("Room", "Pipe", "Sprinkler", "Wall", "Door", "Window", "Opening",
-              "Gridline", "Level")
+              "Gridline", "Level", "Elevation", "Section", "Detail")
 TIER_NAMES = {1: "Stored", 2: "Geometry", 3: "Hydraulic", 4: "Related"}
 KINDS = ("text", "number", "length", "area", "volume", "area_sqft", "pressure",
          "flow", "velocity", "pipe_id", "angle", "diameter")
@@ -277,6 +277,16 @@ def _spr_room(s, attr):
     return getattr(r, attr) if r is not None else None
 
 
+def _view_sheet(marker, view_type: str):
+    """Number of the first sheet (sheet order) holding a viewport of the
+    *marker*'s ``(view_type, name)`` view, or None when unplaced (SB4d D4;
+    a legacy multi-placement cites the first sheet, Q6g)."""
+    from .paper_space import sheets_holding
+    hits = sheets_holding(getattr(scene_of(marker), "_sheets", None) or [],
+                          view_type, marker.name)
+    return hits[0].number if hits else None
+
+
 # -- the table (design section 1) ----------------------------------------------
 
 def _P(key, kind, tier, getter, label=None):
@@ -374,6 +384,20 @@ _TABLE = {
         _P("Level.Name", "text", 1, lambda d: d._level.name, "Name"),          # as typed (D3)
         _P("Level.Elevation", "length", 1, lambda d: d._level.elevation, "Elevation"),
     ],
+    # SB4d D2: the view-marker heads. A cardinal SectionMarker binds its
+    # Direction letter; a placed section and a detail bind their Mark over
+    # the number of the one sheet their view is placed on (D4).
+    "Elevation": [
+        _P("Direction", "text", 1, lambda m: m.cardinal[0].upper() if m.cardinal else None),
+    ],
+    "Section": [
+        _P("Mark", "text", 1, lambda m: m._mark),
+        _P("Sheet", "text", 4, lambda m: _view_sheet(m, "section")),
+    ],
+    "Detail": [
+        _P("Mark", "text", 1, lambda m: m._mark),
+        _P("Sheet", "text", 4, lambda m: _view_sheet(m, "detail")),
+    ],
 }
 
 PARAMS: dict[str, dict[str, ParamSpec]] = {
@@ -394,6 +418,12 @@ def category_of(item) -> Optional[str]:
     from .wall import WallSegment
     from .wall_opening import WallOpening
     from .floor_opening import FloorOpening
+    from .section_marker import SectionMarker
+    from .detail_view import DetailMarker
+    if isinstance(item, SectionMarker):           # SB4d D2: split on cardinal
+        return "Elevation" if item.cardinal else "Section"
+    if isinstance(item, DetailMarker):
+        return "Detail"
     if isinstance(item, WallOpening):
         return _OPENING_CATEGORY.get(item.openings_type)
     if isinstance(item, FloorOpening):

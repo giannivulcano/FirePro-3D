@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QGraphicsScene
 from firepro3d.node import Node
 from firepro3d.pipe import Pipe
 from firepro3d.fitting import Fitting
-from firepro3d.constants import Z_OVERLAY
+from firepro3d.constants import Z_ANNOT_TAG
 
 
 @pytest.fixture
@@ -133,13 +133,13 @@ class TestPipeLabelZOrdering:
         assert p.label.parentItem() is None
         assert p.label.scene() is scene
 
-    def test_label_z_value_is_overlay(self, qapp, scene):
-        """Pipe label should render at Z_OVERLAY."""
+    def test_label_z_value_is_the_tag_band(self, qapp, scene):
+        """Pipe label renders in the annotation band's tag sub-band (SB4d D5)."""
         n1 = _make_node(scene, 0, 0)
         n2 = _make_node(scene, 1000, 0)
         p = _make_pipe(scene, n1, n2)
         p.update_label()
-        assert p.label.zValue() == Z_OVERLAY
+        assert p.label.zValue() == Z_ANNOT_TAG
 
     def test_label_hidden_when_pipe_hidden(self, qapp, scene):
         """setVisible(False) on pipe cascades to label without update_label."""

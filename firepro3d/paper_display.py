@@ -508,13 +508,13 @@ def save_paper_color_mode(mode: PaperColorMode,
 _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
     "Hydraulic Badge", "Wall", "Door", "Window", "Opening", "Roof", "Room",
-    "Floor", "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
-    "Construction", "Hatch", "Blocks",
+    "Floor", "Grid Line", "Level Datum", "Elevation Marker", "Section Marker",
+    "Detail Marker", "Construction", "Hatch", "Blocks",
 ]
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
 _HAS_FILL = {"Sprinkler", "Water Supply", "Hydraulic Badge", "Wall", "Roof",
-             "Room", "Floor", "Elevation Marker", "Detail Marker"}
+             "Room", "Floor"}
 
 # Which categories have section colour
 _HAS_SECTION = {"Wall", "Roof", "Floor"}
@@ -530,7 +530,8 @@ _FACTORY_LW_MM = {
     "Node": 0.18, "Hydraulic Badge": 0.13, "Wall": 0.35, "Roof": 0.25,
     "Room": 0.13, "Floor": 0.25, "Door": 0.18, "Window": 0.18,
     "Opening": 0.18, "Grid Line": 0.25, "Level Datum": 0.13,
-    "Elevation Marker": 0.13, "Detail Marker": 0.18, "Construction": 0.18,
+    "Elevation Marker": 0.13, "Section Marker": 0.13, "Detail Marker": 0.18,
+    "Construction": 0.18,
     "Hatch": 0.13,
     "Blocks": 0.18,         # paper-only, no fill/section (linetypes.md LT1-2)
 }
@@ -798,8 +799,8 @@ def _category_for_item(item) -> str | None:
         return "Roof"
     if cls_name == "FloorSlab":
         return "Floor"
-    if cls_name == "SectionMarker":
-        return "Elevation Marker"
+    if cls_name == "SectionMarker":            # SB4d D7: cardinal / placed rows
+        return "Elevation Marker" if getattr(item, "cardinal", None) else "Section Marker"
     if cls_name == "DetailMarker":
         return "Detail Marker"
     if cls_name == "ElevDatumItem":         # elevation / section level datum (AC4)
@@ -966,6 +967,14 @@ def _elev_heads(item) -> list:
                         getattr(item, "head", None)) if h is not None]
 
 
+def _marker_heads(item) -> list:
+    """The annotation-block heads a view marker owns (SB4d D1): a cardinal's
+    ``head``, a placed section's ``head_a`` / ``head_b``, a detail's ``bubble``."""
+    return [h for h in (getattr(item, "head", None), getattr(item, "head_a", None),
+                        getattr(item, "head_b", None), getattr(item, "bubble", None))
+            if h is not None]
+
+
 def _model_colour_token(item, cat_key: str, cache: dict | None = None):
     """The token colour string the MODEL side stores for *item*, else None.
 
@@ -1010,8 +1019,8 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
 
 def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
                   model_token=None):
-    """Apply paper overrides to an elevation/detail marker."""
-    from PyQt6.QtGui import QColor, QBrush, QPen
+    """Apply paper overrides to an elevation / section / detail marker's LINE
+    (SB4d D7: no fill -- the heads are annotation blocks)."""
     if color_mode == PaperColorMode.FULL_COLOR and model_token is not None:
         # Full Colour keeps authored colours, but a token latched for the
         # canvas must re-resolve on paper (restore puts the saved colour back).
@@ -1029,11 +1038,6 @@ def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
             pen = marker.pen()
             pen.setColor(_pc)
             marker.setPen(pen)
-        if cat["fill"] is not None and hasattr(marker, "_fill_color"):
-            _pf = _paper_qcolor(cat["fill"], marker)
-            marker._fill_color = _pf
-            if hasattr(marker, "setBrush"):
-                marker.setBrush(QBrush(_pf))
     marker.setOpacity(cat["opacity"] / 100.0)
     marker.update()
 
@@ -1053,11 +1057,9 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
     """Capture marker state for restore."""
     from PyQt6.QtGui import QColor
     c = getattr(marker, color_attr, None)
-    fill = getattr(marker, "_fill_color", None)
     return {
         "color_attr": color_attr,
         "marker_color": c.name() if isinstance(c, QColor) else c,
-        "fill_color": fill.name() if isinstance(fill, QColor) else fill,
         "pen": marker.pen() if hasattr(marker, "pen") else None,
         "brush": marker.brush() if hasattr(marker, "brush") else None,
     }
@@ -1247,10 +1249,14 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                       _l._paper_scale)
             elif isinstance(item, GridlineItem):
                 entry["gridline"] = _save_gridline_state(item)
-            elif cat_key == "Elevation Marker":
+            elif cat_key in ("Elevation Marker", "Section Marker"):
                 entry["marker"] = _save_marker_state(item, "_marker_color")
+                entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
+                                  for h in _marker_heads(item)]
             elif cat_key == "Detail Marker":
                 entry["marker"] = _save_marker_state(item, "_tag_color")
+                entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
+                                  for h in _marker_heads(item)]
             elif cat_key == "Blocks":
                 entry["block_paper"] = (item._paper_pen_width,
                                         item._paper_pen_color,
@@ -1260,6 +1266,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _tag = item._tag
                 entry["tag_paper"] = (_tag._paper_pen_width, _tag._paper_pen_color,
                                       _tag._paper_scale)
+                entry["tag_opacity"] = _tag.opacity()   # top-level (SB4d D5)
             from .wall_opening import WallOpening
             if isinstance(item, WallOpening):
                 entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
@@ -1299,12 +1306,15 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         _set_svg_tint(item, _tok,
                                       getattr(item, "_display_fill_color", None))
                 item.setOpacity(cat["opacity"] / 100.0)
-            elif cat_key == "Elevation Marker":
-                _apply_marker(item, cat, color_mode, lw_mm, "_marker_color",
+            elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+                _apply_marker(item, cat, color_mode, lw_mm,
+                              "_tag_color" if cat_key == "Detail Marker" else "_marker_color",
                               _full_tok(item, cat_key))
-            elif cat_key == "Detail Marker":
-                _apply_marker(item, cat, color_mode, lw_mm, "_tag_color",
-                              _full_tok(item, cat_key))
+                for h in _marker_heads(item):          # SB4d D1: annotative heads print at authored mm
+                    if h.isVisible():
+                        _apply_block(h, cat, color_mode, lw_mm, paper_scale)   # SB4d: marker heads
+                        h.setOpacity(1.0)
+                item.prepareGeometryChange()           # the arrow / leader follow the paper k
             elif cat_key == "Blocks":
                 _apply_block(item, cat, color_mode, lw_mm, paper_scale)
             elif cat_key == "Construction":
@@ -1533,19 +1543,22 @@ def restore_model_display(saved: list[dict]):
                           entry.get("display_fill_color"))
             item.update()
 
-        elif cat_key in ("Elevation Marker", "Detail Marker"):
+        elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
             ms = entry.get("marker", {})
             color_attr = ms.get("color_attr", "_marker_color")
             mc = ms.get("marker_color")
             if mc is not None:
                 setattr(item, color_attr, QColor(mc))
-            fc = ms.get("fill_color")
-            if fc is not None and hasattr(item, "_fill_color"):
-                item._fill_color = QColor(fc)
             if ms.get("pen") is not None:
                 item.setPen(ms["pen"])
             if ms.get("brush") is not None:
                 item.setBrush(ms["brush"])
+            for h, pen_w, pen_c, scale in entry.get("heads", ()):
+                if _is_annot(h.definition()):
+                    h.prepareGeometryChange()            # SB1c D6
+                h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
+                h.refresh()
+            item.prepareGeometryChange()
             item.update()
 
         elif cat_key == "Blocks":
@@ -1585,6 +1598,8 @@ def restore_model_display(saved: list[dict]):
                 (_tag._paper_pen_width, _tag._paper_pen_color,
                  _tag._paper_scale) = entry["tag_paper"]
                 _tag.update()
+                if "tag_opacity" in entry:
+                    _tag.setOpacity(entry["tag_opacity"])
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             # Restore WallOpening gap colour: prior value (None means unset →

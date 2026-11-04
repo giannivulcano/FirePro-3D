@@ -136,8 +136,10 @@ class SectionManager(QObject):
         return best if best > 0.0 else DEFAULT_DEPTH
 
     def place_section(self, a: QPointF, b: QPointF) -> SectionMarker:
+        from . import marks
         m = SectionMarker(self.next_name(), a, b, 1, self._seed_depth(a, b))
         self._adopt(m)
+        marks.mint(self._ms, m)                  # SB4d D3
         self.sectionsChanged.emit()
         return m
 
@@ -428,5 +430,8 @@ class SectionManager(QObject):
                 m.flip()
             m._auto_extent = bool(d.get("auto_extent", False)) if m.cardinal else False
             m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+            if not m.cardinal:
+                m._mark = d.get("mark", "")      # an undo snapshot carries its Mark (sparse = "")
+                m.refresh_heads()
         self._recount()
         self.sectionsChanged.emit()

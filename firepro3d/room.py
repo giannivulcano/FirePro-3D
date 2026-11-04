@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, QPointF
 
 from .bound_label import BoundLabelItem, TagBlockHost
 from .colour_tokens import resolve_colour
-from .constants import DEFAULT_LEVEL, Z_OVERLAY
+from .constants import DEFAULT_LEVEL, Z_ANNOT_TAG
 
 if TYPE_CHECKING:
     from .scale_manager import ScaleManager
@@ -94,12 +94,17 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         self._display_opacity: float = 100
         self._display_visible: bool = True
 
-        # Room tag (SB3; concept F5): a BoundLabelItem child draws the block
-        # mapped for "Room" at centroid + label_offset. The room owns
-        # show_label / label_offset; the item is never serialised.
+        # Room tag (SB3; concept F5): a BoundLabelItem (top-level, synced by
+        # the room) draws the block mapped for "Room" at centroid +
+        # label_offset. The room owns show_label / label_offset; the item is
+        # never serialised.
         self._label_offset: QPointF = QPointF(0, 0)  # user drag offset from centroid
-        self._tag = BoundLabelItem(self)
-        self._tag.setZValue(Z_OVERLAY)  # above everything including walls
+        # SB4d D5: TOP-LEVEL (Qt child z is local to the room) -- synced by
+        # itemChange below: joins / leaves the room's scene, hides with it,
+        # takes its opacity; the anchor is in scene coords (rooms carry no
+        # transform). z = the annotation band's tag sub-band.
+        self._tag = BoundLabelItem(self, child=False)
+        self._tag.setZValue(Z_ANNOT_TAG)
         # SB3b: this room's own tag block id; None = the project default
         # (annotation_defaults["Room"]). Resolved first by BoundLabelItem._resolve.
         self._init_tag_block()
@@ -195,12 +200,35 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         too (a tag bound to ``@[Area]`` / ``@[Mark]`` would otherwise go stale).
         """
         c = self._centroid()
-        self._tag.setVisible(self._show_label and c is not None)
+        self._tag.setVisible(self._show_label and c is not None and self.isVisible())
         if c is None:
             return          # degenerate room: tag hidden (design Edge Cases)
         self._tag.set_anchor(QPointF(c.x() + self._label_offset.x(),
                                      c.y() + self._label_offset.y()))
         self._tag.refresh()       # drop the cached rect (rebuild / Renumber reach here)
+
+    def itemChange(self, change, value):
+        """Keep the top-level tag with the room (SB4d D5): it leaves the old
+        scene before the room does, joins the new one after it, and follows
+        the room's visibility and opacity (a child got all three from Qt).
+        QGraphicsScene.clear() / the scene destructor send no ItemSceneChange
+        (probed 2026-11-03) and delete both items together."""
+        gc = QGraphicsItem.GraphicsItemChange
+        tag = getattr(self, "_tag", None)
+        if tag is not None:
+            if change == gc.ItemSceneChange:
+                old = self.scene()
+                if old is not None and tag.scene() is old:
+                    old.removeItem(tag)
+            elif change == gc.ItemSceneHasChanged:
+                if value is not None and tag.scene() is None:
+                    value.addItem(tag)
+                    self._update_label()
+            elif change == gc.ItemVisibleHasChanged:
+                self._update_label()
+            elif change == gc.ItemOpacityHasChanged:
+                tag.setOpacity(self.opacity())
+        return super().itemChange(change, value)
 
     @property
     def boundary(self) -> list[QPointF]:

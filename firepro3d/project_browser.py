@@ -139,6 +139,14 @@ class _ProjectTree(QTreeWidget):
         self.sheetDropped.emit(number, target_number or "")
 
 
+def _set_draggable(item, on: bool) -> None:
+    """Toggle a leaf's drag flag (SB4d D4: a placed detail / section leaf
+    cannot be dragged onto a second sheet)."""
+    flags = item.flags()
+    item.setFlags(flags | Qt.ItemFlag.ItemIsDragEnabled if on
+                  else flags & ~Qt.ItemFlag.ItemIsDragEnabled)
+
+
 class ProjectBrowser(QWidget):
     """
     Project Browser panel.  Embed in a QDockWidget.
@@ -265,6 +273,8 @@ class ProjectBrowser(QWidget):
                 f = it.font(0)
                 f.setItalic((role, key) in placed)
                 it.setFont(0, f)
+                if role in ("detail", "section"):     # one sheet per view (SB4d D4)
+                    _set_draggable(it, (role, key) not in placed)
         # Schematic leaves sit under the root or a Series row (D-S15).
         stack = [self._schem_root]
         while stack:
@@ -308,7 +318,7 @@ class ProjectBrowser(QWidget):
             item.setData(0, _ROLE_TYPE, "detail")
             item.setData(0, _ROLE_NAME, name)
             item.setToolTip(0, f"Detail view — {name}")
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            _set_draggable(item, ("detail", name) not in self._placed_views)   # SB4d D4
             if ("detail", name) in self._placed_views:
                 italic_font = QFont()
                 italic_font.setItalic(True)
@@ -325,7 +335,7 @@ class ProjectBrowser(QWidget):
             item.setData(0, _ROLE_TYPE, "section")
             item.setData(0, _ROLE_NAME, name)
             item.setToolTip(0, f"Section view -- {name}")
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            _set_draggable(item, ("section", name) not in self._placed_views)  # SB4d D4
             if ("section", name) in self._placed_views:
                 italic_font = QFont()
                 italic_font.setItalic(True)

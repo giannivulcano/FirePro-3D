@@ -60,14 +60,15 @@ def test_depth_crop(qapp, section_scene_for, offset, shown):
 
 def test_depth_order_between_walls(qapp, section_scene_for):
     """The nearer hosted copy paints above the farther one (sort_key order),
-    inside the depth band below the gridlines (Z 50)."""
+    inside the annotation tag band below the gridlines (SB4d D5)."""
     ms, sec = _placed_scene(section_scene_for, (0, 0), (10000, 0), 8000.0)
     gl = gridline(ms, (0, -3000), (6000, -3000), "B")        # d = 3000
     near = _host(ms, gl, offset_mm=0.0, along_mm=1000.0)     # d = 3000
     far = _host(ms, gl, offset_mm=2000.0, along_mm=2000.0)   # d = 5000
     sec.rebuild()
     z = {c.data(0x0100): (c.parentItem() or c).zValue() for c in _copies(sec)}
-    assert -50.0 <= z[far] < z[near] < 50.0
+    from firepro3d.constants import Z_ANNOT_GRID, Z_ANNOT_TAG
+    assert Z_ANNOT_TAG <= z[far] < z[near] < Z_ANNOT_GRID
 
 
 def test_lateral_clip(qapp, section_scene_for):

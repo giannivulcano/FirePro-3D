@@ -87,14 +87,16 @@ class TestPaperColorMode:
 
 
 class TestPaperCategories:
-    def test_factory_defaults_all_20_categories(self):
-        # 14 model-mirrored categories + the paper-only "Construction" category
+    def test_factory_defaults_all_21_categories(self):
+        # 15 model-mirrored categories (SB4d D7 split the Elevation Marker row
+        # into Elevation / Section Marker) + the paper-only "Construction" category
         # (bug #3: construction/draw geometry plots via a pen-only paper category)
         # + the paper-only Hatch pattern-line weight (hatch D-A31)
         # + the paper-only "Blocks" category (linetypes.md LT1-2 / H6)
         # + Door / Window / Opening (2026-10-04 opening split).
         cats = factory_paper_categories()
-        assert len(cats) == 20
+        assert len(cats) == 21
+        assert "Section Marker" in cats
 
     def test_factory_opening_categories_light(self):
         for k in ("Door", "Window", "Opening"):
@@ -316,6 +318,29 @@ class TestRoomPaperNoFill:
         assert not hasattr(room, "_paper_no_fill"), (
             "_paper_no_fill must be cleaned up on restore (round-trip)"
         )
+
+    def test_room_tag_opacity_is_one_on_paper_and_restored(self, scene_with_room):
+        """SB4d D5: the top-level tag inherits the room's opacity on screen;
+        the paper pass plots it at 1 and restore puts the screen value back."""
+        scene, room = scene_with_room
+        cats = load_paper_categories()
+        cats["Room"]["opacity"] = 50           # paper == screen opacity: the room's own
+        save_paper_categories(cats)            # restore fires no change, so only the tag's
+        room.setOpacity(0.5)                   # saved opacity can bring the tag back
+        assert room._tag.isVisible() and room._tag.opacity() == pytest.approx(0.5)
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 1000, 1000))
+        assert room._tag.opacity() == pytest.approx(1.0)
+        restore_model_display(saved)
+        assert room._tag.opacity() == pytest.approx(0.5)
+
+    def test_marker_rows_factory_config_carries_no_fill_on_paper(self):
+        """SB4d D7 config pin (not a render guard): the three marker rows
+        ship with no paper fill slot. This pins the config only; it does not
+        render a paper marker (T18 review minor 4, optional)."""
+        from firepro3d.paper_display import _HAS_FILL
+        for key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+            assert key not in _HAS_FILL
+            assert factory_paper_categories()[key].get("fill") is None
 
     def _render_interior_pixel(self, scene):
         from PyQt6.QtGui import QImage, QPainter

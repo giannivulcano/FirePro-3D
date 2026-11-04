@@ -31,6 +31,9 @@ EXPECTED = {
              ("Level.Name", 4), ("Level.Number", 4)],
     "Gridline": [("Mark", 1), ("Length", 2), ("Angle", 2)],
     "Level": [("Level.Name", 1), ("Level.Elevation", 1)],
+    "Elevation": [("Direction", 1)],                       # SB4d D2
+    "Section": [("Mark", 1), ("Sheet", 4)],
+    "Detail": [("Mark", 1), ("Sheet", 4)],
 }
 _OPENING = [("Mark", 1), ("Family", 1), ("Type", 1), ("Width", 1), ("Height", 1), ("Sill", 1),
             ("Wall.Mark", 4), ("Wall.Name", 4), ("Room.Name", 4), ("Room.Mark", 4),
@@ -41,7 +44,7 @@ for _c in ("Door", "Window", "Opening"):
 
 def test_registry_matches_key_table():
     assert ep.CATEGORIES == ("Room", "Pipe", "Sprinkler", "Wall", "Door", "Window",
-                             "Opening", "Gridline", "Level")
+                             "Opening", "Gridline", "Level", "Elevation", "Section", "Detail")
     for cat in ep.CATEGORIES:
         got = [(k, s.tier) for k, s in ep.PARAMS[cat].items()]
         assert got == EXPECTED[cat], cat
