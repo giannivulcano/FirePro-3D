@@ -2,13 +2,16 @@
 after it, with a border by default (items 3, 4). Design D8 as amended at smoke."""
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QImage, QPainter
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QGraphicsRectItem
 
 from firepro3d import paper_display as pd
 from firepro3d.block_instance import BlockInstance
+from firepro3d.constants import Z_NOTE
 from firepro3d.display_manager import DisplayManager
 from firepro3d.paper_display import LineWeightDef
+from firepro3d.snap_engine import is_snap_target
 from firepro3d.text_item import TextAnnotationData, TextItem
 from firepro3d.text_leader import solve_knee
 from tests._note_helpers import click, mouse
@@ -231,6 +234,120 @@ def test_the_tip_stays_pinned_while_a_note_move_is_held(shown_model_view, real_s
     assert pinned > 0
     assert lit == 0
     assert inst.note_tip_scene() == tip
+
+
+def _host(scene, index):
+    return next(h for h in scene._live_manip()._host_pool
+                if getattr(h.handle, "index", None) == index)
+
+
+def test_the_tip_grip_stays_with_the_arrow_while_the_knee_rides_the_move(
+        shown_model_view, real_system_library):
+    view, scene, inst = _note(shown_model_view)
+    inst.set_property("Leader", True)
+    tip_i, knee_i = inst.note_grip_index("tip"), inst.note_grip_index("knee")
+    inst.apply_grip(tip_i, QPointF(1500.0, -1000.0))
+    tip, knee = inst.note_tip_scene(), inst.grip_points()[knee_i]
+    scene.clearSelection()
+    inst.setSelected(True)
+    QApplication.processEvents()
+    c = inst.note_box_scene().center()
+    d = QPointF(200.0, 300.0)
+    mouse(view, QEvent.Type.MouseButtonPress, c)
+    mouse(view, QEvent.Type.MouseMove, c + d * 0.5, buttons=Qt.MouseButton.LeftButton,
+          button=Qt.MouseButton.NoButton)
+    mouse(view, QEvent.Type.MouseMove, c + d, buttons=Qt.MouseButton.LeftButton,
+          button=Qt.MouseButton.NoButton)
+    held_tip, held_knee = _host(scene, tip_i).scenePos(), _host(scene, knee_i).scenePos()
+    assert (held_tip.x(), held_tip.y()) == pytest.approx((tip.x(), tip.y()), abs=0.01)
+    assert (held_knee.x(), held_knee.y()) == pytest.approx(
+        (knee.x() + d.x(), knee.y() + d.y()), abs=1.0)
+    scene._live_manip()._restore_preview()             # an Esc: the grip returns with the frame
+    back = _host(scene, tip_i).scenePos()
+    assert (back.x(), back.y()) == pytest.approx((tip.x(), tip.y()), abs=0.01)
+    mouse(view, QEvent.Type.MouseButtonRelease, c, buttons=Qt.MouseButton.NoButton)
+
+
+def test_a_note_draws_above_the_geometry_after_the_level_sweep(
+        shown_model_view, real_system_library):
+    _view, scene, inst = _note(shown_model_view)
+    cover = QGraphicsRectItem(inst.note_box_scene().adjusted(-100.0, -100.0, 100.0, 100.0))
+    cover.setBrush(QColor("#000000"))
+    cover.setPen(QPen(Qt.PenStyle.NoPen))
+    cover.setZValue(900.0)                             # a wall top about 90 m up
+    scene.addItem(cover)
+    scene._level_manager.apply_to_scene(scene)
+    lit, span = _edge_lit(scene, inst)
+    assert lit > span * 0.9
+    assert inst.zValue() == Z_NOTE
+
+
+def test_a_new_note_and_an_undone_one_are_in_the_band_with_no_sweep(
+        shown_model_view, real_system_library):
+    _view, scene, inst = _note(shown_model_view)
+    assert inst.zValue() == Z_NOTE
+    with scene.deferred_undo_push():
+        inst.set_property("Bold", True)
+    scene.undo()
+    assert scene._block_instances[-1].zValue() == Z_NOTE
+
+
+def test_a_note_stays_a_snap_target_in_the_band(shown_model_view, real_system_library):
+    _view, _scene, inst = _note(shown_model_view)
+    assert is_snap_target(inst, skip_pipes=False)
+
+
+def test_wrap_off_and_shrink_size_the_drawn_box_to_the_text(
+        shown_model_view, real_system_library):
+    _view, scene, inst = _note(shown_model_view)
+    props = inst.get_properties()
+    assert props["Wrap"]["value"] is True and props["Shrink to fit"]["value"] is False
+    before = inst.note_box_scene()
+    inst.set_property("Shrink to fit", True)
+    box = inst.note_box_scene()
+    assert box.width() < before.width() * 0.6 and box.height() < before.height() * 0.6
+    assert inst.note["style"]["shrink"] is True
+    assert inst.get_properties()["Shrink to fit"]["value"] is True
+    lit, span = _edge_lit(scene, inst)                 # the border is drawn on the hugged box
+    assert lit > span * 0.9
+    inst.set_attributes(dict(inst.attributes, Text="Hold at level"))
+    grown = inst.note_box_scene()                      # the box follows the text itself
+    assert grown.width() > box.width() and grown.height() > box.height()
+    scene._note_ctl.begin(inst)
+    assert scene._note_ctl.overlay.shrink_on()         # the editor wears the same box rule
+    scene._text_edit_ctl.commit()
+    scene.clearSelection()
+    inst.setSelected(True)
+    inst.set_property("Wrap", False)
+    assert inst.note["style"]["wrap"] is False
+
+
+def test_a_box_grip_drag_ends_shrink_and_takes_the_size(shown_model_view, real_system_library):
+    _view, _scene, inst = _note(shown_model_view)
+    inst.set_property("Shrink to fit", True)
+    grip = inst.grip_points()[inst.note_grip_index("box")]
+    target = QPointF(grip.x() + 900.0, grip.y() + 500.0)
+    inst.apply_grip(inst.note_grip_index("box"), target)
+    assert inst.note["style"]["shrink"] is False
+    now = inst.grip_points()[inst.note_grip_index("box")]
+    assert (now.x(), now.y()) == pytest.approx((target.x(), target.y()), abs=20.0)
+
+
+def test_the_template_offers_wrap_and_shrink_and_stamps_them(
+        shown_model_view, real_system_library):
+    view, scene = shown_model_view
+    tmpl = scene._note_ctl.template
+    assert "Wrap" in tmpl.get_properties() and "Shrink to fit" in tmpl.get_properties()
+    tmpl.set_property("Shrink to fit", True)
+    assert tmpl.style["shrink"] is True
+    scene.active_view_key = PLAN
+    scene.set_mode("note")
+    click(view, A)
+    click(view, B)
+    inst = scene._block_instances[-1]
+    assert inst.note["style"]["shrink"] is True
+    scene._note_ctl.overlay.setPlainText("Hold")
+    scene._text_edit_ctl.commit()
 
 
 def test_the_box_memo_sees_a_style_change(shown_model_view, real_system_library):

@@ -64,7 +64,7 @@ from .constants import (
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
     Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE, Z_CATEGORY_BY_CLASS,
-    Z_OPENING_ABOVE_HOST,
+    Z_OPENING_ABOVE_HOST, Z_NOTE,
 )
 @dataclass
 class Level:
@@ -826,6 +826,9 @@ class LevelManager:
             overlay_z = _Z_OVERLAY.get(type(item).__name__)
             if overlay_z is not None:
                 item.setZValue(overlay_z)
+                return
+            if getattr(item, "note", None):
+                item.setZValue(Z_NOTE)           # an annotation, whatever its level's height
                 return
             cat_offset = _Z_CATEGORY.get(type(item).__name__)
             if cat_offset is None:

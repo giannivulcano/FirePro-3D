@@ -34,6 +34,7 @@ Z_OVERLAY        = 200    # previews, view markers, room labels, badges
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
 Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
 Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
+Z_NOTE           = 10_000 # a view-owned Note: above every model item at any elevation
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset

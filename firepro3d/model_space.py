@@ -2899,7 +2899,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if overrides:
             inst.set_overrides(overrides)
         if note:
+            from .constants import Z_NOTE
             inst.note = copy.deepcopy(note)
+            inst.setZValue(Z_NOTE)
         if host:
             inst.host = dict(host)
             inst.setVisible(False)   # hosted: section-only from birth (D11); LevelManager keeps it so

@@ -284,13 +284,15 @@ class BlockInstance(QGraphicsObject):
             return None
         b = bps[0]
         style = self.note.get("style") or {}
-        key = (self.note["wrap_width_mm"], self.note["box_height_mm"], repr(sorted(style.items())))
+        text = str(self.attributes.get("Text", ""))     # Wrap off and Shrink size the box to it
+        key = (self.note["wrap_width_mm"], self.note["box_height_mm"],
+               repr(sorted(style.items())), text)
         c = self._note_geom
         if c is not None and c[0] == key and c[2] is bps:
             item = c[1]
         else:
             from .text_item import TextItem
-            rec = dict(b.prim, wrap_width_mm=key[0], box_height_mm=key[1], text="")
+            rec = dict(b.prim, wrap_width_mm=key[0], box_height_mm=key[1], text=text)
             rec.update(style)
             rec.pop("leader", None)
             item = TextItem.from_dict(rec)
@@ -346,6 +348,10 @@ class BlockInstance(QGraphicsObject):
         return {"box": self.NOTE_BOX_GRIP, "knee": self.NOTE_KNEE_GRIP,
                 "tip": self.NOTE_TIP_GRIP}[which]
 
+    def grip_pinned(self, index: int) -> bool:
+        """True for a note's leader tip: it stays put through a held move (D7)."""
+        return bool(self.note) and index == self.NOTE_TIP_GRIP
+
     def grip_points(self) -> list:
         """Scene points of this note's grips: the box's bottom-right corner,
         then the leader's knee and tip. EMPTY for every plain block, so nothing
@@ -386,6 +392,8 @@ class BlockInstance(QGraphicsObject):
             local = _tl._from_parent(item, inv.map(pos))      # box frame, printed mm
             box = _tl._box_mm(item)
             if index == self.NOTE_BOX_GRIP:
+                if item.shrink_on():            # a resize ends the hug (text-sizing D6)
+                    self.note.setdefault("style", {})["shrink"] = False
                 self.note["wrap_width_mm"] = max(local.x() - box.left(), MIN_NOTE_BOX_MM)
                 self.note["box_height_mm"] = max(local.y() - box.top(), MIN_NOTE_BOX_MM)
             elif index == self.NOTE_KNEE_GRIP and rec:

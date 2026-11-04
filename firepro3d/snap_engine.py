@@ -572,7 +572,8 @@ def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     if parent is not None and not _is_underlay_group(parent):
         return False
     if (item.zValue() > 150
-            and type(item).__name__ not in ELEV_Z_SNAPPABLE_CLASSES):
+            and type(item).__name__ not in ELEV_Z_SNAPPABLE_CLASSES
+            and not getattr(item, "note", None)):     # a Note sits above the geometry
         return False
     if QGraphicsItem.data(item, 0) in _NON_TARGET_TAGS:
         return False

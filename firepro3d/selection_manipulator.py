@@ -1079,6 +1079,19 @@ class SelectionManipulator(QGraphicsObject):
         self.setTransform(self._B0)
         for it, _s0, _inv, t0 in self._items0:
             it.setTransform(t0)
+        self._hold_pinned_grips(self._B0)
+
+    def _hold_pinned_grips(self, frame: QTransform) -> None:
+        """Keep a pinned grip (a leader tip, D7) on its point while the frame
+        holds *frame*: its host is a child of this item, so it would ride along."""
+        inv, ok = frame.inverted()
+        if not ok:
+            return
+        for host in self._host_pool:
+            h = host.handle
+            fn = getattr(getattr(h, "item", None), "grip_pinned", None)
+            if fn is not None and host.isVisible() and fn(h.index):
+                host.setPos(inv.map(h.item.grip_points()[h.index]))
 
     def _resize_cursor(self, role: HandleRole) -> QCursor:
         return self._cursor_for(role)
@@ -1195,6 +1208,7 @@ class SelectionManipulator(QGraphicsObject):
             q = it.parentItem().sceneTransform() if it.parentItem() is not None else QTransform()
             q = QTransform.fromTranslate(it.x(), it.y()) * q
             it.setTransform(t0 * q * d * q.inverted()[0])
+        self._hold_pinned_grips(self._B0 * d)
 
     def _finish(self, scene_pos: QPointF, mods: Qt.KeyboardModifier) -> None:
         if self._mode is None:

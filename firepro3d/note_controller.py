@@ -10,15 +10,16 @@ from PyQt6.QtCore import QPointF, Qt
 
 from . import text_leader as _tl
 
-# The Text panel rows a Note carries, in panel order. Content and Wrap stay out:
-# the text is typed on the canvas and the box is authored by its corners.
+# The Text panel rows a Note carries, in panel order. Content stays out: the text
+# is typed on the canvas.
 _STYLE_ROWS = ("Format", "Font", "Height", "Padding", "Style", "Alignment", "V Align",
-               "Font Color", "Frame", "Line Type", "Border Weight", "Corner",
-               "Corner Radius", "Fill", "Fill Color", "Fill Opacity")
+               "Wrap", "Shrink to fit", "Font Color", "Frame", "Line Type", "Border Weight",
+               "Corner", "Corner Radius", "Fill", "Fill Color", "Fill Opacity")
 # Every key those rows commit under (the Style row commits per button).
 STYLE_KEYS = frozenset(_STYLE_ROWS) | {"Bold", "Italic", "Underline"}
 _STYLE_FIELDS = ("font_family", "height_mm", "cell_padding_mm", "bold", "italic", "underline",
-                 "align", "valign", "color", "border", "border_line_type", "border_weight",
+                 "align", "valign", "wrap", "shrink", "color", "border", "border_line_type",
+                 "border_weight",
                  "border_corner", "border_corner_radius_mm", "fill_color", "fill_opacity")
 
 

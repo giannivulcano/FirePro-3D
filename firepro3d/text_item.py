@@ -1462,6 +1462,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         )
         self.sync_data_from_item()
 
+    def grip_pinned(self, index: int) -> bool:
+        """True for the leader tip: it stays put through a held move (D7)."""
+        return index == self.LEADER_TIP_GRIP
+
     def _apply_leader_grip(self, index: int, pos: QPointF) -> None:
         """Knee or tip drag (D5): each leaves the other alone."""
         rec = self._data.leader
