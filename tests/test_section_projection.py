@@ -68,12 +68,13 @@ def test_classify_polygon_cut_behind_hidden_and_chord():
     assert basis.classify_polygon(square(10000.0, 2000.0, 500.0))[0] == "behind"
 
 
-def test_classify_segment_crossing_param_and_collinear_midpoint():
+def test_classify_segment_crossing_param_and_along_the_cut():
     basis = SectionBasis.from_cut((0.0, 0.0), (10000.0, 0.0), look_sign=1, depth_mm=4000.0)
     zone, h, t = basis.classify_segment((3000.0, -1000.0), (3000.0, 3000.0))
     assert zone == "cut" and h == pytest.approx(3000.0) and t == pytest.approx(0.25)
-    zone, h, t = basis.classify_segment((2000.0, 0.0), (6000.0, 0.0))        # along the cut
-    assert zone == "cut" and h == pytest.approx(4000.0) and t == pytest.approx(0.5)
+    zone, h, t = basis.classify_segment((2000.0, 0.0), (6000.0, 0.0))        # along the cut (R-5)
+    assert zone == "behind" and h is None and t is None
+    assert basis.classify_segment((20000.0, 0.0), (30000.0, 0.0))[0] == "hidden"   # beyond the end
     assert basis.classify_segment((1000.0, 1000.0), (2000.0, 3000.0))[0] == "behind"
     assert basis.classify_segment((1000.0, -1000.0), (2000.0, -3000.0))[0] == "hidden"
     assert basis.classify_segment((20000.0, 1000.0), (30000.0, 1000.0))[0] == "hidden"

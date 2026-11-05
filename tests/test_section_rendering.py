@@ -1,6 +1,6 @@
 """Cut vs behind rendering (spec s5): cut wall = Section colour + pattern,
 behind wall = today's Fill; a crossing inside an opening leaves the head;
-cut pipe = filled circle of the drawn OD."""
+cut pipe = the plan riser symbol."""
 import pytest
 from PyQt6.QtCore import QPointF, QSettings
 from PyQt6.QtGui import QColor
@@ -106,14 +106,13 @@ def test_cut_through_window_leaves_head_and_sill(qapp, section_scene_for):
     assert spans[1] == pytest.approx((2400.0, w._height_mm))    # above the head
 
 
-def test_cut_pipe_circle_diameter_is_drawn_od(qapp, section_scene_for):
+def test_cut_pipe_symbol_is_the_plan_size(qapp, section_scene_for):
     ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
     n1 = ms.add_node(3000.0, -1000.0); n2 = ms.add_node(3000.0, 1000.0)
     pipe = ms.add_pipe(n1, n2)
     n1.z_pos = 2000.0; n2.z_pos = 3000.0     # after add_pipe: it recomputes z_pos from the level
-    pipe._display_scale = 2.0
+    pipe._display_scale = 2.0                # the plan riser ignores it (fixed size)
     sec.rebuild()
     (c,) = _cut_items(sec, pipe)
-    od = pipe.display_width_mm() * 2.0
-    assert c.rect().width() == pytest.approx(od) and c.rect().height() == pytest.approx(od)
+    assert c.rect().width() == pytest.approx(pipe._RISER_SIZE_MM)
     assert c.rect().center().x() == pytest.approx(3000.0) and c.rect().center().y() == pytest.approx(-2500.0)

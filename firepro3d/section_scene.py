@@ -32,16 +32,19 @@ from PyQt6.QtCore import QSettings
 
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM,
-                        Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG)
+                        Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG,
+                        RISER_SYMBOL_SIZE_MM)
 from . import theme as th
 from .paper_display import paper_pass_active, shows_selection
-from .colour_tokens import resolve_colour, resolve_pen_brush
+from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
 from .bound_label import OutlinedLabel
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
+from .section_pipe_symbols import (cut_symbol_path, end_on_path, kept_spans,
+                                   radius_of)
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -90,6 +93,7 @@ class _ColourSrcMixin:
     _src_tint = None            # callable(QColor) -> QColor, e.g. lighter(150)
     _paper_cat = None           # paper category of a projected proxy (AC2), e.g. "Wall"
     _paper_pen_width = None     # paper pass: pen width in scene units, non-cosmetic
+    _always_draw_shape = False  # a stock paint would ignore the item's _draw_shape
 
     def set_colour_src(self, pen=None, brush=None, alpha=None, tint=None) -> None:
         """Record the stored pen / brush colour strings (``None`` = leave that
@@ -128,7 +132,7 @@ class _ColourSrcMixin:
         if paper_pass_active():     # selection never plots (wall polish D11, L42)
             option.state &= ~QStyle.StateFlag.State_Selected
         if (self._pen_src is None and self._brush_src is None
-                and self._paper_pen_width is None):
+                and self._paper_pen_width is None and not self._always_draw_shape):
             super().paint(painter, option, widget)
             return
         pen, brush = self.resolved_pen_brush()
@@ -202,7 +206,24 @@ class _ElevProxyRect(_ElevReadOnlyProxyMixin, _SrcRect):
 
 
 class _ElevProxyLine(_ElevReadOnlyProxyMixin, _SrcLine):
-    """Read-only line proxy (pipes)."""
+    """Read-only line proxy (pipes). Trimmed at the symbols in front of it:
+    a symbol is hollow, so a pipe must stop at its edge (s5)."""
+
+    _spans = None             # QLineF pieces left after the trim; None = whole
+    pipe_label = None         # the section label this line owns (paper, Hide)
+
+    def set_spans(self, spans) -> None:
+        ln = self.line()
+        self._spans = [QLineF(ln.pointAt(a), ln.pointAt(b)) for a, b in spans]
+        self._always_draw_shape = True
+        self.update()
+
+    def _draw_shape(self, painter):
+        if self._spans is None:
+            super()._draw_shape(painter)
+            return
+        for piece in self._spans:
+            painter.drawLine(piece)
 
 
 class _ElevProxyEllipse(_ElevReadOnlyProxyMixin, _SrcEllipse):
@@ -236,8 +257,36 @@ class _ElevCutRect(_ElevProxyRect):
         painter.drawRect(self.rect())
 
 
-class _ElevCutEllipse(_ElevProxyEllipse):
-    """A cut pipe: filled circle of the drawn OD in the Section colour (s5)."""
+class _ElevPipeSymbol(_ElevProxyEllipse):
+    """A pipe drawn as a symbol: stroked ink in the pipe colour, an optional
+    body inside the circle. ``rect()`` is the symbol's plan-size box."""
+
+    _ink = None               # QPainterPath of the stroked symbol
+
+    def set_ink(self, path) -> None:
+        self._ink = path
+
+    def _draw_shape(self, painter):
+        pen, _brush = self.resolved_pen_brush()
+        body = section_fill_colour(self._brush_src, self)
+        if body is not None:
+            r = radius_of(self.rect().width())
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(body)
+            painter.drawEllipse(self.rect().center(), r, r)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(self._ink)
+
+
+class _ElevCutEllipse(_ElevPipeSymbol):
+    """A cut pipe: the plan riser symbol, Section colour inside the circle (s5)."""
+
+    _no_sheet_body = True     # P6: a body in the row colour would hide the S
+
+
+class _ElevEndOnSymbol(_ElevPipeSymbol):
+    """An uncut pipe running toward the viewer: the "C" (s5)."""
 
 
 class _HostedBlockCopy(BlockInstance):
@@ -1663,13 +1712,31 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
     def _project_pipes(self):
         from .constants import PIPE_COLORS as _PIPE_COLORS
-        pipe_items: list[tuple[float, QGraphicsLineItem]] = []
+        from .fitting import Fitting
+        lines = []                # (line, d1, d2)
+        end_on = []               # (d near, pipe, near node, h, v, size)
+        circles = []              # (h, v, r, d)
+        cut_size = RISER_SYMBOL_SIZE_MM
+
+        def add_line(pipe, a, b, sort):
+            (h1, v1, d1), (h2, v2, d2) = a, b
+            col_name = pipe._properties.get("Colour", {}).get("value", "Red")
+            line = _ElevProxyLine(h1, v1, h2, v2)
+            pen = QPen(QColor(_PIPE_COLORS.get(col_name, "#e62828")), 2)
+            pen.setCosmetic(True)
+            line.setPen(pen)
+            line._paper_cat = "Pipe"
+            line.setData(_ROLE_SOURCE, pipe)
+            line.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable, True)
+            self.addItem(line)
+            self._register_depth_item(sort, line)
+            lines.append((line, d1, d2))
+            self._add_pipe_label(pipe, line)
 
         for pipe in self._ms.sprinkler_system.pipes:
             n1, n2 = pipe.node1, pipe.node2
             if n1 is None or n2 is None:
                 continue
-            # Get world positions
             wx1, wy1 = self._scene_to_world(n1.scenePos().x(), n1.scenePos().y())
             wx2, wy2 = self._scene_to_world(n2.scenePos().x(), n2.scenePos().y())
             z1 = getattr(n1, "z_pos", 0.0)
@@ -1679,43 +1746,102 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             self._zones[id(pipe)] = zone
             if zone == ZONE_HIDDEN:
                 continue
+            b = self._basis
+            d1, d2 = b.d(wx1, wy1), b.d(wx2, wy2)
             if zone == ZONE_CUT:
-                self._cut_items.append(("pipe", pipe, (h_cut, z1 + t_cut * (z2 - z1))))
+                z_cut = z1 + t_cut * (z2 - z1)
+                self._cut_items.append(("pipe", pipe, (h_cut, z_cut)))
+                circles.append((h_cut, -z_cut, cut_size / 2.0, 0.0))
+                # R-4: the part beyond the cut draws as a normal line.
+                fx, fy, fz, fd = (wx1, wy1, z1, d1) if d1 > d2 else (wx2, wy2, z2, d2)
+                hf, vf = self._project(fx, fy, fz)
+                if fd > 1e-9 and math.hypot(hf - h_cut, vf + z_cut) >= 1.0:
+                    a = self._clip_pipe_ends((h_cut, -z_cut, 0.0), (hf, vf, fd))
+                    add_line(pipe, *a, b.sort_key((wx1 + wx2) / 2, (wy1 + wy2) / 2))
                 continue
 
             h1, v1 = self._project(wx1, wy1, z1)
             h2, v2 = self._project(wx2, wy2, z2)
+            if math.hypot(h2 - h1, v2 - v1) < 1.0:     # end-on, not crossing (R-6)
+                near, dn = (n1, d1) if d1 <= d2 else (n2, d2)
+                size = Fitting.plan_symbol_mm(pipe.display_width_mm(),
+                                              getattr(pipe, "_display_scale", 1.0))
+                end_on.append((dn, pipe, near, h1, v1, size))
+                continue
+            a = self._clip_pipe_ends((h1, v1, d1), (h2, v2, d2))
+            add_line(pipe, *a, b.sort_key((wx1 + wx2) / 2, (wy1 + wy2) / 2))
 
-            # Lateral clip to the crop box, by parameter (either orientation).
-            lo, hi = self._basis.h_min, self._basis.h_max
-            if abs(h2 - h1) > 1e-9:
-                ta = (lo - h1) / (h2 - h1)
-                tb = (hi - h1) / (h2 - h1)
-                t0, t1 = max(0.0, min(ta, tb)), min(1.0, max(ta, tb))
-                if t0 < t1:
-                    h1, v1, h2, v2 = (h1 + t0 * (h2 - h1), v1 + t0 * (v2 - v1),
-                                      h1 + t1 * (h2 - h1), v1 + t1 * (v2 - v1))
+        self._draw_end_on_symbols(end_on, circles)
+        circles.sort()
+        hs = [c[0] for c in circles]
+        r_max = max((c[2] for c in circles), default=0.0)
+        for line, d1, d2 in lines:
+            ln = line.line()
+            spans = kept_spans((ln.x1(), ln.y1()), (ln.x2(), ln.y2()), d1, d2,
+                               circles, hs, r_max)
+            if spans is not None:
+                line.set_spans(spans)
 
+    def _clip_pipe_ends(self, a, b):
+        """Lateral clip of a projected pipe to the crop box, by parameter
+        (either orientation). *a*, *b* = (h, v, d); never clipped vertically."""
+        (h1, v1, d1), (h2, v2, d2) = a, b
+        lo, hi = self._basis.h_min, self._basis.h_max
+        if abs(h2 - h1) > 1e-9:
+            ta = (lo - h1) / (h2 - h1)
+            tb = (hi - h1) / (h2 - h1)
+            t0, t1 = max(0.0, min(ta, tb)), min(1.0, max(ta, tb))
+            if t0 < t1:
+                def at(t):
+                    return (h1 + t * (h2 - h1), v1 + t * (v2 - v1), d1 + t * (d2 - d1))
+                return at(t0), at(t1)
+        return a, b
+
+    def _draw_end_on_symbols(self, end_on, circles) -> None:
+        """Draw each end-on pipe's C, nearest first; a point already holding a
+        symbol keeps it (a run heading away stacks at one point). Appends the
+        drawn circles to *circles* for the trim."""
+        from .constants import PIPE_COLORS as _PIPE_COLORS
+        taken = {(round(c[0]), round(c[1])) for c in circles}
+        for dn, pipe, near, h, v, size in sorted(end_on, key=lambda r: r[0]):
+            key = (round(h), round(v))
+            if key in taken:
+                continue
+            taken.add(key)
+            ux, uy = self._end_on_gap(pipe, near, h, v)
             col_name = pipe._properties.get("Colour", {}).get("value", "Red")
-            color = QColor(_PIPE_COLORS.get(col_name, "#e62828"))
-
-            line = _ElevProxyLine(h1, v1, h2, v2)
-            pen = QPen(color, 2)
+            own = _PIPE_COLORS.get(col_name, "#e62828")
+            sym = _ElevEndOnSymbol(h - size / 2.0, v - size / 2.0, size, size)
+            sym.set_ink(end_on_path(h, v, size, ux, uy))
+            pen = QPen(QColor(own), 2)
             pen.setCosmetic(True)
-            line.setPen(pen)
-            line._paper_cat = "Pipe"
-            line.setData(_ROLE_SOURCE, pipe)
-            line.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable, True)
+            sym.setPen(pen)
+            sym.set_colour_src(pen=own)
+            sym._paper_cat = "Pipe"
+            sym.setData(_ROLE_SOURCE, pipe)
+            sym.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            self.addItem(sym)
+            self._register_depth_item(-dn, sym)
+            circles.append((h, v, size / 2.0, dn))
 
-            # Depth for sorting
-            cx = (wx1 + wx2) / 2
-            cy = (wy1 + wy2) / 2
-            depth = self._basis.sort_key(cx, cy)
-            pipe_items.append((depth, line))
+    def _end_on_gap(self, pipe, near, h, v) -> tuple[float, float]:
+        """R-7: scene direction of the first in-view pipe joined at *near*,
+        else down."""
+        for other in near.pipes:
+            if other is pipe or self._zones.get(id(other), ZONE_HIDDEN) == ZONE_HIDDEN:
+                continue
+            q = other.node1 if other.node2 is near else other.node2
+            if q is None:
+                continue
+            wx, wy = self._scene_to_world(q.scenePos().x(), q.scenePos().y())
+            hq, vq = self._project(wx, wy, getattr(q, "z_pos", 0.0))
+            length = math.hypot(hq - h, vq - v)
+            if length >= 1.0:
+                return (hq - h) / length, (vq - v) / length
+        return 0.0, 1.0
 
-        for depth, line in pipe_items:
-            self.addItem(line)
-            self._register_depth_item(depth, line)
+    def _add_pipe_label(self, pipe, line) -> None:
+        pass
 
     # ── Sprinklers ───────────────────────────────────────────────────────
 
@@ -1976,19 +2102,20 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     self._register_depth_item(0.0, rect)
             elif kind == "pipe":
                 h, z = data
-                od = src.display_width_mm() * getattr(src, "_display_scale", 1.0)
+                size = RISER_SYMBOL_SIZE_MM
                 col_name = src._properties.get("Colour", {}).get("value", "Red")
                 own = _PIPE_COLORS.get(col_name, "#e62828")
-                circ = _ElevCutEllipse(h - od / 2.0, -z - od / 2.0, od, od)
-                pen = QPen(QColor(own), 1)
+                sym = _ElevCutEllipse(h - size / 2.0, -z - size / 2.0, size, size)
+                sym.set_ink(cut_symbol_path(h, -z, size))
+                pen = QPen(QColor(own), 2)
                 pen.setCosmetic(True)
-                circ.setPen(pen)
-                circ.set_colour_src(pen=own, brush=pipe_sec or own)
-                circ._paper_cat = "Pipe"
-                circ.setData(_ROLE_SOURCE, src)
-                circ.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                self.addItem(circ)
-                self._register_depth_item(0.0, circ)
+                sym.setPen(pen)
+                sym.set_colour_src(pen=own, brush=pipe_sec or None)
+                sym._paper_cat = "Pipe"
+                sym.setData(_ROLE_SOURCE, src)
+                sym.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                self.addItem(sym)
+                self._register_depth_item(0.0, sym)
 
     def _wall_cut_spans(self, wall, base_z: float, top_z: float) -> list[tuple[float, float]]:
         """Vertical spans of the cut face: the whole wall, or -- when the

@@ -133,10 +133,15 @@ class SectionBasis:
         return [t] if self.h_min - eps <= h <= self.h_max + eps else []
 
     def classify_segment(self, p, q):
-        """``(zone, h_at_cut, t_at_cut)`` for a segment footprint (pipe)."""
+        """``(zone, h_at_cut, t_at_cut)`` for a segment footprint (pipe).
+
+        A segment lying in the cut plane is not cut: it draws as a normal line
+        (behind), including a vertical pipe standing on the cut line (s5)."""
         ts = self._cut_params(p, q)
         if ts:
-            t = sum(ts) / len(ts)                      # overlap midpoint when collinear
+            if abs(self.d(*p)) <= 1e-9 and abs(self.d(*q)) <= 1e-9:
+                return ZONE_BEHIND, None, None
+            t = sum(ts) / len(ts)
             x = p[0] + t * (q[0] - p[0])
             y = p[1] + t * (q[1] - p[1])
             return ZONE_CUT, self.h(x, y), t
