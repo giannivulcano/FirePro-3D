@@ -10,19 +10,22 @@ from __future__ import annotations
 # Categories that carry an intrinsic label drawn by a System block (one
 # Project Settings > Annotation row each).
 ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe", "Gridline", "Level",
-                                          "Elevation", "Section", "Detail")
+                                          "Elevation", "Section", "Detail",
+                                          "View Title")
 
 # category -> the host field whose empty raw value means "nothing to show"
 # (SB3 F1, ratified): an unresolved tag draws the orphan placeholder only
 # when this field is present with a non-None raw value.
 LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter", "Gridline": "Mark",
                                "Level": "Level.Name", "Elevation": "Direction",
-                               "Section": "Mark", "Detail": "Mark"}
+                               "Section": "Mark", "Detail": "Mark",
+                               "View Title": "Scale"}
 
 # Categories whose static geometry still draws when every host-bound field
 # is blank (SB4b D3, user ruling 2026-11-02: an unlabelled gridline keeps its
 # empty bubble). Every other category follows the Q13 "paints nothing" rule.
-PAINT_WHEN_BLANK: frozenset[str] = frozenset({"Gridline", "Elevation"})
+PAINT_WHEN_BLANK: frozenset[str] = frozenset({"Gridline", "Elevation", "Section", "Detail"})
+# SB4f: an unplaced section or detail binds only Number and Sheet, both blank, and must still draw.
 # "Level" is not listed: Level.Elevation is never None, so a datum head never has every field blank (SB4c).
 
 # category -> frozen System block id (concept F4): the id of the promoted
@@ -36,6 +39,7 @@ SYSTEM_DEFAULTS: dict[str, str] = {
     "Elevation": "system-tags-elevationhead",      # SB4d D2 seeds
     "Section": "system-tags-sectionhead",
     "Detail": "system-tags-detailcallout",
+    "View Title": "system-tags-viewtitle",      # SB4f
 }
 
 # The shipped Note block (design 2026-11-04-text-leader-annotations D8). Kept out of

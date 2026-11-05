@@ -22,7 +22,7 @@ from .format_utils import get_scale_manager
 from .scale_manager import ScaleManager
 
 CATEGORIES = ("Room", "Pipe", "Sprinkler", "Wall", "Door", "Window", "Opening",
-              "Gridline", "Level", "Elevation", "Section", "Detail")
+              "Gridline", "Level", "Elevation", "Section", "Detail", "View Title")
 TIER_NAMES = {1: "Stored", 2: "Geometry", 3: "Hydraulic", 4: "Related"}
 KINDS = ("text", "number", "length", "area", "volume", "area_sqft", "pressure",
          "flow", "velocity", "pipe_id", "angle", "diameter")
@@ -287,6 +287,27 @@ def _view_sheet(marker, view_type: str):
     return hits[0].number if hits else None
 
 
+def _view_number(marker, view_type: str):
+    """The number of the viewport showing the *marker*'s ``(view_type, name)``
+    view, on the first sheet holding it (the ``_view_sheet`` rule, SB4f AC5);
+    None when unplaced or blank."""
+    from .paper_space import sheets_holding
+    hits = sheets_holding(getattr(scene_of(marker), "_sheets", None) or [],
+                          view_type, marker.name)
+    if not hits:
+        return None
+    return next((sv.view_number for sv in hits[0].sheet_views
+                 if sv.source_view_type == view_type
+                 and sv.source_view_name == marker.name), None) or None
+
+
+def _view_scale(viewport):
+    """A viewport's scale as printed: ``NTS`` at scale 0 (SB4f G6)."""
+    from .paper_space import float_to_scale_str
+    s = viewport.data.scale
+    return float_to_scale_str(s) if s else "NTS"
+
+
 # -- the table (design section 1) ----------------------------------------------
 
 def _P(key, kind, tier, getter, label=None):
@@ -385,18 +406,27 @@ _TABLE = {
         _P("Level.Elevation", "length", 1, lambda d: d._level.elevation, "Elevation"),
     ],
     # SB4d D2: the view-marker heads. A cardinal SectionMarker binds its
-    # Direction letter; a placed section and a detail bind their Mark over
-    # the number of the one sheet their view is placed on (D4).
+    # Direction letter; a placed section and a detail bind the viewport Number
+    # over the Sheet (SB4f AC5, reversing SB4d D4's Mark); Mark stays the
+    # browser identity.
     "Elevation": [
         _P("Direction", "text", 1, lambda m: m.cardinal[0].upper() if m.cardinal else None),
     ],
     "Section": [
         _P("Mark", "text", 1, lambda m: m._mark),
+        _P("Number", "text", 4, lambda m: _view_number(m, "section")),
         _P("Sheet", "text", 4, lambda m: _view_sheet(m, "section")),
     ],
     "Detail": [
         _P("Mark", "text", 1, lambda m: m._mark),
+        _P("Number", "text", 4, lambda m: _view_number(m, "detail")),
         _P("Sheet", "text", 4, lambda m: _view_sheet(m, "detail")),
+    ],
+    # SB4f: a sheet viewport hosts its own title block.
+    "View Title": [
+        _P("Number", "text", 1, lambda v: v.data.view_number),
+        _P("Title", "text", 1, lambda v: v.display_title()),
+        _P("Scale", "text", 1, _view_scale),
     ],
 }
 
@@ -420,6 +450,9 @@ def category_of(item) -> Optional[str]:
     from .floor_opening import FloorOpening
     from .section_marker import SectionMarker
     from .detail_view import DetailMarker
+    from .paper_space import SheetViewport
+    if isinstance(item, SheetViewport):           # SB4f
+        return "View Title"
     if isinstance(item, SectionMarker):           # SB4d D2: split on cardinal
         return "Elevation" if item.cardinal else "Section"
     if isinstance(item, DetailMarker):

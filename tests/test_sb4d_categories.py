@@ -11,16 +11,16 @@ from tests._sb4d_helpers import add_sheet, dispose, plan_scene
 def test_registries(qapp):
     from firepro3d import element_params as ep
     from firepro3d import system_blocks as sb
-    assert ep.CATEGORIES[-3:] == ("Elevation", "Section", "Detail")
+    assert ep.CATEGORIES[-4:] == ("Elevation", "Section", "Detail", "View Title")
     assert [(k, s.tier, s.kind) for k, s in ep.PARAMS["Elevation"].items()] == [("Direction", 1, "text")]
     for cat in ("Section", "Detail"):
         assert [(k, s.tier, s.kind) for k, s in ep.PARAMS[cat].items()] == [
-            ("Mark", 1, "text"), ("Sheet", 4, "text")]
+            ("Mark", 1, "text"), ("Number", 4, "text"), ("Sheet", 4, "text")]
     assert sb.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level",
-                                        "Elevation", "Section", "Detail")
+                                        "Elevation", "Section", "Detail", "View Title")
     assert (sb.LABEL_FIELD["Elevation"], sb.LABEL_FIELD["Section"], sb.LABEL_FIELD["Detail"]) == (
         "Direction", "Mark", "Mark")
-    assert "Elevation" in sb.PAINT_WHEN_BLANK and "Section" not in sb.PAINT_WHEN_BLANK
+    assert {"Elevation", "Section", "Detail"} <= sb.PAINT_WHEN_BLANK
     assert (sb.SYSTEM_DEFAULTS["Elevation"], sb.SYSTEM_DEFAULTS["Section"],
             sb.SYSTEM_DEFAULTS["Detail"]) == ("system-tags-elevationhead",
                                               "system-tags-sectionhead",
@@ -78,8 +78,8 @@ def _first_cut_mm(radius_r):
     ("ElevationHead.fpdb", "system-tags-elevationhead", "Elevation", ["Direction"], _first_cut_mm(3.0), False),
     # Section + Detail restyled at smoke (Q19, 2026-11-04): 8 mm diameter driven by a
     # dim_diameter constraint (the second restyle; the first cut was 10 mm).
-    ("SectionHead.fpdb", "system-tags-sectionhead", "Section", ["Mark", "Sheet"], 4.0, True),
-    ("DetailCallout.fpdb", "system-tags-detailcallout", "Detail", ["Mark", "Sheet"], 4.0, True),
+    ("SectionHead.fpdb", "system-tags-sectionhead", "Section", ["Number", "Sheet"], 4.0, True),
+    ("DetailCallout.fpdb", "system-tags-detailcallout", "Detail", ["Number", "Sheet"], 4.0, True),
 ])
 def test_shipped_seed(qapp, fname, bid, cat, keys, r_mm, split):
     """Shipped seeds: Elevation / Section at the first-cut proportions (D2, 3R / 2R),

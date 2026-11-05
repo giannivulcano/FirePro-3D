@@ -1,13 +1,14 @@
 ---
-status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d (view-marker heads: cardinal elevation head, placed-section head, detail callout) BUILT 2026-11-04; SB4e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d (view-marker heads: cardinal elevation head, placed-section head, detail callout) BUILT 2026-11-04; SB4f (sheet viewport view title as a System block, plus the viewport Number the section / detail heads cite) BUILT 2026-11-04; SB4e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
+last-verified: 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, OutlinedLabel (SB4c), TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/section_scene.py        # SB4c: ElevGridlineItem bubbles, LevelDatumHead / ElevDatumItem, SectionScene.annotation_block + refresh_annotation_tags (the block side; the section projection is section-view-subsystem.md)
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
   - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK
-  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble + LevelDatum + ElevationHead + SectionHead + DetailCallout .fpdb
+  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble + LevelDatum + ElevationHead + SectionHead + DetailCallout + ViewTitle .fpdb (SB4f: SectionHead / DetailCallout bind Number)
+  - firepro3d/view_title_label.py     # SB4f: ViewTitleLabel(OutlinedLabel) (the sheet viewport's title + composite line, hit forwarding), extent_below_box (the drop clamp)
   - firepro3d/view_marker_head.py     # SB4d: ViewMarkerHead(OutlinedLabel), enclosing_radius (the marker heads; marker geometry stays with section-view-subsystem.md)
   - firepro3d/section_marker.py       # SB4d: head / head_a / head_b, R_k-sized wedge + triangle (rest under section-view-subsystem.md)
   - firepro3d/detail_view.py          # SB4d: DetailMarker.bubble, _paint_callout (rest under view-relationships.md)
@@ -18,14 +19,16 @@ applies-to:
   - firepro3d/text_item.py            # TextData.hide_empty + the Block Editor checkbox
   - firepro3d/render_op.py            # paint_ops (lifted from BlockInstance.paint)
   - firepro3d/room.py                 # the Room owns its tag, show_label, label_offset
-  - firepro3d/model_space.py          # annotation_defaults, annotation_block, refresh_annotation_tags
-  - firepro3d/scene_io.py             # annotation_defaults key
+  - firepro3d/model_space.py          # annotation_defaults, annotation_block, refresh_annotation_tags, annotationLabelsChanged (SB4f)
+  - firepro3d/scene_io.py             # annotation_defaults key; SB4f: _refresh_view_head_copies (the D2 head swap on load)
+  - firepro3d/paper_space.py          # SB4f: PaperScene.annotation_block / refresh_annotation_tags, the viewport's ViewTitleLabel wiring (rest: paper-space.md)
   - firepro3d/settings/panes.py       # AnnotationPane
   - firepro3d/settings/template.py    # annotation_defaults in the .fpdt
   - firepro3d/paper_display.py        # the tag through _apply_block
   - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
   - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1); Elevation / Section / Detail Marker rows: line-only, same shape (SB4d)
 source-tasks:
+  - "SB4f -- Convert the sheet viewport view title to a System block, with a per-viewport show/hide toggle for the title (todo_closed.md; design record superpowers/specs/2026-11-04-sb4f-view-title-design.md)"
   - "SB4d -- Convert the elevation-marker head and the detail-callout bubble to System blocks + the annotation band (todo_closed.md; design record superpowers/specs/2026-11-03-sb4d-view-marker-heads-design.md)"
   - "SB4c -- Convert the elevation gridline bubble + level datum head to System blocks (todo_closed.md; design record superpowers/specs/2026-11-03-sb4c-elev-bubble-datum-design.md)"
   - "SB4b -- Convert the plan gridline bubble to a System block (todo_closed.md; design record superpowers/specs/2026-11-02-sb4b-gridline-bubble-design.md)"
@@ -68,6 +71,11 @@ source-tasks:
 > model (section 8d; the band itself is owned by `view-relationships.md` 7.3). Its design record is
 > [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026-11-03-sb4d-view-marker-heads-design.md)
 > (D1-D8, with Phase 4 reconciliations; the contract now lives here).
+> **SB4f (built 2026-11-04)** draws the title under each sheet viewport with a System block and makes
+> the viewport number the one the section / detail heads cite (section 8e; section 8d's Mark slot is
+> reversed). Its design record is
+> [`2026-11-04-sb4f-view-title-design.md`](../superpowers/specs/2026-11-04-sb4f-view-title-design.md) (G1-G12, D1-D6; the contract now lives here and in
+> [`paper-space.md`](paper-space.md) 5.2 / 9.9).
 
 ## Ownership (Rule A)
 
@@ -84,7 +92,7 @@ checkpoint. It links, never restates:
 - Bound-field registry, `HostValue`, Marks: [`element-parameters.md`](element-parameters.md).
 - Annotative sizing (k, Scale with zoom vs Fixed size, paper 1/S):
   [`2026-10-23-sb1c-annotative-sizing-design.md`](../superpowers/specs/2026-10-23-sb1c-annotative-sizing-design.md).
-- Paper pass: [`paper-space.md`](paper-space.md) 9.9. Units: [`units-and-formatting.md`](units-and-formatting.md).
+- Paper pass, and the sheet viewport that hosts the view title (data, geometry, grip, panel, drop dialog, PDF): [`paper-space.md`](paper-space.md) 5.2 / 9.9 / 19.4. Units: [`units-and-formatting.md`](units-and-formatting.md).
 - Containment: [`model-space-containment-contract.md`](model-space-containment-contract.md) C9.
 - Room fields and persistence: [`wall-room-floor-system.md`](wall-room-floor-system.md).
 - Pipe fields, geometry and the placement preview: [`pipe-placement-methodology.md`](pipe-placement-methodology.md).
@@ -95,10 +103,10 @@ checkpoint. It links, never restates:
 
 An **intrinsic label** is owned by its element, automatic, toggled per element, and
 needs no persisted reference: it is drawn by a `BoundLabelItem` the host owns (a child
-for Gridline, Level and the view-marker heads, a top-level item for Pipe and (since SB4d, so it clears model items at any elevation -- `view-relationships.md` 7.3) Room -- section 2).
+for Gridline, Level, the view-marker heads and the sheet viewport's view title, a top-level item for Pipe and (since SB4d, so it clears model items at any elevation -- `view-relationships.md` 7.3) Room -- section 2).
 A **placed tag** is a standalone hosted instance (concept F7) and is **not built**.
-Both are drawn by blocks authored in the one Block Editor. Today seven categories
-are converted: `Room`, `Pipe`, `Gridline`, `Level`, `Elevation`, `Section` and `Detail` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level", "Elevation", "Section", "Detail")`; the last three are section 8d).
+Both are drawn by blocks authored in the one Block Editor. Today eight categories
+are converted: `Room`, `Pipe`, `Gridline`, `Level`, `Elevation`, `Section`, `Detail` and `View Title` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level", "Elevation", "Section", "Detail", "View Title")`; the three before the last are section 8d, `View Title` is section 8e).
 
 ## 2. `BoundLabelItem` (`bound_label.py`)
 
@@ -126,8 +134,10 @@ block-instance list).
   is "treated as missing" (section 3).
 - **Cached bounds.** `boundingRect` is cached in `_rect`; `refresh()` and the
   `_paper_scale` setter drop it. With no scene the rect is empty and not cached.
+- **Orphan box size.** `placeholder_mm` is a class attribute (default `bound_label.PLACEHOLDER_MM`) read at the
+  three orphan-box sites (bounds, paint, outline); a sheet-native label overrides it (`ViewTitleLabel`, section 8e).
 - **Paints nothing** when (a) every host-bound string resolves to raw `None` (a nameless
-  room) -- except for `system_blocks.PAINT_WHEN_BLANK` categories (`Gridline`, SB4b D3), whose
+  room) -- except for `system_blocks.PAINT_WHEN_BLANK` categories (`Gridline`, SB4b D3; the full list is in section 4), whose
   static ops still draw with the bound text empty -- or (b) the host hides it -- the Room does so when its centroid is degenerate
   (no boundary included; `Room._update_label`), or the Pipe when Show Label is off, the
   pipe is vertical or hidden (section 8a). A tag whose block resolves nowhere draws the red orphan placeholder
@@ -189,13 +199,20 @@ model scene's `annotation_block` -- one resolver, one memo, one notice set; it r
 teardown). The `mapped` id is read from the label's data host (`tag_block`), so an elevation
 bubble follows its plan gridline's Tag row.
 
+**Paper scenes (SB4f).** A label on a sheet resolves through `PaperScene.annotation_block(category,
+mapped=None)`, the same forwarder pattern: it calls the model scene's `annotation_block` (the paper scene's
+block-registry owner) and returns `None` when that scene is already gone. The sheet's view title is the one
+consumer (section 8e).
+
 The resolver step lives in `Model_Space._resolve_mapped`. Its result is memoised in
 `_annot_memo`, keyed `(category, mapped id, fallback)` -- the same id resolves differently
 as a per-element id (`fallback=False`) and as the project default (`fallback=True`) -- and
 cleared on `blockDefinitionsChanged` (`_on_block_definitions_changed`); the same handler
 re-shapes every intrinsic label (room tags, pipe labels, plan gridline bubbles, and every open
 section's elevation bubbles and datum heads) through `refresh_annotation_tags()`, except while `_annot_resolving`
-(the resolver itself embedding a file) -- the memo clear always runs.
+(the resolver itself embedding a file) -- the memo clear always runs. `refresh_annotation_tags` ends by emitting
+`Model_Space.annotationLabelsChanged`; the live `PaperSpaceWidget` connects it to `PaperScene.refresh_annotation_tags`,
+so every sheet view title re-shapes with the rest (section 8e).
 
 A mapped id that is missing, not annotative, not Scale-with-zoom, or of the wrong
 `host_category` is **treated as missing**: one log line plus one status-bar notice via
@@ -213,12 +230,12 @@ Known gap, filed: the notice is lost when no window has a status bar yet.
 
 `system_blocks.SYSTEM_DEFAULTS` (`"Room"` -> `"system-tags-roomtag"`, `"Pipe"` ->
 `"system-tags-pipelabel"`, `"Gridline"` -> `"system-tags-gridlinebubble"`, `"Level"` ->
-`"system-tags-leveldatum"`) guarantees a fallback for every converted category. Shipped ids are frozen **slugs**
+`"system-tags-leveldatum"`, plus the SB4d heads (section 8d) and `"View Title"` -> `"system-tags-viewtitle"`, SB4f) guarantees a fallback for every converted category. Shipped ids are frozen **slugs**
 (`system-<series>-<name>`, minted by `system_promote`; a re-promote keeps the id), **not
 uuids** -- the concept's F4 wording "frozen uuids" is corrected by this pointer.
-`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`, `"Level"` -> `"Level.Name"`; a pipe's Diameter is never
+`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`, `"Level"` -> `"Level.Name"`, the SB4d heads (section 8d), `"View Title"` -> `"Scale"`; a pipe's Diameter is never
 `None`, so a pipe whose block resolves nowhere draws the red placeholder) names the host field whose empty raw value means
-"nothing to show". `PAINT_WHEN_BLANK` (`frozenset({"Gridline"})`) lists the categories whose static geometry still draws when every host-bound field is blank (section 2); `"Level"` is not listed, because `Level.Elevation` is never `None`, so a datum head never has every field blank. The shipped System file is never written by the app outside the
+"nothing to show". `PAINT_WHEN_BLANK` (`frozenset({"Gridline", "Elevation", "Section", "Detail"})`; the last two since SB4f, section 8d) lists the categories whose static geometry still draws when every host-bound field is blank (section 2); `"Level"` is not listed, because `Level.Elevation` is never `None`, so a datum head never has every field blank. The shipped System file is never written by the app outside the
 dev-gated Promote path (`block-system.md`).
 
 ## 5. The shipped RoomTag (`firepro3d/system_blocks/Tags/RoomTag.fpdb`)
@@ -296,7 +313,7 @@ through `_compute_rect`.
   project's eligible blocks, labelled "(Project)" (or "(System)" when the embedded block's
   library is System), then eligible shipped blocks the project has not embedded,
   "(System)", then eligible user-library `.fpdb` files the project has not embedded,
-  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)", the Level row (labelled "Level tag") "LevelDatum (System)" (the project default only: the datum has no per-level Tag row, section 8c). A current mapping that is
+  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)", the Level row (labelled "Level tag") "LevelDatum (System)" (the project default only: the datum has no per-level Tag row, section 8c). The View Title row (labelled "View Title tag") reads "ViewTitle (System)" (SB4f; the project default only, section 8e). A current mapping that is
   missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry appended
   by the shared list. A "(Library)" pick is embedded outside history by the resolver
   (section 3) when the mapping is applied; the pane's apply stays non-undoable.
@@ -559,12 +576,13 @@ are in [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026
 - **Categories and seeds.** `ANNOTATION_CATEGORIES` gains **Elevation**, **Section**, **Detail**
   (one Annotation-pane row each; project default only -- no per-marker Tag row, follow-up filed).
   `LABEL_FIELD`: Elevation `Direction`, Section `Mark`, Detail `Mark`; `PAINT_WHEN_BLANK` lists
-  Elevation (like Gridline, a blank letter keeps the circle), so a Section / Detail head with
-  every bound field blank follows the "paints nothing" rule. `SYSTEM_DEFAULTS`:
+  Elevation (like Gridline, a blank letter keeps the circle) and, since SB4f, Section and Detail: an
+  unplaced head binds only `Number` and `Sheet`, both blank, and must still draw (this reverses the SB4d
+  wording that left them on the "paints nothing" rule). `SYSTEM_DEFAULTS`:
   `system-tags-elevationhead`, `system-tags-sectionhead`, `system-tags-detailcallout`, the
   shipped `firepro3d/system_blocks/Tags/ElevationHead.fpdb` / `SectionHead.fpdb` /
   `DetailCallout.fpdb` (all Annotative, host category as named). Seeds: Elevation = a circle with
-  `@[Direction]`; Section and Detail = a circle split by a horizontal line, `@[Mark]` above and
+  `@[Direction]`; Section and Detail = a circle split by a horizontal line, `@[Number]` above (SB4f; SB4d bound `@[Mark]` here) and
   `@[Sheet]` below. The sizes were restyled at the SB4d smoke (Section / Detail heads are 8 mm
   across) -- verify against the files before relying on numbers.
 - **Ownership.** `ViewMarkerHead(OutlinedLabel)` (`view_marker_head.py`) is one class for all
@@ -587,8 +605,8 @@ are in [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026
   circumcircle). With no resolved outline `R_k` falls back to the seed proportion
   (`_R_CARDINAL` / `_R_SECTION`, multiples of `BUBBLE_RADIUS_MM`, kept only for this).
 - **Marks and the Sheet slot.** Section (placed only) and Detail are full Marks categories
-  (pattern `{n}`; `element-parameters.md`): `Mark` is minted on create, shown at the top slot;
-  the bottom slot binds `Sheet`, the number of the sheet holding a viewport bound to the marker's
+  (pattern `{n}`; `element-parameters.md`): `Mark` is minted on create and stays the browser identity and a panel row (SB4f: it no longer shows on the head);
+  the top slot binds `Number` (below), the bottom slot binds `Sheet`, the number of the sheet holding a viewport bound to the marker's
   view (`paper_space.sheets_holding`, also `SheetManager.sheets_holding`; blank when the view is
   unplaced; a legacy file with two placements cites the first sheet in sheet order). Elevation
   binds only `Direction`; a cardinal never mints a Mark and never plots. A marker has no paste
@@ -596,7 +614,13 @@ are in [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026
   Mark once when a record has no `mark` key; a record that carries one (placed records always do)
   keeps it. The heads re-read on a Mark edit, a viewport placement or removal, a sheet
   create / delete / renumber, and a mapping / drawing-scale change (`refresh_view_marker_heads`,
-  called from `refresh_annotation_tags`); the Sheet is pulled at paint.
+  called from `refresh_annotation_tags`); the Sheet is pulled at paint. **The Number slot (SB4f)** is the
+  `SheetViewData.view_number` of the viewport showing the view, on the first sheet holding it in sheet order
+  (`element_params._view_number`, the `_view_sheet` rule; blank when the view is unplaced or the number is
+  blank). A Number edit and its undo reach the heads through `PaperScene._resync_viewport` ->
+  `_refresh_source_heads`. The number's own rules are `paper-space.md` 5.2; the key rows are
+  `element-parameters.md`. The shipped `SectionHead.fpdb` / `DetailCallout.fpdb` went up a `version` and
+  `base_version`; a project copy is brought up on load (section 8e, the head swap).
 - **Detail tab.** In a detail's own tab the item paints nothing (like its marker); the tab's
   `Model_View.drawForeground` repaints the own detail's leader and head bright above the crop
   mask through `DetailMarker._paint_callout` (the head painted through its own `paint` under its
@@ -618,6 +642,57 @@ are in [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026
 - **Not built (filed):** the per-marker Tag row, a `{a}` letter token, a per-sheet pick if
   multi-placement returns, the node-badge block conversion (SB4e; the badge is only moved into the
   band here).
+
+## 8e. The sheet viewport view title (SB4f)
+
+The title under each sheet viewport is a System block: a number bubble, the title and the scale. The
+viewport side (data, default spot, grip, panel rows, drop dialog, clamp, PDF) is
+[`paper-space.md`](paper-space.md) 5.2 / 9.9 / 19.4 and the key rows are
+[`element-parameters.md`](element-parameters.md) (Rule A: not restated here). This section holds the
+block-side contract. The decisions G1-G12, D1-D6 and the acceptance criteria are in
+[`2026-11-04-sb4f-view-title-design.md`](../superpowers/specs/2026-11-04-sb4f-view-title-design.md)
+(the ratified record; the contract now lives here).
+
+- **Category and seed.** `ANNOTATION_CATEGORIES` gains **View Title** (one Annotation-pane row; the
+  project default only -- no per-viewport Tag row, a per-viewport block pick is not built).
+  `SYSTEM_DEFAULTS["View Title"] = "system-tags-viewtitle"`; `LABEL_FIELD["View Title"] = "Scale"`, the one key
+  that is never blank, so a missing block always draws the orphan box; the category is **not** in
+  `PAINT_WHEN_BLANK`. The shipped `firepro3d/system_blocks/Tags/ViewTitle.fpdb` is Annotative with its origin
+  at the bubble centre: a 3 mm radius circle with `@[Number]`, `@[Title]` above the line and `@[Scale]` below it
+  (the sizes were set at the SB4f smoke -- verify against the file before relying on numbers). The title shows
+  as typed, not upper-cased.
+- **Ownership.** `ViewTitleLabel(OutlinedLabel)` (`view_title_label.py`) is a `child=True` label whose data
+  host is its `SheetViewport` (`element_params.category_of` maps a `SheetViewport` to `View Title`). It is not
+  a `BlockInstance` and never a block under `PaperScene` (containment C9; `schematics.md` D-S2). The block comes
+  from `PaperScene.annotation_block` (section 3).
+- **Sheet-native sizing.** `PaperScene` has no `scene_role`, so the annotative factor is k = 1 with no
+  `_paper_scale`: the block prints at its authored paper mm, on screen and in the PDF. It paints as authored,
+  independent of the viewport's B&W override. The orphan box is `placeholder_mm = VIEW_TITLE_PLACEHOLDER_MM`
+  (8 mm, `constants.py`).
+- **The line (D4).** The label, not the viewport, paints the composite line, so the viewport's hit area stays
+  the box: black, `VIEW_TITLE_LINE_PEN_MM`, at the block origin's y, from the outline's right edge
+  (`trim_distance(1, 0)`) to the box's right edge while the outline sits below the box and left of that edge,
+  otherwise a fixed box width. Text ops do not count toward the outline, so on the seed the line leaves the
+  bubble's edge. `_compute_rect` unions the line into the bounds.
+- **Hit.** The label accepts the left and right buttons and forwards press, move, release, double-click and
+  context-menu events to its viewport, so the title acts as the viewport body (select, native drag, navigate,
+  menu). Which hooks the title grip registers on is `paper-space.md` 9.9.
+- **Refresh.** `Model_Space.annotationLabelsChanged` -> `PaperScene.refresh_annotation_tags` (section 3) re-syncs
+  every title on a registry, mapping, units or scale change; a transient export scene is built fresh and needs
+  no wiring.
+- **Head swap on load (D2).** `scene_io._refresh_view_head_copies` runs right after the block definitions are
+  read, before items build, for the Section and Detail head ids only. A project copy is **untouched** when
+  `base_version is None or version == base_version`; an untouched copy older than the library file is replaced by
+  the library copy (its `base_version` set to its `version`), outside undo. An edited copy still bound to `Mark`
+  is kept and counted: one status notice for the load. `source_status` is not used -- it reads an edited copy as
+  `library` when the version numbers happen to match.
+- **PDF.** The title plots as glyph paths, not a text layer (ruled accepted at the SB4f smoke; follow-up filed in
+  `todo_open.md`). Owner: `paper-space.md` 7.3.
+- **Retired** (guard `tests/test_sb4f_retired_strings.py`): `SheetViewport._VIEW_TITLE_H` and the hand-painted
+  bubble, title and scale in `SheetViewport.paint`.
+- **Not built (filed):** sheet furniture (north arrow, scale bar) as viewport-bound System blocks -- ruled to reuse
+  this mechanism (a host-bound label on a paper item, never a paper `BlockInstance`); a per-viewport title block
+  pick.
 
 ## 9. Performance (G6)
 
@@ -659,6 +734,12 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB4d Marks (mint on create, pattern, duplicate flag, Renumber, load adopts the name token, blank refused), one-sheet rule + Sheet slot, mainwindow sheet refresh | `test_sb4d_marks.py`, `test_sb4d_one_sheet.py`, `test_sb4d_mainwindow_sheets.py` |
 | SB4d detail tab callout above the mask, DM rows line-only (stale Fill / Font / Scale ignored), retired strings | `test_sb4d_detail_tab.py`, `test_sb4d_dm_rows.py`, `test_sb4d_retired_strings.py` |
 | SB4d annotation band (z census, plan + section scenes, bounded depth walk, paper order, snap parity, top-level room tag / badge) -- the contract is `view-relationships.md` 7.3 | `test_sb4d_z_census.py`, `test_sb4d_band_plan.py`, `test_sb4d_band_section.py`, `test_sb4d_depth_walk.py`, `test_sb4d_paper_order.py`, `test_sb4d_snap_parity.py`, `test_sb4d_toplevel_labels.py` |
+| SB4f view title: category / seed / registries, `PaperScene` forwarder, orphan box at 8 mm | `test_sb4f_category.py` |
+| SB4f title item: block paints below the box, hide / placeholder paint nothing, line from outline to box edge or box width, resize / restyle / long title, no recursion without a closed outline, click / drag / double-click / right-click reach the viewport | `test_sb4f_title_item.py` |
+| SB4f Section / Detail heads bind Number (first sheet in order, blank legacy, unplaced head still draws, edit + undo reach the head) | `test_sb4f_heads.py` |
+| SB4f load: the D2 head swap, edited-copy notice, library without the seed, stable after save / load | `test_sb4f_load.py` |
+| SB4f live refresh through `annotationLabelsChanged`; export paints / hides the title | `test_sb4f_refresh_export.py` |
+| SB4f retired title strings | `test_sb4f_retired_strings.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
 
 **Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**

@@ -794,7 +794,7 @@ class TestViewTitleMmSizing:
     def test_title_ink_dpi_invariant(self, qapp):
         """mm-true text: title strip ink height must be DPI-invariant (spec §9.4).
 
-        Renders the viewport at the same painter scale but at two device DPIs
+        Renders the viewport (through its ViewTitleLabel) at the same scale but at two device DPIs
         (96 dpi vs 300 dpi).  A point-size font would scale with device DPI;
         the mm primitive (setPixelSize + painter.scale) is DPI-independent.
 
@@ -818,21 +818,26 @@ class TestViewTitleMmSizing:
         resolver.resolve.return_value = (QGraphicsScene(), QRectF(0, 0, 12000, 9000))
         vp = SheetViewport(data, resolver)
 
-        host_scene = QGraphicsScene()
+        from firepro3d import block_library
+        from firepro3d.assets import system_blocks_path
+
+        seed = block_library.load_block_file(system_blocks_path("Tags", "ViewTitle.fpdb"))
+
+        class _TitleScene(QGraphicsScene):
+            def annotation_block(self, category, mapped=None):
+                return seed
+
+        host_scene = _TitleScene()
         host_scene.addItem(vp)
 
-        # Geometry mirrored from SheetViewport.paint (keep in sync with spec §9.4)
+        # The title text box, raw from the seed: x 4.5 .. box right, y -4.0 .. -0.3
+        # about the block origin (the old title_rect_above).
         w, h = data.w, data.h
-        title_y    = h + 0.5
-        bubble_r   = 3.0
-        bubble_cx  = bubble_r + 1.0
-        bubble_cy  = title_y + bubble_r + 1.0
-        text_x     = bubble_cx + bubble_r + 1.5
-        # title_rect_above: (text_x, title_y) → (w, bubble_cy - 0.3)
-        tr_left   = text_x
-        tr_top    = title_y
+        org = vp._title_label.pos()
+        tr_left   = org.x() + 4.5
+        tr_top    = org.y() - 4.0
         tr_right  = w
-        tr_bottom = bubble_cy - 0.3
+        tr_bottom = org.y() - 0.3
 
         # ── px-scale shared across both renders; only device DPI differs ──
         PX_SCALE = 6.0
@@ -846,8 +851,9 @@ class TestViewTitleMmSizing:
             img.setDotsPerMeterY(dpm)
             img.fill(0xFFFFFF)
             p = QPainter(img)
-            p.scale(PX_SCALE, PX_SCALE)
-            vp.paint(p, None, None)
+            host_scene.render(p, QRectF(0, 0, CANVAS_W, CANVAS_H),
+                              QRectF(0, 0, w, h + 15),
+                              Qt.AspectRatioMode.IgnoreAspectRatio)
             p.end()
             return img
 

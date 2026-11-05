@@ -1,7 +1,7 @@
 ---
 status: current           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 built 2026-10-09 (Manager Kind column + gating, Duplicate, available_views group, kind frozen on load / reload). Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-10-21  # SB1a Account (D-S14 delta (a2): Edit Attributes disabled; pointer only, rest not re-audited); prior 2026-10-20 paper-authored-weights Account: D-S12 named authored weights plot at their own mm (pointer to paper-space 6.2); prior disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
-verified-commit: 0c06b766   # SB1a Account (D-S14 only); prior d49eb6d6 paper-authored-weights (D-S12 only); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
+last-verified: 2026-11-04  # SB4f Account (D-S2 + D-S10 + the sheet-furniture pointers only; rest not re-audited); prior 2026-10-21  # SB1a Account (D-S14 delta (a2): Edit Attributes disabled; pointer only, rest not re-audited); prior 2026-10-20 paper-authored-weights Account: D-S12 named authored weights plot at their own mm (pointer to paper-space 6.2); prior disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
+verified-commit: dab5a2f2   # SB4f on main (v0.87.0; D-S2 / D-S10 / pointers only); prior 0c06b766   # SB1a Account (D-S14 only); prior d49eb6d6 paper-authored-weights (D-S12 only); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
 applies-to:               # seams this contract governs (SV1–SV4 seams built); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog + template toggle / save_schematic_template / save_as_template only (rest: block-system.md)
@@ -12,7 +12,7 @@ applies-to:               # seams this contract governs (SV1–SV4 seams built);
   - firepro3d/settings/panes.py       # Schematics folder row only (rest: settings-dialog.md)
   - firepro3d/blocks_browser.py       # `library_only_entries` skips schematic entries only (rest: block-system.md)
   - firepro3d/project_browser.py      # Schematics root, `schematic` role, verbs (incl. Duplicate, SV4), drag payload (rest: project-browser.md)
-  - firepro3d/paper_space.py          # `ViewResolver` schematic branch + `available_views` Schematics group (SV4), drop default, crop rule (rest: paper-space.md)
+  - firepro3d/paper_space.py          # `ViewResolver` schematic branch + `available_views` Schematics group (SV4), drop default, crop rule; the title under the box is the SB4f View Title block (rest: paper-space.md)
   - firepro3d/model_space.py          # delete refusal "used on sheets", refusal sites via `capabilities.place_refusal`, kind frozen on load / reload + `duplicate_block_definition` (SV4) (rest: model-space-architecture.md)
   - main.py                           # browser signal wiring, stale-tab prefix, Go-to-view branch, render-scene ownership
   - firepro3d/schematic_scene.py      # SchematicSceneManager + the one primitive materializer (SV2)
@@ -60,7 +60,7 @@ one mechanism by which block content reaches paper.
   schematic views), the **title block**, and **sheet text**. No `BlockInstance`
   of any kind — user or System — is ever a child of `PaperScene`. C9's "a north
   arrow / legend is a paper Block" is re-read as "a paper *schematic* or
-  title-block territory" (sheet furniture is decided when SB4f is built).
+  title-block territory" (sheet furniture: ruled at SB4f, see D-S2).
 - **A schematic is a `BlockDefinition` with `kind == "schematic"`** in the
   project's one block registry — nesting, usage counting, cycle guard, bundling
   and undo capture are the shipped block mechanisms, not copies.
@@ -93,6 +93,12 @@ one mechanism by which block content reaches paper.
 - **D-S2 Sheet containment.** A sheet holds viewports + title block + sheet
   text only (Architecture, first bullet). The P1 "Paper-space block placement"
   task is superseded; SB7's paper-tag host becomes (viewport, element) only.
+  *(SB4f delta, 2026-11-04.)* The view title under a viewport is a host-bound label
+  (`ViewTitleLabel`, a child of the `SheetViewport`), not a `BlockInstance`, so D-S2
+  holds. Sheet furniture (north arrow, scale bar) is ruled to reuse that mechanism --
+  a host-bound label on a paper item (viewport or sheet), never a paper Block; not
+  built, follow-up filed in `todo_open.md`. Contract:
+  [`system-blocks.md`](system-blocks.md) 8e.
 - **D-S3 Never instanced.** A schematic appears only as a sheet viewport.
   Refused at every placement and nesting site with `SCHEMATIC_REASON`.
   *(SV4 delta, 2026-10-09: the kind is frozen — an edit, a load of a same-id
@@ -203,9 +209,10 @@ one mechanism by which block content reaches paper.
     it; no stale crop state is persisted.
   - **Multi-sheet:** the same schematic may be placed on several sheets (no view
     type has a one-sheet rule).
-  - **Title bubble + number + scale** under the box, hand-painted like plans;
-    the scale text reads `NTS` when NTS. (SB4f later converts the title for all
-    view kinds.)
+  - **Title bubble + number + scale** under the box: the SB4f View Title System
+    block, the same as for plans (it was hand-painted before SB4f); the scale text
+    reads `NTS` when NTS. Hidden per viewport with Show Title; contract
+    [`system-blocks.md`](system-blocks.md) 8e, [`paper-space.md`](paper-space.md) 5.2.
   - **Non-navigable into the model:** Go to View / double-click opens the
     Schematic Editor tab; the context menu offers Go to View and Delete only
     (no plan-only detail-hide entries).
@@ -475,7 +482,7 @@ run, no branch). Code homes only — the decisions stay owned above (Rule A).
 - `model-space-containment-contract.md` — C2 "(a) placeable standalone in Model
   Space *and* Paper Space" → Paper via schematic viewport only; C3 "Paper-placed
   Block instance is sheet-scoped" → retired; C9 "north arrow / legend is a paper
-  Block" → pointer to D-S2 (sheet furniture decided at SB4f). Task hit-list:
+  Block" → pointer to D-S2 (sheet furniture ruled at SB4f). Task hit-list:
   P1 "Paper-space block placement" superseded.
 - `block-system.md` — "paper-placement rules pending — a known gap" → resolved
   by pointer to D-S2/D-S3; `kind` key in the `.fpdb` schema section; Block
@@ -501,8 +508,8 @@ run, no branch). Code homes only — the decisions stay owned above (Rule A).
 - **Data-driven schematics** (riser reading the hydraulic model; host-bound tags
   inside a schematic) — after System Blocks SB5/SB6; needs a design pass of its
   own (D-S1).
-- **Sheet furniture** (north arrow, scale bar) — decided when SB4f converts the
-  view title; candidates are a System schematic or title-block content (D-S2).
+- **Sheet furniture** (north arrow, scale bar) — ruled at SB4f (D-S2): viewport-bound
+  System blocks reusing the view-title mechanism; not built, follow-up filed in `todo_open.md`.
 - **Legends / symbol keys** — the placed-table feature (`paper-space.md` §9.1),
   schedule-like, not a schematic (D-S1).
 - **Nesting a schematic inside another schematic** — declined in Q3; revisit if

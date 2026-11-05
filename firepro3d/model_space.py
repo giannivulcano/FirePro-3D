@@ -214,6 +214,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
     blockDefinitionsChanged = pyqtSignal()   # registry add/edit -> browser refresh
+    annotationLabelsChanged = pyqtSignal()   # every intrinsic label re-shaped (SB4f: sheets follow)
     blockInstancesChanged = pyqtSignal()     # placed/removed a BlockInstance (count changed)
     blockEditRequested = pyqtSignal(str)     # Block Editor: open a nested block's definition
 
@@ -1921,6 +1922,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 sc.refresh_annotation_tags()
             except RuntimeError:          # scene deleted under us (teardown)
                 pass
+        self.annotationLabelsChanged.emit()
 
     def refresh_view_marker_heads(self) -> None:
         """Re-shape every view-marker head (SB4d D1 / D4): each section /

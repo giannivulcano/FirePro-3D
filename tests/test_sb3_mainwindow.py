@@ -51,7 +51,7 @@ def test_ac5_load_notice_reaches_the_status_bar(mw, qapp, tmp_path):
     shutil.copy(system_blocks_path("Tags", "PipeLabel.fpdb"), folder / "PipeLabel.fpdb")   # SB4a: Pipe is a category too; else its miss notice is the last message
     shutil.copy(system_blocks_path("Tags", "GridlineBubble.fpdb"), folder / "GridlineBubble.fpdb")   # SB4b: Gridline is a category too; same reason
     shutil.copy(system_blocks_path("Tags", "LevelDatum.fpdb"), folder / "LevelDatum.fpdb")   # SB4c: Level is a category too; same reason
-    for _seed in ("ElevationHead.fpdb", "SectionHead.fpdb", "DetailCallout.fpdb"):   # SB4d: three more categories
+    for _seed in ("ElevationHead.fpdb", "SectionHead.fpdb", "DetailCallout.fpdb", "ViewTitle.fpdb"):   # SB4d: three more categories; SB4f: one more
         shutil.copy(system_blocks_path("Tags", _seed), folder / _seed)
     block_library.set_system_root(str(tmp_path / "sys"))
     ms = mw.scene

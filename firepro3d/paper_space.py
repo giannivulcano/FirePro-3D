@@ -23,6 +23,7 @@ from .constants import (
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
+    VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -282,7 +283,9 @@ class SheetViewData:
     serialized for compatibility. An empty ``crop_rect`` means "resolve the
     full source extent lazily" (set on first reconnect). ``hidden_detail_ids``
     is the per-sheet set of detail-marker names hidden in THIS host-plan
-    viewport's paper output.
+    viewport's paper output. ``show_title`` / ``title_offset`` = the view
+    title's per-viewport visibility and its offset from the default spot
+    (SB4f).
     """
     source_view_type: str
     source_view_name: str
@@ -296,6 +299,8 @@ class SheetViewData:
     view_number: str = ""
     crop_rect: QRectF = field(default_factory=QRectF)
     hidden_detail_ids: set[str] = field(default_factory=set)
+    show_title: bool = True
+    title_offset: tuple[float, float] = (0.0, 0.0)
 
     def to_dict(self) -> dict:
         cr = self.crop_rect
@@ -311,6 +316,8 @@ class SheetViewData:
             "crop_rect": {"x": cr.x(), "y": cr.y(),
                           "w": cr.width(), "h": cr.height()},
             "hidden_detail_ids": sorted(self.hidden_detail_ids),
+            "show_title": self.show_title,
+            "title_offset": list(self.title_offset),
         }
 
     @classmethod
@@ -329,6 +336,8 @@ class SheetViewData:
             view_number=d.get("view_number", ""),
             crop_rect=crop,
             hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
+            show_title=d.get("show_title", True),
+            title_offset=tuple(d.get("title_offset", (0.0, 0.0))),
         )
 
 
@@ -357,6 +366,27 @@ class Sheet:
             annotations=[],
             orientation="",
         )
+
+    def next_view_number(self) -> str:
+        """The lowest positive integer no viewport here uses (AC4)."""
+        used = {sv.view_number for sv in self.sheet_views}
+        n = 1
+        while str(n) in used:
+            n += 1
+        return str(n)
+
+    def view_number_refusal(self, number: str,
+                            ignore: "SheetViewData | None" = None) -> "str | None":
+        """Why *number* cannot be a view number here, or None when it can.
+        The ``SheetManager.validate_number`` rule: non-blank and unused
+        (excluding *ignore*)."""
+        number = number.strip()
+        if not number:
+            return "A view number cannot be blank."
+        if any(sv.view_number == number
+               for sv in self.sheet_views if sv is not ignore):
+            return f"View number {number} is already used on sheet {self.number}."
+        return None
 
     def to_dict(self) -> dict:
         return {
@@ -636,11 +666,11 @@ class SheetProperties:
 class ViewportProperties:
     """Property-panel adapter for a SheetViewport (spec §19.4).
 
-    Duck-typed (get_properties/set_property) like SheetProperties. Supersedes
-    the double-click SheetViewPropertiesDialog: every edit routes through
-    PaperScene.commit_viewport_edit → ChangeViewportPropertiesCommand, so the
-    panel shares the dialog's crop×scale derivation and is fully undoable.
-    Width/Height are derived (crop × scale) and shown read-only.
+    Duck-typed (get_properties/set_property) like SheetProperties. Every edit
+    routes through PaperScene.commit_viewport_edit →
+    ChangeViewportPropertiesCommand, so the size derivation has one home and
+    every edit is undoable. Width/Height are derived (crop × scale) and shown
+    read-only.
     """
 
     def __init__(self, scene, viewport):
@@ -660,14 +690,24 @@ class ViewportProperties:
             "Title": {"type": "string",
                       "value": (self._vp.display_title()
                                 if self._vp._is_schematic() else d.title)},
+            "Number": {"type": "string", "value": d.view_number,
+                       "free_text": True},       # "1" must still take "A5" or a blank
             "Scale": {"type": "enum", "value": scale_val,
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},
+            "Show Title": {"type": "bool", "value": d.show_title},
+            "Title Position": {"type": "button", "value": "Reset Title Position",
+                               "callback": self._reset_title,
+                               "enabled": self._vp._title_shown()},
             "Position X": {"type": "string", "value": f"{d.x:.1f}"},
             "Position Y": {"type": "string", "value": f"{d.y:.1f}"},
             "Width": {"type": "label", "value": f"{d.w:.1f} mm"},
             "Height": {"type": "label", "value": f"{d.h:.1f} mm"},
         }
+
+    def _reset_title(self) -> None:
+        """Return the title to its default spot under the box (D5)."""
+        self._scene.commit_viewport_edit(self._vp, title_offset=(0.0, 0.0))
 
     def set_property(self, key: str, value) -> None:
         d = self._vp.data
@@ -680,6 +720,17 @@ class ViewportProperties:
             self._scene.commit_viewport_edit(self._vp, scale=s)
         elif key == "Show Border":
             self._scene.commit_viewport_edit(self._vp, show_border=bool(value))
+        elif key == "Number":
+            number = str(value).strip()
+            if number == d.view_number:
+                return                     # a bare focus-out commits the row too
+            refusal = self._scene.sheet.view_number_refusal(number, ignore=d)
+            if refusal is not None:
+                self._scene.notify(refusal)
+                return                     # the panel refresh re-shows the old value
+            self._scene.commit_viewport_edit(self._vp, view_number=number)
+        elif key == "Show Title":
+            self._scene.commit_viewport_edit(self._vp, show_title=bool(value))
         elif key == "Position X":
             try:
                 x = float(value)
@@ -839,7 +890,6 @@ class ViewResolver:
 _GRIP_SIZE = SELECTION_GRIP_SIZE_MM   # alias kept for SheetViewport internal use
 _MIN_VIEWPORT_SIZE = 20.0
 _MIN_CROP_MODEL = 1.0   # min crop extent in model mm
-_VIEW_TITLE_H = 8.0  # mm height for view title below viewport
 
 
 class SheetViewport(QGraphicsObject):
@@ -873,7 +923,11 @@ class SheetViewport(QGraphicsObject):
         # ``changed`` signal is per-scene, so a per-viewport flag would let one
         # viewport's echo reach sibling viewports of the same scene and start a
         # permanent alternating repaint ping-pong.  See paint().
+        self._title_label = None
         self._reconnect_source()
+        from .view_title_label import ViewTitleLabel
+        self._title_label = ViewTitleLabel(self)
+        self._sync_title()
 
     @property
     def data(self) -> SheetViewData:
@@ -948,7 +1002,31 @@ class SheetViewport(QGraphicsObject):
         """Re-resolve the source (fresh extent / placeholder) and repaint."""
         self.prepareGeometryChange()
         self._reconnect_source()
+        self._sync_title()
         self.mark_dirty()
+        self._rebake_manipulator()    # a placeholder has no title grip
+
+    def _title_shown(self) -> bool:
+        """The title draws when enabled and the view resolves (placeholders
+        never had one)."""
+        return self._data.show_title and not self._placeholder
+
+    def _title_anchor(self) -> QPointF:
+        """The block origin, local: the default spot plus ``title_offset``, so
+        the title stays with the box's lower-left on resize."""
+        dx, dy = self._data.title_offset
+        return QPointF(VIEW_TITLE_ORIGIN_X_MM + dx,
+                       self._data.h + VIEW_TITLE_ORIGIN_Y_MM + dy)
+
+    def _sync_title(self) -> None:
+        """Re-apply the title's position, visibility and shape (its line reads
+        the box, its text the data)."""
+        lab = self._title_label
+        if lab is None:
+            return                    # still inside __init__
+        lab.set_anchor(self._title_anchor())
+        lab.setVisible(self._title_shown())
+        lab.refresh()
 
     def _effective_crop(self) -> QRectF:
         """The model-space window actually rendered.
@@ -975,6 +1053,7 @@ class SheetViewport(QGraphicsObject):
             self.prepareGeometryChange()
             self._data.w = crop.width() * self._data.scale
             self._data.h = crop.height() * self._data.scale
+            self._sync_title()
 
     def _on_source_changed(self, rects=None):
         # Scene-scoped guard: Qt delivers one coalesced ``changed`` emission to
@@ -1040,6 +1119,32 @@ class SheetViewport(QGraphicsObject):
         self.setPos(self._data.x, self._data.y)
         self.mark_dirty()
 
+    # The title grip (SB4f D1): one round live-apply grip on the block origin.
+    # A sole scale-capable viewport is box-native and reads
+    # manip_box_extra_handles; a detail or scaled schematic is not and reads
+    # manip_extra_handles. Both are additive: the resize set stays.
+    def grip_points(self) -> list:
+        """``[title origin in scene coords]``, or [] while the title is hidden."""
+        if not self._title_shown():
+            return []
+        return [self.mapToScene(self._title_anchor())]
+
+    def apply_grip(self, index: int, pt: QPointF) -> None:
+        """Move the title's origin to scene point *pt* (live; undo is the
+        manipulator's ``_manip_commit`` -> ViewportGeometryCommand)."""
+        if index != 0:
+            return
+        p = self.mapFromScene(pt)
+        self._data.title_offset = (p.x() - VIEW_TITLE_ORIGIN_X_MM,
+                                   p.y() - self._data.h - VIEW_TITLE_ORIGIN_Y_MM)
+        self._sync_title()
+
+    def manip_box_extra_handles(self) -> list:
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
+
+    manip_extra_handles = manip_box_extra_handles
+
     #: Resize live -- the crop / box re-derive every frame -- instead of under
     #: the manipulator's held-transform preview, which stretches the picture.
     MANIP_LIVE_RESIZE = True
@@ -1056,6 +1161,7 @@ class SheetViewport(QGraphicsObject):
         d.x, d.y, d.w, d.h = state[0], state[1], state[2], state[3]
         d.crop_rect = QRectF(state[4])
         self.setPos(d.x, d.y)
+        self._sync_title()
         self.mark_dirty()
 
     def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
@@ -1078,6 +1184,7 @@ class SheetViewport(QGraphicsObject):
         anchor_left = abs(anchor.x() - x) <= abs(anchor.x() - (x + w)) + eps
         anchor_top = abs(anchor.y() - y) <= abs(anchor.y() - (y + h)) + eps
         self._resize_on_paper(new_w, new_h, anchor_left, anchor_top)
+        self._sync_title()
 
     def _resize_on_paper(self, new_w: float, new_h: float,
                          anchor_left: bool, anchor_top: bool) -> None:
@@ -1142,7 +1249,7 @@ class SheetViewport(QGraphicsObject):
         margin = _GRIP_SIZE if self.isSelected() else 0
         return QRectF(-margin, -margin,
                       self._data.w + 2 * margin,
-                      self._data.h + _VIEW_TITLE_H + 2 * margin)
+                      self._data.h + 2 * margin)
 
     def _begin_isolation(self):
         """Apply this viewport's level context to the shared source scene.
@@ -1287,60 +1394,6 @@ class SheetViewport(QGraphicsObject):
             painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
             painter.drawRect(vp_rect)
 
-        # View title below viewport (Revit-style)
-        title_y = h + 0.5
-
-        # Bubble
-        bubble_r = 3.0
-        bubble_cx = bubble_r + 1.0
-        bubble_cy = title_y + bubble_r + 1.0
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.25))
-        painter.setBrush(QBrush(Qt.GlobalColor.white))
-        painter.drawEllipse(QPointF(bubble_cx, bubble_cy), bubble_r, bubble_r)
-        # Number in bubble
-        _draw_mm_text(
-            painter,
-            QRectF(bubble_cx - bubble_r, bubble_cy - bubble_r,
-                   bubble_r * 2, bubble_r * 2),
-            self._data.view_number or "1",
-            2.0,
-            bold=True,
-            align=Qt.AlignmentFlag.AlignCenter,
-        )
-
-        # Horizontal line from bubble right perimeter to viewport edge
-        line_x_start = bubble_cx + bubble_r
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
-        painter.drawLine(QPointF(line_x_start, bubble_cy),
-                         QPointF(w, bubble_cy))
-
-        # Title text — ALL CAPS, bold, ABOVE the line
-        text_x = line_x_start + 1.5
-        title_rect_above = QRectF(text_x, title_y, w - text_x, bubble_cy - title_y - 0.3)
-        _draw_mm_text(
-            painter,
-            title_rect_above,
-            self.display_title().upper(),
-            2.2,
-            bold=True,
-            align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
-        )
-
-        # Scale text below the line
-        if self._data.scale == 0.0:
-            scale_text = "NTS"
-        else:
-            scale_text = float_to_scale_str(self._data.scale)
-        title_rect_below = QRectF(text_x, bubble_cy + 0.3, w - text_x, bubble_r + 0.5)
-        _draw_mm_text(
-            painter,
-            title_rect_below,
-            scale_text,
-            1.6,
-            align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            color="#444444",
-        )
-
         # Selection feedback (dashed boundary + resize handles) is drawn by the
         # scene's SelectionManipulator frame — the per-item grip code is retired.
 
@@ -1391,6 +1444,8 @@ class SheetViewport(QGraphicsObject):
         # Viewport properties are edited in the property panel (select the
         # viewport — spec §19.4); the old "Properties..." dialog entry is gone.
         goto_action = menu.addAction("Go to View")
+        reset_action = menu.addAction("Reset Title Position")
+        reset_action.setEnabled(self._title_shown())
         menu.addSeparator()
         delete_action = menu.addAction("Delete")
 
@@ -1413,6 +1468,10 @@ class SheetViewport(QGraphicsObject):
         action = menu.exec(event.screenPos())
         if action == goto_action:
             self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
+        elif action == reset_action:
+            commit = getattr(self.scene(), "commit_viewport_edit", None)
+            if commit is not None:
+                commit(self, title_offset=(0.0, 0.0))
         elif action == delete_action:
             self.delete_requested.emit(self)
         elif action in detail_actions:
@@ -1482,15 +1541,21 @@ class SheetViewPropertiesDialog(QDialog):
     """
 
     def __init__(self, source_view_name: str, data: SheetViewData | None = None,
-                 parent=None, *, default_scale: str = "1:100"):
+                 parent=None, *, default_scale: str = "1:100",
+                 default_number: str = "", number_refusal=None, notify=None):
         super().__init__(parent)
         self.setWindowTitle("Sheet View Properties")
         self._data = data
+        self._number_refusal = number_refusal   # (text) -> notice or None
+        self._notify = notify                   # (notice) -> None
 
         layout = QFormLayout(self)
 
         self._title_edit = QLineEdit(data.title if data else source_view_name)
         layout.addRow("Title:", self._title_edit)
+
+        self._number_edit = QLineEdit(data.view_number if data else default_number)
+        layout.addRow("Number:", self._number_edit)
 
         self._scale_combo = QComboBox()
         self._scale_combo.setEditable(True)
@@ -1506,6 +1571,10 @@ class SheetViewPropertiesDialog(QDialog):
         self._border_check = QCheckBox("Show Border")
         self._border_check.setChecked(data.show_border if data else True)
         layout.addRow("", self._border_check)
+
+        self._title_check = QCheckBox("Show Title")
+        self._title_check.setChecked(data.show_title if data else True)
+        layout.addRow("", self._title_check)
 
         if data:
             self._x_edit = QLineEdit(f"{data.x:.1f}")
@@ -1528,8 +1597,24 @@ class SheetViewPropertiesDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+    def accept(self) -> None:
+        """OK refuses a blank or duplicate number and keeps the dialog open (AC4)."""
+        refusal = (self._number_refusal(self._number_edit.text())
+                   if self._number_refusal is not None else None)
+        if refusal is not None:
+            if self._notify is not None:
+                self._notify(refusal)
+            return
+        super().accept()
+
     def get_title(self) -> str:
         return self._title_edit.text()
+
+    def get_number(self) -> str:
+        return self._number_edit.text().strip()
+
+    def get_show_title(self) -> bool:
+        return self._title_check.isChecked()
 
     def get_show_border(self) -> bool:
         return self._border_check.isChecked()
@@ -1915,10 +2000,7 @@ class PaperGraphicsView(QGraphicsView):
 
         refusal = self._one_sheet_refusal(view_type, view_name)
         if refusal is not None:                   # SB4d D4: one sheet per detail / section view
-            show = getattr(getattr(self._paper_scene._resolver, "_scene", None),
-                           "_show_status", None)
-            if callable(show):
-                show(refusal, 6000)
+            self._paper_scene.notify(refusal)
             event.ignore()
             return
 
@@ -1926,14 +2008,18 @@ class PaperGraphicsView(QGraphicsView):
 
         resolver = self._paper_scene._resolver
         is_schematic = view_type == "schematic"
+        sheet = self._paper_scene.sheet
+        dlg_args = dict(parent=self, default_number=sheet.next_view_number(),
+                        number_refusal=sheet.view_number_refusal,
+                        notify=self._paper_scene.notify)
         if is_schematic:
             # D-S7 / SV2 delta: NTS default; the title field shows the live
             # name (left unchanged it is stored "" and follows Rename).
             dlg = SheetViewPropertiesDialog(
-                resolver.display_name(view_type, view_name), parent=self,
-                default_scale="NTS")
+                resolver.display_name(view_type, view_name),
+                default_scale="NTS", **dlg_args)
         else:
-            dlg = SheetViewPropertiesDialog(view_name, parent=self)
+            dlg = SheetViewPropertiesDialog(view_name, **dlg_args)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             event.ignore()
             return
@@ -1943,6 +2029,7 @@ class PaperGraphicsView(QGraphicsView):
                 and title.strip() == resolver.display_name(view_type, view_name)):
             title = ""          # unchanged name = no override (SheetViewport.title_to_store)
         scale = dlg.get_scale()
+        show_title = dlg.get_show_title()
 
         result = resolver.resolve(view_type, view_name)
         if result is None:
@@ -1951,8 +2038,9 @@ class PaperGraphicsView(QGraphicsView):
         _, src_rect = result
 
         pw, ph = sheet_page_mm(self._paper_scene.sheet)
+        title_mm = self._paper_scene.view_title_extent_mm() if show_title else 0.0
         max_w = pw - 2 * (MARGIN + INNER_MARGIN)
-        max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H
+        max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H - title_mm
 
         if scale == 0.0 and is_schematic:
             # Extent at 1 mm = 1 mm, clamped to the sheet below (concept SD3).
@@ -1979,9 +2067,12 @@ class PaperGraphicsView(QGraphicsView):
         y = drop_pos.y() - vp_h / 2
 
         x = max(MARGIN + INNER_MARGIN, min(x, pw - MARGIN - INNER_MARGIN - vp_w))
-        y = max(MARGIN + INNER_MARGIN, min(y, ph - MARGIN - INNER_MARGIN - TITLE_H - vp_h))
+        y = max(MARGIN + INNER_MARGIN,
+                min(y, ph - MARGIN - INNER_MARGIN - TITLE_H - title_mm - vp_h))
 
-        data = SheetViewData(view_type, view_name, title, scale, x, y, vp_w, vp_h)
+        data = SheetViewData(view_type, view_name, title, scale, x, y, vp_w, vp_h,
+                             show_border=dlg.get_show_border(),
+                             view_number=dlg.get_number(), show_title=show_title)
         self._paper_scene.add_viewport(data)
         event.acceptProposedAction()
 
@@ -2728,6 +2819,31 @@ class PaperScene(QGraphicsScene):
         land there — ``hatch_patterns.ensure_pattern_available``), or None."""
         return getattr(self._resolver, "_scene", None)
 
+    def annotation_block(self, category: str, mapped: str | None = None):
+        """The ``BlockDefinition`` that draws *category*'s label on this sheet:
+        forwarded to the model scene's resolver (the ``SectionScene`` pattern,
+        system-blocks.md section 3). None when the model scene is gone."""
+        fn = getattr(self._block_registry_owner, "annotation_block", None)
+        try:
+            return fn(category, mapped) if fn is not None else None
+        except RuntimeError:          # model scene deleted under a queued paint
+            return None
+
+    def notify(self, message: str, timeout_ms: int = 6000) -> None:
+        """Show *message* on the model scene's status channel (no-op without one)."""
+        show = getattr(self._block_registry_owner, "_show_status", None)
+        if not callable(show):
+            return
+        try:
+            show(message, timeout_ms)
+        except RuntimeError:          # model scene deleted under a queued call
+            pass
+
+    def view_title_extent_mm(self) -> float:
+        """How far a title at its default spot reaches below a viewport (AC7)."""
+        from .view_title_label import VIEW_TITLE_CATEGORY, extent_below_box
+        return extent_below_box(self.annotation_block(VIEW_TITLE_CATEGORY))
+
     def device_independent_text(self) -> bool:
         """Text sizing-mode hook (containment C5).
 
@@ -2963,9 +3079,9 @@ class PaperScene(QGraphicsScene):
     def _do_add_viewport(self, data: SheetViewData) -> SheetViewport:
         """Silent primitive: register *data* in the sheet and build its viewport.
 
-        Preserves the original add_viewport behaviour: assigns a view_number
-        when blank, appends to sheet.sheet_views (idempotent), creates the
-        viewport item, and refreshes the title-block Scale field. Called by
+        Preserves the original add_viewport behaviour: appends to
+        sheet.sheet_views (idempotent), creates the viewport item, and
+        refreshes the title-block Scale field. Called by
         AddViewportCommand.redo / RemoveViewportCommand.undo.
 
         Args:
@@ -2974,8 +3090,6 @@ class PaperScene(QGraphicsScene):
         Returns:
             The newly created SheetViewport.
         """
-        if not data.view_number:
-            data.view_number = str(len(self._sheet.sheet_views) + 1)
         # Identity check (not value `in`): SheetViewData has value-equality, so a
         # value-identical second viewport must still be tracked separately.
         if all(v is not data for v in self._sheet.sheet_views):
@@ -2987,7 +3101,8 @@ class PaperScene(QGraphicsScene):
 
     def _refresh_source_heads(self, data: SheetViewData) -> None:
         """A detail / section placement or removal re-shapes the model's
-        marker heads: their bottom slot is the sheet number (SB4d D4)."""
+        marker heads: their top slot is the viewport number (SB4f), their
+        bottom slot the sheet number (SB4d D4)."""
         if data.source_view_type not in ("detail", "section"):
             return
         fn = getattr(getattr(self._resolver, "_scene", None), "refresh_view_marker_heads", None)
@@ -3042,7 +3157,10 @@ class PaperScene(QGraphicsScene):
             vp.setPos(data.x, data.y)
             vp.prepareGeometryChange()
             vp.mark_dirty()
+            vp._sync_title()
+            vp._rebake_manipulator()      # the grip appears or goes with show_title
         self._update_scale_field()
+        self._refresh_source_heads(data)   # the head's top slot is the view number
 
     def add_viewport(self, data: SheetViewData) -> SheetViewport:
         """Add a viewport for *data* via an undoable command.
@@ -3057,6 +3175,8 @@ class PaperScene(QGraphicsScene):
         Returns:
             The created SheetViewport.
         """
+        if not data.view_number:
+            data.view_number = self._sheet.next_view_number()
         self._undo_stack.push(AddViewportCommand(self, data))
         return _find_viewport(self, data)
 
@@ -3075,19 +3195,21 @@ class PaperScene(QGraphicsScene):
 
         Args:
             data: SheetViewData whose geometry changed.
-            old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture.
-            new: (x, y, w, h, (cx, cy, cw, ch)) after the gesture.
+            old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture, plus
+                title_offset as a sixth element from ``_viewport_geom``.
+            new: the same shape after the gesture.
         """
         if not self._applying_command and old != new:
             self._undo_stack.push(ViewportGeometryCommand(self, data, old, new))
 
     @staticmethod
     def _viewport_geom(data) -> tuple:
-        """Snapshot tuple of a SheetViewData's geometry (matches the retired
-        ViewportGeometryCommand format: (x, y, w, h, (cx, cy, cw, ch)))."""
+        """Snapshot of a SheetViewData's geometry: (x, y, w, h, (cx, cy, cw, ch),
+        title_offset). The native-move path keeps the 5-tuple form."""
         cr = data.crop_rect
         return (data.x, data.y, data.w, data.h,
-                (cr.x(), cr.y(), cr.width(), cr.height()))
+                (cr.x(), cr.y(), cr.width(), cr.height()),
+                tuple(data.title_offset))
 
     # Per-item-type manipulator snapshot + undo-command adapter.  The gesture
     # path is generic: on press each dragged record is snapshotted with its
@@ -3237,14 +3359,14 @@ class PaperScene(QGraphicsScene):
         QTimer.singleShot(0, lambda vp=viewport: self.remove_viewport(vp))
 
     def commit_viewport_edit(self, viewport, *, title=None, show_border=None,
-                             scale=None, pos=None) -> bool:
+                             scale=None, pos=None, show_title=None,
+                             title_offset=None, view_number=None) -> bool:
         """Push a ChangeViewportPropertiesCommand for one or more field edits.
 
         Any keyword left ``None`` keeps the viewport's current value. On-paper
         size (``w``/``h``) is always **derived** from crop × scale (concern 5)
         and never set directly — a stale W/H silently defeats scale changes.
-        This is the single home for that derivation, shared by the double-click
-        dialog and the property panel (spec §19.4).
+        This is the single home for that derivation (spec §19.4).
 
         Args:
             viewport: The SheetViewport being edited.
@@ -3252,6 +3374,9 @@ class PaperScene(QGraphicsScene):
             show_border: New border flag, or None to keep.
             scale: New scale (0.0 = NTS), or None to keep.
             pos: New (x, y) on-paper position, or None to keep.
+            show_title: New title visibility, or None to keep.
+            title_offset: New (dx, dy) from the title's default spot, or None to keep.
+            view_number: New number, already validated, or None to keep.
 
         Returns:
             True if a command was pushed (values actually changed).
@@ -3261,6 +3386,9 @@ class PaperScene(QGraphicsScene):
             "title": data.title, "show_border": data.show_border,
             "scale": data.scale, "x": data.x, "y": data.y,
             "w": data.w, "h": data.h,
+            "show_title": data.show_title,
+            "title_offset": tuple(data.title_offset),
+            "view_number": data.view_number,
         }
         new_title = data.title if title is None else title
         new_show_border = data.show_border if show_border is None else show_border
@@ -3279,6 +3407,10 @@ class PaperScene(QGraphicsScene):
             "title": new_title, "show_border": new_show_border,
             "scale": new_scale, "x": new_x, "y": new_y,
             "w": new_w, "h": new_h,
+            "show_title": data.show_title if show_title is None else show_title,
+            "title_offset": (tuple(data.title_offset) if title_offset is None
+                             else tuple(title_offset)),
+            "view_number": data.view_number if view_number is None else view_number,
         }
         if new_fields != old_fields:
             self._undo_stack.push(
@@ -3563,6 +3695,16 @@ class PaperScene(QGraphicsScene):
             if vp.data.source_view_type == "schematic":
                 vp.refresh_source()
 
+    def refresh_annotation_tags(self) -> None:
+        """Re-shape every view title (its bounds, outline and line are cached).
+        Follows ``Model_Space.annotationLabelsChanged``; a transient export scene
+        is built fresh and needs no wiring."""
+        for vp in list(self._viewports):
+            try:
+                vp._sync_title()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
+
     def dispose(self):
         """Disconnect every viewport's source-change signal.
 
@@ -3828,6 +3970,10 @@ class PaperSpaceWidget(QWidget):
 
         self.paper_scene = PaperScene(sheet, resolver)
         self.paper_scene.navigate_to_view.connect(self.navigate_to_view.emit)
+        changed = getattr(getattr(resolver, "_scene", None),
+                          "annotationLabelsChanged", None)
+        if changed is not None:           # the one live sheet follows the model's labels
+            changed.connect(self.paper_scene.refresh_annotation_tags)
 
         self._build_ui()
 
