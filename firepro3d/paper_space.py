@@ -695,11 +695,17 @@ class ViewportProperties:
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},
             "Show Title": {"type": "bool", "value": d.show_title},
+            "Title Position": {"type": "button", "value": "Reset Title Position",
+                               "callback": self._reset_title},
             "Position X": {"type": "string", "value": f"{d.x:.1f}"},
             "Position Y": {"type": "string", "value": f"{d.y:.1f}"},
             "Width": {"type": "label", "value": f"{d.w:.1f} mm"},
             "Height": {"type": "label", "value": f"{d.h:.1f} mm"},
         }
+
+    def _reset_title(self) -> None:
+        """Return the title to its default spot under the box (D5)."""
+        self._scene.commit_viewport_edit(self._vp, title_offset=(0.0, 0.0))
 
     def set_property(self, key: str, value) -> None:
         d = self._vp.data
@@ -1110,6 +1116,32 @@ class SheetViewport(QGraphicsObject):
         self.setPos(self._data.x, self._data.y)
         self.mark_dirty()
 
+    # The title grip (SB4f D1): one round live-apply grip on the block origin.
+    # A sole scale-capable viewport is box-native and reads
+    # manip_box_extra_handles; a detail or scaled schematic is not and reads
+    # manip_extra_handles. Both are additive: the resize set stays.
+    def grip_points(self) -> list:
+        """``[title origin in scene coords]``, or [] while the title is hidden."""
+        if not self._title_shown():
+            return []
+        return [self.mapToScene(self._title_anchor())]
+
+    def apply_grip(self, index: int, pt: QPointF) -> None:
+        """Move the title's origin to scene point *pt* (live; undo is the
+        manipulator's ``_manip_commit`` -> ViewportGeometryCommand)."""
+        if index != 0:
+            return
+        p = self.mapFromScene(pt)
+        self._data.title_offset = (p.x() - VIEW_TITLE_ORIGIN_X_MM,
+                                   p.y() - self._data.h - VIEW_TITLE_ORIGIN_Y_MM)
+        self._sync_title()
+
+    def manip_box_extra_handles(self) -> list:
+        from .manip_handle import default_grip_handles
+        return default_grip_handles(self, circular={0})
+
+    manip_extra_handles = manip_box_extra_handles
+
     #: Resize live -- the crop / box re-derive every frame -- instead of under
     #: the manipulator's held-transform preview, which stretches the picture.
     MANIP_LIVE_RESIZE = True
@@ -1409,6 +1441,8 @@ class SheetViewport(QGraphicsObject):
         # Viewport properties are edited in the property panel (select the
         # viewport — spec §19.4); the old "Properties..." dialog entry is gone.
         goto_action = menu.addAction("Go to View")
+        reset_action = menu.addAction("Reset Title Position")
+        reset_action.setEnabled(self._title_shown())
         menu.addSeparator()
         delete_action = menu.addAction("Delete")
 
@@ -1431,6 +1465,10 @@ class SheetViewport(QGraphicsObject):
         action = menu.exec(event.screenPos())
         if action == goto_action:
             self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
+        elif action == reset_action:
+            commit = getattr(self.scene(), "commit_viewport_edit", None)
+            if commit is not None:
+                commit(self, title_offset=(0.0, 0.0))
         elif action == delete_action:
             self.delete_requested.emit(self)
         elif action in detail_actions:
