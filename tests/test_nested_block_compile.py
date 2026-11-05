@@ -130,7 +130,7 @@ def test_nested_ops_are_flattened_through_the_pose(qapp):
     assert len(ops) == 2
     # B's line points +Y in the Y-DOWN scene (screen-down); 90° Y-up CCW turns
     # screen-down into screen-right, so it spans x 500..600 at y 0.
-    br = ops[1].path.boundingRect()
+    br = ops[0].path.boundingRect()      # nested blocks compile first (stacking D4)
     assert abs(br.left() - 500) < 1e-6 and abs(br.right() - 600) < 1e-6
     assert abs(br.top()) < 1e-6 and abs(br.bottom()) < 1e-6
     # Parity with a PLACED B at the same pose (D2: the BlockInstance convention).
@@ -287,7 +287,7 @@ def test_saving_B_repaints_open_A_editor_and_plan_A(qapp):
         wb.commit_block(b.name, b.library, b.series)
         assert calls["plan"] >= 1
         assert calls["editor"] >= 1
-        assert plan_a.render_ops()[1].path.boundingRect().top() == 50.0
+        assert plan_a.render_ops()[0].path.boundingRect().top() == 50.0   # nested first (D4)
     finally:
         for w in (wa, wb):
             w.editor_scene.cleanup()

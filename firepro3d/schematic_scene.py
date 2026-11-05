@@ -153,6 +153,7 @@ class SchematicSceneManager:
         if sc is None:
             from .model_space import Model_Space
             sc = Model_Space(scene_role="block_editor")
+            sc.opaque_blocks = True                # block stacking D3: a schematic
             sc.scale_manager.drawing_scale = 1.0   # ET1 Q2: schematic = real size
             sc._hatch_paper_scale = None           # explicit: the paper override pass sets/clears it per viewport render
             sc._suppress_preview_node = True

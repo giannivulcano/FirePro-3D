@@ -30,7 +30,7 @@ from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-    RegularPolygonItem, EllipseItem, SplineItem,
+    RegularPolygonItem, EllipseItem, SplineItem, HIDEABLE_BY_BLOCKS,
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
@@ -221,6 +221,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def __init__(self, scene_role: str = "plan"):
         super().__init__()
         self.scene_role = scene_role
+        self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
+        self._stack_members = weakref.WeakSet()   # BlockInstances in this scene (itemChange keeps it)
+        self._opaque_stack = None        # (default, opaque blocks in paint order, memo) -- BlockInstance._opaque_rows
         # ET1 spec C: items whose last paint drew a Fixed-size end at the
         # screen factor (their scene bounds follow the view zoom).
         self._screen_end_items = weakref.WeakSet()
@@ -739,8 +742,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Qt ``clear()`` deletes every item without dispatching scene-change
         events to Python (P4 probe), so the stroke-joint index (design D5a)
         is emptied here -- every ``self.clear()`` site (load / new reset)
-        goes through this override."""
+        goes through this override. The opaque-block order drops here for the
+        same reason (``BlockInstance.itemChange`` is not told)."""
         self.stroke_joints.clear()
+        self._opaque_stack = None
+        self._stack_members = weakref.WeakSet()
         super().clear()
 
     def cleanup(self) -> None:
@@ -2878,7 +2884,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None, mirrored: bool = False,
                              scale: float = 1.0, level_offset_mm: float = 0.0,
-                             host: dict | None = None, note: dict | None = None):
+                             host: dict | None = None, note: dict | None = None,
+                             layer_height: int = 0, opaque: bool | None = None,
+                             constraint_points_off: bool = False):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2898,6 +2906,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 None.
             note: A Note record (text-leader-annotations D8): owning view, box
                 and leader. None for every ordinary block.
+            layer_height: Stacking height in a ``block_editor`` scene (block
+                stacking D6); ignored for z elsewhere.
+            opaque: This placement's Opaque value; None takes the scene's
+                ``opaque_blocks`` default (D3).
+            constraint_points_off: Child constraint points are not offered
+                for new picks (D10).
         """
         import copy
         from .block_instance import BlockInstance
@@ -2931,6 +2945,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst.setVisible(False)   # hosted: section-only from birth (D11); LevelManager keeps it so
         self.addItem(inst)
         self._block_instances.append(inst)
+        inst.layer_height = layer_height
+        inst._opaque = opaque
+        inst.constraint_points_off = constraint_points_off
+        inst.apply_stack_z()
+        inst.stack_changed()            # _opaque was set after the add
         # Backref only when the definition lives in THIS scene's own store: a
         # Block Editor resolves through the borrowed project registry, and its
         # instances repaint via registry.invalidate (it walks attached scenes).
@@ -5357,10 +5376,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         ``scene_arg`` is a QPointF (aperture hover, halo_candidates_at) or a
         QRectF (rubber-band, rubber_band_hits); dispatch to _halo_room_hit
         accordingly to preserve the historical point-vs-rect filter semantics.
+
+        In a schematic a click (point form only; a rubber band is unchanged,
+        D8) inside an opaque block's mask drops the loose lines, arcs,
+        rectangles, circles and polylines it hides, so the block is picked.
+        Text and filled regions stay clickable (D4).
         """
         if isinstance(item, Room):
             is_rect = isinstance(scene_arg, QRectF)
             return self._halo_room_hit(item, scene_arg, is_rect=is_rect)
+        if (self.opaque_blocks and not isinstance(scene_arg, QRectF)
+                and isinstance(item, HIDEABLE_BY_BLOCKS)):
+            from .block_stack import covered_at
+            return not covered_at(self, scene_arg)
         return True
 
     def _halo_mode_ok(self):
@@ -8677,6 +8705,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             The populated ``QMenu``.
         """
+        from .block_stack import restack
         from .entity_context_menu import build_entity_context_menu
         from .room import Room
 
@@ -8686,6 +8715,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # on the plan too (smoke 1) and opens the block's editor tab.
         can_explode_here = self.scene_role == "block_editor" and (
             is_block or isinstance(target, FilledRegionItem))
+        stack_here = is_block and self.scene_role == "block_editor"   # block stacking D7
+        stack_set = ([b for b in selected if isinstance(b, BlockInstance)]
+                     if target in selected else [target])
         return build_entity_context_menu(
             selected,
             target,
@@ -8725,6 +8757,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 (lambda: self.explode_selected_blocks())
                 if can_explode_here else None
             ),
+            on_bring_to_front=(
+                (lambda: restack(self, stack_set, True)) if stack_here else None),
+            on_send_to_back=(
+                (lambda: restack(self, stack_set, False)) if stack_here else None),
         )
 
     def set_sprinkler_db(self, db):
