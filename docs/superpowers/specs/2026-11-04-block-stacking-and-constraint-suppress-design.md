@@ -1,7 +1,7 @@
 ---
-status: proposal
-last-verified: 2026-11-04
-verified-commit: 88683cdb
+status: built
+last-verified: 2026-11-05
+verified-commit: d1221e2d
 applies-to:
   - firepro3d/block_instance.py
   - firepro3d/block_definition.py
@@ -12,6 +12,8 @@ applies-to:
   - firepro3d/sketch_adapters.py
   - firepro3d/auto_constrain.py
   - firepro3d/constants.py
+  - firepro3d/block_stack.py
+  - firepro3d/geometry_2d.py
 source-tasks:
   - "Blocks in the schematic editor are opaque, with a settable stacking height so an overlapping block hides the one below"
   - "Suppress a placed block's constraint points, per instance"
@@ -21,7 +23,7 @@ source-tasks:
 
 Consolidating contract for a change spanning `docs/specs/schematics.md`,
 `docs/specs/block-system.md` and `docs/specs/parametric-constraint-system.md`.
-Each gets a one-line pointer here at Account (Rule A). Nothing below is built yet.
+Each links here (Rule A); `2d-geometry.md` and `view-relationships.md` s7.3 do too. Built and merged as v0.89.0 at `d1221e2d`.
 
 ## Goal
 
@@ -70,7 +72,7 @@ as-proposed.
 | D10 | **Constraint Points row:** on every placed block, default on, in plan and both editors. |
 | D11 | **Off offers `ins` only:** no child points, edges or curves are offered for a new pick. |
 | D12 | **Existing constraints keep working:** they solve and draw as before. The filter sits where pick targets are listed, not in the adapter's handle tables. `_ins_only` is not reused directly: it removes handles, which would break those constraints. |
-| D13 | **Nested reach:** off on a nested block also removes its points from the parent's offered set. |
+| D13 | **Nested reach:** off on a nested block removes every handle under its path from the parent's offered set, its own `<path>:ins` included (ratified at plan approval, 2026-11-04; D11's insertion point applies to a top-level placement). |
 | D14 | **Format:** optional record keys `layer_height`, `opaque`, `constraint_points_off` on `to_dict` and `to_nested_dict`, written only when not the default, with no file version bump. An absent `opaque` means the D3 default for the block's context. |
 
 ## Mechanism
@@ -113,9 +115,10 @@ Record keys per D14. Example nested record:
 ## Performance & Security
 
 Worst-case probe: 2,000 strokes each individually clipped took about 199 ms against
-about 90 ms unclipped. Only covered ops carry a clip. Budgets are not set: per the
-Phase 5 Performance rule they need a measured base scene and the user's ratification
-before any bench or fix.
+about 90 ms unclipped. Only covered ops carry a clip. Budget ratified 2026-11-04: a plain
+editor adds nothing; a schematic adds at most 1 ms per block per full repaint. The user waived
+the final bench on 2026-11-05: 30 blocks with 69 lines measured inside it on a loaded host, 500
+crossing lines over it, Sprinkler Tree estimated about +60 ms. Culling is filed in `todo_open.md`.
 
 ## Probed (2026-11-04, `88683cdb`)
 
@@ -127,35 +130,55 @@ before any bench or fix.
 
 ## Open items (first plan steps)
 
-- **P4:** confirm `auto_constrain`'s target generator is the only source of pick
-  candidates. Its filter today covers points only, so edges and curves need adding.
-- **P4:** confirm a real sheet PDF export carries the clip through `paper_export.py`.
-- **As-proposed:** the exact `Z_BLOCK_STACK` value and step (D6's range is ratified).
+Closed. Pick candidates filter in `auto_constrain` (points, edges, curves); a real sheet PDF
+carries the clip; the `Z_BLOCK_STACK` value and step were ratified at plan approval
+(`constants.py` owns them).
+
+## As built (2026-11-05)
+
+- **Mask:** `render_op.ops_mask` flattens and snaps ink to a grid of 1/`_MASK_FLATTEN` mm, strokes
+  it at `MASK_GAP_MM`, keeps outer rings and fills them. A finer grid moved ZW4000G's area 8%
+  under pure translation (Qt clipper noise). Measured over 68 definitions of the user's project
+  and the shipped blocks against a raster ground truth: within 5%, or a resolution outlier on a
+  shape under 12 mm2. The outset is half `MASK_GAP_MM` and scales with the pose. Ink wider than
+  `MASK_GAP_MM` pokes out of the mask.
+- **Own fills:** D4 also puts a parent's own fills above its nested blocks, not only lines and text.
+- **Clicks:** in an editor, a block within `HALO_PRIORITY_BAND_PX` of a loose line loses the click
+  to the line even when nearer, because HALO ranks by z inside the band. A click on the hidden
+  part of a hideable item picks the block. Text and filled regions stay clickable.
+- **Rubber band and glow:** D8 governs clicks only. A rubber band across a covered region still
+  selects what is hidden, and a selected hidden block's glow shows through. A selected loose item
+  under a block keeps its grips and shows no highlight in the hidden part.
+- **Previews:** ellipse, spline and in-progress polyline previews are real hideable items, so they
+  vanish under an opaque block while drawn. Rectangle, circle, arc and line previews stay.
+- **Notes:** a framed Note in an editor would be opaque and its Layer Height and Opaque rows are
+  inert. Notes cannot enter an editor through the UI today.
+- **Parent recompile:** `BlockRegistry.invalidate` recompiles a changed definition's users, so a parent's `clip_out` follows a saved child. A bare `set_primitives` on a child does not reach the parent.
 
 ## Acceptance Criteria
 
-- [ ] In a schematic, where block B overlaps block A and B is higher, A's ink in the overlap is not drawn, on canvas, on a sheet and in a PDF export.
-- [ ] Raising A above B reverses that, through the Properties row and through Bring to Front.
-- [ ] Turning Opaque off on B shows A through it.
-- [ ] A text item, dimension or filled region crossing a block stays visible in every case. A line crossing an ordinary block's nested or placed block stays visible.
-- [ ] In a schematic, a loose line, arc or shape under an opaque block is not drawn inside the block's silhouette, on canvas, on a sheet and in a PDF export, and is drawn right up to the outline, including in the corners of the block's bounding box. With Opaque off it shows through.
-- [ ] An opaque block's mask follows its outline when that outline is made of separate open line ops, and is not its bounding box.
-- [ ] In an ordinary block placed in plan, an opaque nested block hides a lower nested block, while the parent's own lines and a pipe under the placement stay visible.
-- [ ] Existing ordinary blocks render unchanged except that their own lines and text now draw above their nested blocks.
-- [ ] An existing schematic renders opaque on open, with no save required.
-- [ ] Layer Height, Opaque and Constraint Points survive save, reopen, copy, paste and undo; absent keys read as defaults.
-- [ ] With Constraint Points off, pick mode offers only `ins`; a constraint already on a child point keeps solving and drawing; object snap still finds the child point.
-- [ ] Constraint Points off on a nested block removes its points from the parent's offered set.
-- [ ] Each Properties change is one undo step and applies to every selected block.
+- [x] In a schematic, where block B overlaps block A and B is higher, A's ink in the overlap is not drawn, on canvas, on a sheet and in a PDF export.
+- [x] Raising A above B reverses that, through the Properties row and through Bring to Front.
+- [x] Turning Opaque off on B shows A through it.
+- [x] A text item, dimension or filled region crossing a block stays visible in every case. A line crossing an ordinary block's nested or placed block stays visible.
+- [x] In a schematic, a loose line, arc or shape under an opaque block is not drawn inside the block's silhouette, on canvas, on a sheet and in a PDF export, and is drawn right up to the outline, including in the corners of the block's bounding box. With Opaque off it shows through.
+- [x] An opaque block's mask follows its outline when that outline is made of separate open line ops, and is not its bounding box.
+- [x] In an ordinary block placed in plan, an opaque nested block hides a lower nested block, while the parent's own lines and a pipe under the placement stay visible.
+- [x] Existing ordinary blocks render unchanged except that their own lines and text now draw above their nested blocks.
+- [x] An existing schematic renders opaque on open, with no save required.
+- [x] Layer Height, Opaque and Constraint Points survive save, reopen, copy, paste and undo; absent keys read as defaults.
+- [x] With Constraint Points off, pick mode offers only `ins`; a constraint already on a child point keeps solving and drawing; object snap still finds the child point.
+- [x] Constraint Points off on a nested block removes its points from the parent's offered set.
+- [x] Each Properties change is one undo step and applies to every selected block.
 
 ## Verification Checklist
 
-- [ ] Every guard drives the real path and asserts rendered pixels or the real offered set (VC3), and is shown RED with the change reverted.
-- [ ] Corner joints and linetypes in blocks with nested children match base.
-- [ ] Mirror and scale variants clip in the right place.
-- [ ] The full suite passes on the final tree (VC6).
-- [ ] The user smokes a real schematic, a sheet PDF and a plan placement.
-- [ ] Perf budgets ratified and met.
+- [x] Every guard drives the real path and asserts rendered pixels or the real offered set (VC3), and is shown RED with the change reverted.
+- [x] Corner joints and linetypes in blocks with nested children match base.
+- [x] Mirror and scale variants clip in the right place.
+- [ ] The full suite passes on the final tree (VC6). *Waived by the user 2026-11-05; keep-green 3,479 passed over 228 files plus the 134 `geometry_2d` test files; 5 failures proved at base `bc039e14`.*
+- [x] The user smokes a real schematic, a sheet PDF and a plan placement.
+- [ ] Perf budgets ratified and met. *Ratified; the bench was waived, see Performance.*
 
 ## Code Style & Testing
 
