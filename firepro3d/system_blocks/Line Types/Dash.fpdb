@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "id": "system-line-types-dash",
+  "version": 6,
+  "name": "Dash",
+  "library": "System",
+  "series": "Line Types",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        50.0,
+        0.0
+      ],
+      "uid": "39300afbccb5408db62daa992941ee77",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "3ea050d64b4d4a47831ac00e55c9f674",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "39300afbccb5408db62daa992941ee77",
+          "h": "edge"
+        }
+      ],
+      "value": 50.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "offset": -13.532019948340292
+      }
+    }
+  ],
+  "tile": null,
+  "repeat": {
+    "length": 75.0,
+    "size": "model"
+  },
+  "base_version": 6,
+  "colour_tokens": 1
+}
