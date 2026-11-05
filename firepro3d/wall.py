@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
-    QPainter,
+    QPainter, QTransform,
 )
 
 if TYPE_CHECKING:
@@ -29,12 +29,13 @@ from .colour_tokens import normalize_colour, resolve_colour
 _DEFAULT_COLOUR = "#cccccc"
 from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR,
-                       WALL_OUTLINE_ON_EDGE_TOL)
+                       WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL)
 from .view_scale import scene_hit_width
 from PyQt6 import sip
-from .wall_outline import (JunctionArm, WallOutline, _poly_path,
+from .wall_outline import (JunctionArm, SeamStroke, WallOutline, _poly_path,
                            boundary_segments, cluster_union, intersect_lines,
-                           junction_pie, stroke_segments, visible_corners)
+                           junction_pie, split_seam, stop_end, stroke_segments,
+                           visible_corners)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -221,6 +222,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         # One cached outline per wall (wall polish D2/D3)
         self._outline: WallOutline | None = None
         self._outline_key: tuple | None = None
+        # (end, its partners, ids of its stop candidates) as last built
+        self._join_tops: tuple = ()
+        self._tee_tops: tuple = ()
         self._outline_ready = True
         self.invalidate_geometry()
 
@@ -383,7 +387,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         u1, u2 = e["tee_union"]
         u1l, u1r = u1 if u1 is not None else (p1l, p1r)
         u2l, u2r = u2 if u2 is not None else (p2l, p2r)
-        union_body = QPolygonF([u1l, u2l, *w2, u2r, u1r, *w1])
+        # A stopping end's union operand overlaps the joined walls with area
+        # (run to the junction), as a coped tee's does.
+        uw1 = e["union_wedge"][0] if e["union_wedge"][0] is not None else w1
+        uw2 = e["union_wedge"][1] if e["union_wedge"][1] is not None else w2
+        union_body = QPolygonF([u1l, u2l, *uw2, u2r, u1r, *uw1])
         for i in (0, 1):
             if e["tee_union"][i] is not None:
                 union_body = self._clip_tee_extension(
@@ -407,8 +415,13 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             faces=((QPointF(p1l), QPointF(p2l)), (QPointF(p1r), QPointF(p2r))),
             caps=tuple(caps),
             centerline=(self.centerline_pt1, self.centerline_pt2),
-            neighbours=tuple(neighbours))
+            neighbours=tuple(neighbours), seams=e["seams"])
         self._outline_key = self._geometry_key()
+        self._join_tops = tuple(
+            (i, mine, self._top_candidate_ids(i, mine))
+            for i, mine in enumerate(e["partners"]) if mine)
+        self._tee_tops = tuple((h, self._tops_differ(h))
+                               for h in e["hosts"] if h is not None)
         # legacy paint-coordination readers
         self._solid_pt1, self._solid_pt2 = e["solid"]
         self._end_wedge_pts1, self._end_wedge_pts2 = w1, w2
@@ -443,6 +456,49 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 w._outline.corners = None
             w.update()
 
+    def _top_candidate_ids(self, end_idx: int, mine: list) -> set[int]:
+        """Identity of this end's stop candidates, for ``_stops_are_stale``."""
+        return {id(w) for w in self._stop_candidates(
+            [(self, end_idx), *mine])[0]}
+
+    def _stops_are_stale(self) -> bool:
+        """True when wall tops now give different stop candidates."""
+        for end_idx, mine, seen in self._join_tops:
+            if any(sip.isdeleted(w) for w, _ep in mine):
+                return True
+            if self._top_candidate_ids(end_idx, mine) != seen:
+                return True
+        return any(sip.isdeleted(h) or self._tops_differ(h) != seen
+                   for h, seen in self._tee_tops)
+
+    @staticmethod
+    def refresh_stale_stops(walls: list["WallSegment"]) -> None:
+        """Rebuild only the walls whose stop changed after a level move.
+
+        Plan geometry reads a wall's height only through the stop decision,
+        so a level edit that changes no decision costs no rebuild.  Every
+        member of a changed junction is itself stale, and a tee's host keeps
+        its body, so one rebuild per wall is enough; there is no fan-out as
+        in ``invalidate_geometry``.
+        Only those bodies move and a level edit changes no wall's neighbours,
+        so this clears the same stale walls and neighbours of neighbours as
+        ``invalidate_geometry``.
+        """
+        stale = [w for w in walls
+                 if not sip.isdeleted(w) and w._stops_are_stale()]
+        for w in stale:
+            w._rebuild_outline()
+        touched = {id(w): w for w in stale}
+        for w in stale:
+            for n in w._outline.neighbours:
+                if not sip.isdeleted(n):
+                    touched[id(n)] = n
+        for w in touched.values():
+            if w._outline is not None:
+                w._outline.stroke_segments = None
+                w._outline.corners = None
+            w.update()
+
     def outline_geometry(self) -> WallOutline:
         """The cached outline without strokes (bodies, faces, caps)."""
         if self._outline is None or self._outline_key != self._geometry_key():
@@ -459,9 +515,67 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 if not sip.isdeleted(w):
                     polys.append(w.outline_geometry().union_body)
             boundary = boundary_segments(cluster_union(polys))
-            o.stroke_segments = stroke_segments(o.body, boundary)
+            o.edge_strokes = stroke_segments(o.body, boundary)
+            o.seam_strokes = self._seam_strokes(o)
             o.corners = visible_corners(o.body, boundary)
+            o.stroke_segments = o.edge_strokes + list(o.seams)
         return o
+
+    def _seam_pieces(self, o: WallOutline) -> list[SeamStroke]:
+        """This stopper's seams, split once: the walls involved all read
+        this same split, so no span of a seam can be drawn twice.  A wall
+        that does not list this one back holds no record, so it owns no span:
+        the span would go undrawn whenever that wall paints later."""
+        live = [n for n in o.neighbours if not sip.isdeleted(n)
+                and any(x is self for x in n.outline_geometry().neighbours)]
+        out = []
+        for seam in o.seams:
+            touchers = [(n, stroke_segments(n.outline_geometry().body, [seam]))
+                        for n in live]
+            out += [SeamStroke(line, self, toucher)
+                    for line, toucher in split_seam(seam, touchers)]
+        return out
+
+    def _seam_strokes(self, o: WallOutline) -> list[SeamStroke]:
+        """Seam pieces that may fall to this wall to paint.
+
+        A seam runs between two bodies, so whichever paints later fills over
+        the half of the line on its side.  Each piece therefore belongs to
+        the stopper and the joined wall under it, and only the later of the
+        two draws it (``_paints_seam``): one stroke, over both fills.
+        """
+        out = self._seam_pieces(o)
+        for n in o.neighbours:
+            if not sip.isdeleted(n):
+                g = n.outline_geometry()
+                if g.seams:
+                    out += [s for s in n._seam_pieces(g) if s.toucher is self]
+        return out
+
+    def _paints_seam(self, s: SeamStroke) -> bool:
+        """True when this wall paints after the other wall under *s*.
+
+        Same-z walls stack by insertion order, which only an add or remove
+        changes, and that rebuilds these strokes; so the answer is found
+        once per pair of z values (the model scene is NoIndex, and a lookup
+        walks every item).
+        """
+        if (s.toucher is None or sip.isdeleted(s.stopper)
+                or sip.isdeleted(s.toucher)):
+            return True
+        key = (s.stopper.zValue(), s.toucher.zValue())
+        if key != s.painter_key:
+            s.painter_key = key
+            a, b = s.line
+            mid = QRectF((a.x() + b.x()) / 2.0 - 1.0,
+                         (a.y() + b.y()) / 2.0 - 1.0, 2.0, 2.0)
+            s.painter = next(
+                (it for it in self.scene().items(
+                    mid, Qt.ItemSelectionMode.IntersectsItemBoundingRect,
+                    Qt.SortOrder.DescendingOrder, QTransform())
+                 if it is s.stopper or it is s.toucher),
+                s.stopper)
+        return s.painter is self
 
     def snap_geometry(self) -> dict:
         """Snap targets from the cached outline (design D10; named targets
@@ -543,12 +657,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Paint ────────────────────────────────────────────────────────────────
 
+    def _line_colour(self) -> QColor:
+        """Resolved outline colour."""
+        dc = self._display_color            # None = unset; "" = No stroke
+        return resolve_colour(self._colour if dc is None else dc, item=self)
+
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
         o = self.outline()
-        dc = self._display_color            # None = unset; "" = No stroke
-        line_col = resolve_colour(self._colour if dc is None else dc, item=self)
+        line_col = self._line_colour()
         pen = self._outline_pen(line_col)
 
         # Fill (own body only -- D7: differing fills meet at the miter)
@@ -599,8 +717,14 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         # (D6) -- no seam line inside a joined junction.
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for a, b in o.stroke_segments:
+        for a, b in o.edge_strokes:
             painter.drawLine(a, b)
+        # A stop's seam: always the stopper's pen, whichever wall paints it.
+        for s in o.seam_strokes:
+            if self._paints_seam(s):
+                stopper = s.stopper
+                painter.setPen(stopper._outline_pen(stopper._line_colour()))
+                painter.drawLine(*s.line)
 
         # Selection highlight -- same pieces (Task 6 gates it off paper)
         if shows_selection(self):
@@ -1351,6 +1475,12 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             return ccw, cw, hub          # (p1l, p1r)
         return cw, ccw, hub              # (p2l, p2r)
 
+    def _tops_differ(self, other: "WallSegment") -> bool:
+        """True when both tops are known and differ (R8)."""
+        mine, theirs = self.z_range_mm(), other.z_range_mm()
+        return (mine is not None and theirs is not None
+                and abs(mine[1] - theirs[1]) > WALL_JOIN_TOP_TOL_MM)
+
     def _tee_host(self, my_pt: QPointF, walls) -> "WallSegment | None":
         """Nearest wall whose centerline passes within its half thickness
         (+ ``MITER_TOL``) of *my_pt*, away from that wall's own ends."""
@@ -1390,6 +1520,125 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                                              true_centerline=True) is not None:
                 return True
         return False
+
+    def _junction_stops(self, my_idx: int, mine: list) -> list["WallSegment"]:
+        """Walls that stop at this junction; [] for a plain join.
+
+        Every member computes the same answer: the rule reads only the
+        member set, never which member is asking.
+
+        Args:
+            my_idx: This wall's end at the junction.
+            mine: Endpoint partners as ``(wall, endpoint_idx)``.
+
+        Returns:
+            Butt walls plus lower Auto walls, or [] when too few walls
+            would stay joined.
+        """
+        members = [(self, my_idx), *mine]
+
+        def valid(stops):
+            left = len(members) - len(stops)
+            return bool(stops) and left >= (1 if len(members) == 2 else 2)
+
+        for candidate in self._stop_candidates(members):
+            if valid(candidate) and self._stops_fit(members, candidate):
+                return candidate
+        return []
+
+    def _stop_candidates(self, members: list) -> tuple[list, list]:
+        """``(butts + lower Auto walls, butts)``, before any geometry check.
+
+        Only the first list can move with wall tops; a level edit cannot
+        change whether a stop fits, so this is all it needs to compare.
+        """
+        def raw(wall, ep):
+            return wall._join_mode_pt1 if ep == 0 else wall._join_mode_pt2
+
+        butts = [w for w, ep in members if raw(w, ep) == "Butt"]
+        lower = self._lower_auto_walls(members, raw)
+        return (butts + [w for w in lower if not any(w is b for b in butts)],
+                butts)
+
+    @staticmethod
+    def _stops_fit(members: list, stops: list) -> bool:
+        """True when every wall can take its part of the stop.
+
+        Decided once for the whole junction, so a stop never lands on one
+        wall only: a stop that does not fit leaves today's join.
+        """
+        joined = [m for m in members if not any(m[0] is w for w in stops)]
+        clamp = MAX_MITER_FACTOR * max(
+            w.half_thickness_scene() for w, _ep in members)
+
+        def end_pt(wall, ep):
+            return wall._pt1 if ep == 0 else wall._pt2
+
+        for wall, ep in members:
+            if (any(wall is w for w in stops)
+                    and wall._stop_corners(ep, end_pt(wall, ep), joined,
+                                           wall.quad_points(), clamp) is None):
+                return False
+        if len(members) == 2:
+            wall, ep = joined[0]
+            return wall._tee_cope_corners(
+                ep, end_pt(wall, ep), stops[0], wall.quad_points(), clamp,
+                far=True) is not None
+        if len(joined) == 2:
+            (a, a_ep), (b, b_ep) = joined
+            for wall, ep, other, other_ep in ((a, a_ep, b, b_ep),
+                                              (b, b_ep, a, a_ep)):
+                corners = wall._mitre_corners(ep, other, other_ep,
+                                              wall.quad_points())
+                if corners is None:
+                    continue    # a straight run needs no mitre
+                pt = end_pt(wall, ep)
+                limit = MAX_MITER_FACTOR * wall.half_thickness_scene()
+                if any(math.hypot(c.x() - pt.x(), c.y() - pt.y()) >= limit
+                       for c in corners):
+                    return False
+        if len(joined) >= 3:
+            for wall, ep in joined:
+                others = [m for m in joined if m[0] is not wall]
+                limit = MAX_MITER_FACTOR * wall.half_thickness_scene()
+                if wall._pie_corners(ep, end_pt(wall, ep), others,
+                                     limit) is None:
+                    return False
+        return True
+
+    @staticmethod
+    def _lower_auto_walls(members: list, raw) -> list["WallSegment"]:
+        """Auto walls below the highest top; [] when the height rule is off.
+
+        Three or more walls need two at the highest top.  Unknown tops
+        (no level manager) switch the rule off.
+        """
+        ranges = [w.z_range_mm() for w, _ep in members]
+        if any(r is None for r in ranges):
+            return []
+        top = max(r[1] for r in ranges)
+        tall = sum(1 for r in ranges if r[1] >= top - WALL_JOIN_TOP_TOL_MM)
+        if tall == len(members) or (len(members) >= 3 and tall < 2):
+            return []
+        return [w for (w, ep), r in zip(members, ranges)
+                if r[1] < top - WALL_JOIN_TOP_TOL_MM and raw(w, ep) == "Auto"]
+
+    def _stop_corners(self, my_idx: int, my_pt: QPointF, joined: list, quad,
+                      clamp: float):
+        """Stop this end on *joined*: ``(left, right, wedge)`` or None."""
+        if len(joined) == 1:
+            tee = self._tee_cope_corners(my_idx, my_pt, joined[0][0], quad,
+                                         clamp)
+            return None if tee is None else (tee[0], tee[1], [])
+        arm = self._junction_arm(my_idx)
+        arms = [w._junction_arm(ep) for w, ep in joined]
+        if arm is None or any(a is None for a in arms):
+            return None
+        res = stop_end(arm, arms, my_pt, clamp)
+        if res is None:
+            return None
+        ccw, cw, ends = res
+        return (ccw, cw, ends) if my_idx == 0 else (cw, ccw, ends)
 
     def _tee_union_end(self, host: "WallSegment", quad):
         """Union-only end for a coped tee (G0): this wall's face lines run
@@ -1481,7 +1730,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         ``wedge`` (2 vertex lists), ``partners`` (2 lists of
         ``(wall, endpoint_idx)``), ``hosts`` (tee host per end or None, found
         whenever an end has no endpoint partner), ``tee_union`` (union-only
-        end corners per coped tee end or None) and ``pool``.
+        end corners per coped tee end or None), ``pool``, ``union_wedge``
+        and ``seams``.
         """
         p1l, p1r, p2r, p2l = self.quad_points()
         solid = [False, False]
@@ -1489,6 +1739,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         partners: list[list] = [[], []]
         hosts: list = [None, None]
         tee_union: list = [None, None]
+        union_wedge: list = [None, None]
+        seams: list = []
         pool = self._join_pool(extra)
 
         if pool:
@@ -1505,9 +1757,47 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
                 raw_mode = (self._join_mode_pt1 if my_idx == 0
                             else self._join_mode_pt2)
-                if raw_mode == "Auto" and len(mine) >= 2:
+                active = mine
+                stops = self._junction_stops(my_idx, mine) if mine else []
+                if stops:
+                    members = [(self, my_idx), *mine]
+                    joined = [m for m in members
+                              if not any(m[0] is w for w in stops)]
+                    clamp = MAX_MITER_FACTOR * max(
+                        w.half_thickness_scene() for w, _ep in members)
+                    quad = (p1l, p1r, p2r, p2l)
+                    if any(self is w for w in stops):
+                        res = self._stop_corners(my_idx, my_pt, joined, quad,
+                                                 clamp)
+                        if res is not None:
+                            int_l, int_r, ends = res
+                            if my_idx == 0:
+                                p1l, p1r = int_l, int_r
+                            else:
+                                p2l, p2r = int_l, int_r
+                            solid[my_idx] = True
+                            wedge[my_idx] = ends
+                            union_wedge[my_idx] = [QPointF(my_pt)]
+                            chain = [int_l, *ends, int_r]
+                            seams.extend(zip(chain, chain[1:]))
+                        continue
+                    active = [m for m in joined if m[0] is not self]
+                    if len(members) == 2:
+                        # Lone joined wall runs to the stopper's far face
+                        far = self._tee_cope_corners(
+                            my_idx, my_pt, stops[0], quad, clamp, far=True)
+                        if far is not None:
+                            int_l, int_r = far
+                            if my_idx == 0:
+                                p1l, p1r = int_l, int_r
+                            else:
+                                p2l, p2r = int_l, int_r
+                            solid[my_idx] = True
+                        continue
+
+                if raw_mode in ("Auto", "Solid") and len(active) >= 2:
                     # 3+ walls: full pie (D5); degenerate -> Butt
-                    pie = self._pie_corners(my_idx, my_pt, mine, MAX_MITER)
+                    pie = self._pie_corners(my_idx, my_pt, active, MAX_MITER)
                     if pie is not None:
                         int_l, int_r, hub = pie
                         if my_idx == 0:
@@ -1518,8 +1808,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                         wedge[my_idx] = [hub]
                     continue
 
-                if raw_mode == "Auto" and not mine:
-                    # Tee join: cope to the host's near face (any angle)
+                if raw_mode in ("Auto", "Butt") and not mine:
+                    # Tee join: cope to the host's near face (any angle);
+                    # a seam on Butt or where the tops differ (R8, R9)
                     host = hosts[my_idx]
                     quad = (p1l, p1r, p2r, p2l)
                     tee = (self._tee_cope_corners(my_idx, my_pt, host, quad,
@@ -1533,26 +1824,19 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                             p2l, p2r = int_l, int_r
                         solid[my_idx] = True
                         tee_union[my_idx] = self._tee_union_end(host, quad)
+                        if raw_mode == "Butt" or self._tops_differ(host):
+                            seams.append((int_l, int_r))
                     continue
 
-                mode = self._resolve_join_mode(my_idx, 1 + len(mine))
-                if mode == "Butt" or not mine:
+                mode = self._resolve_join_mode(my_idx, 1 + len(active))
+                if mode == "Butt" or not active:
                     continue
 
-                other, other_ep = mine[0]
-                o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
-                cross = (my_idx == other_ep)
-                if cross:
-                    left_target = (o_p1r, o_p2r)
-                    right_target = (o_p1l, o_p2l)
-                else:
-                    left_target = (o_p1l, o_p2l)
-                    right_target = (o_p1r, o_p2r)
-                int_l = self._intersect_lines(p1l, p2l,
-                                              left_target[0], left_target[1])
-                int_r = self._intersect_lines(p1r, p2r,
-                                              right_target[0], right_target[1])
-                if int_l is not None and int_r is not None:
+                other, other_ep = active[0]
+                corners = self._mitre_corners(my_idx, other, other_ep,
+                                              (p1l, p1r, p2r, p2l))
+                if corners is not None:
+                    int_l, int_r = corners
                     dist_l = math.hypot(int_l.x() - my_pt.x(),
                                         int_l.y() - my_pt.y())
                     dist_r = math.hypot(int_r.x() - my_pt.x(),
@@ -1569,16 +1853,37 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 "wedge": (wedge[0], wedge[1]),
                 "partners": (partners[0], partners[1]),
                 "hosts": (hosts[0], hosts[1]),
-                "tee_union": (tee_union[0], tee_union[1]), "pool": pool}
+                "tee_union": (tee_union[0], tee_union[1]), "pool": pool,
+                "union_wedge": (union_wedge[0], union_wedge[1]),
+                "seams": tuple(seams)}
+
+    def _mitre_corners(self, my_idx: int, other, other_ep: int, quad):
+        """Two-wall mitre corners ``(left, right)``, unclamped.
+
+        None when a pair of faces is parallel (a straight run).
+        """
+        p1l, p1r, p2r, p2l = quad
+        o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
+        if my_idx == other_ep:
+            left_target, right_target = (o_p1r, o_p2r), (o_p1l, o_p2l)
+        else:
+            left_target, right_target = (o_p1l, o_p2l), (o_p1r, o_p2r)
+        int_l = self._intersect_lines(p1l, p2l, *left_target)
+        int_r = self._intersect_lines(p1r, p2r, *right_target)
+        if int_l is None or int_r is None:
+            return None
+        return int_l, int_r
 
     def _tee_cope_corners(self, my_idx: int, my_pt: QPointF, host,
-                          quad, max_miter: float):
+                          quad, max_miter: float, far: bool = False):
         """Cope an endpoint that tees into *host* mid-span.
 
         Both of this wall's face lines are intersected with the host's
         *near* face (the face on this wall's body side), so the end hugs
         the host face at any angle.  Works for endpoints on the host
         centerline (tee snap) and for legacy endpoints snapped to the face.
+        With *far* the host's other face is used instead, so a wall that
+        another wall stops on runs across that wall's end.
 
         Returns ``(int_left, int_right)`` or ``None`` (ref on the host
         centerline, parallel faces, or miter beyond the clamp).
@@ -1593,6 +1898,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if abs(s_ref) < 1e-9:
             return None    # running along the host — no usable cope
         sign = 1.0 if s_ref > 0 else -1.0
+        if far:
+            sign = -sign
         o_p1l, o_p1r, o_p2r, o_p2l = host.quad_points()
         s_l = hdx * (o_p1l.y() - hay) - hdy * (o_p1l.x() - hax)
         s_r = hdx * (o_p1r.y() - hay) - hdy * (o_p1r.x() - hax)

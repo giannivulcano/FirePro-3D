@@ -37,6 +37,25 @@ class JunctionArm:
 
 
 @dataclass
+class SeamStroke:
+    """One piece of a stop's seam and the two walls whose fills meet there.
+
+    Attributes:
+        line: The piece, on the toucher's own body edge when it has one.
+        stopper: The wall that stops; its pen draws the piece.
+        toucher: The joined wall under the piece, or None when no joined
+            wall reaches it (the stopper then draws it).
+        painter_key: The two walls' z values when ``painter`` was found.
+        painter: Whichever of the two paints last.
+    """
+    line: Line
+    stopper: object
+    toucher: object | None
+    painter_key: tuple[float, float] | None = None
+    painter: object | None = None
+
+
+@dataclass
 class WallOutline:
     """One wall's cached outline (design D2).
 
@@ -51,7 +70,12 @@ class WallOutline:
         caps: End edges on free ends only.
         centerline: True alignment-correct centerline (pt1, pt2).
         neighbours: Walls whose union bodies shape this outline.
-        stroke_segments: Outline pieces this wall strokes (lazy).
+        seams: Contact edges of stopping ends; always stroked.
+        stroke_segments: Outline pieces this wall strokes, seams included
+            (lazy; the selection highlight reads it).
+        edge_strokes: ``stroke_segments`` without the seams (lazy).
+        seam_strokes: Seam pieces this wall may have to paint, its own and
+            those of stoppers lying on its edges (lazy).
         corners: Visible outline corners on this wall (lazy).
     """
     body: QPolygonF
@@ -63,7 +87,10 @@ class WallOutline:
     caps: tuple[Line, ...]
     centerline: Line
     neighbours: tuple
+    seams: tuple[Line, ...] = ()
     stroke_segments: list[Line] | None = None
+    edge_strokes: list[Line] | None = None
+    seam_strokes: list[SeamStroke] | None = None
     corners: list[QPointF] | None = None
 
 
@@ -141,6 +168,78 @@ def junction_pie(arms: list[JunctionArm], junction: QPointF,
     hub = QPointF(sum(p.x() for p in pts) / len(pts),
                   sum(p.y() for p in pts) / len(pts))
     return {order[i].key: (ccw_c[i], cw_c[i]) for i in keep}, hub
+
+
+def _ray_hit(line: Line, origin: QPointF, ux: float, uy: float):
+    """Where *line* meets the ray from *origin* along (ux, uy), or None."""
+    far = QPointF(origin.x() + ux, origin.y() + uy)
+    hit = intersect_lines(line[0], line[1], origin, far)
+    if hit is None:
+        return None
+    t = (hit.x() - origin.x()) * ux + (hit.y() - origin.y()) * uy
+    return hit if t >= -1e-9 else None
+
+
+def stop_end(stopper: JunctionArm, joined: list[JunctionArm],
+             junction: QPointF, max_miter: float):
+    """Trim a stopping arm to the outer boundary of the joined arms.
+
+    The stopper sits in the sector between two neighbouring joined arms.
+    That sector's boundary is two rays from their shared corner, each
+    running along an arm's face.  Each stopper face runs to the hit farthest
+    out along the stopper, so the end hugs the corner at any angle.
+
+    Args:
+        stopper: The arm that stops.
+        joined: Two or more arms that stay joined.
+        junction: The shared endpoint.
+        max_miter: A hit this far or farther from the junction aborts.
+
+    Returns:
+        ``(ccw_hit, cw_hit, wedge)``, wedge being ``[corner]`` when the
+        faces land on different rays and ``[]`` otherwise; or None.
+    """
+    def angle(arm: JunctionArm) -> float:
+        return math.atan2(arm.uy, arm.ux)
+
+    order = sorted(joined, key=angle)
+    mine = angle(stopper)
+    idx = next((i for i, a in enumerate(order) if angle(a) > mine), 0)
+    b = order[idx]
+    a = order[idx - 1]
+    corner = intersect_lines(*a.ccw_face, *b.cw_face)
+    origin_a = corner if corner is not None else _foot(junction, *a.ccw_face)
+    origin_b = corner if corner is not None else _foot(junction, *b.cw_face)
+    rays = ((origin_a, a.ux, a.uy), (origin_b, b.ux, b.uy))
+
+    def land(face: Line):
+        best, best_ray, best_t = None, None, -math.inf
+        for i, (origin, ux, uy) in enumerate(rays):
+            hit = _ray_hit(face, origin, ux, uy)
+            if hit is None:
+                continue
+            t = ((hit.x() - junction.x()) * stopper.ux
+                 + (hit.y() - junction.y()) * stopper.uy)
+            if t > best_t:
+                best, best_ray, best_t = hit, i, t
+        return best, best_ray
+
+    ccw_hit, ccw_ray = land(stopper.ccw_face)
+    cw_hit, cw_ray = land(stopper.cw_face)
+    if ccw_hit is None or cw_hit is None:
+        return None
+    for hit in (ccw_hit, cw_hit):
+        if math.hypot(hit.x() - junction.x(),
+                      hit.y() - junction.y()) >= max_miter:
+            return None
+    wedge: list[QPointF] = []
+    if corner is not None and ccw_ray != cw_ray:
+        off_ccw = math.hypot(ccw_hit.x() - corner.x(),
+                             ccw_hit.y() - corner.y())
+        off_cw = math.hypot(cw_hit.x() - corner.x(), cw_hit.y() - corner.y())
+        if min(off_ccw, off_cw) > WALL_OUTLINE_ON_EDGE_TOL:
+            wedge = [QPointF(corner)]
+    return ccw_hit, cw_hit, wedge
 
 
 def _poly_path(poly: QPolygonF) -> QPainterPath:
@@ -267,6 +366,52 @@ def stroke_segments(body: QPolygonF, boundary: list[Line],
         for lo, hi in merged:
             out.append((QPointF(p.x() + ux * lo, p.y() + uy * lo),
                         QPointF(p.x() + ux * hi, p.y() + uy * hi)))
+    return out
+
+
+def split_seam(seam: Line, touchers: list, min_seg: float = WALL_OUTLINE_MIN_SEG):
+    """Share a seam out so that every span of it is owned once.
+
+    Args:
+        seam: The whole seam.
+        touchers: ``(toucher, pieces)`` pairs in priority order, *pieces*
+            being that toucher's spans of the seam.
+        min_seg: Spans shorter than this are dropped.
+
+    Returns:
+        ``(line, toucher)`` pairs: each span goes to the first toucher lying
+        on it, and what no toucher reaches comes back with ``None``.
+    """
+    a, b = seam
+    length = math.hypot(b.x() - a.x(), b.y() - a.y())
+    if length == 0.0:
+        return []
+    ux, uy = (b.x() - a.x()) / length, (b.y() - a.y()) / length
+
+    def at(t: float) -> QPointF:
+        return QPointF(a.x() + ux * t, a.y() + uy * t)
+
+    def param(p: QPointF) -> float:
+        return (p.x() - a.x()) * ux + (p.y() - a.y()) * uy
+
+    free = [(0.0, length)]
+    out = []
+    for toucher, pieces in touchers:
+        for p, q in pieces:
+            lo, hi = sorted((param(p), param(q)))
+            left = []
+            for f_lo, f_hi in free:
+                s, e = max(f_lo, lo), min(f_hi, hi)
+                if e - s < min_seg:
+                    left.append((f_lo, f_hi))
+                    continue
+                out.append(((at(s), at(e)), toucher))
+                if s - f_lo >= min_seg:
+                    left.append((f_lo, s))
+                if f_hi - e >= min_seg:
+                    left.append((e, f_hi))
+            free = left
+    out.extend(((at(lo), at(hi)), None) for lo, hi in free)
     return out
 
 

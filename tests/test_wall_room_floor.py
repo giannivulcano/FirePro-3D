@@ -442,14 +442,16 @@ class TestThreeWallJunctionMiter:
                 assert _path_area(overlap) < 1.0, (i, j)
 
     def test_explicit_butt_respected(self, scene):
+        """Butt at 3+ walls stops the wall on the others (2026-11-04);
+        it no longer sits flat at the junction overlapping them."""
         h, v, d = self._junction(scene)
         d._join_mode_pt1 = "Butt"
         raw = d.quad_points()
-        quad, s1, _s2, w1, _w2 = d._compute_mitered_quad()
-        _pt_approx(quad[0], raw[0])
-        _pt_approx(quad[1], raw[1])
-        assert s1 is False
-        assert w1 == []
+        quad, s1, _s2, _w1, _w2 = d._compute_mitered_quad()
+        assert (quad[0].x(), quad[0].y()) != (raw[0].x(), raw[0].y())
+        assert s1 is True
+        assert d.outline().seams
+        assert not h.outline().seams and not v.outline().seams
 
     def test_four_way_cross_explicit_butt_stays_butt(self, scene):
         """D5 retired the 4-way Auto Butt (see TestNWayJunction); explicit
