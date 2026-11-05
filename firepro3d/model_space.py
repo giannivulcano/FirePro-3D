@@ -221,6 +221,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def __init__(self, scene_role: str = "plan"):
         super().__init__()
         self.scene_role = scene_role
+        self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
         # ET1 spec C: items whose last paint drew a Fixed-size end at the
         # screen factor (their scene bounds follow the view zoom).
         self._screen_end_items = weakref.WeakSet()
@@ -2878,7 +2879,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                              level: str | None = None, uid: str | None = None,
                              overrides: dict | None = None, mirrored: bool = False,
                              scale: float = 1.0, level_offset_mm: float = 0.0,
-                             host: dict | None = None, note: dict | None = None):
+                             host: dict | None = None, note: dict | None = None,
+                             layer_height: int = 0, opaque: bool | None = None,
+                             constraint_points_off: bool = False):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2898,6 +2901,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 None.
             note: A Note record (text-leader-annotations D8): owning view, box
                 and leader. None for every ordinary block.
+            layer_height: Stacking height in a ``block_editor`` scene (block
+                stacking D6); ignored for z elsewhere.
+            opaque: This placement's Opaque value; None takes the scene's
+                ``opaque_blocks`` default (D3).
+            constraint_points_off: Child constraint points are not offered
+                for new picks (D10).
         """
         import copy
         from .block_instance import BlockInstance
@@ -2931,6 +2940,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             inst.setVisible(False)   # hosted: section-only from birth (D11); LevelManager keeps it so
         self.addItem(inst)
         self._block_instances.append(inst)
+        inst.layer_height = layer_height
+        inst._opaque = opaque
+        inst.constraint_points_off = constraint_points_off
+        inst.apply_stack_z()
         # Backref only when the definition lives in THIS scene's own store: a
         # Block Editor resolves through the borrowed project registry, and its
         # instances repaint via registry.invalidate (it walks attached scenes).

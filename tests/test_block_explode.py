@@ -559,9 +559,9 @@ def test_a_line_only_block_resolves_when_it_is_nearest(qapp, monkeypatch):
     proj, w, es = _shown_editor(b)
     try:
         inst = es.place_block_instance(b.id, (0.0, 0.0))
-        loose = LineItem(QPointF(0, 20), QPointF(100, 20))
+        loose = LineItem(QPointF(0, 40), QPointF(100, 40))
         es.addItem(loose); es._draw_lines.append(loose)
-        pt = QPointF(50, 5.0)                                  # 5 mm from block, 15 from line
+        pt = QPointF(50, 5.0)    # 5 mm from block, 35 from line: outside HALO_PRIORITY_BAND_PX, since block z (-40) now ranks under a line inside it
         assert es._find_entity_at(pt) is inst
         labels = _right_click(w, pt, monkeypatch)
         assert inst.isSelected() and {"Edit Block", "Explode"} <= labels

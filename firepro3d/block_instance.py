@@ -32,6 +32,7 @@ from . import linetype_render as _lr
 from . import paper_display as _pd
 from . import theme as _theme
 from .block_definition import BlockDefinition
+from .block_stack import clamp_layer_height, stack_z
 from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver
@@ -147,6 +148,9 @@ class BlockInstance(QGraphicsObject):
         self._pose_rot = 0.0   # Y-up CCW degrees
         self._pose_mirrored = False   # local x -> -x, innermost (design DD2)
         self._pose_scale = 1.0        # uniform, > 0
+        self.layer_height: int = 0                 # block stacking D6
+        self._opaque: Optional[bool] = None        # None = the context default (D3)
+        self.constraint_points_off: bool = False   # D10: new picks see ``ins`` only
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
         self._nested_handles_cache = None  # (ops, mirrored, scale, table) — sketch_adapters._nested_table
@@ -606,6 +610,47 @@ class BlockInstance(QGraphicsObject):
     def block_pos(self) -> tuple[float, float]:
         return (self._pose_x, self._pose_y)
 
+    # -- Stacking (block stacking D3 / D6) ------------------------------------
+    def in_stack_scene(self) -> bool:
+        """True in a ``block_editor`` scene: the only place blocks stack (D7)."""
+        return getattr(self.scene(), "scene_role", None) == "block_editor"
+
+    def apply_stack_z(self) -> None:
+        """Seat this block in the block band. A plan block, a ghost and a Note
+        keep their own z."""
+        if self.in_stack_scene() and not self.note:
+            self.setZValue(stack_z(self.layer_height))
+
+    def set_layer_height(self, height) -> None:
+        self.layer_height = clamp_layer_height(height)
+        self.apply_stack_z()
+
+    def is_opaque(self) -> bool:
+        """This placement's Opaque value: its own, else the context default."""
+        if self._opaque is not None:
+            return self._opaque
+        return bool(getattr(self.scene(), "opaque_blocks", False))
+
+    def set_opaque(self, value: bool) -> None:
+        """Set Opaque; the context default stores None so the record stays
+        clean and a paste takes its new context's default (D14)."""
+        self.prepareGeometryChange()               # the HALO interior changes (D8)
+        self._opaque = None
+        if bool(value) != self.is_opaque():
+            self._opaque = bool(value)
+        self.update()
+
+    def _stack_fields(self) -> dict:
+        """The optional record keys (D14): only what is not a default."""
+        d: dict = {}
+        if self.layer_height:
+            d["layer_height"] = self.layer_height
+        if self._opaque is not None:
+            d["opaque"] = self._opaque
+        if self.constraint_points_off:
+            d["constraint_points_off"] = True
+        return d
+
     def to_nested_dict(self) -> dict:
         """Record for this instance nested inside a definition (no level — C3).
 
@@ -621,6 +666,7 @@ class BlockInstance(QGraphicsObject):
             d["scale"] = self._pose_scale
         if not is_as_authored(self.overrides):
             d["overrides"] = dict(self.overrides)
+        d.update(self._stack_fields())
         return d
 
     def set_block_rotation(self, deg: float) -> None:
@@ -1982,6 +2028,7 @@ class BlockInstance(QGraphicsObject):
             d["host"] = dict(self.host)
         if self.note:
             d["note"] = copy.deepcopy(self.note)
+        d.update(self._stack_fields())
         return d
 
     @classmethod
@@ -2002,6 +2049,9 @@ class BlockInstance(QGraphicsObject):
         if data.get("host"):
             inst.host = dict(data["host"])
         inst.note = copy.deepcopy(data["note"]) if data.get("note") else None
+        inst.layer_height = clamp_layer_height(data.get("layer_height", 0))
+        inst._opaque = data["opaque"] if isinstance(data.get("opaque"), bool) else None
+        inst.constraint_points_off = data.get("constraint_points_off") is True
         return inst
 
     @classmethod
@@ -2026,4 +2076,7 @@ class BlockInstance(QGraphicsObject):
                 "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
                 "overrides": rec.get("overrides"),
                 "host": rec.get("host"),
-                "note": rec.get("note")}
+                "note": rec.get("note"),
+                "layer_height": clamp_layer_height(rec.get("layer_height", 0)),
+                "opaque": rec["opaque"] if isinstance(rec.get("opaque"), bool) else None,
+                "constraint_points_off": rec.get("constraint_points_off") is True}
