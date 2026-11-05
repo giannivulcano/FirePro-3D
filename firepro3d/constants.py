@@ -112,6 +112,7 @@ ANNOT_Z_SNAPPABLE_CLASSES = frozenset({
 # The riser pass-through symbol's QGraphicsItem.data(0) tag: never a snap
 # target (it sat above the z > 150 overlay rule until SB4d pinned it to its pipe).
 RISER_SYMBOL_TAG = "riser_symbol"
+RISER_SYMBOL_SIZE_MM = 150.0   # plan riser symbol, also the section cut symbol
 
 # ── Default gridline geometry ────────────────────────────────────────────────
 DEFAULT_GRIDLINE_SPACING_MM = 7315.2   # 288 in / 24 ft

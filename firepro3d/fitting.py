@@ -279,6 +279,12 @@ class Fitting():
                 best = w
         return best
 
+    @staticmethod
+    def plan_symbol_mm(max_width_mm: float, display_scale: float = 1.0) -> float:
+        """Drawn size of a fitting symbol: Branch (75 mm) -> 150 mm,
+        Main -> 75 x 2 x sqrt 2. One rule for plan and section."""
+        return min(max(max_width_mm, 75.0), 75.0 * _SQRT2) * 2 * display_scale
+
     def update_symbol(self):
 
         # Kill old symbol by just dropping the reference (Qt handles deletion via parent)
@@ -438,8 +444,8 @@ class Fitting():
         # Scale fitting: Branch (75mm) → 150mm, Main → 75×2×√2 ≈ 212mm
         svg_natural = max(bounds.width(), bounds.height())
         if svg_natural > 0:
-            base = min(self._max_connected_width_mm(), 75.0 * _SQRT2)
-            target_mm = base * 2 * self._display_scale
+            target_mm = self.plan_symbol_mm(self._max_connected_width_mm(),
+                                            self._display_scale)
             self.symbol_scale = target_mm / svg_natural
         else:
             self.symbol_scale = 1.0

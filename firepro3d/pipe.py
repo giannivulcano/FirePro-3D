@@ -9,7 +9,8 @@ from .fitting import Fitting
 from .bound_label import BoundLabelItem, TagBlockHost
 
 from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
-                        Z_CAT_PIPE, Z_CAT_SYMBOL, RISER_SYMBOL_TAG)
+                        Z_CAT_PIPE, Z_CAT_SYMBOL, RISER_SYMBOL_TAG,
+                        RISER_SYMBOL_SIZE_MM)
 from .displayable_item import DisplayableItemMixin
 from .assets import asset_path
 from .view_scale import scene_hit_width
@@ -27,7 +28,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
 
     _RISER_SVG = asset_path("fitting_symbols", "riser_passthrough.svg")
-    _RISER_SIZE_MM = 150.0  # fixed symbol size in scene units (mm)
+    _RISER_SIZE_MM = RISER_SYMBOL_SIZE_MM  # fixed symbol size in scene units (mm)
 
     # Hazen-Williams C-factor by pipe material (NFPA 13 Table 22.4.4.8)
     MATERIAL_C_FACTOR: dict[str, int] = {
