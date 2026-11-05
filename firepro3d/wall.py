@@ -224,6 +224,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._outline_key: tuple | None = None
         # (end, its partners, ids of its stop candidates) as last built
         self._join_tops: tuple = ()
+        self._tee_tops: tuple = ()
         self._outline_ready = True
         self.invalidate_geometry()
 
@@ -419,6 +420,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._join_tops = tuple(
             (i, mine, self._top_candidate_ids(i, mine))
             for i, mine in enumerate(e["partners"]) if mine)
+        self._tee_tops = tuple((h, self._tops_differ(h))
+                               for h in e["hosts"] if h is not None)
         # legacy paint-coordination readers
         self._solid_pt1, self._solid_pt2 = e["solid"]
         self._end_wedge_pts1, self._end_wedge_pts2 = w1, w2
@@ -465,7 +468,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 return True
             if self._top_candidate_ids(end_idx, mine) != seen:
                 return True
-        return False
+        return any(sip.isdeleted(h) or self._tops_differ(h) != seen
+                   for h, seen in self._tee_tops)
 
     @staticmethod
     def refresh_stale_stops(walls: list["WallSegment"]) -> None:
@@ -473,8 +477,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         Plan geometry reads a wall's height only through the stop decision,
         so a level edit that changes no decision costs no rebuild.  Every
-        member of a changed junction is itself stale, so one rebuild per
-        wall is enough; there is no fan-out as in ``invalidate_geometry``.
+        member of a changed junction is itself stale, and a tee's host keeps
+        its body, so one rebuild per wall is enough; there is no fan-out as
+        in ``invalidate_geometry``.
         Only those bodies move and a level edit changes no wall's neighbours,
         so this clears the same stale walls and neighbours of neighbours as
         ``invalidate_geometry``.
@@ -518,8 +523,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     def _seam_pieces(self, o: WallOutline) -> list[SeamStroke]:
         """This stopper's seams, split once: the walls involved all read
-        this same split, so no span of a seam can be drawn twice."""
-        live = [n for n in o.neighbours if not sip.isdeleted(n)]
+        this same split, so no span of a seam can be drawn twice.  A wall
+        that does not list this one back holds no record, so it owns no span:
+        the span would go undrawn whenever that wall paints later."""
+        live = [n for n in o.neighbours if not sip.isdeleted(n)
+                and any(x is self for x in n.outline_geometry().neighbours)]
         out = []
         for seam in o.seams:
             touchers = [(n, stroke_segments(n.outline_geometry().body, [seam]))
@@ -1467,6 +1475,12 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             return ccw, cw, hub          # (p1l, p1r)
         return cw, ccw, hub              # (p2l, p2r)
 
+    def _tops_differ(self, other: "WallSegment") -> bool:
+        """True when both tops are known and differ (R8)."""
+        mine, theirs = self.z_range_mm(), other.z_range_mm()
+        return (mine is not None and theirs is not None
+                and abs(mine[1] - theirs[1]) > WALL_JOIN_TOP_TOL_MM)
+
     def _tee_host(self, my_pt: QPointF, walls) -> "WallSegment | None":
         """Nearest wall whose centerline passes within its half thickness
         (+ ``MITER_TOL``) of *my_pt*, away from that wall's own ends."""
@@ -1794,8 +1808,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                         wedge[my_idx] = [hub]
                     continue
 
-                if raw_mode == "Auto" and not mine:
-                    # Tee join: cope to the host's near face (any angle)
+                if raw_mode in ("Auto", "Butt") and not mine:
+                    # Tee join: cope to the host's near face (any angle);
+                    # a seam on Butt or where the tops differ (R8, R9)
                     host = hosts[my_idx]
                     quad = (p1l, p1r, p2r, p2l)
                     tee = (self._tee_cope_corners(my_idx, my_pt, host, quad,
@@ -1809,6 +1824,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                             p2l, p2r = int_l, int_r
                         solid[my_idx] = True
                         tee_union[my_idx] = self._tee_union_end(host, quad)
+                        if raw_mode == "Butt" or self._tops_differ(host):
+                            seams.append((int_l, int_r))
                     continue
 
                 mode = self._resolve_join_mode(my_idx, 1 + len(active))

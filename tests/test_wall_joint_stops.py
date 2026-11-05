@@ -551,6 +551,8 @@ _SEAM_CASES = {
                 [(-60.0, HALF), (60.0, HALF)]),
     "corner": ({"L": ((-1500, 0), (0, 0), 0.0), "D": ((0, 0), (0, 1500), LOW)},
                "D", ((-HALF, HALF), (HALF, HALF)), [(0.0, HALF)]),
+    "tee": ({"H": ((0, -1500), (0, 1500), 0.0), "G": ((-1500, 0), (0, 0), LOW)},
+            "G", ((-HALF, -HALF), (-HALF, HALF)), [(-HALF, 60.0)]),
 }
 _SEAM_ORDERS = [(case, order) for case, spec in _SEAM_CASES.items()
                 for order in itertools.permutations(spec[0])]
@@ -710,6 +712,119 @@ def test_split_seam_owns_every_span_once():
     assert owners([(a, lines((20, 40)))]) == [
         ((0, 20), "-"), ((20, 40), "a"), ((40, 100), "-")]
     assert owners([]) == [((0, 100), "-")]
+
+
+# ---------------------------------------------------------------------------
+# Tees: a seam when the tops differ (R8) or on Butt (R9)
+# ---------------------------------------------------------------------------
+
+def _host(s, **kw):
+    return _wall(s, (0, -1500), (0, 1500), **kw)
+
+
+def _guest(s, **kw):
+    return _wall(s, (-1500, 0), (0, 0), **kw)
+
+
+def _max_x(wall):
+    return max(x for x, _y in _pts(wall))
+
+
+def test_lower_tee_wall_draws_a_seam_on_the_host_face(qapp):
+    s = _ms()
+    host, guest = _host(s), _guest(s, top_offset=LOW)
+    assert _max_x(guest) == pytest.approx(-HALF)
+    assert _stroked(guest, -HALF, 0.0), "seam on the host's near face"
+    assert not _stroked(host, -HALF, 0.0), "the guest alone owns the seam"
+    assert _stroked(guest, -800.0, HALF), "far face kept"
+
+
+def test_tee_into_a_lower_host_draws_a_seam(qapp):
+    s = _ms()
+    _host(s, top_offset=LOW)
+    assert _stroked(_guest(s), -HALF, 0.0)
+
+
+def test_equal_height_tee_stays_merged(qapp):
+    s = _ms()
+    _host(s)
+    guest = _guest(s)
+    assert _max_x(guest) == pytest.approx(-HALF)
+    assert not guest.outline().seams
+    assert not _stroked(guest, -HALF, 0.0)
+
+
+def test_butt_on_a_tee_end_copes_and_draws_a_seam(qapp):
+    s = _ms()
+    _host(s)
+    guest = _guest(s, j2="Butt")
+    assert _max_x(guest) == pytest.approx(-HALF), "copes to the near face"
+    assert _stroked(guest, -HALF, 0.0)
+
+
+def test_solid_on_a_tee_end_keeps_its_result(qapp):
+    s = _ms()
+    _host(s)
+    guest = _guest(s, top_offset=LOW, j2="Solid")
+    assert _max_x(guest) == pytest.approx(0.0), "flat at the centerline"
+    assert not guest.outline().seams
+
+
+def test_level_edit_removes_a_tee_seam(qapp):
+    s = _ms()
+    host, guest = _host(s), _guest(s)
+    guest._top_level = "Level 1"
+    guest.invalidate_geometry()
+    assert guest.outline().seams, "precondition: a lower guest"
+    assert host.outline().seam_strokes, "precondition: the host shares it"
+    lm = s._level_manager
+    lm.get("Level 2").elevation = lm.get("Level 1").elevation
+    lm.update_elevations(s)
+    assert not guest.outline().seams
+    assert not host.outline().seam_strokes, "the host dropped the seam too"
+
+
+def test_level_edit_adds_a_tee_seam(qapp):
+    s = _ms()
+    host, guest = _host(s), _guest(s)
+    guest._top_level = "Level 1"
+    lm = s._level_manager
+    level_2 = lm.get("Level 2")
+    raised = level_2.elevation
+    level_2.elevation = lm.get("Level 1").elevation
+    guest.invalidate_geometry()
+    assert not guest.outline().seams, "precondition: equal tops"
+    level_2.elevation = raised
+    lm.update_elevations(s)
+    assert guest.outline().seams
+    assert host.outline().seam_strokes, "the host shares the new seam"
+
+
+def test_level_edit_that_keeps_a_tee_seam_rebuilds_nothing(qapp, monkeypatch):
+    s = _ms()
+    _host(s)
+    guest = _guest(s, top_offset=LOW)
+    rebuilt = _count_rebuilds(monkeypatch)
+    lm = s._level_manager
+    lm.get("Level 2").elevation += 500.0
+    lm.update_elevations(s)
+    assert rebuilt == []
+    assert guest.outline().seams
+
+
+def test_a_seam_survives_a_one_way_neighbour(qapp):
+    # The stopper lists the joined wall, which does not list it back: the
+    # joined wall holds no record, so the seam must not wait on it to paint.
+    s = _ms()
+    guest = _guest(s, top_offset=LOW)
+    host = _host(s)                 # paints last
+    h = host.outline_geometry()
+    h.neighbours = tuple(n for n in h.neighbours if n is not guest)
+    host._outline.stroke_segments = None
+    guest._outline.stroke_segments = None
+    drawn, seam = _drawn_vs_seam(s)
+    assert seam == pytest.approx(2 * HALF)
+    assert drawn == pytest.approx(seam, abs=1e-3)
 
 
 def test_a_seam_on_overlapping_joined_walls_is_drawn_once(qapp):
