@@ -232,6 +232,20 @@ def keep_path(frame: QRectF, cover: QPainterPath) -> QPainterPath:
     return p
 
 
+def keep_frame(painter, item) -> QRectF:
+    """The frame a cover clip keeps, in the item's frame (painter unposed).
+
+    The item's rect is sized at the visible view's zoom; a painter at another
+    zoom (second view, print) scales a Fixed-size pose differently, so the
+    frame also covers the device area.
+    """
+    frame = item.boundingRect()
+    inv, ok = painter.worldTransform().inverted()
+    if ok:
+        frame = frame.united(inv.mapRect(QRectF(painter.viewport())))
+    return frame
+
+
 class ClipRun:
     """Opens one painter clip per run of ops sharing a ``clip_out``.
 
@@ -258,14 +272,8 @@ class ClipRun:
         self.cur = clip
         if clip is not None:
             self._painter.save()
-            # The item's rect is sized at the visible view's zoom; a painter at
-            # another zoom (second view, print) scales a Fixed-size pose
-            # differently, so the kept frame also covers the device area.
-            frame = self._item.boundingRect()
-            inv, ok = self._painter.worldTransform().inverted()
-            if ok:
-                frame = frame.united(inv.mapRect(QRectF(self._painter.viewport())))
-            self._painter.setClipPath(keep_path(frame, self._pose.map(clip)),
+            self._painter.setClipPath(keep_path(keep_frame(self._painter, self._item),
+                                                self._pose.map(clip)),
                                       Qt.ClipOperation.IntersectClip)
 
 

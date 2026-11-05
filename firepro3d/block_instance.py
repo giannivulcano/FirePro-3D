@@ -43,7 +43,7 @@ from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
                             joint_pad, wedge_for_pair)
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
-                        ClipRun, PoseXf as _PoseXf,
+                        ClipRun, PoseXf as _PoseXf, keep_frame, keep_path, ops_mask,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
                         paper_op_width as _paper_op_width_fn,
                         stroke_op as _stroke_op_fn, text_path as _text_path_fn)
@@ -156,6 +156,8 @@ class BlockInstance(QGraphicsObject):
         self._nested_handles_cache = None  # (ops, mirrored, scale, table) — sketch_adapters._nested_table
         self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
+        self._mask_cache = None    # (ops list, pose key, scene mask) -- opaque_mask
+        self._cover_cache = None   # (masks tuple, union) -- _cover_above
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
@@ -640,6 +642,54 @@ class BlockInstance(QGraphicsObject):
             self._opaque = bool(value)
         self.update()
 
+    def opaque_active(self) -> bool:
+        """True when this block hides blocks below it (D1): stacking scenes only."""
+        return self.in_stack_scene() and self.is_opaque()
+
+    def opaque_mask(self) -> QPainterPath:
+        """This block's mask in scene mm (D2), memoised on (compiled ops, full
+        pose). The result object stays the same while valid, which keys
+        ``_cover_above``'s cache."""
+        ops = self.render_ops()
+        key = self._pose_key()
+        c = self._mask_cache
+        if c is None or c[0] is not ops or c[1] != key:
+            c = self._mask_cache = (ops, key, self.pose_transform().map(ops_mask(ops)))
+        return c[2]
+
+    def _cover_above(self) -> "QPainterPath | None":
+        """Union of the opaque masks over this block, scene mm (D1), or None.
+
+        Reads the scene's own stacking order through its spatial index, so the
+        rule matches what paints above. Plan scenes and ghosts return at once.
+        """
+        sc = self.scene()
+        if self._is_ghost or getattr(sc, "scene_role", None) != "block_editor":
+            return None
+        rect = self.sceneBoundingRect()
+        masks = []
+        for it in sc.items(rect, Qt.ItemSelectionMode.IntersectsItemBoundingRect,
+                           Qt.SortOrder.DescendingOrder):
+            if it is self:
+                break
+            if isinstance(it, BlockInstance) and it.isVisible() and it.opaque_active():
+                m = it.opaque_mask()
+                if not it.transform().isIdentity():        # a manipulator's held preview
+                    m = it.sceneTransform().map(m)
+                if m.intersects(rect):
+                    masks.append(m)
+        if not masks:
+            return None
+        c = self._cover_cache
+        if (c is not None and len(c[0]) == len(masks)
+                and all(x is y for x, y in zip(c[0], masks))):
+            return c[1]
+        cover = masks[0]
+        for m in masks[1:]:
+            cover = cover.united(m)
+        self._cover_cache = (tuple(masks), cover)
+        return cover
+
     def _stack_fields(self) -> dict:
         """The optional record keys (D14): only what is not a default."""
         d: dict = {}
@@ -1061,7 +1111,7 @@ class BlockInstance(QGraphicsObject):
         token. Memoised on (compiled ops, full pose).
         """
         ops = self.render_ops()
-        key = self._pose_key()
+        key = self._pose_key() + (self.opaque_active(),)
         c = self._area_cache
         if c is None or c[0] is not ops or c[1] != key:
             area = QPainterPath()
@@ -1092,6 +1142,8 @@ class BlockInstance(QGraphicsObject):
                     p.addPolygon(QPolygonF([full.map(box[i]) for i in (0, 2, 4, 6)]))
                     p.closeSubpath()
                     area = area.united(p)
+            if self.opaque_active():             # D8: an opaque interior is this block
+                area = area.united(self.opaque_mask())
             c = self._area_cache = (ops, key, area)
         return QPainterPath(c[2])
 
@@ -1105,7 +1157,7 @@ class BlockInstance(QGraphicsObject):
         if not ops:
             return QPainterPath(self._posed_path(ops))
         w = scene_hit_width(self, 10.0, 6.0)
-        key = (self._pose_key(), round(w, 6))
+        key = (self._pose_key(), round(w, 6), self.opaque_active())
         c = self._shape_cache
         if c is not None and c[0] is ops and c[1] == key:
             return QPainterPath(c[2])
@@ -1125,6 +1177,24 @@ class BlockInstance(QGraphicsObject):
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):
+        cover = self._cover_above()
+        if cover is None:
+            self._paint_ops_all(painter)
+            return
+        if not self.transform().isIdentity():
+            inv, ok = self.sceneTransform().inverted()
+            if ok:
+                cover = inv.map(cover)
+        painter.save()
+        try:
+            # Painter is unposed here: the world transform is the item's own.
+            painter.setClipPath(keep_path(keep_frame(painter, self), cover),
+                                Qt.ClipOperation.IntersectClip)
+            self._paint_ops_all(painter)
+        finally:
+            painter.restore()
+
+    def _paint_ops_all(self, painter):
         frame_k = _an.frame_scaled(self)        # SB1c D4 (not `fixed`: the linetype loop reuses it)
         pose = self._rigid_pose()
         if frame_k:
