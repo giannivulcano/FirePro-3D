@@ -224,9 +224,7 @@ def ops_mask(ops) -> QPainterPath:
                 continue
             pts = [QPointF(round(poly[i].x()), round(poly[i].y())) for i in range(n)]
             ink.moveTo(pts[0])
-            if n == 1:
-                ink.lineTo(pts[0])                 # a lone point still strokes a dot
-            for q in pts[1:]:
+            for q in pts[1:]:                      # a lone point adds no run: no mask
                 ink.lineTo(q)
             if closed:
                 ink.closeSubpath()

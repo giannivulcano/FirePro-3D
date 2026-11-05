@@ -3,10 +3,10 @@ import pytest
 from PyQt6.QtCore import QPointF, QRectF
 
 from firepro3d.block_definition import BlockDefinition
-from firepro3d.geometry_2d import CircleItem, LineItem
+from firepro3d.geometry_2d import CircleItem, LineItem, RectangleItem
 from firepro3d.constants import MASK_GAP_MM
 from firepro3d.model_space import Model_Space
-from firepro3d.render_op import STROKE, ops_mask
+from firepro3d.render_op import STROKE, TEXT, ops_mask
 from tests._block_stack_helpers import ink, l_def, line_def, rect_def
 
 VIEW = QRectF(-20, -60, 260, 180)
@@ -60,6 +60,34 @@ def test_open_geometry_has_no_bounding_box_fallback(sc):
     assert m.contains(QPointF(50, 0)) and m.contains(QPointF(0, 50))     # the lines themselves
     assert not m.contains(QPointF(80, 80))                               # the bounding box corner
     assert ops_mask([]).isEmpty()
+
+
+def _text_def(sc, with_rect=False):
+    prims = [{"type": "text", "text": "FPT", "x": 150.0, "y": 20.0, "height_mm": 20.0}]
+    if with_rect:
+        prims.append(RectangleItem(QPointF(0, 0), QPointF(100, 100)).to_dict())
+    d = BlockDefinition.new(name="Txt", library="L", series="", origin=(0.0, 0.0),
+                            primitives=prims)
+    sc.register_block_definition(d)
+    return d
+
+
+def test_text_never_counts_toward_the_mask(sc):
+    """A text-only op list, and a definition whose only op is text, mask nothing."""
+    d = _text_def(sc)
+    ops = d.render_ops()
+    assert [op.kind for op in ops] == [TEXT]
+    assert ops_mask(ops).isEmpty()
+    assert d.silhouette().isEmpty()
+
+
+def test_text_beside_a_rect_does_not_widen_its_mask(sc):
+    d = _text_def(sc, with_rect=True)
+    assert TEXT in {op.kind for op in d.render_ops()}
+    m = ops_mask(d.render_ops())
+    assert m.contains(QPointF(50, 50))
+    assert not m.contains(QPointF(150, 30))              # where the glyphs sit
+    assert m.boundingRect().right() < 100 + MASK_GAP_MM
 
 
 def test_a_curved_mask_keeps_its_curve(sc):
