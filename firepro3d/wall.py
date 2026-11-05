@@ -476,8 +476,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         member of a changed junction is itself stale, so one rebuild per
         wall is enough; there is no fan-out as in ``invalidate_geometry``.
         Only those bodies move and a level edit changes no wall's neighbours,
-        so clearing the stale walls and their neighbours covers every stroke
-        that read a moved body.
+        so this clears the same stale walls and neighbours of neighbours as
+        ``invalidate_geometry``.
         """
         stale = [w for w in walls
                  if not sip.isdeleted(w) and w._stops_are_stale()]
