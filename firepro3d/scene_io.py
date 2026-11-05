@@ -197,6 +197,35 @@ class SceneIOMixin:
     # LOAD
     # ------------------------------------------------------------------
 
+    def _refresh_view_head_copies(self) -> int:
+        """Bring the project's Section and Detail head copies up to the seed that
+        binds the view number (SB4f D2), outside undo.
+
+        Untouched (``base_version`` None, or equal to ``version``) and older than
+        the library file -> replaced by the library copy. Edited and still bound
+        to Mark -> kept. ``source_status`` is not used: it reads an edited copy
+        as "library" when the version numbers happen to match.
+
+        Returns:
+            The number of edited copies kept on Mark (one load notice).
+        """
+        from . import block_library
+        from .system_blocks import SYSTEM_DEFAULTS
+        kept = 0
+        for cat in ("Section", "Detail"):
+            bid = SYSTEM_DEFAULTS.get(cat)   # a project's mapping may omit it
+            d = self._block_definitions.get(bid) if bid else None
+            if d is None:
+                continue
+            if d.base_version is None or d.version == d.base_version:
+                lib = block_library.reload_from_library(d)
+                if lib is not None and lib.version > d.version:
+                    lib.base_version = lib.version
+                    self._block_definitions[bid] = lib
+            elif any(a.get("host_key") == "Mark" for a in d.effective_attributes()):
+                kept += 1
+        return kept
+
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
         from .node import Node
@@ -466,6 +495,7 @@ class SceneIOMixin:
             # HF5: a name-duplicate type's id re-points to the kept one (persisted on next save).
             fill_types.canonicalise_records(ddict.get("primitives"))
             self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+        heads_kept = self._refresh_view_head_copies()   # SB4f D2
         from .block_instance import BlockInstance
         orphan_hosts = 0
         for bdict in payload.get("blocks", []):
@@ -572,6 +602,9 @@ class SceneIOMixin:
         msg = f"Loaded from {filename}"
         if orphan_hosts:
             msg += f" -- dropped {orphan_hosts} hosted block(s) whose gridline is missing"
+        if heads_kept:
+            msg += (f" -- {heads_kept} edited section/detail head block(s) keep Mark "
+                    f"in the top slot")
         self._show_status(msg)
         from .system_blocks import ANNOTATION_CATEGORIES
         for _cat in ANNOTATION_CATEGORIES:
