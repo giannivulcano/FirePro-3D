@@ -8696,6 +8696,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             The populated ``QMenu``.
         """
+        from .block_stack import restack
         from .entity_context_menu import build_entity_context_menu
         from .room import Room
 
@@ -8705,6 +8706,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # on the plan too (smoke 1) and opens the block's editor tab.
         can_explode_here = self.scene_role == "block_editor" and (
             is_block or isinstance(target, FilledRegionItem))
+        stack_here = is_block and self.scene_role == "block_editor"   # block stacking D7
+        stack_set = ([b for b in selected if isinstance(b, BlockInstance)]
+                     if target in selected else [target])
         return build_entity_context_menu(
             selected,
             target,
@@ -8744,6 +8748,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 (lambda: self.explode_selected_blocks())
                 if can_explode_here else None
             ),
+            on_bring_to_front=(
+                (lambda: restack(self, stack_set, True)) if stack_here else None),
+            on_send_to_back=(
+                (lambda: restack(self, stack_set, False)) if stack_here else None),
         )
 
     def set_sprinkler_db(self, db):

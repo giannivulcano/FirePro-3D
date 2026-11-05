@@ -1922,6 +1922,15 @@ class BlockInstance(QGraphicsObject):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
+        # Block stacking D6 / D7: editors only; D10: every placement.
+        if self.in_stack_scene():
+            from .constants import LAYER_HEIGHT_MAX, LAYER_HEIGHT_MIN
+            props["Layer Height"] = {"type": "number", "value": self.layer_height,
+                                     "minimum": LAYER_HEIGHT_MIN,
+                                     "maximum": LAYER_HEIGHT_MAX}
+            props["Opaque"] = {"type": "bool", "value": self.is_opaque()}
+        props["Constraint Points"] = {"type": "bool",
+                                      "value": not self.constraint_points_off}
         # A1/D10: a nested child inside the Block Editor carries no instance
         # values (the nested record drops ``attributes``), so the row is off --
         # the scene's can_edit_attributes gate, shared with the context menus.
@@ -2009,6 +2018,7 @@ class BlockInstance(QGraphicsObject):
         rows edit, compared before and after a commit (G9)."""
         return (self.level, self._level_offset_mm, self._pose_rot,
                 self._pose_mirrored, self._pose_scale,
+                self.layer_height, self.is_opaque(), self.constraint_points_off,
                 repr((self.note.get("leader"), self.note.get("style"))) if self.note else None)
 
     def _note_prim(self) -> "dict | None":
@@ -2096,6 +2106,16 @@ class BlockInstance(QGraphicsObject):
             else:
                 self.note["leader"] = chg[0]
             self.note_changed()
+        elif key == "Layer Height":
+            self.set_layer_height(value)
+        elif key == "Opaque":
+            if not isinstance(value, bool):
+                return
+            self.set_opaque(value)
+        elif key == "Constraint Points":
+            if not isinstance(value, bool):
+                return
+            self.constraint_points_off = not value
         elif key in ("Weight", "Linetype"):
             if self._overrides_locked():
                 return                  # Q12: a mixed selection can't bypass the lock
