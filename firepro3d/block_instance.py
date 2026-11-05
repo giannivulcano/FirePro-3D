@@ -689,11 +689,17 @@ class BlockInstance(QGraphicsObject):
 
     def opaque_mask(self) -> QPainterPath:
         """This block's mask in scene mm (D2), memoised on (the definition's
-        compiled ops, full pose). The mask reads geometry only, so a
-        placement override or bound text cannot change it, and the check
-        skips this instance's own ``render_ops`` -- ``_cover_above`` asks it of
-        every opaque block above, for every block. The result object stays
-        the same while valid, which keys ``_cover_above``'s cache."""
+        compiled ops, full pose). The mask is built from this instance's
+        ``render_ops()``: the definition's ops under its mirror / scale
+        variant and placement override, plus its bound text ops. ``ops_mask``
+        ignores text ops but counts a bound text box's FILL and frame STROKE,
+        so a framed bound text can widen the mask. The cache key holds only
+        the definition's compiled ops and the pose, not the override or bound
+        text, so it tracks those only through the compiled-op identity (a
+        nested record carries no attributes, so none reaches it today).
+        ``_cover_above`` asks it of every opaque block above, for every
+        block; the result object stays the same while valid, which keys
+        ``_cover_above``'s cache."""
         d = self.definition()
         base = d.render_ops() if d is not None else None
         key = self._pose_key()
