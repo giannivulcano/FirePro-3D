@@ -412,7 +412,7 @@ def test_riser_hit_resolves_to_nearest_z_node(shown_model_view):
     pipe.update_geometry()
     _zoom(view, 1.0)
     ctl = _pipe_mode(scene)
-    p = QPointF(100, 0)
+    p = QPointF(60, 0)        # inside the 75 mm riser disk, past the 15 px pickup
     assert ctl.resolve_pipe_target(p, p, z_hint=2900.0) == ("node", high)
 
 
