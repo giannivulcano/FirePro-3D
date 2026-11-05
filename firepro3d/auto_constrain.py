@@ -37,7 +37,8 @@ def item_handles(it, *, curvy: bool = True):
 
     point ``(p, None | "mid")`` (``"mid"`` = an edge midpoint, D58), edge
     ``(a, b)``, curve ``(centre, (r, item))`` -- only when *curvy*. Hidden
-    handles (text ``ins``, polygon ``radius``, ellipse ``rx`` / ``ry``) never.
+    handles (text ``ins``, polygon ``radius``, ellipse ``rx`` / ``ry``) never,
+    nor those ``pick_blocked`` names (a block with Constraint Points off).
     The one enumeration shared by pick mode (``PickState._candidates``) and
     the Auto Constrain resolver.
     """
@@ -48,17 +49,20 @@ def item_handles(it, *, curvy: bool = True):
     x = np.array(ad.read(it), dtype=float)
     mids = ad.mid_names(it)
     hidden = ad.hidden_names(it)
+    blocked = ad.pick_blocked(it)            # block stacking D11
     for name, e in ad.points(it, 0).items():
-        if name in hidden:                    # CS3c: legacy text ins
+        if name in hidden or name in blocked:  # CS3c: legacy text ins
             continue
         yield ("point", {"uid": uid, "h": name}, QPointF(*e.eval(x)[0]),
                "mid" if name in mids else None)
     for name, (a, b) in ad.edges(it, 0).items():
+        if name in blocked:
+            continue
         yield ("edge", {"uid": uid, "h": name},
                QPointF(*a.eval(x)[0]), QPointF(*b.eval(x)[0]))
     if curvy:
         for name, cv in ad.curves(it, 0).items():
-            if name in hidden:                # CS5 D79: defining circles
+            if name in hidden or name in blocked:   # CS5 D79: defining circles
                 continue
             yield ("curve", {"uid": uid, "h": name},
                    QPointF(*cv.center.eval(x)[0]), (curve_radius(cv, x), it))
