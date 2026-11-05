@@ -27,7 +27,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
 
     _RISER_SVG = asset_path("fitting_symbols", "riser_passthrough.svg")
-    _RISER_SIZE_MM = 300.0  # fixed symbol size in scene units (mm)
+    _RISER_SIZE_MM = 150.0  # fixed symbol size in scene units (mm)
 
     # Hazen-Williams C-factor by pipe material (NFPA 13 Table 22.4.4.8)
     MATERIAL_C_FACTOR: dict[str, int] = {
@@ -654,7 +654,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                     base_pen = QPen(colour, line_weight)
                     base_pen.setCapStyle(cap_style)
 
-        # Collect clip regions from higher-elevation fittings
+        # Collect clip regions from the fittings drawn over this pipe
         clip_regions = self._collect_clip_regions()
 
         if not clip_regions:
@@ -669,9 +669,10 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         if n1_is_cap != n2_is_cap:
             half = line_weight / 2.0
             pt = self.line().p1() if not n1_is_cap else self.line().p2()
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(colour))
-            painter.drawEllipse(pt, half, half)
+            if not any(c.contains(pt) for c in clip_regions):
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(colour))
+                painter.drawEllipse(pt, half, half)
 
         # highlight if selected
         if shows_selection(self):
@@ -704,7 +705,11 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     # ── Pipe clipping around fittings ─────────────────────────────────────
 
     def _collect_clip_regions(self) -> list:
-        """Return QPainterPaths for fittings at higher elevation that overlap this pipe."""
+        """Return QPainterPaths for the fittings drawn over this pipe.
+
+        That is any higher fitting it passes under, plus the pipe's own end
+        fittings: a symbol is hollow, so the pipe must stop at its edge.
+        """
         scene = self.scene()
         if scene is None or not hasattr(scene, "sprinkler_system"):
             return []
@@ -722,8 +727,8 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             if not hasattr(node, "fitting") or node.fitting is None:
                 continue
             node_z = getattr(node, "z_pos", 0)
-            if node_z <= my_z:
-                continue  # only clip for fittings at higher elevation
+            if node_z <= my_z and node is not self.node1 and node is not self.node2:
+                continue  # lower fittings sit under this pipe
             clip = node.fitting.clip_region_scene()
             if clip is None:
                 continue

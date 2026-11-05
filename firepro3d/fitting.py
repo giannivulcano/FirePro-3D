@@ -435,11 +435,11 @@ class Fitting():
         center = bounds.center()
         self.symbol.setTransformOriginPoint(center)
 
-        # Scale fitting: Branch (75mm) → 300mm, Main → 75×4×√2 ≈ 424mm
+        # Scale fitting: Branch (75mm) → 150mm, Main → 75×2×√2 ≈ 212mm
         svg_natural = max(bounds.width(), bounds.height())
         if svg_natural > 0:
             base = min(self._max_connected_width_mm(), 75.0 * _SQRT2)
-            target_mm = base * 4 * self._display_scale
+            target_mm = base * 2 * self._display_scale
             self.symbol_scale = target_mm / svg_natural
         else:
             self.symbol_scale = 1.0
@@ -478,12 +478,14 @@ class Fitting():
             return None
         if self.type == "no fitting":
             return None
-        # Use the symbol's scene bounding rect to derive a clipping circle
+        # The symbol is square and turned with its pipes, so its scene box is
+        # wider than it is: the box gives the centre, the scale the radius.
         rect = self.symbol.sceneBoundingRect()
         if rect.isNull() or rect.isEmpty():
             return None
         center = rect.center()
-        radius = max(rect.width(), rect.height()) / 2.0
+        bounds = self.symbol.boundingRect()
+        radius = max(bounds.width(), bounds.height()) * self.symbol_scale / 2.0
         path = QPainterPath()
         path.addEllipse(center, radius, radius)
         return path

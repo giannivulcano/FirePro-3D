@@ -1,4 +1,5 @@
 """Pipe polish D1, D2, H1: plan fitting symbols and through-riser hydraulics."""
+import math
 import os
 
 import pytest
@@ -350,3 +351,90 @@ def test_level_switch_keeps_a_row_hidden_in_the_display_manager(shown_model_view
     assert _symbols_per_view(scene, names)[names[1]] == []
     hub.fitting.update()
     assert hub.fitting.symbol.isVisible() is False
+
+
+# ── Smoke 2026-11-05: symbols at half size; a riser symbol masks its pipes ────
+
+def _render(scene, cx, cy, half=500.0, px=1000):
+    """Scene square centred on (cx, cy) at 1 px per mm x (px / 2 / half)."""
+    img = QImage(px, px, QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, px, px),
+                 QRectF(cx - half, cy - half, 2 * half, 2 * half))
+    p.end()
+    return img
+
+
+def _is_pipe_ink(img, x_mm, y_mm, half=500.0, px=1000):
+    """Whether the pixel at (x_mm, y_mm), relative to the render centre, holds
+    the pipe's own colour (the probe reads the pipe's pen, not a constant)."""
+    k = px / (2 * half)
+    c = img.pixelColor(int(px / 2 + x_mm * k), int(px / 2 + y_mm * k))
+    return c.blue() > c.red() + 60            # the pipe ink is blue, paper white
+
+
+def _side_mm(item):
+    """Drawn side of a square symbol, whatever its rotation (the bounding box
+    of a turned symbol is wider than the symbol)."""
+    r = item.boundingRect()
+    a, b = item.mapToScene(r.topLeft()), item.mapToScene(r.topRight())
+    return math.hypot(a.x() - b.x(), a.y() - b.y())
+
+
+def _branch_stack(scene, x=0.0, y=0.0, dx=1000.0, dy=0.0):
+    """Riser with a branch at the bottom node: the elbow draws at the branch."""
+    low, top = _node(scene, x, y, 0.0), _node(scene, x, y, 3000.0)
+    _pipe(scene, low, top)
+    far = _node(scene, x + dx, y + dy, 0.0)
+    branch = _pipe(scene, low, far)
+    for n in (low, top, far):
+        n.fitting.update()
+    return low, top, branch
+
+
+def test_fitting_symbol_is_half_size_on_a_branch(scene):
+    low, _top, _branch = _branch_stack(scene)
+    assert low.fitting.symbol.isVisible()
+    # 75 mm branch: the symbol was 300 mm across before the smoke ruling
+    assert _side_mm(low.fitting.symbol) == pytest.approx(150.0, abs=0.5)
+
+
+def test_bare_riser_symbol_is_half_size(scene):
+    a, b = _node(scene, 0, 0, 0.0), _node(scene, 0, 0, 3000.0)
+    pipe = _pipe(scene, a, b)
+    a.fitting.update(), b.fitting.update()
+    assert pipe._riser_symbol.isVisible()
+    assert _side_mm(pipe._riser_symbol) == pytest.approx(150.0, abs=0.5)
+
+
+def test_branch_is_masked_inside_its_own_end_symbol(scene):
+    """Same elevation as the symbol: the pipe stops at the circle. The far end
+    is a cap, so this also covers the mixed-cap round end at the riser."""
+    _branch_stack(scene)
+    img = _render(scene, 0, 0)
+    assert _is_pipe_ink(img, 200, 0), "the pipe draws outside the symbol"
+    assert _is_pipe_ink(img, 90, 0), "the pipe reaches the circle's edge"
+    for x in (0, 20, 40, 60):
+        assert not _is_pipe_ink(img, x, 0), f"pipe ink {x} mm inside the symbol"
+
+
+def test_rotated_symbol_masks_at_its_own_radius(scene):
+    """A symbol turned to a diagonal branch has a wider bounding box but the
+    same circle: the mask must not leave a gap past the symbol."""
+    low, _top, _branch = _branch_stack(scene, dx=1000.0, dy=1000.0)
+    clip = low.fitting.clip_region_scene()
+    assert clip is not None
+    assert clip.boundingRect().width() == pytest.approx(150.0, abs=0.5)
+    img = _render(scene, 0, 0)
+    d = 90 * 0.7071            # 90 mm along the diagonal, 15 mm past the circle
+    assert _is_pipe_ink(img, d, d), "gap between the pipe and the symbol"
+    assert not _is_pipe_ink(img, 40, 40), "pipe ink inside the symbol"
+
+
+def test_plain_end_does_not_mask(scene):
+    """D1: a hidden plain fitting draws nothing, so nothing is cut from the pipe."""
+    hub = _plain(scene, [(1000, 0), (0, 1000)])
+    assert hub.fitting.symbol.isVisible() is False
+    img = _render(scene, 0, 0)
+    assert _is_pipe_ink(img, 20, 0) and _is_pipe_ink(img, 0, -20)
