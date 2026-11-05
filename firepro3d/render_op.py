@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 
 STROKE = "stroke"
@@ -72,6 +72,10 @@ class RenderOp:
             PATTERN op went through (nested poses, the mirror / scale
             variant); None = identity, and always None for other kinds
             (hatch D-A11 block-pose exception).
+        clip_out: The part of this op hidden by opaque nested blocks above it,
+            definition-local (block stacking D1); None = nothing covers it.
+            Ops of one covered block share one path object, so paint opens
+            one clip per run.
 
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
@@ -92,8 +96,9 @@ class RenderOp:
     text_frame: tuple | None = None
     readable: bool = False
     pattern_frame: tuple | None = None
+    clip_out: QPainterPath | None = None
 
-    def mapped(self, t: QTransform) -> "RenderOp":
+    def mapped(self, t: QTransform, clips: dict | None = None) -> "RenderOp":
         """This op mapped through a similarity *t* (rigid x uniform scale,
         possibly reflecting -- block mirror / scale, design DD5 / DD6).
 
@@ -104,6 +109,8 @@ class RenderOp:
 
         Args:
             t: The similarity map (definition-local -> target frame).
+            clips: Optional memo, source clip id -> mapped clip, so a mapped
+                list keeps its shared clip objects.
 
         Returns:
             A new op; this shared flyweight is never mutated.
@@ -142,10 +149,18 @@ class RenderOp:
         pframe = self.pattern_frame
         if self.kind == PATTERN:
             pframe = orient_part(pattern_orient(pframe, t))
+        clip = self.clip_out
+        if clip is not None:
+            hit = clips.get(id(clip)) if clips is not None else None
+            if hit is None:
+                hit = t.map(clip)
+                if clips is not None:
+                    clips[id(clip)] = hit
+            clip = hit
         return replace(self, path=path,
                        origin=None if self.origin is None else t.map(self.origin),
                        pieces=pieces, ends=ends, text_frame=frame,
-                       readable=readable, pattern_frame=pframe)
+                       readable=readable, pattern_frame=pframe, clip_out=clip)
 
 
 def apply_overrides(ops, weight=None, linetype=None):
@@ -165,6 +180,87 @@ def apply_overrides(ops, weight=None, linetype=None):
         kw["linetype"] = linetype
     return [replace(op, **kw) if op.kind == STROKE and op.weight is not None
             else op for op in ops]
+
+
+_MASK_FLATTEN = 64.0     # flatten closed curves at 1/64 mm so a mask keeps its curve
+
+
+def ops_mask(ops) -> QPainterPath:
+    """The area an opaque block hides, in its ops' frame (block stacking D2):
+    the union of its closed geometry, else its bounding box. Text never counts.
+
+    Args:
+        ops: Compiled ops.
+
+    Returns:
+        The mask; empty when *ops* has no extent.
+    """
+    closed = []
+    for op in ops:
+        if op.kind in (FILL, PATTERN):
+            closed.append(op.path)
+        elif op.kind == STROKE:
+            scale = QTransform.fromScale(_MASK_FLATTEN, _MASK_FLATTEN)
+            for poly in op.path.toSubpathPolygons(scale):
+                if poly.size() > 3 and poly.isClosed():
+                    p = QPainterPath()
+                    p.addPolygon(QTransform.fromScale(1 / _MASK_FLATTEN,
+                                                      1 / _MASK_FLATTEN).map(poly))
+                    closed.append(p)
+    mask = QPainterPath()
+    for p in closed:
+        mask = mask.united(p)
+    if not mask.isEmpty():
+        return mask
+    box = QRectF()
+    for op in ops:
+        if op.kind != TEXT:
+            box = box.united(op.path.boundingRect())
+    if not box.isEmpty():
+        mask.addRect(box)
+    return mask
+
+
+def keep_path(frame: QRectF, cover: QPainterPath) -> QPainterPath:
+    """Clip path keeping *frame* outside *cover* (odd-even: no boolean, and
+    *cover*'s holes stay kept). A *cover* part beyond *frame* is kept too,
+    which is harmless: nothing paints outside the frame."""
+    p = QPainterPath()
+    p.addRect(frame)
+    p.addPath(cover)
+    p.setFillRule(Qt.FillRule.OddEvenFill)
+    return p
+
+
+class ClipRun:
+    """Opens one painter clip per run of ops sharing a ``clip_out``.
+
+    The painter's state stack also holds its world transform, so every switch
+    happens unposed; *xf* re-poses lazily. The op loops compare
+    ``op.clip_out is not run.cur`` inline, so an unclipped block pays one
+    attribute read per op.
+    """
+
+    __slots__ = ("_painter", "_xf", "_pose", "_item", "cur")
+
+    def __init__(self, painter, xf, pose: QTransform, item):
+        self._painter = painter
+        self._xf = xf
+        self._pose = pose
+        self._item = item
+        self.cur = None
+
+    def enter(self, clip) -> None:
+        """Close the open run and start one for *clip* (None = no clip)."""
+        self._xf.unposed()
+        if self.cur is not None:
+            self._painter.restore()
+        self.cur = clip
+        if clip is not None:
+            self._painter.save()
+            self._painter.setClipPath(
+                keep_path(self._item.boundingRect(), self._pose.map(clip)),
+                Qt.ClipOperation.IntersectClip)
 
 
 class PoseXf:
@@ -318,7 +414,10 @@ def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=N
     sel = (QColor(_theme.detect().accent)       # canvas selection (R5)
            if selected and not on_paper else None)
     paper_color = item._paper_pen_color
+    clip = ClipRun(painter, xf, pose, item)
     for i, op in enumerate(ops):
+        if op.clip_out is not clip.cur:
+            clip.enter(op.clip_out)
         if op.kind in (FILL, PATTERN):
             xf.unposed()
             paint_fill_op(item, painter, pose, op)
@@ -366,4 +465,6 @@ def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=N
             stroke_op(item, painter, ops, i, op, pose, p, xf)
             continue
         painter.drawPath(pose.map(text_path(op, item._pose_rot)))
+    if clip.cur is not None:
+        clip.enter(None)
     xf.unposed()

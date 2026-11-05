@@ -43,7 +43,7 @@ from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
                             joint_pad, wedge_for_pair)
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
-                        PoseXf as _PoseXf,
+                        ClipRun, PoseXf as _PoseXf,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
                         paper_op_width as _paper_op_width_fn,
                         stroke_op as _stroke_op_fn, text_path as _text_path_fn)
@@ -1183,7 +1183,10 @@ class BlockInstance(QGraphicsObject):
                if selected and not on_paper else None)
         jctx = (_JointCtx(strokes, routed, registry, on_paper)
                 if jm is not None else None)
+        clip = ClipRun(painter, xf, pose, self)
         for i, op in enumerate(ops):
+            if op.clip_out is not clip.cur:
+                clip.enter(op.clip_out)
             if op.kind in (FILL, PATTERN):
                 xf.unposed()
                 self._paint_fill_op(painter, pose, op)
@@ -1312,6 +1315,8 @@ class BlockInstance(QGraphicsObject):
                     self._paint_op_joints(painter, pose, xf, ops, i, p, jm, jctx)
                 continue
             painter.drawPath(pose.map(self._text_path(op)))
+        if clip.cur is not None:
+            clip.enter(None)
         xf.unposed()
         if sf is not None or frame_k:           # paper passes never touch the mark
             _er.mark_screen_ends(self, self._drew_screen)
