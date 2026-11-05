@@ -34,7 +34,7 @@ from .view_scale import scene_hit_width
 from PyQt6 import sip
 from .wall_outline import (JunctionArm, SeamStroke, WallOutline, _poly_path,
                            boundary_segments, cluster_union, intersect_lines,
-                           junction_pie, stop_end, stroke_segments,
+                           junction_pie, split_seam, stop_end, stroke_segments,
                            visible_corners)
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -60,11 +60,6 @@ _SELECTION_COLOR = QColor("red")
 def _scene_hit_width(item) -> float:
     """~14 screen px at the visible view's zoom (see view_scale)."""
     return scene_hit_width(item, 14.0, 8.0)
-
-
-def _line_length(line) -> float:
-    a, b = line
-    return math.hypot(b.x() - a.x(), b.y() - a.y())
 
 
 def compute_wall_quad(
@@ -516,10 +511,22 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     polys.append(w.outline_geometry().union_body)
             boundary = boundary_segments(cluster_union(polys))
             o.edge_strokes = stroke_segments(o.body, boundary)
-            o.stroke_segments = o.edge_strokes + list(o.seams)
             o.seam_strokes = self._seam_strokes(o)
             o.corners = visible_corners(o.body, boundary)
+            o.stroke_segments = o.edge_strokes + list(o.seams)
         return o
+
+    def _seam_pieces(self, o: WallOutline) -> list[SeamStroke]:
+        """This stopper's seams, split once: the walls involved all read
+        this same split, so no span of a seam can be drawn twice."""
+        live = [n for n in o.neighbours if not sip.isdeleted(n)]
+        out = []
+        for seam in o.seams:
+            touchers = [(n, stroke_segments(n.outline_geometry().body, [seam]))
+                        for n in live]
+            out += [SeamStroke(line, self, toucher)
+                    for line, toucher in split_seam(seam, touchers)]
+        return out
 
     def _seam_strokes(self, o: WallOutline) -> list[SeamStroke]:
         """Seam pieces that may fall to this wall to paint.
@@ -529,21 +536,12 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         the stopper and the joined wall under it, and only the later of the
         two draws it (``_paints_seam``): one stroke, over both fills.
         """
-        live = [n for n in o.neighbours if not sip.isdeleted(n)]
-        out = [SeamStroke((a, b), n, self)
-               for n in live
-               for a, b in stroke_segments(o.body,
-                                           list(n.outline_geometry().seams))]
-        for seam in o.seams:
-            pieces = [SeamStroke((a, b), self, n)
-                      for n in live
-                      for a, b in stroke_segments(n.outline_geometry().body,
-                                                  [seam])]
-            covered = sum(_line_length(p.line) for p in pieces)
-            if covered >= _line_length(seam) - WALL_OUTLINE_ON_EDGE_TOL:
-                out.extend(pieces)
-            else:
-                out.append(SeamStroke(seam, self, None))
+        out = self._seam_pieces(o)
+        for n in o.neighbours:
+            if not sip.isdeleted(n):
+                g = n.outline_geometry()
+                if g.seams:
+                    out += [s for s in n._seam_pieces(g) if s.toucher is self]
         return out
 
     def _paints_seam(self, s: SeamStroke) -> bool:

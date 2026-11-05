@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 
 from firepro3d.level_manager import LevelManager
 from firepro3d.wall import WallSegment
+from firepro3d.wall_outline import split_seam
 
 HALF = 150.0
 LOW = -1500.0        # Top Offset of a wall that ends below its neighbours
@@ -30,14 +31,14 @@ def _ms():
     return s
 
 
-def _wall(s, p1, p2, top_offset=0.0, j1="Auto", j2="Auto"):
-    w = WallSegment(QPointF(*p1), QPointF(*p2), thickness_mm=2 * HALF)
+def _wall(s, p1, p2, top_offset=0.0, j1="Auto", j2="Auto", thick=2 * HALF):
+    w = WallSegment(QPointF(*p1), QPointF(*p2), thickness_mm=thick)
     w._top_offset_mm = top_offset
     w._join_mode_pt1 = j1
     w._join_mode_pt2 = j2
     s.addItem(w)
     s._walls.append(w)
-    assert abs(w.half_thickness_scene() - HALF) < 1e-9
+    assert abs(w.half_thickness_scene() - thick / 2) < 1e-9
     w.invalidate_geometry()
     return w
 
@@ -653,3 +654,75 @@ def test_seam_painter_follows_a_stacking_change(qapp):
     assert_one_stroke()
     right.setZValue(down.zValue() + 1.0)         # the stopper now paints last
     assert_one_stroke()
+
+
+def _drawn_vs_seam(s):
+    """Length the walls will paint, against the seams' own length."""
+    drawn = seam = 0.0
+    for w in s._walls:
+        o = w.outline()
+        seam += sum(math.dist((a.x(), a.y()), (b.x(), b.y())) for a, b in o.seams)
+        drawn += sum(math.dist((a.x(), a.y()), (b.x(), b.y()))
+                     for a, b in (st.line for st in o.seam_strokes
+                                  if w._paints_seam(st)))
+    return drawn, seam
+
+
+@pytest.mark.parametrize("r_thick", [200.0, 300.0])
+@pytest.mark.parametrize("left_len,down_len",
+                         [(50, 50), (400, 50), (400, 120), (1500, 1500)])
+def test_a_seam_on_short_joined_walls_is_drawn_once(
+        qapp, r_thick, left_len, down_len):
+    # Joined walls too short to carry the whole seam: the rest is the stopper's.
+    stops = 0
+    specs = {"L": dict(p1=(-left_len, 0), p2=(0, 0)),
+             "D": dict(p1=(0, 0), p2=(0, down_len)),
+             "R": dict(p1=(0, 0), p2=(1500, 0), top_offset=LOW, thick=r_thick)}
+    for order in itertools.permutations(specs):
+        s = _ms()
+        for key in order:
+            _wall(s, **specs[key])
+        drawn, seam = _drawn_vs_seam(s)
+        assert drawn == pytest.approx(seam, abs=1e-3), order
+        stops += seam > 0.0
+    assert stops, "the sweep reaches a stop"
+
+
+def test_split_seam_owns_every_span_once():
+    seam = (QPointF(0, 0), QPointF(100, 0))
+    a, b = object(), object()
+
+    def lines(*spans):
+        return [(QPointF(lo, 0), QPointF(hi, 0)) for lo, hi in spans]
+
+    def owners(touchers):
+        return sorted(((round(ln[0].x(), 6), round(ln[1].x(), 6)),
+                       {id(a): "a", id(b): "b", id(None): "-"}[id(t)])
+                      for ln, t in split_seam(seam, touchers))
+
+    assert owners([(a, lines((0, 100)))]) == [((0, 100), "a")]
+    assert owners([(a, lines((0, 60))), (b, lines((60, 100)))]) == [
+        ((0, 60), "a"), ((60, 100), "b")]
+    assert owners([(a, lines((0, 60))), (b, lines((40, 100)))]) == [
+        ((0, 60), "a"), ((60, 100), "b")], "an overlap goes to the first"
+    assert owners([(a, lines((0, 100))), (b, lines((0, 100)))]) == [
+        ((0, 100), "a")], "a duplicate owns nothing"
+    assert owners([(a, lines((20, 40)))]) == [
+        ((0, 20), "-"), ((20, 40), "a"), ((40, 100), "-")]
+    assert owners([]) == [((0, 100), "-")]
+
+
+def test_a_seam_on_overlapping_joined_walls_is_drawn_once(qapp):
+    # A duplicated joined wall: both bodies carry the same span of the seam.
+    stops = 0
+    specs = [dict(p1=(-1500, 0), p2=(0, 0)), dict(p1=(0, 0), p2=(0, 1500)),
+             dict(p1=(0, 0), p2=(0, 1500)),
+             dict(p1=(0, 0), p2=(1500, 0), j1="Butt")]
+    for order in itertools.permutations(specs):
+        s = _ms()
+        for spec in order:
+            _wall(s, **spec)
+        drawn, seam = _drawn_vs_seam(s)
+        assert drawn == pytest.approx(seam, abs=1e-3)
+        stops += seam > 0.0
+    assert stops, "the sweep reaches a stop"

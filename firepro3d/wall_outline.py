@@ -41,10 +41,10 @@ class SeamStroke:
     """One piece of a stop's seam and the two walls whose fills meet there.
 
     Attributes:
-        line: The piece, on the toucher's own body edge.
+        line: The piece, on the toucher's own body edge when it has one.
         stopper: The wall that stops; its pen draws the piece.
         toucher: The joined wall under the piece, or None when no joined
-            wall's edge carries the whole seam (the stopper then draws it).
+            wall reaches it (the stopper then draws it).
         painter_key: The two walls' z values when ``painter`` was found.
         painter: Whichever of the two paints last.
     """
@@ -366,6 +366,52 @@ def stroke_segments(body: QPolygonF, boundary: list[Line],
         for lo, hi in merged:
             out.append((QPointF(p.x() + ux * lo, p.y() + uy * lo),
                         QPointF(p.x() + ux * hi, p.y() + uy * hi)))
+    return out
+
+
+def split_seam(seam: Line, touchers: list, min_seg: float = WALL_OUTLINE_MIN_SEG):
+    """Share a seam out so that every span of it is owned once.
+
+    Args:
+        seam: The whole seam.
+        touchers: ``(toucher, pieces)`` pairs in priority order, *pieces*
+            being that toucher's spans of the seam.
+        min_seg: Spans shorter than this are dropped.
+
+    Returns:
+        ``(line, toucher)`` pairs: each span goes to the first toucher lying
+        on it, and what no toucher reaches comes back with ``None``.
+    """
+    a, b = seam
+    length = math.hypot(b.x() - a.x(), b.y() - a.y())
+    if length == 0.0:
+        return []
+    ux, uy = (b.x() - a.x()) / length, (b.y() - a.y()) / length
+
+    def at(t: float) -> QPointF:
+        return QPointF(a.x() + ux * t, a.y() + uy * t)
+
+    def param(p: QPointF) -> float:
+        return (p.x() - a.x()) * ux + (p.y() - a.y()) * uy
+
+    free = [(0.0, length)]
+    out = []
+    for toucher, pieces in touchers:
+        for p, q in pieces:
+            lo, hi = sorted((param(p), param(q)))
+            left = []
+            for f_lo, f_hi in free:
+                s, e = max(f_lo, lo), min(f_hi, hi)
+                if e - s < min_seg:
+                    left.append((f_lo, f_hi))
+                    continue
+                out.append(((at(s), at(e)), toucher))
+                if s - f_lo >= min_seg:
+                    left.append((f_lo, s))
+                if f_hi - e >= min_seg:
+                    left.append((e, f_hi))
+            free = left
+    out.extend(((at(lo), at(hi)), None) for lo, hi in free)
     return out
 
 
