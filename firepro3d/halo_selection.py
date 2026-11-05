@@ -92,7 +92,8 @@ class HaloSelectionMixin:
 
         def _key(r):
             d = dist[id(r)]
-            return (0, -r.zValue(), d, id(r)) if d <= edge else (1, 0.0, d, id(r))
+            in_band = d <= edge and (d <= 0 or not getattr(r, "halo_direct_only", False))
+            return (0, -r.zValue(), d, id(r)) if in_band else (1, 0.0, d, id(r))
 
         order.sort(key=_key)
         return [(r, dist[id(r)]) for r in order]

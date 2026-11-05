@@ -6,7 +6,8 @@ from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from .fitting import Fitting
 from .sprinkler import Sprinkler
 from .constants import (DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE,
-                        Z_COPLANAR_TOL)
+                        Z_COPLANAR_TOL, NODE_PICK_PX)
+from .view_scale import scene_hit_width
 from .displayable_item import DisplayableItemMixin
 from .paper_display import shows_selection
 
@@ -343,14 +344,42 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
                     r = max(r, 50.0)
         return QRectF(-r, -r, r * 2, r * 2)
 
+    @property
+    def halo_direct_only(self) -> bool:
+        """A plain node draws nothing, so it beats a pipe only when the cursor
+        is inside its pick disk, not within the HALO priority band."""
+        return not self.has_sprinkler()
+
+    def halo_trace_path(self, scene_scale=None) -> QPainterPath | None:
+        """HALO trace of a plain node: its pick disk (not the 13 mm ring the
+        ellipse item would trace), so hover and pick agree. ``None`` for a
+        sprinkler node keeps the default trace; its symbol child picks it."""
+        if self.has_sprinkler():
+            return None
+        r = self._plain_pick_radius(scene_scale)
+        path = QPainterPath()
+        path.addEllipse(QPointF(0, 0), r, r)
+        return path
+
+    def _plain_pick_radius(self, scene_scale=None) -> float:
+        """Scene radius of ``NODE_PICK_PX`` at the visible zoom (or at
+        *scene_scale* px per scene unit when given), capped at a third of the
+        shortest attached run so a short pipe stays reachable."""
+        if scene_scale:
+            r = NODE_PICK_PX / scene_scale
+        else:
+            r = scene_hit_width(self, NODE_PICK_PX, NODE_PICK_PX)
+        runs = [p.line().length() for p in self.pipes if p.line().length() >= 1.0]
+        return min(r, min(runs) / 3.0) if runs else r
+
     def shape(self) -> QPainterPath:
         """Expand clickable area to encompass the sprinkler graphic so
         clicking anywhere on the sprinkler selects the node."""
         if self.has_sprinkler():
-            r = self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale
+            r = max(self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale,
+                    self.RADIUS)
         else:
-            r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
-        r = max(r, self.RADIUS)
+            r = self._plain_pick_radius()
         path = QPainterPath()
         path.addEllipse(QPointF(0, 0), r, r)
         return path
