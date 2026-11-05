@@ -333,6 +333,21 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
 
         self.update_label()  # <- move here
 
+    def hit_width(self, px_scene: float | None = None) -> float:
+        """Full width of the click stroke: the pen, or 16 screen px if wider.
+
+        The one hit width: ``shape()`` builds its stroke from it and the
+        placement resolver's ``_pipe_at`` tests against half of it.
+
+        Args:
+            px_scene: 16 screen px in scene units at the visible zoom, when
+                the caller already has it (a loop over many pipes); ``None``
+                derives it from this pipe's scene.
+        """
+        if px_scene is None:
+            px_scene = scene_hit_width(self, 16.0, 16.0)
+        return max(self.pen().widthF(), px_scene)
+
     def shape(self):
         """Viewport-scale-aware hit path — always at least ~10 screen pixels wide.
 
@@ -359,8 +374,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         stroker = QPainterPathStroker()
         # Take max of actual pen width and 16 screen-pixel equivalent at the
         # visible view's zoom (see view_scale).
-        hit_w = max(self.pen().widthF(), scene_hit_width(self, 16.0, 16.0))
-        stroker.setWidth(hit_w)
+        stroker.setWidth(self.hit_width())
         return stroker.createStroke(path)
 
 

@@ -462,3 +462,71 @@ def test_marker_survives_project_reset(shown_model_view):
     scene.clear()
     scene.init_preview_node()
     assert scene.pipe_target_marker.scene() is scene
+
+
+def test_equal_z_crossing_picks_the_later_added_pipe(shown_model_view):
+    """scene.items stacked a tie with the later-added pipe on top; so does _pipe_at."""
+    view, scene = shown_model_view
+    _a, _b, first = _cross_pipe(scene)
+    c, d = _node(scene, 0, -300), _node(scene, 0, 300)
+    second = scene.add_pipe(c, d, None, _propagate_ceiling=False)
+    second.update_geometry()
+    _zoom(view, 1.0)
+    ctl = _pipe_mode(scene)
+    assert first.zValue() == second.zValue()
+    p = QPointF(0, 0)
+    top = [i for i in scene.items(p) if i in (first, second)][0]
+    assert top is second                      # today's query: later-added on top
+    assert ctl.resolve_pipe_target(p, p) == ("pipe", second)
+
+
+def test_fully_transparent_pipe_is_not_hit(shown_model_view):
+    """Display Manager can set a pipe's opacity to 0; scene.items skipped it."""
+    view, scene = shown_model_view
+    _a, _b, pipe = _cross_pipe(scene)
+    _zoom(view, 1.0)
+    ctl = _pipe_mode(scene)
+    p = QPointF(0, 0)
+    assert ctl.resolve_pipe_target(p, p) == ("pipe", pipe)
+    pipe.setOpacity(0.0)
+    assert pipe not in scene.items(p)
+    assert ctl.resolve_pipe_target(p, p) == ("none", None)
+
+
+@pytest.mark.parametrize("zoom", [0.5, 2.0])
+def test_sloped_pipe_hit_width_matches_the_shape(shown_model_view, zoom):
+    """A 45 degree run: just inside / outside the half width, and past the cap."""
+    view, scene = shown_model_view
+    a, b = _node(scene, 0, 0), _node(scene, 1000, 1000)
+    pipe = scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    pipe.update_geometry()
+    _zoom(view, zoom)
+    ctl = _pipe_mode(scene)
+    half = max(pipe.pen().widthF(), 16.0 / zoom) / 2.0
+    s = 2 ** -0.5
+    mid = QPointF(500, 500)
+    for off, want in ((half - 0.5, "pipe"), (half + 0.5, "none")):
+        p = mid + QPointF(-s, s) * off                       # across the run
+        assert pipe.shape().contains(p) is (want == "pipe")
+        assert ctl.resolve_pipe_target(p, p)[0] == want
+        q = QPointF(0, 0) - QPointF(s, s) * off              # past the near end
+        assert pipe.shape().contains(q) is (want == "pipe")
+        assert ctl.resolve_pipe_target(q, q)[0] == want
+
+
+def test_display_scale_widens_the_hit_beyond_the_reject_margin(shown_model_view):
+    """A Display Manager scale above 1 widens the stroke; the bbox reject follows."""
+    view, scene = shown_model_view
+    a, b = _node(scene, 0, 0), _node(scene, 1000, 1000)
+    pipe = scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    pipe.update_geometry()
+    pipe._display_scale = 8.0
+    pipe.set_pipe_display()
+    _zoom(view, 1.0)
+    ctl = _pipe_mode(scene)
+    half = pipe.pen().widthF() / 2.0
+    assert half > 150.0
+    s = 2 ** -0.5
+    q = QPointF(0, 0) - QPointF(s, s) * (half - 0.5)         # inside the square cap
+    assert pipe.shape().contains(q)
+    assert ctl.resolve_pipe_target(q, q) == ("pipe", pipe)

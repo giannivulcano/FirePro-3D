@@ -753,23 +753,25 @@ class PipeNetworkController:
         hw = 16.0 / scene_view_scale(self._scene)
         x, y = pt.x(), pt.y()
         pipes = self._scene.sprinkler_system.pipes
-        # reject margin: the half of the widest stroke a pipe can have (its pen
-        # is display_width_mm, at most MAIN_WIDTH_MM), cap pad included
-        m = max(hw, Pipe.MAIN_WIDTH_MM) / 2.0
-        xl, xh, yl, yh = x - m, x + m, y - m, y + m
         best, best_z = None, None
         for p in pipes:
+            # reject margin: half the widest stroke this pipe can have (its pen
+            # is at most MAIN_WIDTH_MM * its Display Manager scale), cap pad
+            # included
+            m = max(hw, Pipe.MAIN_WIDTH_MM * p._display_scale) / 2.0
             ln = p.line()
             ax, bx = ln.x1(), ln.x2()
             # bbox reject; a run under 1 unit is the riser disk, which is wider
             if (abs(ax - bx) >= 1.0
-                    and ((ax < xl and bx < xl) or (ax > xh and bx > xh))):
+                    and ((ax < x - m and bx < x - m) or (ax > x + m and bx > x + m))):
                 continue
             ay, by = ln.y1(), ln.y2()
             if (abs(ay - by) >= 1.0
-                    and ((ay < yl and by < yl) or (ay > yh and by > yh))):
+                    and ((ay < y - m and by < y - m) or (ay > y + m and by > y + m))):
                 continue
-            if not (p.node1 and p.node2 and p.isVisible()):
+            # a fully transparent pipe is not hit, as scene.items skipped it
+            if not (p.node1 and p.node2 and p.isVisible()
+                    and p.effectiveOpacity() > 0.0):
                 continue
             dx, dy = bx - ax, by - ay
             l2 = dx * dx + dy * dy
@@ -779,7 +781,7 @@ class PipeNetworkController:
                     continue
             else:
                 # the stroker's default square cap: the run extends h past each end
-                h = max(p.pen().widthF(), hw) / 2.0
+                h = p.hit_width(hw) / 2.0
                 t = ((x - ax) * dx + (y - ay) * dy) / l2
                 pad = h / math.sqrt(l2)
                 if t < -pad or t > 1.0 + pad:
@@ -787,7 +789,8 @@ class PipeNetworkController:
                 ex, ey = ax + t * dx - x, ay + t * dy - y
                 if ex * ex + ey * ey > h * h:
                     continue
-            if best is None or p.zValue() > best_z:
+            # >=: on a tie the later-added pipe wins, as scene.items stacked it
+            if best is None or p.zValue() >= best_z:
                 best, best_z = p, p.zValue()
         return best
 
