@@ -696,7 +696,8 @@ class ViewportProperties:
             "Show Border": {"type": "bool", "value": d.show_border},
             "Show Title": {"type": "bool", "value": d.show_title},
             "Title Position": {"type": "button", "value": "Reset Title Position",
-                               "callback": self._reset_title},
+                               "callback": self._reset_title,
+                               "enabled": self._vp._title_shown()},
             "Position X": {"type": "string", "value": f"{d.x:.1f}"},
             "Position Y": {"type": "string", "value": f"{d.y:.1f}"},
             "Width": {"type": "label", "value": f"{d.w:.1f} mm"},
@@ -1002,6 +1003,7 @@ class SheetViewport(QGraphicsObject):
         self._reconnect_source()
         self._sync_title()
         self.mark_dirty()
+        self._rebake_manipulator()    # a placeholder has no title grip
 
     def _title_shown(self) -> bool:
         """The title draws when enabled and the view resolves (placeholders

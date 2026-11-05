@@ -45,13 +45,35 @@ def test_round_grip_sits_on_the_title_and_the_resize_set_stays(rig, kind, resiza
     assert bool([h for h in resize if h.visible(m)]) is resizable
 
 
+def _shown_grips(m):
+    """Grip hosts on screen: the pool a stale frame leaves behind, which
+    ``_active_handles`` (recomputed per call) cannot see."""
+    return [host for host in m._host_pool
+            if host.isVisible() and isinstance(host.handle, GripHandle)]
+
+
 def test_hidden_title_has_no_grip_at_once(rig):
     view, ps, vp = place(*rig)
     m = _select(view, ps, vp)
+    assert len(_shown_grips(m)) == 1
     ps.commit_viewport_edit(vp, show_title=False)
-    assert _grips(m) == []
+    assert _grips(m) == [] and _shown_grips(m) == []
     ps.undo_stack.undo()
-    assert len(_grips(m)) == 1
+    assert len(_grips(m)) == 1 and len(_shown_grips(m)) == 1
+
+
+def test_a_view_turning_placeholder_drops_its_grip(rig):
+    view, ps, vp = place(*rig)
+    m = _select(view, ps, vp)
+    name = vp.data.source_view_name
+    vp.data.source_view_name = "Gone"
+    vp.refresh_source()
+    assert vp._placeholder is True
+    assert _shown_grips(m) == []
+    m._reflow_live()                           # raised on the stale grip
+    vp.data.source_view_name = name
+    vp.refresh_source()
+    assert len(_shown_grips(m)) == 1
 
 
 def _drag_grip(view, vp, steps=5):
@@ -102,6 +124,23 @@ def test_offset_survives_a_viewport_move(rig):
     off = vp.data.title_offset
     vp.manip_translate(10.0, 5.0)
     assert vp.data.title_offset == off
+
+
+def test_grip_lands_under_the_cursor_after_a_viewport_move(rig):
+    view, ps, vp = place(*rig)
+    vp.manip_translate(10.0, 5.0)
+    pt = QPointF(220.0, 170.0)
+    vp.apply_grip(0, pt)
+    assert vp.grip_points() == [pt]
+    assert vp.data.title_offset == pytest.approx(
+        (220.0 - (X + 10.0 + 4.0), 170.0 - (Y + 5.0 + H + 4.5)), abs=1e-6)
+
+
+def test_panel_reset_is_off_while_the_title_is_hidden(rig):
+    view, ps, vp = place(*rig)
+    assert ViewportProperties(ps, vp).get_properties()["Title Position"]["enabled"] is True
+    ps.commit_viewport_edit(vp, show_title=False)
+    assert ViewportProperties(ps, vp).get_properties()["Title Position"]["enabled"] is False
 
 
 def test_panel_reset_is_one_undo_step(rig):
