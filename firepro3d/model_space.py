@@ -879,6 +879,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.addItem(self.preview_node)
         self.preview_node.hide()
+        from .pipe_target_marker import PipeTargetMarker
+        self.pipe_target_marker = PipeTargetMarker()
+        self.addItem(self.pipe_target_marker)
+        self.pipe_target_marker.hide()
 
     # -------------------------------------------------------------------------
     # SAVE / LOAD  →  see scene_io.py (SceneIOMixin)
@@ -1300,6 +1304,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
+        self.pipe_target_marker.hide()
         self.preview_pipe.hide()
         # Reset the shared preview-pipe pen to its darkGray default so pipe /
         # set_scale keep their look; line/gridline re-set the width-1 dashed
@@ -1669,11 +1674,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         return (pv.view_depth, pv.view_height)
 
-    def find_nearby_node(self, x, y, z_hint=None):
-        return self._pipe_ctl.find_nearby_node(x, y, z_hint=z_hint)
+    def find_nearby_node(self, x, y, z_hint=None, radius=None):
+        return self._pipe_ctl.find_nearby_node(x, y, z_hint=z_hint, radius=radius)
 
-    def find_nearby_candidates(self, x, y, z_hint=None):
-        return self._pipe_ctl.find_nearby_candidates(x, y, z_hint=z_hint)
+    def find_nearby_candidates(self, x, y, z_hint=None, radius=None):
+        return self._pipe_ctl.find_nearby_candidates(
+            x, y, z_hint=z_hint, radius=radius)
 
     def _update_pipe_tab_candidates(self, scene_pos, z_hint=None):
         return self._pipe_ctl._update_pipe_tab_candidates(scene_pos, z_hint=z_hint)

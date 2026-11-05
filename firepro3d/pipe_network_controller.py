@@ -32,8 +32,9 @@ class PipeNetworkController:
         self._tab_index = 0
         self._tab_pos = None
 
-    def find_nearby_node(self, x, y, z_hint=None):
+    def find_nearby_node(self, x, y, z_hint=None, radius=None):
         pt = QPointF(x, y)
+        r = self._scene.SNAP_RADIUS if radius is None else radius
 
         view_range = self._scene._get_active_view_range()
 
@@ -53,7 +54,7 @@ class PipeNetworkController:
                 if spr.mapToScene(spr.boundingRect()).boundingRect().contains(pt):
                     bbox_candidates.append(node)
                     continue
-            if node.distance_to(x, y) <= self._scene.SNAP_RADIUS:
+            if node.distance_to(x, y) <= r:
                 dist_candidates.append(node)
 
         # Merge: bbox hits first, then distance hits
@@ -64,13 +65,14 @@ class PipeNetworkController:
             return candidates[0]
         return min(candidates, key=lambda n: abs(n.z_pos - z_hint))
 
-    def find_nearby_candidates(self, x, y, z_hint=None):
-        """Return all nodes within SNAP_RADIUS, filtered by view range.
+    def find_nearby_candidates(self, x, y, z_hint=None, radius=None):
+        """Return all nodes within SNAP_RADIUS (or *radius*), filtered by view range.
 
         If *z_hint* is provided, results are sorted by ascending distance
         to *z_hint*.  Otherwise sorted by insertion order.
         """
         pt = QPointF(x, y)
+        r = self._scene.SNAP_RADIUS if radius is None else radius
         view_range = self._scene._get_active_view_range()
 
         def _in_view_range(node):
@@ -87,15 +89,15 @@ class PipeNetworkController:
                 if spr.mapToScene(spr.boundingRect()).boundingRect().contains(pt):
                     candidates.append(node)
                     continue
-            if node.distance_to(x, y) <= self._scene.SNAP_RADIUS:
+            if node.distance_to(x, y) <= r:
                 candidates.append(node)
 
         if z_hint is not None and len(candidates) > 1:
             candidates.sort(key=lambda n: abs(n.z_pos - z_hint))
         return candidates
 
-    def find_or_create_node(self, x, y, z_hint=None):
-        existing = self.find_nearby_node(x, y, z_hint=z_hint)
+    def find_or_create_node(self, x, y, z_hint=None, radius=None):
+        existing = self.find_nearby_node(x, y, z_hint=z_hint, radius=radius)
         if existing:
             return existing
         return self.add_node(x, y, z_hint=z_hint)
@@ -725,13 +727,57 @@ class PipeNetworkController:
 
     # ── Pipe Tab-cycle ────────────────────────────────────────────────────
 
+    def pick_radius(self) -> float:
+        """Mouse node pickup: the OSNAP aperture in scene units at the visible
+        zoom (D4). Paste, split and typed input keep ``SNAP_RADIUS``."""
+        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene, _safe_scale
+        return px_to_scene(float(SNAP_TOLERANCE_PX),
+                           _safe_scale(self._scene._active_view_scale()))
+
+    def resolve_pipe_target(self, node_pos, pipe_pos, z_hint=None):
+        """What a mouse click here does: ``("node", Node)``, ``("pipe", Pipe)``
+        or ``("none", None)``. Shared by move and press (D3, D5).
+
+        Args:
+            node_pos: Point tested for node pickup (the 45-snapped end).
+            pipe_pos: Point tested for a pipe hit (the snapped cursor).
+            z_hint: Template target Z for stacked nodes.
+        """
+        node = self.find_nearby_node(node_pos.x(), node_pos.y(),
+                                     z_hint=z_hint, radius=self.pick_radius())
+        if node is not None:
+            return ("node", node)
+        pipe = next((i for i in self._scene.items(pipe_pos)
+                     if isinstance(i, Pipe) and i.node1 and i.node2), None)
+        if pipe is None:
+            return ("none", None)
+        if pipe._is_vertical():
+            ends = (pipe.node1, pipe.node2)
+            hit = ends[0] if z_hint is None else min(
+                ends, key=lambda n: abs(n.z_pos - z_hint))
+            return ("node", hit)
+        return ("pipe", pipe)
+
+    def _update_target_marker(self, node_pos, pipe_pos, z_hint):
+        kind, target = self.resolve_pipe_target(node_pos, pipe_pos, z_hint)
+        marker = self._scene.pipe_target_marker
+        if kind == "none":
+            marker.hide()
+            return
+        marker.kind = kind
+        marker.setPos(target.scenePos() if kind == "node"
+                      else self._scene.project_click_onto_pipe_segment(pipe_pos, target))
+        marker.update()
+        marker.show()
+
     def _update_pipe_tab_candidates(self, scene_pos, z_hint=None):
         """Rebuild pipe-mode Tab candidate list at the given cursor position.
 
         Resets Tab index to 0.  Called on every cursor move in pipe mode.
         """
         self._tab_candidates = self.find_nearby_candidates(
-            scene_pos.x(), scene_pos.y(), z_hint=z_hint)
+            scene_pos.x(), scene_pos.y(), z_hint=z_hint,
+            radius=self.pick_radius())
         self._tab_index = 0
         self._tab_pos = QPointF(scene_pos.x(), scene_pos.y())
         self._emit_pipe_tab_readout()
@@ -776,6 +822,7 @@ class PipeNetworkController:
             template_z2 = (self._compute_template_z_pos(template, node_idx=2)
                            if template is not None else None)
             self._update_pipe_tab_candidates(snapped_end, z_hint=template_z2)
+            self._update_target_marker(snapped_end, snapped, template_z2)
 
             self._scene.update_preview_node(snapped_end)
             self._scene.preview_pipe.setLine(start.x(), start.y(), snapped_end.x(), snapped_end.y())
@@ -828,6 +875,7 @@ class PipeNetworkController:
             template_z1 = (self._compute_template_z_pos(template, node_idx=1)
                            if template is not None else None)
             self._update_pipe_tab_candidates(snapped, z_hint=template_z1)
+            self._update_target_marker(snapped, snapped, template_z1)
             self._scene.preview_pipe.hide()
             self._scene._preview_label.hide()
 
@@ -835,18 +883,16 @@ class PipeNetworkController:
         if self._scene.pipe_start_node is None:
             template = getattr(self._scene, "current_template", None)
 
+            template_z1 = (self._compute_template_z_pos(template, node_idx=1)
+                           if template is not None else None)
+            kind, target = self.resolve_pipe_target(snapped, snapped, template_z1)
             # Use Tab-selected candidate if available
             tab_node = None
             if (self._tab_candidates
                     and self._tab_index < len(self._tab_candidates)):
                 tab_node = self._tab_candidates[self._tab_index]
-
-            # Check for existing node BEFORE find_or_create_node
-            template_z1 = (self._compute_template_z_pos(template, node_idx=1)
-                           if template is not None else None)
             existing_start = (tab_node if tab_node is not None
-                              else self.find_nearby_node(
-                                  snapped.x(), snapped.y(), z_hint=template_z1))
+                              else target if kind == "node" else None)
 
             # Block starting a pipe from a node that's already full (4 = cross)
             if existing_start is not None and len(existing_start.pipes) >= 4:
@@ -857,16 +903,17 @@ class PipeNetworkController:
             # Starting from a tee node is allowed — the second-click check
             # will validate the angle for the cross.
 
-            if isinstance(item_under, Pipe):
-                start_node = self.split_pipe(item_under, self._scene.project_click_onto_pipe_segment(snapped, item_under))
+            if existing_start is None and kind == "pipe":
+                start_node = self.split_pipe(
+                    target, self._scene.project_click_onto_pipe_segment(snapped, target))
                 self._scene._pipe_node_was_new = True  # split created new node
                 _check_elevation = True  # split node inherits pipe's Z — may differ from template
             else:
-                start_node = (tab_node if tab_node is not None
+                start_node = (existing_start if existing_start is not None
                               else self.find_or_create_node(
                                   snapped.x(), snapped.y(), z_hint=template_z1))
                 self._scene._pipe_node_was_new = (existing_start is None)
-                _check_elevation = (existing_start is not None and existing_start is start_node)
+                _check_elevation = existing_start is not None
 
             # Check elevation mismatch on pre-existing or pipe-split nodes
             if _check_elevation and template is not None:
@@ -910,15 +957,23 @@ class PipeNetworkController:
         else:
             start_pos   = self._scene.pipe_start_node.scenePos()
             snapped_end = self._scene.pipe_start_node.snap_point_45(start_pos, snapped)
-            return self._commit_pipe_at(snapped_end, item_under)
+            template = getattr(self._scene, "current_template", None)
+            z2 = (self._compute_template_z_pos(template, node_idx=2)
+                  if template is not None else None)
+            kind, target = self.resolve_pipe_target(snapped_end, snapped, z2)
+            return self._commit_pipe_at(
+                snapped_end, target if kind == "pipe" else None,
+                picked_node=target if kind == "node" else None)
 
-    def _commit_pipe_at(self, snapped_end, item_under) -> bool:
+    def _commit_pipe_at(self, snapped_end, item_under, picked_node=None) -> bool:
         """Commit the second-click pipe body at an already-final *snapped_end*.
 
         Shared post-snap commit path for both mouse (which snaps via
         ``snap_point_45`` first) and typed input (which computes the exact
         endpoint and MUST NOT be re-snapped). ``item_under`` is the item under
-        a mouse click for split-on-pipe; None for typed input.
+        a mouse click for split-on-pipe; None for typed input. ``picked_node``
+        is the node the mouse click resolved to (zoom-aware pickup, D4); typed
+        input passes neither and keeps the fixed ``SNAP_RADIUS`` lookup.
 
         Returns:
             True on success (pipe placed) or when an elevation-mismatch
@@ -956,6 +1011,8 @@ class PipeNetworkController:
         if (self._tab_candidates
                 and self._tab_index < len(self._tab_candidates)):
             tab_node = self._tab_candidates[self._tab_index]
+        if tab_node is None:
+            tab_node = picked_node
 
         template_z2 = (self._compute_template_z_pos(template, node_idx=2)
                        if template is not None else None)
@@ -984,7 +1041,7 @@ class PipeNetworkController:
                         else self.find_nearby_node(
                             snapped_end.x(), snapped_end.y(), z_hint=template_z2))
 
-        if isinstance(item_under, Pipe):
+        if isinstance(item_under, Pipe) and existing_end is None:
             end_node = self.split_pipe(item_under, self._scene.project_click_onto_pipe_segment(snapped_end, item_under))
             _check_end_elev = True  # split node inherits pipe's Z
         else:
