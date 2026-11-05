@@ -287,6 +287,20 @@ def _view_sheet(marker, view_type: str):
     return hits[0].number if hits else None
 
 
+def _view_number(marker, view_type: str):
+    """The number of the viewport showing the *marker*'s ``(view_type, name)``
+    view, on the first sheet holding it (the ``_view_sheet`` rule, SB4f AC5);
+    None when unplaced or blank."""
+    from .paper_space import sheets_holding
+    hits = sheets_holding(getattr(scene_of(marker), "_sheets", None) or [],
+                          view_type, marker.name)
+    if not hits:
+        return None
+    return next((sv.view_number for sv in hits[0].sheet_views
+                 if sv.source_view_type == view_type
+                 and sv.source_view_name == marker.name), None) or None
+
+
 def _view_scale(viewport):
     """A viewport's scale as printed: ``NTS`` at scale 0 (SB4f G6)."""
     from .paper_space import float_to_scale_str
@@ -393,16 +407,20 @@ _TABLE = {
     ],
     # SB4d D2: the view-marker heads. A cardinal SectionMarker binds its
     # Direction letter; a placed section and a detail bind their Mark over
-    # the number of the one sheet their view is placed on (D4).
+    # the number of the one sheet their view is placed on (D4). A placed section
+    # and a detail bind the viewport Number over the Sheet (SB4f AC5, reversing
+    # SB4d D4's Mark); Mark stays the browser identity.
     "Elevation": [
         _P("Direction", "text", 1, lambda m: m.cardinal[0].upper() if m.cardinal else None),
     ],
     "Section": [
         _P("Mark", "text", 1, lambda m: m._mark),
+        _P("Number", "text", 4, lambda m: _view_number(m, "section")),
         _P("Sheet", "text", 4, lambda m: _view_sheet(m, "section")),
     ],
     "Detail": [
         _P("Mark", "text", 1, lambda m: m._mark),
+        _P("Number", "text", 4, lambda m: _view_number(m, "detail")),
         _P("Sheet", "text", 4, lambda m: _view_sheet(m, "detail")),
     ],
     # SB4f: a sheet viewport hosts its own title block.

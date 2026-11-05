@@ -24,7 +24,8 @@ LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter", "Gridline": "
 # Categories whose static geometry still draws when every host-bound field
 # is blank (SB4b D3, user ruling 2026-11-02: an unlabelled gridline keeps its
 # empty bubble). Every other category follows the Q13 "paints nothing" rule.
-PAINT_WHEN_BLANK: frozenset[str] = frozenset({"Gridline", "Elevation"})
+PAINT_WHEN_BLANK: frozenset[str] = frozenset({"Gridline", "Elevation", "Section", "Detail"})
+# SB4f: an unplaced section or detail binds only Number and Sheet, both blank, and must still draw.
 # "Level" is not listed: Level.Elevation is never None, so a datum head never has every field blank (SB4c).
 
 # category -> frozen System block id (concept F4): the id of the promoted

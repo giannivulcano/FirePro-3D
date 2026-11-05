@@ -60,7 +60,7 @@ def test_gridline_is_an_annotation_category_with_a_system_default(qapp):
     assert "Gridline" in sb.ANNOTATION_CATEGORIES
     assert sb.SYSTEM_DEFAULTS["Gridline"] == "system-tags-gridlinebubble"
     assert sb.LABEL_FIELD["Gridline"] == "Mark"
-    assert sb.PAINT_WHEN_BLANK == frozenset({"Gridline", "Elevation"})   # SB4d D2 adds Elevation
+    assert sb.PAINT_WHEN_BLANK == frozenset({"Gridline", "Elevation", "Section", "Detail"})   # SB4f adds Section, Detail
 
 
 def test_d3_blank_mark_still_paints_the_static_geometry(qapp):

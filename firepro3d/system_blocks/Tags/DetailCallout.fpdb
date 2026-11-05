@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "system-tags-detailcallout",
-  "version": 4,
+  "version": 5,
   "name": "DetailCallout",
   "library": "System",
   "series": "Tags",
@@ -12,11 +12,11 @@
   ],
   "attributes": [
     {
-      "key": "Mark",
-      "label": "Mark",
+      "key": "Number",
+      "label": "Number",
       "type": "text",
       "source": "host",
-      "host_key": "Mark",
+      "host_key": "Number",
       "default": "",
       "prefix": "",
       "suffix": "",
@@ -85,7 +85,7 @@
     },
     {
       "type": "text",
-      "text": "@[Mark]",
+      "text": "@[Number]",
       "x": -4.8768,
       "y": -4.167011111111111,
       "height_mm": 2.020181944444444,
@@ -265,7 +265,7 @@
   ],
   "tile": null,
   "repeat": null,
-  "base_version": 4,
+  "base_version": 5,
   "colour_tokens": 1,
   "weights": {
     "Thinner": 0.25

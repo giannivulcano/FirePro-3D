@@ -3100,7 +3100,8 @@ class PaperScene(QGraphicsScene):
 
     def _refresh_source_heads(self, data: SheetViewData) -> None:
         """A detail / section placement or removal re-shapes the model's
-        marker heads: their bottom slot is the sheet number (SB4d D4)."""
+        marker heads: their top slot is the viewport number (SB4f), their
+        bottom slot the sheet number (SB4d D4)."""
         if data.source_view_type not in ("detail", "section"):
             return
         fn = getattr(getattr(self._resolver, "_scene", None), "refresh_view_marker_heads", None)
@@ -3158,6 +3159,7 @@ class PaperScene(QGraphicsScene):
             vp._sync_title()
             vp._rebake_manipulator()      # the grip appears or goes with show_title
         self._update_scale_field()
+        self._refresh_source_heads(data)   # the head's top slot is the view number
 
     def add_viewport(self, data: SheetViewData) -> SheetViewport:
         """Add a viewport for *data* via an undoable command.

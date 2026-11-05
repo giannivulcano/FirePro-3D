@@ -32,8 +32,8 @@ EXPECTED = {
     "Gridline": [("Mark", 1), ("Length", 2), ("Angle", 2)],
     "Level": [("Level.Name", 1), ("Level.Elevation", 1)],
     "Elevation": [("Direction", 1)],                       # SB4d D2
-    "Section": [("Mark", 1), ("Sheet", 4)],
-    "Detail": [("Mark", 1), ("Sheet", 4)],
+    "Section": [("Mark", 1), ("Number", 4), ("Sheet", 4)],
+    "Detail": [("Mark", 1), ("Number", 4), ("Sheet", 4)],
     "View Title": [("Number", 1), ("Title", 1), ("Scale", 1)],
 }
 _OPENING = [("Mark", 1), ("Family", 1), ("Type", 1), ("Width", 1), ("Height", 1), ("Sill", 1),

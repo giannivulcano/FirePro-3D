@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "system-tags-sectionhead",
-  "version": 3,
+  "version": 4,
   "name": "SectionHead",
   "library": "System",
   "series": "Tags",
@@ -12,11 +12,11 @@
   ],
   "attributes": [
     {
-      "key": "Mark",
-      "label": "Mark",
+      "key": "Number",
+      "label": "Number",
       "type": "text",
       "source": "host",
-      "host_key": "Mark",
+      "host_key": "Number",
       "default": "",
       "prefix": "",
       "suffix": "",
@@ -85,7 +85,7 @@
     },
     {
       "type": "text",
-      "text": "@[Mark]",
+      "text": "@[Number]",
       "x": -3.2512,
       "y": -3.30341111111111,
       "height_mm": 2.020181944444444,
@@ -162,7 +162,7 @@
   ],
   "tile": null,
   "repeat": null,
-  "base_version": 3,
+  "base_version": 4,
   "colour_tokens": 1,
   "weights": {
     "Thinner": 0.25
