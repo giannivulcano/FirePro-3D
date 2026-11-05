@@ -59,9 +59,9 @@ as-proposed.
 | # | Decision |
 |---|---|
 | D1 | **One mechanism: clip, never paint over.** A block omits the parts covered by an opaque block above it. No background colour is involved. Rejected: a background-coloured shape, which hides plan items below a parent (against D5) and must match the canvas tone. |
-| D2 | **Mask shape:** the union of the block's closed geometry; its bounding box when it has none. |
+| D2 | **Mask shape (amended at smoke, 2026-11-05):** the block's silhouette: its visible outline traced from its connected linework and filled. Pieces that do not touch each get their own outline; holes inside an outline stay opaque. No bounding box fallback. Replaces "closed geometry, else bounding box", which gave a full rectangle or two tiny circles on real blocks. |
 | D3 | **Opaque default:** on for a block in a schematic, off for a block nested in an ordinary block. Each placement has an on/off Properties row. |
-| D4 | **Band order:** blocks sit in their own band below lines, text and filled regions, in editors and inside compiled parents. Only blocks hide blocks. |
+| D4 | **Band order (amended at smoke, 2026-11-05):** blocks sit in their own band below lines, text and filled regions, in editors and inside compiled parents. In a **schematic only**, an opaque block also hides the loose lines, arcs, rectangles, circles, polylines and other `Geometry2DMixin` shapes under it, dashed centerlines included, with no per-line escape. Text, dimensions and filled regions stay on top. In an ordinary block only blocks hide blocks. A click inside an opaque block never picks a loose shape it hides (D8). |
 | D5 | **Plan safety:** an opaque nested block hides only lower nested blocks of the same parent. Plan items under a placed parent are never hidden, and neither are the parent's own lines or text. |
 | D6 | **Layer Height:** a whole number per placement, default 0, range -1000 to 1000. Higher draws on top; equal heights keep saved order. It has no effect on model elevation. |
 | D7 | **Controls:** Layer Height and Opaque Properties rows in the Block and Schematic editors only; right-click Bring to Front (one above the scene's highest) and Send to Back (one below its lowest). A multi-selection keeps its relative order. Plan-placed blocks get neither. |
@@ -101,7 +101,7 @@ Record keys per D14. Example nested record:
 
 ## Edge Cases & Error Handling
 
-- **Open-line block:** D2's bounding box applies, so its empty corners also hide.
+- **Open-line block:** a silhouette has no interior to fill, so a block of one open line hides only about its own stroke.
 - **Bound text in a nested block** paints after the static ops, so `clip_out` does
   not reach it. Accepted; filed as a follow-up.
 - **Out-of-range or non-numeric Layer Height** in a hand-edited record: clamped, or
@@ -137,7 +137,9 @@ before any bench or fix.
 - [ ] In a schematic, where block B overlaps block A and B is higher, A's ink in the overlap is not drawn, on canvas, on a sheet and in a PDF export.
 - [ ] Raising A above B reverses that, through the Properties row and through Bring to Front.
 - [ ] Turning Opaque off on B shows A through it.
-- [ ] A line, text item or filled region crossing a block stays visible in every case.
+- [ ] A text item, dimension or filled region crossing a block stays visible in every case. A line crossing an ordinary block's nested or placed block stays visible.
+- [ ] In a schematic, a loose line, arc or shape under an opaque block is not drawn inside the block's silhouette, on canvas, on a sheet and in a PDF export, and is drawn right up to the outline, including in the corners of the block's bounding box. With Opaque off it shows through.
+- [ ] An opaque block's mask follows its outline when that outline is made of separate open line ops, and is not its bounding box.
 - [ ] In an ordinary block placed in plan, an opaque nested block hides a lower nested block, while the parent's own lines and a pipe under the placement stay visible.
 - [ ] Existing ordinary blocks render unchanged except that their own lines and text now draw above their nested blocks.
 - [ ] An existing schematic renders opaque on open, with no save required.
