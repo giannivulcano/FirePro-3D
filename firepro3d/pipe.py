@@ -471,7 +471,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             }
             props["N1 Ceiling Offset"] = {
                 "type": "string", "value": self._fmt(self.node1_ceiling_offset),
-                "readonly": n1_ro,
+                "readonly": n1_ro, "label": "N1 Offset",
             }
             props["── Node 2 ──"] = {"type": "label", "value": ""}
             props["N2 Ceiling Level"] = {
@@ -480,7 +480,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             }
             props["N2 Ceiling Offset"] = {
                 "type": "string", "value": self._fmt(self.node2_ceiling_offset),
-                "readonly": n2_ro,
+                "readonly": n2_ro, "label": "N2 Offset",
             }
 
         return props

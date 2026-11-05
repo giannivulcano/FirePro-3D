@@ -79,9 +79,13 @@ class CAD_Math:
         pos = node.scenePos()
         vecs = []
         for p in pipes:
-            other = p.node2.scenePos() if p.node1 is node else p.node1.scenePos()
-            vecs.append(CAD_Math.get_unit_vector(pos, other))
+            vecs.append(CAD_Math.get_unit_vector(pos, node.other_end(p).scenePos()))
         return vecs
+
+    @staticmethod
+    def flip_y(y: float) -> float:
+        """Scene Y (Qt down-positive) <-> displayed Y (up-positive). Self-inverse."""
+        return 0.0 if y == 0 else -y
 
     # ---------------------------------------------------------|
     # ----------- POINT TRANSFORMS (Sprint) -------------------|

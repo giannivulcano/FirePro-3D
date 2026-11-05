@@ -106,6 +106,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
             props["Ceiling Level"]["value"] = self.node.ceiling_level
             props["Ceiling Offset"] = dict(props["Ceiling Offset"])
             props["Ceiling Offset"]["value"] = self._fmt(self.node.ceiling_offset)
+            props["Ceiling Offset"]["label"] = "Offset"      # D9: key stays for files
         else:
             # Template sprinkler (no node) — format the raw mm value for display
             props["Ceiling Offset"] = dict(props["Ceiling Offset"])
@@ -114,16 +115,10 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
             except (ValueError, TypeError):
                 raw_mm = -50.8
             props["Ceiling Offset"]["value"] = self._fmt(raw_mm)
-        # Absolute position (read-only)
+            props["Ceiling Offset"]["label"] = "Offset"
+        # X / Y / Z move the node (D10); Y is up-positive
         if self.node is not None:
-            pos = self.node.scenePos()
-            z = getattr(self.node, "z_pos", 0.0)
-            props["X"] = {"type": "string", "value": self._fmt(pos.x()),
-                          "readonly": True}
-            props["Y"] = {"type": "string", "value": self._fmt(pos.y()),
-                          "readonly": True}
-            props["Z"] = {"type": "string", "value": self._fmt(z),
-                          "readonly": True}
+            props.update(self.node.position_rows())
         # Show room assignment from parent node
         room_name = getattr(self.node, "_room_name", "") if self.node else ""
         if room_name:
@@ -132,8 +127,13 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         return props
 
     def set_property(self, key: str, value):
-        # Accept legacy names from old save files
-        if key in ("Elevation", "Elevation Offset", "Ceiling Offset (in)"):
+        if key in ("X", "Y", "Z"):
+            # Saved rows replay on a node-less template and move nothing.
+            if self.node is not None:
+                self.node.set_property(key, value)
+            return
+        # Accept legacy names from old save files ("Offset" is the panel label)
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset (in)", "Offset"):
             key = "Ceiling Offset"
         if key not in self._properties:
             return
@@ -174,4 +174,6 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
     def set_properties(self, template: "Sprinkler"):
         """Copy all property values from a template Sprinkler."""
         for key, meta in template.get_properties().items():
+            if meta.get("single_only"):
+                continue       # a template's position rows never move this node
             self.set_property(key, meta["value"])

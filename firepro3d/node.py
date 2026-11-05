@@ -63,14 +63,19 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         # Format ceiling offset for display using project units
         props["Ceiling Offset"] = dict(props["Ceiling Offset"])
         props["Ceiling Offset"]["value"] = self._fmt(self.ceiling_offset)
+        props["Ceiling Offset"]["label"] = "Offset"      # D9: key stays for files
+        props.update(self.position_rows())
         if self._room_name:
             props["Room"] = {"type": "string", "value": self._room_name,
                              "readonly": True}
         return props
 
     def set_property(self, key: str, value: str):
-        # Accept legacy names from old save files
-        if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
+        if key in ("X", "Y", "Z"):
+            self._edit_position(key, value)
+            return
+        # Accept legacy names from old save files ("Offset" is the panel label)
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset", "Offset"):
             key = "Ceiling Offset"
         if key == "Level":
             self.level = str(value)  # attribute only, not in _properties
@@ -95,6 +100,80 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             self._recompute_z_pos()
         elif key in self._properties:
             self._properties[key]["value"] = str(value)
+
+    def position_rows(self) -> dict:
+        """X / Y / Z rows shared by the Node and Sprinkler panels (D7, D8, D10).
+
+        Y is up-positive. ``single_only`` keeps the rows off multi-selection
+        and pipe sections. ``value`` stays for saved sprinkler rows.
+        """
+        p = self.scenePos()
+        rows = {"X": p.x(), "Y": CAD_Math.flip_y(p.y()), "Z": self.z_pos}
+        return {k: {"type": "dimension", "value_mm": v, "value": self._fmt(v),
+                    "single_only": True} for k, v in rows.items()}
+
+    def riser_stack(self) -> list:
+        """This node plus every node joined to it by vertical pipes."""
+        stack, todo = [self], [self]
+        while todo:
+            n = todo.pop()
+            for p in n.pipes:
+                far = n.other_end(p)
+                if far is not None and far not in stack and p._is_vertical():
+                    stack.append(far)
+                    todo.append(far)
+        return stack
+
+    def move_stack_to(self, x: float, y: float) -> None:
+        """Move this node's whole riser stack so this node lands on (x, y)."""
+        delta = QPointF(x, y) - self.scenePos()
+        stack = self.riser_stack()
+        for n in stack:
+            n.setPos(n.scenePos() + delta)
+            n.x_pos, n.y_pos = n.scenePos().x(), n.scenePos().y()
+        self._refresh_network(stack)
+
+    def _refresh_network(self, nodes) -> None:
+        """Re-derive pipes and fittings at *nodes* and their neighbours."""
+        touched = set(nodes)
+        for n in nodes:
+            for p in n.pipes:
+                p.update_geometry()
+                p.update_label()
+                far = n.other_end(p)
+                if far is not None:
+                    touched.add(far)
+        for n in touched:
+            n.fitting.update()
+
+    def _edit_position(self, key: str, value) -> None:
+        """Panel commit of X, Y or Z in mm. A no-change commit does nothing."""
+        try:
+            v = float(value)
+        except (ValueError, TypeError):
+            return
+        p = self.scenePos()
+        if key == "Z":
+            if abs(v - self.z_pos) < 1e-6:
+                return
+            lm = getattr(self.scene(), "_level_manager", None) if self.scene() else None
+            lvl = lm.get(self.ceiling_level) if lm else None
+            if lvl is None:
+                self.z_pos = v
+            else:
+                self.ceiling_offset = v - lvl.elevation
+                self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
+                self._recompute_z_pos()
+            self._refresh_network([self])
+        else:
+            x = v if key == "X" else p.x()
+            y = CAD_Math.flip_y(v) if key == "Y" else p.y()
+            if abs(x - p.x()) < 1e-6 and abs(y - p.y()) < 1e-6:
+                return
+            self.move_stack_to(x, y)
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "request_undo_push"):
+            sc.request_undo_push()
 
     def _recompute_z_pos(self):
         """Recompute z_pos from ceiling_level elevation + ceiling_offset.

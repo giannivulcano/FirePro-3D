@@ -265,6 +265,9 @@ class PropertyManager(QWidget):
         others_props = [o.get_properties() if hasattr(o, "get_properties") else {}
                         for o in self._targets[1:]]
         for key, meta in props.items():
+            # single_only rows (a node's X / Y / Z) never show on a multi-selection
+            if meta.get("single_only") and len(self._targets) > 1:
+                continue
             widget = None
             prop_type = meta.get("type", "string")
 
@@ -600,7 +603,7 @@ class PropertyManager(QWidget):
             tip = meta.get("tooltip")
             if tip and widget is not None:
                 widget.setToolTip(tip)
-            lbl = QLabel(key)
+            lbl = QLabel(meta.get("label", key))
             lbl.setToolTip(tip or "")
             # SB2b M10 / M16: a Mark shared within its category flags the row
             # (warn state + count tooltip); screen-only, never painted on the canvas.
@@ -673,6 +676,8 @@ class PropertyManager(QWidget):
 
                 node_props = node.get_properties()
                 for nkey, nmeta in node_props.items():
+                    if nmeta.get("single_only"):
+                        continue
                     ntype = nmeta.get("type", "string")
                     nwidget = None
 
@@ -718,9 +723,9 @@ class PropertyManager(QWidget):
                         row_layout.addWidget(suffix_lbl)
                         container = QWidget()
                         container.setLayout(row_layout)
-                        self._form.addRow(QLabel(nkey), container)
+                        self._form.addRow(QLabel(nmeta.get("label", nkey)), container)
                     else:
-                        self._form.addRow(QLabel(nkey), nwidget)
+                        self._form.addRow(QLabel(nmeta.get("label", nkey)), nwidget)
 
                 # Read-only absolute elevation
                 sc = node.scene()
@@ -733,24 +738,6 @@ class PropertyManager(QWidget):
                     f"color: {_t.text_secondary};"
                 )
                 self._form.addRow(QLabel("Absolute Elev."), abs_field)
-
-        # ── Read-only absolute elevation for nodes ────────────────────────
-        node = None
-        if isinstance(primary, Node):
-            node = primary
-        elif isinstance(primary, Sprinkler) and primary.node is not None:
-            node = primary.node
-        if node is not None:
-            sc = node.scene()
-            sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
-            elev_text = sm.format_length(node.z_pos) if sm else f"{node.z_pos:.1f} mm"
-            abs_field = QLineEdit(elev_text)
-            abs_field.setReadOnly(True)
-            abs_field.setStyleSheet(
-                f"background: {_t.bg_sunken}; "
-                f"color: {_t.text_secondary};"
-            )
-            self._form.addRow(QLabel("Absolute Elev."), abs_field)
 
         self._append_constraints_section()
 
