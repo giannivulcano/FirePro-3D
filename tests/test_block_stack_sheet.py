@@ -44,12 +44,17 @@ def _rec(d, x, y, **kw):
             "rotation": 0.0, **kw}
 
 
-def _env(top_extra):
+def _env(top_extra, loose=(), low=True):
+    """*loose*: extra loose primitive records; *low*: the lower block's line."""
     proj = Model_Space()
-    low, top = line_def(proj, "Low", 400.0), rect_def(proj, "Top", 200.0, 200.0)
-    sch = BlockDefinition.new(name="Riser", library="", series="", origin=(0.0, 0.0), primitives=[
-        LineItem(QPointF(0, 140), QPointF(400, 140)).to_dict(),
-        _rec(low, 0, 0), _rec(top, 100, -100, **top_extra)], kind="schematic")
+    low_def, top = line_def(proj, "Low", 400.0), rect_def(proj, "Top", 200.0, 200.0)
+    prims = [LineItem(QPointF(0, 140), QPointF(400, 140)).to_dict()]
+    prims += list(loose)
+    if low:
+        prims.append(_rec(low_def, 0, 0))
+    prims.append(_rec(top, 100, -100, **top_extra))
+    sch = BlockDefinition.new(name="Riser", library="", series="", origin=(0.0, 0.0),
+                              primitives=prims, kind="schematic")
     proj.register_block_definition(sch)
     mgr = SchematicSceneManager(proj)
     res = ViewResolver(proj, _PlanStub(), _DetailStub(), None, schematic_scenes=mgr)
@@ -83,19 +88,15 @@ def _runs(xs):
     return out
 
 
-def test_an_existing_schematic_exports_opaque_with_no_save(qapp, tmp_path):
-    _p, sheet, res = _env({})                                    # no opaque key at all
-    export_pdf([sheet], res, str(tmp_path / "default.pdf"))
-    _p, sheet, res = _env({"opaque": False})
-    export_pdf([sheet], res, str(tmp_path / "through.pdf"))
-    assert _pdf_ink(tmp_path / "default.pdf") < _pdf_ink(tmp_path / "through.pdf")
-    # Where: the 400 mm lower line runs under the 200 mm block (x 100..300), so
-    # its middle half is hidden and both outer quarters stay (spatial, not total).
-    dflt, thru = _dark_rows(tmp_path / "default.pdf"), _dark_rows(tmp_path / "through.pdf")
+def _assert_middle_hidden(default_pdf, through_pdf):
+    """The 400 mm line runs under the 200 mm block (x 100..300): in the default
+    export its middle half is hidden and both outer quarters stay (spatial, not
+    total); with the block see-through the whole line shows."""
+    dflt, thru = _dark_rows(default_pdf), _dark_rows(through_pdf)
     changed = [y for y in range(len(dflt)) if set(dflt[y]) != set(thru[y])]
     assert changed, "opaque and through-view PDFs are identical"
     y = max(changed, key=lambda r: len(set(dflt[r]) ^ set(thru[r])))   # the row the line is on
-    line = max(_runs(thru[y]), key=lambda r: r[1] - r[0])        # the lower line's full run
+    line = max(_runs(thru[y]), key=lambda r: r[1] - r[0])        # the line's full run
     lo, hi = line
     span = hi - lo
     q1, q3 = lo + span * 0.25, lo + span * 0.75
@@ -105,6 +106,26 @@ def test_an_existing_schematic_exports_opaque_with_no_save(qapp, tmp_path):
     assert all(x in shown for x in range(int(q3 + margin), hi + 1))     # right outer quarter
     assert not any(x in shown for x in range(int(q1 + margin), int(q3 - margin)))
     assert all(x in set(thru[y]) for x in range(int(q1 + margin), int(q3 - margin)))
+
+
+def test_an_existing_schematic_exports_opaque_with_no_save(qapp, tmp_path):
+    _p, sheet, res = _env({})                                    # no opaque key at all
+    export_pdf([sheet], res, str(tmp_path / "default.pdf"))
+    _p, sheet, res = _env({"opaque": False})
+    export_pdf([sheet], res, str(tmp_path / "through.pdf"))
+    assert _pdf_ink(tmp_path / "default.pdf") < _pdf_ink(tmp_path / "through.pdf")
+    _assert_middle_hidden(tmp_path / "default.pdf", tmp_path / "through.pdf")
+
+
+def test_a_loose_line_under_an_opaque_block_is_hidden_through_a_viewport_and_in_a_pdf(qapp, tmp_path):
+    """Smoke R2: the loose line along y 0 has no lower block under the Top
+    block here, so any ink missing in the middle is the loose line hidden."""
+    loose = [LineItem(QPointF(0, 0), QPointF(400, 0)).to_dict()]
+    _p, sheet, res = _env({}, loose=loose, low=False)
+    export_pdf([sheet], res, str(tmp_path / "default.pdf"))
+    _p, sheet, res = _env({"opaque": False}, loose=loose, low=False)
+    export_pdf([sheet], res, str(tmp_path / "through.pdf"))
+    _assert_middle_hidden(tmp_path / "default.pdf", tmp_path / "through.pdf")
 
 
 def _plan_pdf(path, opaque=True):

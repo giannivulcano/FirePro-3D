@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import copy
+import functools
 import uuid
 import weakref
 from dataclasses import replace as _dc_replace
@@ -24,6 +25,8 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (QPen, QColor, QPainter, QPainterPath, QBrush,
                          QPainterPathStroker, QPolygonF, QTransform)
 from . import crisp_stroke as _cs
+from .block_stack import cover_over
+from .render_op import keep_frame, keep_path
 from .constants import (CHAIN_WELD_MM, CRISP_AXIS_TOL, LINETYPE_WINDOW_MIN_PERIODS,
                         TOKEN_AUTO, TOKEN_ELEMENT)
 from .colour_tokens import resolve_colour
@@ -4195,6 +4198,53 @@ class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 path = path.united(cp)
         return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hidden under an opaque block in a schematic (block stacking D4, amended)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The one place that names which primitives an opaque block hides. Text, dimensions
+# and filled regions are Geometry2DMixin or neighbours too and stay on top.
+HIDEABLE_BY_BLOCKS = (PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+                      RegularPolygonItem, EllipseItem, SplineItem)
+
+
+def _hides_under_blocks(paint):
+    """*paint* with the opaque blocks' area clipped out, in a schematic only.
+
+    A scene that is not a schematic costs one attribute read; the selection
+    highlight drawn inside *paint* is clipped with the stroke. The clip is
+    mapped into the item's frame: the painter is posed by ``sceneTransform()``,
+    which a moved or rotated item makes more than the identity.
+    """
+    @functools.wraps(paint)
+    def wrapped(self, painter, option, widget=None):
+        sc = self.scene()
+        if sc is None or not getattr(sc, "opaque_blocks", False):
+            return paint(self, painter, option, widget)
+        cover = cover_over(self)
+        if cover is None:
+            return paint(self, painter, option, widget)
+        st = self.sceneTransform()
+        if not st.isIdentity():
+            inv, ok = st.inverted()
+            if not ok:
+                return paint(self, painter, option, widget)
+            cover = inv.map(cover)
+        painter.save()
+        try:
+            painter.setClipPath(keep_path(keep_frame(painter, self), cover),
+                                Qt.ClipOperation.IntersectClip)
+            return paint(self, painter, option, widget)
+        finally:
+            painter.restore()
+    return wrapped
+
+
+for _cls in HIDEABLE_BY_BLOCKS:
+    _cls.paint = _hides_under_blocks(_cls.__dict__["paint"])
+del _cls
 
 
 # ─────────────────────────────────────────────────────────────────────────────

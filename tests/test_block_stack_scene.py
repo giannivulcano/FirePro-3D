@@ -2,9 +2,11 @@
 import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtGui import QImage, QPainter, QTransform
 
-from firepro3d.geometry_2d import LineItem
+from firepro3d.filled_region import FilledRegionItem
+from firepro3d.geometry_2d import (ArcItem, CircleItem, LineItem, PolylineItem,
+                                   RectangleItem)
 from firepro3d.model_space import Model_Space
 from tests._block_stack_helpers import ink, l_def, line_def, lines_def, rect_def, render
 
@@ -45,11 +47,22 @@ def test_opaque_off_shows_through(be):
     assert ink(be, a, OVER, VIEW) > 0
 
 
-def test_a_line_crossing_a_block_stays_visible(be):
-    a, b = _pair(be)
+@pytest.fixture
+def ordinary(qapp):
+    s = Model_Space(scene_role="block_editor")      # opaque_blocks stays False: not a schematic
+    yield s
+    s.cleanup()
+
+
+def test_a_line_crossing_an_opaque_block_stays_visible_in_an_ordinary_editor(ordinary):
+    """D5 for ordinary blocks: an Opaque block hides only the blocks below it.
+    (A schematic hides loose lines too; see the schematic tests below.)"""
+    a, b = _pair(ordinary)
+    b.set_opaque(True)
+    assert ink(ordinary, a, OVER, VIEW) == 0                  # the block really is opaque
     line = LineItem(QPointF(0, 20), QPointF(200, 20))
-    be.addItem(line)
-    assert ink(be, line, QRectF(60, 16, 80, 8), VIEW) > 0
+    ordinary.addItem(line)
+    assert ink(ordinary, line, QRectF(60, 16, 80, 8), VIEW) > 0
 
 
 def test_moving_the_upper_block_updates_the_cover(be):
@@ -334,3 +347,171 @@ def test_a_scaled_l_shape_masks_its_scaled_arm(be):
     b.set_block_scale(2.0)
     assert ink(be, a, QRectF(60, -4, 60, 8), WIDE) == 0       # under the scaled arm
     assert ink(be, a, QRectF(150, -4, 60, 8), WIDE) > 0       # the scaled corner: drawn
+
+
+# -- A schematic: an opaque block hides the loose lines, arcs, rectangles,
+#    circles and polylines under it (D4, amended 2026-11-05) ------------------
+#    The square block B covers x 50..150, y -50..50 (its mask is outset by half
+#    MASK_GAP_MM); every extent below is worked out by hand from that.
+
+def _arc():
+    return ArcItem(QPointF(0, 0), 100.0, 0.0, 270.0)           # a circle's three quarters
+
+
+def _polyline():
+    pl = PolylineItem(QPointF(0, 20))
+    pl.append_point(QPointF(100, 20))
+    pl.append_point(QPointF(200, 20))
+    pl.finalize()
+    return pl
+
+
+# kind -> (item, a region inside the block it crosses, a region outside it)
+LOOSE = {
+    "line": (lambda: LineItem(QPointF(0, 20), QPointF(200, 20)),
+             QRectF(60, 16, 80, 8), QRectF(160, 16, 30, 8)),
+    "polyline": (_polyline, QRectF(60, 16, 80, 8), QRectF(160, 16, 30, 8)),
+    "rectangle": (lambda: RectangleItem(QPointF(20, 20), QPointF(180, 90)),
+                  QRectF(60, 16, 80, 8), QRectF(60, 86, 80, 8)),
+    "circle": (lambda: CircleItem(QPointF(0, 0), 100.0),
+               QRectF(96, -4, 8, 8), QRectF(-4, 96, 8, 8)),
+    "arc": (_arc, QRectF(96, -4, 8, 8), QRectF(-4, 96, 8, 8)),
+}
+
+
+def _loose(be, kind):
+    make, inside, outside = LOOSE[kind]
+    item = make()
+    be.addItem(item)
+    return item, inside, outside
+
+
+@pytest.mark.parametrize("kind", sorted(LOOSE))
+def test_an_opaque_block_hides_a_loose_primitive_under_it_in_a_schematic(be, kind):
+    a, b = _pair(be)
+    item, inside, outside = _loose(be, kind)
+    assert ink(be, item, outside, VIEW) > 0                   # it is drawn where nothing covers it
+    assert ink(be, item, inside, VIEW) == 0                   # and gone under the block
+
+
+@pytest.mark.parametrize("kind", sorted(LOOSE))
+def test_opaque_off_shows_a_loose_primitive_again(be, kind):
+    a, b = _pair(be)
+    item, inside, _outside = _loose(be, kind)
+    b.set_opaque(False)
+    assert ink(be, item, inside, VIEW) > 0
+
+
+def test_a_loose_line_has_ink_right_up_to_the_silhouette(be):
+    """The block's right edge is x 150; its mask reaches 150.5."""
+    a, b = _pair(be)
+    line = LineItem(QPointF(0, 20), QPointF(200, 20))
+    be.addItem(line)
+    assert ink(be, line, QRectF(151.5, 16, 3, 8), VIEW) > 0
+    assert ink(be, line, QRectF(146, 16, 3, 8), VIEW) == 0
+
+
+def test_a_loose_line_shows_in_the_empty_corner_of_an_l_shaped_block(be):
+    """The L's arms are x 50..150, y -50..-10 and x 50..90, y -50..50; the
+    bounding box corner x 90..150, y -10..50 is empty and the line runs
+    through it at y 20."""
+    be.place_block_instance(l_def(be).id, (50.0, -50.0))
+    line = LineItem(QPointF(0, 20), QPointF(200, 20))
+    be.addItem(line)
+    assert ink(be, line, QRectF(55, 16, 30, 8), VIEW) == 0    # under the vertical arm
+    assert ink(be, line, QRectF(100, 16, 40, 8), VIEW) > 0    # the corner: drawn
+
+
+def test_moving_the_block_moves_the_gap_in_a_loose_line(be):
+    a, b = _pair(be)
+    line = LineItem(QPointF(0, 20), QPointF(300, 20))
+    be.addItem(line)
+    assert ink(be, line, QRectF(60, 16, 40, 8), VIEW) == 0
+    b.set_block_pos(150.0, -50.0)                             # now x 150..250
+    assert ink(be, line, QRectF(60, 16, 40, 8), VIEW) > 0
+    assert ink(be, line, QRectF(170, 16, 40, 8), VIEW) == 0
+
+
+def test_a_loose_line_moved_by_set_pos_is_hidden_where_it_now_is(be):
+    """Drawn at x 0..200 and moved to x 100..300, y 20: ``pos`` is not the
+    identity, so the cover must be mapped into the item's frame (unmapped, the
+    cut would land at scene x 150..250 and hide the wrong stretch)."""
+    a, b = _pair(be)
+    line = LineItem(QPointF(0, -10), QPointF(200, -10))
+    be.addItem(line)
+    line.setPos(100.0, 30.0)
+    assert ink(be, line, QRectF(110, 16, 30, 8), VIEW) == 0   # inside the block
+    assert ink(be, line, QRectF(160, 16, 30, 8), VIEW) > 0    # past its edge
+
+
+def test_a_rotated_loose_line_is_hidden_where_it_now_is(be):
+    """From (100, -80), turned 90 degrees: the vertical x 100, y -80..120."""
+    a, b = _pair(be)
+    line = LineItem(QPointF(0, 0), QPointF(200, 0))
+    be.addItem(line)
+    line.setPos(100.0, -80.0)
+    line.setRotation(90.0)
+    assert ink(be, line, QRectF(96, -4, 8, 8), VIEW) == 0     # through the block
+    assert ink(be, line, QRectF(96, 70, 8, 8), VIEW) > 0      # below it
+    assert ink(be, line, QRectF(96, -58, 8, 6), VIEW) > 0     # above it
+
+
+def _text(x=100.0, y=0.0):
+    from firepro3d.text_item import TextAnnotationData, TextItem
+    return TextItem(TextAnnotationData(text="HOSE", x=x, y=y, height_mm=30.0))
+
+
+def _region():
+    return FilledRegionItem.from_pieces([[CircleItem(QPointF(100, 0), 20.0)]])
+
+
+@pytest.mark.parametrize("make", [_text, _region], ids=["text", "filled_region"])
+def test_text_and_a_filled_region_stay_drawn_under_an_opaque_block(be, make):
+    a, b = _pair(be)
+    item = make()
+    be.addItem(item)
+    assert ink(be, item, QRectF(85, -15, 30, 30), VIEW) > 0
+
+
+def _pick(be, p):
+    return be.halo_candidates_at(QPointF(*p), 6.0, QTransform())
+
+
+def test_a_click_on_the_hidden_part_of_a_line_picks_the_block(be):
+    a, b = _pair(be)
+    line = LineItem(QPointF(0, 20), QPointF(200, 20))
+    be.addItem(line)
+    hit = _pick(be, (100, 20))                                # under the block
+    assert b in hit and line not in hit
+    assert line in _pick(be, (175, 20))                       # beside it: the line
+
+
+@pytest.mark.parametrize("make", [_text, _region], ids=["text", "filled_region"])
+def test_text_and_a_filled_region_stay_clickable_under_an_opaque_block(be, make):
+    a, b = _pair(be)
+    item = make()
+    be.addItem(item)
+    assert item in _pick(be, (100, 0))
+
+
+def test_a_rubber_band_still_takes_the_hidden_line(be):
+    """D8 governs clicks; a band across the covered region selects as before."""
+    a, b = _pair(be)
+    line = LineItem(QPointF(0, 20), QPointF(200, 20))
+    be.addItem(line)
+    assert line in be.rubber_band_hits(QRectF(90, 10, 20, 20), True)
+
+
+def test_object_snap_still_finds_the_end_of_a_hidden_line(qapp):
+    from tests._snap_polish_helpers import close_view, make_view
+    view, sc = make_view(role="block_editor", scale=1.0, mode=None)
+    try:
+        sc.opaque_blocks = True
+        _pair(sc)
+        line = LineItem(QPointF(0, 20), QPointF(100, 20))      # ends under the block
+        sc.addItem(line)
+        r = sc._snap_engine.find(QPointF(101, 21), sc, view.transform())
+        assert r is not None and r.snap_type == "endpoint"
+        assert (round(r.point.x(), 3), round(r.point.y(), 3)) == (100.0, 20.0)
+    finally:
+        close_view(view, sc)

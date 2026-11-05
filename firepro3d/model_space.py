@@ -30,7 +30,7 @@ from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .geometry_2d import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-    RegularPolygonItem, EllipseItem, SplineItem,
+    RegularPolygonItem, EllipseItem, SplineItem, HIDEABLE_BY_BLOCKS,
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
@@ -5376,10 +5376,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         ``scene_arg`` is a QPointF (aperture hover, halo_candidates_at) or a
         QRectF (rubber-band, rubber_band_hits); dispatch to _halo_room_hit
         accordingly to preserve the historical point-vs-rect filter semantics.
+
+        In a schematic a click (point form only; a rubber band is unchanged,
+        D8) inside an opaque block's mask drops the loose lines, arcs,
+        rectangles, circles and polylines it hides, so the block is picked.
+        Text and filled regions stay clickable (D4).
         """
         if isinstance(item, Room):
             is_rect = isinstance(scene_arg, QRectF)
             return self._halo_room_hit(item, scene_arg, is_rect=is_rect)
+        if (self.opaque_blocks and not isinstance(scene_arg, QRectF)
+                and isinstance(item, HIDEABLE_BY_BLOCKS)):
+            from .block_stack import covered_at
+            return not covered_at(self, scene_arg)
         return True
 
     def _halo_mode_ok(self):
