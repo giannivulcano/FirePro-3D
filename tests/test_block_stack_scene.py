@@ -219,3 +219,38 @@ def test_a_plain_editor_paint_never_queries_the_scene(qapp):
         assert not calls
     finally:
         s.cleanup()
+
+
+# -- A posed upper block: the cover is its mirrored / scaled outline, not the
+#    definition's. The covered extents below are worked out by hand from the
+#    definition's geometry (nothing here reads ``opaque_mask``). ---------------
+
+WIDE = QRectF(-20, -120, 440, 240)
+
+
+def test_a_mirrored_upper_block_covers_its_mirrored_side(be):
+    """B is a 100 x 60 rectangle from its corner. Placed at x=150 and mirrored
+    (local x -> -x) it spans x 50..150, y -30..30; unmirrored it would span
+    150..250. A's line runs x 0..400 at y 0. Primed with a paint first.
+    RED: ``paint`` skips ``_cover_above``."""
+    a = be.place_block_instance(line_def(be, "A", 400.0).id, (0.0, 0.0))
+    b = be.place_block_instance(rect_def(be, "B", 100.0, 60.0).id, (150.0, -30.0))
+    render(be, WIDE)
+    b.set_block_mirrored(True)
+    assert ink(be, a, QRectF(70, -4, 60, 8), WIDE) == 0      # inside 50..150
+    assert ink(be, a, QRectF(170, -4, 60, 8), WIDE) > 0      # where an unmirrored B would be
+    assert ink(be, a, QRectF(10, -4, 30, 8), WIDE) > 0       # left of B
+
+
+def test_a_scaled_upper_block_covers_its_scaled_size(be):
+    """B is a 100 x 100 rectangle from its corner. Placed at (100, -100) and
+    scaled 2x it spans x 100..300, y -100..100; unscaled it would span
+    100..200. A's line runs x 0..400 at y 0. Primed with a paint first.
+    RED: ``paint`` skips ``_cover_above``."""
+    a = be.place_block_instance(line_def(be, "A", 400.0).id, (0.0, 0.0))
+    b = be.place_block_instance(rect_def(be, "B", 100.0, 100.0).id, (100.0, -100.0))
+    render(be, WIDE)
+    b.set_block_scale(2.0)
+    assert ink(be, a, QRectF(220, -4, 60, 8), WIDE) == 0     # inside 100..300, past the unscaled 200
+    assert ink(be, a, QRectF(320, -4, 60, 8), WIDE) > 0      # right of B
+    assert ink(be, a, QRectF(10, -4, 60, 8), WIDE) > 0       # left of B
