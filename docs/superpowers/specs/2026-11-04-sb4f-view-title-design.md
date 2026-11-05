@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: built            # BUILT 2026-11-04 (v0.87.0, merged to main dab5a2f2); the contract now lives in docs/specs/system-blocks.md (s8e, s8d reversal) + paper-space.md (s5.2, s9.9). Build deltas: the grip registers on both manipulator hooks (manip_box_extra_handles and manip_extra_handles); the auto number is assigned in PaperScene.add_viewport, not _do_add_viewport; the view title plots as paths, not a PDF text layer
 last-verified: 2026-11-04
-verified-commit: b29294aa
+verified-commit: dab5a2f2
 applies-to:
   - firepro3d/paper_space.py
   - firepro3d/paper_commands.py
