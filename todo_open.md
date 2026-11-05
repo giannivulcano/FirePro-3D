@@ -18,8 +18,14 @@
   - Details: `_prune` builds its pattern from the saved name's own extension, so the same project saved under both spellings on Windows keeps up to 10 of each. Match on `re.IGNORECASE`.
 - [ ] [type:bug] `test_sb2b_settings_dialog_size.py::test_g_s1_marks_table_fits` fails at the default and minimum sizes [P4] [subject:Testing]
   - Details: found by the data-loss keep-green, 2026-11-04. `test_g_s1_marks_table_fits_at_default_size` and `_at_minimum_size` fail identically at base `5185b8cc` (VC7, detached worktree) and at HEAD `d09406ca`, so this branch did not cause them. Cause not investigated.
+  - +1 occurrence 2026-11-04 (SB4f T7 keep-green, VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 4fbeabaf, identical both: `'Detail' == 'Room'`).
+- [ ] [type:bug] `test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails against the restyled SectionHead seed [P4] [subject:Testing]
+  - Details: found by SB4f T6 keep-green, 2026-11-04. VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 1ad57b24, identical both: `m._rk()` 400.1088 against 406.4 expected. The implementer's read, not yet confirmed: the test pins the old 2R circle and the seed moved to a 4 mm radius at the SB4d Q19 smoke. Decide whether the pin or the tangency is wrong.
 
 ## Paper-space sheet output
+
+- [ ] [type:bug] View title drop edges: the clamp has no floor and a few failure paths are unguarded [P4] [subject:Robustness]
+  - Details: SB4f T5 and T7 review Minors, 2026-11-04. (1) `PaperGraphicsView.dropEvent`: a user View Title block taller than the sheet takes `max_h` to zero or below, storing a zero or negative viewport. (2) `extent_below_box` samples every host key as "0" and ignores the outline margin, so a long or wrapped title can pass the clamp by under 1 mm. (3) `SheetViewPropertiesDialog.accept` refuses silently when `notify` is None, and `PaperScene.notify` is a no-op without a model scene. (4) A corrupt block raising inside `extent_below_box` is uncaught in `dropEvent`, which aborts under PyQt6. (5) The kept-Mark load notice is overwritten in the status bar by the mapping-resolve notice on a broken annotation mapping.
 
 - [ ] [type:bug] Ctrl (from-centre) resize of a sheet viewport grows from the top-left instead of the centre [P3] [subject:UX]
   - Details: crop-live T1 review 2026-11-03. `SheetViewport.manip_scale` picks the fixed edge by `anchor_left = |ax-x| <= |ax-(x+w)| + eps`; a centre anchor ties, so left/top always win (BR Ctrl drag (-20,-10) -> x=0,y=0, w=60.1). Pre-existing on release; the live crop drag now shows it, so the handle leaves the cursor. Needs a centre branch in `_resize_on_paper` (split the size change about the centre in crop and x/y). `paper_space.py`.
@@ -489,6 +495,7 @@
   - +1 occurrence 2026-11-04 (SB4f T1 keep-green, VC7-proved in a detached worktree at base b29294aa, 5 failed / 7 passed; the same 5 at HEAD e6d3fad8): `tests/test_system_library_browser.py` same 5.
   - +1 occurrence 2026-11-03 (stroke-corner-joins T8 keep-green, VC7-proved by the orchestrator in a detached worktree at base c20d2ec3 and HEAD 384c499c, identical both): browser same 5 + `test_system_tier_lists_shipped_hatches`.
   - +1 occurrence 2026-10-31 (floor-opening T7 keep-green, VC7-proved at branch base 83196632 and HEAD 9bd0e31a, 1 failed both).
+  - +1 occurrence 2026-11-04 (SB4f T7 keep-green, VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 4fbeabaf, 1 failed both).
   - +1 occurrence 2026-10-31 (Block Editor select-all perf T4 keep-green, VC7-proved by the orchestrator at branch base f20268e1 and HEAD: 'Arrow' != 'Brick' ordering).
   - +1 occurrence 2026-11-01 (text-sizing-wrap Part A T5 keep-green, VC7-proved in a detached worktree at base 2109fb02 and HEAD 796b26dc, 6 failed / 33 passed both): the tier test + the same 5 browser tests.
   - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
