@@ -222,6 +222,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         super().__init__()
         self.scene_role = scene_role
         self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
+        self._stack_members = weakref.WeakSet()   # BlockInstances in this scene (itemChange keeps it)
+        self._opaque_stack = None        # (default, opaque blocks in paint order, memo) -- BlockInstance._opaque_rows
         # ET1 spec C: items whose last paint drew a Fixed-size end at the
         # screen factor (their scene bounds follow the view zoom).
         self._screen_end_items = weakref.WeakSet()
@@ -740,8 +742,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Qt ``clear()`` deletes every item without dispatching scene-change
         events to Python (P4 probe), so the stroke-joint index (design D5a)
         is emptied here -- every ``self.clear()`` site (load / new reset)
-        goes through this override."""
+        goes through this override. The opaque-block order drops here for the
+        same reason (``BlockInstance.itemChange`` is not told)."""
         self.stroke_joints.clear()
+        self._opaque_stack = None
+        self._stack_members = weakref.WeakSet()
         super().clear()
 
     def cleanup(self) -> None:
@@ -2944,6 +2949,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         inst._opaque = opaque
         inst.constraint_points_off = constraint_points_off
         inst.apply_stack_z()
+        inst.stack_changed()            # _opaque was set after the add
         # Backref only when the definition lives in THIS scene's own store: a
         # Block Editor resolves through the borrowed project registry, and its
         # instances repaint via registry.invalidate (it walks attached scenes).

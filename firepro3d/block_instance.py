@@ -16,6 +16,7 @@ assumes ``transform()`` carries no pose).
 from __future__ import annotations
 
 import copy
+import itertools
 import math
 import uuid
 from typing import Callable, Optional
@@ -100,6 +101,15 @@ def _record_scale(rec: dict) -> float:
     return s
 
 
+class _NoMembers:
+    """Stands in on a scene that keeps no stacking order."""
+    add = discard = staticmethod(lambda item: None)
+
+
+_NO_MEMBERS = _NoMembers()
+_STACK_SEQ = itertools.count(1)    # scene-entry order: Qt paints equal z in this order
+
+
 class BlockInstance(QGraphicsObject):
     """A placed instance of a BlockDefinition (flyweight consumer)."""
 
@@ -156,8 +166,9 @@ class BlockInstance(QGraphicsObject):
         self._nested_handles_cache = None  # (ops, mirrored, scale, table) — sketch_adapters._nested_table
         self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
-        self._mask_cache = None    # (ops list, pose key, scene mask) -- opaque_mask
+        self._mask_cache = None    # (definition ops, pose key, scene mask) -- opaque_mask
         self._cover_cache = None   # (masks tuple, union) -- _cover_above
+        self._stack_seq = 0        # scene-entry order, the tie-break at equal z
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
@@ -640,54 +651,132 @@ class BlockInstance(QGraphicsObject):
         self._opaque = None
         if bool(value) != self.is_opaque():
             self._opaque = bool(value)
+        self.stack_changed()
         self.update()
+
+    def stack_changed(self) -> None:
+        """Mark the scene's opaque-block order stale. Called wherever the
+        answer to "which opaque blocks sit above which" can change that
+        ``itemChange`` does not see: Opaque and the fields a rebuild sets."""
+        sc = self.scene()
+        if sc is not None:
+            sc._opaque_stack = None
+
+    def itemChange(self, change, value):
+        """One chokepoint for the order's inputs: entering / leaving a scene,
+        visibility and z. Qt's own ``clear()`` sends none of these;
+        ``Model_Space.clear`` drops the order itself."""
+        GC = QGraphicsItem.GraphicsItemChange
+        if change == GC.ItemSceneChange:
+            old = self.scene()                            # the scene it leaves
+            if old is not None:
+                old._opaque_stack = None
+                getattr(old, "_stack_members", _NO_MEMBERS).discard(self)
+            if value is not None:
+                value._opaque_stack = None                # the scene it joins
+        elif change == GC.ItemSceneHasChanged:
+            self._stack_seq = next(_STACK_SEQ)
+            sc = self.scene()
+            if sc is not None:
+                getattr(sc, "_stack_members", _NO_MEMBERS).add(self)
+        elif change in (GC.ItemVisibleHasChanged, GC.ItemZValueHasChanged):
+            self.stack_changed()
+        return super().itemChange(change, value)
 
     def opaque_active(self) -> bool:
         """True when this block hides blocks below it (D1): stacking scenes only."""
         return self.in_stack_scene() and self.is_opaque()
 
     def opaque_mask(self) -> QPainterPath:
-        """This block's mask in scene mm (D2), memoised on (compiled ops, full
-        pose). The result object stays the same while valid, which keys
-        ``_cover_above``'s cache."""
-        ops = self.render_ops()
+        """This block's mask in scene mm (D2), memoised on (the definition's
+        compiled ops, full pose). The mask reads geometry only, so a
+        placement override or bound text cannot change it, and the check
+        skips this instance's own ``render_ops`` -- ``_cover_above`` asks it of
+        every opaque block above, for every block. The result object stays
+        the same while valid, which keys ``_cover_above``'s cache."""
+        d = self.definition()
+        base = d.render_ops() if d is not None else None
         key = self._pose_key()
         c = self._mask_cache
-        if c is None or c[0] is not ops or c[1] != key:
-            c = self._mask_cache = (ops, key, self.pose_transform().map(ops_mask(ops)))
+        if c is None or c[0] is not base or c[1] != key:
+            mask = self.pose_transform().map(ops_mask(self.render_ops()))
+            c = self._mask_cache = (base, key, mask)
         return c[2]
+
+    @staticmethod
+    def _opaque_rows(sc) -> list:
+        """The scene's opaque blocks in paint order, bottom first, as
+        ``(z, entry order, block)``; rebuilt only when stale or when the
+        scene's Opaque default changed. Equal z paints in scene-entry order,
+        which is what Qt does."""
+        flag = bool(sc.opaque_blocks)
+        c = sc._opaque_stack
+        if c is not None and c[0] == flag:
+            return c[1]
+        rows = [(it.zValue(), it._stack_seq, it) for it in sc._stack_members
+                if it.isVisible() and it.opaque_active()]
+        rows.sort(key=lambda r: (r[0], r[1]))
+        sc._opaque_stack = (flag, rows, {})
+        return rows
 
     def _cover_above(self) -> "QPainterPath | None":
         """Union of the opaque masks over this block, scene mm (D1), or None.
 
-        Reads the scene's own stacking order through its spatial index, so the
-        rule matches what paints above. Plan scenes and ghosts return at once.
+        Walks only the scene's opaque blocks above this one, top first, with
+        no spatial query. Plan scenes, ghosts and scenes with no opaque block
+        return at once.
         """
         sc = self.scene()
-        if self._is_ghost or getattr(sc, "scene_role", None) != "block_editor":
+        if sc is None or self._is_ghost or getattr(sc, "scene_role", None) != "block_editor":
             return None
-        rect = self.sceneBoundingRect()
+        rows = self._opaque_rows(sc)
+        if not rows:
+            return None
+        mine = (self.zValue(), self._stack_seq)
+        rect = None
         masks = []
-        for it in sc.items(rect, Qt.ItemSelectionMode.IntersectsItemBoundingRect,
-                           Qt.SortOrder.DescendingOrder):
-            if it is self:
+        for k in range(len(rows) - 1, -1, -1):
+            z, seq, it = rows[k]
+            if (z, seq) <= mine:
                 break
-            if isinstance(it, BlockInstance) and it.isVisible() and it.opaque_active():
-                m = it.opaque_mask()
-                if not it.transform().isIdentity():        # a manipulator's held preview
-                    m = it.sceneTransform().map(m)
-                if m.intersects(rect):
-                    masks.append(m)
+            m = it.opaque_mask()
+            if it.transform().isIdentity():
+                if rect is None:
+                    rect = self.sceneBoundingRect()
+                if not m.boundingRect().intersects(rect):
+                    continue
+            else:                                          # a manipulator's held preview
+                m = it.sceneTransform().map(m)
+                if rect is None:
+                    rect = self.sceneBoundingRect()
+            if m.intersects(rect):
+                masks.append(m)
         if not masks:
             return None
         c = self._cover_cache
         if (c is not None and len(c[0]) == len(masks)
                 and all(x is y for x, y in zip(c[0], masks))):
             return c[1]
-        cover = masks[0]
-        for m in masks[1:]:
-            cover = cover.united(m)
+        memo = sc._opaque_stack[2]                  # prefix -> union, shared by blocks
+        cover = self._union_prefix(memo, masks)
         self._cover_cache = (tuple(masks), cover)
+        return cover
+
+    @staticmethod
+    def _union_prefix(memo: dict, masks: list) -> QPainterPath:
+        """Union of *masks*, sharing the union of every shorter prefix with the
+        other blocks (a pile of overlapping blocks nests its covers)."""
+        key = tuple(id(m) for m in masks)
+        hit = memo.get(key)
+        if hit is not None:
+            return hit[1]
+        if len(masks) == 1:
+            cover = masks[0]
+        else:
+            cover = BlockInstance._union_prefix(memo, masks[:-1]).united(masks[-1])
+        if len(memo) > 2048:
+            memo.clear()
+        memo[key] = (tuple(masks), cover)       # holds the masks so ids stay valid
         return cover
 
     def _stack_fields(self) -> dict:
