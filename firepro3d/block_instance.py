@@ -688,12 +688,13 @@ class BlockInstance(QGraphicsObject):
         return self.in_stack_scene() and self.is_opaque()
 
     def opaque_mask(self) -> QPainterPath:
-        """This block's mask in scene mm (D2), memoised on (the definition's
-        compiled ops, full pose). The mask is built from this instance's
-        ``render_ops()``: the definition's ops under its mirror / scale
-        variant and placement override, plus its bound text ops. ``ops_mask``
-        ignores text ops but counts a bound text box's FILL and frame STROKE,
-        so a framed bound text can widen the mask. The cache key holds only
+        """This block's silhouette in scene mm (D2), memoised on (the
+        definition's compiled ops, full pose). The definition traces its
+        silhouette once (``BlockDefinition.silhouette``); this maps that one
+        path through the mirror / scale variant and the pose, then adds the
+        silhouette of its bound text ops. ``ops_mask`` ignores text glyphs
+        but counts a bound text box's FILL and frame STROKE, so a framed
+        bound text can widen the mask. The cache key holds only
         the definition's compiled ops and the pose, not the override or bound
         text, so it tracks those only through the compiled-op identity (a
         nested record carries no attributes, so none reaches it today).
@@ -705,7 +706,14 @@ class BlockInstance(QGraphicsObject):
         key = self._pose_key()
         c = self._mask_cache
         if c is None or c[0] is not base or c[1] != key:
-            mask = self.pose_transform().map(ops_mask(self.render_ops()))
+            local = QPainterPath()
+            if d is not None:       # the definition's one silhouette, posed by the variant map
+                local = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored,
+                                    self._variant_scale()).map(d.silhouette())
+            bound = self._bound_ops()
+            if bound:
+                local = local.united(ops_mask(bound))
+            mask = self.pose_transform().map(local)
             c = self._mask_cache = (base, key, mask)
         return c[2]
 

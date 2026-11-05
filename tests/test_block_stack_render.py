@@ -4,9 +4,10 @@ from PyQt6.QtCore import QPointF, QRectF
 
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import CircleItem, LineItem
+from firepro3d.constants import MASK_GAP_MM
 from firepro3d.model_space import Model_Space
 from firepro3d.render_op import STROKE, ops_mask
-from tests._block_stack_helpers import ink, line_def, rect_def
+from tests._block_stack_helpers import ink, l_def, line_def, rect_def
 
 VIEW = QRectF(-20, -60, 260, 180)
 
@@ -30,8 +31,14 @@ def _parent(sc, prims, kind="block"):
 
 
 def test_mask_is_the_closed_geometry(sc):
+    """Rewritten for amended D2 (silhouette): a closed outline fills, outset by
+    at most half the gap width."""
     m = ops_mask(rect_def(sc).render_ops())
     assert m.contains(QPointF(50, 50)) and not m.contains(QPointF(150, 50))
+    half = MASK_GAP_MM / 2
+    assert m.contains(QPointF(100 + half - 0.1, 50))          # outset, but only by half the gap
+    assert not m.contains(QPointF(100 + half + 0.2, 50))
+    assert not m.contains(QPointF(-half - 0.2, 50))
 
 
 def test_mask_of_two_closed_shapes_is_their_union(sc):
@@ -42,12 +49,17 @@ def test_mask_of_two_closed_shapes_is_their_union(sc):
     assert not m.contains(QPointF(200, 20))              # not the bounding box
 
 
-def test_open_geometry_falls_back_to_its_bounding_box(sc):
+def test_open_geometry_has_no_bounding_box_fallback(sc):
+    """Rewritten for amended D2: open linework masks its own silhouette, never
+    the bounding box; no ink is no mask."""
     d = BlockDefinition.new(name="Vee", library="L", series="", origin=(0.0, 0.0), primitives=[
         LineItem(QPointF(0, 0), QPointF(100, 0)).to_dict(),
         LineItem(QPointF(0, 0), QPointF(0, 100)).to_dict()])
     sc.register_block_definition(d)
-    assert ops_mask(d.render_ops()).contains(QPointF(80, 80))
+    m = ops_mask(d.render_ops())
+    assert m.contains(QPointF(50, 0)) and m.contains(QPointF(0, 50))     # the lines themselves
+    assert not m.contains(QPointF(80, 80))                               # the bounding box corner
+    assert ops_mask([]).isEmpty()
 
 
 def test_a_curved_mask_keeps_its_curve(sc):
@@ -215,3 +227,39 @@ def test_a_fixed_size_covered_run_survives_a_render_at_another_zoom(qapp):
         assert ink                      # outside the mask (6 px) and the view-zoom frame
     finally:
         ms.cleanup()
+
+
+def test_a_nested_l_shape_hides_its_arm_and_not_its_corner(sc):
+    """Compiled path: the L sits at (150, -50), so its arm is x 150..190,
+    y -50..50 and its bounding box corner x 190..250, y -10..50 holds the low
+    line, which stays drawn. (An L left unposed would sit at x 0..100.)"""
+    low, top = line_def(sc, "Low", 300.0), l_def(sc)
+    p = _parent(sc, [_rec(low, 0, 0), _rec(top, 150, -50, opaque=True, layer_height=1)])
+    inst = sc.place_block_instance(p.id, (0.0, 0.0))
+    view = QRectF(-20, -60, 300, 180)
+    assert ink(sc, inst, QRectF(155, -4, 30, 8), view) == 0
+    assert ink(sc, inst, QRectF(200, -4, 40, 8), view) > 0
+
+
+def test_a_mirrored_variant_of_an_l_shape_clips_its_mirrored_arm(sc):
+    low, top = line_def(sc, "Low"), l_def(sc)
+    p = _parent(sc, [_rec(low, 0, 0), _rec(top, 150, -50, opaque=True, layer_height=1)])
+    clip = p.render_ops_variant(True, 1.0)[0].clip_out        # the arm x 150..190 becomes -190..-150
+    assert clip.contains(QPointF(-170, 0)) and not clip.contains(QPointF(-220, 0))
+
+
+def test_the_silhouette_is_traced_once_per_definition(sc, monkeypatch):
+    d = l_def(sc)
+    calls = _count_masks(monkeypatch)
+    a = sc.place_block_instance(d.id, (0.0, 0.0))
+    b = sc.place_block_instance(d.id, (300.0, 0.0))
+    c = sc.place_block_instance(d.id, (0.0, 300.0))
+    b.set_block_mirrored(True)
+    c.set_block_scale(2.0)
+    for i in (a, b, c):
+        i.opaque_mask()
+    a.set_block_pos(10.0, 10.0)
+    a.opaque_mask()
+    assert len(calls) == 1
+    assert b.opaque_mask().contains(QPointF(280, 50)) and not b.opaque_mask().contains(QPointF(230, 70))
+    assert c.opaque_mask().contains(QPointF(40, 450)) and not c.opaque_mask().contains(QPointF(150, 450))

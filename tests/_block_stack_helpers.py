@@ -54,3 +54,27 @@ def ink(scene, item, region: QRectF, view: QRectF) -> int:
             if with_it.pixel(x, y) != without.pixel(x, y):
                 n += 1
     return n
+
+
+def lines_def(sc, name, segments, rects=()):
+    """A block of separate line ops (``segments`` = ``((x0, y0), (x1, y1))``
+    pairs) and closed rectangles (``rects`` = ``(x0, y0, x1, y1)``): outlines
+    with no closed shape of their own."""
+    prims = [LineItem(QPointF(*a), QPointF(*b)).to_dict() for a, b in segments]
+    prims += [RectangleItem(QPointF(x0, y0), QPointF(x1, y1)).to_dict()
+              for x0, y0, x1, y1 in rects]
+    d = BlockDefinition.new(name=name, library="L", series="S", primitives=prims,
+                            origin=(0.0, 0.0))
+    sc.register_block_definition(d)
+    return d
+
+
+# An L drawn as six separate line ops: a horizontal arm (x 0..100, y 0..40) and
+# a vertical arm (x 0..40, y 0..100). Its bounding box corner (x 40..100,
+# y 40..100) is empty.
+L_SEGMENTS = [((0, 0), (100, 0)), ((100, 0), (100, 40)), ((100, 40), (40, 40)),
+              ((40, 40), (40, 100)), ((40, 100), (0, 100)), ((0, 100), (0, 0))]
+
+
+def l_def(sc, name="L"):
+    return lines_def(sc, name, L_SEGMENTS)

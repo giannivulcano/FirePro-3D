@@ -420,6 +420,7 @@ class BlockDefinition:
         self.render_mode = render_mode or "default"
         self._render_ops: list[RenderOp] | None = None
         self._variants: tuple | None = None   # (base ops list, OrderedDict) -- DD4
+        self._silhouette: tuple | None = None  # (base ops list, mask) -- silhouette()
         self._op_groups: list[int] | None = None   # joint container id per op (D5b)
         self._joint_cache: tuple | None = None     # (base ops, {variant key: result}) -- D5b
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
@@ -622,6 +623,23 @@ class BlockDefinition:
         """
         hit = self._joint_entry(mirrored, scale)
         return hit[1], hit[2]
+
+    def silhouette(self) -> QPainterPath:
+        """The mask of this definition's compiled ops (:func:`ops_mask`, block
+        stacking D2) in its own frame, built once per compile: the memo is
+        keyed on the identity of ``render_ops()``, so a recompile drops it.
+        Every placement, pose and variant maps this one path instead of
+        tracing again (a large block costs hundreds of ms to trace).
+
+        Returns:
+            The shared mask path (never mutate it); empty when no ink.
+        """
+        from . import render_op
+        base = self.render_ops()
+        c = self._silhouette
+        if c is None or c[0] is not base:
+            c = self._silhouette = (base, render_op.ops_mask(base))
+        return c[1]
 
     def _joint_entry(self, mirrored: bool, scale: float) -> tuple:
         """``(ops, per_op, partnered, top)`` for a variant, built once per
@@ -922,8 +940,14 @@ class BlockDefinition:
                 opaque = default
             if n == len(runs) - 1:
                 break                       # the bottom run covers nothing: no mask
-            if opaque and self._resolve_nested(rec) is not None:
-                mask = ops_mask(ops[a:b])
+            child = self._resolve_nested(rec) if opaque else None
+            if child is not None:
+                if child.id == self.id or child.id in _COMPILING:
+                    mask = ops_mask(ops[a:b])       # the red placeholder
+                else:                       # the child's own memo, posed like its ops
+                    ox, oy = self.origin
+                    mask = (_nested_pose(rec) * QTransform.fromTranslate(-ox, -oy)
+                            ).map(child.silhouette())
                 if not mask.isEmpty():
                     cover = mask if cover is None else cover.united(mask)
 

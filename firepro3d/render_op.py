@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPainterPathStroker, QPen, QTransform
 
 STROKE = "stroke"
 FILL = "fill"
@@ -182,43 +182,75 @@ def apply_overrides(ops, weight=None, linetype=None):
             else op for op in ops]
 
 
-_MASK_FLATTEN = 64.0     # flatten closed curves at 1/64 mm so a mask keeps its curve
+_MASK_FLATTEN = 8.0     # mask grid: curves flatten and points snap at 1/8 mm
+
+
+def _ring_area(poly) -> float:
+    """Absolute area of a ``QPolygonF`` ring."""
+    n = poly.size()
+    a = 0.0
+    for i in range(n):
+        u, v = poly[i], poly[(i + 1) % n]
+        a += u.x() * v.y() - v.x() * u.y()
+    return abs(a) / 2
 
 
 def ops_mask(ops) -> QPainterPath:
-    """The area an opaque block hides, in its ops' frame (block stacking D2):
-    the union of its closed geometry, else its bounding box. Text never counts.
+    """The area an opaque block hides, in its ops' frame (block stacking D2,
+    amended 2026-11-05): the block's silhouette. Its stroke, fill and pattern
+    ink is flattened and snapped to a 1/``_MASK_FLATTEN`` mm grid, stroked at
+    ``MASK_GAP_MM`` so a gap narrower than that closes, and only the outer
+    outline of each connected piece is kept and filled. Pieces that do not
+    touch each get their own outline; a hole inside one stays covered. An
+    outline is outset by ``MASK_GAP_MM / 2``. Text never counts.
 
     Args:
         ops: Compiled ops.
 
     Returns:
-        The mask; empty when *ops* has no extent.
+        The mask; empty when *ops* has no ink.
     """
-    closed = []
+    from .constants import MASK_GAP_MM
+    f = _MASK_FLATTEN
+    grid = QTransform.fromScale(f, f)
+    ink = QPainterPath()
     for op in ops:
-        if op.kind in (FILL, PATTERN):
-            closed.append(op.path)
-        elif op.kind == STROKE:
-            scale = QTransform.fromScale(_MASK_FLATTEN, _MASK_FLATTEN)
-            for poly in op.path.toSubpathPolygons(scale):
-                if poly.size() > 3 and poly.isClosed():
-                    p = QPainterPath()
-                    p.addPolygon(QTransform.fromScale(1 / _MASK_FLATTEN,
-                                                      1 / _MASK_FLATTEN).map(poly))
-                    closed.append(p)
+        if op.kind not in (STROKE, FILL, PATTERN):
+            continue
+        closed = op.kind != STROKE
+        for poly in op.path.toSubpathPolygons(grid):
+            n = poly.size()
+            if not n:
+                continue
+            pts = [QPointF(round(poly[i].x()), round(poly[i].y())) for i in range(n)]
+            ink.moveTo(pts[0])
+            if n == 1:
+                ink.lineTo(pts[0])                 # a lone point still strokes a dot
+            for q in pts[1:]:
+                ink.lineTo(q)
+            if closed:
+                ink.closeSubpath()
     mask = QPainterPath()
-    for p in closed:
-        mask = mask.united(p)
-    if not mask.isEmpty():
+    if ink.isEmpty():
         return mask
-    box = QRectF()
-    for op in ops:
-        if op.kind != TEXT:
-            box = box.united(op.path.boundingRect())
-    if not box.isEmpty():
-        mask.addRect(box)
-    return mask
+    stroker = QPainterPathStroker()
+    stroker.setWidth(MASK_GAP_MM * f)
+    stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+    stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    rings = [r for r in stroker.createStroke(ink).simplified().toSubpathPolygons()
+             if r.size() > 2]
+    rings.sort(key=_ring_area, reverse=True)
+    kept: list = []
+    for r in rings:                      # a ring inside a kept ring is a hole
+        box = r.boundingRect()
+        if not any(kb.contains(box) and k.containsPoint(r[0], Qt.FillRule.OddEvenFill)
+                   for k, kb in kept):
+            kept.append((r, box))
+    mask.setFillRule(Qt.FillRule.WindingFill)
+    for r, _box in kept:
+        mask.addPolygon(r)
+        mask.closeSubpath()
+    return QTransform.fromScale(1 / f, 1 / f).map(mask)
 
 
 def keep_path(frame: QRectF, cover: QPainterPath) -> QPainterPath:

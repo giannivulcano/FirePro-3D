@@ -175,6 +175,11 @@ DEFAULT_LINE_WEIGHT_MM = 0.25
 # (mirrored, scale) variant op lists.
 BLOCK_VARIANT_CACHE_MAX = 32
 
+# Opaque block silhouette (block stacking D2): linework closer than this (mm)
+# is one piece, so a gap narrower than it in an outline closes; the mask
+# outlines the ink outset by half of it.
+MASK_GAP_MM = 1.0
+
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
 # DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic
 # béziers from PDF vector imports — overridable live via Preferences > Import &
