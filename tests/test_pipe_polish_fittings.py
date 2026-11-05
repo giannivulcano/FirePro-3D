@@ -5,6 +5,7 @@ import pytest
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
+from firepro3d.constants import DEFAULT_LEVEL
 from firepro3d.equivalent_length import equivalent_length_ft
 from firepro3d.fitting import Fitting
 from firepro3d.level_manager import LevelManager
@@ -229,7 +230,29 @@ def test_deleting_the_through_pipe_leaves_exactly_one(scene):
 @pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
 @pytest.mark.parametrize("seq", [SEQ_A, SEQ_C], ids=["A", "C"])
 def test_undo_restore_path_draws_exactly_one(scene, seq, reverse):
-    _build(scene, *_ordered(seq, reverse))
+    stack, _made = _build(scene, *_ordered(seq, reverse))
+    # The codec rebuilds z_pos from ceiling_level + ceiling_offset, not from a
+    # z set on the Node: pin each node's z through its ceiling offset on a
+    # level at elevation 0, so the restored scene keeps the stack.
+    level = scene._level_manager.get(DEFAULT_LEVEL)
+    assert level is not None and level.elevation == 0
+    built_z = {}
+    for node in list(scene.sprinkler_system.nodes):
+        z = node.z_pos
+        node.ceiling_level = DEFAULT_LEVEL
+        node.ceiling_offset = z
+        built_z[(round(node.scenePos().x()), round(node.scenePos().y()), z)] = node
     state = scene._capture_network()
     scene._restore_network(state)
+    restored = scene.sprinkler_system.nodes
+    assert len(restored) == len(built_z)
+    assert {(round(n.scenePos().x()), round(n.scenePos().y()), n.z_pos)
+            for n in restored} == set(built_z)
+    # the stack really is a stack: every interior stack node is a through node
+    zs = seq[0]
+    at_xy = {round(n.z_pos): n for n in restored
+             if round(n.scenePos().x()) == 0 and round(n.scenePos().y()) == 0}
+    assert sorted(at_xy) == sorted(round(z) for z in zs)
+    for z in zs[1:-1]:
+        assert Fitting.is_through(at_xy[round(z)]) is True
     assert _census(scene) == 1
