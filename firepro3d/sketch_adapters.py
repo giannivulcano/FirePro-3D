@@ -948,11 +948,12 @@ class _NestedAdapter(_Adapter):
         if _ins_only(it):
             return frozenset()
         t = _nested_table(it)
-        names = set(t.points) | set(t.edges) | set(t.curves)
-        if getattr(it, "constraint_points_off", False):
-            return frozenset(names)
-        if not t.off:
+        off = getattr(it, "constraint_points_off", False)
+        if not off and not t.off:
             return frozenset()
+        names = set(t.points) | set(t.edges) | set(t.curves)
+        if off:
+            return frozenset(names)
 
         def under(name):
             path = name.rsplit(":", 1)[0]
