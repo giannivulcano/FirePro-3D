@@ -294,14 +294,8 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             return  # skip extra work if hidden
 
         line = self.line()
-        v = CAD_Math.get_unit_vector(line.p1(), line.p2())
-        if v.x() < 0:                     # keep the label readable (AC4: whole label turns)
-            v = QPointF(-v.x(), -v.y())
-        angle = -CAD_Math.get_angle_between_vectors(v, QPointF(1, 0), signed=True)
-        if angle == 90:
-            angle = -90.0                 # [-90, 90): today's mapping, kept
-        self.label.set_anchor(QPointF((line.x1() + line.x2()) / 2,
-                                      (line.y1() + line.y2()) / 2))
+        mid, angle = CAD_Math.readable_line_pose(line.p1(), line.p2())
+        self.label.set_anchor(mid)
         self.label.setRotation(angle)
         self.label._pose_rot = angle      # an authored keep_upright text stays readable
         self.label.refresh()

@@ -41,7 +41,8 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
-from .bound_label import OutlinedLabel
+from .bound_label import BoundLabelItem, OutlinedLabel
+from .cad_math import CAD_Math
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
 from .section_pipe_symbols import (cut_symbol_path, end_on_path, kept_spans,
                                    radius_of)
@@ -287,6 +288,12 @@ class _ElevCutEllipse(_ElevPipeSymbol):
 
 class _ElevEndOnSymbol(_ElevPipeSymbol):
     """An uncut pipe running toward the viewer: the "C" (s5)."""
+
+
+class _ElevPipeLabel(BoundLabelItem):
+    """A pipe's label in a section (R-8): the plan's block, host = the model
+    pipe, top-level so it draws in the annotation band. Built per rebuild; the
+    line proxy owns it for the paper pass and Hide."""
 
 
 class _HostedBlockCopy(BlockInstance):
@@ -802,8 +809,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         shape follow the outline). Called for every open section by
         ``Model_Space.refresh_annotation_tags`` and by
         ``annotative.reprepare_annotative``. Each level datum's head too
-        (SB4c D3), then the scene foreground (the datum lines start at the
-        head outline)."""
+        (SB4c D3), and each pipe label, then the scene foreground (the datum
+        lines start at the head outline)."""
         for it in list(self.items()):
             try:
                 if isinstance(it, ElevGridlineItem):
@@ -815,6 +822,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     # SB4c D3: the head re-shapes; the datum's bounds / hit
                     # shape include it and drawForeground's line starts at it.
                     it.refresh_head()
+                elif isinstance(it, _ElevPipeLabel):
+                    it.refresh()
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
         self.update()                     # foreground datum lines re-trim
@@ -1052,6 +1061,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if source is not None and hasattr(source, "_display_overrides"):
                 source._display_overrides["visible"] = False
             item.setVisible(False)
+            lab = getattr(item, "pipe_label", None)
+            if lab is not None:
+                lab.setVisible(False)
 
     def _show_all_elev_hidden(self):
         """Restore all hidden source entities and rebuild."""
@@ -1841,7 +1853,19 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return 0.0, 1.0
 
     def _add_pipe_label(self, pipe, line) -> None:
-        pass
+        """R-8, R-9: label a drawn line, following the pipe's Show Label."""
+        if pipe._properties["Show Label"]["value"] != "True":
+            return
+        ln = line.line()
+        mid, angle = CAD_Math.readable_line_pose(ln.p1(), ln.p2())
+        lab = _ElevPipeLabel(pipe, child=False)
+        self.addItem(lab)
+        lab.set_anchor(mid)
+        lab.setRotation(angle)
+        lab._pose_rot = angle
+        lab.setZValue(Z_ANNOT_TAG)
+        lab.refresh()
+        line.pipe_label = lab
 
     # ── Sprinklers ───────────────────────────────────────────────────────
 

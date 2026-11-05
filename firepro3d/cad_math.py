@@ -43,6 +43,18 @@ class CAD_Math:
         return math.sqrt(dx * dx + dy * dy + dz * dz)
     
     @staticmethod
+    def readable_line_pose(p1: QPointF, p2: QPointF) -> tuple[QPointF, float]:
+        """``(midpoint, angle)`` of a label along p1->p2, turned to stay
+        readable: the angle stays in [-90, 90)."""
+        v = CAD_Math.get_unit_vector(p1, p2)
+        if v.x() < 0:
+            v = QPointF(-v.x(), -v.y())
+        angle = -CAD_Math.get_angle_between_vectors(v, QPointF(1, 0), signed=True)
+        if abs(angle - 90.0) < 1e-9:
+            angle = -90.0
+        return QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2), angle
+
+    @staticmethod
     def get_angle_between_vectors(v1: QPointF, v2: QPointF, signed: bool = True) -> float:
         """
         Returns the angle between v1 and v2 in degrees.
