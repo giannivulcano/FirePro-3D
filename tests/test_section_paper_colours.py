@@ -116,15 +116,8 @@ def test_hex_paper_row_fill_and_section_reach_the_proxies(qapp, tmp_path, sectio
             type(it).__name__, sorted(set(strokes)))
 
 
-def test_cut_pipe_body_takes_the_pipe_row_colour(qapp, section_scene_for):
-    """The Pipe row has no Fill / Section column: a cut pipe's body takes its
-    Colour during the pass, and restore returns the model sources."""
-    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+def _cut_symbol(section_scene_for):
     from firepro3d.section_scene import _ElevCutEllipse, _ROLE_SOURCE
-    save_paper_color_mode(PaperColorMode.CUSTOM)
-    cats = pd.load_paper_categories()
-    cats["Pipe"]["color"] = "#0000ff"
-    pd.save_paper_categories(cats)
     ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
     n1 = ms.add_node(3000.0, -1000.0); n2 = ms.add_node(3000.0, 1000.0)
     pipe = ms.add_pipe(n1, n2)
@@ -132,12 +125,44 @@ def test_cut_pipe_body_takes_the_pipe_row_colour(qapp, section_scene_for):
     sec.rebuild()
     (c,) = [i for i in sec.items()
             if isinstance(i, _ElevCutEllipse) and i.data(_ROLE_SOURCE) is pipe]
+    return sec, c
+
+
+def test_cut_symbol_ink_takes_the_pipe_row_colour(qapp, section_scene_for):
+    """The stroke takes the row Colour; no Section colour leaves no body."""
+    from firepro3d.colour_tokens import section_fill_colour
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    save_paper_color_mode(PaperColorMode.CUSTOM)
+    cats = pd.load_paper_categories()
+    cats["Pipe"]["color"] = "#0000ff"
+    pd.save_paper_categories(cats)
+    sec, c = _cut_symbol(section_scene_for)
     before = (c._pen_src, c._brush_src)
     saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
-    pen, brush = c.resolved_pen_brush()
-    assert pen.color().name() == "#0000ff" and brush.color().name() == "#0000ff"
+    assert c.resolved_pen_brush()[0].color().name() == "#0000ff"
+    assert section_fill_colour(c._brush_src, c) is None
     restore_model_display(saved)
     assert (c._pen_src, c._brush_src) == before
+
+
+def test_set_section_colour_keeps_the_s_legible_on_a_mono_sheet(qapp, section_scene_for):
+    """P6: B&W / Custom draw no body; Full Colour keeps the Section colour."""
+    from PyQt6.QtCore import QSettings
+    from firepro3d.colour_tokens import section_fill_colour
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    s = QSettings("GV", "FirePro3D")
+    s.setValue("display/Pipe/section", "#00ff00")
+    save_paper_color_mode(PaperColorMode.BW)
+    sec, c = _cut_symbol(section_scene_for)
+    saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
+    assert section_fill_colour(c._brush_src, c) is None
+    restore_model_display(saved)
+    assert c._brush_src == "#00ff00"
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
+    assert section_fill_colour(c._brush_src, c).name() == "#00ff00"
+    restore_model_display(saved)
+    s.remove("display/Pipe/section")
 
 
 def test_full_colour_keeps_model_proxy_colours(qapp, tmp_path, section_scene_for):

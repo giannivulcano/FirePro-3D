@@ -1171,23 +1171,33 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # Visible, Opacity, weight, and outside Full Colour the row's
                 # Colour / Fill / Section body (a model hex would otherwise
                 # plot as-is: white walls on white paper).
-                saved.append({"item": item, "cat_key": cat_key, "proxy": True,
-                              "visible": item.isVisible(),
-                              "opacity": item.opacity(),
-                              "srcs": (item._pen_src, item._brush_src,
-                                       getattr(item, "_section_src", None),
-                                       item._src_alpha)})
+                lab = getattr(item, "pipe_label", None)    # a line proxy's label
+                entry = {"item": item, "cat_key": cat_key, "proxy": True,
+                         "visible": item.isVisible(),
+                         "opacity": item.opacity(),
+                         "srcs": (item._pen_src, item._brush_src,
+                                  getattr(item, "_section_src", None),
+                                  item._src_alpha)}
+                if lab is not None:
+                    entry["label"] = (lab, lab.isVisible(), lab.opacity(),
+                                      lab._paper_pen_width, lab._paper_pen_color,
+                                      lab._paper_scale)
+                saved.append(entry)
                 if not cat.get("visible", True):
                     item.setVisible(False)
+                    if lab is not None:
+                        lab.setVisible(False)
                     continue
                 if color_mode != PaperColorMode.FULL_COLOR:
                     item._pen_src = cat["color"]
                     if hasattr(item, "_section_src"):          # cut wall / slab
                         if cat.get("section_color") is not None:
                             item._section_src = cat["section_color"]
+                    elif getattr(item, "_no_sheet_body", False):
+                        # Cut pipe symbol: a body in the row colour hides the S.
+                        item._brush_src = ""
                     elif item._brush_src is not None:
-                        # A cut pipe's body is its Section colour; Pipe has
-                        # no Fill / Section column, so it takes the Colour.
+                        # No Fill / Section column on the row: it takes the Colour.
                         fill = cat.get("fill")
                         item._brush_src = (fill if fill is not None
                                            else cat.get("section_color") or cat["color"])
@@ -1195,6 +1205,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 item._paper_pen_width = (resolve_line_weight_mm(cat["line_weight"])
                                          / max(paper_scale, 1e-9))
                 item.setOpacity(cat["opacity"] / 100.0)
+                if lab is not None and lab.isVisible():
+                    _apply_block(lab, cat, color_mode,
+                                 resolve_line_weight_mm(cat["line_weight"]), paper_scale)
+                    lab.setOpacity(1.0)
                 item.update()
                 continue
             if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
@@ -1488,6 +1502,15 @@ def restore_model_display(saved: list[dict]):
                     item._section_src = section_src
                 item.setVisible(entry["visible"])
                 item.setOpacity(entry["opacity"])
+                if "label" in entry:
+                    lab, vis, op, pen_w, pen_c, scale = entry["label"]
+                    if _is_annot(lab.definition()):
+                        lab.prepareGeometryChange()
+                    lab._paper_pen_width, lab._paper_pen_color = pen_w, pen_c
+                    lab._paper_scale = scale
+                    lab.setVisible(vis)
+                    lab.setOpacity(op)
+                    lab.update()
                 item.update()
             except RuntimeError:          # proxy deleted mid-pass (rebuild)
                 pass

@@ -119,3 +119,47 @@ def test_plan_label_pose_is_unchanged(qapp, section_scene_for):
     assert pipe.label.rotation() == pytest.approx(angle)
     assert pipe.label.pos() == mid
     assert -90.0 <= angle < 90.0
+
+
+SCALE = 0.02
+
+
+def _paper_scene(section_scene_for):
+    ms, sec = _scene(section_scene_for)
+    pipe = _pipe(ms, (2000.0, -1000.0, 2500.0), (6000.0, -1000.0, 2500.0))
+    sec.rebuild()
+    (lab,) = _labels(sec, pipe)
+    return sec, pipe, lab
+
+
+def test_pipe_row_prints_the_label_and_restores(qapp, section_scene_for):
+    """AC6: the row reaches the label through _apply_block, then restore."""
+    from firepro3d import paper_display as pd
+    from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
+                                         restore_model_display, save_paper_color_mode)
+    save_paper_color_mode(PaperColorMode.CUSTOM)
+    cats = pd.load_paper_categories()
+    cats["Pipe"]["color"] = "#0000ff"
+    pd.save_paper_categories(cats)
+    sec, _pipe_item, lab = _paper_scene(section_scene_for)
+    screen = lab.boundingRect().width()
+    saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
+    assert lab._paper_scale == SCALE
+    assert lab._paper_pen_color.name() == "#0000ff"
+    assert lab._paper_pen_width is not None
+    restore_model_display(saved)
+    assert (lab._paper_scale, lab._paper_pen_color, lab._paper_pen_width) == (None, None, None)
+    assert lab.boundingRect().width() == pytest.approx(screen)
+
+
+def test_hidden_pipe_row_hides_the_label_and_restores(qapp, section_scene_for):
+    from firepro3d import paper_display as pd
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    cats = pd.load_paper_categories()
+    cats["Pipe"]["visible"] = False
+    pd.save_paper_categories(cats)
+    sec, _pipe_item, lab = _paper_scene(section_scene_for)
+    saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
+    assert not lab.isVisible()
+    restore_model_display(saved)
+    assert lab.isVisible()
