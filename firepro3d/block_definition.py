@@ -908,7 +908,7 @@ class BlockDefinition:
         from .render_op import ops_mask
         default = self.kind == "schematic"             # D3
         cover = None
-        for rec, a, b in reversed(runs):
+        for n, (rec, a, b) in enumerate(reversed(runs)):
             if cover is not None:
                 merged: dict = {}
                 for i in range(a, b):
@@ -920,6 +920,8 @@ class BlockDefinition:
             opaque = rec.get("opaque")
             if not isinstance(opaque, bool):
                 opaque = default
+            if n == len(runs) - 1:
+                break                       # the bottom run covers nothing: no mask
             if opaque and self._resolve_nested(rec) is not None:
                 mask = ops_mask(ops[a:b])
                 if not mask.isEmpty():

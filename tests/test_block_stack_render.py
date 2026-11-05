@@ -149,3 +149,30 @@ def test_clipped_ops_paint_through_the_linetype_loop_too(sc):
     assert ink(sc, i, QRectF(10, -4, 30, 8), VIEW) > 0
     assert ink(sc, i, QRectF(60, -2, 30, 4), VIEW) == 0
     assert not calls
+
+
+def _count_masks(monkeypatch):
+    import firepro3d.render_op as ro
+    calls = []
+    orig = ro.ops_mask
+    monkeypatch.setattr(ro, "ops_mask", lambda ops: calls.append(1) or orig(ops))
+    return calls
+
+
+def test_the_bottom_run_builds_no_mask(sc, monkeypatch):
+    low, top = line_def(sc, "Low"), rect_def(sc, "Top")
+    p = _parent(sc, [_rec(low, 0, 0), _rec(top, 50, -50)], kind="schematic")
+    calls = _count_masks(monkeypatch)
+    ops = p.render_ops()
+    assert len(calls) == 1                                   # the upper block's only
+    assert ops[0].clip_out is not None and ops[0].clip_out.contains(QPointF(100, 0))
+    assert ops[1].clip_out is None
+
+
+def test_a_single_nested_record_builds_no_mask(sc, monkeypatch):
+    top = rect_def(sc, "Top")
+    p = _parent(sc, [_rec(top, 50, -50)], kind="schematic")
+    calls = _count_masks(monkeypatch)
+    ops = p.render_ops()
+    assert not calls
+    assert all(o.clip_out is None for o in ops)
