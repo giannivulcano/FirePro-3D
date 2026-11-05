@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Wall joints -- a wall can stop on the others, with a seam -- 2026-11-04
+- [x] [type:feature] Wall joints: a wall can stop on the others instead of mitring (manual Butt + height rule) [P2] [subject:CAD] [done:2026-11-04]
+  - Details: user 2026-11-04. At a shared-endpoint junction, the wall set to Butt, or an Auto wall lower than the rest, stops flat on the joined walls with a drawn seam; the others join as if it were absent. Rulings: 3+ walls need two walls at the highest top, else pie; a two-wall corner of unequal tops has the lower wall stop and the taller run to the outer corner; Solid keeps a wall in the mitre; a stop that cannot fit on every wall gives today's result. Smoke reversed "tees unchanged": a tee draws a seam where the tops differ, or on Butt; equal-height tees stay merged. `wall.py`, `wall_outline.py`, `level_manager.py`. ref: wall-room-floor-system.md s5.
+  - Built: 0.88.0. Seams are one stroke over both fills in the stopper's pen (`split_seam`, `_paints_seam`); level edits rebuild only changed joints (`refresh_stale_stops`). Full suite and final perf bench waived by the user; keep-green over the 90 files that reference walls passed on the merged tree except the 2 failures already filed.
+
 ## Block System -- SB4f sheet viewport view title as a System block -- 2026-11-04
 - [x] [type:feature] SB4f — Convert the sheet viewport view title to a System block, with a per-viewport show/hide toggle for the title [subject:CAD] [P1] [done:2026-11-04]
   - Details: concept Q9; fields view number, title, scale (paper-scoped, printed size = paper mm). SB3 checkpoint passed 2026-10-29. `paper_space.py`. Widened 2026-11-04 at selection (user): the view title's visibility is toggleable per viewport (today the title always paints below the viewport; no flag exists in `paper_space.py` / `paper_display.py`).
