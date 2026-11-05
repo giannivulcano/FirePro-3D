@@ -256,3 +256,97 @@ def test_undo_restore_path_draws_exactly_one(scene, seq, reverse):
     for z in zs[1:-1]:
         assert Fitting.is_through(at_xy[round(z)]) is True
     assert _census(scene) == 1
+
+
+# ---- VC9 B1: a riser through several floors, per plan view -------------------
+
+def _floors(scene):
+    """Riser through three levels, two branches on each floor."""
+    lm = scene._level_manager
+    names = (lm.levels[0].name, "L2", "L3")
+    lm.add_level("L2", 3000.0)
+    lm.add_level("L3", 6000.0)
+
+    def at(x, z, name):
+        n = Node(x, 0, z)
+        n.level = n.ceiling_level = name
+        n.ceiling_offset = 0.0
+        scene.addItem(n)
+        scene.sprinkler_system.add_node(n)
+        return n
+
+    def run(a, b, name):
+        scene.add_pipe(a, b, None, _propagate_ceiling=False).level = name
+
+    stack = [at(0, z, nm) for z, nm in zip((0.0, 3000.0, 6000.0), names)]
+    run(stack[0], stack[1], names[0])
+    run(stack[1], stack[2], names[1])
+    for nd, nm in zip(stack, names):
+        for x in (1000, -1000):
+            run(nd, at(x, nd.z_pos, nm), nm)
+    return names
+
+
+def _symbols_per_view(scene, names):
+    """{level: [(fitting type, z), ...]} of symbols drawn in each plan view."""
+    lm = scene._level_manager
+    out = {}
+    for nm in names:
+        lvl = lm.get(nm)
+        lm.apply_to_scene(scene, nm, view_height=lvl.elevation + lvl.view_top,
+                          view_depth=lvl.elevation + lvl.view_bottom)
+        drawn = [(n.fitting.type, round(n.z_pos))
+                 for n in scene.sprinkler_system.nodes if n.fitting.symbol.isVisible()]
+        drawn += [("pipe_riser", round(p.node1.z_pos))
+                  for p in scene.sprinkler_system.pipes
+                  if p._riser_symbol is not None and p._riser_symbol.isVisible()]
+        out[nm] = drawn
+    return out
+
+
+def _expected(names):
+    return {names[0]: [("tee_up", 0)],
+            names[1]: [("cross_vertical", 3000)],
+            names[2]: [("tee_down", 6000)]}
+
+
+def test_each_floor_draws_its_own_riser_symbol(shown_model_view):
+    _view, scene = shown_model_view
+    names = _floors(scene)
+    assert _symbols_per_view(scene, names) == _expected(names)
+
+
+def test_each_floor_keeps_its_symbol_after_open_and_undo(shown_model_view, tmp_path):
+    _view, scene = shown_model_view
+    names = _floors(scene)
+    path = str(tmp_path / "floors.fpd")
+    scene.save_to_file(path, backup=False)
+    assert scene.load_from_file(path) is not False
+    assert _symbols_per_view(scene, names) == _expected(names)
+    scene.push_undo_state()
+    scene.sprinkler_system.nodes[0].set_property("Ceiling Offset", "1")
+    scene.push_undo_state()
+    scene.undo()
+    assert _symbols_per_view(scene, names) == _expected(names)
+
+
+def test_view_spanning_two_floors_draws_the_top_one_only(shown_model_view):
+    _view, scene = shown_model_view
+    names = _floors(scene)
+    scene._level_manager.apply_to_scene(scene, names[1], view_height=7000.0,
+                                        view_depth=2000.0)
+    drawn = [n for n in scene.sprinkler_system.nodes if n.fitting.symbol.isVisible()]
+    assert [round(n.z_pos) for n in drawn] == [6000]
+
+
+def test_level_switch_keeps_a_row_hidden_in_the_display_manager(shown_model_view):
+    from firepro3d.display_manager import _apply_fitting
+    _view, scene = shown_model_view
+    names = _floors(scene)
+    assert _symbols_per_view(scene, names) == _expected(names)
+    hub = next(n for n in scene.sprinkler_system.nodes
+               if round(n.z_pos) == 3000 and n.scenePos().x() == 0)
+    _apply_fitting(hub.fitting, None, 1.0, 100, False)
+    assert _symbols_per_view(scene, names)[names[1]] == []
+    hub.fitting.update()
+    assert hub.fitting.symbol.isVisible() is False

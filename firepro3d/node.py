@@ -100,6 +100,8 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             self._recompute_z_pos()
         elif key in self._properties:
             self._properties[key]["value"] = str(value)
+        if key in ("Ceiling Level", "Ceiling Offset") and self.pipes:
+            self._refresh_network([self])         # the fitting type follows z
 
     def position_rows(self) -> dict:
         """X / Y / Z rows shared by the Node and Sprinkler panels (D7, D8, D10).

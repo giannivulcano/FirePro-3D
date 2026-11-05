@@ -7671,7 +7671,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                           start.y() + length * math.sin(rad))
         else:
             end = resolve_line(start, {"Length": length, "Angle": angle})
-        return self._pipe_ctl._commit_pipe_at(end, None)
+        return self._pipe_ctl._commit_pipe_at(end, None, typed=True)
 
     def _apply_pipe_dynamic_input(self, geometry) -> bool:
         """Backstop applier so the ``_hud_available`` gate accepts pipe mode.
@@ -7681,7 +7681,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         ``apply_dynamic_input`` call.  Routes the resolved point through the
         shared commit body without re-snapping.
         """
-        return self._pipe_ctl._commit_pipe_at(geometry, None)
+        return self._pipe_ctl._commit_pipe_at(geometry, None, typed=True)
 
     def _apply_wall_dynamic_input(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C3)
         return self._wall_ctl._apply_wall_dynamic_input(*args, **kwargs)
@@ -9078,11 +9078,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 return
             # Pipe polyline: first Escape ends the chain, second exits mode
             if self.mode == "pipe" and self.pipe_start_node is not None:
-                self.pipe_start_node = None
-                self._pipe_node_was_new = False
-                self.preview_pipe.hide()
-                self.preview_node.hide()
-                self.instructionChanged.emit("Pick start node")
+                self.cancel_pipe_placement()
                 return
             # Align: first Escape clears reference, second exits mode
             if self.mode == "align" and self._align_reference is not None:

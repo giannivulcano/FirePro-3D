@@ -94,6 +94,31 @@ class Fitting():
         self.type = self.determine_type(pipes)
         self.update_symbol()
         self.align_fitting()
+        self.symbol.setVisible(self._symbol_visible(visibility))
+        # A riser symbol depends on both end nodes' through / branch state, so
+        # every pipe at this node re-decides it here: one chokepoint for add,
+        # delete, undo and load (never setVisible, which would recurse).
+        for p in pipes:
+            if getattr(p, "node1", None) is not None and getattr(p, "node2", None) is not None:
+                p._update_riser_symbol()
+
+    def refresh_for_view(self):
+        """Re-decide this riser node's symbols for the nodes a view now shows.
+
+        A stack draws one symbol per view, so the winner changes with the view
+        and must be decided after the level sweep. Type and alignment stay.
+        """
+        node = self.node
+        vertical = [p for p in node.pipes if self._is_vertical(p, node)]
+        if not vertical or self.symbol is None:
+            return
+        self.symbol.setVisible(self._symbol_visible())
+        for p in vertical:
+            p._update_riser_symbol()
+
+    def _symbol_visible(self, visibility=True) -> bool:
+        """Whether this node's symbol draws, among the nodes visible now."""
+        pipes = self.node.pipes
         if self.node.has_sprinkler() or not self.draws_symbol():
             visibility = False
         # For nodes that overlap in XY (vertical drop/riser), only show the
@@ -124,13 +149,8 @@ class Fitting():
         # Respect per-instance display override (model browser hide/show)
         if self._display_overrides.get("visible") is False:
             visibility = False
-        self.symbol.setVisible(visibility)
-        # A riser symbol depends on both end nodes' through / branch state, so
-        # every pipe at this node re-decides it here: one chokepoint for add,
-        # delete, undo and load (never setVisible, which would recurse).
-        for p in pipes:
-            if getattr(p, "node1", None) is not None and getattr(p, "node2", None) is not None:
-                p._update_riser_symbol()
+        # ...and the Display Manager Fitting row
+        return bool(visibility and self._display_visible)
 
     # ── Vertical pipe helpers ────────────────────────────────────────────
 

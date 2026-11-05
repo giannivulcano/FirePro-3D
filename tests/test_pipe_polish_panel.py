@@ -254,3 +254,32 @@ def test_template_copy_does_not_move_node(ms, monkeypatch):
     b.add_sprinkler()
     b.sprinkler.set_properties(a.sprinkler)
     assert b.scenePos() == QPointF(1000, 1000)
+
+
+def _hub_stack(ms):
+    lvl = ms._level_manager.levels[0]
+    low, hub, high = (_node(ms, 0, 0, z) for z in (0.0, 3000.0, 6000.0))
+    for n in (low, hub, high):
+        n.ceiling_level = lvl.name
+    hub.ceiling_offset, high.ceiling_offset = 3000.0, 6000.0
+    ms.add_pipe(low, hub, None, _propagate_ceiling=False)
+    ms.add_pipe(hub, high, None, _propagate_ceiling=False)
+    hub.fitting.update()
+    assert hub.fitting.type == "riser_through"
+    return hub
+
+
+def test_offset_row_refreshes_the_fitting_type(ms):
+    """VC9 M1: hydraulics read the type, and the type depends on z."""
+    hub = _hub_stack(ms)
+    _panel(hub)._apply_property("Ceiling Offset", "7000")
+    assert hub.z_pos == 7000.0
+    assert hub.fitting.type == "elbow_down"
+
+
+def test_level_row_refreshes_the_fitting_type(ms):
+    hub = _hub_stack(ms)
+    ms._level_manager.add_level("High", 5000.0)
+    _panel(hub)._apply_property("Ceiling Level", "High")
+    assert hub.z_pos == 8000.0
+    assert hub.fitting.type == "elbow_down"

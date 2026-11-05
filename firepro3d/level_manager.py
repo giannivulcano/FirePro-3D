@@ -727,6 +727,16 @@ class LevelManager:
         for pipe in scene.sprinkler_system.pipes:
             _set_level_vis(pipe)
 
+        # A riser stack draws one symbol per view: decide it among the nodes
+        # this view shows, now that the sweep has set them.
+        for node in scene.sprinkler_system.nodes:
+            fitting = getattr(node, "fitting", None)
+            if fitting is not None:
+                try:
+                    fitting.refresh_for_view()
+                except RuntimeError:
+                    pass                 # deleted C++ object (e.g. after undo)
+
         # Loose 2D primitives no longer live in the plan scene (containment
         # C1/C3): they are Block-definition-local and level-less, so no
         # per-primitive level-visibility pass. Level scope is on the block

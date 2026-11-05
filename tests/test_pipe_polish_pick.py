@@ -530,3 +530,103 @@ def test_display_scale_widens_the_hit_beyond_the_reject_margin(shown_model_view)
     q = QPointF(0, 0) - QPointF(s, s) * (half - 0.5)         # inside the square cap
     assert pipe.shape().contains(q)
     assert ctl.resolve_pipe_target(q, q) == ("pipe", pipe)
+
+
+# ---- VC9 I1, I2, M2, M3: seams with the wider pickup -------------------------
+
+def test_typed_length_ignores_a_node_under_the_cursor(shown_model_view):
+    """I1: the Tab list follows the mouse; a typed end is exact."""
+    view, scene = shown_model_view
+    far = _node(scene, 3000, 0)
+    _zoom(view, 0.1)
+    ctl = _pipe_mode(scene)
+    ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    ctl.move_pipe(None, QPointF(2900, 0))
+    assert far in ctl._tab_candidates                   # the cursor rests near it
+    assert scene._commit_pipe_typed({"Length": 1000.0, "Angle": 0.0}) is True
+    end = scene.pipe_start_node
+    assert end is not far
+    assert end.scenePos() == QPointF(1000, 0)
+    assert far.pipes == []
+
+
+def test_pickup_takes_the_nearest_node_not_the_first_added(shown_model_view):
+    """I2: at fit zoom the radius holds real neighbours."""
+    view, scene = shown_model_view
+    a, b = _node(scene, 0, 0), _node(scene, 100, 0)
+    _zoom(view, 0.1)
+    ctl = _pipe_mode(scene)
+    assert ctl.resolve_pipe_target(QPointF(100, 0), QPointF(100, 0)) == ("node", b)
+    ctl.move_pipe(None, QPointF(100, 0))
+    assert ctl._tab_candidates == [b, a]
+    ctl.press_pipe(None, QPointF(100, 0), QPointF(100, 0), None, None, None)
+    assert scene.pipe_start_node is b
+
+
+def test_second_click_near_the_start_still_reaches_a_neighbour(shown_model_view):
+    """I2: the chain start is no target, so a nearby click is not refused."""
+    view, scene = shown_model_view
+    a, b = _node(scene, 0, 0), _node(scene, 100, 0)
+    _zoom(view, 0.1)
+    ctl = _pipe_mode(scene)
+    ctl.move_pipe(None, QPointF(0, 0))
+    ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    assert scene.pipe_start_node is a
+    p = QPointF(40, 0)                                  # nearer to a
+    ctl.move_pipe(None, p)
+    assert scene.pipe_target_marker.pos() == QPointF(100, 0)
+    assert ctl.press_pipe(None, p, p, None, None, None) is True
+    assert len(scene.sprinkler_system.pipes) == 1
+    assert {a.other_end(q) for q in a.pipes} == {b}
+
+
+def test_stacked_nodes_still_pick_by_template_elevation(shown_model_view):
+    """I2: XY first, but a riser stack at one spot still goes by z_hint."""
+    view, scene = shown_model_view
+    low, high = _node(scene, 0, 0, 0.0), _node(scene, 3, 0, 3000.0)
+    _zoom(view, 0.1)
+    ctl = _pipe_mode(scene)
+    p = QPointF(0, 0)                                   # low is the nearer one
+    assert ctl.resolve_pipe_target(p, p, z_hint=2800.0) == ("node", high)
+    ctl._update_pipe_tab_candidates(p, z_hint=2800.0)
+    assert ctl._tab_candidates == [high, low]
+
+
+def test_sprinkler_tool_near_a_node_lands_where_clicked(shown_model_view):
+    """M2, ratified: the head goes on the pipe unless the click is inside 12 px."""
+    from firepro3d.pipe import Pipe
+    view, scene = shown_model_view
+    a, _b, pipe = _run(scene)
+    _zoom(view, 1.0)
+    scene.set_mode("sprinkler")
+    picks = {}
+    for x in (8, 100):
+        under = [i for i in scene.items(QPointF(x, 0)) if isinstance(i, (Node, Pipe))]
+        picks[x] = under[0] if under else None
+    assert picks == {8: a, 100: pipe}
+    nodes, pipes = len(scene.sprinkler_system.nodes), len(scene.sprinkler_system.pipes)
+    p = QPointF(100, 0)
+    scene._press_sprinkler(None, p, p, pipe, None, pipe)
+    assert a.has_sprinkler() is False
+    assert len(scene.sprinkler_system.nodes) == nodes + 1
+    assert len(scene.sprinkler_system.pipes) == pipes + 1
+
+
+def test_scene_escape_ends_the_chain_like_the_shortcut(shown_model_view):
+    """M3: both Esc paths hide the marker and drop an unused new start node."""
+    from PyQt6.QtGui import QKeyEvent
+    view, scene = shown_model_view
+    _run(scene)
+    ctl = _pipe_mode(scene)
+    nodes = len(scene.sprinkler_system.nodes)
+    far = QPointF(0, 900)
+    ctl.move_pipe(None, far)
+    ctl.press_pipe(None, far, far, None, None, None)
+    ctl.move_pipe(None, QPointF(5, 0))
+    assert scene.pipe_target_marker.isVisible() is True
+    scene.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                                  Qt.KeyboardModifier.NoModifier))
+    assert scene.pipe_start_node is None
+    assert scene.mode == "pipe"
+    assert scene.pipe_target_marker.isVisible() is False
+    assert len(scene.sprinkler_system.nodes) == nodes

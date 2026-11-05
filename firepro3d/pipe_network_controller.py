@@ -57,19 +57,31 @@ class PipeNetworkController:
             if node.distance_to(x, y) <= r:
                 dist_candidates.append(node)
 
-        # Merge: bbox hits first, then distance hits
         candidates = bbox_candidates + dist_candidates
         if not candidates:
             return None
-        if z_hint is None or len(candidates) == 1:
-            return candidates[0]
-        return min(candidates, key=lambda n: abs(n.z_pos - z_hint))
+        return self._rank_candidates(candidates, x, y, z_hint)[0]
+
+    def _rank_candidates(self, candidates, x, y, z_hint):
+        """Nearest node first, for a pickup radius that can hold neighbours.
+
+        Nodes within ``SNAP_RADIUS`` of the nearest are one spot (a riser
+        stack can sit slightly off plumb), and *z_hint* orders those.
+        """
+        dist = {id(n): n.distance_to(x, y) for n in candidates}
+        spot = min(dist.values()) + self._scene.SNAP_RADIUS
+
+        def key(n):
+            d = dist[id(n)]
+            if d > spot:
+                return (1, d, d)
+            return (0, d if z_hint is None else abs(n.z_pos - z_hint), d)
+
+        return sorted(candidates, key=key)
 
     def find_nearby_candidates(self, x, y, z_hint=None, radius=None):
-        """Return all nodes within SNAP_RADIUS (or *radius*), filtered by view range.
-
-        If *z_hint* is provided, results are sorted by ascending distance
-        to *z_hint*.  Otherwise sorted by insertion order.
+        """Return all nodes within SNAP_RADIUS (or *radius*), filtered by view
+        range, nearest first (see ``_rank_candidates``).
         """
         pt = QPointF(x, y)
         r = self._scene.SNAP_RADIUS if radius is None else radius
@@ -92,12 +104,12 @@ class PipeNetworkController:
             if node.distance_to(x, y) <= r:
                 candidates.append(node)
 
-        if z_hint is not None and len(candidates) > 1:
-            candidates.sort(key=lambda n: abs(n.z_pos - z_hint))
+        if len(candidates) > 1:
+            candidates = self._rank_candidates(candidates, x, y, z_hint)
         return candidates
 
-    def find_or_create_node(self, x, y, z_hint=None, radius=None):
-        existing = self.find_nearby_node(x, y, z_hint=z_hint, radius=radius)
+    def find_or_create_node(self, x, y, z_hint=None):
+        existing = self.find_nearby_node(x, y, z_hint=z_hint)
         if existing:
             return existing
         return self.add_node(x, y, z_hint=z_hint)
@@ -811,8 +823,8 @@ class PipeNetworkController:
             c = self._tab_candidates
             node = c[self._tab_index] if c and self._tab_index < len(c) else None
         else:
-            node = self.find_nearby_node(node_pos.x(), node_pos.y(),
-                                         z_hint=z_hint, radius=self.pick_radius())
+            c = self._pick_candidates(node_pos, z_hint)
+            node = c[0] if c else None
         if node is not None:
             return ("node", node)
         pipe = self._pipe_at(pipe_pos)
@@ -824,6 +836,14 @@ class PipeNetworkController:
                 ends, key=lambda n: abs(n.z_pos - z_hint))
             return ("node", hit)
         return ("pipe", pipe)
+
+    def _pick_candidates(self, pos, z_hint):
+        """Mouse pickup list at *pos*. The chain start is never a target: a
+        click on it for a vertical run still finds it at ``SNAP_RADIUS``."""
+        start = self._scene.pipe_start_node
+        return [n for n in self.find_nearby_candidates(
+                    pos.x(), pos.y(), z_hint=z_hint, radius=self.pick_radius())
+                if n is not start]
 
     def _update_target_marker(self, node_pos, pipe_pos, z_hint):
         self._marker_args = (node_pos, pipe_pos, z_hint)
@@ -845,9 +865,7 @@ class PipeNetworkController:
 
         Resets Tab index to 0.  Called on every cursor move in pipe mode.
         """
-        self._tab_candidates = self.find_nearby_candidates(
-            scene_pos.x(), scene_pos.y(), z_hint=z_hint,
-            radius=self.pick_radius())
+        self._tab_candidates = self._pick_candidates(scene_pos, z_hint)
         self._tab_index = 0
         self._tab_pos = QPointF(scene_pos.x(), scene_pos.y())
         self._emit_pipe_tab_readout()
@@ -1038,15 +1056,17 @@ class PipeNetworkController:
                 snapped_end, target if kind == "pipe" else None,
                 picked_node=target if kind == "node" else None)
 
-    def _commit_pipe_at(self, snapped_end, item_under, picked_node=None) -> bool:
+    def _commit_pipe_at(self, snapped_end, item_under, picked_node=None,
+                        typed=False) -> bool:
         """Commit the second-click pipe body at an already-final *snapped_end*.
 
         Shared post-snap commit path for both mouse (which snaps via
         ``snap_point_45`` first) and typed input (which computes the exact
         endpoint and MUST NOT be re-snapped). ``item_under`` is the item under
         a mouse click for split-on-pipe; None for typed input. ``picked_node``
-        is the node the mouse click resolved to (zoom-aware pickup, D4); typed
-        input passes neither and keeps the fixed ``SNAP_RADIUS`` lookup.
+        is the node the mouse click resolved to (zoom-aware pickup, D4). Typed
+        input passes ``typed=True``: it ignores the Tab list, which follows the
+        mouse, and keeps the fixed ``SNAP_RADIUS`` lookup.
 
         Returns:
             True on success (pipe placed) or when an elevation-mismatch
@@ -1081,7 +1101,7 @@ class PipeNetworkController:
                 return False
         # Use Tab-selected candidate if available
         tab_node = None
-        if (self._tab_candidates
+        if (not typed and self._tab_candidates
                 and self._tab_index < len(self._tab_candidates)):
             tab_node = self._tab_candidates[self._tab_index]
         if tab_node is None:
