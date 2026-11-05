@@ -486,6 +486,7 @@
   - +1 occurrence 2026-10-29 (SB3b Task 7 keep-green, VC7-proved in detached worktrees at base 75e3cb0f and HEAD 24a2fdca, 1 failed both): `test_system_tier_lists_shipped_hatches` still fails (`Arrow` + `RoomTag` in the System listing).
   - +1 occurrence 2026-10-31 (axis-snap Task 4 sweep, VC7-proved in detached worktrees at base 83196632 and HEAD 6f6ec7a0, 5 failed / 6 passed both): `tests/test_system_library_browser.py` same 5.
   - +1 occurrence 2026-10-31 (SB4a T4-5 keep-green, VC7-proved in a detached worktree at base c1bca299 and HEAD a4d2080b, 5 failed / 6 passed both): `tests/test_system_library_browser.py` same 5.
+  - +1 occurrence 2026-11-04 (SB4f T1 keep-green, VC7-proved in a detached worktree at base b29294aa, 5 failed / 7 passed; the same 5 at HEAD e6d3fad8): `tests/test_system_library_browser.py` same 5.
   - +1 occurrence 2026-11-03 (stroke-corner-joins T8 keep-green, VC7-proved by the orchestrator in a detached worktree at base c20d2ec3 and HEAD 384c499c, identical both): browser same 5 + `test_system_tier_lists_shipped_hatches`.
   - +1 occurrence 2026-10-31 (floor-opening T7 keep-green, VC7-proved at branch base 83196632 and HEAD 9bd0e31a, 1 failed both).
   - +1 occurrence 2026-10-31 (Block Editor select-all perf T4 keep-green, VC7-proved by the orchestrator at branch base f20268e1 and HEAD: 'Arrow' != 'Brick' ordering).
