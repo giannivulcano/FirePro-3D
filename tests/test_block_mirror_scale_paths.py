@@ -92,7 +92,7 @@ def test_duplicate_keeps_the_pose(qapp):
         x0, y0 = inst.block_pos()
         assert scene._modify_ctl.start("duplicate")
         click(view, QPointF(0, 0))
-        base = QPointF(scene.node_start_pos)
+        base = QPointF(scene.pick_base_pos)
         move(view, QPointF(300, 0)); click(view, QPointF(300, 0))
         (copy,) = [i for i in scene._block_instances if i is not inst]
         assert _pose_parts(copy) == want

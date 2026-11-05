@@ -21,7 +21,7 @@ def test_move_every_primitive(qapp, name):
         p0 = scene._undo_pos
         scene._modify_ctl.start("move")
         click(view, QPointF(0, 0))
-        base = QPointF(scene.node_start_pos)
+        base = QPointF(scene.pick_base_pos)
         move(view, QPointF(300, 0)); click(view, QPointF(300, 0))
         dx, dy = 300 - base.x(), -base.y()
         assert grips(item) == pytest.approx([(x + dx, y + dy) for x, y in before], abs=0.5)

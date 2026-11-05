@@ -112,7 +112,7 @@ def test_previous_tool_ghost_is_gone_before_the_base_pick(qapp, src, dst):
         assert sum(_px(view, img, p) != _px(view, ref, p)
                    for p in probes) >= 10              # precondition: painted
         assert scene._modify_ctl.start(dst) is True    # Shift+M / Shift+D
-        assert scene.mode == dst and scene.node_start_pos is None
+        assert scene.mode == dst and scene.pick_base_pos is None
         move(view, EMPTY)                              # before the base pick
         img = _grab(view)
         assert sum(_px(view, img, p) != _px(view, ref, p)

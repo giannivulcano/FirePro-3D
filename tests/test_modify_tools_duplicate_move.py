@@ -23,7 +23,7 @@ def test_duplicate_keeps_original_and_places_copy(qapp, name):
         assert scene.mode == "duplicate"
         assert item.isSelected()                             # I-2: entry keeps selection
         click(view, QPointF(0, 0))
-        base = QPointF(scene.node_start_pos)
+        base = QPointF(scene.pick_base_pos)
         move(view, QPointF(300, 0)); click(view, QPointF(300, 0))
         lst = getattr(scene, attr)
         assert len(lst) == 2                                 # [RED]
@@ -173,7 +173,7 @@ def test_undo_mid_tool_cancels_it(qapp, tool):
         QTest.keyClick(view.viewport(), Qt.Key.Key_Z,
                        Qt.KeyboardModifier.ControlModifier)
         assert scene.mode in (None, "select")                    # [RED]
-        assert scene._selected_items is None and scene.node_start_pos is None
+        assert scene._selected_items is None and scene.pick_base_pos is None
         n = len(getattr(scene, attr))
         p0 = scene._undo_pos
         click(view, QPointF(300, 0))

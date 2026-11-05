@@ -5,6 +5,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
+from .fitting import Fitting
 from .bound_label import BoundLabelItem, TagBlockHost
 
 from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
@@ -26,7 +27,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
 
     _RISER_SVG = asset_path("fitting_symbols", "riser_passthrough.svg")
-    _RISER_SIZE_MM = 300.0  # fixed symbol size in scene units (mm)
+    _RISER_SIZE_MM = 150.0  # fixed symbol size in scene units (mm)
 
     # Hazen-Williams C-factor by pipe material (NFPA 13 Table 22.4.4.8)
     MATERIAL_C_FACTOR: dict[str, int] = {
@@ -242,7 +243,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                         not p._is_vertical()
                         for p in nd.pipes if p is not self
                     )
-                    if has_horiz:
+                    if has_horiz or Fitting.is_through(nd):
                         show = False
                         break
             self._riser_symbol.setVisible(show)
@@ -332,6 +333,21 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
 
         self.update_label()  # <- move here
 
+    def hit_width(self, px_scene: float | None = None) -> float:
+        """Full width of the click stroke: the pen, or 16 screen px if wider.
+
+        The one hit width: ``shape()`` builds its stroke from it and the
+        placement resolver's ``_pipe_at`` tests against half of it.
+
+        Args:
+            px_scene: 16 screen px in scene units at the visible zoom, when
+                the caller already has it (a loop over many pipes); ``None``
+                derives it from this pipe's scene.
+        """
+        if px_scene is None:
+            px_scene = scene_hit_width(self, 16.0, 16.0)
+        return max(self.pen().widthF(), px_scene)
+
     def shape(self):
         """Viewport-scale-aware hit path — always at least ~10 screen pixels wide.
 
@@ -358,8 +374,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         stroker = QPainterPathStroker()
         # Take max of actual pen width and 16 screen-pixel equivalent at the
         # visible view's zoom (see view_scale).
-        hit_w = max(self.pen().widthF(), scene_hit_width(self, 16.0, 16.0))
-        stroker.setWidth(hit_w)
+        stroker.setWidth(self.hit_width())
         return stroker.createStroke(path)
 
 
@@ -456,7 +471,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             }
             props["N1 Ceiling Offset"] = {
                 "type": "string", "value": self._fmt(self.node1_ceiling_offset),
-                "readonly": n1_ro,
+                "readonly": n1_ro, "label": "N1 Offset",
             }
             props["── Node 2 ──"] = {"type": "label", "value": ""}
             props["N2 Ceiling Level"] = {
@@ -465,7 +480,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             }
             props["N2 Ceiling Offset"] = {
                 "type": "string", "value": self._fmt(self.node2_ceiling_offset),
-                "readonly": n2_ro,
+                "readonly": n2_ro, "label": "N2 Offset",
             }
 
         return props
@@ -639,7 +654,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                     base_pen = QPen(colour, line_weight)
                     base_pen.setCapStyle(cap_style)
 
-        # Collect clip regions from higher-elevation fittings
+        # Collect clip regions from the fittings drawn over this pipe
         clip_regions = self._collect_clip_regions()
 
         if not clip_regions:
@@ -654,9 +669,10 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         if n1_is_cap != n2_is_cap:
             half = line_weight / 2.0
             pt = self.line().p1() if not n1_is_cap else self.line().p2()
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(colour))
-            painter.drawEllipse(pt, half, half)
+            if not any(c.contains(pt) for c in clip_regions):
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(colour))
+                painter.drawEllipse(pt, half, half)
 
         # highlight if selected
         if shows_selection(self):
@@ -689,7 +705,11 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     # ── Pipe clipping around fittings ─────────────────────────────────────
 
     def _collect_clip_regions(self) -> list:
-        """Return QPainterPaths for fittings at higher elevation that overlap this pipe."""
+        """Return QPainterPaths for the fittings drawn over this pipe.
+
+        That is any higher fitting it passes under, plus the pipe's own end
+        fittings: a symbol is hollow, so the pipe must stop at its edge.
+        """
         scene = self.scene()
         if scene is None or not hasattr(scene, "sprinkler_system"):
             return []
@@ -707,8 +727,8 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             if not hasattr(node, "fitting") or node.fitting is None:
                 continue
             node_z = getattr(node, "z_pos", 0)
-            if node_z <= my_z:
-                continue  # only clip for fittings at higher elevation
+            if node_z <= my_z and node is not self.node1 and node is not self.node2:
+                continue  # lower fittings sit under this pipe
             clip = node.fitting.clip_region_scene()
             if clip is None:
                 continue

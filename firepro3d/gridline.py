@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
+from .cad_math import CAD_Math
 from .constants import Z_GRIDLINE_BUBBLE, GRIDLINE_BUBBLE_OFFSET_MM
 from PyQt6.QtCore import Qt, QPointF
 from .bound_label import OutlinedLabel, TagBlockHost
@@ -567,7 +568,6 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
         do not rotate (mirrors :meth:`translate`)."""
         if self._locked:
             return
-        from .cad_math import CAD_Math
         self._origin = CAD_Math.rotate_point(self._origin, pivot, -angle_deg)
         self._angle_deg = (self._angle_deg + angle_deg) % 360.0
         self._rebuild_geometry()
@@ -953,11 +953,11 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
         return {
             "Mark": {"type": "string", "value": self._label_text},   # the bubble block binds @[Mark] (Q3)
             "Origin X": {"type": "dimension", "value_mm": _nz(self._origin.x())},
-            "Origin Y": {"type": "dimension", "value_mm": _nz(-self._origin.y())},
+            "Origin Y": {"type": "dimension", "value_mm": CAD_Math.flip_y(self._origin.y())},
             "Length": {"type": "dimension", "value_mm": self._length, "minimum": 1.0},
             "Angle": {"type": "string", "value": f"{self._angle_deg:.1f}°"},
             "End X": {"type": "label", "value": f"{_nz(far.x()):.1f}"},
-            "End Y": {"type": "label", "value": f"{_nz(-far.y()):.1f}"},
+            "End Y": {"type": "label", "value": f"{CAD_Math.flip_y(far.y()):.1f}"},
             "Bubble 1": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble1.isVisible() else "Hidden"},
             "Bubble 1 Offset": {"type": "dimension", "value_mm": self._bubble1_offset, "minimum": 0.0},
@@ -977,7 +977,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
         elif key == "Origin X":
             self.set_origin_x(float(value))
         elif key == "Origin Y":
-            self.set_origin_y(-float(value))   # up-positive input → scene Y-down
+            self.set_origin_y(CAD_Math.flip_y(float(value)))   # up-positive input → scene Y-down
         elif key == "Length":
             self.set_length(float(value))
         elif key == "Angle":

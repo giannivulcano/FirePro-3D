@@ -22,6 +22,11 @@ class Fitting():
     TARGET_PAPER_MM = 6.0   # desired fitting symbol size in paper mm
     TARGET_SCREEN_PX = 20.0 # zoom-independent screen-pixel size
 
+    # D1: plain fittings are hidden until the fitting look is settled. Flip
+    # this one rule to bring them back; symbols, types and hydraulics stay.
+    SHOW_PLAIN_SYMBOLS = False
+    PLAIN_TYPES = frozenset(("cap", "45elbow", "90elbow", "tee", "wye", "cross"))
+
     # Nominal OD table: use Pipe.NOMINAL_OD_IN (single source of truth)
     SYMBOLS = {
         "no fitting": {
@@ -67,6 +72,9 @@ class Fitting():
             "path": asset_path("fitting_symbols", "elbow_down.svg"),
             "through": QPointF(-1, 0)   # opening faces toward the horizontal pipe
         },
+        "riser_through": {"path": asset_path("fitting_symbols", "riser_passthrough.svg")},
+        "tee_vertical": {"path": asset_path("fitting_symbols", "riser_passthrough.svg")},
+        "cross_vertical": {"path": asset_path("fitting_symbols", "riser_passthrough.svg")},
     }
 
     def __init__(self, node):
@@ -86,7 +94,32 @@ class Fitting():
         self.type = self.determine_type(pipes)
         self.update_symbol()
         self.align_fitting()
-        if self.node.has_sprinkler():
+        self.symbol.setVisible(self._symbol_visible(visibility))
+        # A riser symbol depends on both end nodes' through / branch state, so
+        # every pipe at this node re-decides it here: one chokepoint for add,
+        # delete, undo and load (never setVisible, which would recurse).
+        for p in pipes:
+            if getattr(p, "node1", None) is not None and getattr(p, "node2", None) is not None:
+                p._update_riser_symbol()
+
+    def refresh_for_view(self):
+        """Re-decide this riser node's symbols for the nodes a view now shows.
+
+        A stack draws one symbol per view, so the winner changes with the view
+        and must be decided after the level sweep. Type and alignment stay.
+        """
+        node = self.node
+        vertical = [p for p in node.pipes if self._is_vertical(p, node)]
+        if not vertical or self.symbol is None:
+            return
+        self.symbol.setVisible(self._symbol_visible())
+        for p in vertical:
+            p._update_riser_symbol()
+
+    def _symbol_visible(self, visibility=True) -> bool:
+        """Whether this node's symbol draws, among the nodes visible now."""
+        pipes = self.node.pipes
+        if self.node.has_sprinkler() or not self.draws_symbol():
             visibility = False
         # For nodes that overlap in XY (vertical drop/riser), only show the
         # fitting on the node with the highest z_pos — hide the lower one.
@@ -94,8 +127,9 @@ class Fitting():
             node = self.node
             for p in pipes:
                 if self._is_vertical(p, node):
-                    other = p.node2 if p.node1 is node else p.node1
-                    if other is not None and other.isVisible():
+                    other = node.other_end(p)
+                    if (other is not None and other.isVisible()
+                            and not self.is_bare_riser_end(other)):
                         np = node.scenePos()
                         op = other.scenePos()
                         if (np.x() - op.x()) ** 2 + (np.y() - op.y()) ** 2 < 100:
@@ -109,15 +143,14 @@ class Fitting():
                                 ot_off = getattr(other, "ceiling_offset", 0)
                                 if my_off < ot_off:
                                     visibility = False
-                                elif my_off == ot_off:
+                                elif my_off == ot_off and id(node) < id(other):
                                     # Final tie-break: hide by id
-                                    if id(node) < id(other):
-                                        visibility = False
-                            break
+                                    visibility = False
         # Respect per-instance display override (model browser hide/show)
         if self._display_overrides.get("visible") is False:
             visibility = False
-        self.symbol.setVisible(visibility)
+        # ...and the Display Manager Fitting row
+        return bool(visibility and self._display_visible)
 
     # ── Vertical pipe helpers ────────────────────────────────────────────
 
@@ -136,8 +169,30 @@ class Fitting():
     @staticmethod
     def _vertical_direction(pipe, node) -> str:
         """Return ``'up'`` or ``'down'`` relative to *node*."""
-        other = pipe.node2 if pipe.node1 is node else pipe.node1
+        other = node.other_end(pipe)
         return "up" if getattr(other, "z_pos", 0) > getattr(node, "z_pos", 0) else "down"
+
+    @staticmethod
+    def is_through(node) -> bool:
+        """True when *node* has a vertical pipe going up and one going down."""
+        dirs = {Fitting._vertical_direction(p, node) for p in node.pipes
+                if Fitting._is_vertical(p, node)}
+        return len(dirs) == 2
+
+    @staticmethod
+    def is_bare_riser_end(node) -> bool:
+        """True for a vertical-only node that is not a through node: the
+        pipe's riser symbol is its mark, not a fitting."""
+        pipes = node.pipes
+        return (bool(pipes)
+                and all(Fitting._is_vertical(p, node) for p in pipes)
+                and not Fitting.is_through(node))
+
+    def draws_symbol(self) -> bool:
+        """The one rule for whether this fitting's type has a plan symbol."""
+        if self.is_bare_riser_end(self.node):
+            return False
+        return self.SHOW_PLAIN_SYMBOLS or self.type not in self.PLAIN_TYPES
 
     # ── Type determination ─────────────────────────────────────────────
 
@@ -153,6 +208,10 @@ class Fitting():
 
         # ── Vertical pipe present ──────────────────────────────────────
         if vertical:
+            if self.is_through(node):
+                n = len(horizontal)
+                return ("riser_through" if n == 0
+                        else "tee_vertical" if n == 1 else "cross_vertical")
             direction = self._vertical_direction(vertical[0], node)
             if len(horizontal) <= 1:
                 return f"elbow_{direction}"
@@ -376,11 +435,11 @@ class Fitting():
         center = bounds.center()
         self.symbol.setTransformOriginPoint(center)
 
-        # Scale fitting: Branch (75mm) → 300mm, Main → 75×4×√2 ≈ 424mm
+        # Scale fitting: Branch (75mm) → 150mm, Main → 75×2×√2 ≈ 212mm
         svg_natural = max(bounds.width(), bounds.height())
         if svg_natural > 0:
             base = min(self._max_connected_width_mm(), 75.0 * _SQRT2)
-            target_mm = base * 4 * self._display_scale
+            target_mm = base * 2 * self._display_scale
             self.symbol_scale = target_mm / svg_natural
         else:
             self.symbol_scale = 1.0
@@ -419,12 +478,14 @@ class Fitting():
             return None
         if self.type == "no fitting":
             return None
-        # Use the symbol's scene bounding rect to derive a clipping circle
+        # The symbol is square and turned with its pipes, so its scene box is
+        # wider than it is: the box gives the centre, the scale the radius.
         rect = self.symbol.sceneBoundingRect()
         if rect.isNull() or rect.isEmpty():
             return None
         center = rect.center()
-        radius = max(rect.width(), rect.height()) / 2.0
+        bounds = self.symbol.boundingRect()
+        radius = max(bounds.width(), bounds.height()) * self.symbol_scale / 2.0
         path = QPainterPath()
         path.addEllipse(center, radius, radius)
         return path

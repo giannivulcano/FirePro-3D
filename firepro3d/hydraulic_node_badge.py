@@ -55,7 +55,7 @@ def best_position_for_node(node) -> str:
     angles: list[float] = []
     npos = node.scenePos()
     for pipe in node.pipes:
-        other = pipe.node2 if pipe.node1 is node else pipe.node1
+        other = node.other_end(pipe)
         if other is None:
             continue
         opos = other.scenePos()

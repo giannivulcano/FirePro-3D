@@ -311,12 +311,12 @@ def test_paste_and_offset_are_refused_on_empty_canvas(mw):          # guard 9 (I
     s.clearSelection(); pipe.setSelected(True)
     s._last_scene_pos = QPointF(50, 50)        # cursor was last over the canvas
     n_items = len(s.items())
-    start_pos = s.node_start_pos
+    start_pos = s.pick_base_pos
     win.footer.set_instruction("")
     assert not win._be_modify_buttons["Paste"].isEnabled()   # greyed, not refused
     _shortcut(win, "Shift+V").activated.emit()
     assert s._paste_payload is None
-    assert s.node_start_pos is start_pos
+    assert s.pick_base_pos is start_pos
     assert len(s.items()) == n_items, "no ghost items on an empty canvas"
     assert s.mode in (None, "select")
     assert win.footer.instruction.text() == NO_VIEW_HINT

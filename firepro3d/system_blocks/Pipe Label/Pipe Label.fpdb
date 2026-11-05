@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "id": "system-pipe-label-pipe-label",
+  "version": 26,
+  "name": "Pipe Label",
+  "library": "System",
+  "series": "Pipe Label",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [
+    {
+      "key": "Diameter",
+      "label": "Diameter",
+      "type": "text",
+      "source": "host",
+      "host_key": "Diameter",
+      "default": "-",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "Diam."
+    },
+    {
+      "key": "Length",
+      "label": "Length",
+      "type": "text",
+      "source": "host",
+      "host_key": "Length",
+      "default": "-",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "Length"
+    }
+  ],
+  "host_category": "Pipe",
+  "primitives": [
+    {
+      "type": "text",
+      "text": "@[Diameter]",
+      "x": -9.824494860202085,
+      "y": -3.65242222241275,
+      "height_mm": 2.0215489583333333,
+      "wrap_width_mm": 19.648989720404327,
+      "box_height_mm": 3.152422222222222,
+      "font_family": "",
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "square",
+      "border_corner_radius_mm": 0.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "9071b6e672d048a8b6de923ad5adcd90"
+    },
+    {
+      "type": "text",
+      "text": "@[Length]",
+      "x": -9.824494860201995,
+      "y": -2.923788888762889,
+      "height_mm": 2.0215489583333333,
+      "wrap_width_mm": 19.648989720404327,
+      "box_height_mm": 10.0,
+      "font_family": "",
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "color": "token:auto",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "square",
+      "border_corner_radius_mm": 0.0,
+      "angle": 0.0,
+      "uid": "36ca1ead9f4649a5b084729310d2f873"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "807ead63beda457c9e7074b043ca76b7",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "9071b6e672d048a8b6de923ad5adcd90",
+          "h": "center"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "e0bc588c487b4bba8d382b7ecc70cfcf",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "36ca1ead9f4649a5b084729310d2f873",
+          "h": "center"
+        },
+        {
+          "uid": "9071b6e672d048a8b6de923ad5adcd90",
+          "h": "center"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "22eaba2f5a044ee692357655a15b658c",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "36ca1ead9f4649a5b084729310d2f873",
+          "h": "tm"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": 0.5,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "offset": -2.1375386820844695
+      }
+    },
+    {
+      "id": "0adf162c63234bb59085f5bd26679fb1",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "9071b6e672d048a8b6de923ad5adcd90",
+          "h": "bm"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": 0.5,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "offset": 2.4997415952249797
+      }
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "base_version": 26,
+  "colour_tokens": 1,
+  "weights": {
+    "Thinner": 0.25
+  }
+}

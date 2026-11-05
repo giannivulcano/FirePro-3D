@@ -241,7 +241,7 @@ def _walk_branch(start_node, direction_sign: int, branch_angle: float,
         best_diff = angle_tol  # only accept pipes within tolerance
 
         for pipe in current.pipes:
-            other = pipe.node2 if pipe.node1 is current else pipe.node1
+            other = current.other_end(pipe)
             if other is None or id(other) in visited:
                 continue
             pos_c = current.scenePos()
@@ -292,7 +292,7 @@ def _same_branch_nodes(start_node, branch_angle: float,
             best_diff = angle_tol
 
             for pipe in current.pipes:
-                other = pipe.node2 if pipe.node1 is current else pipe.node1
+                other = current.other_end(pipe)
                 if other is None or id(other) in result:
                     continue
                 pos_c = current.scenePos()

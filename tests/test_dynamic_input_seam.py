@@ -167,18 +167,18 @@ class TestPlacementAnchor:
         cannot pass.
         """
         scene.mode = "pipe"
-        scene.node_start_pos = Node(5.0, 7.0)
+        scene.pipe_start_node = Node(5.0, 7.0)
         assert scene.get_placement_anchor() == QPointF(5.0, 7.0)
 
     def test_move_returns_raw_point(self, scene):
         """move mode stores a raw QPointF, not a Node."""
         scene.mode = "move"
-        scene.node_start_pos = QPointF(11, 22)
+        scene.pick_base_pos = QPointF(11, 22)
         assert scene.get_placement_anchor() == QPointF(11, 22)
 
     def test_pipe_none_when_no_start_node(self, scene):
         scene.mode = "pipe"
-        scene.node_start_pos = None
+        scene.pipe_start_node = None
         assert scene.get_placement_anchor() is None
 
     # ── Aliasing ──────────────────────────────────────────────────────────
@@ -636,7 +636,7 @@ class TestInputModeInertness:
         monkeypatch.setattr(scene, "push_undo_state", lambda *a: calls.append(1))
         node = Node(5.0, 7.0)
         scene.mode = "pipe"
-        scene.node_start_pos = node
+        scene.pipe_start_node = node
         scene._pipe_node_was_new = True
         # Engage from a mode that has an applier, then restore pipe mode: the
         # HUD is open and the double-click arrives at a live pipe chain.
@@ -649,7 +649,7 @@ class TestInputModeInertness:
         scene.mouseDoubleClickEvent(_ReleaseEventStub(QPointF(1, 1)))
 
         assert calls == []
-        assert scene.node_start_pos is node             # chain not ended
+        assert scene.pipe_start_node is node             # chain not ended
         assert scene._pipe_node_was_new is True
 
     def test_coordinate_readout_still_updates(self, scene, view):

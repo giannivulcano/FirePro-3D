@@ -267,7 +267,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.mode = None
         self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
-        self.node_start_pos = None
+        self.pipe_start_node = None   # Node: pipe mode chain start
+        self.pick_base_pos = None     # QPointF: move / paste / duplicate base
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
@@ -884,6 +885,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.addItem(self.preview_node)
         self.preview_node.hide()
+        from .pipe_target_marker import PipeTargetMarker
+        self.pipe_target_marker = PipeTargetMarker()
+        self.addItem(self.pipe_target_marker)
+        self.pipe_target_marker.hide()
 
     # -------------------------------------------------------------------------
     # SAVE / LOAD  →  see scene_io.py (SceneIOMixin)
@@ -1305,6 +1310,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
+        self.pipe_target_marker.hide()
         self.preview_pipe.hide()
         # Reset the shared preview-pipe pen to its darkGray default so pipe /
         # set_scale keep their look; line/gridline re-set the width-1 dashed
@@ -1674,11 +1680,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return None
         return (pv.view_depth, pv.view_height)
 
-    def find_nearby_node(self, x, y, z_hint=None):
-        return self._pipe_ctl.find_nearby_node(x, y, z_hint=z_hint)
+    def find_nearby_node(self, x, y, z_hint=None, radius=None):
+        return self._pipe_ctl.find_nearby_node(x, y, z_hint=z_hint, radius=radius)
 
-    def find_nearby_candidates(self, x, y, z_hint=None):
-        return self._pipe_ctl.find_nearby_candidates(x, y, z_hint=z_hint)
+    def find_nearby_candidates(self, x, y, z_hint=None, radius=None):
+        return self._pipe_ctl.find_nearby_candidates(
+            x, y, z_hint=z_hint, radius=radius)
 
     def _update_pipe_tab_candidates(self, scene_pos, z_hint=None):
         return self._pipe_ctl._update_pipe_tab_candidates(scene_pos, z_hint=z_hint)
@@ -4337,9 +4344,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # S2, handles only (user decision 2026-09-25): once the Move base point
         # is set, the destination gets NO cursor / ALIGN / grid snap — the raw
         # cursor. Only the selection's own handles (the base point included)
-        # snap, via _move_handle_snap. The base click itself (node_start_pos
+        # snap, via _move_handle_snap. The base click itself (pick_base_pos
         # still None) snaps normally below: it is user-chosen geometry.
-        if self.mode in ("move", "duplicate") and self.node_start_pos is not None:
+        if self.mode in ("move", "duplicate") and self.pick_base_pos is not None:
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None
@@ -5020,15 +5027,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         absolute).  Returns None when the start is not a Node (never in pipe
         mode) or has no coplanar connection.
         """
-        nsp = self.node_start_pos
-        if not isinstance(nsp, Node):
+        nsp = self.pipe_start_node
+        if nsp is None:
             return None
         start = nsp.scenePos()
         preview = self.get_resolved_point()
         if preview is not None:
             return nsp._nearest_coplanar_pipe(start, preview)
         coplanar = [p for p in nsp.pipes
-                    if (far := nsp._other_end(p)) is not None
+                    if (far := nsp.other_end(p)) is not None
                     and abs(getattr(far, "z_pos", 0.0)
                             - getattr(nsp, "z_pos", 0.0)) <= Z_COPLANAR_TOL]
         return coplanar[0] if len(coplanar) == 1 else None
@@ -7672,7 +7679,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             (Angle for off-grid; none for a hard controller rejection whose own
             warning dialog is the feedback) flagged.
         """
-        start = self.node_start_pos.scenePos()
+        start = self.pipe_start_node.scenePos()
         length = values["Length"]
         angle = values["Angle"]
         ref = self._plc._pipe_hud_reference
@@ -7692,7 +7699,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                           start.y() + length * math.sin(rad))
         else:
             end = resolve_line(start, {"Length": length, "Angle": angle})
-        return self._pipe_ctl._commit_pipe_at(end, None)
+        return self._pipe_ctl._commit_pipe_at(end, None, typed=True)
 
     def _apply_pipe_dynamic_input(self, geometry) -> bool:
         """Backstop applier so the ``_hud_available`` gate accepts pipe mode.
@@ -7702,7 +7709,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         ``apply_dynamic_input`` call.  Routes the resolved point through the
         shared commit body without re-snapping.
         """
-        return self._pipe_ctl._commit_pipe_at(geometry, None)
+        return self._pipe_ctl._commit_pipe_at(geometry, None, typed=True)
 
     def _apply_wall_dynamic_input(self, *args, **kwargs):  # shell → WallPlacementController (slice 10, C3)
         return self._wall_ctl._apply_wall_dynamic_input(*args, **kwargs)
@@ -8532,13 +8539,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "pipe"
-                and self.node_start_pos is not None):
+                and self.pipe_start_node is not None):
             # Double-click fires a press first which placed one more pipe.
             # Just end the chain — keep mode active for a new chain.
-            self.node_start_pos = None
+            self.pipe_start_node = None
             self._pipe_node_was_new = False
             self.preview_pipe.hide()
             self.preview_node.hide()
+            self.pipe_target_marker.hide()   # returns on the next mouse move
             self.push_undo_state()
             self.instructionChanged.emit("Pick start node")
             event.accept()
@@ -9105,12 +9113,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._end_gridline_replicate()
                 return
             # Pipe polyline: first Escape ends the chain, second exits mode
-            if self.mode == "pipe" and self.node_start_pos is not None:
-                self.node_start_pos = None
-                self._pipe_node_was_new = False
-                self.preview_pipe.hide()
-                self.preview_node.hide()
-                self.instructionChanged.emit("Pick start node")
+            if self.mode == "pipe" and self.pipe_start_node is not None:
+                self.cancel_pipe_placement()
                 return
             # Align: first Escape clears reference, second exits mode
             if self.mode == "align" and self._align_reference is not None:
@@ -9390,7 +9394,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
                 pipes = []
                 for p in item.pipes:
-                    other = p.node1 if p.node2 == item else p.node2
+                    other = item.other_end(p)
                     pipes.append({"x": other.pos().x(), "y": other.pos().y()})
                 data.append({
                     "type": "node",
