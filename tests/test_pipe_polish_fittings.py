@@ -169,3 +169,67 @@ def test_through_type_reaches_solver_loss(scene):
     node, _ = _stack(scene, 1, 1, 1, False)
     node.fitting.update()
     assert equivalent_length_ft(node.fitting.type, '1"Ø') == 5.0
+
+
+# -- D2 on the interactive path: no hand-called update anywhere below ---------
+
+def _census(scene):
+    """Visible fitting symbols plus visible pipe riser symbols in the scene.
+    Every vertical stack here shares x=0, y=0; horizontal branches draw no
+    symbol, so the count is the count at the XY."""
+    n = 0
+    for node in scene.sprinkler_system.nodes:
+        s = node.fitting.symbol
+        if s is not None and s.scene() is scene and s.isVisible():
+            n += 1
+    for p in scene.sprinkler_system.pipes:
+        r = p._riser_symbol
+        if r is not None and r.scene() is scene and r.isVisible():
+            n += 1
+    return n
+
+
+def _build(scene, zs, pipes, branches):
+    """Nodes at the stack XY for each z, pipes added one by one through
+    ``scene.add_pipe`` in the given order, then horizontal branches."""
+    stack = [_node(scene, 0, 0, z) for z in zs]
+    made = [_pipe(scene, stack[a], stack[b]) for a, b in pipes]
+    for idx, k in branches:
+        for x, y in [(1000, 0), (-1000, 0)][:k]:
+            _pipe(scene, stack[idx], _node(scene, x, y, zs[idx]))
+    return stack, made
+
+
+SEQ_A = ([3000.0, 0.0, -3000.0], [(0, 1), (1, 2)], [])
+SEQ_C = ([6000.0, 4000.0, 2000.0, 0.0],
+         [(0, 1), (1, 2), (2, 3)], [(1, 1), (2, 2)])
+
+
+def _ordered(seq, reverse):
+    zs, pipes, branches = seq
+    return zs, (list(reversed(pipes)) if reverse else pipes), branches
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
+@pytest.mark.parametrize("seq", [SEQ_A, SEQ_C], ids=["A", "C"])
+def test_incremental_build_draws_exactly_one(scene, seq, reverse):
+    _build(scene, *_ordered(seq, reverse))
+    assert _census(scene) == 1
+
+
+def test_deleting_the_through_pipe_leaves_exactly_one(scene):
+    stack, made = _build(scene, *SEQ_A)
+    assert _census(scene) == 1
+    scene.delete_pipe(made[1])
+    assert _census(scene) == 1
+    assert stack[1].fitting.symbol.isVisible() is False
+    assert made[0]._riser_symbol.isVisible() is True
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
+@pytest.mark.parametrize("seq", [SEQ_A, SEQ_C], ids=["A", "C"])
+def test_undo_restore_path_draws_exactly_one(scene, seq, reverse):
+    _build(scene, *_ordered(seq, reverse))
+    state = scene._capture_network()
+    scene._restore_network(state)
+    assert _census(scene) == 1

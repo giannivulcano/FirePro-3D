@@ -203,9 +203,12 @@ from firepro3d.fitting import Fitting
 
 class TestFittingDisplayOverrides:
 
-    def test_fitting_hidden_via_display_override(self, qapp, scene):
+    def test_fitting_hidden_via_display_override(self, qapp, scene, monkeypatch):
         """Fitting with _display_overrides['visible']=False stays hidden
-        even after fitting.update()."""
+        even after fitting.update() (plain symbols switched on so the
+        override, not D1, is what hides it)."""
+        from firepro3d.fitting import Fitting
+        monkeypatch.setattr(Fitting, "SHOW_PLAIN_SYMBOLS", True)
         n1 = _make_node(scene, 0, 0)
         n2 = _make_node(scene, 1000, 0)
         _make_pipe(scene, n1, n2)

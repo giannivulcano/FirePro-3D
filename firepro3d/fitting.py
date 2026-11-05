@@ -125,6 +125,12 @@ class Fitting():
         if self._display_overrides.get("visible") is False:
             visibility = False
         self.symbol.setVisible(visibility)
+        # A riser symbol depends on both end nodes' through / branch state, so
+        # every pipe at this node re-decides it here: one chokepoint for add,
+        # delete, undo and load (never setVisible, which would recurse).
+        for p in pipes:
+            if getattr(p, "node1", None) is not None and getattr(p, "node2", None) is not None:
+                p._update_riser_symbol()
 
     # ── Vertical pipe helpers ────────────────────────────────────────────
 
