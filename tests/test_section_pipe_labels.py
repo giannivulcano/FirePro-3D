@@ -163,3 +163,40 @@ def test_hidden_pipe_row_hides_the_label_and_restores(qapp, section_scene_for):
     assert not lab.isVisible()
     restore_model_display(saved)
     assert lab.isVisible()
+
+
+def _two_level_pipe(section_scene_for):
+    ms, sec = _scene(section_scene_for)
+    lm = ms._level_manager
+    lm.add_level("Level 2", elevation=3000.0)
+    pipe = _pipe(ms, (2000.0, -1000.0, 0.0), (2000.0, -2000.0, 0.0))
+    pipe.node2.ceiling_level = "Level 2"
+    lm.update_elevations(ms)
+    return ms, sec, lm, pipe
+
+
+def test_level_change_refreshes_the_plan_label_bounds(qapp, section_scene_for):
+    """AC7 / B12: the plan label's cached bounds follow the new Length."""
+    ms, _sec, lm, pipe = _two_level_pipe(section_scene_for)
+    pipe.update_label()
+    lab = pipe.label
+    before = lab.host_values({"Length"})["Length"].raw
+    stale = lab.boundingRect()
+    lm.get("Level 2").elevation = 90000.0
+    lm.update_elevations(ms)
+    assert lab.host_values({"Length"})["Length"].raw != before
+    fresh = lab._compute_rect()
+    assert fresh != stale                       # the longer value is wider
+    assert lab.boundingRect() == fresh
+
+
+def test_level_change_reaches_an_open_section_label(qapp, section_scene_for):
+    """AC7: the section label reads the new Length after the rebuild."""
+    ms, sec, lm, pipe = _two_level_pipe(section_scene_for)
+    lm.get("Level 2").elevation = 90000.0
+    lm.update_elevations(ms)
+    sec.rebuild()                               # levelsChanged -> rebuild_all in the app
+    (lab,) = _labels(sec, pipe)
+    assert lab.host_values({"Length"})["Length"].raw == pytest.approx(
+        pipe.label.host_values({"Length"})["Length"].raw)
+    assert lab.boundingRect() == lab._compute_rect()
