@@ -1540,15 +1540,21 @@ class SheetViewPropertiesDialog(QDialog):
     """
 
     def __init__(self, source_view_name: str, data: SheetViewData | None = None,
-                 parent=None, *, default_scale: str = "1:100"):
+                 parent=None, *, default_scale: str = "1:100",
+                 default_number: str = "", number_refusal=None, notify=None):
         super().__init__(parent)
         self.setWindowTitle("Sheet View Properties")
         self._data = data
+        self._number_refusal = number_refusal   # (text) -> notice or None
+        self._notify = notify                   # (notice) -> None
 
         layout = QFormLayout(self)
 
         self._title_edit = QLineEdit(data.title if data else source_view_name)
         layout.addRow("Title:", self._title_edit)
+
+        self._number_edit = QLineEdit(data.view_number if data else default_number)
+        layout.addRow("Number:", self._number_edit)
 
         self._scale_combo = QComboBox()
         self._scale_combo.setEditable(True)
@@ -1564,6 +1570,10 @@ class SheetViewPropertiesDialog(QDialog):
         self._border_check = QCheckBox("Show Border")
         self._border_check.setChecked(data.show_border if data else True)
         layout.addRow("", self._border_check)
+
+        self._title_check = QCheckBox("Show Title")
+        self._title_check.setChecked(data.show_title if data else True)
+        layout.addRow("", self._title_check)
 
         if data:
             self._x_edit = QLineEdit(f"{data.x:.1f}")
@@ -1586,8 +1596,24 @@ class SheetViewPropertiesDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+    def accept(self) -> None:
+        """OK refuses a blank or duplicate number and keeps the dialog open (AC4)."""
+        refusal = (self._number_refusal(self._number_edit.text())
+                   if self._number_refusal is not None else None)
+        if refusal is not None:
+            if self._notify is not None:
+                self._notify(refusal)
+            return
+        super().accept()
+
     def get_title(self) -> str:
         return self._title_edit.text()
+
+    def get_number(self) -> str:
+        return self._number_edit.text().strip()
+
+    def get_show_title(self) -> bool:
+        return self._title_check.isChecked()
 
     def get_show_border(self) -> bool:
         return self._border_check.isChecked()
@@ -1981,14 +2007,18 @@ class PaperGraphicsView(QGraphicsView):
 
         resolver = self._paper_scene._resolver
         is_schematic = view_type == "schematic"
+        sheet = self._paper_scene.sheet
+        dlg_args = dict(parent=self, default_number=sheet.next_view_number(),
+                        number_refusal=sheet.view_number_refusal,
+                        notify=self._paper_scene.notify)
         if is_schematic:
             # D-S7 / SV2 delta: NTS default; the title field shows the live
             # name (left unchanged it is stored "" and follows Rename).
             dlg = SheetViewPropertiesDialog(
-                resolver.display_name(view_type, view_name), parent=self,
-                default_scale="NTS")
+                resolver.display_name(view_type, view_name),
+                default_scale="NTS", **dlg_args)
         else:
-            dlg = SheetViewPropertiesDialog(view_name, parent=self)
+            dlg = SheetViewPropertiesDialog(view_name, **dlg_args)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             event.ignore()
             return
@@ -1998,6 +2028,7 @@ class PaperGraphicsView(QGraphicsView):
                 and title.strip() == resolver.display_name(view_type, view_name)):
             title = ""          # unchanged name = no override (SheetViewport.title_to_store)
         scale = dlg.get_scale()
+        show_title = dlg.get_show_title()
 
         result = resolver.resolve(view_type, view_name)
         if result is None:
@@ -2006,8 +2037,9 @@ class PaperGraphicsView(QGraphicsView):
         _, src_rect = result
 
         pw, ph = sheet_page_mm(self._paper_scene.sheet)
+        title_mm = self._paper_scene.view_title_extent_mm() if show_title else 0.0
         max_w = pw - 2 * (MARGIN + INNER_MARGIN)
-        max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H
+        max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H - title_mm
 
         if scale == 0.0 and is_schematic:
             # Extent at 1 mm = 1 mm, clamped to the sheet below (concept SD3).
@@ -2034,9 +2066,12 @@ class PaperGraphicsView(QGraphicsView):
         y = drop_pos.y() - vp_h / 2
 
         x = max(MARGIN + INNER_MARGIN, min(x, pw - MARGIN - INNER_MARGIN - vp_w))
-        y = max(MARGIN + INNER_MARGIN, min(y, ph - MARGIN - INNER_MARGIN - TITLE_H - vp_h))
+        y = max(MARGIN + INNER_MARGIN,
+                min(y, ph - MARGIN - INNER_MARGIN - TITLE_H - title_mm - vp_h))
 
-        data = SheetViewData(view_type, view_name, title, scale, x, y, vp_w, vp_h)
+        data = SheetViewData(view_type, view_name, title, scale, x, y, vp_w, vp_h,
+                             show_border=dlg.get_show_border(),
+                             view_number=dlg.get_number(), show_title=show_title)
         self._paper_scene.add_viewport(data)
         event.acceptProposedAction()
 
@@ -2802,6 +2837,11 @@ class PaperScene(QGraphicsScene):
             show(message, timeout_ms)
         except RuntimeError:          # model scene deleted under a queued call
             pass
+
+    def view_title_extent_mm(self) -> float:
+        """How far a title at its default spot reaches below a viewport (AC7)."""
+        from .view_title_label import VIEW_TITLE_CATEGORY, extent_below_box
+        return extent_below_box(self.annotation_block(VIEW_TITLE_CATEGORY))
 
     def device_independent_text(self) -> bool:
         """Text sizing-mode hook (containment C5).
