@@ -129,3 +129,81 @@ def test_a_sibling_path_sharing_a_prefix_is_not_removed(qapp):
         assert any(h.startswith("kid2/") for h in now) and "kid2:ins" in now
     finally:
         be.cleanup()
+
+
+def test_a_suppressed_record_under_an_unsuppressed_child_goes_two_levels_down(qapp):
+    """Top holds Mid (not suppressed) as ``m``; Mid holds a suppressed ``k`` and
+    an unsuppressed ``ok``. The suppressed path ``m/k`` loses every handle, and
+    the unsuppressed child's own handles (``m:ins``, ``m/ok/...``) stay.
+    RED: ``suppressed_paths`` stops recursing into non-suppressed children."""
+    be = Model_Space(scene_role="block_editor")
+    try:
+        d = snap_def(be)
+
+        def rec(bid, uid, pos, **kw):
+            return {"type": "block_instance", "block_id": bid, "pos": list(pos),
+                    "rotation": 0.0, "uid": uid, **kw}
+
+        mid = BlockDefinition.new(name="Mid", library="L", series="", origin=(0.0, 0.0),
+                                  primitives=[rec(d.id, "k", (0.0, 0.0), constraint_points_off=True),
+                                              rec(d.id, "ok", (300.0, 0.0))])
+        be.register_block_definition(mid)
+        top = BlockDefinition.new(name="Top", library="L", series="", origin=(0.0, 0.0),
+                                  primitives=[rec(mid.id, "m", (0.0, 0.0))])
+        be.register_block_definition(top)
+        inst = be.place_block_instance(top.id, (0.0, 0.0))
+        h = _cands(be.constraint_ctl, inst._uid)
+        assert not any(x.startswith("m/k") for x in h)          # incl. "m/k:ins"
+        assert any(x.startswith("m/ok/") for x in h)
+        assert "m/ok:ins" in h and "m:ins" in h and "ins" in h
+    finally:
+        be.cleanup()
+
+
+def test_auto_constrain_refuses_a_snap_at_a_suppressed_child_point(sc):
+    """The real Auto Constrain call: an endpoint snap resolves to the child's
+    point handle first, then to nothing once Constraint Points is off.
+    RED: ``item_handles`` ignores ``blocked`` on points."""
+    from firepro3d.auto_constrain import item_handles, resolve_snap
+    inst = sc.place_block_instance(snap_def(sc).id, (1000.0, 0.0))
+    p = next(a for k, r, a, _b in item_handles(inst) if k == "point" and r["h"] != "ins")
+
+    class _Snap:
+        snap_type = "endpoint"
+        point = p
+        source_item = inst
+
+    got = resolve_snap(_Snap())
+    assert got is not None and got.ref["h"] != "ins"
+    inst.constraint_points_off = True
+    assert resolve_snap(_Snap()) is None
+
+
+def test_a_constraint_on_a_blocked_child_survives_save_and_reopen(sc, tmp_path):
+    """D12 through the project's real save and load: the tie to a child point
+    stays in the file with Constraint Points off, and solves after reopen."""
+    d = snap_def(sc)
+    w = wall(sc, (0, -1500), (4000, -1500))
+    inst = sc.place_block_instance(d.id, (1000.0, 0.0))
+    ctl = sc.constraint_ctl
+    c = ctl.add("dim_point_line", [{"uid": inst._uid, "h": "u0:p1"},
+                                   {"uid": w._uid, "h": "face_l"}])
+    assert c is not None and c.driving
+    inst.constraint_points_off = True
+    path = tmp_path / "off.fpd"
+    sc.save_to_file(str(path), backup=False)
+
+    other = Model_Space()
+    try:
+        other.load_from_file(str(path))
+        inst2 = next(b for b in other._block_instances if b._uid == inst._uid)
+        w2 = next(x for x in other._walls if x._uid == w._uid)
+        assert inst2.constraint_points_off is True
+        ctl2 = other.constraint_ctl
+        assert c.id in [x.id for x in ctl2.active()]
+        with ctl2.edit([w2]):
+            w2.translate(0.0, 500.0)
+        assert inst2.block_pos() == pytest.approx((1000.0, 500.0), abs=1e-4)
+        assert _cands(ctl2, inst2._uid) == ["ins"]
+    finally:
+        other.cleanup()
