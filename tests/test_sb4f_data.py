@@ -1,6 +1,8 @@
 """SB4f AC3 / AC4 data half: persisted fields, number rules, undoable edits."""
+import gc
+
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -129,9 +131,24 @@ def test_panel_refuses_a_duplicate_or_blank_with_a_notice(qapp, typed):
         dispose(ms, sec, tabs)
 
 
-def _number_row(ms, ps, vp):
+@pytest.fixture
+def panels():
+    """Shown panels, gone before the next test: an unparented PropertyManager left
+    as cyclic garbage is the suite's native-crash locus (todo_open "Full-suite
+    native crashes")."""
+    made = []
+    yield made
+    for pm in made:
+        pm.close()
+        pm.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    gc.collect()
+
+
+def _number_row(panels, ps, vp):
     """The real Number row of a shown panel, with the viewport's panel loaded."""
     pm = PropertyManager()
+    panels.append(pm)
     pm.resize(400, 600)
     pm.show()
     QTest.qWaitForWindowExposed(pm)
@@ -150,35 +167,32 @@ def _retype(row, text):
 
 
 @pytest.mark.parametrize("typed", ["A5", "1-A"])
-def test_typing_letters_over_a_numeric_number_commits_them(qapp, real_system_library, typed):
+def test_typing_letters_over_a_numeric_number_commits_them(qapp, real_system_library, panels,
+                                                           typed):
     """AC4 "any text": the row starts at the auto number "1", which parses as a
     float, and takes letters through real key events."""
     ms, sec, det, tabs = plan_scene()
     seen = []
-    pm = None
     try:
         _v, ps, vp = place(ms, sec, det)
         ms._show_status = lambda msg, *a: seen.append(msg)
-        pm, row = _number_row(ms, ps, vp)
+        pm, row = _number_row(panels, ps, vp)
         assert row.text() == "1"
         _retype(row, typed)
         assert vp.data.view_number == typed
         assert seen == []
     finally:
-        if pm is not None:
-            pm.close()
-            pm.deleteLater()
         dispose(ms, sec, tabs)
 
 
-def test_clearing_the_number_row_is_refused_and_shows_the_old_value(qapp, real_system_library):
+def test_clearing_the_number_row_is_refused_and_shows_the_old_value(qapp, real_system_library,
+                                                                    panels):
     ms, sec, det, tabs = plan_scene()
     seen = []
-    pm = None
     try:
         _v, ps, vp = place(ms, sec, det)
         ms._show_status = lambda msg, *a: seen.append(msg)
-        pm, row = _number_row(ms, ps, vp)
+        pm, row = _number_row(panels, ps, vp)
         steps = ps.undo_stack.count()
         _retype(row, "")
         assert vp.data.view_number == "1"
@@ -186,9 +200,6 @@ def test_clearing_the_number_row_is_refused_and_shows_the_old_value(qapp, real_s
         assert ps.undo_stack.count() == steps    # no edit pushed
         assert pm._prop_widgets["Number"].text() == "1"
     finally:
-        if pm is not None:
-            pm.close()
-            pm.deleteLater()
         dispose(ms, sec, tabs)
 
 
