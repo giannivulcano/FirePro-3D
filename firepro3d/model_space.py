@@ -8518,6 +8518,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self._pipe_node_was_new = False
             self.preview_pipe.hide()
             self.preview_node.hide()
+            self.pipe_target_marker.hide()   # returns on the next mouse move
             self.push_undo_state()
             self.instructionChanged.emit("Pick start node")
             event.accept()

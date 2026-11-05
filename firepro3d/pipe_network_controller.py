@@ -728,13 +728,70 @@ class PipeNetworkController:
     # ── Pipe Tab-cycle ────────────────────────────────────────────────────
 
     def pick_radius(self) -> float:
-        """Mouse node pickup: the OSNAP aperture in scene units at the visible
-        zoom (D4). Paste, split and typed input keep ``SNAP_RADIUS``."""
-        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene, _safe_scale
-        return px_to_scene(float(SNAP_TOLERANCE_PX),
-                           _safe_scale(self._scene._active_view_scale()))
+        """Mouse node pickup (D4): the larger of the OSNAP aperture in scene
+        units at the visible zoom and ``SNAP_RADIUS``.
 
-    def resolve_pipe_target(self, node_pos, pipe_pos, z_hint=None):
+        The floor keeps every fixed-radius fallback (``add_node``,
+        ``split_pipe``) a subset of what the marker already resolved, so the
+        marker and the click always agree. Paste and typed input keep
+        ``SNAP_RADIUS``."""
+        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene, _safe_scale
+        aperture = px_to_scene(float(SNAP_TOLERANCE_PX),
+                               _safe_scale(self._scene._active_view_scale()))
+        return max(aperture, self._scene.SNAP_RADIUS)
+
+    def _pipe_at(self, pt):
+        """The pipe a click at *pt* hits, or None.
+
+        Same hit rule as ``Pipe.shape()`` (a flat-capped stroke at least 16
+        screen px wide; a short run is a disk of the riser symbol size), over
+        visible pipes that have both nodes. A plain loop over
+        ``sprinkler_system.pipes`` with a bbox reject: ``scene.items`` rebuilds
+        every pipe's stroke path and cost 20 ms a move on 1500 pipes.
+        """
+        from .view_scale import scene_view_scale
+        hw = 16.0 / scene_view_scale(self._scene)
+        x, y = pt.x(), pt.y()
+        pipes = self._scene.sprinkler_system.pipes
+        # reject margin: the half of the widest stroke a pipe can have (its pen
+        # is display_width_mm, at most MAIN_WIDTH_MM), cap pad included
+        m = max(hw, Pipe.MAIN_WIDTH_MM) / 2.0
+        xl, xh, yl, yh = x - m, x + m, y - m, y + m
+        best, best_z = None, None
+        for p in pipes:
+            ln = p.line()
+            ax, bx = ln.x1(), ln.x2()
+            # bbox reject; a run under 1 unit is the riser disk, which is wider
+            if (abs(ax - bx) >= 1.0
+                    and ((ax < xl and bx < xl) or (ax > xh and bx > xh))):
+                continue
+            ay, by = ln.y1(), ln.y2()
+            if (abs(ay - by) >= 1.0
+                    and ((ay < yl and by < yl) or (ay > yh and by > yh))):
+                continue
+            if not (p.node1 and p.node2 and p.isVisible()):
+                continue
+            dx, dy = bx - ax, by - ay
+            l2 = dx * dx + dy * dy
+            if ln.length() < 1.0:
+                r = p._RISER_SIZE_MM / 2
+                if (x - ax) ** 2 + (y - ay) ** 2 > r * r:
+                    continue
+            else:
+                # the stroker's default square cap: the run extends h past each end
+                h = max(p.pen().widthF(), hw) / 2.0
+                t = ((x - ax) * dx + (y - ay) * dy) / l2
+                pad = h / math.sqrt(l2)
+                if t < -pad or t > 1.0 + pad:
+                    continue
+                ex, ey = ax + t * dx - x, ay + t * dy - y
+                if ex * ex + ey * ey > h * h:
+                    continue
+            if best is None or p.zValue() > best_z:
+                best, best_z = p, p.zValue()
+        return best
+
+    def resolve_pipe_target(self, node_pos, pipe_pos, z_hint=None, cached=False):
         """What a mouse click here does: ``("node", Node)``, ``("pipe", Pipe)``
         or ``("none", None)``. Shared by move and press (D3, D5).
 
@@ -742,13 +799,20 @@ class PipeNetworkController:
             node_pos: Point tested for node pickup (the 45-snapped end).
             pipe_pos: Point tested for a pipe hit (the snapped cursor).
             z_hint: Template target Z for stacked nodes.
+            cached: True from the move path, right after
+                ``_update_pipe_tab_candidates`` ran for *node_pos*: the node
+                is then the Tab-selected candidate (what the press connects
+                to) instead of a second pass over every node.
         """
-        node = self.find_nearby_node(node_pos.x(), node_pos.y(),
-                                     z_hint=z_hint, radius=self.pick_radius())
+        if cached:
+            c = self._tab_candidates
+            node = c[self._tab_index] if c and self._tab_index < len(c) else None
+        else:
+            node = self.find_nearby_node(node_pos.x(), node_pos.y(),
+                                         z_hint=z_hint, radius=self.pick_radius())
         if node is not None:
             return ("node", node)
-        pipe = next((i for i in self._scene.items(pipe_pos)
-                     if isinstance(i, Pipe) and i.node1 and i.node2), None)
+        pipe = self._pipe_at(pipe_pos)
         if pipe is None:
             return ("none", None)
         if pipe._is_vertical():
@@ -759,14 +823,17 @@ class PipeNetworkController:
         return ("pipe", pipe)
 
     def _update_target_marker(self, node_pos, pipe_pos, z_hint):
-        kind, target = self.resolve_pipe_target(node_pos, pipe_pos, z_hint)
+        self._marker_args = (node_pos, pipe_pos, z_hint)
+        kind, target = self.resolve_pipe_target(node_pos, pipe_pos, z_hint,
+                                                cached=True)
         marker = self._scene.pipe_target_marker
         if kind == "none":
             marker.hide()
             return
         marker.kind = kind
+        # A split lands at the projection of the (45-snapped) end, as in the press.
         marker.setPos(target.scenePos() if kind == "node"
-                      else self._scene.project_click_onto_pipe_segment(pipe_pos, target))
+                      else self._scene.project_click_onto_pipe_segment(node_pos, target))
         marker.update()
         marker.show()
 
@@ -805,6 +872,9 @@ class PipeNetworkController:
         if self._scene.mode == "pipe" and len(self._tab_candidates) > 1:
             self._tab_index = (self._tab_index + 1) % len(self._tab_candidates)
             self._emit_pipe_tab_readout()
+            args = getattr(self, "_marker_args", None)
+            if args is not None:
+                self._update_target_marker(*args)
 
     # ── Pipe placement handlers ───────────────────────────────────────────
 
@@ -1282,5 +1352,6 @@ class PipeNetworkController:
         sc._pipe_node_was_new = False
         sc.preview_pipe.hide()
         sc.preview_node.hide()
+        sc.pipe_target_marker.hide()    # returns on the next mouse move
         sc.instructionChanged.emit("Pick start node")
         return True

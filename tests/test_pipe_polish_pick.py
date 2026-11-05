@@ -96,16 +96,29 @@ def _pipe_mode(scene):
     return scene._pipe_ctl
 
 
-def _click(view, scene_pt):
+_NO, _LEFT, _NOMOD = (Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier)
+
+
+def _send(view, kind, scene_pt):
     # sendEvent, not QTest: the shown-view fixture drops spontaneous QTest mouse events.
     vp = QPointF(view.mapFromScene(scene_pt))
-    NO, LEFT, NOMOD = (Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
-                       Qt.KeyboardModifier.NoModifier)
-    for t, btn, btns in ((QEvent.Type.MouseMove, NO, NO),
-                         (QEvent.Type.MouseButtonPress, LEFT, LEFT),
-                         (QEvent.Type.MouseButtonRelease, LEFT, NO)):
-        QApplication.sendEvent(view.viewport(), QMouseEvent(t, vp, btn, btns, NOMOD))
+    btn, btns = {QEvent.Type.MouseMove: (_NO, _NO),
+                 QEvent.Type.MouseButtonPress: (_LEFT, _LEFT),
+                 QEvent.Type.MouseButtonDblClick: (_LEFT, _LEFT),
+                 QEvent.Type.MouseButtonRelease: (_LEFT, _NO)}[kind]
+    QApplication.sendEvent(view.viewport(), QMouseEvent(kind, vp, btn, btns, _NOMOD))
     QApplication.processEvents()
+
+
+def _move(view, scene_pt):
+    _send(view, QEvent.Type.MouseMove, scene_pt)
+
+
+def _click(view, scene_pt):
+    _move(view, scene_pt)
+    _send(view, QEvent.Type.MouseButtonPress, scene_pt)
+    _send(view, QEvent.Type.MouseButtonRelease, scene_pt)
 
 
 def test_press_near_node_splits_and_connects(shown_model_view):
@@ -156,13 +169,233 @@ def test_second_click_inside_aperture_connects_to_node(shown_model_view):
 
 
 @pytest.mark.parametrize("zoom", [0.5, 2.0])
-def test_pickup_is_screen_sized(shown_model_view, zoom):
+def test_pickup_is_max_of_aperture_and_snap_radius(shown_model_view, zoom):
+    """R1: pickup radius = max(15 px in scene units, SNAP_RADIUS = 10 units)."""
     view, scene = shown_model_view
-    n = _node(scene, 0, 0)       # lone node: no pipe hit shape to muddy the 16 px probe
+    n = _node(scene, 0, 0)       # lone node: no pipe hit shape to muddy the probe
     _zoom(view, zoom)
     ctl = _pipe_mode(scene)
-    assert ctl.resolve_pipe_target(QPointF(14 / zoom, 0), QPointF(14 / zoom, 0)) == ("node", n)
-    assert ctl.resolve_pipe_target(QPointF(16 / zoom, 0), QPointF(16 / zoom, 0)) == ("none", None)
+    r = max(15.0 / zoom, 10.0)   # 30 units at 0.5, 10 units (the floor) at 2.0
+    inside, outside = QPointF(r - 1, 0), QPointF(r + 1, 0)
+    assert ctl.resolve_pipe_target(inside, inside) == ("node", n)
+    assert ctl.resolve_pipe_target(outside, outside) == ("none", None)
+
+
+def _nodes(scene):
+    return list(scene.sprinkler_system.nodes)
+
+
+def _marker(scene):
+    m = scene.pipe_target_marker
+    return (m.kind if m.isVisible() else "none"), m.pos()
+
+
+def _cross_pipe(scene):
+    """A horizontal pipe through the origin (its ends are far from the probes)."""
+    a, b = _node(scene, -300, 0), _node(scene, 300, 0)
+    return a, b, scene.add_pipe(a, b, None, _propagate_ceiling=False)
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_zoom3_node_8_away_marker_says_node_and_click_connects(shown_model_view, second):
+    view, scene = shown_model_view
+    m_node = _node(scene, 8, 0)
+    start = _node(scene, 0, -60)
+    _zoom(view, 3.0)
+    _pipe_mode(scene)
+    if second:
+        _click(view, QPointF(0, -60))
+        assert scene.pipe_start_node is start
+    n_nodes, n_pipes = len(_nodes(scene)), len(scene.sprinkler_system.pipes)
+    _move(view, QPointF(0, 0))
+    assert _marker(scene) == ("node", QPointF(8, 0))
+    _send(view, QEvent.Type.MouseButtonPress, QPointF(0, 0))
+    _send(view, QEvent.Type.MouseButtonRelease, QPointF(0, 0))
+    assert len(_nodes(scene)) == n_nodes                    # no loose node
+    if second:
+        assert len(scene.sprinkler_system.pipes) == n_pipes + 1
+        assert {m_node.other_end(p) for p in m_node.pipes} == {start}
+    else:
+        assert scene.pipe_start_node is m_node
+        assert scene._pipe_node_was_new is False
+        scene.cancel_pipe_placement()
+        assert m_node in _nodes(scene)                      # Esc must not delete it
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_zoom3_node_8_off_a_pipe_still_connects_not_splits(shown_model_view, second):
+    view, scene = shown_model_view
+    _cross_pipe(scene)
+    m_node = _node(scene, 0, 8)
+    start = _node(scene, 0, -60)
+    _zoom(view, 3.0)
+    _pipe_mode(scene)
+    if second:
+        _click(view, QPointF(0, -60))
+    n_nodes, n_pipes = len(_nodes(scene)), len(scene.sprinkler_system.pipes)
+    _move(view, QPointF(0, 0))
+    assert _marker(scene) == ("node", QPointF(0, 8))
+    _send(view, QEvent.Type.MouseButtonPress, QPointF(0, 0))
+    assert len(_nodes(scene)) == n_nodes
+    assert len(scene.sprinkler_system.pipes) == n_pipes + (1 if second else 0)   # no split
+    if not second:
+        assert scene.pipe_start_node is m_node
+        assert scene._pipe_node_was_new is False
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_zoom3_node_12_away_on_pipe_marker_says_split_and_click_splits(shown_model_view, second):
+    view, scene = shown_model_view
+    _cross_pipe(scene)
+    far = _node(scene, 0, 12)
+    start = _node(scene, 0, -60)
+    _zoom(view, 3.0)
+    _pipe_mode(scene)
+    if second:
+        _click(view, QPointF(0, -60))
+    n_nodes, n_pipes = len(_nodes(scene)), len(scene.sprinkler_system.pipes)
+    _move(view, QPointF(0, 0))
+    assert _marker(scene) == ("pipe", QPointF(0, 0))
+    _send(view, QEvent.Type.MouseButtonPress, QPointF(0, 0))
+    assert len(_nodes(scene)) == n_nodes + 1
+    assert far.pipes == []
+    made = next(n for n in _nodes(scene) if n.scenePos() == QPointF(0, 0))
+    assert len(made.pipes) == (3 if second else 2)
+    assert len(scene.sprinkler_system.pipes) == n_pipes + (2 if second else 1)
+
+
+@pytest.mark.parametrize("second", [False, True])
+def test_zoom3_node_12_away_no_pipe_no_marker_and_a_new_node(shown_model_view, second):
+    view, scene = shown_model_view
+    far = _node(scene, 12, 0)
+    start = _node(scene, 0, -60)
+    _zoom(view, 3.0)
+    _pipe_mode(scene)
+    if second:
+        _click(view, QPointF(0, -60))
+    n_nodes = len(_nodes(scene))
+    _move(view, QPointF(0, 0))
+    assert _marker(scene)[0] == "none"
+    _send(view, QEvent.Type.MouseButtonPress, QPointF(0, 0))
+    assert len(_nodes(scene)) == n_nodes + 1
+    assert far.pipes == []
+    if not second:
+        assert scene._pipe_node_was_new is True
+        assert scene.pipe_start_node.scenePos() == QPointF(0, 0)
+
+
+def test_riser_hit_press_connects_to_the_nearest_z_node(shown_model_view):
+    view, scene = shown_model_view
+    low, high = _node(scene, 0, 0, 0.0), _node(scene, 0, 0, 3000.0)
+    scene.add_pipe(low, high, None, _propagate_ceiling=False).update_geometry()
+    _zoom(view, 1.0)
+    _pipe_mode(scene)
+    n_nodes = len(_nodes(scene))
+    p = QPointF(0, 0)
+    _move(view, p)
+    kind, _pos = _marker(scene)
+    _send(view, QEvent.Type.MouseButtonPress, p)
+    assert kind == "node"
+    assert len(_nodes(scene)) == n_nodes
+    assert scene.pipe_start_node in (low, high)
+    assert scene._pipe_node_was_new is False
+
+
+@pytest.mark.parametrize("zoom", [0.5, 2.0])
+def test_pipe_hit_width_matches_the_pipe_shape(shown_model_view, zoom):
+    """Just inside / just outside Pipe.shape()'s half width (16 px wide)."""
+    view, scene = shown_model_view
+    _a, _b, pipe = _cross_pipe(scene)
+    _zoom(view, zoom)
+    ctl = _pipe_mode(scene)
+    half = max(pipe.pen().widthF(), 16.0 / zoom) / 2.0
+    for dy, want in ((half - 0.5, "pipe"), (half + 0.5, "none")):
+        p = QPointF(0, dy)
+        assert pipe.shape().contains(p) is (want == "pipe")       # today's rule
+        assert ctl.resolve_pipe_target(p, p)[0] == want
+    # the stroke's square cap reaches one half width past each end, no further
+    for dx, want in ((half - 0.5, "pipe"), (half + 0.5, "none")):
+        past = QPointF(300 + dx, 0)
+        assert pipe.shape().contains(past) is (want == "pipe")
+        assert ctl.resolve_pipe_target(past, past)[0] == want
+
+
+def test_hidden_pipe_is_not_hit(shown_model_view):
+    view, scene = shown_model_view
+    _a, _b, pipe = _cross_pipe(scene)
+    _zoom(view, 1.0)
+    ctl = _pipe_mode(scene)
+    p = QPointF(0, 0)
+    assert pipe in scene.items(p)                 # visible: today's query sees it
+    assert ctl.resolve_pipe_target(p, p) == ("pipe", pipe)
+    pipe.setVisible(False)
+    assert pipe not in scene.items(p)             # hidden: today's query skips it
+    assert ctl.resolve_pipe_target(p, p) == ("none", None)
+
+
+def test_esc_and_double_click_hide_the_marker(shown_model_view):
+    view, scene = shown_model_view
+    _cross_pipe(scene)
+    start = _node(scene, 0, -60)
+    _zoom(view, 1.0)
+    _pipe_mode(scene)
+    _click(view, QPointF(0, -60))
+    _move(view, QPointF(100, 0))
+    assert _marker(scene)[0] == "pipe"
+    assert scene.cancel_pipe_placement() is True
+    assert _marker(scene)[0] == "none"
+    _click(view, QPointF(0, -60))
+    _move(view, QPointF(100, 0))
+    assert _marker(scene)[0] == "pipe"
+    _send(view, QEvent.Type.MouseButtonDblClick, QPointF(100, 0))
+    assert scene.pipe_start_node is None
+    assert _marker(scene)[0] == "none"
+    _move(view, QPointF(100, 0))                  # returns on the next move
+    assert _marker(scene)[0] == "pipe"
+
+
+def test_chain_split_marker_sits_where_the_split_lands(shown_model_view):
+    """45-snapped end: the marker is the projection of the snapped end."""
+    view, scene = shown_model_view
+    a, b = _node(scene, -500, 0), _node(scene, 500, 0)
+    scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    start = _node(scene, 0, -400)
+    _zoom(view, 1.0)
+    _pipe_mode(scene)
+    _click(view, QPointF(0, -400))
+    # 40 units right of the 90-degree line: the cursor (OSNAP-snapped onto the
+    # pipe at x=40) hits the pipe, but the 45 snap pulls the end to x=0, where
+    # the split lands.
+    cursor = QPointF(40, -5)
+    _move(view, cursor)
+    kind, pos = _marker(scene)
+    assert kind == "pipe"
+    assert abs(pos.x()) < 1.0                      # not at the cursor's x=40
+    _send(view, QEvent.Type.MouseButtonPress, cursor)
+    made = [n for n in _nodes(scene) if n not in (a, b, start)]
+    assert len(made) == 1
+    assert pos == made[0].scenePos()
+
+
+def test_marker_honours_the_tab_selected_candidate(shown_model_view):
+    view, scene = shown_model_view
+    plain = _node(scene, 0, 0)
+    spr = _node(scene, 5, 0)
+    spr.add_sprinkler()
+    _zoom(view, 1.0)
+    ctl = _pipe_mode(scene)
+    p = QPointF(1, 0)
+    ctl.move_pipe(None, p)
+    assert len(ctl._tab_candidates) == 2
+    chosen = ctl._tab_candidates[ctl._tab_index]
+    kind, pos = _marker(scene)
+    assert kind == "node" and pos == chosen.scenePos()
+    ctl.cycle_tab()
+    chosen2 = ctl._tab_candidates[ctl._tab_index]
+    assert chosen2 is not chosen
+    assert _marker(scene)[1] == chosen2.scenePos()      # the cycle moves the marker too
+    _send(view, QEvent.Type.MouseButtonPress, p)
+    assert scene.pipe_start_node is chosen2             # what the marker showed
 
 
 def test_fixed_radius_callers_stay_fixed(shown_model_view):
