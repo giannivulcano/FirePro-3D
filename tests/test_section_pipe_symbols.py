@@ -295,6 +295,8 @@ def test_c_gap_faces_the_joined_pipe(qapp, section_scene_for, far, gap):
     assert _ink(img, rect, cx - gap[0] * r, cy - gap[1] * r, reach=4)[0] > 0
     assert _ink(img, rect, cx + gap[0] * 40.0, cy + gap[1] * 40.0)[0] == 0    # P1: stops
     assert _ink(img, rect, cx + gap[0] * 120.0, cy + gap[1] * 120.0)[0] > 0   # and resumes
+    # At the drawn circle (ink radius 69.6), not the 75 mm viewBox edge.
+    assert _ink(img, rect, cx + gap[0] * 72.0, cy + gap[1] * 72.0, reach=1)[0] > 0
 
 
 def test_coincident_end_on_pipes_draw_one_symbol(qapp, section_scene_for):
