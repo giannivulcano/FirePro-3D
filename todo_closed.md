@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System -- SB4f sheet viewport view title as a System block -- 2026-11-04
+- [x] [type:feature] SB4f — Convert the sheet viewport view title to a System block, with a per-viewport show/hide toggle for the title [subject:CAD] [P1] [done:2026-11-04]
+  - Details: concept Q9; fields view number, title, scale (paper-scoped, printed size = paper mm). SB3 checkpoint passed 2026-10-29. `paper_space.py`. Widened 2026-11-04 at selection (user): the view title's visibility is toggleable per viewport (today the title always paints below the viewport; no flag exists in `paper_space.py` / `paper_display.py`).
+  - Built on `sb4f-view-title`. Design `docs/superpowers/specs/2026-11-04-sb4f-view-title-design.md`. Smoke passed 2026-11-04. Full suite waived by the user; touched-module keep-green 2297 passed, 5 failures proved at base.
+
 ## Block System -- SB4d view-marker heads as System blocks + annotation band -- 2026-11-04
 
 - [x] [done:2026-11-04] [type:feature] SB4d — Convert the elevation-marker head and the detail-callout bubble to System blocks [subject:CAD] [P1]
