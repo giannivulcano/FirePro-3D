@@ -83,7 +83,7 @@ def test_move_ghost_follows_cursor(ms_view):
     ms.set_mode("move")
     # First click sets the base point + captures base paths
     ms._press_paste_move(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
-    assert ms.node_start_pos == QPointF(0, 0)
+    assert ms.pick_base_pos == QPointF(0, 0)
     assert len(ms._move_ghost_base) >= 1
     # Cursor move builds the translated ghost
     ms._move_paste_move(None, QPointF(2000, 0))
@@ -189,6 +189,6 @@ def test_move_ghost_base_built_when_base_click_hits_a_grip(qapp):
                      Qt.KeyboardModifier.NoModifier)
     qapp.sendEvent(view.viewport(), ev)
     qapp.processEvents()
-    assert ms.node_start_pos is not None                 # base point set (via grip)
+    assert ms.pick_base_pos is not None                 # base point set (via grip)
     assert len(ms._move_ghost_base) >= 1, "grip base-click must still build the ghost"
     view.hide()

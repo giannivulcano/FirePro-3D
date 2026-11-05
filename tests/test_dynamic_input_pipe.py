@@ -55,15 +55,15 @@ class TestCommitPipeAtExtraction:
         # Arm a start node by a first press at the origin.
         scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0),
                                    None, None, None)
-        assert isinstance(scene.node_start_pos, Node)
-        n0 = scene.node_start_pos
+        assert isinstance(scene.pipe_start_node, Node)
+        n0 = scene.pipe_start_node
         before = len(scene.sprinkler_system.pipes)
         ok = scene._pipe_ctl._commit_pipe_at(QPointF(1000, 0), None)
         assert ok is True
         assert len(scene.sprinkler_system.pipes) == before + 1
-        # Polyline continuation: node_start_pos advanced to the new end node.
-        assert scene.node_start_pos is not n0
-        assert scene.node_start_pos.scenePos() == QPointF(1000, 0)
+        # Polyline continuation: pipe_start_node advanced to the new end node.
+        assert scene.pipe_start_node is not n0
+        assert scene.pipe_start_node.scenePos() == QPointF(1000, 0)
 
 
 class TestPipePublishesResolvedPoint:
@@ -96,7 +96,7 @@ class TestPipeAngleModeLabeling:
         # Draw one segment so the end node has a coplanar reference pipe.
         scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0),
                                    None, None, None)
-        scene._pipe_ctl._commit_pipe_at(QPointF(1000, 0), None)  # node_start_pos now the end node
+        scene._pipe_ctl._commit_pipe_at(QPointF(1000, 0), None)  # pipe_start_node now the end node
         scene._pipe_ctl.move_pipe(None, QPointF(1000, 1000))     # publish a preview off the ref
         hud = self._engage(scene)
         assert hud.field_label_text("Angle") == "Rel A"
@@ -135,7 +135,7 @@ class TestPipeAngleModeCommit:
         scene._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
         start = QPointF(866.0254, 500.0)                          # ~30° from origin
         scene._pipe_ctl._commit_pipe_at(start, None)             # direct: exact ref axis
-        node = scene.node_start_pos                               # the start-of-2nd-seg node
+        node = scene.pipe_start_node                               # the start-of-2nd-seg node
         assert node.scenePos() == start
         scene._pipe_ctl.move_pipe(None, QPointF(-100, 760))      # preview off the ref
         assert scene.begin_dynamic_input() is True
@@ -143,9 +143,9 @@ class TestPipeAngleModeCommit:
         assert is_valid_relative_angle(hud.values()["Angle"])     # seeded value is on-grid
         hud.set_values({"Length": 1000.0, "Angle": 45.0})
         scene._on_dynamic_input_committed(hud.values())
-        # Polyline continuation advances node_start_pos to the typed segment's end
+        # Polyline continuation advances pipe_start_node to the typed segment's end
         # node — robust to any wye stub the sharp-angle join may add.
-        typed_end = scene.node_start_pos.scenePos()
+        typed_end = scene.pipe_start_node.scenePos()
         v_new = (typed_end.x() - start.x(), typed_end.y() - start.y())
         # Length preserved …
         assert math.hypot(*v_new) == pytest.approx(1000, abs=1e-6)
@@ -182,4 +182,4 @@ class TestPipeAngleModeCommit:
         hud.set_values({"Length": 1000.0, "Angle": 0.0})
         scene._on_dynamic_input_committed(hud.values())
         # After commit the chain advances to the new end node.
-        assert scene.node_start_pos.scenePos().x() == pytest.approx(1000, abs=1e-6)
+        assert scene.pipe_start_node.scenePos().x() == pytest.approx(1000, abs=1e-6)

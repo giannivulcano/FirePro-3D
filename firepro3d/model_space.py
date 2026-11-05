@@ -264,7 +264,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.mode = None
         self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
-        self.node_start_pos = None
+        self.pipe_start_node = None   # Node: pipe mode chain start
+        self.pick_base_pos = None     # QPointF: move / paste / duplicate base
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
@@ -4318,9 +4319,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # S2, handles only (user decision 2026-09-25): once the Move base point
         # is set, the destination gets NO cursor / ALIGN / grid snap — the raw
         # cursor. Only the selection's own handles (the base point included)
-        # snap, via _move_handle_snap. The base click itself (node_start_pos
+        # snap, via _move_handle_snap. The base click itself (pick_base_pos
         # still None) snaps normally below: it is user-chosen geometry.
-        if self.mode in ("move", "duplicate") and self.node_start_pos is not None:
+        if self.mode in ("move", "duplicate") and self.pick_base_pos is not None:
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None
@@ -5001,8 +5002,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         absolute).  Returns None when the start is not a Node (never in pipe
         mode) or has no coplanar connection.
         """
-        nsp = self.node_start_pos
-        if not isinstance(nsp, Node):
+        nsp = self.pipe_start_node
+        if nsp is None:
             return None
         start = nsp.scenePos()
         preview = self.get_resolved_point()
@@ -7644,7 +7645,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             (Angle for off-grid; none for a hard controller rejection whose own
             warning dialog is the feedback) flagged.
         """
-        start = self.node_start_pos.scenePos()
+        start = self.pipe_start_node.scenePos()
         length = values["Length"]
         angle = values["Angle"]
         ref = self._plc._pipe_hud_reference
@@ -8504,10 +8505,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "pipe"
-                and self.node_start_pos is not None):
+                and self.pipe_start_node is not None):
             # Double-click fires a press first which placed one more pipe.
             # Just end the chain — keep mode active for a new chain.
-            self.node_start_pos = None
+            self.pipe_start_node = None
             self._pipe_node_was_new = False
             self.preview_pipe.hide()
             self.preview_node.hide()
@@ -9069,8 +9070,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._end_gridline_replicate()
                 return
             # Pipe polyline: first Escape ends the chain, second exits mode
-            if self.mode == "pipe" and self.node_start_pos is not None:
-                self.node_start_pos = None
+            if self.mode == "pipe" and self.pipe_start_node is not None:
+                self.pipe_start_node = None
                 self._pipe_node_was_new = False
                 self.preview_pipe.hide()
                 self.preview_node.hide()

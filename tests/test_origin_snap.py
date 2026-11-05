@@ -188,8 +188,8 @@ def test_duplicate_base_click_snaps_to_origin_with_intersection_off(qapp):
         scene._modify_ctl.start("duplicate")
         move(view, QPointF(4, 3))
         click(view, QPointF(4, 3))                 # the base pick
-        assert scene.node_start_pos is not None
-        assert _at(scene.node_start_pos, 0.0, 0.0)                       # [RED]
+        assert scene.pick_base_pos is not None
+        assert _at(scene.pick_base_pos, 0.0, 0.0)                       # [RED]
     finally:
         close_view(view, scene)
 

@@ -1779,7 +1779,7 @@ class TestGridlineReplicateParity:
 # ── Move displacement (T15) ───────────────────────────────────────────────
 #
 # ``move`` is a transform schema (resolves to a dict, not a point) that
-# *nonetheless has an anchor* — the base point, ``node_start_pos``.  That is
+# *nonetheless has an anchor* — the base point, ``pick_base_pos``.  That is
 # what distinguishes it from the gridline replicate transforms, which are
 # anchorless, and it is why the displacement schema carries ``needs_anchor``:
 # the HUD must stay shut until the base point is picked, or it would float a
@@ -1790,11 +1790,11 @@ def _arm_move(scene, base, moved_item):
     """Enter move mode with *moved_item* selected and *base* as the base point.
 
     Mirrors the real flow: ``_selected_items`` is what ``move_items`` reads,
-    and ``node_start_pos`` is the base point the second click would have set.
+    and ``pick_base_pos`` is the base point the second click would have set.
     """
     scene.set_mode("move")
     scene._selected_items = [moved_item]
-    scene.node_start_pos = QPointF(base)
+    scene.pick_base_pos = QPointF(base)
 
 
 class TestMoveHudGate:
@@ -1804,7 +1804,7 @@ class TestMoveHudGate:
         """Entering move mode is not enough — there is nothing to read out yet."""
         scene.set_mode("move")
         scene._selected_items = [Node(0, 0)]
-        assert scene.node_start_pos is None
+        assert scene.pick_base_pos is None
         assert scene.get_placement_anchor() is None
         assert scene._hud_available() is False
         assert scene.begin_dynamic_input(seed="1") is False
@@ -1859,7 +1859,7 @@ class TestMoveApplier:
         scene.begin_dynamic_input()
         scene.dynamic_input.editor("dX").setText("10")
         scene.dynamic_input._accept()
-        assert scene.node_start_pos is None
+        assert scene.pick_base_pos is None
         assert scene.mode in (None, "select")
         assert scene.dynamic_input is None
 
@@ -2064,7 +2064,7 @@ class TestGhostUpdatesOnFieldCommit:
     def _engage_move(self, scene, view, base=QPointF(0, 0)):
         """Arm move on a Node at *base*, build its ghost base, and engage.
 
-        Mirrors ``_press_paste_move``'s first click: it sets ``node_start_pos``
+        Mirrors ``_press_paste_move``'s first click: it sets ``pick_base_pos``
         and builds ``_move_ghost_base`` from the live selection.  A decoy drag
         seeds the ghost far from the value the test types.
         """
@@ -2072,7 +2072,7 @@ class TestGhostUpdatesOnFieldCommit:
         scene.addItem(node)
         scene.set_mode("move")
         scene._selected_items = [node]
-        scene.node_start_pos = QPointF(base)
+        scene.pick_base_pos = QPointF(base)
         scene._move_ghost_base = scene._build_move_ghost_base()
         scene._preview_from_move(QPointF(base.x() + 800.0, base.y()))  # decoy
         assert scene.begin_dynamic_input() is True

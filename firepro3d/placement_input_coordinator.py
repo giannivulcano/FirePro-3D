@@ -715,16 +715,12 @@ class PlacementInputCoordinator:
             # scale_factor HUD (which stays shut until it exists).
             a = self._scene._scale_base
             return QPointF(a) if a is not None else None
-        if self._scene.mode in ("pipe", "move", "paste", "duplicate"):
-            # node_start_pos holds a Node in pipe mode but a raw QPointF in
-            # move / paste / duplicate mode (set_mode's cleanup relies on the
-            # same distinction).
-            nsp = self._scene.node_start_pos
-            if nsp is None:
-                return None
-            # scenePos() is already a fresh point; the raw QPointF is stored.
-            from .node import Node
-            return nsp.scenePos() if isinstance(nsp, Node) else QPointF(nsp)
+        if self._scene.mode == "pipe":
+            n = self._scene.pipe_start_node
+            return n.scenePos() if n is not None else None
+        if self._scene.mode in ("move", "paste", "duplicate"):
+            p = self._scene.pick_base_pos
+            return QPointF(p) if p is not None else None
         return None
 
     # -------------------------------------------------------------------------

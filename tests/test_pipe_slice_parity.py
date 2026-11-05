@@ -144,7 +144,7 @@ class TestPipePlacementLive:
         _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(0, 0),
                     button=Qt.MouseButton.LeftButton)
         QApplication.processEvents()
-        assert scene.node_start_pos is not None, "start node not set after click 1"
+        assert scene.pipe_start_node is not None, "start node not set after click 1"
 
         _post_mouse(view, QEvent.Type.MouseMove, QPointF(1000, 0))
         QApplication.processEvents()
@@ -167,12 +167,12 @@ class TestPipeCancel:
         _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(0, 0),
                     button=Qt.MouseButton.LeftButton)
         QApplication.processEvents()
-        start = scene.node_start_pos
+        start = scene.pipe_start_node
         assert start is not None
         n_nodes = len(scene.sprinkler_system.nodes)
 
         scene.set_mode("select")
-        assert scene.node_start_pos is None
+        assert scene.pipe_start_node is None
         assert len(scene.sprinkler_system.nodes) == n_nodes - 1, \
             "orphan start node not cleaned on mode change"
 

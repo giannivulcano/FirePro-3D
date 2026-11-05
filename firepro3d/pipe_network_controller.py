@@ -127,7 +127,7 @@ class PipeNetworkController:
         if n.scene() is self._scene:
             self._scene.removeItem(n)
         n = None
-        self._scene.node_start_pos = None
+        self._scene.pipe_start_node = None
 
     @staticmethod
     def _apply_fitting_dm_colors(fitting):
@@ -763,9 +763,9 @@ class PipeNetworkController:
     # ── Pipe placement handlers ───────────────────────────────────────────
 
     def move_pipe(self, event, snapped):
-        if self._scene.node_start_pos:
-            start = self._scene.node_start_pos.scenePos()
-            snapped_end = self._scene.node_start_pos.snap_point_45(start, snapped)
+        if self._scene.pipe_start_node:
+            start = self._scene.pipe_start_node.scenePos()
+            snapped_end = self._scene.pipe_start_node.snap_point_45(start, snapped)
 
             # Seed the Dynamic Input HUD readout with the constrained endpoint
             # (no-op while a HUD field is engaged — see publish_placement_state).
@@ -832,7 +832,7 @@ class PipeNetworkController:
             self._scene._preview_label.hide()
 
     def press_pipe(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._scene.node_start_pos is None:
+        if self._scene.pipe_start_node is None:
             template = getattr(self._scene, "current_template", None)
 
             # Use Tab-selected candidate if available
@@ -887,7 +887,7 @@ class PipeNetworkController:
                     # with start_node potentially replaced by intermediate
                     return
 
-            self._scene.node_start_pos = start_node
+            self._scene.pipe_start_node = start_node
             # Reset Tab cycling after committing start node
             self._tab_candidates = []
             self._tab_index = 0
@@ -908,8 +908,8 @@ class PipeNetworkController:
                 self._scene.requestPropertyUpdate.emit(template)
             self._scene.instructionChanged.emit("Pick end node")
         else:
-            start_pos   = self._scene.node_start_pos.scenePos()
-            snapped_end = self._scene.node_start_pos.snap_point_45(start_pos, snapped)
+            start_pos   = self._scene.pipe_start_node.scenePos()
+            snapped_end = self._scene.pipe_start_node.snap_point_45(start_pos, snapped)
             return self._commit_pipe_at(snapped_end, item_under)
 
     def _commit_pipe_at(self, snapped_end, item_under) -> bool:
@@ -929,7 +929,7 @@ class PipeNetworkController:
         template = getattr(self._scene, "current_template", None)
 
         # ── Backtrack check (before creating/splitting nodes) ─────
-        if self._would_backtrack_at(self._scene.node_start_pos, snapped_end):
+        if self._would_backtrack_at(self._scene.pipe_start_node, snapped_end):
             self._scene.warningIssued.emit(
                 "Pipe Overlap",
                 "Cannot place a pipe back over an existing pipe segment.")
@@ -937,9 +937,9 @@ class PipeNetworkController:
 
         # ── Node connection-limit & angle validation ─────────────
         # Only count coplanar pipes — risers don't consume branch slots
-        _sz = self._scene.node_start_pos.z_pos
-        start_pipes = sum(1 for p in self._scene.node_start_pos.pipes
-                          if abs(self._scene.node_start_pos.other_end(p).z_pos - _sz) <= Z_COPLANAR_TOL)
+        _sz = self._scene.pipe_start_node.z_pos
+        start_pipes = sum(1 for p in self._scene.pipe_start_node.pipes
+                          if abs(self._scene.pipe_start_node.other_end(p).z_pos - _sz) <= Z_COPLANAR_TOL)
         if start_pipes >= 4:
             self._scene.warningIssued.emit(
                 "Connection Limit",
@@ -947,7 +947,7 @@ class PipeNetworkController:
             return False
         # Adding a 4th branch is only valid to turn a tee into a cross
         if start_pipes == 3:
-            err = self._validate_4th_branch(self._scene.node_start_pos, snapped_end)
+            err = self._validate_4th_branch(self._scene.pipe_start_node, snapped_end)
             if err:
                 self._scene.warningIssued.emit("Invalid Connection", err)
                 return False
@@ -974,7 +974,7 @@ class PipeNetworkController:
             if end_pipes == 3:
                 err = self._validate_4th_branch(
                     existing_end_check,
-                    self._scene.node_start_pos.scenePos())
+                    self._scene.pipe_start_node.scenePos())
                 if err:
                     self._scene.warningIssued.emit("Invalid Connection", err)
                     return False
@@ -995,14 +995,14 @@ class PipeNetworkController:
 
         # Block zero-length same-node pipe — unless template specifies
         # a different elevation for Node 2 (vertical pipe placement)
-        if end_node is self._scene.node_start_pos:
+        if end_node is self._scene.pipe_start_node:
             if template is not None:
                 z1 = self._compute_template_z_pos(template, node_idx=1)
                 z2 = self._compute_template_z_pos(template, node_idx=2)
                 if z1 is not None and z2 is not None and abs(z1 - z2) > 0.5:
                     # Create a new node at same XY with Node 2's elevation
                     end_node = self._make_intermediate_node_for_n2(
-                        self._scene.node_start_pos, template)
+                        self._scene.pipe_start_node, template)
                 else:
                     return False  # truly same position — wait for valid click
             else:
@@ -1015,7 +1015,7 @@ class PipeNetworkController:
                 if not hasattr(self._scene, "_pending_confirm_data"):
                     self._scene._pending_confirm_data = {}
                 self._scene._pending_confirm_data["elev_end"] = {
-                    "start_node": self._scene.node_start_pos,
+                    "start_node": self._scene.pipe_start_node,
                     "end_node": end_node, "template": template}
                 sm = self._scene.scale_manager
                 _fz = sm.format_length if sm else (lambda v: f"{v:.1f} mm")
@@ -1028,19 +1028,19 @@ class PipeNetworkController:
 
         # ── Collinear extension check ─────────────────────────────
         extended = self._try_extend_collinear(
-            self._scene.node_start_pos, end_node, template)
+            self._scene.pipe_start_node, end_node, template)
 
         if not extended:
             new_pipe = self.add_pipe(
-                self._scene.node_start_pos, end_node, template)
-            self._scene.node_start_pos.fitting.update()
+                self._scene.pipe_start_node, end_node, template)
+            self._scene.pipe_start_node.fitting.update()
             end_node.fitting.update()
             # ── 45° elbow → wye + stub ────────────────────────────
             self._convert_45_elbow_to_wye(
-                self._scene.node_start_pos, template)
+                self._scene.pipe_start_node, template)
 
         # Continuous polyline: end node becomes the next start node
-        self._scene.node_start_pos = end_node
+        self._scene.pipe_start_node = end_node
         self._scene._pipe_node_was_new = False
         # Reset Tab cycling after committing end node
         self._tab_candidates = []
@@ -1077,12 +1077,12 @@ class PipeNetworkController:
                     xy, template_z, template) if template_z is not None else None
                 if split_node is not None:
                     # Reuse existing / split node — no new vertical pipe needed
-                    self._scene.node_start_pos = split_node
+                    self._scene.pipe_start_node = split_node
                 else:
                     intermediate = self._make_intermediate_node(start_node, template)
                     self.add_pipe(start_node, intermediate, template,
                                   _propagate_ceiling=False)
-                    self._scene.node_start_pos = intermediate
+                    self._scene.pipe_start_node = intermediate
                 self._scene.instructionChanged.emit("Pick end node")
 
             elif result == "match":
@@ -1092,7 +1092,7 @@ class PipeNetworkController:
                 template.node1_ceiling_offset = start_node.ceiling_offset
                 template.node2_ceiling_level = start_node.ceiling_level
                 template.node2_ceiling_offset = start_node.ceiling_offset
-                self._scene.node_start_pos = start_node
+                self._scene.pipe_start_node = start_node
                 self._scene.instructionChanged.emit("Pick end node")
 
             elif result == "template":
@@ -1102,10 +1102,10 @@ class PipeNetworkController:
                 target = self._find_or_split_vertical_at_z(
                     xy, template_z, template) if template_z is not None else None
                 if target is not None:
-                    self._scene.node_start_pos = target
+                    self._scene.pipe_start_node = target
                 else:
                     # No existing geometry — create standalone node at template Z
-                    self._scene.node_start_pos = self._make_intermediate_node(
+                    self._scene.pipe_start_node = self._make_intermediate_node(
                         start_node, template)
                 self._scene.instructionChanged.emit("Pick end node")
 
@@ -1143,7 +1143,7 @@ class PipeNetworkController:
                     start_node.fitting.update()
                     intermediate.fitting.update()
                     self._convert_45_elbow_to_wye(start_node, template)
-                self._scene.node_start_pos = intermediate
+                self._scene.pipe_start_node = intermediate
                 self._scene._pipe_node_was_new = False
                 self._scene.push_undo_state()
                 self._scene.instructionChanged.emit(
@@ -1162,7 +1162,7 @@ class PipeNetworkController:
                     start_node.fitting.update()
                     end_node.fitting.update()
                     self._convert_45_elbow_to_wye(start_node, template)
-                self._scene.node_start_pos = end_node
+                self._scene.pipe_start_node = end_node
                 self._scene._pipe_node_was_new = False
                 self._scene.push_undo_state()
                 self._scene.instructionChanged.emit(
@@ -1184,7 +1184,7 @@ class PipeNetworkController:
                     start_node.fitting.update()
                     target.fitting.update()
                     self._convert_45_elbow_to_wye(start_node, template)
-                self._scene.node_start_pos = target
+                self._scene.pipe_start_node = target
                 self._scene._pipe_node_was_new = False
                 self._scene.push_undo_state()
                 self._scene.instructionChanged.emit(
@@ -1198,10 +1198,13 @@ class PipeNetworkController:
         plus the Tab-cycle reset.
         """
         sc = self._scene
-        if sc.node_start_pos is not None:
-            if isinstance(sc.node_start_pos, Node) and sc._pipe_node_was_new:
-                self.remove_node(sc.node_start_pos)
-            sc.node_start_pos = None
+        if sc.pipe_start_node is not None:
+            if sc._pipe_node_was_new:
+                self.remove_node(sc.pipe_start_node)
+            sc.pipe_start_node = None
+        # set_mode runs this on every mode change, which also ends a
+        # move / paste / duplicate base pick.
+        sc.pick_base_pos = None
         sc._pipe_node_was_new = False
         self._tab_candidates = []
         self._tab_index = 0
@@ -1213,13 +1216,12 @@ class PipeNetworkController:
         Returns True if a cancel was handled (a start node existed). Mirrors the
         legacy main._on_escape pipe branch."""
         sc = self._scene
-        if sc.node_start_pos is None:
+        if sc.pipe_start_node is None:
             return False
         if (sc._pipe_node_was_new
-                and isinstance(sc.node_start_pos, Node)
-                and not sc.node_start_pos.pipes):
-            self.remove_node(sc.node_start_pos)
-        sc.node_start_pos = None
+                and not sc.pipe_start_node.pipes):
+            self.remove_node(sc.pipe_start_node)
+        sc.pipe_start_node = None
         sc._pipe_node_was_new = False
         sc.preview_pipe.hide()
         sc.preview_node.hide()

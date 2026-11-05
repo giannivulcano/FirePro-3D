@@ -371,7 +371,7 @@ class ModifyToolsController:
         s.set_mode("paste")
         s._paste_payload = payload
         # The copied base point is the anchor of the ghost and the dX/dY HUD.
-        s.node_start_pos = QPointF(*payload["base"])
+        s.pick_base_pos = QPointF(*payload["base"])
         s._move_ghost_base = self._clipboard_ghost_paths(payload["items"])
         s._move_ghost = []
         # D5: the ghost rides the cursor from the moment Paste is entered.
@@ -391,7 +391,7 @@ class ModifyToolsController:
         if new_items:
             s.push_undo_state()
         s._paste_payload = None
-        s.node_start_pos = None
+        s.pick_base_pos = None
         s._move_ghost = []
         s._move_ghost_base = []
         s.clear_placement_state()
@@ -699,32 +699,32 @@ class ModifyToolsController:
         s = self._scene
         if s.mode == "paste":
             # D5: the base is armed by begin_paste — one click commits.
-            if s._paste_payload is None or s.node_start_pos is None:
+            if s._paste_payload is None or s.pick_base_pos is None:
                 s.set_mode(None)          # entered without begin_paste
                 return
-            self.commit_paste(CAD_Math.get_vector(s.node_start_pos, snapped))
+            self.commit_paste(CAD_Math.get_vector(s.pick_base_pos, snapped))
             return
-        if s.node_start_pos is None:
-            s.node_start_pos = snapped
+        if s.pick_base_pos is None:
+            s.pick_base_pos = snapped
             s._move_ghost_base = s._build_move_ghost_base()
             s._begin_move_handle_snap(snapped)
         else:
             snapped = s._move_handle_snap(event, snapped)
-            offset = CAD_Math.get_vector(s.node_start_pos, snapped)
+            offset = CAD_Math.get_vector(s.pick_base_pos, snapped)
             if s.mode == "duplicate":
                 self.commit_duplicate(offset)
                 return
             moved = list(s._selected_items or [])
             if s.mode == "move" and s.move_items(offset) is False:
                 # D17 (CS3) refused: nothing moved, no undo step; end the tool.
-                s.node_start_pos = None
+                s.pick_base_pos = None
                 s._move_ghost = []
                 s._move_ghost_base = []
                 s.set_mode(None)
                 self._reselect(moved)
                 return
             s.push_undo_state()
-            s.node_start_pos = None
+            s.pick_base_pos = None
             s._move_ghost = []
             s._move_ghost_base = []
             s.set_mode(None)
@@ -735,7 +735,7 @@ class ModifyToolsController:
         ``target``.
 
         Rebuilds ``_move_ghost`` (read by ``drawForeground`` block 8) as the
-        base silhouette translated by ``target - node_start_pos`` and repaints.
+        base silhouette translated by ``target - pick_base_pos`` and repaints.
         A no-op before the base point is set.
 
         The Move TOOL stays commit-only for constrained geometry (D35): this
@@ -745,10 +745,10 @@ class ModifyToolsController:
         manipulator's body / resize drag applies live.
         """
         s = self._scene
-        if s.node_start_pos is None:
+        if s.pick_base_pos is None:
             return
-        offset = QPointF(target.x() - s.node_start_pos.x(),
-                         target.y() - s.node_start_pos.y())
+        offset = QPointF(target.x() - s.pick_base_pos.x(),
+                         target.y() - s.pick_base_pos.y())
         from .transform_ghost import GhostFrame
         s._move_ghost = GhostFrame(
             s._move_ghost_base, QTransform.fromTranslate(offset.x(), offset.y()))
@@ -759,15 +759,15 @@ class ModifyToolsController:
         """Ghost preview for paste/move: silhouette rides the cursor after the
         base point is set. Before that, show the plain cursor marker."""
         s = self._scene
-        if s.node_start_pos is None:
+        if s.pick_base_pos is None:
             s.update_preview_node(snapped)
             s.preview_pipe.hide()
             return
         snapped = s._move_handle_snap(event, snapped)
         s.preview_node.hide()
         s.preview_pipe.hide()
-        offset = QPointF(snapped.x() - s.node_start_pos.x(),
-                         snapped.y() - s.node_start_pos.y())
+        offset = QPointF(snapped.x() - s.pick_base_pos.x(),
+                         snapped.y() - s.pick_base_pos.y())
         s._preview_from_move(snapped)
         # Feed the dynamic-input HUD its live dX/dY seed (measured from the
         # base point in ``_transform_seed_values``).  The status-bar readout
@@ -776,7 +776,7 @@ class ModifyToolsController:
         # it carries ``dist``, which the two-field HUD does not.  A no-op while
         # a field has focus, so a mid-edit reseed cannot land.  ``paste``
         # seeds its dX/dY from the copied base point the same way (D5).
-        s.publish_placement_state(s.node_start_pos, snapped)
+        s.publish_placement_state(s.pick_base_pos, snapped)
         s._show_status(
             f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
             f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
@@ -797,9 +797,9 @@ class ModifyToolsController:
         # D11: the imported geometry rides the cursor like any Move — dim it.
         from .transform_ghost import dim_items
         s._ghost_dimmed = dim_items(self._transformable(s._selected_items or []))
-        s.node_start_pos = QPointF(base)
+        s.pick_base_pos = QPointF(base)
         s._move_ghost_base = s._build_move_ghost_base()
-        s._begin_move_handle_snap(s.node_start_pos)
+        s._begin_move_handle_snap(s.pick_base_pos)
 
     def _begin_move_handle_snap(self, base: QPointF) -> None:
         """S2: build the Move tool's HandleSnapSession once the base is set.
@@ -851,7 +851,7 @@ class ModifyToolsController:
         s = self._scene
         hs = s._move_handle_session
         if (hs is None or s.mode not in ("move", "duplicate")
-                or s.node_start_pos is None
+                or s.pick_base_pos is None
                 or not s._snap_enabled or not s._snap_engine.enabled):
             return snapped
         # Zoom/pan between the base click and here: re-collect the targets
@@ -897,7 +897,7 @@ class ModifyToolsController:
         moved = list(s._selected_items or [])
         if s.move_items(params["offset"]) is False:
             # D17 (CS3) refused: nothing moved, no undo step; end the tool.
-            s.node_start_pos = None
+            s.pick_base_pos = None
             s._move_ghost = []
             s._move_ghost_base = []
             s.clear_placement_state()
@@ -905,7 +905,7 @@ class ModifyToolsController:
             self._reselect(moved)
             return True
         s.push_undo_state()
-        s.node_start_pos = None
+        s.pick_base_pos = None
         s._move_ghost = []
         s._move_ghost_base = []
         s.clear_placement_state()
@@ -943,7 +943,7 @@ class ModifyToolsController:
         if new_items:
             s.push_undo_state()
         s._selected_items = []
-        s.node_start_pos = None
+        s.pick_base_pos = None
         s._move_ghost = []
         s._move_ghost_base = []
         s.clear_placement_state()
