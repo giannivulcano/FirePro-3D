@@ -76,6 +76,8 @@ def build_entity_context_menu(
     on_edit_block=None,
     on_edit_attributes=None,
     on_explode=None,
+    on_bring_to_front=None,
+    on_send_to_back=None,
 ) -> QMenu:
     """Build and return a QMenu with standard entity actions.
 
@@ -103,6 +105,10 @@ def build_entity_context_menu(
         attributes, plan only — SB1a A3 as re-ruled at smoke 2026-10-21).
     on_explode : callable or None
         "Explode" action (Block Editor only — containment C1).
+    on_bring_to_front : callable or None
+        "Bring to Front" action (block editors only — block stacking D7).
+    on_send_to_back : callable or None
+        "Send to Back" action (block editors only — block stacking D7).
     """
     menu = QMenu()
     has_sel = bool(selected) or target is not None
@@ -114,8 +120,12 @@ def build_entity_context_menu(
         menu.addAction("Edit Attributes…").triggered.connect(on_edit_attributes)
     if on_explode is not None:
         menu.addAction("Explode").triggered.connect(on_explode)
+    if on_bring_to_front is not None:
+        menu.addAction("Bring to Front").triggered.connect(on_bring_to_front)
+    if on_send_to_back is not None:
+        menu.addAction("Send to Back").triggered.connect(on_send_to_back)
     if (on_edit_block is not None or on_edit_attributes is not None
-            or on_explode is not None):
+            or on_explode is not None or on_bring_to_front is not None):
         menu.addSeparator()
 
     # ── Copy ──

@@ -46,6 +46,38 @@ def posed_primitives(defn, pose, paths: bool = False):
     return out, origins
 
 
+def suppressed_paths(defn, prefix: str = "", active: "set | None" = None) -> set:
+    """Record paths of *defn*'s nested blocks with Constraint Points off
+    (block stacking D13); the path shape of ``posed_primitives(paths=True)``.
+
+    Args:
+        defn: The ``BlockDefinition`` (None yields nothing).
+        prefix: The enclosing records' path.
+        active: Definition ids on the walk (cycle guard).
+
+    Returns:
+        The set of paths. A suppressed record's own descendants are not
+        listed: their paths start with its path.
+    """
+    active = set() if active is None else active
+    if defn is None or defn.id in active:
+        return set()
+    active.add(defn.id)
+    out: set = set()
+    try:
+        for i, rec in enumerate(defn.primitives):
+            if rec.get("type") != _NESTED_TYPE:
+                continue
+            sub = _join(prefix, record_key(rec, i))
+            if rec.get("constraint_points_off") is True:
+                out.add(sub)
+            else:
+                out |= suppressed_paths(defn._resolve_nested(rec), sub, active)
+    finally:
+        active.discard(defn.id)
+    return out
+
+
 def _join(prefix: str, key: str) -> str:
     """Join a record path *prefix* and a record *key* with ``/``.
 

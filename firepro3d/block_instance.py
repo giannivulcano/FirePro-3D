@@ -16,6 +16,7 @@ assumes ``transform()`` carries no pose).
 from __future__ import annotations
 
 import copy
+import itertools
 import math
 import uuid
 from typing import Callable, Optional
@@ -32,6 +33,7 @@ from . import linetype_render as _lr
 from . import paper_display as _pd
 from . import theme as _theme
 from .block_definition import BlockDefinition
+from .block_stack import clamp_layer_height, stack_z
 from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver
@@ -42,7 +44,7 @@ from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
                             joint_pad, wedge_for_pair)
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
-                        PoseXf as _PoseXf,
+                        ClipRun, PoseXf as _PoseXf, keep_frame, keep_path, ops_mask,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
                         paper_op_width as _paper_op_width_fn,
                         stroke_op as _stroke_op_fn, text_path as _text_path_fn)
@@ -99,6 +101,15 @@ def _record_scale(rec: dict) -> float:
     return s
 
 
+class _NoMembers:
+    """Stands in on a scene that keeps no stacking order."""
+    add = discard = staticmethod(lambda item: None)
+
+
+_NO_MEMBERS = _NoMembers()
+_STACK_SEQ = itertools.count(1)    # scene-entry order: Qt paints equal z in this order
+
+
 class BlockInstance(QGraphicsObject):
     """A placed instance of a BlockDefinition (flyweight consumer)."""
 
@@ -147,11 +158,17 @@ class BlockInstance(QGraphicsObject):
         self._pose_rot = 0.0   # Y-up CCW degrees
         self._pose_mirrored = False   # local x -> -x, innermost (design DD2)
         self._pose_scale = 1.0        # uniform, > 0
+        self.layer_height: int = 0                 # block stacking D6
+        self._opaque: Optional[bool] = None        # None = the context default (D3)
+        self.constraint_points_off: bool = False   # D10: new picks see ``ins`` only
         self._posed_cache = None   # (ops list, pose, posed path) — see _posed_path
         self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
         self._nested_handles_cache = None  # (ops, mirrored, scale, table) — sketch_adapters._nested_table
         self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
+        self._mask_cache = None    # (definition ops, pose key, scene mask) -- opaque_mask
+        self._cover_cache = None   # (masks tuple, union) -- _cover_above
+        self._stack_seq = 0        # scene-entry order, the tie-break at equal z
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
@@ -606,6 +623,187 @@ class BlockInstance(QGraphicsObject):
     def block_pos(self) -> tuple[float, float]:
         return (self._pose_x, self._pose_y)
 
+    # -- Stacking (block stacking D3 / D6) ------------------------------------
+    def in_stack_scene(self) -> bool:
+        """True in a ``block_editor`` scene: the only place blocks stack (D7)."""
+        return getattr(self.scene(), "scene_role", None) == "block_editor"
+
+    def apply_stack_z(self) -> None:
+        """Seat this block in the block band. A plan block, a ghost and a Note
+        keep their own z."""
+        if self.in_stack_scene() and not self.note:
+            self.setZValue(stack_z(self.layer_height))
+
+    def set_layer_height(self, height) -> None:
+        self.layer_height = clamp_layer_height(height)
+        self.apply_stack_z()
+
+    def is_opaque(self) -> bool:
+        """This placement's Opaque value: its own, else the context default."""
+        if self._opaque is not None:
+            return self._opaque
+        return bool(getattr(self.scene(), "opaque_blocks", False))
+
+    def set_opaque(self, value: bool) -> None:
+        """Set Opaque; the context default stores None so the record stays
+        clean and a paste takes its new context's default (D14)."""
+        self.prepareGeometryChange()               # the HALO interior changes (D8)
+        self._opaque = None
+        if bool(value) != self.is_opaque():
+            self._opaque = bool(value)
+        self.stack_changed()
+        self.update()
+
+    def stack_changed(self) -> None:
+        """Mark the scene's opaque-block order stale. Called wherever the
+        answer to "which opaque blocks sit above which" can change that
+        ``itemChange`` does not see: Opaque and the fields a rebuild sets."""
+        sc = self.scene()
+        if sc is not None:
+            sc._opaque_stack = None
+
+    def itemChange(self, change, value):
+        """One chokepoint for the order's inputs: entering / leaving a scene,
+        visibility and z. Qt's own ``clear()`` sends none of these;
+        ``Model_Space.clear`` drops the order itself."""
+        GC = QGraphicsItem.GraphicsItemChange
+        if change == GC.ItemSceneChange:
+            old = self.scene()                            # the scene it leaves
+            if old is not None:
+                old._opaque_stack = None
+                getattr(old, "_stack_members", _NO_MEMBERS).discard(self)
+            if value is not None:
+                value._opaque_stack = None                # the scene it joins
+        elif change == GC.ItemSceneHasChanged:
+            self._stack_seq = next(_STACK_SEQ)
+            sc = self.scene()
+            if sc is not None:
+                getattr(sc, "_stack_members", _NO_MEMBERS).add(self)
+        elif change in (GC.ItemVisibleHasChanged, GC.ItemZValueHasChanged):
+            self.stack_changed()
+        return super().itemChange(change, value)
+
+    def opaque_active(self) -> bool:
+        """True when this block hides blocks below it (D1): stacking scenes only."""
+        return self.in_stack_scene() and self.is_opaque()
+
+    def opaque_mask(self) -> QPainterPath:
+        """This block's silhouette in scene mm (D2), memoised on (the
+        definition's compiled ops, full pose). The definition traces its
+        silhouette once (``BlockDefinition.silhouette``); this maps that one
+        path through the mirror / scale variant and the pose, then adds the
+        silhouette of its bound text ops. ``ops_mask`` ignores text glyphs
+        but counts a bound text box's FILL and frame STROKE, so a framed
+        bound text can widen the mask. The cache key holds only
+        the definition's compiled ops and the pose, not the override or bound
+        text, so it tracks those only through the compiled-op identity (a
+        nested record carries no attributes, so none reaches it today).
+        ``_cover_above`` asks it of every opaque block above, for every
+        block; the result object stays the same while valid, which keys
+        ``_cover_above``'s cache."""
+        d = self.definition()
+        base = d.render_ops() if d is not None else None
+        key = self._pose_key()
+        c = self._mask_cache
+        if c is None or c[0] is not base or c[1] != key:
+            local = QPainterPath()
+            if d is not None:       # the definition's one silhouette, posed by the variant map
+                local = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored,
+                                    self._variant_scale()).map(d.silhouette())
+            bound = self._bound_ops()
+            if bound:
+                local = local.united(ops_mask(bound))
+            mask = self.pose_transform().map(local)
+            c = self._mask_cache = (base, key, mask)
+        return c[2]
+
+    @staticmethod
+    def _opaque_rows(sc) -> list:
+        """The scene's opaque blocks in paint order, bottom first, as
+        ``(z, entry order, block)``; rebuilt only when stale or when the
+        scene's Opaque default changed. Equal z paints in scene-entry order,
+        which is what Qt does."""
+        flag = bool(sc.opaque_blocks)
+        c = sc._opaque_stack
+        if c is not None and c[0] == flag:
+            return c[1]
+        rows = [(it.zValue(), it._stack_seq, it) for it in sc._stack_members
+                if it.isVisible() and it.opaque_active()]
+        rows.sort(key=lambda r: (r[0], r[1]))
+        sc._opaque_stack = (flag, rows, {})
+        return rows
+
+    def _cover_above(self) -> "QPainterPath | None":
+        """Union of the opaque masks over this block, scene mm (D1), or None.
+
+        Walks only the scene's opaque blocks above this one, top first, with
+        no spatial query. Plan scenes, ghosts and scenes with no opaque block
+        return at once.
+        """
+        sc = self.scene()
+        if sc is None or self._is_ghost or getattr(sc, "scene_role", None) != "block_editor":
+            return None
+        rows = self._opaque_rows(sc)
+        if not rows:
+            return None
+        mine = (self.zValue(), self._stack_seq)
+        rect = None
+        masks = []
+        for k in range(len(rows) - 1, -1, -1):
+            z, seq, it = rows[k]
+            if (z, seq) <= mine:
+                break
+            m = it.opaque_mask()
+            if it.transform().isIdentity():
+                if rect is None:
+                    rect = self.sceneBoundingRect()
+                if not m.boundingRect().intersects(rect):
+                    continue
+            else:                                          # a manipulator's held preview
+                m = it.sceneTransform().map(m)
+                if rect is None:
+                    rect = self.sceneBoundingRect()
+            if m.intersects(rect):
+                masks.append(m)
+        if not masks:
+            return None
+        c = self._cover_cache
+        if (c is not None and len(c[0]) == len(masks)
+                and all(x is y for x, y in zip(c[0], masks))):
+            return c[1]
+        memo = sc._opaque_stack[2]                  # prefix -> union, shared by blocks
+        cover = self._union_prefix(memo, masks)
+        self._cover_cache = (tuple(masks), cover)
+        return cover
+
+    @staticmethod
+    def _union_prefix(memo: dict, masks: list) -> QPainterPath:
+        """Union of *masks*, sharing the union of every shorter prefix with the
+        other blocks (a pile of overlapping blocks nests its covers)."""
+        key = tuple(id(m) for m in masks)
+        hit = memo.get(key)
+        if hit is not None:
+            return hit[1]
+        if len(masks) == 1:
+            cover = masks[0]
+        else:
+            cover = BlockInstance._union_prefix(memo, masks[:-1]).united(masks[-1])
+        if len(memo) > 2048:
+            memo.clear()
+        memo[key] = (tuple(masks), cover)       # holds the masks so ids stay valid
+        return cover
+
+    def _stack_fields(self) -> dict:
+        """The optional record keys (D14): only what is not a default."""
+        d: dict = {}
+        if self.layer_height:
+            d["layer_height"] = self.layer_height
+        if self._opaque is not None:
+            d["opaque"] = self._opaque
+        if self.constraint_points_off:
+            d["constraint_points_off"] = True
+        return d
+
     def to_nested_dict(self) -> dict:
         """Record for this instance nested inside a definition (no level — C3).
 
@@ -621,6 +819,7 @@ class BlockInstance(QGraphicsObject):
             d["scale"] = self._pose_scale
         if not is_as_authored(self.overrides):
             d["overrides"] = dict(self.overrides)
+        d.update(self._stack_fields())
         return d
 
     def set_block_rotation(self, deg: float) -> None:
@@ -1015,7 +1214,7 @@ class BlockInstance(QGraphicsObject):
         token. Memoised on (compiled ops, full pose).
         """
         ops = self.render_ops()
-        key = self._pose_key()
+        key = self._pose_key() + (self.opaque_active(),)
         c = self._area_cache
         if c is None or c[0] is not ops or c[1] != key:
             area = QPainterPath()
@@ -1046,6 +1245,8 @@ class BlockInstance(QGraphicsObject):
                     p.addPolygon(QPolygonF([full.map(box[i]) for i in (0, 2, 4, 6)]))
                     p.closeSubpath()
                     area = area.united(p)
+            if self.opaque_active():             # D8: an opaque interior is this block
+                area = area.united(self.opaque_mask())
             c = self._area_cache = (ops, key, area)
         return QPainterPath(c[2])
 
@@ -1059,7 +1260,7 @@ class BlockInstance(QGraphicsObject):
         if not ops:
             return QPainterPath(self._posed_path(ops))
         w = scene_hit_width(self, 10.0, 6.0)
-        key = (self._pose_key(), round(w, 6))
+        key = (self._pose_key(), round(w, 6), self.opaque_active())
         c = self._shape_cache
         if c is not None and c[0] is ops and c[1] == key:
             return QPainterPath(c[2])
@@ -1079,6 +1280,24 @@ class BlockInstance(QGraphicsObject):
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):
+        cover = self._cover_above()
+        if cover is None:
+            self._paint_ops_all(painter)
+            return
+        if not self.transform().isIdentity():
+            inv, ok = self.sceneTransform().inverted()
+            if ok:
+                cover = inv.map(cover)
+        painter.save()
+        try:
+            # Painter is unposed here: the world transform is the item's own.
+            painter.setClipPath(keep_path(keep_frame(painter, self), cover),
+                                Qt.ClipOperation.IntersectClip)
+            self._paint_ops_all(painter)
+        finally:
+            painter.restore()
+
+    def _paint_ops_all(self, painter):
         frame_k = _an.frame_scaled(self)        # SB1c D4 (not `fixed`: the linetype loop reuses it)
         pose = self._rigid_pose()
         if frame_k:
@@ -1137,7 +1356,10 @@ class BlockInstance(QGraphicsObject):
                if selected and not on_paper else None)
         jctx = (_JointCtx(strokes, routed, registry, on_paper)
                 if jm is not None else None)
+        clip = ClipRun(painter, xf, pose, self)
         for i, op in enumerate(ops):
+            if op.clip_out is not clip.cur:
+                clip.enter(op.clip_out)
             if op.kind in (FILL, PATTERN):
                 xf.unposed()
                 self._paint_fill_op(painter, pose, op)
@@ -1266,6 +1488,8 @@ class BlockInstance(QGraphicsObject):
                     self._paint_op_joints(painter, pose, xf, ops, i, p, jm, jctx)
                 continue
             painter.drawPath(pose.map(self._text_path(op)))
+        if clip.cur is not None:
+            clip.enter(None)
         xf.unposed()
         if sf is not None or frame_k:           # paper passes never touch the mark
             _er.mark_screen_ends(self, self._drew_screen)
@@ -1712,6 +1936,15 @@ class BlockInstance(QGraphicsObject):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
+        # Block stacking D6 / D7: editors only; D10: every placement.
+        if self.in_stack_scene():
+            from .constants import LAYER_HEIGHT_MAX, LAYER_HEIGHT_MIN
+            props["Layer Height"] = {"type": "number", "value": self.layer_height,
+                                     "minimum": LAYER_HEIGHT_MIN,
+                                     "maximum": LAYER_HEIGHT_MAX}
+            props["Opaque"] = {"type": "bool", "value": self.is_opaque()}
+        props["Constraint Points"] = {"type": "bool",
+                                      "value": not self.constraint_points_off}
         # A1/D10: a nested child inside the Block Editor carries no instance
         # values (the nested record drops ``attributes``), so the row is off --
         # the scene's can_edit_attributes gate, shared with the context menus.
@@ -1799,6 +2032,7 @@ class BlockInstance(QGraphicsObject):
         rows edit, compared before and after a commit (G9)."""
         return (self.level, self._level_offset_mm, self._pose_rot,
                 self._pose_mirrored, self._pose_scale,
+                self.layer_height, self.is_opaque(), self.constraint_points_off,
                 repr((self.note.get("leader"), self.note.get("style"))) if self.note else None)
 
     def _note_prim(self) -> "dict | None":
@@ -1886,6 +2120,16 @@ class BlockInstance(QGraphicsObject):
             else:
                 self.note["leader"] = chg[0]
             self.note_changed()
+        elif key == "Layer Height":
+            self.set_layer_height(value)
+        elif key == "Opaque":
+            if not isinstance(value, bool):
+                return
+            self.set_opaque(value)
+        elif key == "Constraint Points":
+            if not isinstance(value, bool):
+                return
+            self.constraint_points_off = not value
         elif key in ("Weight", "Linetype"):
             if self._overrides_locked():
                 return                  # Q12: a mixed selection can't bypass the lock
@@ -1982,6 +2226,7 @@ class BlockInstance(QGraphicsObject):
             d["host"] = dict(self.host)
         if self.note:
             d["note"] = copy.deepcopy(self.note)
+        d.update(self._stack_fields())
         return d
 
     @classmethod
@@ -2002,6 +2247,9 @@ class BlockInstance(QGraphicsObject):
         if data.get("host"):
             inst.host = dict(data["host"])
         inst.note = copy.deepcopy(data["note"]) if data.get("note") else None
+        inst.layer_height = clamp_layer_height(data.get("layer_height", 0))
+        inst._opaque = data["opaque"] if isinstance(data.get("opaque"), bool) else None
+        inst.constraint_points_off = data.get("constraint_points_off") is True
         return inst
 
     @classmethod
@@ -2026,4 +2274,7 @@ class BlockInstance(QGraphicsObject):
                 "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
                 "overrides": rec.get("overrides"),
                 "host": rec.get("host"),
-                "note": rec.get("note")}
+                "note": rec.get("note"),
+                "layer_height": clamp_layer_height(rec.get("layer_height", 0)),
+                "opaque": rec["opaque"] if isinstance(rec.get("opaque"), bool) else None,
+                "constraint_points_off": rec.get("constraint_points_off") is True}

@@ -535,6 +535,7 @@ class BlockEditorWidget(QWidget):
         self._seed_source_items: list = []   # project-scene items for seeded create
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
+        self.editor_scene.opaque_blocks = kind == "schematic"    # block stacking D3
         # ET1 (smoke ruling 2026-10-10): block AND schematic editors preview
         # ends / Drafting linetypes at the project drawing scale -- schematics
         # are built from model-size blocks (MainWindow._seed_editor_units).

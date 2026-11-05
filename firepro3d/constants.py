@@ -27,6 +27,10 @@ Z_UNDERLAY       = -79    # underlays/imports (initial; overridden at runtime)
 Z_ROOF           = -75    # roof items (initial; overridden at runtime)
 Z_CONSTRUCTION   = 1      # construction geometry (lines, rects, circles, arcs)
 Z_FILLED_REGION  = -1     # Filled Region: under every 2D shape (default z 0), above the origin cross (D-A7)
+Z_BLOCK_STACK    = -40.0  # blocks in a block_editor scene: under filled regions, lines and text (block stacking D4)
+Z_BLOCK_STACK_STEP = 0.03 # z per Layer Height unit; +-1000 stays inside (Z_ROOF, Z_FILLED_REGION)
+LAYER_HEIGHT_MIN = -1000  # Layer Height range (D6)
+LAYER_HEIGHT_MAX = 1000
 Z_DESIGN_AREA    = 2      # design area boundary
 Z_PIPE           = 5      # pipes (initial; overridden at runtime)
 Z_NODE           = 10     # nodes (initial; overridden at runtime)
@@ -170,6 +174,11 @@ DEFAULT_LINE_WEIGHT_MM = 0.25
 # Block mirror / scale (design 2026-10-11 DD4): per-definition LRU cap on the
 # (mirrored, scale) variant op lists.
 BLOCK_VARIANT_CACHE_MAX = 32
+
+# Opaque block silhouette (block stacking D2): linework closer than this (mm)
+# is one piece, so a gap narrower than it in an outline closes; the mask
+# outlines the ink outset by half of it.
+MASK_GAP_MM = 1.0
 
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
 # DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic

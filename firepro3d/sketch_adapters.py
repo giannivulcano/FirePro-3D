@@ -242,6 +242,11 @@ class _Adapter:
         never offered as pick candidates -- text ``ins``. None by default."""
         return frozenset()
 
+    def pick_blocked(self, item) -> frozenset:
+        """Handles that stay valid but are not offered for a new pick (block
+        stacking D11 / D13). None by default."""
+        return frozenset()
+
     def translate_raws(self, item, h: str) -> tuple | None:
         """WF3 (wall faces design): the raw variable indices, as flattened
         ``(x, y, x, y, ...)`` pairs, that translate the item RIGIDLY when point
@@ -813,11 +818,12 @@ class _NestedHandles:
     """A nested instance's handle table in its LOCAL (unrotated) frame:
     ``points[name] = (u, v)``, ``edges[name] = ((u, v), (u, v))``,
     ``curves[name] = ((u, v), r)``, plus the midpoint / hidden name sets."""
-    __slots__ = ("points", "edges", "curves", "mids", "hidden", "circles")
+    __slots__ = ("points", "edges", "curves", "mids", "hidden", "circles", "off")
 
     def __init__(self):
         self.points, self.edges, self.curves = {}, {}, {}
         self.mids, self.hidden, self.circles = set(), set(), set()
+        self.off = set()            # record paths with Constraint Points off (D13)
 
 
 def _nested_table(inst) -> _NestedHandles:
@@ -854,6 +860,8 @@ def _nested_table(inst) -> _NestedHandles:
         t.hidden.update(f"{path}:{n}" for n in ad.hidden_names(child))
     for path, (u, v) in origins:
         t.points[f"{path}:ins"] = (float(u), float(v))
+    from .block_snap_geometry import suppressed_paths
+    t.off = suppressed_paths(inst.definition())
     inst._nested_handles_cache = (ops, mir, s, t)
     return t
 
@@ -931,6 +939,26 @@ class _NestedAdapter(_Adapter):
 
     def circle_curves(self, it):
         return frozenset() if _ins_only(it) else frozenset(_nested_table(it).circles)
+
+    def pick_blocked(self, it):
+        """D11: Constraint Points off leaves ``ins`` alone. D13: a nested
+        record's off removes every handle under its path, its own ``:ins``
+        included. The handle tables keep them all, so existing constraints
+        still solve (D12)."""
+        if _ins_only(it):
+            return frozenset()
+        t = _nested_table(it)
+        off = getattr(it, "constraint_points_off", False)
+        if not off and not t.off:
+            return frozenset()
+        names = set(t.points) | set(t.edges) | set(t.curves)
+        if off:
+            return frozenset(names)
+
+        def under(name):
+            path = name.rsplit(":", 1)[0]
+            return any(path == p or path.startswith(p + "/") for p in t.off)
+        return frozenset(n for n in names if under(n))
 
     def handle_kind(self, it, h):
         if h == "ins":

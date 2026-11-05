@@ -127,6 +127,12 @@ def _nested_pose(rec: dict):
                        valid_scale(rec.get("scale", 1.0)))
 
 
+def _record_height(rec: dict) -> int:
+    """A nested record's Layer Height (block stacking D6)."""
+    from .block_stack import clamp_layer_height
+    return clamp_layer_height(rec.get("layer_height", 0))
+
+
 def _placeholder_op(t) -> RenderOp:
     """Red box-with-diagonal render op for an unresolvable nested block.
 
@@ -414,6 +420,7 @@ class BlockDefinition:
         self.render_mode = render_mode or "default"
         self._render_ops: list[RenderOp] | None = None
         self._variants: tuple | None = None   # (base ops list, OrderedDict) -- DD4
+        self._silhouette: tuple | None = None  # (base ops list, mask) -- silhouette()
         self._op_groups: list[int] | None = None   # joint container id per op (D5b)
         self._joint_cache: tuple | None = None     # (base ops, {variant key: result}) -- D5b
         # Cached origin-relative 9-point text frame boxes (S6 snap targets).
@@ -617,6 +624,23 @@ class BlockDefinition:
         hit = self._joint_entry(mirrored, scale)
         return hit[1], hit[2]
 
+    def silhouette(self) -> QPainterPath:
+        """The mask of this definition's compiled ops (:func:`ops_mask`, block
+        stacking D2) in its own frame, built once per compile: the memo is
+        keyed on the identity of ``render_ops()``, so a recompile drops it.
+        Every placement, pose and variant maps this one path instead of
+        tracing again (a large block costs hundreds of ms to trace).
+
+        Returns:
+            The shared mask path (never mutate it); empty when no ink.
+        """
+        from . import render_op
+        base = self.render_ops()
+        c = self._silhouette
+        if c is None or c[0] is not base:
+            c = self._silhouette = (base, render_op.ops_mask(base))
+        return c[1]
+
     def _joint_entry(self, mirrored: bool, scale: float) -> tuple:
         """``(ops, per_op, partnered, top)`` for a variant, built once per
         variant list (``top`` = the group-0 index, an empty one when none)."""
@@ -711,7 +735,8 @@ class BlockDefinition:
             c[1].move_to_end(key)
             return hit
         t = pose_matrix(0.0, 0.0, 0.0, key[0], key[1])
-        out = [op.mapped(t) for op in base]
+        clips: dict = {}             # a covered block's ops keep one shared clip
+        out = [op.mapped(t, clips) for op in base]
         c[1][key] = out
         while len(c[1]) > BLOCK_VARIANT_CACHE_MAX:
             c[1].popitem(last=False)
@@ -777,19 +802,24 @@ class BlockDefinition:
         bound: list = []
         groups: list[int] = []      # joint container per op: 0 = this definition (D5b)
         gnext = 1
+        runs: list = []             # (record, first op, past-last op), bottom to top
+        nested = [p for p in self.primitives if p.get("type") == _NESTED_TYPE]
+        for prim in sorted(nested, key=_record_height):
+            n0 = len(ops)
+            ops.extend(self._nested_ops(prim, ox, oy, bound))
+            groups.extend([0] * (n0 - len(groups)))
+            child = self._resolve_nested(prim)
+            cg = child._op_groups if child is not None else None
+            if cg is not None and len(cg) == len(ops) - n0:
+                groups.extend(gnext + g for g in cg)        # the child's own containers
+                gnext += max(cg, default=0) + 1
+            else:                                           # placeholder / unresolved
+                groups.extend([gnext] * (len(ops) - n0))
+                gnext += 1
+            runs.append((prim, n0, len(ops)))
+        self._clip_nested_runs(ops, runs)
         for prim in self.primitives:
             if prim.get("type") == _NESTED_TYPE:
-                n0 = len(ops)
-                ops.extend(self._nested_ops(prim, ox, oy, bound))
-                groups.extend([0] * (n0 - len(groups)))
-                child = self._resolve_nested(prim)
-                cg = child._op_groups if child is not None else None
-                if cg is not None and len(cg) == len(ops) - n0:
-                    groups.extend(gnext + g for g in cg)        # the child's own containers
-                    gnext += max(cg, default=0) + 1
-                else:                                           # placeholder / unresolved
-                    groups.extend([gnext] * (len(ops) - n0))
-                    gnext += 1
                 continue
             if is_scaffold(prim):
                 continue
@@ -885,7 +915,41 @@ class BlockDefinition:
         # Manager Cancel replay must not bake the renamed-away alias target.
         ov = override_args(prim.get("overrides"), canonical=False)
         bound.extend(BoundPrim(b.prim, b.transform * t, ov) for b in child_bound)
-        return apply_overrides([op.mapped(t) for op in child_ops], *ov)
+        clips: dict = {}
+        return apply_overrides([op.mapped(t, clips) for op in child_ops], *ov)
+
+    def _clip_nested_runs(self, ops: list, runs: list) -> None:
+        """Stamp each nested block's ops with the opaque nested blocks above it
+        (block stacking D1 / D5). *runs* holds ``(record, start, end)`` bottom
+        to top. A block's own covers, already compiled in, are kept."""
+        from dataclasses import replace
+        from .render_op import ops_mask
+        default = self.kind == "schematic"             # D3
+        cover = None
+        for n, (rec, a, b) in enumerate(reversed(runs)):
+            if cover is not None:
+                merged: dict = {}
+                for i in range(a, b):
+                    own = ops[i].clip_out
+                    clip = merged.get(id(own))
+                    if clip is None:
+                        clip = merged[id(own)] = cover if own is None else own.united(cover)
+                    ops[i] = replace(ops[i], clip_out=clip)
+            opaque = rec.get("opaque")
+            if not isinstance(opaque, bool):
+                opaque = default
+            if n == len(runs) - 1:
+                break                       # the bottom run covers nothing: no mask
+            child = self._resolve_nested(rec) if opaque else None
+            if child is not None:
+                if child.id == self.id or child.id in _COMPILING:
+                    mask = ops_mask(ops[a:b])       # the red placeholder
+                else:                       # the child's own memo, posed like its ops
+                    ox, oy = self.origin
+                    mask = (_nested_pose(rec) * QTransform.fromTranslate(-ox, -oy)
+                            ).map(child.silhouette())
+                if not mask.isEmpty():
+                    cover = mask if cover is None else cover.united(mask)
 
     def _compile_reference(self) -> list[RenderOp]:
         """Batched compile: accumulate each layer's geometry into one path.
