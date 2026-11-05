@@ -180,7 +180,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     def distance_to(self, x, y):
         return QLineF(self.scenePos(), QPointF(x, y)).length()
         
-    def _other_end(self, pipe):
+    def other_end(self, pipe):
         """Return the node at the far end of *pipe*, or None if malformed."""
         if pipe.node1 is self:
             return pipe.node2
@@ -200,7 +200,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         """
         coplanar = []
         for p in self.pipes:
-            far = self._other_end(p)
+            far = self.other_end(p)
             if far is None:
                 continue
             if abs(getattr(far, "z_pos", 0.0)

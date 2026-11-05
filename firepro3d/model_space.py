@@ -5009,7 +5009,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if preview is not None:
             return nsp._nearest_coplanar_pipe(start, preview)
         coplanar = [p for p in nsp.pipes
-                    if (far := nsp._other_end(p)) is not None
+                    if (far := nsp.other_end(p)) is not None
                     and abs(getattr(far, "z_pos", 0.0)
                             - getattr(nsp, "z_pos", 0.0)) <= Z_COPLANAR_TOL]
         return coplanar[0] if len(coplanar) == 1 else None
@@ -9354,7 +9354,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
                 pipes = []
                 for p in item.pipes:
-                    other = p.node1 if p.node2 == item else p.node2
+                    other = item.other_end(p)
                     pipes.append({"x": other.pos().x(), "y": other.pos().y()})
                 data.append({
                     "type": "node",

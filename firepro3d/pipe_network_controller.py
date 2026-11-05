@@ -177,9 +177,9 @@ class PipeNetworkController:
         # Collect all affected nodes first, then update + apply colours.
         affected_nodes = {n1, n2}
         for p in n1.pipes:
-            affected_nodes.add(p.node2 if p.node1 is n1 else p.node1)
+            affected_nodes.add(n1.other_end(p))
         for p in n2.pipes:
-            affected_nodes.add(p.node2 if p.node1 is n2 else p.node1)
+            affected_nodes.add(n2.other_end(p))
         for node in affected_nodes:
             node.fitting.update()
             self._apply_fitting_dm_colors(node.fitting)
@@ -340,7 +340,7 @@ class PipeNetworkController:
         from .fitting import Fitting
         nz = node.z_pos
         coplanar_pipes = [p for p in node.pipes
-                          if abs((p.node2 if p.node1 is node else p.node1).z_pos
+                          if abs(node.other_end(p).z_pos
                                  - nz) <= Z_COPLANAR_TOL]
         if len(coplanar_pipes) != 3:
             return "A 4th branch can only be added to a tee fitting."
@@ -353,7 +353,7 @@ class PipeNetworkController:
         np_ = node.scenePos()
         vectors = []
         for p in coplanar_pipes:
-            other = p.node2 if p.node1 is node else p.node1
+            other = node.other_end(p)
             op = other.scenePos()
             dx, dy = op.x() - np_.x(), op.y() - np_.y()
             length = math.hypot(dx, dy)
@@ -403,7 +403,7 @@ class PipeNetworkController:
         ep = end_node.scenePos()
         sz = start_node.z_pos
         for pipe in start_node.pipes:
-            other = pipe.node2 if pipe.node1 is start_node else pipe.node1
+            other = start_node.other_end(pipe)
             # Direct duplicate — always block regardless of Z
             if other is end_node:
                 return True
@@ -436,7 +436,7 @@ class PipeNetworkController:
         sp = start_node.scenePos()
         sz = start_node.z_pos
         for pipe in start_node.pipes:
-            other = pipe.node2 if pipe.node1 is start_node else pipe.node1
+            other = start_node.other_end(pipe)
             # Skip non-coplanar pipes (risers / cross-level)
             if abs(other.z_pos - sz) > Z_COPLANAR_TOL:
                 continue
@@ -473,7 +473,7 @@ class PipeNetworkController:
             return False  # junction or isolated — don't merge
 
         existing = other_pipes[0]
-        far_node = existing.node2 if existing.node1 is start_node else existing.node1
+        far_node = start_node.other_end(existing)
 
         # Direction of existing pipe (far_node → start_node)
         sp = start_node.scenePos()
@@ -548,7 +548,7 @@ class PipeNetworkController:
 
         v = []
         for p in pipes:
-            far = p.node2 if p.node1 is junction_node else p.node1
+            far = junction_node.other_end(p)
             fp = far.scenePos()
             dx, dy = fp.x() - jp.x(), fp.y() - jp.y()
             length = math.hypot(dx, dy)
@@ -939,8 +939,7 @@ class PipeNetworkController:
         # Only count coplanar pipes — risers don't consume branch slots
         _sz = self._scene.node_start_pos.z_pos
         start_pipes = sum(1 for p in self._scene.node_start_pos.pipes
-                          if abs((p.node2 if p.node1 is self._scene.node_start_pos
-                                  else p.node1).z_pos - _sz) <= Z_COPLANAR_TOL)
+                          if abs(self._scene.node_start_pos.other_end(p).z_pos - _sz) <= Z_COPLANAR_TOL)
         if start_pipes >= 4:
             self._scene.warningIssued.emit(
                 "Connection Limit",
@@ -966,8 +965,7 @@ class PipeNetworkController:
         if existing_end_check is not None:
             _ez = existing_end_check.z_pos
             end_pipes = sum(1 for p in existing_end_check.pipes
-                            if abs((p.node2 if p.node1 is existing_end_check
-                                    else p.node1).z_pos - _ez) <= Z_COPLANAR_TOL)
+                            if abs(existing_end_check.other_end(p).z_pos - _ez) <= Z_COPLANAR_TOL)
             if end_pipes >= 4:
                 self._scene.warningIssued.emit(
                     "Connection Limit",

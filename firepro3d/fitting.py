@@ -94,7 +94,7 @@ class Fitting():
             node = self.node
             for p in pipes:
                 if self._is_vertical(p, node):
-                    other = p.node2 if p.node1 is node else p.node1
+                    other = node.other_end(p)
                     if other is not None and other.isVisible():
                         np = node.scenePos()
                         op = other.scenePos()
@@ -136,7 +136,7 @@ class Fitting():
     @staticmethod
     def _vertical_direction(pipe, node) -> str:
         """Return ``'up'`` or ``'down'`` relative to *node*."""
-        other = pipe.node2 if pipe.node1 is node else pipe.node1
+        other = node.other_end(pipe)
         return "up" if getattr(other, "z_pos", 0) > getattr(node, "z_pos", 0) else "down"
 
     # ── Type determination ─────────────────────────────────────────────

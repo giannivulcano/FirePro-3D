@@ -197,7 +197,7 @@ class TestValidate4thBranch:
 
         # 3 total pipes, but only 2 coplanar — count should be 2
         coplanar = [p for p in center.pipes
-                    if abs((p.node2 if p.node1 is center else p.node1).z_pos
+                    if abs(center.other_end(p).z_pos
                            - center.z_pos) <= Z_COPLANAR_TOL]
         assert len(coplanar) == 2
 
