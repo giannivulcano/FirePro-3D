@@ -176,3 +176,42 @@ def test_a_single_nested_record_builds_no_mask(sc, monkeypatch):
     ops = p.render_ops()
     assert not calls
     assert all(o.clip_out is None for o in ops)
+
+
+def test_a_fixed_size_covered_run_survives_a_render_at_another_zoom(qapp):
+    """The cover clip's kept frame must hold what the painter's own scale
+    paints, not the frame sized at the view's zoom (annotative Fixed size)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    from firepro3d.geometry_2d import RectangleItem
+    ms = Model_Space(scene_role="plan")
+    try:
+        ln = LineItem(QPointF(-3, 2), QPointF(3, 2))
+        ln.style["colour"] = "#ffffff"
+        low = BlockDefinition.new(name="Low", library="L", series="S", origin=(0.0, 0.0),
+                                  primitives=[ln.to_dict()])
+        top = BlockDefinition.new(name="Top", library="L", series="S", origin=(0.0, 0.0),
+                                  primitives=[RectangleItem(QPointF(-1, 1), QPointF(1, 3)).to_dict()])
+        ms.register_block_definition(low)
+        ms.register_block_definition(top)
+        par = BlockDefinition.new(name="P", library="L", series="S", origin=(0.0, 0.0),
+                                  primitives=[_rec(low, 0, 0),
+                                              _rec(top, 0, 0, opaque=True, layer_height=1)])
+        par.scale_mode = "annotative"
+        par.annotative_screen = "fixed"
+        ms.register_block_definition(par)
+        ms.place_block_instance(par.id, (0.0, 0.0), level=ms.active_level)
+        px, scale = 400, 0.25
+        w = px / scale
+        img = QImage(px, px, QImage.Format.Format_RGB32)
+        img.fill(0xFF101010)
+        p = QPainter(img)
+        ms.render(p, QRectF(0, 0, px, px), QRectF(-w / 2, -w / 2, w, w),
+                  Qt.AspectRatioMode.IgnoreAspectRatio)
+        p.end()
+        c = px // 2
+        ink = [x for y in range(c + 10, c + 16) for x in range(c + 9, c + 16)
+               if QColor(img.pixel(x, y)).lightness() > 80]
+        assert ink                      # outside the mask (6 px) and the view-zoom frame
+    finally:
+        ms.cleanup()

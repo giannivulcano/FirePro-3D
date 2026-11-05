@@ -258,9 +258,15 @@ class ClipRun:
         self.cur = clip
         if clip is not None:
             self._painter.save()
-            self._painter.setClipPath(
-                keep_path(self._item.boundingRect(), self._pose.map(clip)),
-                Qt.ClipOperation.IntersectClip)
+            # The item's rect is sized at the visible view's zoom; a painter at
+            # another zoom (second view, print) scales a Fixed-size pose
+            # differently, so the kept frame also covers the device area.
+            frame = self._item.boundingRect()
+            inv, ok = self._painter.worldTransform().inverted()
+            if ok:
+                frame = frame.united(inv.mapRect(QRectF(self._painter.viewport())))
+            self._painter.setClipPath(keep_path(frame, self._pose.map(clip)),
+                                      Qt.ClipOperation.IntersectClip)
 
 
 class PoseXf:
