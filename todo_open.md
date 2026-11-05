@@ -19,11 +19,14 @@
 - [ ] [type:bug] `test_sb2b_settings_dialog_size.py::test_g_s1_marks_table_fits` fails at the default and minimum sizes [P4] [subject:Testing]
   - Details: found by the data-loss keep-green, 2026-11-04. `test_g_s1_marks_table_fits_at_default_size` and `_at_minimum_size` fail identically at base `5185b8cc` (VC7, detached worktree) and at HEAD `d09406ca`, so this branch did not cause them. Cause not investigated.
   - +1 occurrence 2026-11-04 (SB4f T7 keep-green, VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 4fbeabaf, identical both: `'Detail' == 'Room'`).
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:bug] `test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails against the restyled SectionHead seed [P4] [subject:Testing]
   - Details: found by SB4f T6 keep-green, 2026-11-04. VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 1ad57b24, identical both: `m._rk()` 400.1088 against 406.4 expected. The implementer's read, not yet confirmed: the test pins the old 2R circle and the seed moved to a 4 mm radius at the SB4d Q19 smoke. Decide whether the pin or the tangency is wrong.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:bug] `test_sb2a_pickers.py::test_host_category_row_enum_and_unknown` pins an old host category list [P4] [subject:Testing]
   - Details: found in SB4f keep-green, 2026-11-04. The test's literal `options` list misses later categories (first extra: `Elevation`). Fails at branch base `b29294aa` and HEAD (VC7, worktrees), so an earlier task left it behind; SB4f's `View Title` adds one more. Derive the list from `element_params.CATEGORIES` instead of a literal.
   - +1 occurrence 2026-11-05 (block stacking keep-green): failed at base `bc039e14` and HEAD `abc1cc24`.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 
 ## Paper-space sheet output
 
@@ -139,6 +142,7 @@
 - [ ] [type:bug] `test_modify_tools_array.py::test_array_typed_count_is_total[text_rotated]` fails at main: arrayed rotated text copies land at the wrong positions [P2] [subject:Text]
   - Details: found 2026-11-03 by SB4b keep-green; VC7 alternating fresh runs fail 2/2 at base `c20d2ec3` (main) and 2/2 at the SB4b HEAD (positive control) -- pre-existing, not SB4b. Every one of the 9 copy positions mismatches (e.g. x 192.978 obtained vs 192.5 expected). The other 12 params (incl. non-rotated text) pass. Likely from the text-sizing-wrap merge (`6693013b`, true cap height / Wrap / Shrink): the rotated text's bounds/anchor that Array measures changed. Check whether the test expectation or the Array path is stale against the new text box geometry. `tests/test_modify_tools_array.py`, `firepro3d/text_item.py`, the Array tool.
   - +1 occurrence 2026-11-04 (text-leaders keep-green, base `660f7e75`): failed 2/2 at base and 2/2 at HEAD, alternating in worktrees.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:feature] Multi-leader: more than one leader per text or Note [P3] [subject:CAD]
   - Details: Design D2 keeps one (`docs/superpowers/specs/2026-11-04-text-leader-annotations-design.md`). `text_leader.py`, `TextAnnotationData.leader`, `note["leader"]`.
 - [ ] [type:feature] Leader tips hosted on elements, so a tip follows what it points at [P3] [subject:CAD]
@@ -170,6 +174,7 @@
 - [ ] [type:maint] `test_lt5_guards.py::test_q14_ends_grow_bounds_never_the_pick_shape` fails at main [P3] [subject:Testing]
   - Details: Found 2026-11-04 by text-leaders keep-green; failed 2/2 at base `660f7e75` and 2/2 at HEAD, alternating in worktrees.
   - +1 occurrence 2026-11-05 (block stacking keep-green): failed at base `bc039e14` and HEAD `abc1cc24` in detached and task worktrees.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:maint] SB4a `test_sb4a_perf.py::test_g8_*` full-view bars fail at main on this host [P3] [subject:Testing]
   - Details: Found 2026-11-04 by text-leaders keep-green: all three fail at base `660f7e75` and HEAD (`short_pipes`, `long_pipes`, `zoomed_twenty_pipes`). Also seen at branch start, by the implementer's proof, unverified by the orchestrator: `test_ghost_glow_cache::test_editor_rotate_cached_glow_matches_live` (flaky), `test_sb3_parity::test_ac10_bound_instance_render_unchanged_by_the_lift`, `test_block_select_all_perf`.
 
@@ -446,12 +451,26 @@
   - Details: SB4a VC9 seam review M5, 2026-11-01 — `paper_display`'s walk reaches the label only through its pipe (`scene.items(source_rect)` → Pipe branch → `_apply_block(item.label, …)`); a top-level label hit on its own is not a category item, so it gets no paper hooks. Fix: in the walk, route a hit `BoundLabelItem` with a Pipe host through its host's branch (or widen the pipe hit test by its label rect).
 - [ ] [type:bug] Verify `pipe-placement-methodology.md` B12 (`update_elevations()` does not refresh pipe labels) against the SB4a block label [P3] [subject:CAD]
   - Details: SB4a Account 2026-11-01 — the label now pulls host values at paint (`BoundLabelItem`), but its bounds rect is cached, so B12 may be stale or may now be a stale-rect bug. Repro: change a level elevation with labelled pipes on it and check the label text and its bounds; then close B12 or fix the refresh.
-- [ ] [type:feature] Pipe polish: plan fittings show risers / drops only, tighter placement snap detection, pick a single node and edit its X / Y / Z [P2] [subject:CAD]
-  - Details: user 2026-11-04. Fold-ins chosen at selection: spec B10 through-riser fittings (`Fitting.determine_type` reads `vertical[0]` only), Y-up display on the new node rows, the `node_start_pos` split and `_other_end` dedupe. `fitting.py`, `node.py`, `pipe.py`, `pipe_network_controller.py`, `property_manager.py`. ref: pipe-placement-methodology.
 - [ ] [type:feature] Bring plain fitting symbols back (elbow, tee, wye, cross, cap) once the fitting look is settled [P3] [subject:CAD]
   - Details: user 2026-11-04 (pipe polish D1): hidden for now, "I do eventually want to bring this back, just not yet". The hide is one named rule in `fitting.py`, with symbols and types kept. Depends pipe polish.
 - [ ] [type:bug] Riser stack move: drag and the Move tool still leave stacked nodes behind (spec B6) [P3] [subject:CAD]
   - Details: pipe polish D7 covers the panel X / Y edit only. `Model_Space.move_items`, manipulator `bake_translate`: moving one riser node turns the vertical pipe diagonal. Reuse the panel edit's stack lookup. Depends pipe polish. ref: pipe-placement-methodology s6.4.
+- [ ] [type:feature] Elevation and section pipes: show pipe labels, and draw a cut pipe with the plan's broken-pipe symbol [P1] [subject:CAD]
+  - Details: user smoke 2026-11-05 (pipe polish), "P1 follow up". (1) `SectionScene._project_pipes` builds plain line proxies and no label exists there, so labels never showed in an elevation, identical on main. Reuse the bound label host; `SectionScene.annotation_block` already resolves blocks. Vertical pipes need their label here, unlike plan. (2) `_render_cut_items` draws `_ElevCutEllipse`, a solid dot; user wants the broken-pipe symbol (`riser_passthrough.svg`, circle with an S). This reverses ratified `section-view-subsystem.md` s5 and R2, so re-ask the look at Phase 2. The symbol is hollow, so pipes meeting it must stop at its edge, as plan now does. Open: which pipes get a label on a busy elevation; the Pipe Section colour's role. Check the user's dot is a cut circle, since a sprinkler is also a filled ellipse there. `section_scene.py`, `bound_label.py`. ref: section-view-subsystem.
+- [ ] [type:bug] Fitting symbol and type go stale until the next update [P3] [subject:CAD]
+  - Details: pipe polish reviews 2026-11-05. Level visibility never re-runs `fitting.update`, so a riser stack winner can be stale. Sprinkler panel Ceiling Level / Offset rows (`sprinkler.py` set_property) skip `_refresh_network`, so `Fitting.type` stays old. Display Manager Fitting row hide then show: `_apply_fitting` never re-shows, recovery waits for the next update or view change. A Fitting row scale change moves the mask radius but does not repaint the pipes. Opacity 0 on the Fitting row leaves pipes cut with nothing drawn, because `clip_region_scene` reads `isVisible` only. All by reading except the opacity case. `fitting.py`, `sprinkler.py`, `display_manager.py`.
+- [ ] [type:bug] Verify: a node's fitting loss may be charged to every pipe on the node [P2] [subject:Hydraulics]
+  - Details: pipe polish T4 review 2026-11-05 claim, by reading, not proved. `hydraulic_solver.py` (`fitting.type` read near line 498). Confirm against a hand calc with a tee; if real, friction loss is over-counted on every tee and riser node. Compare at base before fixing.
+- [ ] [type:maint] Viewport mouse move costs 60-230 ms at 1500 nodes in pipe mode, marker on or off [P2] [subject:Performance]
+  - Details: pipe polish T6 bench 2026-11-05. The real viewport path, mostly the snap engine, is far above the 5 ms marker budget, which the marker itself meets. Needs a base proof; confirm the metric with the user first. Compare the existing pan and `get_effective_position` snap perf lines.
+- [ ] [type:bug] Pipe placement edge cases left from pipe polish [P3] [subject:CAD]
+  - Details: reviews 2026-11-05. (1) The chain start is excluded from pickup, so a vertical-template click 5-150 mm from it at low zoom gives a skew pipe (same as base). (2) A Z edit landing on a stack partner leaves a zero-length pipe. (3) `cycle_tab` calls `scenePos` on a possibly deleted stale candidate (by reading). (4) The target marker can stay after delete or undo with the cursor resting. (5) No ring on a full node or a collinear extension. (6) Paper-space exposure of the marker unchecked. (7) The ceiling-overwrite guard is a proxy with no template test. `pipe_network_controller.py`, `node.py`.
+- [ ] [type:bug] Plain node pick edges left from pipe polish [P4] [subject:CAD]
+  - Details: T5 review 2026-11-05. Below zoom ~0.0675 the pick disk exceeds `boundingRect`, so a crossing band misses. The move ghost node trace is built without `scene_scale`. Crossing reach is untested. Pipes under 1 mm are excluded from the cap. `node.py`.
+- [ ] [type:bug] Property panel: stale `DimensionEdit` can commit to current targets [P3] [subject:UX]
+  - Details: T7 review 2026-11-05, unreachable by mouse today, but X / Y / Z are the first rows that move geometry. `property_manager.py`. Also: saved sprinkler dicts carry `single_only` rows, which both serializers could skip.
+- [ ] [type:maint] Tests can drop a PropertyManager with its 50 ms timer pending [P3] [subject:Testing]
+  - Details: pipe polish debug 2026-11-05: a pending timer aborted pytest by gc timing. Fixed in the pipe polish panel tests; 17 other files call `_apply_property` unaudited (`test_sb3b_room_tag_style` stops it). Unprobed: Open with a refresh pending; a Block Editor, section or paper scene closing with one pending.
 - [ ] [type:maint] `Pipe.setVisible(True)` now runs the full `update_label()` every time the level filter re-shows a pipe [P3] [subject:CAD]
   - Details: SB4a VC9 seam review M6, 2026-11-01 — the label pose/refresh cascade in `Pipe.setVisible`; G8's bench times rendering only, so a level switch over a large network is unmeasured. Measure a level toggle over 2,000 pipes first (base vs HEAD); act only if it is slow.
 - [ ] [type:maint] Measure the SB4a pipe-label bench (G8) on an idle host -- long solved 4-line labels may be ~1.3x slower than the HTML label [P2] [subject:CAD]
@@ -526,9 +545,11 @@
   - +1 occurrence 2026-11-01 (text-sizing-wrap Part A T5 keep-green, VC7-proved in a detached worktree at base 2109fb02 and HEAD 796b26dc, 6 failed / 33 passed both): the tier test + the same 5 browser tests.
   - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
   - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:bug] `tests/test_sb3_parity.py::test_ac10_bound_instance_render_unchanged_by_the_lift` fails on a render-digest mismatch [P4] [subject:Architecture]
   - Details: SB4d T5 keep-green 2026-11-03, VC7-proved pre-existing by the orchestrator in a detached worktree at branch base 22bb5bdd and HEAD bb5d4802 (identical `1cb4fa70...` != `58438ac4...` both). The guard pins a bound-instance render digest against a pre-lift golden; some shipped change since re-baselined the render (candidates: SB3b room-tag style, SB4a/b/c OutlinedLabel changes). Re-derive which commit moved the digest (`git bisect` on the test), then either re-baseline deliberately or rewrite the guard as a before/after parity check in one process. `tests/test_sb3_parity.py`.
   - +1 occurrence 2026-11-05 (block stacking keep-green): same digests at base `bc039e14` and HEAD `abc1cc24`.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:bug] `tests/test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails: shipped SectionHead seed radius is 400.1, the test expects 406.4 [P4] [subject:Architecture]
   - Details: wall-joint fix round 2 keep-green 2026-11-04, VC7-proved pre-existing in a detached worktree, alternating runs at branch base b29294aa and tip d4a4f3f9 (1 failed each, all four runs). `m._rk()` returns 400.109, `2.0 * BUBBLE_RADIUS_MM` is 406.4, rel tolerance 1e-3. Likely from the SB4d seed restyle at smoke (9ac77afe), not checked. Decide which is right: the seed or the test.
 
@@ -585,6 +606,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
   - +1 occurrence 2026-11-04 (SB4f keep-green): fails at branch base `b29294aa` and HEAD (VC7, worktrees).
   - +1 occurrence 2026-11-05 (block stacking keep-green): failed at base `bc039e14` and HEAD `abc1cc24`.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:design] Pattern relation for Array copies (Linear / 2D / Polar) — rigid copies + spacing + angle [P3] [subject:CAD]
   - Details: 2026-10-16 auto-constrain grill Q13 (user ruling: nothing in v1). `commit_array` already copies each copy's internal constraints (D30) but no spacing relation exists; faking one with two-point `dim_distance` records fixes a distance but not the copy's pose. Design the deferred `pattern` catalogue row (spec §12 "patterns"): a SolidWorks-style sketch pattern relation (instances rigid to the seed, spacing + angle / count driving), its file record, edit seams (Delete / Explode pattern), copy rule, and whether Array commits create it automatically under the Auto Constrain toggle. ref: parametric-constraint-system §7.3 / §8 Array row; `modify_tools_controller.commit_array`, `_array_transforms`.
   - +1 occurrence 2026-11-01 (scene-tool polish batch, user ask): "children of the array are one group that can be deleted, like how SolidWorks handles it" — split out of the 2026-11-01 batch to its own run.
@@ -1343,10 +1365,6 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - 2026-10-10 (placement batch review): `MainWindow._active_view()` returns this hidden view for the plan, so focus hand-offs and anything else using it act on an invisible widget; the placement batch worked around it in `_on_block_activated` (current tab's own view). Retiring the orphan should repoint `_active_view` too.
 - [ ] [type:maint] Qt fixtures must `show()` their view [P3] [subject:Testing]
   - Details: the dynamic-input fixtures built a `Model_View` without showing it, which made `views()[0]` trivially correct and hid the orphan-view bug class entirely. Fixed in the dynamic-input test files; audit the other Qt fixtures in the suite for the same gap. `tests/`.
-- [ ] [type:maint] Split `node_start_pos` into typed pipe-start and move-start fields [P3] [subject:Architecture]
-  - Details: it holds a `Node` in pipe mode and a `QPointF` in move/paste mode, and call sites now branch on `isinstance` to cope. Split into `_pipe_start_node` / `_move_start_point` (~30 call sites). Blocks clean work on T15. `model_space.py`.
-- [ ] [type:maint] De-duplicate the `_other_end(pipe)` idiom [P3] [subject:Architecture]
-  - Details: inlined 5× in `model_space.py` (~1391, 1458, 1488, 5826, 5853); `Node._other_end` is a sixth and the only one guarding the detached-pipe case. `model_space.py`, `node.py`.
 - [ ] [type:feature] Decide on decimal-comma input for dimension/angle fields [P3] [subject:UX]
   - Details: user call, 2026-08-19 — `parse_dimension`/`parse_angle` reject `1,5` as ambiguous against a thousands separator, and `1e3` as a likely typo. The comma is the natural numpad decimal key on European layouts, which matters now the numpad opens the HUD. Grammar's home is `units-and-formatting.md §3.1`. `scale_manager.py`.
 - [ ] [type:maint] Narrow `reject_commit()` if it reads noisy [P3] [subject:UX]

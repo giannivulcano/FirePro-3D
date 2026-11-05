@@ -2035,3 +2035,11 @@ Shipped on `main` (Small tier: /todo:audit Census → /todo F1–F4 batch → gr
 - [x] [type:bug] A failed project open still runs the post-load restore and sweeps the still-loaded project's view and Schematic tabs [P3] [subject:UX] [done:2026-11-04]
   - Details: SV1 seam review (2026-10-08), pre-existing. `scene_io.load_from_file` returns early on an unreadable file, but `_load_project` runs `_apply_loaded_file` anyway (levels, browser, `_close_stale_view_tabs`, active plan, resolver rebind) against the unchanged scene; since SV1 that sweep also closes Schematic editor tabs. Expected: a failed load leaves the session untouched (load returns a success flag the caller checks).
   - Delivered by the data-loss fix (merge db3c357b): `load_from_file` returns False and `_apply_loaded_file` stops there, so a failed open runs none of the restore.
+
+## Pipe polish -- plan fittings, placement snap, node X / Y / Z -- 2026-11-05
+- [x] [type:feature] Pipe polish: plan fittings show risers / drops only, tighter placement snap detection, pick a single node and edit its X / Y / Z [P2] [subject:CAD] [done:2026-11-05]
+  - Details: user 2026-11-04. Fold-ins chosen at selection: spec B10 through-riser fittings (`Fitting.determine_type` reads `vertical[0]` only), Y-up display on the new node rows, the `node_start_pos` split and `_other_end` dedupe. `fitting.py`, `node.py`, `pipe.py`, `pipe_network_controller.py`, `property_manager.py`. ref: pipe-placement-methodology.
+- [x] [type:maint] Split `node_start_pos` into typed pipe-start and move-start fields [P3] [subject:Architecture] [done:2026-11-05]
+  - Details: it holds a `Node` in pipe mode and a `QPointF` in move/paste mode, and call sites now branch on `isinstance` to cope. Split into `_pipe_start_node` / `_move_start_point` (~30 call sites). Blocks clean work on T15. `model_space.py`.
+- [x] [type:maint] De-duplicate the `_other_end(pipe)` idiom [P3] [subject:Architecture] [done:2026-11-05]
+  - Details: inlined 5× in `model_space.py` (~1391, 1458, 1488, 5826, 5853); `Node._other_end` is a sixth and the only one guarding the detached-pipe case. `model_space.py`, `node.py`.
