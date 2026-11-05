@@ -148,19 +148,25 @@ def test_cut_symbol_ink_takes_the_pipe_row_colour(qapp, section_scene_for):
 def test_set_section_colour_keeps_the_s_legible_on_a_mono_sheet(qapp, section_scene_for):
     """P6: B&W / Custom draw no body; Full Colour keeps the Section colour."""
     from PyQt6.QtCore import QSettings
-    from firepro3d.colour_tokens import section_fill_colour
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from tests.test_section_pipe_symbols import _ink, _render
     s = QSettings("GV", "FirePro3D")
     s.setValue("display/Pipe/section", "#00ff00")
     save_paper_color_mode(PaperColorMode.BW)
     sec, c = _cut_symbol(section_scene_for)
+    centre = c.rect().center()
+    rect = c.rect().adjusted(-50.0, -50.0, 50.0, 50.0)
     saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
-    assert section_fill_colour(c._brush_src, c) is None
+    img = _render(sec, rect)
+    assert _ink(img, rect, centre.x(), centre.y())[1] == "#000000"     # the S
+    assert _ink(img, rect, centre.x() + 40.0, centre.y())[0] == 0      # no body
     restore_model_display(saved)
     assert c._brush_src == "#00ff00"
     save_paper_color_mode(PaperColorMode.FULL_COLOR)
     saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
-    assert section_fill_colour(c._brush_src, c).name() == "#00ff00"
+    img = _render(sec, rect)
+    assert _ink(img, rect, centre.x() + 40.0, centre.y())[1] == "#00ff00"     # body
+    assert _ink(img, rect, centre.x(), centre.y())[1] == "#e62828"            # S on top
     restore_model_display(saved)
     s.remove("display/Pipe/section")
 

@@ -1763,7 +1763,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             if zone == ZONE_CUT:
                 z_cut = z1 + t_cut * (z2 - z1)
                 self._cut_items.append(("pipe", pipe, (h_cut, z_cut)))
-                circles.append((h_cut, -z_cut, cut_size / 2.0, 0.0))
+                circles.append((h_cut, -z_cut, radius_of(cut_size), 0.0))
                 # R-4: the part beyond the cut draws as a normal line.
                 fx, fy, fz, fd = (wx1, wy1, z1, d1) if d1 > d2 else (wx2, wy2, z2, d2)
                 hf, vf = self._project(fx, fy, fz)
@@ -1775,10 +1775,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             h1, v1 = self._project(wx1, wy1, z1)
             h2, v2 = self._project(wx2, wy2, z2)
             if math.hypot(h2 - h1, v2 - v1) < 1.0:     # end-on, not crossing (R-6)
-                near, dn = (n1, d1) if d1 <= d2 else (n2, d2)
-                size = Fitting.plan_symbol_mm(pipe.display_width_mm(),
-                                              getattr(pipe, "_display_scale", 1.0))
-                end_on.append((dn, pipe, near, h1, v1, size))
+                if abs(d2 - d1) >= 1.0:                # else a zero-length pipe
+                    near, dn = (n1, d1) if d1 <= d2 else (n2, d2)
+                    size = Fitting.plan_symbol_mm(
+                        near.fitting._max_connected_width_mm(),
+                        getattr(pipe, "_display_scale", 1.0))
+                    end_on.append((dn, pipe, near, h1, v1, size))
                 continue
             a = self._clip_pipe_ends((h1, v1, d1), (h2, v2, d2))
             add_line(pipe, *a, b.sort_key((wx1 + wx2) / 2, (wy1 + wy2) / 2))
@@ -1793,6 +1795,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                                circles, hs, r_max)
             if spans is not None:
                 line.set_spans(spans)
+                if not spans and line.pipe_label is not None:  # nothing left to label
+                    self.removeItem(line.pipe_label)
+                    line.pipe_label = None
 
     def _clip_pipe_ends(self, a, b):
         """Lateral clip of a projected pipe to the crop box, by parameter
@@ -1834,7 +1839,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             sym.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
             self.addItem(sym)
             self._register_depth_item(-dn, sym)
-            circles.append((h, v, size / 2.0, dn))
+            circles.append((h, v, radius_of(size), dn))
 
     def _end_on_gap(self, pipe, near, h, v) -> tuple[float, float]:
         """R-7: scene direction of the first in-view pipe joined at *near*,

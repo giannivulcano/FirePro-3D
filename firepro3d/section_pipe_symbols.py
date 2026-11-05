@@ -54,7 +54,8 @@ def kept_spans(p1, p2, d1, d2, circles, hs, r_max):
 
     *circles* = ``(h, v, r, d)`` sorted by h, *hs* their h values, *r_max* the
     largest r. A symbol trims the line only where the line is at or behind it
-    (its d at the overlap >= the symbol's d): a line passing in front draws
+    (its d at the point nearest the centre >= the symbol's d, so a pipe joined
+    at the symbol trims whichever way it heads): a line passing in front draws
     over. None = untouched.
     """
     lo = min(p1[0], p2[0]) - r_max
@@ -74,7 +75,8 @@ def kept_spans(p1, p2, d1, d2, circles, hs, r_max):
         t0, t1 = max((-b - s) / l2, 0.0), min((-b + s) / l2, 1.0)
         if t1 <= t0:
             continue
-        if d1 + (t0 + t1) / 2.0 * (d2 - d1) < d - 1e-6:
+        nearest = min(max(-b / l2, 0.0), 1.0)
+        if d1 + nearest * (d2 - d1) < d - 1e-6:
             continue                                   # passes in front
         gaps.append((t0, t1))
     if not gaps:

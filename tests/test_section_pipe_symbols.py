@@ -20,7 +20,16 @@ def test_cut_path_matches_the_shipped_svg():
     p = sps.cut_symbol_path(0.0, 0.0, 200.0)
     br = p.boundingRect()
     assert br.width() == pytest.approx(2 * sps.SVG_RADIUS * 10.0, abs=0.01)
-    assert p.contains(QPointF(0.0, 0.0)) is not None
+    # The S: the SVG's relative cubics made absolute, scaled 10x about (10, 10).
+    x, y = 10.0, 1.0
+    want = [(x, y)]
+    for c in ((-0.00678, 0.054255, -5.0356192, 5.3732865, 0.0, 9.0),
+              (4.766864, 3.433153, 0.0, 9.0, 0.0, 9.0)):
+        want += [(x + c[0], y + c[1]), (x + c[2], y + c[3]), (x + c[4], y + c[5])]
+        x, y = x + c[4], y + c[5]
+    got = [p.elementAt(i) for i in range(p.elementCount() - 7, p.elementCount())]
+    for e, (a, b) in zip(got, want):
+        assert (e.x, e.y) == pytest.approx(((a - 10.0) * 10.0, (b - 10.0) * 10.0))
 
 
 def test_end_on_gap_is_the_svg_gap():
@@ -45,6 +54,14 @@ def test_kept_spans_leaves_a_line_in_front_of_the_symbol():
     from firepro3d.section_pipe_symbols import kept_spans
     circles = [(5.0, 0.0, 1.0, 500.0)]                       # symbol deeper than the line
     assert kept_spans((0.0, 0.0), (10.0, 0.0), 100.0, 100.0, circles, [5.0], 1.0) is None
+
+
+def test_kept_spans_trims_a_line_leaving_the_symbol_toward_the_viewer():
+    """P1: joined at the symbol, heading nearer: it is not "in front"."""
+    from firepro3d.section_pipe_symbols import kept_spans
+    circles = [(0.0, 0.0, 1.0, 100.0)]
+    assert kept_spans((0.0, 0.0), (10.0, 0.0), 100.0, 50.0, circles, [0.0], 1.0) == pytest.approx(
+        [(0.1, 1.0)])
 
 
 def test_kept_spans_misses():
@@ -146,6 +163,8 @@ def test_pipe_behind_trims_at_the_cut_symbol(qapp, section_scene_for):
     img = _render(sec, RECT)
     assert _ink(img, RECT, CENTRE[0] + 40.0, CENTRE[1])[0] == 0
     assert _ink(img, RECT, CENTRE[0] + 120.0, CENTRE[1])[0] > 0
+    # It stops at the drawn circle (ink radius 69.6), not the 75 mm viewBox edge.
+    assert _ink(img, RECT, CENTRE[0] + 72.0, CENTRE[1], reach=1)[0] > 0
 
 
 @pytest.mark.parametrize("value", [None, ""])
@@ -187,6 +206,9 @@ def test_angled_cut_draws_symbol_and_the_part_beyond_only(qapp, section_scene_fo
     (ln,) = _lines(sec, pipe)
     xs = sorted((ln.line().x1(), ln.line().x2()))
     assert xs == pytest.approx([3000.0, 5000.0])
+    img = _render(sec, RECT)
+    assert _ink(img, RECT, CENTRE[0] + 40.0, CENTRE[1])[0] == 0      # none inside
+    assert _ink(img, RECT, CENTRE[0] + 120.0, CENTRE[1])[0] > 0      # the line beyond
 
 
 def test_angled_cut_line_clips_laterally(qapp, section_scene_for):
@@ -246,6 +268,7 @@ def test_end_on_pipe_not_crossing_draws_the_c(qapp, section_scene_for, scene_kin
     ((2000.0, -1000.0, 2500.0), (-1, 0)),     # left
     ((3000.0, -1000.0, 3500.0), (0, -1)),     # riser up: scene y is negative z
     ((3000.0, -1000.0, 1500.0), (0, 1)),      # drop down
+    ((3500.0, -500.0, 2500.0), (1, 0)),       # right and nearer the viewer (I1)
 ])
 def test_c_gap_faces_the_joined_pipe(qapp, section_scene_for, far, gap):
     """AC5: rendered, each of four directions, opposite side keeps ink."""
@@ -264,8 +287,14 @@ def test_c_gap_faces_the_joined_pipe(qapp, section_scene_for, far, gap):
     rect = QRectF(cx - 200.0, cy - 200.0, 400.0, 400.0)
     img = _render(sec, rect)
     r = 69.0
-    assert _ink(img, rect, cx + gap[0] * r, cy + gap[1] * r, reach=4)[0] == 0
+    # The joined pipe stops at the circle, so sample the gap 30 degrees off its axis.
+    side = (-gap[1], gap[0])
+    gx = gap[0] * math.cos(math.radians(30)) + side[0] * 0.5
+    gy = gap[1] * math.cos(math.radians(30)) + side[1] * 0.5
+    assert _ink(img, rect, cx + gx * r, cy + gy * r, reach=4)[0] == 0
     assert _ink(img, rect, cx - gap[0] * r, cy - gap[1] * r, reach=4)[0] > 0
+    assert _ink(img, rect, cx + gap[0] * 40.0, cy + gap[1] * 40.0)[0] == 0    # P1: stops
+    assert _ink(img, rect, cx + gap[0] * 120.0, cy + gap[1] * 120.0)[0] > 0   # and resumes
 
 
 def test_coincident_end_on_pipes_draw_one_symbol(qapp, section_scene_for):
@@ -278,11 +307,52 @@ def test_coincident_end_on_pipes_draw_one_symbol(qapp, section_scene_for):
     assert len([i for i in sec.items() if isinstance(i, _ElevPipeSymbol)]) == 1
 
 
+def test_cut_symbol_wins_over_a_coincident_c(qapp, section_scene_for):
+    """P5 "cut first": a run through the cut, then on away from the viewer."""
+    from firepro3d.section_scene import _ElevCutEllipse, _ElevPipeSymbol
+    ms, sec = _cut_scene(section_scene_for)
+    _pipe(ms, (3000.0, 1000.0, 2500.0), (3000.0, -1000.0, 2500.0))
+    _pipe(ms, (3000.0, -1000.0, 2500.0), (3000.0, -3000.0, 2500.0))
+    sec.rebuild()
+    (only,) = [i for i in sec.items() if isinstance(i, _ElevPipeSymbol)]
+    assert isinstance(only, _ElevCutEllipse)
+
+
 def test_line_in_front_of_a_c_is_not_trimmed(qapp, section_scene_for):
-    """P1: only pipes behind the C trim."""
+    """P1: only pipes behind the C trim. Rendered: the line crosses the hollow."""
     ms, sec = _cut_scene(section_scene_for)
     _pipe(ms, (3000.0, -2000.0, 2500.0), (3000.0, -3000.0, 2500.0))      # C at d=2000
-    p = _pipe(ms, (2000.0, -500.0, 2500.0), (4000.0, -500.0, 2500.0))    # in front
+    _pipe(ms, (2000.0, -500.0, 2500.0), (4000.0, -500.0, 2500.0))        # in front
     sec.rebuild()
-    (ln,) = _lines(sec, p)
-    assert ln._spans is None
+    img = _render(sec, RECT)
+    assert _ink(img, RECT, *CENTRE)[0] > 0
+    assert _ink(img, RECT, CENTRE[0] + 40.0, CENTRE[1])[0] > 0
+
+
+def test_c_takes_the_plan_size_from_the_largest_pipe_at_its_node(qapp, section_scene_for):
+    """R-6 same size: a Branch riser on a Main draws what the plan fitting draws."""
+    ms, sec = _cut_scene(section_scene_for)
+    near = Node(3000.0, -1000.0, 2500.0)
+    back = Node(3000.0, -3000.0, 2500.0)
+    other = Node(6000.0, -1000.0, 2500.0)
+    for n in (near, back, other):
+        ms.addItem(n)
+        ms.sprinkler_system.add_node(n)
+    branch = ms.add_pipe(near, back)
+    main = ms.add_pipe(near, other)
+    main._properties["Line Type"]["value"] = "Main"
+    near.z_pos, back.z_pos, other.z_pos = 2500.0, 2500.0, 2500.0
+    near.fitting.update()
+    sec.rebuild()
+    (s,) = _symbols(sec, branch)
+    f = near.fitting
+    drawn = max(f.symbol.boundingRect().width(), f.symbol.boundingRect().height()) * f.symbol_scale
+    assert drawn == pytest.approx(75.0 * math.sqrt(2) * 2)    # the rule's Main size
+    assert s.rect().width() == pytest.approx(drawn)
+
+
+def test_zero_length_pipe_draws_nothing(qapp, section_scene_for):
+    ms, sec = _cut_scene(section_scene_for)
+    pipe = _pipe(ms, (3000.0, -1000.0, 2500.0), (3000.0, -1000.0, 2500.0))
+    sec.rebuild()
+    assert not _symbols(sec, pipe) and not _lines(sec, pipe)

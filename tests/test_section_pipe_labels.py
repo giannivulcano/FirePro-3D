@@ -67,6 +67,16 @@ def test_symbols_get_no_label(qapp, section_scene_for):
     assert not _labels(sec, cut) and not _labels(sec, end)
 
 
+def test_line_trimmed_away_keeps_no_label(qapp, section_scene_for):
+    """A short pipe wholly inside a symbol's circle leaves no ink, so no label."""
+    ms, sec = _scene(section_scene_for)
+    _pipe(ms, (3000.0, -500.0, 2500.0), (3000.0, -1500.0, 2500.0))        # C at d=500
+    short = _pipe(ms, (3020.0, -1000.0, 2500.0), (3040.0, -1000.0, 2500.0))
+    sec.rebuild()
+    assert _lines(sec, short)
+    assert not _labels(sec, short)
+
+
 def test_clipped_pipe_label_centres_on_the_visible_part(qapp, section_scene_for):
     """P2."""
     ms, sec = _scene(section_scene_for)
@@ -109,19 +119,43 @@ def test_refresh_annotation_tags_reshapes_the_label(qapp, section_scene_for):
 
 
 def test_plan_label_pose_is_unchanged(qapp, section_scene_for):
-    """GENERALIZE parity: a sloped plan pipe keeps today's rotation."""
-    from PyQt6.QtCore import QPointF
-    from firepro3d.cad_math import CAD_Math
+    """GENERALIZE parity: sloped plan pipes keep the rotation base 6af322cc gave
+    (literals read from its update_label mapping, not the shared helper)."""
     ms, _ = section_scene_for("north")
     a = ms.add_node(0.0, 0.0); b = ms.add_node(-1000.0, -1000.0)
-    pipe = ms.add_pipe(a, b)
-    mid, angle = CAD_Math.readable_line_pose(pipe.line().p1(), pipe.line().p2())
-    assert pipe.label.rotation() == pytest.approx(angle)
-    assert pipe.label.pos() == mid
-    assert -90.0 <= angle < 90.0
+    pipe = ms.add_pipe(a, b)                     # leftward, turned to read: down-right
+    assert pipe.label.rotation() == pytest.approx(45.0)
+    assert (pipe.label.pos().x(), pipe.label.pos().y()) == pytest.approx((-500.0, -500.0))
+    c = ms.add_node(0.0, 3000.0); d = ms.add_node(1000.0, 2000.0)
+    assert ms.add_pipe(c, d).label.rotation() == pytest.approx(-45.0)   # up-right
 
 
 SCALE = 0.02
+
+
+def _plan_label_hooks(sec, pipe):
+    """What the plan Pipe branch sets on the same pipe's plan label."""
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    ms = sec._ms
+    saved = apply_paper_overrides(ms, ms.sceneRect(), SCALE)
+    lab = pipe.label
+    hooks = (lab._paper_scale, lab._paper_pen_width, lab._paper_pen_color)
+    restore_model_display(saved)
+    return hooks
+
+
+def _ink_colours(sec, rect):
+    """Colours of the fully opaque pixels rendered in *rect*."""
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QImage, QPainter
+    w, h = int(rect.width()) + 1, int(rect.height()) + 1
+    img = QImage(w * 4, h * 4, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(0)
+    p = QPainter(img)
+    sec.render(p, QRectF(img.rect()), rect)
+    p.end()
+    return {img.pixelColor(i, j).name() for i in range(img.width()) for j in range(img.height())
+            if img.pixelColor(i, j).alpha() == 255}
 
 
 def _paper_scene(section_scene_for):
@@ -141,15 +175,36 @@ def test_pipe_row_prints_the_label_and_restores(qapp, section_scene_for):
     cats = pd.load_paper_categories()
     cats["Pipe"]["color"] = "#0000ff"
     pd.save_paper_categories(cats)
-    sec, _pipe_item, lab = _paper_scene(section_scene_for)
+    sec, pipe, lab = _paper_scene(section_scene_for)
     screen = lab.boundingRect().width()
+    plan = _plan_label_hooks(sec, pipe)
     saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
     assert lab._paper_scale == SCALE
     assert lab._paper_pen_color.name() == "#0000ff"
-    assert lab._paper_pen_width is not None
+    assert lab._paper_pen_width == pytest.approx(
+        pd.resolve_line_weight_mm(cats["Pipe"]["line_weight"]) / SCALE)
+    assert (lab._paper_scale, lab._paper_pen_width, lab._paper_pen_color) == plan
+    assert _ink_colours(sec, lab.sceneBoundingRect()) == {"#0000ff"}
     restore_model_display(saved)
     assert (lab._paper_scale, lab._paper_pen_color, lab._paper_pen_width) == (None, None, None)
     assert lab.boundingRect().width() == pytest.approx(screen)
+
+
+def test_full_colour_prints_the_label_at_the_row_weight_keeping_its_colour(qapp, section_scene_for):
+    """AC6: Full Colour sets scale and weight, no colour override, like plan."""
+    from firepro3d import paper_display as pd
+    from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
+                                         restore_model_display, save_paper_color_mode)
+    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    cats = pd.load_paper_categories()
+    sec, pipe, lab = _paper_scene(section_scene_for)
+    plan = _plan_label_hooks(sec, pipe)
+    saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
+    assert lab._paper_pen_color is None
+    assert lab._paper_pen_width == pytest.approx(
+        pd.resolve_line_weight_mm(cats["Pipe"]["line_weight"]) / SCALE)
+    assert (lab._paper_scale, lab._paper_pen_width, lab._paper_pen_color) == plan
+    restore_model_display(saved)
 
 
 def test_hidden_pipe_row_hides_the_label_and_restores(qapp, section_scene_for):
@@ -191,7 +246,9 @@ def test_level_change_refreshes_the_plan_label_bounds(qapp, section_scene_for):
 
 
 def test_level_change_reaches_an_open_section_label(qapp, section_scene_for):
-    """AC7: the section label reads the new Length after the rebuild."""
+    """AC7: the section label reads the new Length after the rebuild. The
+    rebuild reads host values live, so this holds without the level_manager
+    change; the plan-bounds test above is the B12 guard."""
     ms, sec, lm, pipe = _two_level_pipe(section_scene_for)
     lm.get("Level 2").elevation = 90000.0
     lm.update_elevations(ms)
