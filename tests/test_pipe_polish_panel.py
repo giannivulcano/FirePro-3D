@@ -2,7 +2,7 @@
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QEvent, QPointF
 from PyQt6.QtWidgets import QApplication, QLabel
 
 from firepro3d.dimension_edit import DimensionEdit
@@ -12,6 +12,8 @@ from firepro3d.model_space import Model_Space
 from firepro3d.node import Node
 from firepro3d.property_manager import PropertyManager
 
+_panels = []        # every panel a test builds; the ms fixture ends them
+
 
 @pytest.fixture
 def ms(qapp):
@@ -19,6 +21,16 @@ def ms(qapp):
     s._level_manager = LevelManager()
     s.push_undo_state()
     yield s
+    # End the panels HERE. Left to the cyclic GC, a dropped panel keeps its
+    # 50 ms refresh pending into a later test's event pump; a gc pass inside
+    # that refresh frees this scene under the panel's own target, the
+    # "wrapped C/C++ object deleted" raise escapes the timer slot, and PyQt
+    # turns it into a fatal abort (0xC0000409).
+    for pm in _panels:
+        pm._refresh_timer.stop()
+        pm.deleteLater()
+    _panels.clear()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
     s.cleanup()
 
 
@@ -29,8 +41,14 @@ def _node(s, x, y, z=-50.8):
     return n
 
 
-def _panel(item):
+def _new_panel():
     pm = PropertyManager()
+    _panels.append(pm)
+    return pm
+
+
+def _panel(item):
+    pm = _new_panel()
     pm.show_properties(item)
     return pm
 
@@ -177,7 +195,7 @@ def test_typed_text_reaches_the_node_through_the_row(ms):
 def test_rows_hidden_on_multi_select_and_pipe_sections(ms):
     a, b = _node(ms, 0, 0), _node(ms, 1000, 0)
     p = ms.add_pipe(a, b, None, _propagate_ceiling=False)
-    pm = PropertyManager()
+    pm = _new_panel()
     pm.show_properties([a, b])
     assert "X" not in _labels(pm)
     pm.show_properties(p)
@@ -192,7 +210,7 @@ def test_multi_select_never_writes_a_position(ms):
     a.add_sprinkler()
     b.add_sprinkler()
     for targets in ([a, b], [a, c]):
-        pm = PropertyManager()
+        pm = _new_panel()
         pm.show_properties(targets)
         assert not {"X", "Y", "Z"} & set(pm._prop_widgets)
         pm._apply_property("Mark", "M1")
