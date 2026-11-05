@@ -224,15 +224,31 @@ def test_g3_pdf_strokes_weights_and_nts(mw, monkeypatch, tmp_path, real_system_l
                     nested.append(width)
         # SB4f: the title is a block, its glyphs are paths (no text layer), so
         # the title line shows as ink in the strip under the box.
-        strip = fitz.Rect(d.x / PT, (d.y + d.h + 0.6) / PT,
-                          (d.x + d.w) / PT, (d.y + d.h + 8.5) / PT)
-        pix = page.get_pixmap(dpi=100, clip=strip, colorspace=fitz.csGRAY)
-        title_ink = sum(1 for b in pix.samples if b < 128)
+        title_ink = _strip_ink(page, d)
     finally:
         doc.close()
     assert raw and all(abs(wd - constr) < 0.01 for wd in raw), (raw, constr)
     assert nested and all(abs(wd - blocks) < 0.01 for wd in nested), (nested, blocks)
     assert title_ink > 0                        # the View Title block drew below the box
+    # Hidden control: same sheet and box, title off -> the strip is empty, so
+    # the ink above came from the title and not from anything else under the box.
+    d.show_title = False
+    out2 = tmp_path / "sv2_hidden.pdf"
+    paper_export.export_pdf([mw._sheet], mw._view_resolver, str(out2), dpi=300)
+    doc = fitz.open(str(out2))
+    try:
+        hidden_ink = _strip_ink(doc[0], d)
+    finally:
+        doc.close()
+    assert hidden_ink == 0, hidden_ink
+
+
+def _strip_ink(page, d) -> int:
+    """Dark pixels in the strip under the viewport box on an exported PDF page."""
+    strip = fitz.Rect(d.x / PT, (d.y + d.h + 0.6) / PT,
+                      (d.x + d.w) / PT, (d.y + d.h + 8.5) / PT)
+    pix = page.get_pixmap(dpi=100, clip=strip, colorspace=fitz.csGRAY)
+    return sum(1 for b in pix.samples if b < 128)
 
 
 def test_g5_delete_placed_refused_then_allowed(mw, monkeypatch):

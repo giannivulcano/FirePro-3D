@@ -3694,6 +3694,16 @@ class PaperScene(QGraphicsScene):
             if vp.data.source_view_type == "schematic":
                 vp.refresh_source()
 
+    def refresh_annotation_tags(self) -> None:
+        """Re-shape every view title (its bounds, outline and line are cached).
+        Follows ``Model_Space.annotationLabelsChanged``; a transient export scene
+        is built fresh and needs no wiring."""
+        for vp in list(self._viewports):
+            try:
+                vp._sync_title()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
+
     def dispose(self):
         """Disconnect every viewport's source-change signal.
 
@@ -3959,6 +3969,10 @@ class PaperSpaceWidget(QWidget):
 
         self.paper_scene = PaperScene(sheet, resolver)
         self.paper_scene.navigate_to_view.connect(self.navigate_to_view.emit)
+        changed = getattr(getattr(resolver, "_scene", None),
+                          "annotationLabelsChanged", None)
+        if changed is not None:           # the one live sheet follows the model's labels
+            changed.connect(self.paper_scene.refresh_annotation_tags)
 
         self._build_ui()
 
