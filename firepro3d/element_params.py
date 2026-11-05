@@ -406,10 +406,9 @@ _TABLE = {
         _P("Level.Elevation", "length", 1, lambda d: d._level.elevation, "Elevation"),
     ],
     # SB4d D2: the view-marker heads. A cardinal SectionMarker binds its
-    # Direction letter; a placed section and a detail bind their Mark over
-    # the number of the one sheet their view is placed on (D4). A placed section
-    # and a detail bind the viewport Number over the Sheet (SB4f AC5, reversing
-    # SB4d D4's Mark); Mark stays the browser identity.
+    # Direction letter; a placed section and a detail bind the viewport Number
+    # over the Sheet (SB4f AC5, reversing SB4d D4's Mark); Mark stays the
+    # browser identity.
     "Elevation": [
         _P("Direction", "text", 1, lambda m: m.cardinal[0].upper() if m.cardinal else None),
     ],
