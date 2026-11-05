@@ -492,6 +492,8 @@
   - +1 occurrence 2026-11-04 (data-loss keep-green): fails at base 5185b8cc (VC7, detached worktree) and at HEAD d09406ca; unrelated to the change.
 - [ ] [type:bug] `tests/test_sb3_parity.py::test_ac10_bound_instance_render_unchanged_by_the_lift` fails on a render-digest mismatch [P4] [subject:Architecture]
   - Details: SB4d T5 keep-green 2026-11-03, VC7-proved pre-existing by the orchestrator in a detached worktree at branch base 22bb5bdd and HEAD bb5d4802 (identical `1cb4fa70...` != `58438ac4...` both). The guard pins a bound-instance render digest against a pre-lift golden; some shipped change since re-baselined the render (candidates: SB3b room-tag style, SB4a/b/c OutlinedLabel changes). Re-derive which commit moved the digest (`git bisect` on the test), then either re-baseline deliberately or rewrite the guard as a before/after parity check in one process. `tests/test_sb3_parity.py`.
+- [ ] [type:bug] `tests/test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails: shipped SectionHead seed radius is 400.1, the test expects 406.4 [P4] [subject:Architecture]
+  - Details: wall-joint fix round 2 keep-green 2026-11-04, VC7-proved pre-existing in a detached worktree, alternating runs at branch base b29294aa and tip d4a4f3f9 (1 failed each, all four runs). `m._rk()` returns 400.109, `2.0 * BUBBLE_RADIUS_MM` is 406.4, rel tolerance 1e-3. Likely from the SB4d seed restyle at smoke (9ac77afe), not checked. Decide which is right: the seed or the test.
 
 ## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
 

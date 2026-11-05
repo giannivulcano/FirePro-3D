@@ -475,6 +475,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         so a level edit that changes no decision costs no rebuild.  Every
         member of a changed junction is itself stale, so one rebuild per
         wall is enough; there is no fan-out as in ``invalidate_geometry``.
+        Only those bodies move and a level edit changes no wall's neighbours,
+        so clearing the stale walls and their neighbours covers every stroke
+        that read a moved body.
         """
         stale = [w for w in walls
                  if not sip.isdeleted(w) and w._stops_are_stale()]
@@ -1515,6 +1518,13 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 limit = MAX_MITER_FACTOR * wall.half_thickness_scene()
                 if any(math.hypot(c.x() - pt.x(), c.y() - pt.y()) >= limit
                        for c in corners):
+                    return False
+        if len(joined) >= 3:
+            for wall, ep in joined:
+                others = [m for m in joined if m[0] is not wall]
+                limit = MAX_MITER_FACTOR * wall.half_thickness_scene()
+                if wall._pie_corners(ep, end_pt(wall, ep), others,
+                                     limit) is None:
                     return False
         return True
 

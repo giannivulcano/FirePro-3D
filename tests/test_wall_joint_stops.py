@@ -6,6 +6,7 @@ LEFT and DOWN form the shaft corner, RIGHT comes in from the east.
 from __future__ import annotations
 
 import math
+import random
 
 import pytest
 from PyQt6.QtCore import QPointF
@@ -308,6 +309,62 @@ def _wall2(s, p1, p2, thickness, alignment, top=0.0, j1="Auto"):
     return w
 
 
+def _end_corners(wall, ep):
+    quad = wall.outline().quad
+    return (quad[0], quad[1]) if ep == 0 else (quad[3], quad[2])
+
+
+def _raw_end(wall, ep):
+    """The drawn end is still the wall's untrimmed end."""
+    raw = wall.quad_points()
+    want = (raw[0], raw[1]) if ep == 0 else (raw[3], raw[2])
+    return all(math.hypot(a.x() - b.x(), a.y() - b.y()) < 1e-6
+               for a, b in zip(_end_corners(wall, ep), want))
+
+
+def _on_body(pt, wall):
+    body = wall.outline().body
+    n = body.count()
+    return any(_on_segment(pt, body.at(i), body.at((i + 1) % n))
+               for i in range(n))
+
+
+def _area(path):
+    total = 0.0
+    for poly in path.toSubpathPolygons():
+        pts = [poly.at(i) for i in range(poly.count())]
+        total += abs(sum(a.x() * b.y() - b.x() * a.y()
+                         for a, b in zip(pts, pts[1:] + pts[:1]))) / 2.0
+    return total
+
+
+def _on_line(pt, line):
+    a, b = line
+    length = math.hypot(b.x() - a.x(), b.y() - a.y())
+    return abs((pt.x() - a.x()) * (b.y() - a.y())
+               - (pt.y() - a.y()) * (b.x() - a.x())) / length < 1e-3
+
+
+def _assert_lands_on(stopper, ep, joined, label):
+    """The stopped end sits on the joined bodies, and overlaps none."""
+    for pt in _end_corners(stopper, ep):
+        assert any(_on_body(pt, w) for w in joined), f"{label}: end in the air"
+    for wall in joined:
+        # A lone joined wall can end exactly where it started (the stopper's
+        # far face on its raw end); walls that mitre always move their end.
+        assert len(joined) == 1 or not _raw_end(wall, 0 if wall._pt1
+                                                == stopper._pt1 else 1), (
+            f"{label}: stopper trimmed beside a raw wall")
+        assert _area(stopper.path().intersected(wall.path())) < 1.0, (
+            f"{label}: stopper runs into a joined wall")
+    if len(joined) == 1:
+        wall = joined[0]
+        ends = _end_corners(wall, 0 if wall._pt1 == stopper._pt1 else 1)
+        assert any(all(_on_line(pt, face) for pt in ends)
+                   for face in stopper.outline().faces), (
+            f"{label}: the joined wall does not cross the stopper's end")
+
+
 @pytest.mark.parametrize("al", ["Center", "Left", "Right"])
 @pytest.mark.parametrize("thick", [(200, 200), (100, 300), (300, 100)])
 def test_corner_never_stops_on_one_side_only(qapp, al, thick):
@@ -317,7 +374,7 @@ def test_corner_never_stops_on_one_side_only(qapp, al, thick):
         tall, low = _corner(s, *thick, "Center", al, deg, LOW)
         if low.outline().seams:
             stopped += 1
-            assert tall._solid_pt2, f"{deg}: stopper trimmed, tall wall raw"
+            _assert_lands_on(low, 0, [tall], str(deg))
         else:
             fell_back += 1
             s2 = _ms()
@@ -370,13 +427,50 @@ def test_three_wall_stop_fits_or_stays_todays_pie(qapp, gap, al):
         left, other, low = build(s, deg, LOW)
         if low.outline().seams:
             stopped += 1
-            assert left._solid_pt2 and other._solid_pt1, f"{deg}: raw corner"
+            _assert_lands_on(low, 0, [left, other], str(deg))
         else:
             fell_back += 1
             assert (_bodies(left, other, low)
                     == _bodies(*build(s2, deg, 0.0))), f"{deg}: not today's"
     assert stopped + fell_back == 17
     assert fell_back if gap == 25 else stopped
+
+
+def _four_walls(s, cfg, mode, stop=True):
+    walls = []
+    for i, (deg, thick, al) in enumerate(cfg):
+        a = math.radians(deg)
+        asks = stop and i == 0
+        walls.append(_wall2(
+            s, (0, 0), (1500 * math.cos(a), 1500 * math.sin(a)), thick, al,
+            LOW if asks and mode == "height" else 0.0,
+            "Butt" if asks and mode == "butt" else "Auto"))
+    for w in walls:
+        w.invalidate_geometry()
+    return walls
+
+
+@pytest.mark.parametrize("mode", ["butt", "height"])
+def test_four_wall_stop_fits_or_stays_todays_pie(qapp, mode):
+    """A pie of three joined walls can drop a sharp pair; a stop must not
+    land beside the dropped walls (R7)."""
+    rng = random.Random(7)
+    stopped = fell_back = 0
+    for _ in range(150):
+        cfg = [(rng.uniform(0, 360), rng.choice((100, 200, 300)),
+                rng.choice(("Center", "Left", "Right"))) for _i in range(4)]
+        s, s2 = _ms(), _ms()
+        walls = _four_walls(s, cfg, mode)
+        twin = _four_walls(s2, cfg, mode, stop=False)
+        if walls[0].outline().seams:
+            stopped += 1
+            _assert_lands_on(walls[0], 0, walls[1:], str(cfg))
+        else:
+            fell_back += 1
+            first = 0 if mode == "height" else 1
+            assert (_bodies(*walls[first:]) == _bodies(*twin[first:])
+                    ), f"{cfg}: not today's result"
+    assert stopped and fell_back
 
 
 # A level edit touches only the joints it changes ─────────────────────────
