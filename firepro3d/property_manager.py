@@ -10,7 +10,8 @@ Property types recognised from ``get_properties()`` dict:
     header     — section-divider label (no editor, no "value" key needed)
     label      — read-only informational text
     warning    — full-width word-wrapped warning block (amber header + bullet body)
-    string     — editable QLineEdit (auto-detects numeric fields)
+    string     — editable QLineEdit (auto-detects numeric fields; meta
+                 "free_text": True skips that, for text that may look numeric)
     enum       — QComboBox with fixed options list
     combo      — alias for enum
     color      — colour swatch (ui_kit.Swatch → colour_picker)
@@ -550,15 +551,16 @@ class PropertyManager(QWidget):
             else:
                 widget = QLineEdit(str(meta["value"]))
                 # Auto-detect numeric fields for input validation
-                try:
-                    float(meta["value"])
-                    validator = QDoubleValidator()
-                    validator.setBottom(-1e9)
-                    validator.setNotation(
-                        QDoubleValidator.Notation.StandardNotation)
-                    widget.setValidator(validator)
-                except (ValueError, TypeError):
-                    pass
+                if not meta.get("free_text"):
+                    try:
+                        float(meta["value"])
+                        validator = QDoubleValidator()
+                        validator.setBottom(-1e9)
+                        validator.setNotation(
+                            QDoubleValidator.Notation.StandardNotation)
+                        widget.setValidator(validator)
+                    except (ValueError, TypeError):
+                        pass
                 widget.editingFinished.connect(
                     lambda k=key, field=widget: self._apply_property(
                         k, field.text())

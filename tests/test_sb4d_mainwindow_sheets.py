@@ -36,28 +36,37 @@ def _sheet_slot(w, marker):
     return marker.bubble.host_values({"Sheet"})["Sheet"].text or ""     # None = an empty slot
 
 
+def _number_slot(marker):
+    return marker.bubble.host_values({"Number"})["Number"].text or ""
+
+
 def test_viewport_undo_renumber_reorder_delete_reach_the_browser_and_the_head(win, monkeypatch):
     ms = win.scene
-    head_def(ms, "Detail", texts=(("Sheet", 2.0),))
+    head_def(ms, "Detail", texts=(("Sheet", 2.0), ("Number", -2.0)))
     marker = win.detail_manager.create_detail("Detail 1", QRectF(0.0, 0.0, 4000.0, 3000.0))
     win.project_browser.refresh_details(win.detail_manager.detail_names)
     marker.refresh_heads()
     assert _draggable(win, "Detail 1") and _sheet_slot(win, marker) == ""
+    assert _number_slot(marker) == ""
 
     sheet1 = win._sheet
     ps = win.paper_space_widget.paper_scene
     data = SheetViewData("detail", "Detail 1", "", 0.01, 20.0, 20.0, 100.0, 80.0)
     ps.add_viewport(data)                                      # undoable add -> sheetModified
     assert not _draggable(win, "Detail 1") and _sheet_slot(win, marker) == sheet1.number
+    assert _number_slot(marker) == data.view_number != ""
     ps.undo_stack.undo()                                        # T16 minor 1: the flag returns through undo
     assert _draggable(win, "Detail 1") and _sheet_slot(win, marker) == ""
+    assert _number_slot(marker) == ""
     ps.undo_stack.redo()
     assert not _draggable(win, "Detail 1") and _sheet_slot(win, marker) == sheet1.number
+    assert _number_slot(marker) == data.view_number != ""
 
     cached = marker.bubble.boundingRect()                       # cache the rect under the old number
     sheet1.number = LONG                                        # T16 minor 2: renumber
     win._on_sheet_meta_changed()
     assert _sheet_slot(win, marker) == LONG
+    assert _number_slot(marker) == data.view_number             # a sheet renumber leaves the view's number
     assert marker.bubble.boundingRect() != cached               # the head re-shaped, not just re-read
 
     win._modified = False
@@ -74,3 +83,4 @@ def test_viewport_undo_renumber_reorder_delete_reach_the_browser_and_the_head(wi
     win._delete_sheet(LONG)                                 # the holder goes: the slot empties, the leaf drags again
     assert win._modified
     assert _sheet_slot(win, marker) == "" and _draggable(win, "Detail 1")
+    assert _number_slot(marker) == ""

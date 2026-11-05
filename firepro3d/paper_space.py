@@ -690,7 +690,8 @@ class ViewportProperties:
             "Title": {"type": "string",
                       "value": (self._vp.display_title()
                                 if self._vp._is_schematic() else d.title)},
-            "Number": {"type": "string", "value": d.view_number},
+            "Number": {"type": "string", "value": d.view_number,
+                       "free_text": True},       # "1" must still take "A5" or a blank
             "Scale": {"type": "enum", "value": scale_val,
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},

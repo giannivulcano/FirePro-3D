@@ -213,7 +213,7 @@ class SceneIOMixin:
         from .system_blocks import SYSTEM_DEFAULTS
         kept = 0
         for cat in ("Section", "Detail"):
-            bid = SYSTEM_DEFAULTS.get(cat)   # .get: a fixture may clear SYSTEM_DEFAULTS; no id, no copy to refresh
+            bid = SYSTEM_DEFAULTS.get(cat)   # no id, no copy to refresh
             d = self._block_definitions.get(bid) if bid else None
             if d is None:
                 continue
