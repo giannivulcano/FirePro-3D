@@ -5,11 +5,13 @@ LEFT and DOWN form the shaft corner, RIGHT comes in from the east.
 """
 from __future__ import annotations
 
+import itertools
 import math
 import random
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 
 from firepro3d.level_manager import LevelManager
 from firepro3d.wall import WallSegment
@@ -526,3 +528,128 @@ def test_level_edit_rebuilds_only_the_changed_junction(qapp, monkeypatch):
     assert far_a._outline.stroke_segments is not None
     assert not right.outline().seams
     assert _is_pie(left, down, right)
+
+
+# ---------------------------------------------------------------------------
+# Seam weight: one stroke over the fills, whatever order the walls were drawn
+# ---------------------------------------------------------------------------
+
+_PX_PER_MM = 0.25
+_FILL = "#c0c0c0"
+_LINE = "#000000"
+_SEAM_RECT = QRectF(-400.3, -400.7, 1200, 1200)     # sub-pixel, so AA shows
+_PEN_MM = 40.0
+_SEAM_CASES = {
+    # case: walls, the stopper, the seam's end points, samples along it
+    "shaft": ({"L": ((-1500, 0), (0, 0), 0.0), "D": ((0, 0), (0, 1500), 0.0),
+               "R": ((0, 0), (1500, 0), LOW)},
+              "R", ((HALF, -HALF), (HALF, HALF)), [(HALF, 60.0)]),
+    "through": ({"L": ((-1500, 0), (0, 0), 0.0), "R": ((0, 0), (1500, 0), 0.0),
+                 "D": ((0, 0), (0, 1500), LOW)},
+                "D", ((-HALF, HALF), (HALF, HALF)),
+                [(-60.0, HALF), (60.0, HALF)]),
+    "corner": ({"L": ((-1500, 0), (0, 0), 0.0), "D": ((0, 0), (0, 1500), LOW)},
+               "D", ((-HALF, HALF), (HALF, HALF)), [(0.0, HALF)]),
+}
+_SEAM_ORDERS = [(case, order) for case, spec in _SEAM_CASES.items()
+                for order in itertools.permutations(spec[0])]
+_SEAM_IDS = [f"{c}-{''.join(o)}" for c, o in _SEAM_ORDERS]
+
+
+def _styled_scene(case, order, paper, stopper_line=_LINE):
+    s = _ms()
+    walls, stopper, _seam, _samples = _SEAM_CASES[case]
+    for key in order:
+        p1, p2, top = walls[key]
+        w = _wall(s, p1, p2, top_offset=top)
+        w._fill_mode = "Solid"
+        w._display_fill_color = _FILL
+        w._display_color = stopper_line if key == stopper else _LINE
+        if paper:
+            w._paper_pen_width = _PEN_MM
+            w._paper_fill_opaque = True
+    assert sum(len(w.outline().seams) for w in s._walls) >= 1, "scene has a stop"
+    return s
+
+
+def _seam_images(s, case, paper):
+    """The scene, and one stroke of the seam on a plain fill at the same spot."""
+    size = (int(_SEAM_RECT.width() * _PX_PER_MM),
+            int(_SEAM_RECT.height() * _PX_PER_MM))
+    img = QImage(*size, QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    s.render(p, QRectF(0, 0, *size), _SEAM_RECT,
+             Qt.AspectRatioMode.IgnoreAspectRatio)
+    p.end()
+    (ax, ay), (bx, by) = _SEAM_CASES[case][2]
+    away = 2 * _PEN_MM
+    inside = QPoint(
+        int(((ax + bx) / 2 + (away if ax == bx else 0) - _SEAM_RECT.x())
+            * _PX_PER_MM),
+        int(((ay + by) / 2 + (away if ay == by else 0) - _SEAM_RECT.y())
+            * _PX_PER_MM))
+    ref = QImage(*size, QImage.Format.Format_RGB32)
+    ref.fill(img.pixelColor(inside))
+    p = QPainter(ref)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.scale(_PX_PER_MM, _PX_PER_MM)
+    p.translate(-_SEAM_RECT.x(), -_SEAM_RECT.y())
+    pen = QPen(QColor(_LINE), _PEN_MM if paper else 1.0)
+    pen.setCosmetic(not paper)
+    p.setPen(pen)
+    p.drawLine(QPointF(ax, ay), QPointF(bx, by))
+    p.end()
+    return img, ref
+
+
+def _across(img, case, sample, paper):
+    """Red channel of the pixels across the seam at *sample*."""
+    (ax, _ay), (bx, _by) = _SEAM_CASES[case][2]
+    reach = int(_PEN_MM * _PX_PER_MM) + 4 if paper else 4
+    x = int((sample[0] - _SEAM_RECT.x()) * _PX_PER_MM)
+    y = int((sample[1] - _SEAM_RECT.y()) * _PX_PER_MM)
+    dx, dy = (1, 0) if ax == bx else (0, 1)
+    return [img.pixelColor(x + dx * i, y + dy * i).red()
+            for i in range(-reach, reach + 1)]
+
+
+@pytest.mark.parametrize("paper", [False, True], ids=["canvas", "paper"])
+@pytest.mark.parametrize("case,order", _SEAM_ORDERS, ids=_SEAM_IDS)
+def test_seam_is_one_stroke_over_the_fills(qapp, case, order, paper):
+    s = _styled_scene(case, order, paper)
+    img, ref = _seam_images(s, case, paper)
+    for sample in _SEAM_CASES[case][3]:
+        got = _across(img, case, sample, paper)
+        want = _across(ref, case, sample, paper)
+        assert min(want) < 90, "the reference shows a dark line"
+        assert all(abs(g - w) <= 8 for g, w in zip(got, want)), (got, want)
+
+
+@pytest.mark.parametrize("case,order", _SEAM_ORDERS, ids=_SEAM_IDS)
+def test_seam_keeps_the_stopper_colour(qapp, case, order):
+    s = _styled_scene(case, order, paper=True, stopper_line="#ff0000")
+    img, _ref = _seam_images(s, case, paper=True)
+    for sample in _SEAM_CASES[case][3]:
+        centre = img.pixelColor(
+            int((sample[0] - _SEAM_RECT.x()) * _PX_PER_MM),
+            int((sample[1] - _SEAM_RECT.y()) * _PX_PER_MM))
+        assert (centre.red(), centre.green()) == (255, 0), centre.name()
+
+
+def test_seam_painter_follows_a_stacking_change(qapp):
+    # On paper: the wide pen and opaque fill show a stale painter at any offset.
+    s = _styled_scene("shaft", ("R", "L", "D"), paper=True)
+    right = next(w for w in s._walls if w.outline().seams)
+    down = next(w for w in s._walls if w.pt2.y() > 1000)
+
+    def assert_one_stroke():
+        img, ref = _seam_images(s, "shaft", True)
+        got = _across(img, "shaft", (HALF, 60.0), True)
+        want = _across(ref, "shaft", (HALF, 60.0), True)
+        assert all(abs(g - w) <= 8 for g, w in zip(got, want)), (got, want)
+
+    assert_one_stroke()
+    right.setZValue(down.zValue() + 1.0)         # the stopper now paints last
+    assert_one_stroke()

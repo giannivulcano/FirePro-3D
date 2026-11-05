@@ -37,6 +37,25 @@ class JunctionArm:
 
 
 @dataclass
+class SeamStroke:
+    """One piece of a stop's seam and the two walls whose fills meet there.
+
+    Attributes:
+        line: The piece, on the toucher's own body edge.
+        stopper: The wall that stops; its pen draws the piece.
+        toucher: The joined wall under the piece, or None when no joined
+            wall's edge carries the whole seam (the stopper then draws it).
+        painter_key: The two walls' z values when ``painter`` was found.
+        painter: Whichever of the two paints last.
+    """
+    line: Line
+    stopper: object
+    toucher: object | None
+    painter_key: tuple[float, float] | None = None
+    painter: object | None = None
+
+
+@dataclass
 class WallOutline:
     """One wall's cached outline (design D2).
 
@@ -52,7 +71,11 @@ class WallOutline:
         centerline: True alignment-correct centerline (pt1, pt2).
         neighbours: Walls whose union bodies shape this outline.
         seams: Contact edges of stopping ends; always stroked.
-        stroke_segments: Outline pieces this wall strokes (lazy).
+        stroke_segments: Outline pieces this wall strokes, seams included
+            (lazy; the selection highlight reads it).
+        edge_strokes: ``stroke_segments`` without the seams (lazy).
+        seam_strokes: Seam pieces this wall may have to paint, its own and
+            those of stoppers lying on its edges (lazy).
         corners: Visible outline corners on this wall (lazy).
     """
     body: QPolygonF
@@ -66,6 +89,8 @@ class WallOutline:
     neighbours: tuple
     seams: tuple[Line, ...] = ()
     stroke_segments: list[Line] | None = None
+    edge_strokes: list[Line] | None = None
+    seam_strokes: list[SeamStroke] | None = None
     corners: list[QPointF] | None = None
 
 

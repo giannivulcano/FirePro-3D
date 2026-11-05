@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
-    QPainter,
+    QPainter, QTransform,
 )
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ from .constants import (DEFAULT_LEVEL,
                        WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL)
 from .view_scale import scene_hit_width
 from PyQt6 import sip
-from .wall_outline import (JunctionArm, WallOutline, _poly_path,
+from .wall_outline import (JunctionArm, SeamStroke, WallOutline, _poly_path,
                            boundary_segments, cluster_union, intersect_lines,
                            junction_pie, stop_end, stroke_segments,
                            visible_corners)
@@ -60,6 +60,11 @@ _SELECTION_COLOR = QColor("red")
 def _scene_hit_width(item) -> float:
     """~14 screen px at the visible view's zoom (see view_scale)."""
     return scene_hit_width(item, 14.0, 8.0)
+
+
+def _line_length(line) -> float:
+    a, b = line
+    return math.hypot(b.x() - a.x(), b.y() - a.y())
 
 
 def compute_wall_quad(
@@ -510,10 +515,61 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 if not sip.isdeleted(w):
                     polys.append(w.outline_geometry().union_body)
             boundary = boundary_segments(cluster_union(polys))
-            o.stroke_segments = (stroke_segments(o.body, boundary)
-                                 + list(o.seams))
+            o.edge_strokes = stroke_segments(o.body, boundary)
+            o.stroke_segments = o.edge_strokes + list(o.seams)
+            o.seam_strokes = self._seam_strokes(o)
             o.corners = visible_corners(o.body, boundary)
         return o
+
+    def _seam_strokes(self, o: WallOutline) -> list[SeamStroke]:
+        """Seam pieces that may fall to this wall to paint.
+
+        A seam runs between two bodies, so whichever paints later fills over
+        the half of the line on its side.  Each piece therefore belongs to
+        the stopper and the joined wall under it, and only the later of the
+        two draws it (``_paints_seam``): one stroke, over both fills.
+        """
+        live = [n for n in o.neighbours if not sip.isdeleted(n)]
+        out = [SeamStroke((a, b), n, self)
+               for n in live
+               for a, b in stroke_segments(o.body,
+                                           list(n.outline_geometry().seams))]
+        for seam in o.seams:
+            pieces = [SeamStroke((a, b), self, n)
+                      for n in live
+                      for a, b in stroke_segments(n.outline_geometry().body,
+                                                  [seam])]
+            covered = sum(_line_length(p.line) for p in pieces)
+            if covered >= _line_length(seam) - WALL_OUTLINE_ON_EDGE_TOL:
+                out.extend(pieces)
+            else:
+                out.append(SeamStroke(seam, self, None))
+        return out
+
+    def _paints_seam(self, s: SeamStroke) -> bool:
+        """True when this wall paints after the other wall under *s*.
+
+        Same-z walls stack by insertion order, which only an add or remove
+        changes, and that rebuilds these strokes; so the answer is found
+        once per pair of z values (the model scene is NoIndex, and a lookup
+        walks every item).
+        """
+        if (s.toucher is None or sip.isdeleted(s.stopper)
+                or sip.isdeleted(s.toucher)):
+            return True
+        key = (s.stopper.zValue(), s.toucher.zValue())
+        if key != s.painter_key:
+            s.painter_key = key
+            a, b = s.line
+            mid = QRectF((a.x() + b.x()) / 2.0 - 1.0,
+                         (a.y() + b.y()) / 2.0 - 1.0, 2.0, 2.0)
+            s.painter = next(
+                (it for it in self.scene().items(
+                    mid, Qt.ItemSelectionMode.IntersectsItemBoundingRect,
+                    Qt.SortOrder.DescendingOrder, QTransform())
+                 if it is s.stopper or it is s.toucher),
+                s.stopper)
+        return s.painter is self
 
     def snap_geometry(self) -> dict:
         """Snap targets from the cached outline (design D10; named targets
@@ -595,12 +651,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Paint ────────────────────────────────────────────────────────────────
 
+    def _line_colour(self) -> QColor:
+        """Resolved outline colour."""
+        dc = self._display_color            # None = unset; "" = No stroke
+        return resolve_colour(self._colour if dc is None else dc, item=self)
+
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
         o = self.outline()
-        dc = self._display_color            # None = unset; "" = No stroke
-        line_col = resolve_colour(self._colour if dc is None else dc, item=self)
+        line_col = self._line_colour()
         pen = self._outline_pen(line_col)
 
         # Fill (own body only -- D7: differing fills meet at the miter)
@@ -651,8 +711,14 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         # (D6) -- no seam line inside a joined junction.
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for a, b in o.stroke_segments:
+        for a, b in o.edge_strokes:
             painter.drawLine(a, b)
+        # A stop's seam: always the stopper's pen, whichever wall paints it.
+        for s in o.seam_strokes:
+            if self._paints_seam(s):
+                stopper = s.stopper
+                painter.setPen(stopper._outline_pen(stopper._line_colour()))
+                painter.drawLine(*s.line)
 
         # Selection highlight -- same pieces (Task 6 gates it off paper)
         if shows_selection(self):
