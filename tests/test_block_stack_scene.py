@@ -6,7 +6,7 @@ from PyQt6.QtGui import QImage, QPainter
 
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from tests._block_stack_helpers import ink, line_def, rect_def, render
+from tests._block_stack_helpers import ink, l_def, line_def, lines_def, rect_def, render
 
 VIEW = QRectF(-20, -60, 260, 180)
 OVER = QRectF(60, -4, 80, 8)      # inside the top block
@@ -254,3 +254,83 @@ def test_a_scaled_upper_block_covers_its_scaled_size(be):
     assert ink(be, a, QRectF(220, -4, 60, 8), WIDE) == 0     # inside 100..300, past the unscaled 200
     assert ink(be, a, QRectF(320, -4, 60, 8), WIDE) > 0      # right of B
     assert ink(be, a, QRectF(10, -4, 60, 8), WIDE) > 0       # left of B
+
+
+# -- The mask is the block's silhouette (amended D2): its outline traced from
+#    connected linework, not the closed shapes or the bounding box. The covered
+#    extents are worked out by hand from the geometry. ------------------------
+
+def _sq(x0, y0, x1, y1):
+    return [((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)),
+            ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))]
+
+
+def _under(be, upper_def, at, line=200.0, **kw):
+    """A's horizontal line along y = 0, and the upper block placed at *at*."""
+    a = be.place_block_instance(line_def(be, "A", line).id, (0.0, 0.0))
+    b = be.place_block_instance(upper_def.id, at)
+    return a, b
+
+
+def test_an_outline_of_four_separate_lines_masks_its_interior(be):
+    a, b = _under(be, lines_def(be, "Box", _sq(0, 0, 100, 100)), (50.0, -50.0))
+    assert ink(be, a, QRectF(60, -4, 80, 8), VIEW) == 0       # inside the outline
+    assert ink(be, a, BESIDE, VIEW) > 0                       # left of it
+
+
+def test_a_lower_blocks_ink_in_the_corner_of_an_l_shape_stays_drawn(be):
+    """The smoke bug. The L's arms are x 50..150, y -50..-10 and x 50..90,
+    y -50..50; its bounding box corner is x 90..150, y -10..50, and A's line
+    runs through it at y 0."""
+    a, b = _under(be, l_def(be), (50.0, -50.0))
+    assert ink(be, a, QRectF(55, -4, 30, 8), VIEW) == 0       # under the vertical arm
+    assert ink(be, a, QRectF(100, -4, 40, 8), VIEW) > 0       # the empty corner: drawn
+    assert ink(be, a, BESIDE, VIEW) > 0
+
+
+def test_a_gap_of_six_tenths_mm_in_an_outline_still_fills(be):
+    segs = _sq(0, 0, 100, 100)[:3] + [((0, 0), (0, 99.4))]    # the left side stops 0.6 short
+    a, b = _under(be, lines_def(be, "Gap", segs), (50.0, -50.0))
+    assert ink(be, a, QRectF(60, -4, 80, 8), VIEW) == 0
+
+
+def test_two_disjoint_pieces_each_mask_and_the_space_between_does_not(be):
+    segs = _sq(0, 50, 40, 90) + _sq(100, 50, 140, 90)         # x 50..90 and 150..190, y -20..20
+    a, b = _under(be, lines_def(be, "Two", segs), (50.0, -70.0))
+    assert ink(be, a, QRectF(55, -4, 30, 8), VIEW) == 0
+    assert ink(be, a, QRectF(155, -4, 30, 8), VIEW) == 0
+    assert ink(be, a, QRectF(100, -4, 40, 8), VIEW) > 0       # between them: drawn
+
+
+def test_a_closed_ring_with_a_hole_stays_opaque_in_the_hole(be):
+    d = lines_def(be, "Ring", [], rects=[(0, 0, 100, 100), (30, 30, 70, 70)])
+    a, b = _under(be, d, (50.0, -50.0))                       # the hole is x 80..120, y -20..20
+    assert ink(be, a, QRectF(85, -4, 30, 8), VIEW) == 0
+    assert ink(be, a, BESIDE, VIEW) > 0
+
+
+def test_the_halo_area_of_an_l_shape_misses_its_empty_corner(be):
+    a, b = _under(be, l_def(be), (50.0, -50.0))
+    assert b.halo_area_path().contains(QPointF(70, 0))        # the vertical arm
+    assert not b.halo_area_path().contains(QPointF(120, 20))  # the empty corner
+
+
+def test_a_mirrored_l_shape_masks_its_mirrored_arm(be):
+    """At x=150 and mirrored the arms are x 50..150, y -50..-10 and x 110..150,
+    y -50..50; the empty corner is x 50..110, y -10..50."""
+    a, b = _under(be, l_def(be), (150.0, -50.0))
+    render(be, VIEW)
+    b.set_block_mirrored(True)
+    assert ink(be, a, QRectF(115, -4, 30, 8), VIEW) == 0      # under the mirrored arm
+    assert ink(be, a, QRectF(60, -4, 40, 8), VIEW) > 0        # the mirrored corner: drawn
+
+
+def test_a_scaled_l_shape_masks_its_scaled_arm(be):
+    """At (50, -120) and scaled 2x the arms are x 50..250, y -120..-40 and
+    x 50..130, y -120..80; the empty corner is x 130..250, y -40..80."""
+    a = be.place_block_instance(line_def(be, "A", 300.0).id, (0.0, 0.0))
+    b = be.place_block_instance(l_def(be).id, (50.0, -120.0))
+    render(be, WIDE)
+    b.set_block_scale(2.0)
+    assert ink(be, a, QRectF(60, -4, 60, 8), WIDE) == 0       # under the scaled arm
+    assert ink(be, a, QRectF(150, -4, 60, 8), WIDE) > 0       # the scaled corner: drawn
