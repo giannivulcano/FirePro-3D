@@ -1,8 +1,9 @@
 ---
 status: current          # code-verified as-built conventions; divergences ledger at end
-last-verified: 2026-11-02  # text-sizing-wrap Account: §3 pressure / flow / velocity rows (project precision, instance methods) + with_overrides pointer only, rest not re-audited; prior 2026-10-30  # dimension-input-grammar Account: §3.2 length literals + expressions (length_expr.py), §3.1 fraction rows scoped to lengths, NUM_PATTERN home moved; prior 2026-10-24 SB2a Account: §3 area / volume / pressure / flow rows name the ScaleManager formatters, new velocity + pipe ID rows, D1 resolved, D2 reworded; prior 2026-10-01 scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
-verified-commit: 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 6984a2b1   # dimension-input-grammar Account; prior a6122a0e   # SB2a Account; prior c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
+last-verified: 2026-11-05  # pipe polish Account: new §4.2 (CAD_Math.flip_y, up-positive displayed Y) only, rest not re-audited; prior 2026-11-02  # text-sizing-wrap Account: §3 pressure / flow / velocity rows (project precision, instance methods) + with_overrides pointer only, rest not re-audited; prior 2026-10-30  # dimension-input-grammar Account: §3.2 length literals + expressions (length_expr.py), §3.1 fraction rows scoped to lengths, NUM_PATTERN home moved; prior 2026-10-24 SB2a Account: §3 area / volume / pressure / flow rows name the ScaleManager formatters, new velocity + pipe ID rows, D1 resolved, D2 reworded; prior 2026-10-01 scene-tools P1 Account: Factor row (format_factor/parse_factor), §7 rule 1 unitless example, D5 COUNT + D6 _ANGLE_RE divergences; prior 2026-09-24
+verified-commit: ff2b8636  # pipe polish merge on main (v0.90.0; §4.2 only); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 6984a2b1   # dimension-input-grammar Account; prior a6122a0e   # SB2a Account; prior c8ff4f4   # feat/scene-tools-p1-batch; prior 762d083
 applies-to:
+  - firepro3d/cad_math.py         # §4.2 flip_y (displayed Y up-positive)
   - firepro3d/scale_manager.py
   - firepro3d/dynamic_input.py    # FieldKind formatter/parser shells (FACTOR → ScaleManager; COUNT still local — §8 D5)
   - firepro3d/dimension_edit.py   # widget contract owned by property-panel.md §3.8; unit rules owned here
@@ -156,6 +157,10 @@ There are **two** angle-normalization ranges in the codebase, and they are delib
 |---|---|---|
 | `(-180, 180]` | `ScaleManager.normalize_angle` | Display and input. Signed readouts (`-90°`) match CAD convention. |
 | `[0, 360)` | `geometry_intersect._normalize_angle` | Arc-containment sweep comparisons in `_angle_in_arc`, where a monotonic non-negative range makes wrap-around tests tractable. Never surfaced to the user. |
+
+### 4.2 Displayed Y is up-positive: `CAD_Math.flip_y` (pipe polish, 2026-11-05)
+
+A **coordinate** shown to the user (a panel Y row, an End Y readout) is up-positive, while the scene's Y is down. The one conversion is `CAD_Math.flip_y(y)` in `cad_math.py`: it negates and returns `0.0` for a zero input (so a displayed Y never reads `-0.0`). It is its own inverse: apply it on the way out (display) and again on the way in (commit). Current callers: the Gridline `Origin Y` / `End Y` rows (`gridline.py`) and the Node / Sprinkler `Y` row (`Node.position_rows()` / `Node._edit_position`). New code must call the helper, never negate inline (the status-bar cursor readout in `model_space.py` still negates by hand; it is not yet routed through the helper). This is the position counterpart of the angle rule above and complements it: angles flip the delta's Y before `atan2`, coordinates flip the value itself. X and Z are not flipped.
 
 ## 5. Input round-trips
 

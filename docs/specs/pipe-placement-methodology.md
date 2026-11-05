@@ -1,8 +1,25 @@
+---
+status: current          # documents as-built behaviour plus the bugs still open (§16.1)
+last-verified: 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
+verified-commit: ff2b8636  # pipe polish merge on main (v0.90.0)
+applies-to:
+  - firepro3d/pipe.py
+  - firepro3d/node.py
+  - firepro3d/fitting.py
+  - firepro3d/equivalent_length.py
+  - firepro3d/pipe_network_controller.py
+  - firepro3d/pipe_target_marker.py
+  - firepro3d/model_space.py            # shells, press dispatch, SNAP_RADIUS
+  - firepro3d/sprinkler_system.py
+  - firepro3d/constants.py
+---
+
 # Pipe Placement Methodology — Specification
 
 > **Status:** Revised specification (documents current implementation + required fixes)
 > **Source files:** `model_space.py`, `pipe.py`, `node.py`, `fitting.py`, `sprinkler_system.py`, `constants.py`
 > **Date:** 2026-04-04
+> **Pipe polish verified 2026-11-05** (`ff2b8636`, v0.90.0): §2.2 node X / Y / Z, §2.3 fitting matrix and the plain-fitting rule, §3.2 / §3.3 pickup, split and target marker, §4.4, §6.3, §6.4 (panel edit moves the stack), §9.1 riser and fitting symbol sizes, masking, §13 and the §16 bug table were re-checked against code; B1, B2, B4, B10 are fixed there, B3 and the drag / Move half of B6 stay open. Other sections not re-audited.
 > **Labels (§ Labels, §9.2 preview) verified 2026-11-01** (`0924bcd6`, SB4a): the placed label is now an annotation block; B11 fixed. Other sections unchanged by SB4a.
 > **Revision:** 2 (post grill session)
 > **§4.1 verified 2026-08-20** (`25c7edb`): B5 fixed — contextual coplanar-pipe 45° reference. Other sections still describe required fixes, not shipped code.
@@ -61,18 +78,31 @@ These rules govern the entire pipe placement system:
 - `node1_ceiling_level`, `node1_ceiling_offset`
 - `node2_ceiling_level`, `node2_ceiling_offset`
 
+On the template panel the offset rows read **N1 Offset** / **N2 Offset** (meta `label`; the keys `"N1 Ceiling Offset"` / `"N2 Ceiling Offset"` are unchanged).
+
 ### 2.2 Node (`firepro3d/node.py`)
 
 | Attribute | Type | Default | Description |
 |---|---|---|---|
-| `x_pos`, `y_pos` | `float` | — | Scene position |
+| `x_pos`, `y_pos` | `float` | — | Position at creation, rewritten by the panel X / Y edit only. **No reader**: `scenePos()` is the live position (a drag does not update them) |
 | `z_pos` | `float` | — | 3D elevation = `level.elevation + ceiling_offset` |
 | `ceiling_level` | `str` | `"Level 1"` | Ceiling reference level |
-| `ceiling_offset` | `float` | `-50.8` mm | Offset below ceiling |
+| `ceiling_offset` | `float` | `-50.8` mm | Offset from the ceiling level's elevation (not necessarily below a ceiling). Panel label **Offset**, property key `"Ceiling Offset"` |
 | `pipes` | `list[Pipe]` | `[]` | Connected pipes (**max 4**) |
 | `sprinkler` | `Sprinkler \| None` | `None` | Attached sprinkler head |
 | `fitting` | `Fitting` | — | Auto-created, always present |
 | `RADIUS` | `int` | `13` | Visual radius (scene units) |
+
+**Node panel rows** (`Node.get_properties()`; a sprinkler node shows the sprinkler's own rows, which delegate to the same node — [`sprinkler-system-components.md`](sprinkler-system-components.md) §4.4):
+
+| Row | Edit | Effect |
+|---|---|---|
+| Ceiling Level | level combo | Recomputes `z_pos`; this node only |
+| **Offset** (key `"Ceiling Offset"`) | length | Recomputes `z_pos`; this node only. The old key, `"Elevation"`, `"Elevation Offset"` and the label `"Offset"` are all accepted by `set_property` (file load, aliases) |
+| **X**, **Y** | length, mm | Moves the node's whole riser stack (§6.4). **Y is up-positive** on the panel: scene Y is down-positive and `CAD_Math.flip_y` is the one conversion ([`units-and-formatting.md`](units-and-formatting.md) §4.2) |
+| **Z** | length, mm | Absolute elevation. Typing solves the **Offset** against the node's **kept** Ceiling Level and moves **this node only** (attached pipes slope; no level change). A no-change commit does nothing |
+
+X / Y / Z carry `single_only`: they show on a single selection and are skipped on a multi-selection and in a Pipe's inline "Node 1 / Node 2" sections ([`property-panel.md`](property-panel.md) §3.1). A committed edit requests one undo step (`request_undo_push`). The read-only **Absolute Elev.** row survives only in the Pipe's Node 1 / Node 2 sections.
 
 ### 2.3 Fitting (`firepro3d/fitting.py`)
 
@@ -90,17 +120,21 @@ Fittings are **auto-determined** from the count and angles of connected pipes.
 | 0 | 3 | ~90° branch | `"tee"` |
 | 0 | 3 | ~45° or ~135° branch | `"wye"` |
 | 0 | 4 | Two perpendicular collinear pairs | `"cross"` |
-| 1 (up) | 0 | — | `"cap_up"` |
-| 1 (down) | 0 | — | `"cap_down"` |
-| 1 (up) | 1 | — | `"elbow_up"` |
-| 1 (down) | 1 | — | `"elbow_down"` |
-| 1 | 2 | 90° horizontal branch | `"tee_up"` / `"tee_down"` |
-| 2 (up+down) | 1 | Through-riser with branch | `"tee_vertical"` **(NEW)** |
-| 2 (up+down) | 2 | Through-riser with cross | `"cross_vertical"` **(NEW)** |
+| 1 or more, all one direction (up **or** down) | 0 or 1 | — | `"elbow_up"` / `"elbow_down"` (no `cap_up` / `cap_down` type exists) |
+| 1 or more, all one direction | 2 or more | — | `"tee_up"` / `"tee_down"` (no angle test) |
+| both (a pipe up **and** a pipe down: a *through* node) | 0 | Through-riser, no branch | `"riser_through"` |
+| both | 1 | Through-riser with branch | `"tee_vertical"` |
+| both | 2 or more | Through-riser with two or more branches | `"cross_vertical"` |
 
-> **BUG (current):** `determine_type()` only inspects `vertical[0]`, ignoring second vertical pipe. Through-risers (2 vertical + horizontal branches) return wrong fitting types.
->
-> **FIX:** Implement full matrix above. Requires new SVG symbols for `tee_vertical` and `cross_vertical`.
+A pipe is *vertical* when its ends share XY within 10 scene units and differ in `z_pos` (`Fitting._is_vertical`); *through* is `Fitting.is_through(node)`. Vertical rows are tested before the horizontal rows, so a node with any vertical pipe never gets a plain type. Direction `up` / `down` is read from the first vertical pipe's far end (`vertical[0]`) only when the node is not a through node.
+
+> ~~**BUG:** `determine_type()` only inspects `vertical[0]`, ignoring the second vertical pipe.~~ **Fixed (B10, pipe polish, 2026-11-05):** a through node returns `riser_through` / `tee_vertical` / `cross_vertical`. **No new SVG was drawn**: all three types share `fitting_symbols/riser_passthrough.svg` (`Fitting.SYMBOLS`), the same file the vertical pipe's own riser symbol uses (§9.1).
+
+**Hydraulics read `fitting.type`** (`hydraulic_solver.py` -> `equivalent_length.FITTING_TYPE_MAP`): `riser_through` -> the `cap` row (0 ft), `tee_vertical` -> `tee_flow_turn`, `cross_vertical` -> `cross_flow_turn`. The hydraulic report names them in `_FITTING_NOTE_LABELS`. Table owner: [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §10.2.
+
+**Plain fittings never draw (D1).** The six *plain* types, `Fitting.PLAIN_TYPES` = `cap`, `45elbow`, `90elbow`, `tee`, `wye`, `cross`, have no plan symbol, on screen or on a sheet, while `Fitting.SHOW_PLAIN_SYMBOLS` is `False` (its default). `Fitting.draws_symbol()` is the one rule; setting the flag `True` brings every plain symbol back. The types, the SVG assets, `align_fitting`, hydraulics and `Pipe` cap-end handling are untouched by the rule: only `symbol.setVisible` follows it. Sheets (`paper_display`) restyle only a fitting whose symbol is visible, so a hidden plain symbol leaves no pixels there either. The Display Manager Fitting row (visible, colour, scale) cannot bring a hidden symbol back, because it is the second gate (`Fitting._display_visible`) after `draws_symbol()`; it governs only the symbols that still draw: `elbow_up` / `elbow_down`, `tee_up` / `tee_down` and the three through types. A user wants the plain symbols back later: change the flag, do not delete code.
+
+Which of those drawn symbols shows is a second rule (bare riser ends, one symbol per stack per view, sprinkler nodes), owned by [`sprinkler-system-components.md`](sprinkler-system-components.md) §6.3; the pipe-side riser symbol is §9.1 below.
 
 Fitting SVGs are located in `firepro3d/graphics/fitting_symbols/`.
 
@@ -131,25 +165,24 @@ Graph topology is built on-demand by `HydraulicSolver._build_adjacency()` via BF
 
 ### 3.2 Phase 0 → Phase 1: First Click (Start Node)
 
-**Entry point:** `_press_pipe()` at `model_space.py:4479`
+**Entry point:** `Model_Space._press_pipe()` forwards to `PipeNetworkController.press_pipe`
 
 ```
 User clicks on canvas
     │
-    ├─ find_nearby_node(snapped.x, snapped.y, z_hint=template_z)
-    │   ├─ Priority 1: cursor inside any sprinkler's bounding box → snap to that node
-    │   ├─ Priority 2: distance ≤ SNAP_RADIUS → snap to that node
-    │   └─ Tiebreaker: among Z-stacked candidates, prefer closest to z_hint
+    ├─ resolve_pipe_target(snapped, snapped, z_hint=template_z)   (§3.2.1)
+    │   → ("node", Node) | ("pipe", Pipe) | ("none", None)
+    │   A Tab-selected candidate (§3.2.1) replaces the node result.
     │
-    ├─ If existing node found and len(node.pipes) >= 4:
+    ├─ If an existing node was found and len(node.pipes) >= 4:
     │   └─ BLOCK: "Connection Limit" warning → return
     │
-    ├─ If click lands on an existing Pipe:
-    │   └─ split_pipe() → creates new junction node at click point
-    │      (splits original pipe into two segments)
+    ├─ If no node was found and the click hit a Pipe:
+    │   └─ split_pipe() → creates new junction node at the click's projection
+    │      onto the pipe (splits original pipe into two segments)
     │
     ├─ Else:
-    │   └─ find_or_create_node() → returns existing or new node
+    │   └─ the found node, or find_or_create_node() (fixed SNAP_RADIUS) → a new node
     │
     ├─ Elevation mismatch check:
     │   If existing node's z_pos ≠ template's target z_pos:
@@ -169,6 +202,30 @@ User clicks on canvas
     │
     └─ Status: "Pick end node"
 ```
+
+#### 3.2.1 Target resolution, pickup and the target marker (pipe polish D3 / D4 / D5)
+
+One resolver, `PipeNetworkController.resolve_pipe_target(node_pos, pipe_pos, z_hint, cached)`, answers "what will a click here do" for **both** the mouse move (marker) and the press, so the two cannot disagree. `node_pos` is the point tested for node pickup (the 45-snapped end on the second click), `pipe_pos` the point tested for a pipe hit (the snapped cursor); on the first click both are the snapped cursor. It returns, in this order:
+
+1. **`("node", Node)`** — the nearest node inside the **pickup radius**, `pick_radius()`: the SNAP aperture (`SNAP_TOLERANCE_PX`, 15 px by default, user-tunable) converted to scene units at the *visible* view's zoom, **but never under `SNAP_RADIUS` (10 scene units = 10 mm)**. So pickup is 15 screen pixels at any zoom and never less than 10 mm. The chain's own start node is never a target. Candidates are ranked **nearest first**; nodes within `SNAP_RADIUS` of the nearest count as one spot (a riser stack can stand slightly off plumb) and are ordered by closeness of `z_pos` to the template's target Z, the rest follow by distance. A sprinkler whose symbol box contains the cursor is a candidate at its true centre distance: it no longer outranks a nearer plain node. On the move path the node is the **Tab-selected** candidate (what the press connects to); Tab cycles the same list. The aperture constant and the ranking are recorded from the snap side in [`snapping-engine.md`](snapping-engine.md) §14.6.
+2. **`("pipe", Pipe)`** — else a visible pipe under `pipe_pos`, tested by `PipeNetworkController._pipe_at` with the same rule as `Pipe.shape()` (`Pipe.hit_width()`: a flat-capped stroke at least 16 screen px wide; a run shorter than 1 scene unit, i.e. a vertical pipe, is a disk of `_RISER_SIZE_MM / 2` radius). A fully transparent or hidden pipe is not hit; on equal Z the later-added pipe wins. A hit on a **vertical** pipe resolves to its end node nearest the template Z (a riser cannot be split in plan), so it returns `("node", ...)`.
+3. **`("none", None)`**.
+
+`_pipe_at` is a plain loop over `sprinkler_system.pipes` with a bounding-box reject; the `scene.items` query it replaced cost about 20 ms a move on 1500 pipes. The target marker is held to a **5 ms per move** budget (design ruling 2026-11-05; no test asserts it).
+
+**Press.** A resolved node connects to it (the 4-pipe limit and elevation-mismatch checks of §3.2 / §3.3 still apply). A resolved pipe **splits** it at the projection of the click onto the pipe (`split_pipe`) and connects to the new node: no loose node is left beside a pipe (D3). `none` creates a new node (`find_or_create_node`, fixed `SNAP_RADIUS`). Callers that keep the fixed `SNAP_RADIUS` lookup and ignore the Tab list: paste merge, **typed** length / angle entry (`_commit_pipe_at(..., typed=True)`), `add_node`, `find_or_create_node`, and `split_pipe`'s own near-end shortcut (§4.4). The `SNAP_RADIUS` floor in `pick_radius()` keeps each of those a subset of what the marker already resolved.
+
+**Target marker (D5).** `PipeTargetMarker` (`scene.pipe_target_marker`, `pipe_target_marker.py`) is a screen-sized glyph (half-size 8 px, ignores view transforms, Z 200, never pickable, not a snap target):
+
+| Kind | Glyph | Colour (`SNAP_COLORS`) | Meaning | Placed at |
+|---|---|---|---|---|
+| `node` | ring | `midpoint` green | the click **connects to** this node | the node |
+| `pipe` | diamond | `quadrant` orange | the click **splits** this pipe | the projection of `node_pos` onto the pipe |
+| `none` | hidden | — | the click creates a new node | — |
+
+It follows the cursor on every pipe-mode mouse move, before and after the first click, and re-resolves when Tab cycles candidates. It hides on Esc (`cancel_placement`), on the double-click that ends a chain, and on any mode change (`set_mode`), and returns on the next move.
+
+**Plain-node selection (D6) is the same width.** Outside the pipe tool a plain node's hit shape is a disk of `NODE_PICK_PX` (12) screen px at the visible zoom, capped at a third of its shortest attached run so a short pipe stays reachable; the click ring shows when selected and nothing extra is drawn at rest. HALO ranking of that disk: [`selection-mode.md`](selection-mode.md) §4.1. The Sprinkler and Water Supply tools do not use the resolver: they take the item under the click (Sprinkler, then Node, then Pipe), so a click within 12 px of a node lands on that node at any zoom and a click further out on a pipe splits it where clicked ([`sprinkler-system-components.md`](sprinkler-system-components.md) §12.4).
 
 ### 3.3 Phase 1 → Pipe Created: Second Click (End Node)
 
@@ -194,10 +251,10 @@ User clicks second point
     ├─ Connection limit validation (end node, if existing):
     │   └─ Same checks as start node
     │
-    ├─ If click lands on existing Pipe:
-    │   └─ split_pipe() → junction at click point
-    ├─ Else:
-    │   └─ find_or_create_node()
+    ├─ resolve_pipe_target(snapped_end, snapped, z_hint=template Z2)   (§3.2.1)
+    │   ├─ node  → connect to it (a Tab-selected candidate wins; typed input skips this)
+    │   ├─ pipe  → split_pipe() → junction at the projection of snapped_end
+    │   └─ none  → find_or_create_node() (fixed SNAP_RADIUS)
     │
     ├─ Zero-length check:
     │   If end_node IS start_node:
@@ -333,10 +390,10 @@ placement are byte-identical, and commit reuses the mouse's post-snap body
 
 **Purpose:** Allow users to create junctions on existing pipe segments.
 
-**Trigger:** User clicks on an existing `Pipe` item during placement.
+**Trigger:** A pipe-tool click that resolves to `("pipe", Pipe)` (§3.2.1): no node is within the pickup radius and a non-vertical pipe lies under the cursor. The same applies to a Sprinkler or Water Supply click on a pipe (§3.2.1, last paragraph).
 
 **Action (`split_pipe()`):**
-1. If click is near an existing endpoint (within `SNAP_RADIUS`), return that node
+1. If click is near an existing endpoint (within the fixed `SNAP_RADIUS`, 10 scene units), return that node; the wider pickup of §3.2.1 has normally resolved such a click to a node before this runs
 2. Otherwise, create new node at the projected click point
 3. Create two new pipes: `node_a → new_node` and `new_node → node_b`
 4. Delete original pipe
@@ -403,9 +460,7 @@ When selecting an existing node whose `z_pos` differs from the template's target
 | **Match** | Adopt the existing node's elevation into the template. Abandons the template's target Z. |
 | **Template** | Keep template elevation. Find/split existing vertical geometry at that Z, or create a standalone node at the template's Z. |
 
-> **BUG (current):** The "Riser" path manually constructs pipes (`Pipe()` + `addItem()`) instead of using `add_pipe()`. This skips `apply_category_defaults`, `update_label`, `update_geometry`, fitting updates, and ceiling propagation. Same issue in `_create_vertical_connection()` and `_split_vertical_pipe()`.
->
-> **FIX:** All three code paths must use `add_pipe(n1, n2, template, _propagate_ceiling=False)` since they manage Z themselves.
+> ~~**BUG:** The "Riser" path manually constructs pipes.~~ **Fixed** for the Riser path (B1) and `_create_vertical_connection()` (B2): both use `add_pipe(n1, n2, template, _propagate_ceiling=False)` since they manage Z themselves. **Still open (B3):** `_split_vertical_pipe()` constructs its halves by hand (§16.1).
 
 ---
 
@@ -425,36 +480,30 @@ The through-run is identified by finding the collinear pair among existing pipes
 
 ### 6.3 Node Snapping & Z Disambiguation
 
-`find_nearby_node()` snap uses XY distance only (correct — snap is a 2D canvas operation).
+`find_nearby_node()` / `find_nearby_candidates()` snap uses XY distance only (correct — snap is a 2D canvas operation), within `SNAP_RADIUS` or an explicit `radius=` (the pipe tool passes `pick_radius()`, §3.2.1), filtered to the active view's Z range.
 
-**Disambiguation when multiple nodes exist at the same XY (risers):**
+**Disambiguation when multiple nodes exist at the same XY (risers):** candidates are ranked **nearest first**; nodes within `SNAP_RADIUS` of the nearest are one spot and are ordered by the closeness of `z_pos` to `z_hint` (`_rank_candidates`). With no `z_hint` the nearest wins.
 
 | Context | Tiebreaker |
 |---|---|
 | Pipe placement | Prefer node closest to template's target Z (`z_hint`) |
-| Sprinkler placement | Prefer node closest to active level's elevation |
-| General selection | Prefer node on active level |
+| Sprinkler placement | none: the Sprinkler tool calls `add_node` without a `z_hint`, so the nearest node wins |
+| Paste merge | `paste_z` as `z_hint` |
+| General selection | Prefer node on active level *(not re-audited 2026-11-05)* |
 
-> **BUG (current):** `find_nearby_node()` is Z-blind — returns the first node within SNAP_RADIUS by insertion order. This causes:
-> 1. Wrong-elevation pipe connections (triggering unnecessary mismatch dialogs)
-> 2. Connection limit false positives (checking wrong node's pipe count)
-> 3. 4th-branch validation against wrong node's geometry
-> 4. Sprinklers placed on wrong Z-stacked node
-> 5. Paste/duplicate merging into wrong node
->
-> **FIX:** Add optional `z_hint` parameter to `find_nearby_node()`. Among XY candidates, prefer the node whose `z_pos` is closest to `z_hint`. All placement tools pass their target Z.
+> ~~**BUG:** `find_nearby_node()` is Z-blind (B4).~~ **Fixed:** `z_hint` ordering as above (verified 2026-11-05). The pipe tool passes the template's target Z at both clicks; the Sprinkler tool does not (open: it can still pick the wrong node of a Z-stack).
 
 ### 6.4 Node Move Behavior with Risers
 
-> **BUG (current):** Moving a node that is part of a riser (Z-stacked at same XY) only moves that one node. The other Z-stacked nodes stay in place, creating impossible diagonal pipe geometry.
->
-> **FIX:** When moving a node that has vertical pipes, move all Z-stacked nodes at the same XY as a unit.
+**Panel X / Y edit moves the stack (B6, partly fixed, pipe polish D7).** `Node._edit_position("X" | "Y", ...)` calls `Node.move_stack_to(x, y)`: every node joined to this one through vertical pipes (`Node.riser_stack()`, a walk over `Pipe._is_vertical()`) is shifted by the same delta, the stack's pipes and labels are re-derived and every fitting at the stack and its neighbours is updated. The pipe stays vertical and one undo step restores it. The Z edit and the Ceiling Level / Offset rows move **one node only** (§2.2).
+
+> **BUG (still open, B6):** Dragging a riser node, or moving it with the Move tool (`Model_Space.move_items`, manipulator `bake_translate`), still moves only that one node. The other Z-stacked nodes stay in place, creating impossible diagonal pipe geometry. Filed in `todo_open.md` (P3); reuse `Node.riser_stack()`.
 
 ---
 
 ## 7. Pipe Creation (`add_pipe()`)
 
-**Method:** `model_space.py:930`
+**Method:** `PipeNetworkController.add_pipe` (the `Model_Space.add_pipe` shell forwards to it)
 
 ```python
 add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
@@ -486,7 +535,7 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
 
 ## 8. Pipe Deletion (`delete_pipe()`)
 
-**Method:** `model_space.py:1473`
+**Method:** `PipeNetworkController.delete_pipe` (shell on `Model_Space`)
 
 1. Remove pipe from both endpoint nodes' `pipes` lists
 2. If a node has **no pipes and no sprinkler** → remove the node entirely
@@ -537,11 +586,15 @@ contract, content, Tag row, Hide when empty, paper and persistence owned by
 **Riser pass-through symbol** (vertical pipes):
 - Vertical pipes (zero 2D extent) render a yin-yang / broken-pipe SVG symbol at their XY location
 - SVG asset: `firepro3d/graphics/fitting_symbols/riser_passthrough.svg`
-- Top-level scene item at `Z_OVERLAY` (200), non-interactive
-- Fixed size: 300mm scene units
-- Visibility rule: shown when no visible endpoint node has horizontal pipes (i.e., the fitting symbol already indicates the riser). Hidden when a visible endpoint has horizontal connections.
+- Top-level scene item (`Pipe._riser_symbol`) at `Z_OVERLAY` (200) on creation, pinned just above its pipe by `Pipe.sync_riser_z` ([`view-relationships.md`](view-relationships.md) §7.3), non-interactive, tagged never-a-snap-target
+- Fixed size: `Pipe._RISER_SIZE_MM` = **150 mm** scene units (halved from 300 mm by the 2026-11-05 smoke)
+- Visibility rule: shown unless a *visible* endpoint node has another, non-vertical pipe **or** is a *through* node (`Fitting.is_through`). In both cases the node's fitting symbol already marks the riser. A riser end with no branches therefore shows only this pass-through symbol; in a stack with a branch at one end only, the branch node's elbow / tee symbol shows (`elbow_up` / `elbow_down` / `tee_up` / `tee_down`) and the pass-through hides.
 - `Pipe.setVisible()` cascades to the riser symbol
-- Vertical pipe `shape()` returns a circular hit area (300mm diameter) so the riser is clickable for `split_pipe` operations
+- Vertical pipe `shape()` returns a circular hit area (**150 mm** diameter, the symbol size) so the riser is clickable for `split_pipe` operations and by `_pipe_at` (§3.2.1)
+
+**Fitting symbol (drawn types only, §2.3):** its size (150 mm on a branch, about 212 mm on a main), which node of a riser stack draws it, and the bare-riser-end rule are owned by [`sprinkler-system-components.md`](sprinkler-system-components.md) §6.3 / §6.5. The pass-through rule above and those rules are complementary: a bare riser end shows only this section's pass-through symbol.
+
+**Masking (a symbol is hollow).** A pipe stops at the edge of any fitting symbol drawn over it, so no ink shows through the symbol to the node. The rule is `Pipe._collect_clip_regions`: the clip circles (`Fitting.clip_region_scene`) of every node whose symbol is visible and either sits **higher** than the pipe's top end, or is **the pipe's own end node** (any elevation). The circle's radius is half the symbol's side (`symbol size x scale / 2`), whatever its rotation: a symbol turned to a diagonal branch has a wider scene bounding box, but the same circle. A hidden symbol (§2.3 plain types, bare riser ends, sprinkler nodes) clips nothing. The round end the paint adds on a mixed cap / non-cap pipe is skipped when it falls inside a clip.
 
 > ~~**BUG:** `update_label()` shows 2D projected length~~ -- **fixed 2026-11-01 (SB4a)**: the label binds the 3D `Length` key.
 
@@ -549,9 +602,9 @@ contract, content, Tag row, Hide when empty, paper and persistence owned by
 >
 > **FIX:** `update_elevations()` must call `pipe.update_label()` on all pipes after recomputing node Z positions.
 
-**Fitting clipping:** Pipes are clipped around fitting SVGs at higher elevations to prevent visual overlap.
+**Fitting clipping:** see *Masking* above: pipes stop at the edge of fitting symbols drawn over them or at their own ends.
 
-**Hit detection:** `shape()` method ensures pipes remain clickable — minimum 16 screen pixels wide regardless of zoom.
+**Hit detection:** `shape()` method ensures pipes remain clickable — minimum 16 screen pixels wide regardless of zoom (`Pipe.hit_width()`, the one width `shape()` and the placement resolver share).
 
 ### 9.2 Preview Pipe (During Placement)
 
@@ -681,7 +734,11 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 
 | Constant | Value | Location |
 |---|---|---|
-| `SNAP_RADIUS` | Scene-dependent | `model_space.py` |
+| `SNAP_RADIUS` | 10 scene units (mm); fixed-radius node lookup, and the floor of the mouse pickup | `Model_Space.SNAP_RADIUS` |
+| `SNAP_TOLERANCE_PX` | 15 px default, user-tunable; the mouse pickup aperture (§3.2.1) | `snap_engine.py` |
+| `NODE_PICK_PX` | 12 px; plain node hit disk | `constants.py` |
+| `Pipe._RISER_SIZE_MM` | 150 mm; riser pass-through symbol and vertical pipe pick disk | `pipe.py` |
+| `Fitting.SHOW_PLAIN_SYMBOLS` | `False`; flip to bring back the plain fitting symbols | `fitting.py` |
 | `SNAP_TOLERANCE_DEG` | 7.5° | `pipe.py` |
 | `BRANCH_WIDTH_MM` | 75.0 mm | `pipe.py` |
 | `MAIN_WIDTH_MM` | 150.0 mm | `pipe.py` |
@@ -700,19 +757,22 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 
 ## 14. File Map
 
-| File | Lines | Role |
-|---|---|---|
-| `firepro3d/pipe.py` | ~672 | Pipe class, properties, display, labels, diameter tables |
-| `firepro3d/node.py` | ~330 | Node class, connections, elevation, snap |
-| `firepro3d/fitting.py` | ~429 | Fitting type determination, SVG symbols, alignment |
-| `firepro3d/model_space.py` | ~7,195 | Placement tool, splitting, extension, validation, add/delete |
-| `firepro3d/sprinkler_system.py` | ~1,341 | Network container (flat lists) |
-| `firepro3d/hydraulic_solver.py` | ~21,591 | Flow/pressure calculations, BFS tree |
-| `firepro3d/scene_io.py` | ~639 | JSON serialization/deserialization |
-| `firepro3d/view_3d.py` | ~75,151 | 3D cylinder/line rendering |
-| `firepro3d/constants.py` | ~62 | Colors, velocity thresholds, NFPA limits |
-| `firepro3d/water_supply.py` | ~5,022 | Supply curve, static/residual pressure |
-| `main.py` | ~4,200 | Ribbon button, template persistence, mode setup |
+| File | Role |
+|---|---|
+| `firepro3d/pipe.py` | Pipe class, properties, display, labels, diameter tables, riser symbol, masking |
+| `firepro3d/node.py` | Node class, connections, elevation, snap, panel X / Y / Z rows, riser stack, pick disk |
+| `firepro3d/fitting.py` | Fitting type determination, SVG symbols, alignment, plain-symbol rule, per-view symbol choice |
+| `firepro3d/equivalent_length.py` | `Fitting.type` -> NFPA equivalent-length row |
+| `firepro3d/pipe_network_controller.py` | Placement tool bodies, target resolver, pickup, splitting, extension, validation, add/delete |
+| `firepro3d/pipe_target_marker.py` | Ring / diamond target marker (§3.2.1) |
+| `firepro3d/model_space.py` | Dispatch forwarders and shells, `pipe_start_node`, press routing |
+| `firepro3d/sprinkler_system.py` | Network container (flat lists) |
+| `firepro3d/hydraulic_solver.py` | Flow/pressure calculations, BFS tree |
+| `firepro3d/scene_io.py` | JSON serialization/deserialization |
+| `firepro3d/view_3d.py` | 3D cylinder/line rendering |
+| `firepro3d/constants.py` | Colors, velocity thresholds, NFPA limits |
+| `firepro3d/water_supply.py` | Supply curve, static/residual pressure |
+| `main.py` | Ribbon button, template persistence, mode setup |
 
 ---
 
@@ -740,16 +800,16 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 
 | # | Issue | Severity | Location |
 |---|---|---|---|
-| B1 | Riser auto-build bypasses `add_pipe()` — skips display defaults, labels, geometry, fittings | High | `model_space.py:4256–4264` |
-| B2 | `_create_vertical_connection()` bypasses `add_pipe()` partially | High | `model_space.py:1348–1358` |
-| B3 | `_split_vertical_pipe()` bypasses `add_pipe()` | High | `model_space.py:1429–1442` |
-| B4 | `find_nearby_node()` Z-blind — wrong node at risers causes 5+ downstream bugs | High | `model_space.py:856` |
+| B1 | ~~Riser auto-build bypasses `add_pipe()`~~ — **fixed**: the elevation-mismatch Riser path (`resume_elev_mismatch`) builds its vertical pipe through `add_pipe(..., _propagate_ceiling=False)`; the only direct `Pipe(n1, n2)` construction of a placed pipe left outside `add_pipe` is B3 | High | `PipeNetworkController` |
+| B2 | ~~`_create_vertical_connection()` bypasses `add_pipe()` partially~~ — **fixed**: both its pipes go through `add_pipe` | High | `PipeNetworkController._create_vertical_connection` |
+| B3 | `_split_vertical_pipe()` bypasses `add_pipe()` — **still open**: it builds each half with `Pipe(na, nb)` + `sprinkler_system.add_pipe` + `addItem`, then `set_pipe_display()` and a Mark mint on the n2 half. It skips `apply_category_defaults`, `update_label` / `update_geometry`, the forced visibility and the neighbour-wide fitting update (only the mid node and the two ends update) | High | `PipeNetworkController._split_vertical_pipe` |
+| B4 | ~~`find_nearby_node()` Z-blind~~ — **fixed**: `z_hint` orders a stack (§6.3); the Sprinkler tool still passes none | High | `PipeNetworkController.find_nearby_node` |
 | B5 | ~~`snap_point_45` uses `pipes[0]` not contextual pipe — grid misaligned when branching~~ — **fixed 2026-08-17** (`25c7edb`): reference is now the coplanar pipe whose axis is angularly nearest the drag direction, with an explicit `reference_pipe` override; riser-only nodes fall through to free soft-snap (§4.1) | Medium | `Node.snap_point_45` |
-| B6 | Riser node move doesn't move Z-stacked siblings | Medium | `model_space.py:7134` |
+| B6 | Riser node move doesn't move Z-stacked siblings — **partly fixed**: the panel X / Y edit moves the whole stack (§6.4); a drag and the Move tool still move one node (open, P3) | Medium | `Node.move_stack_to`; drag / Move: `Model_Space.move_items` |
 | B7 | All geometry checks use 2D vectors — false positives on multi-level overlap | High | Multiple locations |
 | B8 | Preview label formats diameter as raw key, not display format | Low | `model_space.py:3557–3561` |
 | B9 | Preview length ignores Z difference | Low | `model_space.py:3554` |
-| B10 | Fitting `determine_type` broken for through-risers (2 vertical pipes) | Medium | `fitting.py:149–154` |
+| B10 | ~~Fitting `determine_type` broken for through-risers (2 vertical pipes)~~ — **fixed** (pipe polish, 2026-11-05): `riser_through` / `tee_vertical` / `cross_vertical` (§2.3), with corrected equivalent lengths | Medium | `Fitting.determine_type` |
 | B11 | ~~Pipe labels show 2D length, not 3D~~ -- **fixed 2026-11-01** (SB4a) | Medium | -- |
 | B12 | `update_elevations()` doesn't refresh pipe labels (latent until B11 fixed) | Low | `level_manager.py:327` |
 
@@ -757,18 +817,18 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 
 | # | Enhancement | Priority |
 |---|---|---|
-| E1 | New fitting types: `tee_vertical`, `cross_vertical` + SVGs | Medium |
+| E1 | ~~New fitting types: `tee_vertical`, `cross_vertical` + SVGs~~ — types built (plus `riser_through`); **no new SVGs** (all three reuse `riser_passthrough.svg`) | Medium |
 | E2 | Collinear extension for vertical pipes (3D vectors) | Medium |
 | E3 | Preview pipe shows elevation info when N1 Z ≠ N2 Z | Low |
 
 ### 16.3 Implementation Order (Recommended)
 
 1. **B7** — 3D vectors everywhere (unblocks B4, B10, E2, and makes B5 fix cleaner)
-2. **B1 + B2 + B3** — Route all pipe creation through `add_pipe()` (single pattern fix)
-3. **B4** — `z_hint` on `find_nearby_node()` (unblocks B6)
+2. **B1 + B2 + B3** — Route all pipe creation through `add_pipe()` (single pattern fix) — B1, B2 done; **B3 open**
+3. ~~**B4** — `z_hint` on `find_nearby_node()` (unblocks B6)~~ — done
 4. ~~**B5** — Contextual snap reference~~ — **done 2026-08-17** (`25c7edb`)
-5. **B6** — Riser column move
-6. **B10 + E1** — Fitting matrix + new SVGs
+5. **B6** — Riser column move (panel edit done; drag / Move open)
+6. ~~**B10 + E1** — Fitting matrix + new SVGs~~ — done 2026-11-05 (types only, no new SVGs)
 7. ~~**B11**~~ done (SB4a); **B12** — elevation refresh
 8. **B8 + B9** — Preview fixes
 9. **E2** — Vertical collinear extension

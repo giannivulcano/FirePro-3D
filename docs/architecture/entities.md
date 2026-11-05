@@ -162,7 +162,7 @@ Selection is handled by the parent Node -- the sprinkler itself is not independe
 
 ### Fitting
 
-`Fitting` is **not** a QGraphicsItem subclass -- it manages an optional `_TintedSvg` child item on the parent Node. Types include: no fitting, cap, 45-elbow, 90-elbow, tee, wye, cross, tee_up, tee_down, elbow_up, elbow_down. Each type has an SVG symbol and directional "through" vectors for pipe routing.
+`Fitting` is **not** a QGraphicsItem subclass -- it manages an optional `_TintedSvg` child item on the parent Node. Fitting types, and which ones draw in plan, are owned by [`pipe-placement-methodology.md`](../specs/pipe-placement-methodology.md) section 2.3.
 
 Fitting objects store `_display_overrides` dict supporting per-instance hide/show via the model browser. The visibility override is checked in `fitting.update()` before rendering the SVG symbol.
 

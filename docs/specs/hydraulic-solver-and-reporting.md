@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built; divergence ledger in §12
-last-verified: 2026-11-01   # SB4a Account: §11.4 only
-verified-commit: 0924bcd6   # SB4a (§11.4 only); prior 1228ef5
+last-verified: 2026-11-05   # pipe polish Account: §10.2 only (three through-riser types), rest not re-audited; prior 2026-11-01   # SB4a Account: §11.4 only
+verified-commit: ff2b8636   # pipe polish merge on main (v0.90.0; §10.2 only); prior 0924bcd6   # SB4a (§11.4 only); prior 1228ef5
 applies-to:
   - firepro3d/hydraulic_solver.py
   - firepro3d/hydraulic_report.py
@@ -429,6 +429,9 @@ Equivalent lengths in feet, by fitting type and nominal pipe diameter:
 | `wye` | 45° elbow | Branch treated as 45° turn |
 | `cross` | Cross (flow turn) | Direct match |
 | `elbow_up`, `elbow_down` | 90° elbow | Vertical 90° turn |
+| `riser_through` | Cap (end) | Through riser, no branch: the pipe runs on, so 0 equivalent length (pipe polish, 2026-11-05) |
+| `tee_vertical` | Tee (flow turn) | Through riser with one horizontal branch |
+| `cross_vertical` | Cross (flow turn) | Through riser with two or more horizontal branches |
 | `cap` | Cap (end) | 0 equivalent length |
 | `no fitting` | — | 0 equivalent length |
 

@@ -1,9 +1,10 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-01   # SB4a Account: §5.6 Label Size row only
-verified-commit: 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
+  - firepro3d/node.py                 # panel X / Y / Z + Offset rows, pick shape (pipe polish)
   - firepro3d/sprinkler_db.py
   - firepro3d/sprinkler_system.py
   - firepro3d/fitting.py
@@ -194,8 +195,8 @@ Full-featured manager dialog with two tabs:
 | — | — | Design Density | Set by auto-populate, not from DB |
 | — | — | S Spacing / L Spacing | Computed by design_area |
 | — | — | Graphic | User-selected SVG variant |
-| — | — | Ceiling Level / Ceiling Offset | From parent Node |
-| — | — | X / Y / Z | Read-only, from Node scenePos + z_pos |
+| — | — | Ceiling Level / Ceiling Offset | From parent Node. The panel row for `Ceiling Offset` is labelled **Offset** (meta `label`); the key is unchanged in `_properties`, files and `set_property`, which also accepts `"Offset"` |
+| — | — | X / Y / Z | Editable panel rows from the parent Node (`Node.position_rows()`), shown only when the sprinkler has a node. X, Y in mm, **Y up-positive** (`CAD_Math.flip_y`); Z is absolute elevation. `Sprinkler.set_property("X" / "Y" / "Z")` forwards to `node.set_property`: X / Y move the node (and its riser stack), Z solves the node's Offset against its kept Ceiling Level and moves that node only. The rows carry `single_only` (not on a multi-selection). A node-less template sprinkler shows no position rows, and `set_properties(template)` skips them, so a template never moves a node. Semantics: [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §2.2 |
 
 **Path note (verified 2026-07-14):** Two template application paths exist — auto-populate (`model_space.py`, sets `_properties[key]["value"]` directly) and the Sprinkler Manager "Use as Template" (`main.py::_apply_sprinkler_template_from_record`, via `set_property`). Both now transfer all seven mapped fields with correct keys (the former `"Temp Rating"`/`"Type"` wrong-key bug is fixed — §14 D9 resolved).
 
@@ -315,23 +316,20 @@ Material options: Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC.
 - Same XY position: `dx² + dy² < 100` (10px tolerance)
 - Different Z: `|Δz_pos| > 0.01`
 
-**Type assignment when vertical pipes present:**
-
-| Vertical | Horizontal | Result |
-|---|---|---|
-| 1 | 0–1 | `elbow_up` or `elbow_down` |
-| 1 | 2+ | `tee_up` or `tee_down` |
-
-Direction (`up`/`down`) determined by comparing `z_pos` of this node vs the other end of the vertical pipe.
+**Type assignment when vertical pipes are present** (a vertical pipe up or down, and a *through* node with one of each): the matrix is owned by [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §2.3: `elbow_up` / `elbow_down`, `tee_up` / `tee_down`, and for a through node `riser_through` / `tee_vertical` / `cross_vertical`. Those rows are tested before §6.1's horizontal table; a node with any vertical pipe never gets a plain type. Direction (`up`/`down`) is determined by comparing `z_pos` of this node vs the other end of the vertical pipe.
 
 ### 6.3 Visibility Rules
 
-Fitting symbol is hidden when:
+Fitting symbol is hidden when (`Fitting._symbol_visible`):
 1. Node has a sprinkler (sprinkler symbol takes visual precedence)
-2. Two nodes overlap in XY (vertical pipe): only the highest-Z **visible** node shows its fitting. Hidden nodes (e.g. outside view range) are skipped -- the next-highest visible node shows its fitting instead.
+2. **The type has no plan symbol (D1, 2026-11-05).** The six plain types (`Fitting.PLAIN_TYPES`: `cap`, `45elbow`, `90elbow`, `tee`, `wye`, `cross`) never draw while `Fitting.SHOW_PLAIN_SYMBOLS` is `False` (default); `Fitting.draws_symbol()` is the one rule and the flag brings them back. Types, hydraulics and the SVG assets are unchanged.
+3. **The node is a bare riser end**: every pipe at the node is vertical and it is not a through node (`Fitting.is_bare_riser_end`). The vertical pipe's own pass-through symbol is its mark ([`pipe-placement-methodology.md`](pipe-placement-methodology.md) §9.1). In a stack with a branch at one end only, the elbow at the branch node draws.
+4. Two nodes overlap in XY (vertical pipe): only the highest-Z **visible** node shows its fitting. Hidden nodes (e.g. outside view range) are skipped -- the next-highest visible node shows its fitting instead. Bare riser ends take no part in the comparison.
    - Tie-break 1: higher `ceiling_offset` wins
    - Tie-break 2: higher `id()` wins
+   - The winner depends on which nodes the view shows, so `LevelManager.apply_to_scene` calls `Fitting.refresh_for_view` after its visibility sweep (one symbol per riser stack per view); `Fitting.update` re-decides it on add, delete, undo and load.
 - **Display override:** `fitting._display_overrides["visible"] == False` forces the fitting symbol hidden regardless of other visibility rules. Set via model browser Hide/Show context menu.
+- **Display Manager Fitting row:** `Fitting._display_visible == False` hides it too. The row can no longer show a symbol rules 1-3 hide; it governs only the symbols that still draw.
 
 ### 6.4 Symbol Alignment
 
@@ -345,24 +343,25 @@ Each fitting type defines `through` direction(s) — canonical unit vectors desc
 | cross | 1 vector | Identify one collinear pair, rotate to match |
 | elbow_up/down | 1 vector | Rotate to horizontal pipe direction |
 | tee_up/down | 2 vectors (pair) | Use horizontal pipe vectors for alignment |
+| riser_through, tee_vertical, cross_vertical | none (no `through` key) | Identity: the symbol is the round pass-through SVG, never rotated |
 
 For tee/wye: the algorithm identifies the collinear pipe pair (angle ≈ 180°) to distinguish the "through-run" from the "branch" before computing the transform.
 
 ### 6.5 Symbol Scaling
 
 ```
-target_mm = max_connected_pipe_width × 4 × display_scale
+target_mm = min(max_connected_pipe_width, 75 × √2) × 2 × display_scale
 scale_factor = target_mm / svg_natural_size
 ```
 
-- Branch pipe (75mm width) → 300mm fitting symbol
-- Main pipe (150mm width) → 600mm fitting symbol
+- Branch pipe (75mm width) → 150mm fitting symbol
+- Main pipe (150mm width) → about 212mm (75 × 2 × √2) fitting symbol: the `75 × √2` cap stops a main from inflating the symbol
 
-SVG is scaled uniformly and centred on the parent node's origin (0, 0).
+(Halved from 300 mm / about 424 mm by the pipe polish smoke, 2026-11-05; verified `ff2b8636`.) SVG is scaled uniformly and centred on the parent node's origin (0, 0). The vertical pipe's own riser pass-through symbol has a fixed size, owned by [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §9.1.
 
 ### 6.6 Pipe Clipping
 
-`clip_region_scene()` returns a circular `QPainterPath` in scene coordinates (bounding circle of the fitting symbol). Pipes use this path to clip their rendering near the junction, preventing visual overlap with the fitting symbol. Returns `None` if fitting is invisible or `no fitting`.
+`clip_region_scene()` returns a circular `QPainterPath` in scene coordinates: the fitting symbol's circle, centred on the symbol's scene box and with radius **half the symbol's side** (`symbol size × symbol_scale / 2`), whatever the symbol's rotation (a turned symbol has a wider scene box, not a wider circle). Pipes use this path to stop their ink at the symbol, which is hollow. Returns `None` if the symbol is invisible (§6.3) or the type is `no fitting`, so a hidden symbol clips nothing. Which pipes subtract which circles (a pipe's own end nodes, and higher nodes it passes under) is `Pipe._collect_clip_regions`, owned by [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §9.1 "Masking".
 
 ---
 
@@ -383,7 +382,8 @@ Where:
 
 `_recompute_z_pos()` is called when:
 - User changes Ceiling Level via property panel → resolves new level elevation
-- User changes Ceiling Offset via property panel → uses new offset value
+- User changes Ceiling Offset (panel label **Offset**) via property panel → uses new offset value
+- User types a **Z** in the panel → the Offset is solved as `Z − level elevation` against the node's kept Ceiling Level, then `z_pos` is recomputed (`Node._edit_position`); the level never changes and only this node moves (attached pipes slope). If the level cannot be resolved, `z_pos` is set directly.
 
 Resolution: `scene._level_manager.get(ceiling_level).elevation + ceiling_offset`
 
@@ -401,7 +401,7 @@ Graceful fallback: no-op if scene is None, level_manager is None, or level not f
 
 Ceiling Level and Ceiling Offset exist in two forms:
 - Instance attributes: `node.ceiling_level`, `node.ceiling_offset` (authoritative)
-- Properties dict: `node._properties["Ceiling Level"]`, `node._properties["Ceiling Offset"]` (for PropertyManager display)
+- Properties dict: `node._properties["Ceiling Level"]`, `node._properties["Ceiling Offset"]` (for PropertyManager display, where the Offset row's label is "Offset" and the key stays; `Node.get_properties()` adds the label, it is not stored in `_properties`)
 
 Both are updated together on `set_property()`. When a Sprinkler is present, its `get_properties()` reads ceiling values directly from the parent Node (Node is single source of truth).
 
@@ -447,7 +447,7 @@ No `ItemIgnoresTransformations` flag — symbol scales with zoom to maintain rea
 
 ### 8.4 Selection Delegation
 
-`Sprinkler.setFlag(ItemIsSelectable, False)` — the sprinkler is not directly selectable. Clicking anywhere on the sprinkler graphic selects the parent Node. Node's `shape()` expands to encompass the sprinkler's bounding area (`TARGET_MM / 2 × display_scale` radius circle).
+`Sprinkler.setFlag(ItemIsSelectable, False)` — the sprinkler is not directly selectable. Clicking anywhere on the sprinkler graphic selects the parent Node. Node's `shape()` expands to encompass the sprinkler's bounding area (`max(TARGET_MM / 2 × display_scale, Node.RADIUS)` radius circle). A node *without* a sprinkler no longer has that 177.8 mm disk: its `shape()` is a disk of `NODE_PICK_PX` (12) screen px at the visible zoom, capped at a third of its shortest attached run (selection: [`selection-mode.md`](selection-mode.md) §4.1).
 
 ### 8.5 Display Integration
 
@@ -679,8 +679,8 @@ Survives application restarts.
 ### 12.4 Placement Flow
 
 1. User clicks sprinkler mode button → `scene.set_mode("sprinkler", template)`
-2. User clicks on a node → sprinkler added to that node
-3. User clicks on a pipe → pipe split, new intermediate node created, sprinkler added
+2. User clicks on a node → sprinkler added to that node. "On a node" means the item under the click is the Node (press priority Sprinkler, then Node, then Pipe): a plain node's hit disk is 12 screen px at any zoom (`NODE_PICK_PX`), so a click within 12 px of a node lands on it. A node that already has a sprinkler refuses the click
+3. User clicks on a pipe (further than that from every node) → pipe split at the click's projection onto it, new intermediate node created, sprinkler added. A click on empty space creates a node (`add_node`, which merges into a node within the fixed `SNAP_RADIUS`, 10 scene units)
 4. `sprinkler.set_properties(template)` copies all template property values to the new instance
 5. Fitting auto-updates on affected nodes
 
@@ -782,6 +782,10 @@ No format version bump required for any currently-flagged divergence. All migrat
 | 4 pipes, irregular | → `no fitting` |
 | 1 vertical + 1 horizontal | → `elbow_up` or `elbow_down` |
 | 1 vertical + 2 horizontal | → `tee_up` or `tee_down` |
+| vertical up + vertical down, 0 horizontal | → `riser_through` |
+| vertical up + vertical down, 1 horizontal | → `tee_vertical` |
+| vertical up + vertical down, 2 horizontal | → `cross_vertical` |
+| any plain type, `SHOW_PLAIN_SYMBOLS` False | → `type` unchanged, `symbol.isVisible()` False |
 
 ### 15.4 Unit Tests — Node Z-Position
 
@@ -792,6 +796,7 @@ No format version bump required for any currently-flagged divergence. All migrat
 | No scene | z_pos unchanged (no crash) |
 | Ceiling Level change | triggers recomputation with new level elevation |
 | Ceiling Offset change | triggers recomputation with new offset |
+| Z edit | `z_pos` = typed value, `ceiling_level` kept, Offset solved, this node only |
 
 ### 15.5 Unit Tests — Record → Properties Transfer
 

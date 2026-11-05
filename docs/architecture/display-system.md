@@ -163,4 +163,4 @@ Changes apply live to the canvas. Cancelling the dialog reverts all changes to t
 
 ## Fitting visibility
 
-Fitting objects (not QGraphicsItem subclasses) store `_display_overrides` supporting per-instance hide/show via the model browser. `fitting.update()` checks `_display_overrides["visible"]` before setting symbol visibility. `_hide_items()` and `_show_items()` have special Fitting branches since Fitting is not a QGraphicsItem.
+Fitting objects (not QGraphicsItem subclasses) store `_display_overrides` supporting per-instance hide/show via the model browser. The symbol visibility rule is owned by [`pipe-placement-methodology.md`](../specs/pipe-placement-methodology.md) section 9.1. `_hide_items()` and `_show_items()` have special Fitting branches since Fitting is not a QGraphicsItem.
