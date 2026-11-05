@@ -22,6 +22,11 @@ class Fitting():
     TARGET_PAPER_MM = 6.0   # desired fitting symbol size in paper mm
     TARGET_SCREEN_PX = 20.0 # zoom-independent screen-pixel size
 
+    # D1: plain fittings are hidden until the fitting look is settled. Flip
+    # this one rule to bring them back; symbols, types and hydraulics stay.
+    SHOW_PLAIN_SYMBOLS = False
+    PLAIN_TYPES = frozenset(("cap", "45elbow", "90elbow", "tee", "wye", "cross"))
+
     # Nominal OD table: use Pipe.NOMINAL_OD_IN (single source of truth)
     SYMBOLS = {
         "no fitting": {
@@ -67,6 +72,9 @@ class Fitting():
             "path": asset_path("fitting_symbols", "elbow_down.svg"),
             "through": QPointF(-1, 0)   # opening faces toward the horizontal pipe
         },
+        "riser_through": {"path": asset_path("fitting_symbols", "riser_passthrough.svg")},
+        "tee_vertical": {"path": asset_path("fitting_symbols", "riser_passthrough.svg")},
+        "cross_vertical": {"path": asset_path("fitting_symbols", "riser_passthrough.svg")},
     }
 
     def __init__(self, node):
@@ -86,7 +94,7 @@ class Fitting():
         self.type = self.determine_type(pipes)
         self.update_symbol()
         self.align_fitting()
-        if self.node.has_sprinkler():
+        if self.node.has_sprinkler() or not self.draws_symbol():
             visibility = False
         # For nodes that overlap in XY (vertical drop/riser), only show the
         # fitting on the node with the highest z_pos — hide the lower one.
@@ -95,7 +103,8 @@ class Fitting():
             for p in pipes:
                 if self._is_vertical(p, node):
                     other = node.other_end(p)
-                    if other is not None and other.isVisible():
+                    if (other is not None and other.isVisible()
+                            and not self.is_bare_riser_end(other)):
                         np = node.scenePos()
                         op = other.scenePos()
                         if (np.x() - op.x()) ** 2 + (np.y() - op.y()) ** 2 < 100:
@@ -109,11 +118,9 @@ class Fitting():
                                 ot_off = getattr(other, "ceiling_offset", 0)
                                 if my_off < ot_off:
                                     visibility = False
-                                elif my_off == ot_off:
+                                elif my_off == ot_off and id(node) < id(other):
                                     # Final tie-break: hide by id
-                                    if id(node) < id(other):
-                                        visibility = False
-                            break
+                                    visibility = False
         # Respect per-instance display override (model browser hide/show)
         if self._display_overrides.get("visible") is False:
             visibility = False
@@ -139,6 +146,28 @@ class Fitting():
         other = node.other_end(pipe)
         return "up" if getattr(other, "z_pos", 0) > getattr(node, "z_pos", 0) else "down"
 
+    @staticmethod
+    def is_through(node) -> bool:
+        """True when *node* has a vertical pipe going up and one going down."""
+        dirs = {Fitting._vertical_direction(p, node) for p in node.pipes
+                if Fitting._is_vertical(p, node)}
+        return len(dirs) == 2
+
+    @staticmethod
+    def is_bare_riser_end(node) -> bool:
+        """True for a vertical-only node that is not a through node: the
+        pipe's riser symbol is its mark, not a fitting."""
+        pipes = node.pipes
+        return (bool(pipes)
+                and all(Fitting._is_vertical(p, node) for p in pipes)
+                and not Fitting.is_through(node))
+
+    def draws_symbol(self) -> bool:
+        """The one rule for whether this fitting's type has a plan symbol."""
+        if self.is_bare_riser_end(self.node):
+            return False
+        return self.SHOW_PLAIN_SYMBOLS or self.type not in self.PLAIN_TYPES
+
     # ── Type determination ─────────────────────────────────────────────
 
     def determine_type(self, pipes) -> str:
@@ -153,6 +182,10 @@ class Fitting():
 
         # ── Vertical pipe present ──────────────────────────────────────
         if vertical:
+            if self.is_through(node):
+                n = len(horizontal)
+                return ("riser_through" if n == 0
+                        else "tee_vertical" if n == 1 else "cross_vertical")
             direction = self._vertical_direction(vertical[0], node)
             if len(horizontal) <= 1:
                 return f"elbow_{direction}"

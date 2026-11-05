@@ -5,6 +5,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
+from .fitting import Fitting
 from .bound_label import BoundLabelItem, TagBlockHost
 
 from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
@@ -242,7 +243,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                         not p._is_vertical()
                         for p in nd.pipes if p is not self
                     )
-                    if has_horiz:
+                    if has_horiz or Fitting.is_through(nd):
                         show = False
                         break
             self._riser_symbol.setVisible(show)

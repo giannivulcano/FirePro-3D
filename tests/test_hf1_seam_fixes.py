@@ -317,6 +317,13 @@ def test_m3_token_colour_survives_copy_paste_undo_redo(qapp, force_theme, name):
 
 # ── I-B / VC9 round 2: fitting + marker paper-pass tint hand-off ────────────
 
+@pytest.fixture
+def show_plain_fittings(monkeypatch):
+    """D1 hides plain fittings; these tests need a visible symbol to tint."""
+    from firepro3d.fitting import Fitting
+    monkeypatch.setattr(Fitting, "SHOW_PLAIN_SYMBOLS", True)
+
+
 def _fitting_scene(colour):
     """Model_Space with one pipe; the end nodes' fittings carry *colour*."""
     from firepro3d.display_manager import (
@@ -365,7 +372,8 @@ def _pass(ms, mode):
     return saved, restore_model_display
 
 
-def test_ib_token_fitting_full_colour_paper_then_canvas(qapp, force_theme, tint_spy):
+def test_ib_token_fitting_full_colour_paper_then_canvas(qapp, force_theme, tint_spy,
+                                                        show_plain_fittings):
     from firepro3d.paper_display import PaperColorMode
     force_theme("dark")
     ms, fits = _fitting_scene(TOKEN_AUTO)
@@ -378,7 +386,8 @@ def test_ib_token_fitting_full_colour_paper_then_canvas(qapp, force_theme, tint_
     assert all(f._display_color == TOKEN_AUTO for f in fits)
 
 
-def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy):
+def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy,
+                                                 show_plain_fittings):
     from firepro3d.paper_display import PaperColorMode
     force_theme("dark")
     ms, fits = _fitting_scene(TOKEN_AUTO)
@@ -390,7 +399,8 @@ def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy):
     assert set(tint_spy["hex"]) == {"#e6e9ec"}       # symbol back to canvas ink
 
 
-def test_ib_hex_fitting_restore_does_not_retint(qapp, force_theme, tint_spy):
+def test_ib_hex_fitting_restore_does_not_retint(qapp, force_theme, tint_spy,
+                                                show_plain_fittings):
     from firepro3d.paper_display import PaperColorMode
     force_theme("dark")
     ms, fits = _fitting_scene("#ff0000")

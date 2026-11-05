@@ -39,6 +39,9 @@ FITTING_TYPE_MAP: dict[str, str] = {
     "elbow_down": "90_elbow",
     "cap":        "cap",
     "no fitting": "cap",
+    "riser_through":  "cap",
+    "tee_vertical":   "tee_flow_turn",
+    "cross_vertical": "cross_flow_turn",
 }
 
 

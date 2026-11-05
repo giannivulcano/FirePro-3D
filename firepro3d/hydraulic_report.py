@@ -82,6 +82,7 @@ _FITTING_NOTE_LABELS = {
     "elbow_up": "90° Elbow (up)", "elbow_down": "90° Elbow (down)",
     "tee": "Tee", "tee_up": "Tee (up)", "tee_down": "Tee (down)",
     "wye": "Wye", "cross": "Cross", "cap": "Cap",
+    "tee_vertical": "Tee (through riser)", "cross_vertical": "Cross (through riser)",
 }
 
 
