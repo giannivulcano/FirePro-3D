@@ -279,3 +279,156 @@ def test_rotated_shaft_keeps_every_body_and_owns_one_seam(qapp, deg):
     assert _stroked(right, *_rot(HALF, 0, deg)), "seam"
     assert not _stroked(down, *_rot(HALF, 0, deg)), "stopper owns the seam"
     assert not _stroked(left, 0.0, 0.0), "no line on the mitre"
+
+
+# A stop either fits on every wall or does not happen (R7) ─────────────────
+
+def _bodies(*walls):
+    return [_pts(w) for w in walls]
+
+
+def _corner(s, t1, t2, al1, al2, deg, top=0.0, j1="Auto"):
+    tall = _wall2(s, (-1500, 0), (0, 0), t1, al1)
+    end = (1500 * math.cos(math.radians(deg)),
+           1500 * math.sin(math.radians(deg)))
+    low = _wall2(s, (0, 0), end, t2, al2, top, j1)
+    tall.invalidate_geometry()
+    low.invalidate_geometry()
+    return tall, low
+
+
+def _wall2(s, p1, p2, thickness, alignment, top=0.0, j1="Auto"):
+    w = WallSegment(QPointF(*p1), QPointF(*p2), thickness_mm=thickness)
+    w._alignment = alignment
+    w._top_offset_mm = top
+    w._join_mode_pt1 = j1
+    s.addItem(w)
+    s._walls.append(w)
+    w.invalidate_geometry()
+    return w
+
+
+@pytest.mark.parametrize("al", ["Center", "Left", "Right"])
+@pytest.mark.parametrize("thick", [(200, 200), (100, 300), (300, 100)])
+def test_corner_never_stops_on_one_side_only(qapp, al, thick):
+    stopped = fell_back = 0
+    for deg in range(10, 176, 5):
+        s = _ms()
+        tall, low = _corner(s, *thick, "Center", al, deg, LOW)
+        if low.outline().seams:
+            stopped += 1
+            assert tall._solid_pt2, f"{deg}: stopper trimmed, tall wall raw"
+        else:
+            fell_back += 1
+            s2 = _ms()
+            twin = _corner(s2, *thick, "Center", al, deg)
+            assert _bodies(tall, low) == _bodies(*twin), (
+                f"{deg}: no stop must equal today's result")
+    assert stopped, "the sweep never exercised a stop"
+    assert fell_back, "the sweep never exercised the fallback"
+
+
+@pytest.mark.parametrize("al", ["Center", "Left", "Right"])
+@pytest.mark.parametrize("thick", [(200, 200), (300, 100)])
+def test_butt_that_does_not_fit_keeps_todays_corner(qapp, al, thick):
+    """No stop: the Butt end stays flat, the other wall mitres as it does
+    beside an Auto wall (its body reads only the other wall's raw faces)."""
+    fell_back = 0
+    for deg in range(10, 176, 5):
+        s, s2 = _ms(), _ms()
+        tall, low = _corner(s, *thick, "Center", al, deg, j1="Butt")
+        if low.outline().seams:
+            continue
+        fell_back += 1
+        auto_tall, _auto_low = _corner(s2, *thick, "Center", al, deg)
+        assert _pts(tall) == _pts(auto_tall), f"{deg}: not today's corner"
+        raw = low.quad_points()
+        assert _pts(low)[0] == (round(raw[0].x(), 3), round(raw[0].y(), 3))
+    assert fell_back, "the sweep never exercised the fallback"
+
+
+@pytest.mark.parametrize("gap", [25, 55, 85])
+@pytest.mark.parametrize("al", ["Center", "Left", "Right"])
+def test_three_wall_stop_fits_or_stays_todays_pie(qapp, gap, al):
+    """LEFT and the second wall sit *gap* degrees apart; a sharp gap has no
+    mitre to stop on, so the stop must not happen beside two raw walls."""
+    def build(s, deg, top):
+        a = math.radians(180 + gap)
+        d = math.radians(deg)
+        left = _wall2(s, (-1500, 0), (0, 0), 200, "Center")
+        other = _wall2(s, (0, 0), (1500 * math.cos(a), 1500 * math.sin(a)),
+                       200, al)
+        low = _wall2(s, (0, 0), (1500 * math.cos(d), 1500 * math.sin(d)),
+                     100, "Center", top)
+        for w in (left, other):
+            w.invalidate_geometry()
+        return left, other, low
+
+    stopped = fell_back = 0
+    for deg in range(5, 175, 10):
+        s, s2 = _ms(), _ms()
+        left, other, low = build(s, deg, LOW)
+        if low.outline().seams:
+            stopped += 1
+            assert left._solid_pt2 and other._solid_pt1, f"{deg}: raw corner"
+        else:
+            fell_back += 1
+            assert (_bodies(left, other, low)
+                    == _bodies(*build(s2, deg, 0.0))), f"{deg}: not today's"
+    assert stopped + fell_back == 17
+    assert fell_back if gap == 25 else stopped
+
+
+# A level edit touches only the joints it changes ─────────────────────────
+
+def _count_rebuilds(monkeypatch):
+    rebuilt = []
+    real = WallSegment._rebuild_outline
+
+    def spy(self, extra=None):
+        rebuilt.append(self)
+        real(self, extra)
+
+    monkeypatch.setattr(WallSegment, "_rebuild_outline", spy)
+    return rebuilt
+
+
+def test_level_edit_that_changes_no_joint_rebuilds_nothing(qapp, monkeypatch):
+    s = _ms()
+    left, down = _left(s), _down(s)
+    right = _right(s, top_offset=LOW)
+    assert right.outline().seams
+    rebuilt = _count_rebuilds(monkeypatch)
+    lm = s._level_manager
+    lm.get("Level 2").elevation += 500.0
+    lm.update_elevations(s)
+    assert rebuilt == []
+    assert right.outline().seams
+
+
+def test_level_edit_rebuilds_only_the_changed_junction(qapp, monkeypatch):
+    s = _ms()
+    left, down = _left(s), _down(s)
+    right = _wall(s, (0, 0), (1500, 0))
+    right._top_level = "Level 1"
+    right.invalidate_geometry()
+    # Beyond LEFT's far end: its stroke reads LEFT's union body
+    beyond = _wall(s, (-3000, 0), (-1500, 0))
+    # A separate corner that the edit leaves alone
+    far_a = _wall(s, (9000, 0), (10500, 0))
+    far_b = _wall(s, (10500, 0), (10500, 1500))
+    assert right.outline().seams
+    beyond.outline()
+    far_a.outline()
+    assert beyond._outline.stroke_segments is not None
+
+    rebuilt = _count_rebuilds(monkeypatch)
+    lm = s._level_manager
+    lm.get("Level 2").elevation = lm.get("Level 1").elevation
+    lm.update_elevations(s)
+
+    assert {id(w) for w in rebuilt} == {id(left), id(down), id(right)}
+    assert beyond._outline.stroke_segments is None, "neighbour kept old lines"
+    assert far_a._outline.stroke_segments is not None
+    assert not right.outline().seams
+    assert _is_pie(left, down, right)
