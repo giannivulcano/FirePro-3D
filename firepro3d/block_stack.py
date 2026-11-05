@@ -46,7 +46,9 @@ def restack(scene, blocks: list, to_front: bool) -> None:
                     reverse=not to_front)
     step = 1 if to_front else -1
     base = max(heights) if to_front else min(heights)
+    before = [b.layer_height for b in ranked]
     with scene.deferred_undo_push():
         for n, b in enumerate(ranked, 1):
             b.set_layer_height(base + n * step)
-        scene.request_undo_push()
+        if [b.layer_height for b in ranked] != before:    # a no-op stays silent
+            scene.request_undo_push()

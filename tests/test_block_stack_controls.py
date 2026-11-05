@@ -107,6 +107,16 @@ def test_the_limit_clamps(be):
     assert a.layer_height == 1000
 
 
+def test_a_restack_that_changes_nothing_is_silent(be):
+    a, b, c = _three(be)
+    for i in (a, b):
+        i.set_layer_height(1000)
+    be.push_undo_state()
+    n = be._undo_pos
+    _act(be, a, "Bring to Front")
+    assert a.layer_height == 1000 and be._undo_pos == n
+
+
 def test_plan_has_no_stack_actions(qapp):
     sc = Model_Space()
     i = sc.place_block_instance(rect_def(sc).id, (0.0, 0.0))
