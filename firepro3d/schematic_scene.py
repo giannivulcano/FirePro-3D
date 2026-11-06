@@ -112,7 +112,6 @@ _EXTENT_PAD_FRAC = 0.02    # per side, of the larger extent dimension
 _EXTENT_PAD_MIN_MM = 1.0   # so edge strokes are never half-clipped
 
 PRINTED_SAVE_VERSION = 12  # files below it hold schematics from before Printed text (N13)
-_TEXT_TYPE = "text"        # block_definition._PRIMITIVE_FACTORY key of TextItem
 _SCALE_DECIMALS = 3        # a fitted NTS scale: paper_space.float_to_scale_str's label precision
 
 
@@ -141,10 +140,11 @@ def migrate_old_schematics(project, version) -> None:
     """Turn every schematic of a file below ``PRINTED_SAVE_VERSION`` Printed (N13).
 
     Runs once per file: a saved file carries the new version, so Real size chosen
-    afterwards stays. Text keeps the size its first viewport printed: N = 1 / S
-    leaves the N15 paint factor at 1 there. With no text, or no sheet, nothing has
-    a printed size to keep, so the schematic starts at the project scale as a new
-    one does (N12). Stored heights are untouched.
+    afterwards stays. N = 1 / S of its first viewport leaves the N15 paint factor
+    at 1 there, so text keeps the size it printed, and a text added later sits at
+    the same size against the drawing in the editor and on the sheet. On no sheet
+    it starts at the project scale, as a new schematic does (N12). Stored heights
+    are untouched.
 
     Args:
         project: The loaded ``Model_Space``, its definitions and sheets in place.
@@ -165,9 +165,8 @@ def migrate_old_schematics(project, version) -> None:
     try:
         for defn in old:
             data = _first_viewport(project, defn.id)
-            has_text = any(p.get("type") == _TEXT_TYPE for p in defn.primitives)
             s = None
-            if data is not None and has_text:
+            if data is not None:
                 try:
                     s = _viewport_scale(mgr, defn.id, data)
                 except Exception:      # a schematic that cannot build never stops an open

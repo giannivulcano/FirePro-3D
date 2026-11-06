@@ -129,10 +129,21 @@ def test_the_first_viewport_wins_on_two_sheets(qapp, tmp_path):
     assert _reopened(path).get_block_definition(defn.id).text_scale == pytest.approx(20.0)
 
 
-def test_a_schematic_with_no_text_takes_the_project_scale_even_on_a_sheet(qapp, tmp_path):
+def test_a_schematic_with_no_text_takes_its_viewport_scale_too(qapp, tmp_path):
+    """Smoke: Standpipe, empty, took the project's 1:100 on a 1:10 viewport, so a Note drew
+    ten times too large against the drawing in the editor."""
     proj = _old_project()
     defn = _line_schematic(proj)
-    _sheet(proj, defn, 0.0, BOX)
+    _sheet(proj, defn, 0.1, BOX)
+    path = tmp_path / "old.fpd"
+    _save_as_version(proj, path)
+    d2 = _reopened(path).get_block_definition(defn.id)
+    assert (d2.text_sizing, d2.text_scale) == ("printed", pytest.approx(10.0))
+
+
+def test_an_empty_schematic_on_no_sheet_takes_the_project_scale(qapp, tmp_path):
+    proj = _old_project()
+    defn = _line_schematic(proj)
     path = tmp_path / "old.fpd"
     _save_as_version(proj, path)
     d2 = _reopened(path).get_block_definition(defn.id)
