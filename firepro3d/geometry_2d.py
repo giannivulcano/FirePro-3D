@@ -28,7 +28,7 @@ from . import crisp_stroke as _cs
 from .block_stack import cover_over
 from .render_op import keep_frame, keep_path
 from .constants import (CHAIN_WELD_MM, CRISP_AXIS_TOL, LINETYPE_WINDOW_MIN_PERIODS,
-                        TOKEN_AUTO, TOKEN_ELEMENT)
+                        STROKE_AA_PX, TOKEN_AUTO, TOKEN_ELEMENT)
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
@@ -273,7 +273,7 @@ class Geometry2DMixin:
                 w = joint_pad(pen.widthF()) - pen.widthF() / 2.0 + weld
                 return base.adjusted(-w, -w, w, w)
             return base
-        px = pen.widthF() / 2.0 + 0.75
+        px = pen.widthF() / 2.0 + STROKE_AA_PX
         if joined:
             # ... same reach for a cosmetic pen, in device px (design D7).
             px = max(px, joint_pad(pen.widthF()))

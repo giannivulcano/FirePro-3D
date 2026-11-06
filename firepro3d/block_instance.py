@@ -38,7 +38,7 @@ from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver
 from .constants import (CHAIN_WELD_MM, LINETYPE_WINDOW_MIN_PERIODS, MODEL_WEIGHT_PX_MAX,
-                        TOKEN_AUTO)
+                        STROKE_AA_PX, TOKEN_AUTO)
 from .geometry_2d import constraint_tint
 from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
@@ -168,6 +168,7 @@ class BlockInstance(QGraphicsObject):
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
         self._mask_cache = None    # (definition ops, pose key, scene mask) -- opaque_mask
         self._cover_cache = None   # (masks tuple, union) -- _cover_above
+        self._ink_ops_cache = None  # (ops list, joined set, rows) -- _ink_reach_px
         self._stack_seq = 0        # scene-entry order, the tie-break at equal z
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
@@ -756,13 +757,13 @@ class BlockInstance(QGraphicsObject):
             m = it.opaque_mask()
             if it.transform().isIdentity():
                 if rect is None:
-                    rect = self.sceneBoundingRect()
+                    rect = self._ink_rect()
                 if not m.boundingRect().intersects(rect):
                     continue
             else:                                          # a manipulator's held preview
                 m = it.sceneTransform().map(m)
                 if rect is None:
-                    rect = self.sceneBoundingRect()
+                    rect = self._ink_rect()
             if m.intersects(rect):
                 masks.append(m)
         if not masks:
@@ -775,6 +776,44 @@ class BlockInstance(QGraphicsObject):
         cover = self._union_prefix(memo, masks)
         self._cover_cache = (tuple(masks), cover)
         return cover
+
+    def _ink_rect(self) -> QRectF:
+        """Scene box this block's ink can reach, for the cover test.
+
+        ``boundingRect`` holds a 41 px worst-case joint pad because weight
+        edits fire no ``prepareGeometryChange``; the cover test reads the real
+        pens instead, so a mask near a thin block takes no clip path. A paper
+        pass keeps the bounds: its pens are item units, not px.
+        """
+        if self._paper_pen_width is not None:
+            return self.sceneBoundingRect()
+        px = self._ink_reach_px()
+        extra = scene_hit_width(self, px, px) + CHAIN_WELD_MM / 2.0 - 2.0
+        r = self.sceneTransform().mapRect(self._frame_rect())
+        return r.adjusted(-extra, -extra, extra, extra) if extra > 0.0 else r
+
+    def _ink_reach_px(self) -> float:
+        """Widest device reach past this block's geometry: half a stroke plus
+        the antialias fringe, or the wedge reach of a joined op. The distinct
+        (linetype, weight, joined) rows are memoised on the compiled list; the
+        widths resolve every call (weight table, Model Blocks)."""
+        ops = self.render_ops()
+        jm = self._joint_map()
+        joined = jm[1] if jm is not None else frozenset()
+        c = self._ink_ops_cache
+        if c is None or c[0] is not ops or c[1] != joined:
+            rows = {}
+            for i, op in enumerate(ops):
+                if op.kind == STROKE:
+                    rows.setdefault((op.linetype, op.weight, i in joined), op)
+            c = self._ink_ops_cache = (ops, joined, tuple(rows.items()))
+        reg = getattr(self.scene(), "block_registry", None)
+        reach = 0.0
+        for (_lt, _w, is_joined), op in c[2]:
+            width = self._resolve_op_stroke(op, True, reg, False)[1]
+            width = op.pen.widthF() if width is None else width
+            reach = max(reach, joint_pad(width) if is_joined else width / 2.0 + STROKE_AA_PX)
+        return reach
 
     @staticmethod
     def _union_prefix(memo: dict, masks: list) -> QPainterPath:
