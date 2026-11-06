@@ -7,7 +7,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.constraint_controller import CONFLICT_STATUS
-from firepro3d.geometry_2d import LineItem
+from firepro3d.geometry_2d import LineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 from firepro3d.scale_manager import ScaleManager
@@ -66,11 +66,12 @@ def _line(scene, a, b):
     return ln
 
 
-def _tie_into_network(scene, item):
+def _tie_into_network(scene, item, handle="bl", grip=GRIP_BL):
     """Three lines chained by their ends and held horizontal or vertical, with the box's
-    bottom-left corner on the first line's start: the recorded case's shape."""
+    bottom-left corner (or *handle*, at *grip*) on the first line's start: the recorded
+    case's shape."""
     ctl = scene.constraint_ctl
-    bl = item.grip_points()[GRIP_BL]
+    bl = item.grip_points()[grip]
     a = _line(scene, QPointF(bl), QPointF(bl.x() - 140.0, bl.y()))
     b = _line(scene, QPointF(bl.x() - 140.0, bl.y()), QPointF(bl.x() - 140.0, bl.y() + 90.0))
     c = _line(scene, QPointF(bl.x() - 140.0, bl.y() + 90.0), QPointF(bl.x(), bl.y() + 90.0))
@@ -82,7 +83,7 @@ def _tie_into_network(scene, item):
     assert ctl.add("coincident", [{"uid": c._uid, "h": "p2"}, {"ref": "origin"}])
     for ln in (a, b, c):
         assert ctl.add("dim_distance", [{"uid": ln._uid, "h": "edge"}])
-    assert ctl.add("coincident", [{"uid": item._uid, "h": "bl"}, {"uid": a._uid, "h": "p1"}])
+    assert ctl.add("coincident", [{"uid": item._uid, "h": handle}, {"uid": a._uid, "h": "p1"}])
     QApplication.processEvents()
     return a
 
@@ -195,6 +196,155 @@ def test_a_tied_box_resizes_with_no_refusal_and_its_tie_holds(block_view, grip, 
     assert (now.x(), now.y()) == pytest.approx((tied.x(), tied.y()), abs=1e-3)
     p1 = line.grip_points()[0]
     assert (p1.x(), p1.y()) == pytest.approx((tied.x(), tied.y()), abs=1e-3)
+
+
+# Ruling 2026-11-06 on AC1. Which share of a slant each grip takes with one corner tied:
+# (width axis, height axis). A grip follows the cursor on the axis whose far edge is free;
+# a grip with no free axis stays put, silently.
+BL_TIE = {GRIP_TL: (0, 1), GRIP_TM: (0, 1), GRIP_TR: (1, 1), GRIP_RM: (1, 0),
+          GRIP_BR: (1, 0), GRIP_BM: (0, 0), GRIP_BL: (0, 0), GRIP_LM: (0, 0)}
+TL_TIE = {GRIP_TL: (0, 0), GRIP_TM: (0, 0), GRIP_TR: (1, 0), GRIP_RM: (1, 0),
+          GRIP_BR: (1, 1), GRIP_BM: (0, 1), GRIP_BL: (0, 1), GRIP_LM: (0, 0)}
+
+
+def _assert_slant(view, scene, handle, tied_grip, grip, delta, free):
+    item = _box(scene)
+    line = _tie_into_network(scene, item, handle, tied_grip)
+    tied = QPointF(item.grip_points()[tied_grip])
+    start = QPointF(item.grip_points()[grip])
+    size = _size(item)
+    lines = _drag(view, scene, item, grip, delta)
+    assert CONFLICT_STATUS not in lines
+    now = item.grip_points()[tied_grip]
+    assert (now.x(), now.y()) == pytest.approx((tied.x(), tied.y()), abs=1e-3)
+    p1 = line.grip_points()[0]
+    assert (p1.x(), p1.y()) == pytest.approx((tied.x(), tied.y()), abs=1e-3)
+    got = item.grip_points()[grip]
+    assert got.x() - start.x() == pytest.approx(delta[0] * free[0], abs=0.05)   # held axis still
+    assert got.y() - start.y() == pytest.approx(delta[1] * free[1], abs=0.05)
+    sign_w = -1.0 if grip in (GRIP_TL, GRIP_LM, GRIP_BL) else 1.0
+    sign_h = -1.0 if grip in (GRIP_TL, GRIP_TM, GRIP_TR) else 1.0
+    assert _size(item) == pytest.approx((size[0] + sign_w * delta[0] * free[0],
+                                         size[1] + sign_h * delta[1] * free[1]), abs=0.05)
+
+
+@pytest.mark.parametrize("delta", [(20.0, -15.0), (-20.0, 15.0)])
+@pytest.mark.parametrize("grip", range(8))
+def test_a_slant_on_a_bottom_left_tie_keeps_the_free_axis(block_view, grip, delta):
+    view, scene = block_view
+    _assert_slant(view, scene, "bl", GRIP_BL, grip, delta, BL_TIE[grip])
+
+
+@pytest.mark.parametrize("delta", [(20.0, 15.0), (-20.0, -15.0)])
+@pytest.mark.parametrize("grip", range(8))
+def test_a_slant_on_a_top_left_tie_keeps_the_free_axis(block_view, grip, delta):
+    view, scene = block_view
+    _assert_slant(view, scene, "tl", GRIP_TL, grip, delta, TL_TIE[grip])
+
+
+@pytest.mark.parametrize("grip, free", [(GRIP_BR, (1, 0)), (GRIP_TL, (0, 1)),
+                                        (GRIP_BM, (0, 0)), (GRIP_BL, (0, 0))])
+def test_a_slant_on_a_rotated_tied_box_works_in_its_own_axes(block_view, grip, free):
+    view, scene = block_view
+    view.scale(4.0, 4.0)                   # the posted cursor lands on whole pixels
+    item = _box(scene)
+    item.set_angle(30.0, None)
+    QApplication.processEvents()
+    _tie_into_network(scene, item)
+    g = item.grip_points()
+    tied, start = QPointF(g[GRIP_BL]), QPointF(g[grip])
+    u = ((g[GRIP_RM].x() - g[GRIP_LM].x()) / 120.0, (g[GRIP_RM].y() - g[GRIP_LM].y()) / 120.0)
+    v = ((g[GRIP_BM].x() - g[GRIP_TM].x()) / 60.0, (g[GRIP_BM].y() - g[GRIP_TM].y()) / 60.0)
+    along, across = (20.0, 12.0) if grip == GRIP_BR else (12.0, -20.0)
+    delta = (along * u[0] + across * v[0], along * u[1] + across * v[1])
+    assert CONFLICT_STATUS not in _drag(view, scene, item, grip, delta)
+    g = item.grip_points()
+    assert (g[GRIP_BL].x(), g[GRIP_BL].y()) == pytest.approx((tied.x(), tied.y()), abs=1e-3)
+    dx, dy = g[grip].x() - start.x(), g[grip].y() - start.y()
+    near = 0.75                            # the grip's cursor rounds to whole mm
+    assert dx * u[0] + dy * u[1] == pytest.approx(along * free[0], abs=near)
+    assert dx * v[0] + dy * v[1] == pytest.approx(across * free[1], abs=near)
+
+
+def test_a_move_a_tie_holds_is_still_refused_with_its_status(block_view):
+    """N5: only the resize grips go quiet."""
+    view, scene = block_view
+    item = _box(scene)
+    _tie_into_network(scene, item)
+    before = QPointF(item.grip_points()[8])
+    assert CONFLICT_STATUS in _drag(view, scene, item, 8, (40.0, 30.0))
+    after = item.grip_points()[8]
+    assert (after.x(), after.y()) == pytest.approx((before.x(), before.y()), abs=1e-3)
+
+
+def test_a_tied_rectangle_keeps_its_status(block_view):
+    """Scope: the quiet frame is the text grip's. A rectangle its tie holds still reports."""
+    view, scene = block_view
+    rect = RectangleItem(QPointF(-60.0, -30.0), QPointF(60.0, 30.0))
+    scene.addItem(rect)
+    scene._draw_rects.append(rect)
+    _tie_into_network(scene, rect)
+    before = QPointF(rect.grip_points()[8])
+    assert CONFLICT_STATUS in _drag(view, scene, rect, 8, (40.0, 30.0))
+    after = rect.grip_points()[8]
+    assert (after.x(), after.y()) == pytest.approx((before.x(), before.y()), abs=1e-3)
+
+
+def test_a_drag_frame_reports_unless_told_not_to(block_view):
+    """The new parameter's default is today's behaviour: restored, with the status."""
+    _view, scene = block_view
+    item = _box(scene)
+    _tie_into_network(scene, item)
+    ctl = scene.constraint_ctl
+    lines = []
+    ctl._status = lines.append
+    start = QPointF(item.grip_points()[GRIP_BR])
+    ctl.begin_drag(item)
+    for kwargs, want in (({}, [CONFLICT_STATUS]), ({"report": False}, [])):
+        lines.clear()
+        item.apply_grip(GRIP_BR, QPointF(start.x() + 30.0, start.y() + 20.0))
+        assert ctl.drag(item, GRIP_BR, **kwargs) is False
+        assert lines == want
+        now = item.grip_points()[GRIP_BR]
+        assert (now.x(), now.y()) == pytest.approx((start.x(), start.y()), abs=1e-6)
+    ctl.end_drag()
+
+
+def test_an_untied_rotated_box_keeps_its_far_corner(block_view):
+    """N3 on a rotated box: the centre follows a resize, the far corner does not. Esc
+    puts the grip back."""
+    view, scene = block_view
+    view.scale(4.0, 4.0)
+    item = _box(scene)
+    item.set_angle(30.0, None)
+    QApplication.processEvents()
+    g = item.grip_points()
+    far, start = QPointF(g[GRIP_BL]), QPointF(g[GRIP_TR])
+    assert _drag(view, scene, item, GRIP_TR, (20.0, -10.0)) == []
+    g = item.grip_points()
+    assert (g[GRIP_BL].x(), g[GRIP_BL].y()) == pytest.approx((far.x(), far.y()), abs=1e-3)
+    assert (g[GRIP_TR].x(), g[GRIP_TR].y()) == pytest.approx(
+        (start.x() + 20.0, start.y() - 10.0), abs=0.75)    # the cursor rounds to whole mm
+
+
+def test_esc_on_a_rotated_box_puts_it_back(block_view):
+    view, scene = block_view
+    view.scale(4.0, 4.0)
+    item = _box(scene)
+    item.set_angle(30.0, None)
+    scene.clearSelection()
+    item.setSelected(True)
+    QApplication.processEvents()
+    before = [(p.x(), p.y()) for p in item.grip_points()]
+    start = QPointF(item.grip_points()[GRIP_TR])
+    mouse(view, QEvent.Type.MouseMove, start, buttons=NB, button=NB)
+    mouse(view, QEvent.Type.MouseButtonPress, start)
+    mouse(view, QEvent.Type.MouseMove, QPointF(start.x() + 20.0, start.y() - 10.0), button=NB)
+    assert item.grip_points()[GRIP_TR].x() != pytest.approx(start.x(), abs=1.0)
+    QTest.keyClick(view.viewport(), Qt.Key.Key_Escape)
+    QApplication.processEvents()
+    now = [(p.x(), p.y()) for p in item.grip_points()]
+    assert [v for pt in now for v in pt] == pytest.approx([v for pt in before for v in pt], abs=1e-3)
 
 
 def test_a_tied_box_stops_at_its_text_height_silently(block_view):

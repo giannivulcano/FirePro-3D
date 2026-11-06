@@ -2085,15 +2085,30 @@ class ConstraintController:
         extras = [(k, it, list(adapter_for(it).read(it))) for k, it in self._drag_extra]
         return (tuple(t.cur.copy() for t in self._drag_ctx.tiers()), extras)
 
-    def drag(self, item, grip_index: int) -> None:
-        """One drag frame: *item*'s grip was applied; pin it and re-solve."""
+    def drag(self, item, grip_index: int, *, report: bool = True) -> bool:
+        """One drag frame: *item*'s grip was applied; pin it and re-solve.
+
+        Args:
+            item: The dragged item.
+            grip_index: The grip that was applied.
+            report: False holds a refused frame with no status, for a grip that
+                tries the frame another way (text resize grips, notes N2, N4).
+
+        Returns:
+            True when the frame solved. False when it was held at last good,
+            or no session is open.
+        """
         if self._drag_snap is None:
-            return
+            return False
         self._frame_start = self._last_good     # rewind_frame target (CS3)
         if self._solve(edited=(item,), pin=(item, grip_index), ctx=self._drag_ctx):
             self._last_good = self._good_state()
-        else:
+            return True
+        if report:
             self.hold_last_good()               # D10 hold last good
+        else:
+            self._restore_good(self._last_good)
+        return False
 
     def drag_frame(self, items, apply, *, reset: bool = True) -> bool:
         """One D35 body / resize drag frame on the open session.
