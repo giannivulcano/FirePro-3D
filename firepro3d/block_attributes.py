@@ -336,7 +336,8 @@ def hugged_text_record(rec: dict, value: str | None = None) -> dict:
     if not has_fields(str(rec.get("text", ""))):
         return rec
     data = TextAnnotationData.from_dict(rec)
-    out = {**rec, "wrap": data.wrap_on(bound=True), "shrink": data.shrink_on(bound=True)}
+    out = {**rec, "wrap": data.wrap_on(bound=True), "shrink": data.shrink_on(bound=True),
+           "line_box_middle": True}
     if value is not None:
         out["text"] = value
     return out

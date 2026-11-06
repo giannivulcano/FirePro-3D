@@ -7,6 +7,8 @@ dicts into live scene items; the Block Editor (seeding) and the render scenes
 """
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtCore import QRectF
 
 from .block_definition import _PRIMITIVE_FACTORY, is_scaffold_item
@@ -16,6 +18,8 @@ from .geometry_2d import (
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem
+
+log = logging.getLogger("FirePro3D")
 
 _CLS_TO_LIST = {
     # Reference shapes stay in their class's list (design RG1).
@@ -76,6 +80,21 @@ def materialized_items(scene) -> list:
     return items
 
 
+def _with_leaders(rect: QRectF, items: list) -> QRectF:
+    """*rect* grown to hold every text leader's elbow and tip, so a note reaching
+    past the drawing is not cropped at the viewport (notes design N17)."""
+    from .text_item import TextItem
+    pts = [p for it in items if isinstance(it, TextItem) and it.data.leader
+           for p in it.grip_points()[TextItem.LEADER_KNEE_GRIP:]]
+    if not pts:
+        return rect
+    left = min([rect.left()] + [p.x() for p in pts])
+    top = min([rect.top()] + [p.y() for p in pts])
+    right = max([rect.right()] + [p.x() for p in pts])
+    bottom = max([rect.bottom()] + [p.y() for p in pts])
+    return QRectF(left, top, right - left, bottom - top)
+
+
 def clear_materialized(scene) -> None:
     """Remove every materialized item from *scene* (rebuild-in-place)."""
     for attr in _PRIMITIVE_LISTS:
@@ -91,6 +110,71 @@ def clear_materialized(scene) -> None:
 _DEFAULT_EXTENT = QRectF(0, 0, 1000, 1000)   # the plan / elevation empty rule
 _EXTENT_PAD_FRAC = 0.02    # per side, of the larger extent dimension
 _EXTENT_PAD_MIN_MM = 1.0   # so edge strokes are never half-clipped
+
+PRINTED_SAVE_VERSION = 12  # files below it hold schematics from before Printed text (N13)
+_SCALE_DECIMALS = 3        # a fitted NTS scale: paper_space.float_to_scale_str's label precision
+
+
+def _first_viewport(project, block_id):
+    """The first viewport of schematic *block_id* in sheet order, or None."""
+    for sheet in getattr(project, "_sheets", ()):
+        for data in sheet.sheet_views:
+            if data.source_view_type == "schematic" and data.source_view_name == block_id:
+                return data
+    return None
+
+
+def _viewport_scale(mgr, block_id, data) -> "float | None":
+    """Paper mm per model mm of *data*: its true scale, else its NTS fit, the
+    ``SheetViewport.paint`` rule over the live extent. None with no extent."""
+    if data.scale > 0.0:
+        return data.scale
+    mgr.scene_for(block_id)
+    extent = mgr.extent(block_id)
+    if extent is None or extent.isEmpty() or data.w <= 0.0 or data.h <= 0.0:
+        return None
+    return min(data.w / extent.width(), data.h / extent.height())
+
+
+def migrate_old_schematics(project, version) -> None:
+    """Turn every schematic of a file below ``PRINTED_SAVE_VERSION`` Printed (N13).
+
+    Runs once per file: a saved file carries the new version, so Real size chosen
+    afterwards stays. N = 1 / S of its first viewport leaves the N15 paint factor
+    at 1 there, so text keeps the size it printed, and a text added later sits at
+    the same size against the drawing in the editor and on the sheet. On no sheet
+    it starts at the project scale, as a new schematic does (N12). Stored heights
+    are untouched.
+
+    Args:
+        project: The loaded ``Model_Space``, its definitions and sheets in place.
+        version: The file's ``version``; a non-numeric one counts as oldest.
+    """
+    try:
+        if int(version) >= PRINTED_SAVE_VERSION:
+            return
+    except (TypeError, ValueError):
+        pass
+    old = [d for d in project._block_definitions.values()
+           if d.kind == "schematic" and d.text_sizing is None]
+    if not old:
+        return
+    from .annotative import _drawing_scale
+    default = _drawing_scale(project)
+    mgr = SchematicSceneManager(project)
+    try:
+        for defn in old:
+            data = _first_viewport(project, defn.id)
+            s = None
+            if data is not None:
+                try:
+                    s = _viewport_scale(mgr, defn.id, data)
+                except Exception:      # a schematic that cannot build never stops an open
+                    log.exception("Schematic %s: viewport scale unavailable", defn.name)
+            defn.text_sizing = "printed"
+            defn.text_scale = (round(1.0 / s, _SCALE_DECIMALS) if s else 0.0) or default
+    finally:
+        mgr.close()
 
 
 class SchematicSceneManager:
@@ -165,7 +249,13 @@ class SchematicSceneManager:
             clear_materialized(sc)
             materialize_primitives(sc, d.primitives)
             self._keys[block_id] = (d, d.version)
+        sc.text_print_scale = d.text_print_scale   # N15: read by the paper pass
         return sc
+
+    def text_scale(self, block_id) -> float:
+        """The schematic's drawing scale N when Printed, else 1 (N17)."""
+        d = self._schematic(block_id)
+        return (d.text_print_scale or 1.0) if d is not None else 1.0
 
     def extent(self, block_id) -> "QRectF | None":
         """Padded pen-free bounds of the built scene (None if not built).
@@ -176,10 +266,12 @@ class SchematicSceneManager:
         if sc is None:
             return None
         from .geometry_import import geometric_bounds
-        rect = geometric_bounds([it for it in materialized_items(sc)
-                                 if not is_scaffold_item(it)])   # D23 / RG11
+        items = [it for it in materialized_items(sc)
+                 if not is_scaffold_item(it)]                    # D23 / RG11
+        rect = geometric_bounds(items)
         if rect is None:
             return QRectF(_DEFAULT_EXTENT)
+        rect = _with_leaders(rect, items)
         pad = max(_EXTENT_PAD_MIN_MM,
                   _EXTENT_PAD_FRAC * max(rect.width(), rect.height()))
         return rect.adjusted(-pad, -pad, pad, pad)
@@ -190,6 +282,11 @@ class SchematicSceneManager:
         self._keys.pop(block_id, None)
         if sc is not None:
             sc.block_registry.detach_scene(sc)
+
+    def close(self) -> None:
+        """Drop every render scene and stop listening: the manager is done with."""
+        self.dispose_all()
+        self._project.blockDefinitionsChanged.disconnect(self._on_definitions_changed)
 
     def dispose_all(self) -> None:
         """Drop every render scene (project load / new file / teardown)."""

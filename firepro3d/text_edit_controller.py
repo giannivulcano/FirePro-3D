@@ -96,6 +96,7 @@ class TextEditController:
             self.commit()
         item._edit_before = item.to_dict()
         item._edit_is_new = is_new
+        item.arm_leader_hold()             # before begin_edit: its text swap must not re-fire a stale hold
         item.begin_edit()
         if scene_pos is not None:
             self.set_cursor_at(item, scene_pos, keep_anchor=False)

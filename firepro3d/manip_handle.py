@@ -399,6 +399,145 @@ class GripHandle(Handle):
         sc._grip_partners = getattr(self, "_prev_grip_partners", frozenset())
 
 
+class ReachGripHandle(GripHandle):
+    """A box resize grip that reaches the cursor (notes design N1, N2).
+
+    A pin elsewhere on the box re-centres it after each apply, so re-applying
+    at the solved point, as ``GripHandle`` does, halves the gap each pass. Here
+    each of the box's own axes that moved at all is re-aimed at the point its
+    measured gain predicts lands on target; an axis the constraints hold keeps
+    the base handle's slide.
+
+    A frame the constraints refuse is retried one axis at a time: all four box
+    variables are pinned, so a corner sharing an axis with a tie fails the solve
+    on that axis and never reaches the re-aim. A grip with no free axis stays
+    put with no status, as a box stopping at its text does (N4; AC1 ruling
+    2026-11-06).
+    """
+
+    _REACH_PASSES = 3
+    _REACH_GAIN_FLOOR = 0.05       # below this an axis counts as held
+    _AXIS_EPS = 1e-9
+
+    @staticmethod
+    def _box_axes(points: list) -> tuple:
+        """Unit vectors of the box's width and height axes, in scene units,
+        from grip points 7 to 3 and 1 to 5, so rotation carries no sign rule.
+        None when a side has no length, as an empty wrap-off box with no padding
+        has, so there is no axis to measure along."""
+        out = []
+        for a, b in ((points[7], points[3]), (points[1], points[5])):
+            dx, dy = b.x() - a.x(), b.y() - a.y()
+            n = math.hypot(dx, dy)
+            if n < ReachGripHandle._AXIS_EPS:
+                return None
+            out.append((dx / n, dy / n))
+        return tuple(out)
+
+    def _reaim(self, want: float, reached: float, last: float) -> float:
+        """The next aim along one axis, in scene units from the frame's start.
+
+        Args:
+            want: The distance to the target.
+            reached: The distance the last solve left the grip.
+            last: The distance the last pass aimed.
+        """
+        if abs(want) < self._AXIS_EPS or abs(last) < self._AXIS_EPS:
+            return reached
+        gain = reached / last
+        return want / gain if gain > self._REACH_GAIN_FLOOR else reached
+
+    def _apply(self, pt: QPointF, mods) -> None:
+        """Apply the grip with the opposite grip kept where it was (N3). A
+        rotated box turns about its centre, which follows a resize, so the
+        resize alone slides the far edge off a tie."""
+        item = self.item
+        if not item._angle:
+            super()._apply(pt, mods)
+            return
+        far = (self.index + 4) % 8
+        keep = QPointF(item.grip_points()[far])
+        super()._apply(pt, mods)
+        shift = keep - item.grip_points()[far]
+        item.moveBy(shift.x(), shift.y())
+        item.sync_data_from_item()
+
+    def _restore_extra(self, m) -> None:
+        """Esc on a rotated box: the plain re-apply restores the size; seat the
+        grip back on its snapshot."""
+        shift = self._snapshot[self.index] - self.item.grip_points()[self.index]
+        if shift.manhattanLength() > self._HONOUR_TOL:
+            self.item.moveBy(shift.x(), shift.y())
+            self.item.sync_data_from_item()
+
+    def _free_axis_target(self, m, ctl, target: QPointF, mods) -> "QPointF | None":
+        """Retry a refused frame along each of the box's axes in turn.
+
+        At most two more solves. The first axis that solves stands, since the
+        pair was refused. A frame with one axis to move has nothing to retry.
+
+        Args:
+            target: The point the refused frame aimed the grip at.
+
+        Returns:
+            The grip's target on the free axis, the frame solved there; None
+            when the grip stays put at last good.
+        """
+        item = self.item
+        points = item.grip_points()
+        axes = self._box_axes(points)
+        if axes is None:
+            return None
+        start = QPointF(points[self.index])
+        gap = target - start
+        legs = [(gap.x() * u + gap.y() * v, u, v) for u, v in axes]
+        legs = [QPointF(d * u, d * v) for d, u, v in legs if abs(d) > self._HONOUR_TOL]
+        if len(legs) < 2:
+            return None
+        for leg in legs:
+            self._apply(start + leg, mods)
+            aim = QPointF(item.grip_points()[self.index])
+            self._after_apply(m, aim)
+            if ctl.drag(item, self.index, report=False):
+                return aim
+        return None
+
+    def _solve_frame(self, m, ctl, mods) -> None:
+        item = self.item
+        target = QPointF(item.grip_points()[self.index])
+        if not getattr(ctl, "dragging", False):
+            ctl.drag(item, self.index)          # no session: nothing to solve
+            return
+        if not ctl.drag(item, self.index, report=False):
+            target = self._free_axis_target(m, ctl, target, mods)
+            if target is None:
+                return
+        aim = None
+        for _ in range(self._REACH_PASSES):
+            got = QPointF(item.grip_points()[self.index])
+            if (abs(got.x() - target.x()) <= self._HONOUR_TOL
+                    and abs(got.y() - target.y()) <= self._HONOUR_TOL):
+                return
+            ctl.rewind_frame()
+            points = item.grip_points()
+            start = QPointF(points[self.index])
+            axes = self._box_axes(points)
+            if axes is None:                    # a degenerate box: the plain apply
+                self._apply(target, mods)
+                self._after_apply(m, item.grip_points()[self.index])
+                ctl.drag(item, self.index, report=False)
+                return
+            to_target, to_got = target - start, got - start
+            want = [to_target.x() * u + to_target.y() * v for u, v in axes]
+            reached = [to_got.x() * u + to_got.y() * v for u, v in axes]
+            aim = [self._reaim(w, r, a) for w, r, a in zip(want, reached, aim or want)]
+            self._apply(QPointF(
+                start.x() + aim[0] * axes[0][0] + aim[1] * axes[1][0],
+                start.y() + aim[0] * axes[0][1] + aim[1] * axes[1][1]), mods)
+            self._after_apply(m, item.grip_points()[self.index])
+            ctl.drag(item, self.index, report=False)
+
+
 class TranslateGripHandle(GripHandle):
     """A grip whose drag translates the whole item (a move grip).
 
@@ -762,7 +901,8 @@ class TitleLineGripHandle(GripHandle):
 
 
 def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset(),
-                         translate: "frozenset[int] | set[int]" = frozenset()):
+                         translate: "frozenset[int] | set[int]" = frozenset(),
+                         reach: "frozenset[int] | set[int]" = frozenset()):
     """Build the default live-apply ``GripHandle`` list for a U3-migrated item.
 
     One handle per ``item.grip_points()`` index, ``grip_hittable``-filtered (an
@@ -775,13 +915,15 @@ def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset
     the shared body of every item's ``manip_handles()``; per-item drag semantics
     live on ``GripHandle`` subclass hooks, not here. Indices in *translate* are
     whole-item move grips and get a ``TranslateGripHandle`` (S2 handle snap).
+    Indices in *reach* are box resize grips and get a ``ReachGripHandle``.
     """
     fn = getattr(item, "grip_hittable", None)
     out = []
     for i in range(len(item.grip_points())):
         if fn is not None and not fn(i):
             continue
-        cls = TranslateGripHandle if i in translate else GripHandle
+        cls = (TranslateGripHandle if i in translate
+               else ReachGripHandle if i in reach else GripHandle)
         out.append(cls(item, i, circular=(i in circular)))
     return out
 

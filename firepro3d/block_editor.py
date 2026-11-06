@@ -14,6 +14,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
                              QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
+from .annotative import _drawing_scale, editor_text_printed, editor_text_scale
 from .model_space import Model_Space
 from .model_view import Model_View
 from .block_definition import is_scaffold, is_scaffold_item
@@ -536,6 +537,7 @@ class BlockEditorWidget(QWidget):
         self._editor_key = None              # set by the manager
         self.editor_scene = Model_Space(scene_role="block_editor")    # isolated scratchpad; no managers injected
         self.editor_scene.opaque_blocks = kind == "schematic"    # block stacking D3
+        self.editor_scene.editor_kind = kind
         # ET1 (smoke ruling 2026-10-10): block AND schematic editors preview
         # ends / Drafting linetypes at the project drawing scale -- schematics
         # are built from model-size blocks (MainWindow._seed_editor_units).
@@ -567,6 +569,53 @@ class BlockEditorWidget(QWidget):
         # placed there; the definition origin itself is always (0,0) (D4).
         self._seed_base = None       # QPointF | None
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
+        if kind == "schematic" and block_id is None:
+            self._seed_printed_text()
+
+    def _seed_printed_text(self) -> None:
+        """A new schematic starts Printed at the project drawing scale (N12).
+
+        Joins the undo baseline, so undoing the first edit keeps it."""
+        sc = self.editor_scene
+        sc.set_block_meta({**sc.block_meta, "text_sizing": "printed",
+                           "text_scale": self.project_text_scale()}, push_undo=False)
+        self._rebaseline_undo()
+
+    def set_text_scale(self, n: float) -> bool:
+        """The Drawing scale row: re-size the canvas text for scale *n* (N14).
+
+        Printed size stays: every text scales about its anchor by new / old,
+        one undo step. Each anchor stays, so a dim between two texts keeps its
+        value, and a dim that sizes one text cannot exist. If the constraints
+        refuse, the solver has restored the geometry and posted its status, and
+        the fields it cannot reach are put back here.
+
+        Returns:
+            True when the scale changed.
+        """
+        sc = self.editor_scene
+        old = editor_text_scale(sc)
+        if not editor_text_printed(sc) or n <= 0.0 or n == old:
+            return False
+        sc.commit_text_edit()
+        factor = n / old
+        texts = list(sc._texts)
+        states = [(t, t.box_state()) for t in texts]
+        ctl = sc.constraint_ctl
+        with ctl.edit(texts, typed=True):
+            for t in texts:
+                t.rescale_about_anchor(factor)
+        if ctl.edit_refused:
+            for t, state in states:
+                t.restore_box_state(state)
+            return False
+        sc.set_block_meta({**sc.block_meta, "text_scale": n}, push_undo=False)
+        sc.push_undo_state()
+        return True
+
+    def project_text_scale(self) -> float:
+        """The project drawing scale N, the Printed starting scale (N12, N13)."""
+        return _drawing_scale(self._project_scene)
 
     @property
     def _edit_block_id(self):
@@ -692,7 +741,9 @@ class BlockEditorWidget(QWidget):
         self.editor_scene.set_block_meta(
             {"attributes": defn.attributes, "host_category": defn.host_category,
              "scale_mode": defn.scale_mode,
-             "annotative_screen": defn.annotative_screen}, push_undo=False)
+             "annotative_screen": defn.annotative_screen,
+             "text_sizing": defn.text_sizing, "text_scale": defn.text_scale},
+            push_undo=False)
         self.editor_scene.refresh_sample_preview()   # texts seeded before the meta
         # The (migrated) seeded state is the baseline.
         self._rebaseline_undo()
