@@ -394,6 +394,9 @@ class NoteController:
         if not text.strip():
             s.remove_block_instance(inst)
             return "emptied"
+        lead, typed = inst.note.get("leader"), item.data.leader
+        if lead and typed and typed["edge"] in ("L", "R"):
+            lead["t"] = typed["t"]             # the shoulder held while typing (N23)
         inst.set_attributes(dict(inst.attributes, Text=text))
         inst.setSelected(True)
         return "kept"

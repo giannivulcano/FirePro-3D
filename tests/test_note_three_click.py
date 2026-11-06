@@ -271,3 +271,86 @@ def test_the_step_prompts_name_the_next_click(shown_model_view, real_system_libr
     click(view, KNEE)
     assert seen[-3:] == ["Pick arrow tip", "Pick elbow", "Pick box edge"]
     scene.set_mode(None)
+
+
+# -- N23: while typing -------------------------------------------------------------
+
+def _type_lines(view, scene, n):
+    """Type *n* lines through the live editor's real key path."""
+    for i in range(n):
+        if i:
+            key(view, Qt.Key.Key_Return)
+        for k in (Qt.Key.Key_H, Qt.Key.Key_O, Qt.Key.Key_L, Qt.Key.Key_D):
+            key(view, k)
+
+
+@pytest.mark.parametrize("edge", ["L", "R"])
+def test_n23_a_side_edge_keeps_the_shoulder_on_the_first_line_as_the_box_grows(
+        shown_model_view, real_system_library, edge):
+    view, scene = shown_model_view
+    scene.active_view_key = PLAN
+    scene.set_mode("note")
+    three_clicks(view, scene, third=THIRD[edge])
+    inst = scene._block_instances[-1]
+    ov = scene._note_ctl.overlay
+    one_line = inst.note_box_scene()
+    _type_lines(view, scene, 3)
+    assert ov.toPlainText().count("\n") == 2
+    live = _tl.box_frame_points(ov)
+    want_y = landed(view, KNEE).y()
+    assert _tl._to_parent(ov, live[1]).y() == pytest.approx(want_y, abs=px(view) * 1.5)   # live
+    scene._text_edit_ctl.commit()
+    box = inst.note_box_scene()
+    assert box.height() > one_line.height() * 2.0            # the box grew
+    assert box.top() == pytest.approx(one_line.top())        # downward
+    op = leader_op(inst)
+    pose = inst.pose_transform()
+    a = pose.map(QPointF(op.pieces[0].x0, op.pieces[0].y0))
+    k = pose.map(QPointF(op.pieces[0].x1, op.pieces[0].y1))
+    assert k.y() == pytest.approx(want_y, abs=px(view) * 1.5)     # the drawn shoulder did not leave
+    assert a.y() == pytest.approx(k.y(), abs=1e-6)                # and it is still perpendicular
+    assert a.y() - box.top() == pytest.approx(one_line.height() / 2.0, abs=px(view) * 1.5)
+
+
+def test_n23_a_top_edge_stays_put_and_the_box_grows_away(shown_model_view, real_system_library):
+    view, scene = shown_model_view
+    scene.active_view_key = PLAN
+    scene.set_mode("note")
+    three_clicks(view, scene, third=THIRD["T"])
+    inst = scene._block_instances[-1]
+    _type_lines(view, scene, 3)
+    scene._text_edit_ctl.commit()
+    k = inst._note_knee_scene()
+    want = landed(view, KNEE)
+    assert (k.x(), k.y()) == pytest.approx((want.x(), want.y()), abs=px(view) * 1.5)
+
+
+def test_n23_a_re_edit_holds_a_dragged_shoulder_too(shown_model_view, real_system_library):
+    view, scene = shown_model_view
+    scene.active_view_key = PLAN
+    scene.set_mode("note")
+    three_clicks(view, scene)
+    inst = scene._block_instances[-1]
+    scene._note_ctl.overlay.setPlainText("Hold")
+    scene._text_edit_ctl.commit()
+    before = inst._note_knee_scene()
+    scene._note_ctl.begin(inst)
+    scene._note_ctl.overlay.setPlainText("one\ntwo\nthree")
+    scene._text_edit_ctl.commit()
+    assert inst._note_knee_scene().y() == pytest.approx(before.y(), abs=1e-3)
+
+
+def test_a_multi_line_note_saves_the_followed_fraction(shown_model_view, real_system_library):
+    view, scene = shown_model_view
+    scene.active_view_key = PLAN
+    scene.set_mode("note")
+    three_clicks(view, scene)
+    inst = scene._block_instances[-1]
+    _type_lines(view, scene, 3)
+    scene._text_edit_ctl.commit()
+    rec = inst.to_dict()["note"]["leader"]
+    assert rec["t"] < 0.3                                          # no longer mid-height
+    scene.undo()
+    scene.redo()
+    again = [i for i in scene._block_instances if i.note][-1]
+    assert again.note["leader"]["t"] == rec["t"]

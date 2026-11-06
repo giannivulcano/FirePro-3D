@@ -505,6 +505,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         )
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setPos(data.x, data.y)
+        self._leader_hold = None        # box-top offset a side shoulder keeps while typing (N23)
         self._apply_format()
         self.document().contentsChanged.connect(self._on_contents_changed)
 
@@ -513,6 +514,22 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._editing:
             self.prepareGeometryChange()
             self._apply_wrap_width()
+            self._hold_leader_attach()
+
+    def arm_leader_hold(self) -> None:
+        """A model-surface edit is starting: remember how far a side-edge
+        shoulder sits below the box top (notes design N23)."""
+        rec = self._data.leader
+        self._leader_hold = (float(rec["t"]) * _tl._box_mm(self).height()
+                             if rec and rec["edge"] in ("L", "R") else None)
+
+    def _hold_leader_attach(self) -> None:
+        """The box grows downward as text is typed: move ``t`` so the shoulder
+        keeps its place, on the first line of a new note (N23). Top and bottom
+        edges have no vertical fraction, so they need nothing."""
+        held = self._leader_hold
+        if held is not None and self._data.leader:
+            self._data.leader["t"] = min(1.0, held / _tl._box_mm(self).height())
 
     @property
     def data(self) -> "TextAnnotationData":
