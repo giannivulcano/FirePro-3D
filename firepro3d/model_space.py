@@ -1765,7 +1765,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def set_block_meta(self, meta: dict, *, push_undo: bool = True) -> None:
         """Replace the edited block's attributes / host_category / scale_mode /
-        annotative_screen (SB1a S4, SB1c D2). ``attributes`` records are
+        annotative_screen (SB1a S4, SB1c D2) and a schematic's text_sizing /
+        text_scale (N9). ``attributes`` records are
         normalised. One undo step unless ``push_undo`` is False (undo restore
         / a composite edit)."""
         from .block_attributes import normalise_attr
@@ -1774,6 +1775,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                "scale_mode": str(meta.get("scale_mode", "real_size")),
                "annotative_screen": ("fixed" if meta.get("annotative_screen") == "fixed"
                                      else "scale")}
+        # Printed text (N9), sparse like the definition keys.
+        from .block_definition import norm_text_scale, norm_text_sizing
+        sizing, text_scale = (norm_text_sizing(meta.get("text_sizing")),
+                              norm_text_scale(meta.get("text_scale")))
+        if sizing is not None:
+            new["text_sizing"] = sizing
+        if text_scale is not None:
+            new["text_scale"] = text_scale
         if new == self.block_meta:
             return
         self.block_meta = new
@@ -2722,7 +2731,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             block_id=None, name=name, library=src.library, series=src.series,
             primitives=copy.deepcopy(src.primitives), origin=src.origin,
             place_instance=False, constraints=copy.deepcopy(src.constraints),
-            capability=capability, kind=src.kind)
+            capability=capability, kind=src.kind,
+            meta=({"text_sizing": src.text_sizing, "text_scale": src.text_scale}
+                  if src.kind == "schematic" else None))      # N9: the copy prints alike
 
     def retarget_block_refs(self, old_id: str, new_id: str) -> int:
         """Re-point every project holder of *old_id* to *new_id* (one undo step).
@@ -3435,8 +3446,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         annotative_screen onto *defn* (SB1a S4, SB1c D2). The caller's
         ``set_primitives`` (edit) clears the caches; the registry cascade to nesting parents is the
         ``_block_registry.invalidate`` that follows it."""
-        if meta is None or defn.kind == "schematic":
-            return                      # a schematic never carries block meta
+        from .block_definition import norm_text_scale, norm_text_sizing
+        if meta is None:
+            return
+        if defn.kind == "schematic":    # no block meta; its two text keys only (N9)
+            defn.text_sizing = norm_text_sizing(meta.get("text_sizing"))
+            defn.text_scale = norm_text_scale(meta.get("text_scale"))
+            return
         defn.attributes = list(meta.get("attributes", []))   # setter normalises
         defn.host_category = str(meta.get("host_category", ""))
         defn.scale_mode = str(meta.get("scale_mode", "real_size"))

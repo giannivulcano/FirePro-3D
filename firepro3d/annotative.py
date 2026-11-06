@@ -36,6 +36,23 @@ def editor_is_annotative(scene) -> bool:
     return meta.get("scale_mode") == SCALE_MODE_ANNOTATIVE
 
 
+def editor_text_printed(scene) -> bool:
+    """True when *scene* is a Block Editor on a schematic whose text sizing
+    is Printed (N9): a stored height is ``printed mm x text_scale``. Reads
+    ``block_meta``, as :func:`editor_is_annotative` does, so a panel edit
+    counts before any save."""
+    if scene is None or getattr(scene, "scene_role", None) != "block_editor":
+        return False
+    meta = getattr(scene, "block_meta", None) or {}
+    return meta.get("text_sizing") == "printed" and bool(meta.get("text_scale"))
+
+
+def editor_text_scale(scene) -> float:
+    """Scene mm per printed mm of a new text on *scene*: the schematic's
+    ``text_scale`` when :func:`editor_text_printed`, else 1 (N10, N12)."""
+    return float(scene.block_meta["text_scale"]) if editor_text_printed(scene) else 1.0
+
+
 def screen_mode(defn) -> str:
     """The definition's On screen mode: ``SCREEN_FIXED`` or ``SCREEN_SCALE``
     (missing / unknown -> Scale with zoom, D2)."""

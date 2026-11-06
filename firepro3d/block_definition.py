@@ -338,6 +338,20 @@ def _load_prim(p):
     return out
 
 
+def norm_text_sizing(value) -> str | None:
+    """``"printed"``, or None for absent / unknown (real size, N9)."""
+    return "printed" if value == "printed" else None
+
+
+def norm_text_scale(value) -> float | None:
+    """A positive finite drawing-scale denominator, else None (N9)."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return n if math.isfinite(n) and n > 0.0 else None
+
+
 class BlockDefinition:
     """A named, reusable 2D block definition.
 
@@ -347,6 +361,8 @@ class BlockDefinition:
         name/library/series: Human-readable metadata (2-tier library taxonomy).
         scale_mode: "real_size" or "annotative" (SB1c: authored in printed mm).
         annotative_screen: "scale" | "fixed" (On screen, D2).
+        text_sizing: "printed", or None = real size (schematics only, N9).
+        text_scale: The drawing scale N of 1:N for printed text, or None.
         origin: Definition-local insertion origin, in scene millimetres.
         attributes: Reserved slot list; no UI in v1.
         primitives: List of 2D-primitive dicts (geometry_2d to_dict form).
@@ -363,7 +379,9 @@ class BlockDefinition:
                  repeat: dict | None = None, end: dict | None = None,
                  kind: str = "block", host_category: str = "",
                  base_version: int | None = None,
-                 annotative_screen: str = SCREEN_SCALE):
+                 annotative_screen: str = SCREEN_SCALE,
+                 text_sizing: str | None = None,
+                 text_scale: float | None = None):
         self.id = id
         self.version = int(version)
         # The library version this project copy was last loaded, reloaded or
@@ -382,6 +400,10 @@ class BlockDefinition:
         # meaningful only when scale_mode == "annotative".
         self.annotative_screen = (SCREEN_FIXED if annotative_screen == SCREEN_FIXED
                                   else SCREEN_SCALE)
+        # Printed text in a schematic (N9). Both additive and sparse: a
+        # schematic that never switched writes neither key.
+        self.text_sizing: str | None = norm_text_sizing(text_sizing)
+        self.text_scale: float | None = norm_text_scale(text_scale)
         # Set directly (not via the setter): the caches do not exist yet.
         self._origin = (float(origin[0]), float(origin[1]))
         self._attributes: list[dict] = []
@@ -1001,6 +1023,11 @@ class BlockDefinition:
                     continue
                 yield cls.from_dict(prim), prim.get("layer", "")
 
+    @property
+    def text_print_scale(self) -> float | None:
+        """N of a Printed definition's text, else None (real size, N10)."""
+        return self.text_scale if self.text_sizing == "printed" else None
+
     def to_dict(self) -> dict:
         d = {
             "schema": 1,
@@ -1027,6 +1054,10 @@ class BlockDefinition:
             d["base_version"] = self.base_version   # omitted when None (byte-identical)
         if self.annotative_screen == SCREEN_FIXED:
             d["annotative_screen"] = SCREEN_FIXED   # omitted when "scale" (byte-identical)
+        if self.text_sizing is not None:
+            d["text_sizing"] = self.text_sizing     # sparse: absent = real size (N9)
+        if self.text_scale is not None:
+            d["text_scale"] = self.text_scale       # sparse, same rule
         return d
 
     @classmethod
@@ -1049,4 +1080,6 @@ class BlockDefinition:
             kind=data.get("kind", "block"),
             host_category=data.get("host_category", ""),
             base_version=data.get("base_version"),
+            text_sizing=data.get("text_sizing"),
+            text_scale=data.get("text_scale"),
         )
