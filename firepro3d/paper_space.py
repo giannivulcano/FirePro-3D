@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from .constants import (
@@ -23,7 +24,8 @@ from .constants import (
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
-    VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM,
+    VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM, SCALE_RATIO_MAX,
+    VIEW_TITLE_LINE_MIN_MM,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -158,18 +160,24 @@ from .mime_types import MIME_VIEW  # noqa: F401 (re-export)
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCALE_PRESETS: list[tuple[str, float]] = [
-    ("1:200", 1 / 200), ("1:100", 1 / 100), ("1:75", 1 / 75),
+    ("1:1000", 1 / 1000), ("1:500", 1 / 500), ("1:250", 1 / 250),
+    ("1:200", 1 / 200), ("1:150", 1 / 150), ("1:100", 1 / 100), ("1:75", 1 / 75),
     ("1:50", 1 / 50), ("1:30", 1 / 30), ("1:25", 1 / 25), ("1:20", 1 / 20),
     ("1:10", 1 / 10), ("1:5", 1 / 5), ("1:1", 1.0),
-    ('1/8"=1\'-0"', 1 / 96), ('3/16"=1\'-0"', 3 / 192),
-    ('1/4"=1\'-0"', 1 / 48), ('3/8"=1\'-0"', 3 / 96),
-    ('1/2"=1\'-0"', 1 / 24), ('3/4"=1\'-0"', 3 / 36),
-    ('1"=1\'-0"', 1 / 12), ('1-1/2"=1\'-0"', 1.5 / 12),
-    ('3"=1\'-0"', 3 / 12),
+    ('1/32"=1\'-0"', 1 / 384), ('1/16"=1\'-0"', 1 / 192),
+    ('3/32"=1\'-0"', 1 / 128), ('1/8"=1\'-0"', 1 / 96),
+    ('3/16"=1\'-0"', 3 / 192), ('1/4"=1\'-0"', 1 / 48),
+    ('3/8"=1\'-0"', 3 / 96), ('1/2"=1\'-0"', 1 / 24),
+    ('3/4"=1\'-0"', 0.75 / 12), ('1"=1\'-0"', 1 / 12),
+    ('1-1/2"=1\'-0"', 1.5 / 12), ('3"=1\'-0"', 3 / 12),
+    ('1"=10\'', 1 / 120), ('1"=20\'', 1 / 240), ('1"=30\'', 1 / 360),
+    ('1"=40\'', 1 / 480), ('1"=50\'', 1 / 600), ('1"=60\'', 1 / 720),
+    ('1"=100\'', 1 / 1200),
 ]
 _PRESET_MAP: dict[str, float] = {label: ratio for label, ratio in SCALE_PRESETS}
 _RE_METRIC = re.compile(r"^1\s*:\s*(\d+(?:\.\d+)?)$")
 _RE_IMPERIAL = re.compile(r'^(\d+(?:-\d+/\d+|\.\d+)?(?:/\d+)?)\s*"\s*=\s*1\'-0"$')
+_RE_ENGINEERING = re.compile(r'^1\s*"\s*=\s*(\d+(?:\.\d+)?)\s*\'$')
 
 
 def _parse_imperial_inches(s: str) -> float:
@@ -182,37 +190,54 @@ def _parse_imperial_inches(s: str) -> float:
     return float(s)
 
 
-def scale_to_float(s: str) -> float:
-    """Parse a scale string and return the corresponding ratio (model/paper).
-
-    Args:
-        s: A scale string such as ``"1:100"``, ``'1/4"=1\\'-0"'``, or
-           ``"1:125"`` (custom metric).
-
-    Returns:
-        The dimensionless scale ratio (e.g. 0.01 for 1:100).
-
-    Raises:
-        ValueError: If *s* cannot be recognised as a valid scale string.
-    """
-    s = s.strip()
-    if s in _PRESET_MAP:
-        return _PRESET_MAP[s]
+def _parse_scale(s: str) -> "float | None":
+    """The ratio *s* spells, or None when it matches no scale form."""
     m = _RE_METRIC.match(s)
     if m:
         return 1.0 / float(m.group(1))
     m = _RE_IMPERIAL.match(s)
     if m:
         return _parse_imperial_inches(m.group(1)) / 12.0
-    raise ValueError(f"Cannot parse scale string: {s!r}")
+    m = _RE_ENGINEERING.match(s)
+    if m:
+        return 1.0 / (12.0 * float(m.group(1)))
+    return None
+
+
+def scale_to_float(s: str) -> float:
+    """Parse a scale string and return the corresponding ratio (model/paper).
+
+    Args:
+        s: A scale string such as ``"1:100"``, ``"1:12.5"``,
+           ``'1/4"=1\\'-0"'`` or ``'1"=15\\''`` (engineering).
+
+    Returns:
+        The dimensionless scale ratio (e.g. 0.01 for 1:100), always above 0
+        and at most ``SCALE_RATIO_MAX``.
+
+    Raises:
+        ValueError: If *s* cannot be recognised as a valid scale string,
+            or spells a zero, non-finite or too-large scale.
+    """
+    s = s.strip()
+    if s in _PRESET_MAP:
+        return _PRESET_MAP[s]
+    try:
+        ratio = _parse_scale(s)
+    except ZeroDivisionError:
+        ratio = None
+    if ratio is None or not (math.isfinite(ratio) and 0.0 < ratio <= SCALE_RATIO_MAX):
+        raise ValueError(f"Cannot parse scale string: {s!r}")
+    return ratio
 
 
 def float_to_scale_str(ratio: float) -> str:
     """Return the human-readable scale label closest to *ratio*.
 
     Prefers a known preset label when the ratio is within 0.1 % of a preset;
-    otherwise falls back to a ``"1:N"`` metric string.  A ratio of ``0.0``
-    returns ``"NTS"`` (Not To Scale).
+    otherwise falls back to a ``"1:N"`` metric string with up to three
+    decimals (``"1:12.5"``).  A ratio of ``0.0`` returns ``"NTS"`` (Not To
+    Scale).
 
     Args:
         ratio: Dimensionless scale ratio (model units / paper units).
@@ -225,8 +250,10 @@ def float_to_scale_str(ratio: float) -> str:
     for label, preset_ratio in SCALE_PRESETS:
         if abs(ratio - preset_ratio) < preset_ratio * 0.001:
             return label
-    n = round(1.0 / ratio)
-    return f"1:{n}"
+    return f"1:{1.0 / ratio:.3f}".rstrip("0").rstrip(".")
+
+
+SCALE_CUSTOM = "Custom..."     # the panel Scale row's last entry (D6)
 
 
 def _compute_scale_field(sheet: "Sheet") -> str:
@@ -285,7 +312,8 @@ class SheetViewData:
     is the per-sheet set of detail-marker names hidden in THIS host-plan
     viewport's paper output. ``show_title`` / ``title_offset`` = the view
     title's per-viewport visibility and its offset from the default spot
-    (SB4f).
+    (SB4f). ``title_line_mm`` = the view title line's right end, mm along the
+    line from the block origin; 0 = automatic (D3).
     """
     source_view_type: str
     source_view_name: str
@@ -301,6 +329,7 @@ class SheetViewData:
     hidden_detail_ids: set[str] = field(default_factory=set)
     show_title: bool = True
     title_offset: tuple[float, float] = (0.0, 0.0)
+    title_line_mm: float = 0.0
 
     def to_dict(self) -> dict:
         cr = self.crop_rect
@@ -318,6 +347,7 @@ class SheetViewData:
             "hidden_detail_ids": sorted(self.hidden_detail_ids),
             "show_title": self.show_title,
             "title_offset": list(self.title_offset),
+            "title_line_mm": self.title_line_mm,
         }
 
     @classmethod
@@ -338,6 +368,7 @@ class SheetViewData:
             hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
             show_title=d.get("show_title", True),
             title_offset=tuple(d.get("title_offset", (0.0, 0.0))),
+            title_line_mm=d.get("title_line_mm", 0.0),
         )
 
 
@@ -683,6 +714,7 @@ class ViewportProperties:
         scale_opts = ["NTS"] + [label for label, _ in SCALE_PRESETS]
         if scale_val not in scale_opts:            # non-preset custom scale
             scale_opts = [scale_val] + scale_opts
+        scale_opts.append(SCALE_CUSTOM)
         return {
             "View": {"type": "label",
                      "value": self._vp.display_title() or d.source_view_name},
@@ -696,7 +728,7 @@ class ViewportProperties:
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},
             "Show Title": {"type": "bool", "value": d.show_title},
-            "Title Position": {"type": "button", "value": "Reset Title Position",
+            "Title Position": {"type": "button", "value": "Reset Title",
                                "callback": self._reset_title,
                                "enabled": self._vp._title_shown()},
             "Position X": {"type": "string", "value": f"{d.x:.1f}"},
@@ -706,8 +738,27 @@ class ViewportProperties:
         }
 
     def _reset_title(self) -> None:
-        """Return the title to its default spot under the box (D5)."""
-        self._scene.commit_viewport_edit(self._vp, title_offset=(0.0, 0.0))
+        """Return the title to its default spot and automatic line (D4)."""
+        self._scene.reset_view_title(self._vp)
+
+    def _set_scale(self, text: str) -> None:
+        """Apply a Scale row pick. ``Custom...`` asks for the text first; a
+        Cancel or bad text leaves the scale and the panel refresh re-shows it."""
+        if text == SCALE_CUSTOM:
+            from .themed_message import themed_input_text
+            views = self._scene.views()
+            text, ok = themed_input_text(
+                views[0] if views else None, "Custom Scale",
+                'Scale (1:125, 1:12.5, 3/4"=1\'-0" or 1"=15\'):',
+                initial=float_to_scale_str(self._vp.data.scale))
+            if not ok:
+                return
+        try:
+            s = 0.0 if text.strip().upper() == "NTS" else scale_to_float(text)
+        except ValueError:
+            self._scene.notify(f'"{text}" is not a scale. Try 1:125 or 1"=15\'.')
+            return
+        self._scene.commit_viewport_edit(self._vp, scale=s)
 
     def set_property(self, key: str, value) -> None:
         d = self._vp.data
@@ -715,9 +766,7 @@ class ViewportProperties:
             self._scene.commit_viewport_edit(
                 self._vp, title=self._vp.title_to_store(value))
         elif key == "Scale":
-            s = (0.0 if str(value).upper() == "NTS"
-                 else scale_to_float(str(value)))
-            self._scene.commit_viewport_edit(self._vp, scale=s)
+            self._set_scale(str(value))
         elif key == "Show Border":
             self._scene.commit_viewport_edit(self._vp, show_border=bool(value))
         elif key == "Number":
@@ -1123,29 +1172,46 @@ class SheetViewport(QGraphicsObject):
         self.setPos(self._data.x, self._data.y)
         self.mark_dirty()
 
-    # The title grip (SB4f D1): one round live-apply grip on the block origin.
+    # The title grips (SB4f D1, paper polish D3): two round live-apply grips,
+    # the block origin and the line end.
     # A sole scale-capable viewport is box-native and reads
     # manip_box_extra_handles; a detail or scaled schematic is not and reads
     # manip_extra_handles. Both are additive: the resize set stays.
     def grip_points(self) -> list:
-        """``[title origin in scene coords]``, or [] while the title is hidden."""
+        """``[title origin, line end]`` in scene coords, or [] while the title
+        is hidden. Without a line, index 1 sits on the origin and is not
+        hittable, so a live host's index stays valid."""
         if not self._title_shown():
             return []
-        return [self.mapToScene(self._title_anchor())]
+        a = self._title_anchor()
+        return [self.mapToScene(a),
+                self.mapToScene(a + QPointF(self._title_label.line_end() or 0.0, 0.0))]
+
+    def grip_hittable(self, index: int) -> bool:
+        return index == 0 or self._title_label.line_end() is not None
 
     def apply_grip(self, index: int, pt: QPointF) -> None:
-        """Move the title's origin to scene point *pt* (live; undo is the
-        manipulator's ``_manip_commit`` -> ViewportGeometryCommand)."""
-        if index != 0:
-            return
+        """Move the title's origin (0) or its line end (1, x only) to scene
+        point *pt* (live; undo is the manipulator's ``_manip_commit`` ->
+        ViewportGeometryCommand)."""
         p = self.mapFromScene(pt)
-        self._data.title_offset = (p.x() - VIEW_TITLE_ORIGIN_X_MM,
-                                   p.y() - self._data.h - VIEW_TITLE_ORIGIN_Y_MM)
+        if index == 1:
+            floor = self._title_label.trim_distance(1.0, 0.0) + VIEW_TITLE_LINE_MIN_MM
+            self.set_title_line(max(p.x() - self._title_anchor().x(), floor))
+        elif index == 0:
+            self._data.title_offset = (p.x() - VIEW_TITLE_ORIGIN_X_MM,
+                                       p.y() - self._data.h - VIEW_TITLE_ORIGIN_Y_MM)
+            self._sync_title()
+
+    def set_title_line(self, mm: float) -> None:
+        """Store the line end (0 = automatic) and re-shape the title."""
+        self._data.title_line_mm = mm
         self._sync_title()
 
     def manip_box_extra_handles(self) -> list:
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0})
+        from .manip_handle import TitleLineGripHandle, default_grip_handles
+        return [TitleLineGripHandle(self, h.index, circular=True) if h.index == 1 else h
+                for h in default_grip_handles(self, circular={0, 1})]
 
     manip_extra_handles = manip_box_extra_handles
 
@@ -1448,7 +1514,7 @@ class SheetViewport(QGraphicsObject):
         # Viewport properties are edited in the property panel (select the
         # viewport — spec §19.4); the old "Properties..." dialog entry is gone.
         goto_action = menu.addAction("Go to View")
-        reset_action = menu.addAction("Reset Title Position")
+        reset_action = menu.addAction("Reset Title")
         reset_action.setEnabled(self._title_shown())
         menu.addSeparator()
         delete_action = menu.addAction("Delete")
@@ -1473,9 +1539,9 @@ class SheetViewport(QGraphicsObject):
         if action == goto_action:
             self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
         elif action == reset_action:
-            commit = getattr(self.scene(), "commit_viewport_edit", None)
-            if commit is not None:
-                commit(self, title_offset=(0.0, 0.0))
+            reset = getattr(self.scene(), "reset_view_title", None)
+            if reset is not None:
+                reset(self)
         elif action == delete_action:
             self.delete_requested.emit(self)
         elif action in detail_actions:
@@ -1608,6 +1674,12 @@ class SheetViewPropertiesDialog(QDialog):
         if refusal is not None:
             if self._notify is not None:
                 self._notify(refusal)
+            return
+        try:
+            self.get_scale()
+        except ValueError:
+            if self._notify is not None:
+                self._notify(f'"{self._scale_combo.currentText()}" is not a scale.')
             return
         super().accept()
 
@@ -1897,10 +1969,13 @@ class PaperGraphicsView(QGraphicsView):
             # MainWindow steals it. Same reason Delete is accepted above.
             # Also accept Escape while in add-text mode so the window-level
             # QShortcut("Escape") doesn't fire _on_escape before keyPressEvent
-            # can cancel the mode.
+            # can cancel the mode. A live manipulator drag keeps it too, for the
+            # manipulator's keyPressEvent: the shortcut only deselects, and the
+            # release would commit the drag.
             if event.key() == Qt.Key.Key_Escape and (
                     editing_text_item(self._paper_scene) is not None
-                    or self._add_text_mode):
+                    or self._add_text_mode
+                    or self._manipulator_dragging()):
                 event.accept()
                 return True
             # Deliver Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z as a plain KeyPress to
@@ -1911,6 +1986,10 @@ class PaperGraphicsView(QGraphicsView):
                 event.accept()
                 return True
         return super().event(event)
+
+    def _manipulator_dragging(self) -> bool:
+        m = self._paper_scene._manipulator
+        return m is not None and m._mode is not None
 
     def keyPressEvent(self, event):
         # Escape while in add-text mode: cancel placement and exit the mode.
@@ -2868,11 +2947,11 @@ class PaperScene(QGraphicsScene):
         resize/move) — the one home for viewport/text handle interaction,
         replacing the retired per-item grip code.  Called from ``_setup`` so it
         survives every sheet rebuild (``self.clear()`` deletes it as a scene
-        item).  Paper handles are paper-mm sized; one undo entry per gesture is
+        item).  Handles are constant on screen, as in model space (D1); one undo entry per gesture is
         a macro of per-item commands (spec "Undo & domains")."""
         from .selection_manipulator import SelectionManipulator
         self._manipulator = SelectionManipulator(
-            self, handle_units="mm",
+            self,
             press_hook=self._manip_capture_press,
             commit_hook=self._manip_commit)
         return self._manipulator
@@ -3202,7 +3281,8 @@ class PaperScene(QGraphicsScene):
         Args:
             data: SheetViewData whose geometry changed.
             old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture, plus
-                title_offset as a sixth element from ``_viewport_geom``.
+                title_offset and title_line_mm as sixth and seventh elements
+                from ``_viewport_geom``.
             new: the same shape after the gesture.
         """
         if not self._applying_command and old != new:
@@ -3211,11 +3291,12 @@ class PaperScene(QGraphicsScene):
     @staticmethod
     def _viewport_geom(data) -> tuple:
         """Snapshot of a SheetViewData's geometry: (x, y, w, h, (cx, cy, cw, ch),
-        title_offset). The native-move path keeps the 5-tuple form."""
+        title_offset, title_line_mm). The native-move path keeps the 5-tuple
+        form."""
         cr = data.crop_rect
         return (data.x, data.y, data.w, data.h,
                 (cr.x(), cr.y(), cr.width(), cr.height()),
-                tuple(data.title_offset))
+                tuple(data.title_offset), data.title_line_mm)
 
     # Per-item-type manipulator snapshot + undo-command adapter.  The gesture
     # path is generic: on press each dragged record is snapshotted with its
@@ -3366,7 +3447,8 @@ class PaperScene(QGraphicsScene):
 
     def commit_viewport_edit(self, viewport, *, title=None, show_border=None,
                              scale=None, pos=None, show_title=None,
-                             title_offset=None, view_number=None) -> bool:
+                             title_offset=None, view_number=None,
+                             title_line_mm=None) -> bool:
         """Push a ChangeViewportPropertiesCommand for one or more field edits.
 
         Any keyword left ``None`` keeps the viewport's current value. On-paper
@@ -3383,6 +3465,7 @@ class PaperScene(QGraphicsScene):
             show_title: New title visibility, or None to keep.
             title_offset: New (dx, dy) from the title's default spot, or None to keep.
             view_number: New number, already validated, or None to keep.
+            title_line_mm: New line end, 0.0 = automatic, or None to keep.
 
         Returns:
             True if a command was pushed (values actually changed).
@@ -3394,6 +3477,7 @@ class PaperScene(QGraphicsScene):
             "w": data.w, "h": data.h,
             "show_title": data.show_title,
             "title_offset": tuple(data.title_offset),
+            "title_line_mm": data.title_line_mm,
             "view_number": data.view_number,
         }
         new_title = data.title if title is None else title
@@ -3416,6 +3500,8 @@ class PaperScene(QGraphicsScene):
             "show_title": data.show_title if show_title is None else show_title,
             "title_offset": (tuple(data.title_offset) if title_offset is None
                              else tuple(title_offset)),
+            "title_line_mm": (data.title_line_mm if title_line_mm is None
+                              else title_line_mm),
             "view_number": data.view_number if view_number is None else view_number,
         }
         if new_fields != old_fields:
@@ -3423,6 +3509,12 @@ class PaperScene(QGraphicsScene):
                 ChangeViewportPropertiesCommand(self, data, old_fields, new_fields))
             return True
         return False
+
+    def reset_view_title(self, viewport) -> bool:
+        """Return *viewport*'s title to its default spot and automatic line, one
+        undo step (D4)."""
+        return self.commit_viewport_edit(viewport, title_offset=(0.0, 0.0),
+                                         title_line_mm=0.0)
 
     # ── Annotation management ────────────────────────────────────────────
 

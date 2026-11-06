@@ -367,20 +367,22 @@ TEXT_HEIGHT_MM_PRECISION = 2     # decimals of the real-size text Height row (mm
 
 # ── App-wide selection / grip style (owned by docs/architecture/theming.md) ──
 # Selection colour comes from the theme `selection` tokens (selection
-# manipulator); these paper-mm sizes set the manipulator's paper-scene handles.
+# manipulator); the SELECTION_GRIP_* paper-mm sizes below are selection padding only.
 SELECTION_OUTLINE_COLOR = "#0055ff"         # polyline close-ring indicator only
 FLOOR_OPENING_HOST_HL_COLOR = "#ff4400"     # floor-void host-pick outline (= scene_tools highlight)
 # Placement modes that share the floor rect / polygon machinery (floor-opening A6):
 # "floor" commits a FloorSlab, "floor_opening" a FloorOpening void on a host slab.
 FLOOR_SKETCH_MODES = ("floor", "floor_opening")
-SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
-SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
+SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # paper selection padding: stroke share (paper mm)
+SELECTION_GRIP_SIZE_MM = 4.0               # paper selection padding: side (paper mm); grips are MANIP_HANDLE_SIZE_PX
 # Sheet viewport view title (SB4f). Local viewport mm: the block origin's default
 # spot is the old bubble centre, x from the box's left edge, y below its bottom edge.
 VIEW_TITLE_ORIGIN_X_MM = 4.0
 VIEW_TITLE_ORIGIN_Y_MM = 4.5
 VIEW_TITLE_LINE_PEN_MM = 0.3          # the composite line (paper mm)
+VIEW_TITLE_LINE_MIN_MM = 1.0          # shortest dragged line past the bubble (paper mm)
 VIEW_TITLE_PLACEHOLDER_MM = 8.0       # orphan box side on paper (k = 1)
+SCALE_RATIO_MAX = 1000.0              # largest scale a viewport may take; beyond it the "1:N" label no longer reads back
 
 # ── Selection-manipulator handle style (docs/specs/selection-manipulator.md) ──
 # Mockup-approved 2026-08-30 (style A): dark-filled square handles with a

@@ -138,12 +138,14 @@ def test_box_interior_grab_and_manipulator_coexist(qapp):
         text="X", x=10, y=10, wrap_width_mm=80.0, box_height_mm=60.0))
     box = item.mapRectToScene(item._box_rect_local())
     p = QPointF(box.center().x(), box.bottom() - 5.0)   # empty area, in-box
+    # A paper handle is device-px sized, so hit tests need a real view transform.
+    dev = QTransform.fromScale(12.0, 12.0)
     # Unselected: the empty box interior hits the item (grab-anywhere pick).
-    assert scene.itemAt(p, QTransform()) is item
+    assert scene.itemAt(p, dev) is item
     # Selected: the manipulator frame is the topmost item over the interior.
     item.setSelected(True)
     scene._manipulator.rebake()
-    assert isinstance(scene.itemAt(p, QTransform()), SelectionManipulator)
+    assert isinstance(scene.itemAt(p, dev), SelectionManipulator)
 
 
 def test_item_escape_confirms_pending_placement(qapp):

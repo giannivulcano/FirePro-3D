@@ -894,7 +894,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         from .selection_manipulator import SelectionManipulator
         self._manipulator = SelectionManipulator(
             self, commit_hook=self._commit_elev_grip,
-            handle_units="px", exclude=self._manip_exclude)
+            exclude=self._manip_exclude)
         return self._manipulator
 
     def _live_manip(self):

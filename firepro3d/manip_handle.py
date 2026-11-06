@@ -887,6 +887,19 @@ class FlipGripHandle(GripHandle):
         pass
 
 
+class TitleLineGripHandle(GripHandle):
+    """A sheet viewport's title line end (paper polish D3).
+
+    Esc restores the stored field: replaying the grip point through
+    ``apply_grip`` would turn an automatic line (0) into a stored one."""
+
+    def _extra_snapshots(self, m) -> None:
+        self._line_mm = self.item.data.title_line_mm
+
+    def _restore_extra(self, m) -> None:
+        self.item.set_title_line(self._line_mm)
+
+
 def default_grip_handles(item, circular: "frozenset[int] | set[int]" = frozenset(),
                          translate: "frozenset[int] | set[int]" = frozenset(),
                          reach: "frozenset[int] | set[int]" = frozenset()):

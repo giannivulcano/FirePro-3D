@@ -26,9 +26,10 @@ def test_round_trip():
 
 def test_legacy_record_defaults():
     rec = _data().to_dict()
-    del rec["show_title"], rec["title_offset"]
+    del rec["show_title"], rec["title_offset"], rec["title_line_mm"]
     d = SheetViewData.from_dict(rec)
     assert d.show_title is True and d.title_offset == (0.0, 0.0)
+    assert d.title_line_mm == 0.0
 
 
 def test_next_view_number_fills_the_lowest_gap():
@@ -226,7 +227,7 @@ def test_geometry_command_restores_title_offset_and_keeps_the_5_tuple(qapp):
     try:
         _v, ps, vp = place(ms, sec, det)
         old = ps._viewport_geom(vp.data)
-        assert len(old) == 6
+        assert len(old) == 7
         vp.data.title_offset = (5.0, 6.0)
         new = ps._viewport_geom(vp.data)
         ps._push_viewport_geometry(vp.data, old, new)

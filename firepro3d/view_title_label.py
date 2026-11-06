@@ -44,6 +44,11 @@ class ViewTitleLabel(OutlinedLabel):
     def __init__(self, viewport):
         super().__init__(viewport)
         self._line = None             # (x0, x1) local on y = 0; None = no line
+        # The sheet is paper: the block's strokes plot true mm on screen and in
+        # the PDF, like the line (D2). No viewport pass reaches a title, so the
+        # hooks stay set; 1.0 keeps k = 1 and lets a named weight keep its mm.
+        self._paper_pen_width = VIEW_TITLE_LINE_PEN_MM
+        self._paper_scale = 1.0
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton
                                      | Qt.MouseButton.RightButton)
 
@@ -54,19 +59,27 @@ class ViewTitleLabel(OutlinedLabel):
     def _line_span(self):
         """Local ``(x0, x1)`` of the line, or None when the label has no ink.
 
-        From the outline's right edge to the box's right edge while the outline
-        sits below the box and left of that edge; a fixed box width elsewhere
+        From the outline's right edge to the stored end when the line was
+        dragged (D3); otherwise to the box's right edge while the outline sits
+        below the box and left of that edge, and a fixed box width elsewhere
         (AC2)."""
         st = self._state()
         if not (self._ops(self._k(None, st[0]), st) or self._orphan_visible(st)):
             return None
         d = self.host.data
+        x0 = self.trim_distance(1.0, 0.0)
+        if d.title_line_mm > 0.0:
+            return x0, max(x0, d.title_line_mm)
         p = self.pos()
         r = self.outline_path().boundingRect()
-        x0 = self.trim_distance(1.0, 0.0)
         if p.y() + r.top() >= d.h and p.x() + r.right() < d.w:
             return x0, d.w - p.x()
         return x0, x0 + d.w
+
+    def line_end(self):
+        """Local x of the line's right end, or None when there is no line."""
+        self.boundingRect()           # fills _line after a refresh
+        return None if self._line is None else self._line[1]
 
     def _compute_rect(self) -> QRectF:
         base = super()._compute_rect()
