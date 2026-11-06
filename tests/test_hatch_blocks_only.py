@@ -257,31 +257,31 @@ def test_opening_an_old_file_loads_its_legacy_pattern(mw, tmp_path):
 
 # ── wiring: DM category change, sheets, folder setting change ───────────────
 
-def _brick_cut_type():
-    """A project Fill Type whose pattern is the shipped brick (HF5: the section
-    cell picks a type; the type holds the pattern)."""
-    from firepro3d import fill_types
+def _brick_cut_material():
+    """A project material whose Fill Type's pattern is the shipped brick (M5: the
+    material picks the type; the type holds the pattern). Returns the material."""
+    from firepro3d import fill_types, materials
     from firepro3d.constants import TOKEN_ELEMENT
-    return fill_types.project_table().ensure_named(
+    t = fill_types.project_table().ensure_named(
         "Brick Cut", FillLayers(pattern=PatternLayer(hp.BUILTIN_BRICK, TOKEN_ELEMENT)))
+    table = materials.project_table()
+    return table.add(materials.Material(fill_types.new_id(), table.free_name("Brick Cut mat"), t.id))
 
 
-def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp):
+def test_dm_material_pattern_loads_on_ok_into_the_baseline(qapp):
+    """The block-load half of the retired category pick (the persisted
+    ``display/Wall/section_type`` half retires with the Section column, M5)."""
     from firepro3d import display_manager as dm
     _put_shipped_into(app_data.hatch_patterns_dir())
-    _brick_cut_type()
+    mat = _brick_cut_material()
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
     try:
         assert hp.BUILTIN_BRICK not in sc._block_definitions    # absent before the pick (M4)
-        dlg._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Brick Cut")
+        dlg._mat_tab.select_name(mat.name)
+        dlg._mat_tab.set_fill_type(dlg._ft_tab.table().by_name("Brick Cut").id)
         assert hp.BUILTIN_BRICK not in sc._block_definitions    # not before OK
         dlg.accept()
-        import json
-        s = QSettings("GV", "FirePro3D")
-        assert s.value("display/Wall/section_type") == "Brick Cut"
-        look = json.loads(s.value("display/Wall/section_look"))
-        assert look["pattern"]["ref"] == hp.BUILTIN_BRICK     # HF5 R7: the type's look
         assert hp.resolve_tile(hp.BUILTIN_BRICK, sc.block_registry) is not None
         assert not sc.can_undo()
         assert hp.BUILTIN_BRICK in sc._undo_stack[0]["block_definitions"]
@@ -289,14 +289,15 @@ def test_dm_category_pattern_loads_on_ok_into_the_baseline(qapp):
         dlg.close()
 
 
-def test_dm_category_pattern_cancel_loads_nothing(qapp):
+def test_dm_material_pattern_cancel_loads_nothing(qapp):
     from firepro3d import display_manager as dm
     _put_shipped_into(app_data.hatch_patterns_dir())
-    _brick_cut_type()
+    mat = _brick_cut_material()
     sc = Model_Space()
     dlg = dm.DisplayManager(sc)
     try:
-        dlg._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Brick Cut")
+        dlg._mat_tab.select_name(mat.name)
+        dlg._mat_tab.set_fill_type(dlg._ft_tab.table().by_name("Brick Cut").id)
         dlg.reject()
         assert hp.BUILTIN_BRICK not in sc._block_definitions
     finally:

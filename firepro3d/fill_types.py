@@ -286,7 +286,7 @@ def element_colour(value, element_value):
     return element_value if value == TOKEN_ELEMENT else value
 
 
-# -- section cuts (HF5 R4 / R7) ---------------------------------------------
+# -- legacy section conversion (HF5 R4; load only, M7) ---------------------------------------------
 def legacy_section_layers(section, pattern, scale) -> FillLayers:
     """R4: a pre-HF5 section cell (colour + pattern + scale) as a look.
 
@@ -307,37 +307,6 @@ def legacy_section_layers(section, pattern, scale) -> FillLayers:
                                        1.0, sc if sc > 0 else 1.0))
 
 
-def category_section_type(key: str, vals: dict) -> str | None:
-    """The project type id a category's section settings name (R7), converting legacy (R4).
-
-    ``section_type`` (a name) + ``section_look`` (a fill record) win: the project
-    type of that name, else a type added from the look. Without a name, legacy
-    ``section`` / ``section_pattern`` / ``section_scale`` convert to one type per
-    distinct look (``<key> Section`` / ``<key> Section N``).
-    """
-    table = project_table()
-    name = vals.get("section_type")
-    if name:
-        rec = vals.get("section_look")
-        look = from_record(rec) if rec else None
-        if look is None or look.is_empty:
-            look = legacy_section_layers(vals.get("section"), vals.get("section_pattern"),
-                                         vals.get("section_scale"))
-        before = len(table.all())
-        t = table.ensure_named(name, look)
-        if len(table.all()) != before:
-            notify_changed()
-        return t.id
-    if vals.get("section") is not None or vals.get("section_pattern"):
-        before = len(table.all())
-        t = table.ensure_look(f"{key} Section", legacy_section_layers(
-            vals.get("section"), vals.get("section_pattern"), vals.get("section_scale")))
-        if len(table.all()) != before:
-            notify_changed()
-        return t.id
-    return None
-
-
 def convert_item_section_override(key: str, ov: dict,
                                   base: FillLayers | None = None) -> None:
     """Per-item legacy section override keys -> one ``section_type`` id (R4), in place.
@@ -345,8 +314,9 @@ def convert_item_section_override(key: str, ov: dict,
     Args:
         key: Category key (names the converted types ``<key> Section N``).
         ov: The item's ``_display_overrides`` (mutated).
-        base: The category's look; a legacy override carried only some of
-            colour / pattern / scale and the rest inherited the category's.
+        base: A look the legacy override's missing parts inherit. The load
+            path passes None, so a legacy partial override takes the default
+            pattern and no body.
     """
     legacy = [k for k in ("section", "section_pattern", "section_scale") if k in ov]
     if not legacy or "section_type" in ov:

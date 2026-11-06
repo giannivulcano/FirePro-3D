@@ -168,9 +168,6 @@ class DisplayableItemMixin:
         self._is_section_cut: bool = False            # set by LevelManager view-range pass
         # Paper pass only (HF5): the paper body-colour override; None in model.
         self._display_section_color: str | None = None
-        # Display Manager section-column state only (the cut draws its material, M3);
-        # kept so the DM Cancel snapshot still sees walls / floors; Task 7 retires it.
-        self._display_section_type: str | None = None
 
     # -- Per-instance Display-Manager overrides: one serializer for both paths --
 

@@ -108,3 +108,26 @@ def test_underlay_delegate_and_eye_toggle_share_one_painter():
     t = detect()
     assert ui_kit.eye_color(t, False) == t.color("faint", 170)
     assert ui_kit.eye_color(t, True) == t.color("accent")
+
+
+def _grab(widget, w=200):
+    from PyQt6.QtGui import QImage
+    widget.resize(w, widget.height())
+    return widget.grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
+
+
+def test_a_plain_selector_ignores_item_icons(qapp):
+    """The swatch is opt-in: every other Selector paints identically with or
+    without an item icon. (Moved from the retired DM section-cell tests.)"""
+    import hashlib
+    from PyQt6.QtGui import QIcon, QPixmap, QColor
+    from firepro3d.ui_kit import Selector
+
+    def digest(with_icon):
+        sel = Selector()
+        pm = QPixmap(40, 20)
+        pm.fill(QColor("#00ff00"))
+        sel.addItem(QIcon(pm) if with_icon else QIcon(), "Same")
+        img = _grab(sel)
+        return hashlib.sha256(bytes(img.constBits().asarray(img.sizeInBytes()))).hexdigest()
+    assert digest(True) == digest(False)

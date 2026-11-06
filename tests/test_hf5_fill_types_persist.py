@@ -67,14 +67,16 @@ def test_new_project_resets_to_seed(main_window):
     assert ft.project_table().by_name("Solid Black") is not None
 
 
-def test_new_project_table_holds_category_section_types_without_any_wall(main_window):
-    """VC9 M1: the display defaults add Wall Section / Floor Section AFTER the reset,
-    so a brand-new (wall-less) project already lists them in its table."""
+def test_new_project_table_holds_the_starter_fill_types_without_any_wall(main_window):
+    """M5 inverts VC9 M1: the display defaults no longer add Wall Section /
+    Floor Section after the reset, so a brand-new (wall-less) project's table is
+    the starter set and nothing else."""
     main_window._modified = False
     main_window.new_file()
     assert not main_window.scene._walls
     names = {t.name for t in ft.project_table().all()}
-    assert {"Wall Section", "Floor Section"} <= names
+    assert {"Concrete", "Brick", "Cross Hatch", "Diagonal", "Solid Black"} <= names
+    assert "Wall Section" not in names and "Floor Section" not in names
 
 
 def test_startup_installs_seed_over_stale_table(qapp, tmp_path, monkeypatch):
@@ -87,8 +89,9 @@ def test_startup_installs_seed_over_stale_table(qapp, tmp_path, monkeypatch):
     try:
         assert ft.project_table().by_name("Stale") is None
         assert ft.project_table().by_name("Solid Black") is not None
-        assert ft.project_table().by_name("Wall Section") is not None   # VC9 M1
-        assert ft.project_table().by_name("Floor Section") is not None
+        assert ft.project_table().by_name("Concrete") is not None       # the starter set
+        assert ft.project_table().by_name("Wall Section") is None       # M5: no category types
+        assert ft.project_table().by_name("Floor Section") is None
     finally:
         dispose_main_window(w)
 

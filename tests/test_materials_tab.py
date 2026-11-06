@@ -254,3 +254,49 @@ def test_going_back_to_fill_types_shows_a_materials_new_claim(qapp, model_space)
         assert d._ft_tab.delete_button().isEnabled()
     finally:
         d.close()
+
+
+# -- Task 7: the Model tab Section column and the category section path are retired (M5, M6, M7, M8)
+
+def test_model_tab_has_no_section_column(qapp, model_space):
+    d = _dialog(model_space)
+    try:
+        headers = [d._tree.headerItem().text(c) for c in range(d._tree.columnCount())]
+        assert "SECTION" not in [h.upper() for h in headers]
+        assert not any("section_sel" in w["widgets"] for w in d._cat_data.values())
+    finally:
+        d.close()
+
+
+def test_paper_tab_keeps_its_section_colour(qapp, model_space):
+    d = _dialog(model_space)
+    try:
+        headers = [d._ps_tree.headerItem().text(c) for c in range(d._ps_tree.columnCount())]
+        assert "SECTION" in [h.upper() for h in headers]
+    finally:
+        d.close()
+
+
+def test_a_new_project_table_gets_no_category_section_types(qapp, model_space):
+    dm.apply_default_display_settings(model_space)
+    names = {t.name for t in ft.project_table().all()}
+    assert "Wall Section" not in names and "Floor Section" not in names
+
+
+def test_old_category_looks_stop_drawing_and_their_types_stay(qapp, tmp_path):
+    from PyQt6.QtCore import QSettings
+    from firepro3d.fill_layers import BackgroundLayer, FillLayers
+    from firepro3d.model_space import Model_Space
+    ft.project_table().add(ft.FillType("old", "Wall Section", FillLayers(BackgroundLayer("#ff0000", 1.0))))
+    QSettings("GV", "FirePro3D").setValue("display/Wall/section_type", "Wall Section")
+    ms = Model_Space()
+    w = _wall(ms)
+    dm._apply_to_scene_items(ms, "Wall", dm._read_category_from_settings("Wall"), True)
+    assert mt.fill_type_of(w) is None
+    assert ft.project_table().get("old") is not None
+    QSettings("GV", "FirePro3D").remove("display/Wall/section_type")
+
+
+def test_no_category_section_symbol_remains():
+    assert not hasattr(ft, "category_section_type")
+    assert not hasattr(dm, "_category_has_section")

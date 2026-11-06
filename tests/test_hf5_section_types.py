@@ -22,27 +22,9 @@ def test_legacy_cell_converts_to_look_identical_layers():
     assert ft.legacy_section_layers("hatch:#ff0000", None, None).background is None
 
 
-def test_category_named_type_project_wins_else_added():
-    ft.set_project_table(ft.FillTypeTable([ft.FillType("w", "Wall Section",
-                                            FillLayers(BackgroundLayer("#123456", 1.0)))]))
-    assert ft.category_section_type("Wall", {"section_type": "Wall Section",
-                                             "section_look": {"background": {"color": "#ffffff"}}}) == "w"
-    fid = ft.category_section_type("Floor", {"section_type": "Floor Section",
-                                             "section_look": {"background": {"color": "#00ff00"}}})
-    assert ft.project_table().get(fid).layers.background.color == "#00ff00"
-
-
-def test_legacy_category_converts_once():
-    ft.set_project_table(ft.FillTypeTable())
-    vals = {"section": "#666666", "section_pattern": "diagonal", "section_scale": 1.0}
-    a = ft.category_section_type("Wall", vals)
-    assert ft.category_section_type("Wall", vals) == a
-    assert ft.project_table().get(a).name == "Wall Section"
-
-
 def test_item_override_converts_and_distinct_looks_number():
     ft.set_project_table(ft.FillTypeTable())
-    ft.category_section_type("Wall", {"section": "#666666", "section_pattern": "diagonal"})
+    ft.project_table().ensure_look("Wall Section", ft.legacy_section_layers("#666666", "diagonal", 1.0))
     ov = {"section": "#ff0000", "section_pattern": "diagonal", "color": "#00ff00"}
     ft.convert_item_section_override("Wall", ov)
     assert set(ov) == {"color", "section_type"}
@@ -53,14 +35,22 @@ def test_item_override_with_only_a_pattern_inherits_the_category_body():
     """Legacy per-key fallback: an override naming only a pattern kept the
     category's body colour and scale."""
     ft.set_project_table(ft.FillTypeTable())
-    tid = ft.category_section_type("Wall", {"section": "#666666",
-                                            "section_pattern": "diagonal",
-                                            "section_scale": 2.0})
+    tid = ft.project_table().ensure_look(
+        "Wall Section", ft.legacy_section_layers("#666666", "diagonal", 2.0)).id
     ov = {"section_pattern": "horizontal"}
     ft.convert_item_section_override("Wall", ov, ft.resolve(tid, None)[0])
     lay = ft.project_table().get(ov["section_type"]).layers
     assert lay.background.color == "#666666"
     assert lay.pattern.ref == "builtin-hatch-horizontal" and lay.pattern.scale == 2.0
+
+
+def test_token_and_no_fill_bodies_survive_the_conversion():
+    """The old dialog offered Automatic / Accent and No Fill for the body colour;
+    both convert (token kept, '' = no body)."""
+    from firepro3d.constants import TOKEN_ACCENT
+    lay = ft.legacy_section_layers(TOKEN_ACCENT, "diagonal", 1.0)
+    assert lay.background == BackgroundLayer(TOKEN_ACCENT, 1.0)
+    assert ft.legacy_section_layers("", "diagonal", 1.0).background is None
 
 
 # -- the real path: a cut draws its element's material (materials.md M3) -----------
@@ -225,51 +215,44 @@ def test_floor_cut_follows_its_type(qapp, model_space, shipped_hatches):
 
 # -- Display Manager data path ----------------------------------------------------
 
-def test_category_settings_store_type_name_and_look_and_retire_legacy_keys(qapp):
+def test_category_settings_carry_no_section_cell_and_old_keys_are_ignored(qapp):
+    """M5 / M8: the category has no section cell. A QSettings install holding the
+    old keys reads without them, a write leaves them alone (no migration writes),
+    and the project payload never carries one."""
     from firepro3d import display_manager as dm
     s = QSettings("GV", "FirePro3D")
     s.setValue("display/Wall/section", "#aa0000")             # a pre-HF5 install
     s.setValue("display/Wall/section_pattern", "diagonal")
-    s.setValue("display/Wall/section_scale", 2.0)
-    vals = dm._read_category_from_settings("Wall")
-    assert vals["section_type"] == "Wall Section"
-    assert vals["section_look"]["background"]["color"] == "#aa0000"
-    assert vals["section_look"]["pattern"]["color"] == TOKEN_ELEMENT
-    assert vals["section_look"]["pattern"]["scale"] == 2.0
-    assert "section" not in vals and "section_pattern" not in vals
-    dm._write_category_to_settings("Wall", vals)
-    for legacy in ("section", "section_pattern", "section_scale", "hatch"):
-        assert not s.contains(f"display/Wall/{legacy}")
-    assert s.value("display/Wall/section_type") == "Wall Section"
-    assert json.loads(s.value("display/Wall/section_look")) == vals["section_look"]
-    assert dm._read_category_from_settings("Wall")["section_look"] == vals["section_look"]
-    # the project payload never carries the retired keys
-    entry = dm.get_display_settings_for_save()["Wall"]
-    assert not {"section", "section_pattern", "section_scale"} & set(entry)
-    assert entry["section_type"] == "Wall Section"
+    s.setValue("display/Wall/section_type", "Wall Section")   # an HF5 install
+    s.setValue("display/Wall/section_look", json.dumps({"pattern": {"ref": "x"}}))
+    try:
+        vals = dm._read_category_from_settings("Wall")
+        assert not {"section", "section_pattern", "section_type", "section_look"} & set(vals)
+        dm._write_category_to_settings("Wall", vals)
+        assert s.value("display/Wall/section_type") == "Wall Section"      # left as found
+        assert s.value("display/Wall/section") == "#aa0000"
+        entry = dm.get_display_settings_for_save()["Wall"]
+        assert not {"section", "section_pattern", "section_scale",
+                    "section_type", "section_look"} & set(entry)
+    finally:
+        for k in ("section", "section_pattern", "section_type", "section_look"):
+            s.remove(f"display/Wall/{k}")
 
 
-def test_roof_has_no_section_cell_and_no_type():
+def test_project_payload_with_old_section_keys_loads_and_draws_none(qapp, model_space):
+    """M8: an old project's category section keys (legacy colour / pattern, and the
+    HF5 type + look) load without error, add no Fill Type, and the wall draws None."""
     from firepro3d import display_manager as dm
-    assert not dm._category_has_section("Roof")
-    assert dm._category_has_section("Wall") and dm._category_has_section("Floor")
-    vals = dm._read_category_from_settings("Roof")
-    assert vals["section_type"] is None and vals["section_look"] is None
-
-
-def test_project_payload_with_legacy_keys_wins_over_stored_type(qapp, model_space):
-    """An old project's legacy section keys convert on apply, even when the
-    app QSettings already holds a Fill Type for the category."""
-    from firepro3d import display_manager as dm
-    s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Wall/section_type", "Wall Section")
-    s.setValue("display/Wall/section_look", json.dumps(
-        to_record(FillLayers(BackgroundLayer("#111111", 1.0)))))
+    from firepro3d import materials as mt
+    before = {t.name for t in ft.project_table().all()}
     w = _wall(model_space)
     dm.apply_project_display_settings(model_space, {"Wall": {
-        "color": "#666666", "section": "#abcdef", "section_pattern": "diagonal"}})
-    lay = ft.project_table().get(w._display_section_type).layers
-    assert lay.background.color == "#abcdef"
+        "color": "#666666", "section": "#abcdef", "section_pattern": "diagonal",
+        "section_type": "Wall Section",
+        "section_look": {"background": {"color": "#111111", "opacity": 1.0}}}})
+    assert {t.name for t in ft.project_table().all()} == before
+    assert mt.fill_type_of(w) is None
+    assert not hasattr(w, "_display_section_type")
 
 
 def test_floor_slab_and_wall_section_overrides_round_trip(qapp, model_space):
@@ -295,22 +278,22 @@ def test_floor_slab_and_wall_section_overrides_round_trip(qapp, model_space):
     assert mt.fill_type_of(s2) == "some-id" and "section_type" not in s2._display_overrides
 
 
-def test_cancel_removes_the_preview_written_type_keys(qapp, model_space):
-    """A pre-HF5 install (legacy keys only): Cancel after a live preview leaves
-    no section_type / section_look behind, so the legacy cell reads as before."""
+def test_dialog_preview_and_ok_write_no_section_keys(qapp, model_space):
+    """M5: nothing the Model tab previews or OK writes is a section cell (the old
+    Cancel-removes-the-preview-keys guard retires with the preview writer)."""
     from firepro3d import display_manager as dm
     s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Wall/section", "#aa0000")
+    _wall(model_space)
     dlg = dm.DisplayManager(model_space)
     try:
-        dm._store_section_cell(s, "Wall", {"section_type": "Previewed",
-                                           "section_look": {"background": {"color": "#00ff00"}}})
-        assert s.value("display/Wall/section_type") == "Previewed"
-        dlg.reject()
+        dlg._apply_preview()
+        dlg._set_model_as_default()
+        dlg.accept()
     finally:
         dlg.close()
-    assert not s.contains("display/Wall/section_type")
-    assert not s.contains("display/Wall/section_look")
+    for cat in ("Wall", "Floor"):
+        for k in ("section_type", "section_look", "default_section_type", "default_section_look"):
+            assert not s.contains(f"display/{cat}/{k}")
 
 
 # -- review fixes: alpha scales, token / No Fill bodies, app-wide patterns ---------
@@ -354,18 +337,19 @@ def test_wall_no_fill_body_renders_no_body(qapp, model_space, shipped_hatches):
     assert len([c for c in px if _near(c, (170, 0, 0), 60)]) > 10      # hatch still draws
 
 
-def test_app_wide_category_pattern_loads_for_a_scene_with_no_walls(qapp):
-    """D-A39: the app-wide Wall section look names a Hatch-folder pattern; a new
-    scene (no wall, table not yet fed by a DM apply) still loads it."""
-    from firepro3d import app_data
+def test_old_qsettings_category_pattern_no_longer_feeds_the_project_refs(qapp):
+    """D-A39 / M5: patterns come from the Fill Type table (every material's type);
+    an old app-wide Wall section look in QSettings is no longer walked."""
     from firepro3d import hatch_patterns as hp
     from firepro3d.model_space import Model_Space
-    from tests.test_hatch_blocks_only import _put_shipped_into
-    _put_shipped_into(app_data.hatch_patterns_dir())
     s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Wall/section_type", "Brick Cut")
-    s.setValue("display/Wall/section_look", json.dumps({"pattern": {"ref": hp.BUILTIN_BRICK}}))
-    sc = Model_Space()
-    assert hp.BUILTIN_BRICK in hp.project_pattern_refs(sc)
-    hp.ensure_project_patterns(sc)
-    assert hp.BUILTIN_BRICK in sc._block_definitions
+    s.setValue("display/Wall/section_type", "Old Cut")
+    s.setValue("display/Wall/section_look", json.dumps({"pattern": {"ref": "old-qsettings-only-ref"}}))
+    try:
+        sc = Model_Space()
+        refs = hp.project_pattern_refs(sc)
+        assert "old-qsettings-only-ref" not in refs
+        assert hp.BUILTIN_BRICK in refs              # the starters' types still cover their patterns
+    finally:
+        s.remove("display/Wall/section_type")
+        s.remove("display/Wall/section_look")

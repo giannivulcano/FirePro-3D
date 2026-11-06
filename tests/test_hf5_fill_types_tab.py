@@ -20,6 +20,16 @@ from firepro3d.hatch_patterns import LEGACY_ALIAS
 from firepro3d.render_op import PATTERN
 
 
+def _own_material(name="Own Mat", colour="#334455"):
+    """A material on its own Fill Type (the shared tables carry whatever earlier
+    tests left, so these tests never lean on a starter by name and the names
+    carry a fresh suffix)."""
+    name = f"{name} {ft.new_id()[:6]}"
+    t = ft.project_table().add(ft.FillType(ft.new_id(), name + " Look",
+                                           FillLayers(BackgroundLayer(colour, 1.0))))
+    return mt.project_table().add(mt.Material(ft.new_id(), name, t.id))
+
+
 def _open(model_space):
     d = dm.DisplayManager(model_space)
     tab = next(d._tabs.widget(i) for i in range(d._tabs.count())
@@ -145,12 +155,12 @@ def test_a_rename_keeps_the_id_and_the_users(qapp, model_space):
 # -- delete guard (AC8) -------------------------------------------------------
 
 def test_delete_refused_while_used(qapp, model_space):
-    dm.apply_default_display_settings(model_space)       # seeds "Wall Section"
-    ws = ft.project_table().by_name("Wall Section")
+    ws = ft.project_table().add(ft.FillType("t-hf5-del", "Hf5 Used Type",
+                                            FillLayers(BackgroundLayer("#123456", 1.0))))
     mt.project_table().add(mt.Material("m-hf5-del", "Hf5 Delete Guard", ws.id))
     try:
         d, tab = _open(model_space)
-        tab.select_name("Wall Section")
+        tab.select_name("Hf5 Used Type")
         assert not tab.delete_button().isEnabled()
         assert "Used by 1" in tab.delete_button().toolTip()
         tab.select_name("Solid Black")
@@ -160,7 +170,7 @@ def test_delete_refused_while_used(qapp, model_space):
     tab.delete_button().click()
     d.accept()
     assert ft.project_table().by_name("Solid Black") is None
-    assert ft.project_table().by_name("Wall Section") is not None
+    assert ft.project_table().by_name("Hf5 Used Type") is not None
 
 
 def test_type_users_counts_regions_blocks_and_materials(qapp, model_space):
@@ -337,89 +347,53 @@ def test_a_non_tab_edit_keeps_an_exact_scale_and_opacity(qapp, model_space):
         d.close()
 
 
-# -- the section selectors follow the tab and the bus ----------------------------
-
-def test_bus_change_relists_the_section_selectors(qapp, model_space):
-    """Carry-in M7: a table change from anywhere (retarget, bundled merge) reaches
-    an open Display Manager's section cells."""
-    d, _tab = _open(model_space)
-    try:
-        sel = d._cat_data["Wall"]["widgets"]["section_sel"]
-        assert "Late" not in _names(sel)
-        ft.project_table().add(ft.FillType("late", "Late", FillLayers(BackgroundLayer("#010203", 1.0))))
-        ft.notify_changed()
-        assert "Late" in _names(sel)
-        assert sel.currentText() == "Wall Section"               # selection kept
-    finally:
-        d.close()
-
-
-def test_a_closed_dialog_stops_listening(qapp, model_space):
-    d, _tab = _open(model_space)
-    d.accept()
-    calls = []
-    d._refresh_section_selectors = lambda: calls.append(1)
-    ft.notify_changed()
-    assert calls == []
-
+# -- a pending type reaches a wall through a material (M5, M16) ---------------------
 
 def test_a_type_added_in_the_tab_is_pickable_before_ok_and_applies_on_ok(qapp, model_space):
+    from firepro3d.wall import WallSegment
+    mat = _own_material()
     wall = _wall(model_space)
+    wall.material_id = mat.id
     d, tab = _open(model_space)
     tab.add_type()
-    tab.set_name("Concrete")
+    tab.set_name("Pending Look")
     tab.set_background(True, "#00ff00", 1.0)
     pending = tab.current_type().id
-    sel = d._cat_data["Wall"]["widgets"]["section_sel"]
-    assert "Concrete" in _names(sel)
-    sel.setCurrentText("Concrete")
+    assert d._mat_tab.section_selector().findData(pending) >= 0
+    d._mat_tab.select_name(mat.name)
+    d._mat_tab.set_fill_type(pending)
     d.accept()
-    t = ft.project_table().by_name("Concrete")
+    t = ft.project_table().by_name("Pending Look")
     assert t is not None and t.id == pending           # the tab's type, not a stray preview copy
     assert t.layers.background.color == "#00ff00"
-    assert wall._display_section_type == pending
-    assert dm._read_category_from_settings("Wall")["section_type"] == "Concrete"
+    assert mt.fill_type_of(wall) == pending
 
 
-def test_a_type_renamed_in_the_tab_follows_its_category(qapp, model_space):
+def test_a_type_renamed_in_the_tab_follows_its_material(qapp, model_space):
     wall = _wall(model_space)
-    dm.apply_default_display_settings(model_space)
+    wall.material_id = _own_material().id
+    tid = mt.fill_type_of(wall)
     d, tab = _open(model_space)
-    tab.select_name("Wall Section")
-    tid = tab.current_type().id
-    tab.set_name("Wall Cut")
-    d._apply_preview()          # any section edit re-previews: the renamed look gets a stray live id
+    tab.select_name(ft.project_table().get(tid).name)
+    tab.set_name("Brick Cut")
     d.accept()
-    assert ft.project_table().get(tid).name == "Wall Cut"
-    assert dm._read_category_from_settings("Wall")["section_type"] == "Wall Cut"
-    assert wall._display_section_type == tid                     # re-applied by name
+    assert ft.project_table().get(tid).name == "Brick Cut"
+    assert mt.fill_type_of(wall) == tid                           # by id: the rename follows
 
 
-def test_cancel_drops_a_previewed_pending_type(qapp, model_space):
+def test_cancel_drops_a_pending_type_and_leaves_the_cut_alone(qapp, model_space):
+    mat = _own_material()
     wall = _wall(model_space)
-    wall_type = wall._display_section_type                       # pre-dialog state
+    wall.material_id = mat.id
+    before = mt.fill_type_of(wall)
     d, tab = _open(model_space)
     tab.add_type()
-    tab.set_name("Concrete")
-    d._cat_data["Wall"]["widgets"]["section_sel"].setCurrentText("Concrete")
+    tab.set_name("Pending Look")
+    d._mat_tab.select_name(mat.name)
+    d._mat_tab.set_fill_type(tab.current_type().id)
     d.reject()
-    assert ft.project_table().by_name("Concrete") is None
-    assert wall._display_section_type == wall_type               # the section snapshot, never a vanished id
-    assert dm._read_category_from_settings("Wall")["section_type"] == "Wall Section"
-
-
-def test_instance_pick_of_a_pending_type_keeps_its_id_through_ok(qapp, model_space):
-    wall = _wall(model_space)
-    d, tab = _open(model_space)
-    tab.add_type()
-    tab.set_name("Concrete")
-    pending = tab.current_type().id
-    d._inst_data[id(wall)]["widgets"]["section_sel"].setCurrentText("Concrete")
-    assert wall._display_overrides["section_type"] == pending
-    assert ft.resolve(wall._display_section_type, None)[1] is False   # previews, not the grey fallback
-    d.accept()
-    assert ft.project_table().get(pending).name == "Concrete"
-    assert wall._display_overrides["section_type"] == pending
+    assert ft.project_table().by_name("Pending Look") is None
+    assert mt.fill_type_of(wall) == before                        # nothing live moved, so nothing to restore
 
 
 # -- MainWindow: restyle propagation (R5, AC2) -----------------------------------
@@ -502,7 +476,7 @@ def test_retarget_repaints_open_cuts(qapp, mw_fn, shipped_hatches, monkeypatch):
     t = ft.project_table().ensure_named("Hatched", FillLayers(None, PatternLayer(old, "#000000", 1.0, 1.0)))
     wall = _wall(ms)
     wall._is_section_cut = True
-    wall._display_section_type = t.id
+    wall.material_id = mt.project_table().add(mt.Material(ft.new_id(), "Hatched", t.id)).id
     _show_wall(mw_fn, wall)
     calls = _count_paints(monkeypatch, wall)
     QTest.qWait(100)
@@ -517,7 +491,7 @@ def test_a_table_change_repaints_cut_walls(qapp, mw_fn, monkeypatch):
     t = ft.project_table().ensure_named("Concrete", FillLayers(BackgroundLayer("#00ff00", 1.0)))
     wall = _wall(ms)
     wall._is_section_cut = True
-    wall._display_section_type = t.id
+    wall.material_id = mt.project_table().add(mt.Material(ft.new_id(), "Concrete Green", t.id)).id
     _show_wall(mw_fn, wall)
     calls = _count_paints(monkeypatch, wall)
     QTest.qWait(100)
@@ -552,38 +526,46 @@ def _digest(ms, wall):
 
 
 @pytest.mark.parametrize("pending", [False, True], ids=["existing-type", "pending-type"])
-def test_cancel_after_an_instance_pick_restores_the_wall(qapp, model_space, pending):
-    """F1: walls / floors are outside the DM item snapshot; a previewed instance
-    pick must not survive Cancel (no dangling id, same rendered cut)."""
+def test_cancel_after_a_material_edit_leaves_the_wall_cut(qapp, model_space, shipped_hatches, pending):
+    """F1 (M5): a Cancel after a material points at another or a pending type
+    renders the same cut; the material edit never reached the live table."""
+    shipped_hatches(model_space)
     ft.project_table().ensure_named("Green", FillLayers(BackgroundLayer("#00aa00", 1.0)))
+    mat = _own_material()
     wall = _wall(model_space)
     wall._is_section_cut = True
-    pre = _digest(model_space, wall)                 # first paint may apply the display look
-    before = (wall._display_section_type, dict(wall._display_overrides))
+    wall.material_id = mat.id
+    pre = _digest(model_space, wall)
+    before = (mt.fill_type_of(wall), dict(wall._display_overrides))
     d, tab = _open(model_space)
     if pending:
         tab.add_type()
-        tab.set_name("Concrete")
+        tab.set_name("Pending Look")
         tab.set_background(True, "#ff0000", 1.0)
-    name = "Concrete" if pending else "Green"
-    d._inst_data[id(wall)]["widgets"]["section_sel"].setCurrentText(name)
-    assert "section_type" in wall._display_overrides
+        target = tab.current_type().id
+    else:
+        target = ft.project_table().by_name("Green").id
+    d._mat_tab.select_name(mat.name)
+    d._mat_tab.set_fill_type(target)
     d.reject()
-    assert (wall._display_section_type, dict(wall._display_overrides)) == before
+    assert (mt.fill_type_of(wall), dict(wall._display_overrides)) == before
     assert _digest(model_space, wall) == pre
 
 
-def test_cancel_restores_a_floor_too(qapp, model_space):
+def test_cancel_after_a_material_edit_leaves_a_floor_too(qapp, model_space):
     from firepro3d.floor_slab import FloorSlab
     ft.project_table().ensure_named("Green", FillLayers(BackgroundLayer("#00aa00", 1.0)))
     slab = FloorSlab([QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000), QPointF(0, 1000)])
     model_space._floor_slabs.append(slab)
     model_space.addItem(slab)
-    before = (slab._display_section_type, dict(slab._display_overrides))
+    mat = _own_material()
+    slab.material_id = mat.id
+    before = (mt.fill_type_of(slab), dict(slab._display_overrides))
     d, _tab = _open(model_space)
-    d._inst_data[id(slab)]["widgets"]["section_sel"].setCurrentText("Green")
+    d._mat_tab.select_name(mat.name)
+    d._mat_tab.set_fill_type(ft.project_table().by_name("Green").id)
     d.reject()
-    assert (slab._display_section_type, dict(slab._display_overrides)) == before
+    assert (mt.fill_type_of(slab), dict(slab._display_overrides)) == before
 
 
 def test_reset_all_and_set_as_default_are_disabled_on_the_fill_types_tab(qapp, model_space):

@@ -746,8 +746,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         pass  # level indicator removed
         self._place_default_gridlines()
         self.section_manager.seed_cardinals()
-        # HF5 R9: startup = the seed set -- BEFORE the display defaults, which add
-        # the category section types (Wall Section / Floor Section) to the table.
+        # HF5 R9: startup = the seed set, then the display defaults.
         fill_types.reset_project_table()
         materials.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
@@ -2500,8 +2499,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         definitions recompile (their compiled ops bake the resolved look) and
         every live scene repaints (regions, wall / floor cuts and section views
         resolve their type at paint, so a repaint is enough there). Never
-        rebuilds a section view: ``SectionScene._category_section_type`` can add
-        types from a rebuild, and a rebuild here would loop."""
+        rebuilds a section view: cuts resolve at paint, so a repaint reaches them."""
         from PyQt6 import sip
         if sip.isdeleted(self) or self._ft_changed_busy:
             return
@@ -3949,8 +3947,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._refresh_section_browser()
 
         # Apply saved display defaults to the new project
-        # HF5 R9: a new project = the seed set -- BEFORE the display defaults, which
-        # add the category section types (Wall Section / Floor Section) to the table.
+        # HF5 R9: a new project = the seed set, then the display defaults.
         fill_types.reset_project_table()
         materials.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings

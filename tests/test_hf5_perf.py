@@ -1,14 +1,19 @@
-"""HF5 VC9 I1: one Fill Types tab edit refreshes every section picker fast.
+"""HF5 VC9 I1: one Fill Types tab edit refreshes the picker fast.
 
-Perf bench (``-m perf``, excluded from the default gate) on two scenes plus a
-non-perf structural guard (one icon build per type per refresh).
+Perf bench (``-m perf``, excluded from the default gate) on two scenes. The
+Model tab's per-row Section pickers retired with the Section column (materials
+M5, M6), so the bench times the one picker left: the Materials tab's Fill Type
+selector, which the Fill Types tab's ``edited`` refreshes. The structural icon
+guards (one build per type per refresh, rename rebuild, memo keeps live looks)
+retired with ``DisplayManager._type_icons`` they pinned; the Materials tab has
+no icon memo yet (filed follow-up), so it has none to pin.
 """
 import statistics
 import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d import display_manager as dm
@@ -45,9 +50,7 @@ def _open(ms):
 
 
 def _selectors(d):
-    return [x["widgets"]["section_sel"]
-            for x in (*d._cat_data.values(), *d._inst_data.values())
-            if x["widgets"].get("section_sel") is not None]
+    return [d._mat_tab.section_selector()]
 
 
 @pytest.mark.perf
@@ -62,7 +65,7 @@ def test_tab_edit_refreshes_pickers_within_bar(qapp, model_space, n_walls, n_typ
         d.show()                                          # real env: pickers visible
         QApplication.processEvents()
         sels = _selectors(d)
-        assert len(sels) >= n_walls                       # every wall row has a picker
+        assert len(sels) == 1                             # the Materials tab's picker
         assert all(s.count() >= n_types for s in sels)
         tab.select_name("T0")
         QApplication.processEvents()
@@ -82,74 +85,5 @@ def test_tab_edit_refreshes_pickers_within_bar(qapp, model_space, n_walls, n_typ
                     f"dm_open_s={open_s:.3f} bar_ms={_BAR_MS}\n")
         assert med <= _BAR_MS, f"median {med:.1f} ms > {_BAR_MS} ms ({samples})"
         assert samples[0] <= _BAR_MS, f"first edit {samples[0]:.1f} ms > {_BAR_MS} ms"
-    finally:
-        d.reject()
-
-
-def test_one_icon_build_per_type_per_refresh(qapp, model_space, monkeypatch):
-    """Cold refresh renders each distinct look once; a warm one renders none and keeps
-    every entry; a tab edit of one type re-renders that type only and every
-    picker shows its new look."""
-    _scene(model_space, 12, 6)
-    d, tab, _ = _open(model_space)
-    try:
-        sels = _selectors(d)
-        assert len(sels) >= 12
-        calls = []
-        real = dm._fill_type_icon
-
-        def counting(*a, **k):
-            calls.append(1)
-            return real(*a, **k)
-
-        monkeypatch.setattr(dm, "_fill_type_icon", counting)
-        d.__dict__.pop("_icon_memo", None)
-        d._refresh_section_selectors()
-        n_types = len(d._section_table().all())
-        n_looks = len({t.layers for t in d._section_table().all()})
-        assert 1 < n_looks < n_types                      # some types share a look
-        assert len(calls) == n_looks, (len(calls), n_looks)
-        calls.clear()
-        d._refresh_section_selectors()
-        assert calls == []                                # warm: nothing re-rendered
-        for s in sels:                                    # every picker lists every type
-            assert s.count() >= n_types
-            assert all(not s.itemIcon(i).isNull() for i in range(n_types))
-        mark = Qt.ItemDataRole.UserRole + 7               # survives only an in-place update
-        for s in sels:
-            s.setItemData(0, "kept", mark)
-        tab.select_name("T0")
-        tab.set_background(True, "#ff0000", 1.0)          # the real edit path
-        QApplication.processEvents()
-        assert len(calls) == 1, len(calls)                # only T0 re-rendered
-        assert all(s.itemData(0, mark) == "kept" for s in sels)   # restyle: no rebuild
-        tid = d._section_table().by_name("T0").id
-        for s in sels:
-            img = s.itemIcon(s.findData(tid)).pixmap(40, 20).toImage()
-            px = [img.pixelColor(x, y) for x in range(2, 38, 4) for y in (3, 10, 16)]
-            assert any(c.red() > 200 and c.green() < 60 and c.blue() < 60 for c in px)
-    finally:
-        d.reject()
-
-
-def test_rename_rebuilds_pickers_and_memo_keeps_live_looks(qapp, model_space):
-    """A rename keeps the id but changes the entry text, so every picker is
-    rebuilt (never an in-place icon swap); looks edited away leave the memo."""
-    _scene(model_space, 6, 4)
-    d, tab, _ = _open(model_space)
-    try:
-        sels = _selectors(d)
-        tab.select_name("T0")
-        tid = d._section_table().by_name("T0").id
-        for k in range(4):                                # four transient looks
-            tab.set_background(True, "#%02x0000" % (60 + k * 40), 1.0)
-        QApplication.processEvents()
-        assert set(d._icon_memo) == {t.layers for t in d._section_table().all()}
-        order = [t.id for t in d._section_table().all()]
-        assert tab.set_name("T0 Renamed")                 # keeps its sorted place
-        QApplication.processEvents()
-        assert [t.id for t in d._section_table().all()] == order
-        for s in sels:
-            assert s.itemText(s.findData(tid)) == "T0 Renamed"
     finally:
         d.reject()
