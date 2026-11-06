@@ -619,7 +619,7 @@ follows these rules so every column reads as a proper rail:
    + Underlay-table look; see the DisplayManager consumer paragraph in D3).
    Remaining:
    `PreferencesDialog`,
-   `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`, `WallDialog`,
+   `AutoPopulateDialog`, `SprinklerManagerDialog`, `RoofDialog`,
    `PaperExportDialog`, `CalibrateDialog`,
    `ViewRangeDialog`, `ThermalRadiationDialog`, `DesignPointDialog`,
    `FSVisibilityDialog`, `SectionPatternDialog`, `SheetViewPropertiesDialog`,

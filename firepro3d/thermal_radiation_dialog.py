@@ -2,7 +2,7 @@
 thermal_radiation_dialog.py
 ============================
 Dialog for configuring thermal radiation analysis parameters.
-Follows the same pattern as :mod:`wall_dialog` and :mod:`roof_dialog`.
+Follows the same pattern as :mod:`roof_dialog`.
 """
 
 from __future__ import annotations
