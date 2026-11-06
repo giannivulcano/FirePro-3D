@@ -1336,7 +1336,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # the per-primitive "keep if staying in that mode" guards live inside
         # clear(). Text/dimension teardown stays inline below (other concerns).
         self._geom_ctl.clear(mode)
-        if mode not in ("text", "note"):
+        if mode != "note":
+            self._note_ctl.cancel_tool()     # three-click Note: nothing placed yet (N24)
+        if mode != "text":
             self._text_anchor = None
             if self._text_preview is not None:
                 if self._text_preview.scene() is self:
@@ -1551,7 +1553,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
             "text":           "Pick first corner",
-            "note":           "Pick first corner",
+            "note":           "Pick arrow tip",
             "set_scale":      "Pick first calibration point",
             "move":           "Pick base point",
             "copy_base":      "Pick base point",
@@ -5706,7 +5708,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "text":                     "_move_text",
-        "note":                     "_move_text",
+        "note":                     "_move_note",
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
@@ -5896,6 +5898,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     if sm.is_calibrated else
                     f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
                 )
+
+    def _move_note(self, event, snapped):
+        self.preview_pipe.hide()
+        self._note_ctl.tool_move(snapped)
 
     def _move_place_import(self, event, snapped):
         self.preview_node.hide()
@@ -6722,8 +6728,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.set_mode(None)
 
     def _begin_text_box(self, snapped) -> None:
-        """First click of a two-corner text box (Text and Note): set the anchor
-        and create the dashed preview rectangle."""
+        """First click of a two-corner text box: set the anchor and create the
+        dashed preview rectangle."""
         self._text_anchor = snapped
         self.update_preview_node(snapped)
         preview = QGraphicsRectItem(QRectF(snapped, snapped))
@@ -6748,15 +6754,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 and self.active_view_key.partition(":")[0] in ("plan", "detail"))
 
     def _press_note(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._text_anchor is None:
-            self._begin_text_box(snapped)
-            return
-        rect = QRectF(self._text_anchor, snapped).normalized()
-        if self._text_preview is not None:
-            self.removeItem(self._text_preview)
-            self._text_preview = None
-        self._text_anchor = None
-        self._note_ctl.place(rect)
+        self._note_ctl.tool_click(snapped)
 
     def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._text_anchor is None:

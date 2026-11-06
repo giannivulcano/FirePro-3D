@@ -7,9 +7,12 @@ from __future__ import annotations
 
 from PyQt6 import sip
 from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QBrush, QPainterPath, QPen
+from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsRectItem
 
 from . import text_leader as _tl
-from .constants import Z_NOTE
+from .colour_tokens import resolve_colour
+from .constants import NOTE_BOX_WIDTH_MM, TEXT_LEADER_MIN_SHOULDER_MM, TOKEN_AUTO, Z_NOTE
 
 # The Text panel rows a Note carries, in panel order. Content stays out: the text
 # is typed on the canvas.
@@ -22,6 +25,13 @@ _STYLE_FIELDS = ("font_family", "height_mm", "cell_padding_mm", "bold", "italic"
                  "align", "valign", "wrap", "shrink", "color", "border", "border_line_type",
                  "border_weight",
                  "border_corner", "border_corner_radius_mm", "fill_color", "fill_opacity")
+
+
+def _scaled_lengths(prim: dict, k: float) -> dict:
+    """The printed lengths of text record *prim* at *k* scene mm per printed mm."""
+    return {"height_mm": float(prim.get("height_mm", 3.0)) * k,
+            "cell_padding_mm": float(prim.get("cell_padding_mm", 1.0)) * k,
+            "border_corner_radius_mm": float(prim.get("border_corner_radius_mm", 0.0)) * k}
 
 
 def _style_item(prim: dict, style: "dict | None"):
@@ -124,7 +134,7 @@ class NoteTemplate:
     def __init__(self, scene):
         self._scene = scene
         self.style: dict = {}
-        self.leader: "dict | None" = None      # ``{end, weight}`` while Leader is on
+        self.leader: dict = {"end": _tl.DEFAULT_END_ID, "weight": ""}   # on by construction (N27)
 
     def _prim(self) -> "dict | None":
         from .system_blocks import NOTE_BLOCK_ID
@@ -143,20 +153,18 @@ class NoteTemplate:
             picker_exclude(self._scene),
             fallback_weight=str(self.style.get("border_weight")
                                 or prim.get("border_weight", ""))))
+        props.pop("Leader")                    # three clicks draw it: there is no off (N27)
         return props
 
     def set_property(self, key: str, value) -> None:
         prim = self._prim()
         if prim is None:
             return
-        if key == "Leader":
-            self.leader = {"end": _tl.DEFAULT_END_ID, "weight": ""} if value else None
-        elif key in ("Leader End", "Leader Weight"):
-            if self.leader is not None:
-                from .hatch_patterns import picker_exclude
-                _tl.set_panel_row(self.leader, key, value,
-                                  getattr(self._scene, "block_registry", None),
-                                  picker_exclude(self._scene))
+        if key in ("Leader End", "Leader Weight"):
+            from .hatch_patterns import picker_exclude
+            _tl.set_panel_row(self.leader, key, value,
+                              getattr(self._scene, "block_registry", None),
+                              picker_exclude(self._scene))
         elif key in STYLE_KEYS:
             self.style = style_after(prim, self.style, key, value)
 
@@ -177,6 +185,9 @@ class NoteController:
         self._host = None        # the instance under edit
         self._overlay = None     # its transient TextItem
         self.template = NoteTemplate(scene)
+        self._tool_pts: list = []    # the clicks so far: tip, then elbow (N20)
+        self._tool_line = None       # preview: tip -> elbow -> attach
+        self._tool_box = None        # preview: the box after the elbow
 
     @property
     def overlay(self):
@@ -188,39 +199,125 @@ class NoteController:
         """The note instance under edit, or None."""
         return self._host
 
+    # -- the three-click tool (notes design N20 to N24) ------------------------
+
+    def tool_anchor(self) -> "QPointF | None":
+        """The point the current step measures from: the tip, then the elbow.
+        None before the first click."""
+        return QPointF(self._tool_pts[-1]) if self._tool_pts else None
+
+    def cancel_tool(self) -> None:
+        """Forget the clicks and drop the previews. Nothing was placed yet, so
+        nothing is left (N24)."""
+        self._tool_pts = []
+        for it in (self._tool_line, self._tool_box):
+            if it is not None and not sip.isdeleted(it) and it.scene() is self._scene:
+                self._scene.removeItem(it)
+        self._tool_line = self._tool_box = None
+
+    def tool_click(self, pt: QPointF) -> None:
+        """One click: the tip, the elbow, then the box edge, which places (N20)."""
+        if len(self._tool_pts) == 2:
+            tip, knee = self._tool_pts
+            self.cancel_tool()
+            self._place(tip, knee, pt)
+            return
+        self._tool_pts.append(QPointF(pt))
+        self._update_preview(pt)
+        self._scene.instructionChanged.emit("Pick elbow" if len(self._tool_pts) == 1
+                                            else "Pick box edge")
+
+    def tool_move(self, pt: QPointF) -> None:
+        """The cursor moved: track it live, measured from the current step (N24)."""
+        s = self._scene
+        if not self._tool_pts:
+            s.update_preview_node(pt)
+            return
+        self._update_preview(pt)
+        s.publish_placement_state(self.tool_anchor(), pt)
+
+    def _printed_k(self) -> float:
+        """Scene mm per printed mm on this canvas (N22): the drawing scale on a
+        plan or detail, the schematic's own scale in its editor."""
+        from .annotative import _drawing_scale, editor_text_scale
+        s = self._scene
+        return _drawing_scale(s) if s.scene_role == "plan" else editor_text_scale(s)
+
+    def _new_preview(self, item):
+        """Style *item* as a placement preview and add it to the scene."""
+        pen = QPen(resolve_colour(TOKEN_AUTO), 2, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        item.setPen(pen)
+        item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        item.setZValue(200)
+        self._scene.addItem(item)
+        return item
+
+    def _update_preview(self, pt: QPointF) -> None:
+        """Tip -> elbow -> cursor, with the box after the elbow. At the box step
+        the line ends on the attach point, where the third click would land it."""
+        self._scene.preview_node.hide()
+        if self._tool_line is None:
+            self._tool_line = self._new_preview(QGraphicsPathItem())
+        path = QPainterPath(self._tool_pts[0])
+        prim = self.template._prim()
+        if len(self._tool_pts) == 2 and prim is not None:
+            if self._tool_box is None:
+                self._tool_box = self._new_preview(QGraphicsRectItem())
+            k, knee = self._printed_k(), self._tool_pts[1]
+            box, rec = _tl.box_from_clicks(
+                knee, pt, NOTE_BOX_WIDTH_MM * k, self._one_line_mm(prim) * k,
+                TEXT_LEADER_MIN_SHOULDER_MM * k)
+            self._tool_box.setRect(box)
+            path.lineTo(knee)
+            path.lineTo(_tl.attach_and_knee(box, rec)[0])
+        else:
+            path.lineTo(pt)
+        self._tool_line.setPath(path)
+
+    def _one_line_mm(self, prim: dict) -> float:
+        """The printed height of one line in the armed tool's style (N22)."""
+        return _style_item(prim, self.template.style)._content_height_mm()
+
     # -- placement -----------------------------------------------------------
 
-    def place(self, rect) -> None:
-        """Place a note whose box is *rect* (scene mm, two-corner drag) and open
-        its editor. The box is stored in printed mm, so it follows the drawing
-        scale (D14)."""
-        from .constants import MIN_NOTE_BOX_MM
-        from .system_blocks import NOTE_BLOCK_ID
+    def _place(self, tip: QPointF, knee: QPointF, click: QPointF) -> None:
+        """Place the note the three clicks describe and open its editor."""
+        from .capabilities import ensure_end_available
         s = self._scene
-        if s.ensure_system_block(NOTE_BLOCK_ID) is None:
+        prim = self.template._prim()
+        if prim is None:
             s._show_status("The Note block is missing from the System library")
             return
-        note = {"view": s.active_view_key, "wrap_width_mm": MIN_NOTE_BOX_MM,
-                "box_height_mm": MIN_NOTE_BOX_MM}
+        if not ensure_end_available(self.template.leader["end"], s, outside_history=True):
+            s._show_status("The leader End could not be loaded")
+            return
+        self._place_note(tip, knee, click, self._one_line_mm(prim))
+
+    def _place_note(self, tip: QPointF, knee: QPointF, click: QPointF,
+                    one_line: float) -> None:
+        """A Note block on a plan or detail (D8). Box and shoulder are stored in
+        printed mm, so they follow the drawing scale; the tip stays in scene mm
+        (D14). The box follows the instance's own k, known once it is placed."""
+        from .block_instance import BlockInstance
+        from .system_blocks import NOTE_BLOCK_ID
+        s = self._scene
+        note = {"view": s.active_view_key, "wrap_width_mm": NOTE_BOX_WIDTH_MM,
+                "box_height_mm": one_line}
         if self.template.style:
             note["style"] = dict(self.template.style)
-        from .block_instance import BlockInstance
-        inst = s.place_block_instance(                 # fresh placement, through the one
-            NOTE_BLOCK_ID, (rect.x(), rect.y()),       # field-carrying choke point (DD7)
+        inst = s.place_block_instance(                   # fresh placement, through the one
+            NOTE_BLOCK_ID, (knee.x(), knee.y()),         # field-carrying choke point (DD7)
             **BlockInstance.place_kwargs({"note": note}))
         if inst is None:
             return
         k = inst.note_k()
-        inst.note["wrap_width_mm"] = max(rect.width() / k, MIN_NOTE_BOX_MM)
-        inst.note["box_height_mm"] = max(rect.height() / k, MIN_NOTE_BOX_MM)
+        box, rec = _tl.box_from_clicks(knee, click, NOTE_BOX_WIDTH_MM * k, one_line * k,
+                                       TEXT_LEADER_MIN_SHOULDER_MM * k)
+        inst.set_block_pos(box.x(), box.y())
+        inst.note["leader"] = dict(rec, shoulder_mm=rec["shoulder_mm"] / k,
+                                   tip_x=tip.x(), tip_y=tip.y(), **self.template.leader)
         inst.note_changed()
-        lead = self.template.leader
-        if lead is not None:
-            from .capabilities import ensure_end_available
-            chg = inst._note_leader_change("Leader", True)
-            if chg[0] and ensure_end_available(lead["end"], s, outside_history=True):
-                inst.note["leader"] = dict(chg[0], **lead)
-                inst.note_changed()
         s._end_placement_switch(inst)
         self.begin(inst, is_new=True)
 
@@ -250,10 +347,7 @@ class NoteController:
                    x=origin.x(), y=origin.y(),
                    wrap_width_mm=inst.note["wrap_width_mm"] * k,
                    box_height_mm=inst.note["box_height_mm"] * k,
-                   height_mm=float(prim.get("height_mm", 3.0)) * k,
-                   cell_padding_mm=float(prim.get("cell_padding_mm", 1.0)) * k,
-                   border_corner_radius_mm=float(prim.get("border_corner_radius_mm", 0.0)) * k,
-                   angle=0.0)
+                   angle=0.0, **_scaled_lengths(prim, k))
         rec.pop("uid", None)
         rec.pop("leader", None)         # prim-frame record of the definition: the note's own below
         lead = inst.note.get("leader")

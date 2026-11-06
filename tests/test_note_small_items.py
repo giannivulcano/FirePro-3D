@@ -21,11 +21,12 @@ def test_a_note_in_progress_is_torn_down_on_a_tab_change(main_window, real_syste
     sc = win.scene
     sc.active_view_key = PLAN
     sc.set_mode("note")
-    sc._press_note(None, QPointF(0, 0), QPointF(0, 0), None, None, None)       # first corner
-    assert sc._text_anchor is not None and sc._text_preview is not None
+    sc._press_note(None, QPointF(0, 0), QPointF(0, 0), None, None, None)       # the tip
+    ctl = sc._note_ctl
+    assert ctl.tool_anchor() is not None and ctl._tool_line is not None
     win._on_tab_changed(win.central_tabs.currentIndex())                      # the real handler
     assert sc.mode == "select"
-    assert sc._text_anchor is None and sc._text_preview is None               # cannot finish elsewhere
+    assert ctl.tool_anchor() is None and ctl._tool_line is None               # cannot finish elsewhere
 
 
 # -- S2: the Leader row owns the leader --------------------------------------------
