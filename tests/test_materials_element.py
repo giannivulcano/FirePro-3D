@@ -79,6 +79,10 @@ def test_a_file_with_no_materials_key_opens_on_none_with_starters(qapp, tmp_path
     with open(p, encoding="utf-8") as fh:
         data = json.load(fh)
     data.pop("materials")
+    # A true old file predates the starters: strip their Fill Types too, so the
+    # load order (Fill Types, then Materials) is what puts them back.
+    starters = {"Concrete", "Brick", "Cross Hatch", "Diagonal"}
+    data["fill_types"] = [r for r in data["fill_types"] if r.get("name") not in starters]
     with open(p, "w", encoding="utf-8") as fh:
         json.dump(data, fh)
     out = Model_Space()

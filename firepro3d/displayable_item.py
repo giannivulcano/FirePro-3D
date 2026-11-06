@@ -57,8 +57,6 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
     if clip_path.isEmpty() or not type_id:
         return
     layers, _missing = fill_types.resolve(type_id, None)
-    if layers.background is None and layers.pattern is None:
-        return                      # before any paper body: empty stays empty
     bg = pat = None
     paper_bg = paper_body if paper_body is not None else getattr(
         item, "_display_section_color", None)
