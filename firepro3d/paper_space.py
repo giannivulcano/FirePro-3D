@@ -1965,10 +1965,12 @@ class PaperGraphicsView(QGraphicsView):
             # MainWindow steals it. Same reason Delete is accepted above.
             # Also accept Escape while in add-text mode so the window-level
             # QShortcut("Escape") doesn't fire _on_escape before keyPressEvent
-            # can cancel the mode.
+            # can cancel the mode. A live manipulator drag keeps it too: the
+            # shortcut only deselects, and the release would commit the drag.
             if event.key() == Qt.Key.Key_Escape and (
                     editing_text_item(self._paper_scene) is not None
-                    or self._add_text_mode):
+                    or self._add_text_mode
+                    or self._manipulator_dragging()):
                 event.accept()
                 return True
             # Deliver Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z as a plain KeyPress to
@@ -1980,7 +1982,16 @@ class PaperGraphicsView(QGraphicsView):
                 return True
         return super().event(event)
 
+    def _manipulator_dragging(self) -> bool:
+        m = self._paper_scene._manipulator
+        return m is not None and m._mode is not None
+
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self._manipulator_dragging():
+            self._paper_scene._manipulator.cancel_drag()
+            event.accept()
+            return
+
         # Escape while in add-text mode: cancel placement and exit the mode.
         # event() accepts the ShortcutOverride for Key_Escape when _add_text_mode
         # is True, so the window-level QShortcut("Escape") does not steal this.

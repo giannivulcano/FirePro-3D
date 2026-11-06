@@ -3,7 +3,7 @@ reset. BOX: the box's right edge is x = 130, the line runs on y = 114.5, the
 block origin defaults to x = 34."""
 import pytest
 from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QImage, QPainter
+from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QShortcut
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMenu
 
@@ -75,6 +75,21 @@ def _drag(view, vp, dx_px=60, dy_px=24, steps=4):
     return pt + QPoint(dx_px, dy_px)
 
 
+def _wire_window_escape(view, ps):
+    """The window's Escape QShortcut as main.py wires it for a paper tab: it only
+    clears the selection, so a key it takes never reaches a drag."""
+    view.activateWindow()
+    assert QTest.qWaitForWindowActive(view)
+    view.setFocus()
+    fired = []
+
+    def on_escape():
+        fired.append(1)
+        ps.clearSelection()
+    QShortcut(QKeySequence("Escape"), view.window()).activated.connect(on_escape)
+    return fired
+
+
 def test_two_round_grips_with_the_second_at_the_line_end(rig):
     view, ps, vp = place(*rig)
     m = _select(view, ps, vp)
@@ -106,13 +121,46 @@ def test_esc_restores_the_automatic_line(rig):
     view, ps, vp = place(*rig)
     m = _select(view, ps, vp)
     count = ps.undo_stack.count()
+    fired = _wire_window_escape(view, ps)
     end = _drag(view, vp)
     assert vp.data.title_line_mm != 0.0
-    m.cancel_drag()
+    QTest.keyClick(view, Qt.Key.Key_Escape)
+    assert m._mode is None and fired == []            # the drag took the key
+    assert vp.isSelected()
     QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=end)
     QApplication.processEvents()
     assert vp.data.title_line_mm == 0.0
     assert ps.undo_stack.count() == count
+
+
+def test_esc_cancels_a_corner_resize(rig):
+    view, ps, vp = place(*rig)
+    m = _select(view, ps, vp)
+    count = ps.undo_stack.count()
+    fired = _wire_window_escape(view, ps)
+    corner = QPointF(X + W, Y)
+    view.centerOn(corner)
+    QApplication.processEvents()
+    pt = view.mapFromScene(corner)
+    QTest.mousePress(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    QTest.mouseMove(view.viewport(), pt + QPoint(40, -20))
+    QApplication.processEvents()
+    assert m._mode == "resize" and vp.data.w != W
+    QTest.keyClick(view, Qt.Key.Key_Escape)
+    assert m._mode is None and fired == []
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton, pos=pt)
+    QApplication.processEvents()
+    assert (vp.data.x, vp.data.y, vp.data.w, vp.data.h) == BOX
+    assert ps.undo_stack.count() == count
+
+
+def test_esc_with_no_drag_still_reaches_the_window(rig):
+    """Outside a drag, Esc stays the window shortcut's (deselect)."""
+    view, ps, vp = place(*rig)
+    _select(view, ps, vp)
+    fired = _wire_window_escape(view, ps)
+    QTest.keyClick(view, Qt.Key.Key_Escape)
+    assert fired == [1] and not vp.isSelected()
 
 
 def test_an_undragged_line_follows_the_box(rig):
