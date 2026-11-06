@@ -880,14 +880,21 @@ def _project_entry(display_dict: dict, key: str) -> dict:
     return {}
 
 
-def apply_category_defaults(item):
+def apply_category_defaults(item, stamp_material: bool = True):
     """Read QSettings for the item's category and apply display settings.
 
     Call this whenever a new item is added to the scene so it inherits
     the user's current Display Manager preferences.
+
+    Args:
+        item: The item just added to the scene.
+        stamp_material: Whether a wall or slab still on None takes its
+            category default material. The wall paste passes False so a
+            copied material (or None) is kept.
     """
-    from . import materials
-    materials.stamp_default(item)
+    if stamp_material:
+        from . import materials
+        materials.stamp_default(item)
     from .pipe import Pipe
     from .sprinkler import Sprinkler
     from .fitting import Fitting

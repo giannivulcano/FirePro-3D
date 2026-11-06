@@ -658,6 +658,10 @@ class SceneIOMixin:
                 self.removeItem(da)
         self.design_areas = []
         self.active_design_area = None
+        from .materials import MATERIAL_NONE_ID
+        for _tmpl in (self._wall_template, self._floor_template):
+            if _tmpl is not None:     # the old project's material id is unknown to the next table
+                _tmpl.material_id = MATERIAL_NONE_ID
         self._polylines = []
         self._polyline_active = None
         self._draw_lines = []

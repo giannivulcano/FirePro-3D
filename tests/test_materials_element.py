@@ -240,3 +240,96 @@ def test_real_wall_placement_takes_the_template_then_the_default(qapp):
     ms._get_wall_template().material_id = table.by_name("Concrete").id
     commit_rect()
     assert [w.material_id for w in ms._walls] == [table.by_name("Concrete").id] * 4
+
+
+# ── AC7: every placement path takes the template pick, else the category default ──
+
+def _brick():
+    table = mt.project_table()
+    return table, table.by_name("Brick").id, table.by_name("Concrete").id
+
+
+def test_wall_chain_placement_takes_the_template_then_the_default(qapp):
+    table, brick, concrete = _brick()
+    ms = Model_Space()
+    table.set_default("Wall", brick)
+    ms._wall_ctl._press_wall(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    ms._wall_ctl._press_wall(None, QPointF(2000, 0), QPointF(2000, 0), None, None, None)
+    assert [w.material_id for w in ms._walls] == [brick]
+    ms._wall_anchor = None
+    ms._walls.clear()
+    ms._get_wall_template().material_id = concrete
+    ms._wall_ctl._press_wall(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    ms._wall_ctl._press_wall(None, QPointF(2000, 0), QPointF(2000, 0), None, None, None)
+    assert [w.material_id for w in ms._walls] == [concrete]
+
+
+def test_floor_rect_commit_takes_the_template_then_the_default(qapp):
+    table, brick, concrete = _brick()
+    ms = Model_Space()
+    default = table.by_name("Steel Framed").id
+    table.set_default("Floor", default)
+
+    def commit_rect():
+        ms._floor_rect_sized_pt1, ms._floor_rect_sized_pt2 = QPointF(0, 0), QPointF(4000, 3000)
+        ms._floor_rect_pivot = QPointF(0, 0)
+        assert ms._commit_floor_rect_rotated(0.0)
+
+    commit_rect()
+    assert [s.material_id for s in ms._floor_slabs] == [default]
+    ms._floor_slabs.clear()
+    ms._get_floor_template().material_id = concrete
+    commit_rect()
+    assert [s.material_id for s in ms._floor_slabs] == [concrete]
+
+
+def test_floor_polygon_close_takes_the_template_then_the_default(qapp, shown_model_view):
+    from tests.test_floor_placement_workflow import _place_polygon_floor
+    view, ms = shown_model_view
+    table, brick, concrete = _brick()
+    default = table.by_name("Steel Framed").id
+    table.set_default("Floor", default)
+    ms.set_mode("floor")
+    ms.cycle_placement_variant(+1)
+    ms.cycle_placement_variant(+1)
+    assert ms._floor_primitive == "polygon"
+    assert _place_polygon_floor(view, ms).material_id == default
+    ms._get_floor_template().material_id = concrete
+    assert _place_polygon_floor(view, ms, origin=(3000, 0)).material_id == concrete
+
+
+def test_a_template_kept_across_new_project_still_gets_the_new_default(qapp):
+    """New/Open: the old project's template id is unknown to the fresh table."""
+    table, _brick_id, concrete = _brick()
+    ms = Model_Space()
+    ms._get_wall_template().material_id = concrete
+    ms._clear_scene()                       # main.new_file: clear, then reset the tables
+    ft.reset_project_table()
+    mt.reset_project_table()
+    table = mt.project_table()
+    table.set_default("Wall", table.by_name("Brick").id)
+    ms._wall_rect_sized_pt1, ms._wall_rect_sized_pt2 = QPointF(0, 0), QPointF(4000, 3000)
+    ms._wall_rect_pivot = QPointF(0, 0)
+    assert ms._wall_ctl._commit_wall_rect_rotated(0.0)
+    assert [w.material_id for w in ms._walls] == [table.by_name("Brick").id] * 4
+
+
+def test_clear_scene_resets_both_templates_to_none(qapp):
+    _table, _b, concrete = _brick()
+    ms = Model_Space()
+    ms._get_wall_template().material_id = concrete
+    ms._get_floor_template().material_id = concrete
+    ms._clear_scene()
+    assert ms._wall_template.material_id == MATERIAL_NONE_ID
+    assert ms._floor_template.material_id == MATERIAL_NONE_ID
+
+
+def test_an_unknown_template_id_reads_none_and_takes_the_default(qapp):
+    table = mt.project_table()
+    ms = Model_Space()
+    table.set_default("Wall", table.by_name("Brick").id)
+    ms._get_wall_template().material_id = "gone-from-this-table"      # no clear involved
+    ms._wall_rect_sized_pt1, ms._wall_rect_sized_pt2 = QPointF(0, 0), QPointF(4000, 3000)
+    ms._wall_rect_pivot = QPointF(0, 0)
+    assert ms._wall_ctl._commit_wall_rect_rotated(0.0)
+    assert [w.material_id for w in ms._walls] == [table.by_name("Brick").id] * 4

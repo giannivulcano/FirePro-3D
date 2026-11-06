@@ -277,12 +277,17 @@ def set_from_row(item, name) -> bool:
 def stamp_default(item) -> None:
     """Placement: a new wall or slab still on None takes its category default (M11).
 
-    ``apply_category_defaults`` calls this; it is not on the load, undo or
-    paste paths, so a saved id is never overwritten.
+    ``apply_category_defaults`` calls this; the load and undo paths never call
+    it, and the wall paste passes ``stamp_material=False``, so a saved or
+    copied id is never overwritten. An id the project table lacks (a template
+    kept across New/Open, or whose material was deleted) reads as None.
     """
     category = getattr(item, "material_category", None)
-    if category and item.material_id == MATERIAL_NONE_ID:
-        item.material_id = project_table().default_for(category)
+    if not category:
+        return
+    table = project_table()
+    if item.material_id == MATERIAL_NONE_ID or table.get(item.material_id) is None:
+        item.material_id = table.default_for(category)
 
 
 def material_users(material_id: str, scene, table: MaterialTable | None = None) -> list[str]:

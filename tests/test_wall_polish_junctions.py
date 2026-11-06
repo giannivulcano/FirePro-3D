@@ -320,7 +320,16 @@ def test_differing_fills_meet_without_overlap(qapp):
         assert abs(ref.blue() - got.blue()) <= 6, wall
 
 
-def test_hatch_flows_across_t_junction(qapp, shipped_hatches):
+@pytest.fixture
+def _fresh_material_table():
+    """The material table is module global: the junction hatch test adds a row."""
+    from firepro3d import materials as mt
+    mt.reset_project_table()
+    yield
+    mt.reset_project_table()
+
+
+def test_hatch_flows_across_t_junction(qapp, shipped_hatches, _fresh_material_table):
     """G1 positive half: with section hatch on, hatch strokes exist on both
     sides of the T seam (the seam is not a hatch-free gap).  The shipped
     hatch blocks are loaded through the real registry path (without them

@@ -163,7 +163,7 @@ def test_delete_refused_while_used(qapp, model_space):
     assert ft.project_table().by_name("Wall Section") is not None
 
 
-def test_type_users_counts_regions_blocks_and_item_overrides(qapp, model_space):
+def test_type_users_counts_regions_blocks_and_materials(qapp, model_space):
     from firepro3d.filled_region import FilledRegionItem
     t = ft.project_table().ensure_named("Concrete", FillLayers(BackgroundLayer("#00ff00", 1.0)))
     a, b, c, e = QPointF(0, 0), QPointF(100, 0), QPointF(100, 100), QPointF(0, 100)
