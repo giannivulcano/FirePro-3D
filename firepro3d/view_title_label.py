@@ -44,6 +44,11 @@ class ViewTitleLabel(OutlinedLabel):
     def __init__(self, viewport):
         super().__init__(viewport)
         self._line = None             # (x0, x1) local on y = 0; None = no line
+        # The sheet is paper: the block's strokes plot true mm on screen and in
+        # the PDF, like the line (D2). No viewport pass reaches a title, so the
+        # hooks stay set; 1.0 keeps k = 1 and lets a named weight keep its mm.
+        self._paper_pen_width = VIEW_TITLE_LINE_PEN_MM
+        self._paper_scale = 1.0
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton
                                      | Qt.MouseButton.RightButton)
 
