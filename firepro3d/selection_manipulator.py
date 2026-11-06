@@ -38,7 +38,6 @@ from . import theme
 from .constants import (
     MANIP_HANDLE_SIZE_PX, MANIP_HANDLE_BORDER_PX,
     MANIP_HANDLE_FILL_DARK, MANIP_HANDLE_FILL_LIGHT,
-    SELECTION_GRIP_SIZE_MM, SELECTION_GRIP_OUTLINE_WIDTH_MM,
     GRIP_OBJECT_LIMIT as _GRIP_OBJECT_LIMIT_DEFAULT,
 )
 from .dynamic_input import (
@@ -246,12 +245,10 @@ def bake_translate(item, dx: float, dy: float) -> bool:
 
 class _HandleItem(QGraphicsItem):
     """Screen-constant host for a Handle. Renders + receives Qt events; forwards
-    all behavior to ``self.handle``. ItemIgnoresTransformations (px, model) or
-    paper-mm sizing per the manipulator flag.
+    all behavior to ``self.handle``. Handles are ``ItemIgnoresTransformations``:
+    a constant device-pixel size at any zoom, in every scene (model and paper).
 
-    ``ItemIgnoresTransformations`` (model) keeps the handle a constant device-pixel
-    size at any zoom; paper-mm hosts scale with the 1-unit==1-mm paper scene so
-    they plot true to scale.  Press begins the manipulator's gesture for this
+    Press begins the manipulator's gesture for this
     handle via ``manip._begin_handle``; move/release forward to
     ``_update``/``_finish`` exactly as an interior-move drag does.
     """
@@ -262,26 +259,21 @@ class _HandleItem(QGraphicsItem):
         self.handle = handle
         self.role = handle.role
         self._hover = False
-        # Model scene: screen-constant device-px handles (ItemIgnoresTransformations).
-        # Paper scene: paper-mm handles that scale with the 1-unit==1-mm scene, so
-        # they plot/print at a true millimetre size (theming.md split).  The flag
-        # is owned by the manipulator (per-scene sizing mode).
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations,
-                     not manip._handle_mm)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.setAcceptHoverEvents(True)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
         self.setZValue(2.0)
 
-    # -- geometry (device px OR paper mm; anchored at the handle position) -----
+    # -- geometry (device px; anchored at the handle position) -----
 
     def _size(self) -> float:
-        return self._manip._handle_size
+        return _HANDLE_SIZE_PX
 
     def _border(self) -> float:
-        return self._manip._handle_border
+        return _HANDLE_BORDER_PX
 
     def _grab_pad(self) -> float:
-        return self._manip._handle_grab_pad
+        return _HANDLE_GRAB_PAD_PX
 
     def _half(self) -> float:
         return self._size() / 2.0 + self._grab_pad()
@@ -374,10 +366,6 @@ class SelectionManipulator(QGraphicsObject):
             :meth:`snapshot_items`).
         exclude: Optional ``callable(item) -> bool``; items for which it
             returns True are never wrapped.
-        handle_units: ``"px"`` (default, model scene) sizes resize handles in
-            device pixels via ``ItemIgnoresTransformations``; ``"mm"`` (paper
-            scene) sizes them in paper millimetres so they plot/print true to
-            scale (theming.md split).
     """
 
     #: Screen-only selection feedback — never plots.  Honoured by
@@ -387,25 +375,12 @@ class SelectionManipulator(QGraphicsObject):
     def __init__(self, scene: QGraphicsScene, *,
                  commit_hook: Optional[Callable[[str], None]] = None,
                  exclude: Optional[Callable[[QGraphicsItem], bool]] = None,
-                 handle_units: str = "px",
                  press_hook: Optional[Callable[[List[QGraphicsItem]], None]]
                  = None):
         super().__init__()
         self._commit_hook = commit_hook
         self._press_hook = press_hook
         self._exclude = exclude
-
-        # Per-scene handle sizing (px in model, paper-mm in paper).  Read by
-        # every _HandleItem; the flag also decides ItemIgnoresTransformations.
-        self._handle_mm = (handle_units == "mm")
-        if self._handle_mm:
-            self._handle_size = SELECTION_GRIP_SIZE_MM
-            self._handle_border = SELECTION_GRIP_OUTLINE_WIDTH_MM
-            self._handle_grab_pad = SELECTION_GRIP_SIZE_MM * 0.5
-        else:
-            self._handle_size = _HANDLE_SIZE_PX
-            self._handle_border = _HANDLE_BORDER_PX
-            self._handle_grab_pad = _HANDLE_GRAB_PAD_PX
 
         self._rect = QRectF()
         self._sel_ids: frozenset = frozenset()

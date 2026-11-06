@@ -2912,11 +2912,11 @@ class PaperScene(QGraphicsScene):
         resize/move) — the one home for viewport/text handle interaction,
         replacing the retired per-item grip code.  Called from ``_setup`` so it
         survives every sheet rebuild (``self.clear()`` deletes it as a scene
-        item).  Paper handles are paper-mm sized; one undo entry per gesture is
+        item).  Handles are constant on screen, as in model space (D1); one undo entry per gesture is
         a macro of per-item commands (spec "Undo & domains")."""
         from .selection_manipulator import SelectionManipulator
         self._manipulator = SelectionManipulator(
-            self, handle_units="mm",
+            self,
             press_hook=self._manip_capture_press,
             commit_hook=self._manip_commit)
         return self._manipulator
