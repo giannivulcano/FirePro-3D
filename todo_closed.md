@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Cleanup -- dead wall edit dialog deleted -- 2026-11-06
+- [x] [type:maint] Dead wall edit dialog: `WallSegment._open_edit_dialog` + `WallDialog` raw colour `QLineEdit` [P1] [subject:Cleanup] [done:2026-11-06]
+  - Details: HF1 seam review (2026-10-18): `_open_edit_dialog` has no caller; its `WallDialog` colour row (`wall_dialog.py` ~92-95, 240) is a raw QLineEdit and `get_params` returns `... or "#cccccc"`, so wiring it would silently recolour a No-colour wall and bypass the universal picker. Delete both (grep callers + tests first, VC5) or swap to `ui_kit.Swatch` returning the raw value. `wall.py`, `wall_dialog.py`.
+  - Built 2026-11-06 on `todo-run-2026-11-06` (maint, nothing moved; before-baseline 182 passed): deleted the uncalled `WallSegment._open_edit_dialog` and `firepro3d/wall_dialog.py` (its raw colour `QLineEdit` and `#cccccc` fallback went with them), dropped `WallDialog` from the hexguard `GUARDED` list, `docs/gen_ref_pages.py` and the ui-design-system migration checklist; guard `tests/test_wall_dead_dialog_removed.py` RED with the deletion reverted. `RoofDialog` stays (live roof menu callback).
+
 ## Testing -- three red tests cleared: marks table, host category list, section head radius -- 2026-11-06
 - [x] [type:bug] `test_sb2b_settings_dialog_size.py::test_g_s1_marks_table_fits` fails at the default and minimum sizes [P4] [subject:Testing] [done:2026-11-06]
   - Details: found by the data-loss keep-green, 2026-11-04. `test_g_s1_marks_table_fits_at_default_size` and `_at_minimum_size` fail identically at base `5185b8cc` (VC7, detached worktree) and at HEAD `d09406ca`, so this branch did not cause them. Cause not investigated.
