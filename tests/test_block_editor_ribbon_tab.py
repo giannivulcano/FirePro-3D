@@ -293,8 +293,8 @@ def test_entering_editor_switches_page_and_leaving_restores(mw, qapp):
     page = _page(mw, BUILD)
     for title in ("Definition", "2D Geometry"):
         for label, b in _buttons(_group(page, title)).items():
-            if label in ("Save as Template", "Fill"):
-                continue      # schematic-only (SV3) / selection-gated (HF3)
+            if label in ("Save as Template", "Fill", "Note"):
+                continue      # schematic-only (SV3, N26) / selection-gated (HF3)
             assert b.isEnabled(), label
             assert b.toolTip() and b.toolTip() != NO_EDITOR_TIP, label
     # Edit/Modify follow _refresh_modify_buttons (empty editor selection).

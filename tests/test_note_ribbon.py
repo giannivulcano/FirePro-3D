@@ -67,6 +67,88 @@ def test_note_follows_the_canvas_kind(main_window):
     main_window._set_canvas_context("plan")
 
 
+def _build_note(win):
+    """The Build tab's Note button, found by its place on the page."""
+    from tests.test_block_editor_ribbon_tab import _buttons, _group, _page
+    buttons = _buttons(_group(_page(win, "Build"), "2D Geometry"))
+    assert list(buttons).index("Note") == list(buttons).index("Text") + 1     # beside Text
+    return buttons["Note"]
+
+
+def test_build_note_is_live_on_a_schematic_tab_and_off_on_a_block_tab(main_window, qapp):
+    win = main_window
+    btn = _build_note(win)
+    win._set_canvas_context("plan")
+    assert not btn.isEnabled()
+    block = win.block_editor_manager.open_new()
+    qapp.processEvents()
+    try:
+        assert not btn.isEnabled()
+        assert btn.toolTip() == win._BE_NOTE_BLOCK_TIP
+    finally:
+        win.block_editor_manager.close(block)
+        qapp.processEvents()
+    sch = win.block_editor_manager.open_new(kind="schematic")
+    qapp.processEvents()
+    try:
+        assert btn.isEnabled() and "arrow tip" in btn.toolTip()
+        assert not win._mode_buttons["note"].isEnabled()    # Architecture stays plan and detail
+    finally:
+        win.block_editor_manager.close(sch)
+        qapp.processEvents()
+
+
+def test_the_build_button_runs_a_note_on_the_real_schematic_tab(
+        main_window, qapp, real_system_library):
+    """Ribbon button -> mode -> press handler -> editor, in the real window."""
+    from PyQt6.QtCore import Qt
+
+    from firepro3d.text_item import editing_text_item
+    from tests._note_helpers import click
+    win = main_window
+    sch = win.block_editor_manager.open_new(kind="schematic")
+    qapp.processEvents()
+    scene = sch.editor_scene
+    try:
+        hints = []
+        scene.instructionChanged.connect(hints.append)
+        btn = _build_note(win)
+        QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
+        qapp.processEvents()
+        assert scene.mode == "note" and btn.isChecked()
+        assert hints[-1] == "Pick arrow tip"
+        assert win.prop_manager._targets == [scene._note_ctl.template]
+        assert "Leader End" in win.prop_manager._prop_widgets
+        vr = sch.view.viewport().rect()
+        pts = [sch.view.mapToScene(int(vr.width() * x), int(vr.height() * y))
+               for x, y in ((.2, .2), (.4, .4), (.6, .45))]
+        for p in pts:
+            click(sch.view, p)
+        item = scene._texts[-1]
+        assert editing_text_item(scene) is item and item.data.leader["edge"] == "L"
+        assert scene.mode != "note" and not btn.isChecked()
+        item.setPlainText("Hold")
+        scene._text_edit_ctl.commit()
+    finally:
+        win.block_editor_manager.close(sch)
+        qapp.processEvents()
+
+
+def test_activating_the_note_block_on_a_schematic_tab_arms_the_tool(
+        main_window, qapp, real_system_library):
+    from firepro3d.system_blocks import NOTE_BLOCK_ID
+    win = main_window
+    sch = win.block_editor_manager.open_new(kind="schematic")
+    qapp.processEvents()
+    try:
+        win._on_block_activated(NOTE_BLOCK_ID)
+        assert sch.editor_scene.mode == "note"
+        sch.editor_scene.set_mode(None)
+    finally:
+        win.block_editor_manager.close(sch)
+        qapp.processEvents()
+
+
 def test_note_button_arms_the_note_tool_on_the_plan_scene(main_window):
     main_window._set_canvas_context("plan")
     main_window.scene.active_view_key = "plan:Plan: Level 1"
@@ -79,7 +161,7 @@ def test_note_button_arms_the_note_tool_on_the_plan_scene(main_window):
 
 def test_note_mode_has_a_footer_label_and_instruction(main_window):
     assert main_window._MODE_LABELS["note"] == "Note"
-    assert "note" in main_window._MODE_INSTRUCTIONS
+    assert "elbow" in main_window._MODE_INSTRUCTIONS["note"]
 
 
 @pytest.mark.parametrize("name", ["note_icon.svg", "keyed_note_icon.svg"])
