@@ -181,7 +181,7 @@ class BlockInstance(QGraphicsObject):
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
         self._mask_cache = None    # (definition ops, pose key, scene mask) -- opaque_mask
         self._cover_cache = None   # (masks tuple, union) -- _cover_above
-        self._ink_ops_cache = None  # (ops list, joined set, rows) -- _ink_reach_px
+        self._ink_ops_cache = None  # (ops list, distinct stroke rows) -- _ink_reach_px
         self._stack_seq = 0        # scene-entry order, the tie-break at equal z
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
@@ -807,27 +807,26 @@ class BlockInstance(QGraphicsObject):
         return r.adjusted(-extra, -extra, extra, extra) if extra > 0.0 else r
 
     def _ink_reach_px(self) -> float:
-        """Widest device reach past this block's geometry: half a stroke plus
-        the antialias fringe, or the wedge reach of a joined op. The distinct
-        (linetype, weight, joined) rows are memoised on the compiled list; the
-        widths resolve every call (weight table, Model Blocks)."""
+        """Widest device reach past this block's geometry: the miter tip of its
+        widest pen plus the antialias fringe. A vertex inside one op miters as
+        far as a joined corner, so every stroke counts, joined or not; a block
+        of fills or text still has the fringe. The distinct (linetype, weight,
+        compiled width) rows are memoised on the compiled list; the widths
+        resolve every call (weight table, Model Blocks)."""
         ops = self.render_ops()
-        jm = self._joint_map()
-        joined = jm[1] if jm is not None else frozenset()
         c = self._ink_ops_cache
-        if c is None or c[0] is not ops or c[1] != joined:
+        if c is None or c[0] is not ops:
             rows = {}
-            for i, op in enumerate(ops):
+            for op in ops:
                 if op.kind == STROKE:
-                    rows.setdefault((op.linetype, op.weight, i in joined), op)
-            c = self._ink_ops_cache = (ops, joined, tuple(rows.items()))
+                    rows.setdefault((op.linetype, op.weight, op.pen.widthF()), op)
+            c = self._ink_ops_cache = (ops, tuple(rows.values()))
         reg = getattr(self.scene(), "block_registry", None)
         reach = 0.0
-        for (_lt, _w, is_joined), op in c[2]:
+        for op in c[1]:
             width = self._resolve_op_stroke(op, True, reg, False)[1]
-            width = op.pen.widthF() if width is None else width
-            reach = max(reach, joint_pad(width) if is_joined else width / 2.0 + STROKE_AA_PX)
-        return reach
+            reach = max(reach, joint_pad(op.pen.widthF() if width is None else width))
+        return reach + STROKE_AA_PX
 
     @staticmethod
     def _union_prefix(memo: dict, masks: list) -> QPainterPath:

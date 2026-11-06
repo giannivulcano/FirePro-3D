@@ -1,4 +1,6 @@
 """Schematic redraw: no false cover clip, cached corner wedges."""
+import math
+
 import pytest
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QTransform
@@ -8,7 +10,7 @@ import firepro3d.block_instance as bi
 import firepro3d.stroke_style as ss
 from firepro3d import paper_display as pd
 from firepro3d.block_definition import BlockDefinition
-from firepro3d.geometry_2d import LineItem, RectangleItem
+from firepro3d.geometry_2d import LineItem, PolylineItem, RectangleItem
 from firepro3d.model_space import Model_Space
 from firepro3d.render_op import PoseXf
 from firepro3d.stroke_style import BY_LINETYPE
@@ -51,10 +53,10 @@ def _view(be, zoom):
 
 @pytest.mark.parametrize("zoom, mask_x, clips", [(1.0, 106.0, 0), (0.25, 106.0, 1)])
 def test_cover_clip_follows_the_ink_reach_at_this_zoom(be, monkeypatch, zoom, mask_x, clips):
-    """A 1 px corner reaches 2.06 px, so the rect ends at x = 102.56 at zoom 1 and
-    108.74 at zoom 0.25 (frame 102 + reach + weld 0.5 - margin 2). The worst-case
-    41 px pad would clip at both. Observable: the real paint path calls
-    ``keep_path`` only when a mask can touch ink."""
+    """A 1 px stroke reaches 2.81 px (miter 2.06 + fringe 0.75), so the rect ends
+    at x = 103.31 at zoom 1 and 111.74 at zoom 0.25 (frame 102 + reach + weld 0.5
+    - margin 2). The worst-case 41 px pad would clip at both. Observable: the
+    real paint path calls ``keep_path`` only when a mask can touch ink."""
     a, _b = _stack(be, mask_x)
     monkeypatch.setattr(ss, "canvas_px", lambda w: 1.0)
     monkeypatch.setattr(bi, "canvas_px", lambda w: 1.0)
@@ -88,9 +90,39 @@ def test_a_mask_inside_a_wide_wedge_still_hides_it(be, monkeypatch):
     a = be.place_block_instance(lines_def(be, "Corner", CORNER).id, (0.0, 0.0))
     b = be.place_block_instance(_thin_rect_def(be).id, (103.0, -30.0))
     region = QRectF(104, -4, 1, 20)
-    assert ink(be, a, region, VIEW) == 0
-    b.set_opaque(False)
-    assert ink(be, a, region, VIEW) > 0                    # premise: ink is there
+    v = _view(be, 2.0)                                     # the zoom ``render`` paints at
+    try:
+        assert ink(be, a, region, VIEW) == 0
+        b.set_opaque(False)
+        assert ink(be, a, region, VIEW) > 0                # premise: ink is there
+    finally:
+        v.setScene(None)
+
+
+def test_a_mask_at_a_sharp_miter_tip_hides_it(be, monkeypatch):
+    """One polyline op, no joint partner: its 45 deg vertex at x = 100 miters to
+    x = 113 under a 20 px pen at 2x, far past half a pen width (x = 105). A mask
+    from x = 108 must hide the tip."""
+    px = lambda w: 2.0 if w == "Thin" else 20.0
+    monkeypatch.setattr(ss, "canvas_px", px)
+    monkeypatch.setattr(bi, "canvas_px", px)
+    tan = math.tan(math.radians(22.5))
+    poly = PolylineItem(QPointF(0, -100 * tan))
+    poly.append_point(QPointF(100, 0))
+    poly.append_point(QPointF(0, 100 * tan))
+    d = BlockDefinition.new(name="Sharp", library="L", series="S",
+                            primitives=[poly.to_dict()], origin=(0.0, 0.0))
+    be.register_block_definition(d)
+    a = be.place_block_instance(d.id, (0.0, 0.0))
+    b = be.place_block_instance(_thin_rect_def(be).id, (108.0, -30.0))
+    region = QRectF(109, -1, 3, 2)
+    v = _view(be, 2.0)
+    try:
+        assert ink(be, a, region, VIEW) == 0
+        b.set_opaque(False)
+        assert ink(be, a, region, VIEW) > 0                # premise: the tip is there
+    finally:
+        v.setScene(None)
 
 
 def test_a_held_preview_of_the_lower_block_uses_its_moved_rect(be, monkeypatch):
