@@ -65,6 +65,13 @@ def paper_scene_size(mm: float, paper_scale: float) -> float:
     return float(mm) / max(float(paper_scale), 1e-9)
 
 
+def printed_text_k(text_scale: float, paper_scale: float) -> float:
+    """The paint factor that plots a Printed schematic's text at
+    ``height_mm / text_scale`` through a viewport of *paper_scale* (N15):
+    ``k = 1 / (text_scale * S)``, the scene size of a printed 1 / N."""
+    return paper_scene_size(1.0 / float(text_scale), paper_scale)
+
+
 def frame_scaled(item, defn=None) -> bool:
     """True when *item* sizes by a frame (painter) scale instead of the
     variant: an annotative Fixed-size block on a plan canvas (D4). *defn*

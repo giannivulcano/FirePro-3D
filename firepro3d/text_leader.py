@@ -147,6 +147,9 @@ def box_frame_points(item) -> tuple | None:
     if not rec:
         return None
     a, k = attach_and_knee(_box_mm(item), rec)
+    pp = getattr(item, "_print_pass", None)
+    if pp is not None:                    # a printed pass: the shoulder scales about the knee (N16)
+        a = k + (a - k) * pp[0]
     return a, k, _from_parent(item, QPointF(rec["tip_x"], rec["tip_y"]))
 
 

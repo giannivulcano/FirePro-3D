@@ -488,6 +488,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # (itemChange live-syncs data.x/y from pos).
         self._shrink_eff = False
         self._shrink_off = QPointF(0.0, 0.0)
+        # ``(k, paper_scale)`` for the length of a printed viewport pass (N15),
+        # else None. Set only through set_print_pass.
+        self._print_pass: "tuple[float, float] | None" = None
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -629,13 +632,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         ah = max(d.box_height_mm / s, h) if d.box_height_mm > 0 else h
         return QRectF(0.0, 0.0, aw, ah)
 
+    def _align_fractions(self) -> tuple[float, float]:
+        """The ``align`` x ``valign`` point of a box, as fractions of its size."""
+        return ({"L": 0.0, "C": 0.5, "R": 1.0}.get(self._data.align, 0.0),
+                {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0))
+
     def _shrink_offset(self) -> QPointF:
         """LOCAL offset of the hugged box: its ``align`` x ``valign`` point
         sits on the authored box's (D5, G3)."""
         a = self._authored_rect_local()
         w, h = self._box_size_local()
-        fx = {"L": 0.0, "C": 0.5, "R": 1.0}.get(self._data.align, 0.0)
-        fy = {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0)
+        fx, fy = self._align_fractions()
         return QPointF(fx * (a.width() - w), fy * (a.height() - h))
 
     def _freeze_shrink(self) -> None:
@@ -744,6 +751,40 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     # ── Box geometry ────────────────────────────────────────────────────────
 
+    def set_print_pass(self, value: "tuple[float, float] | None") -> None:
+        """Enter ``(k, paper_scale)`` or leave (None) a printed viewport pass
+        (N15). Paint and bounds change; no stored field or box size does."""
+        self.prepareGeometryChange()       # SB1c D6: painted size != model bounds
+        self._print_pass = value
+        self.update()
+
+    def _print_anchor_local(self) -> QPointF:
+        """The point a printed box scales about, LOCAL unscaled (N16): the knee
+        with a leader, else the box's ``align`` x ``valign`` point."""
+        rec = self._data.leader
+        if rec:
+            s = self.scale() or 1.0
+            _a, k = _tl.attach_and_knee(_tl._box_mm(self), rec)
+            return QPointF(k.x() / s, k.y() / s)
+        r = self._box_rect_local()
+        fx, fy = self._align_fractions()
+        return QPointF(r.left() + fx * r.width(), r.top() + fy * r.height())
+
+    def _print_transform(self, k: float) -> QTransform:
+        """The LOCAL scale by *k* about :meth:`_print_anchor_local`."""
+        a = self._print_anchor_local()
+        m = QTransform()
+        m.translate(a.x(), a.y())
+        m.scale(k, k)
+        m.translate(-a.x(), -a.y())
+        return m
+
+    def _painted_box_local(self) -> QRectF:
+        """The box as painted: :meth:`_box_rect_local`, scaled in a printed pass."""
+        r = self._box_rect_local()
+        pp = self._print_pass
+        return r if pp is None else self._print_transform(pp[0]).mapRect(r)
+
     def _box_rect_local(self) -> QRectF:
         """The box bounding rect in item-local UNSCALED coordinates.
 
@@ -828,11 +869,20 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         weight = self._data.border_weight if weight is None else weight
         line_type = self._data.border_line_type if line_type is None else line_type
         pen = QPen(resolve_colour(self._data.color, item=self))
+        pp = self._print_pass
         pen.setStyle({
             "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
             "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
         }.get(line_type, Qt.PenStyle.SolidLine))
-        if self.is_device_independent():
+        if pp is not None:
+            # A printed pass (N15): true mm through the viewport, in the frame
+            # the painter is in here -- item scale x k x paper scale.
+            from .annotative import paper_scene_size
+            from .paper_display import resolve_line_weight_mm
+            local = (self.scale() or 1.0) * pp[0]
+            pen.setWidthF(max(paper_scene_size(resolve_line_weight_mm(weight), pp[1]) / local,
+                              1e-4))
+        elif self.is_device_independent():
             from .paper_display import resolve_line_weight_mm
             scale = self.scale() or 1.0
             pen.setWidthF(max(resolve_line_weight_mm(weight) / scale, 1e-4))
@@ -850,7 +900,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         is rotated (bake-at-rest), the padded rect's rotated footprint is
         returned so Qt's scene index / culling wraps the real shape.
         """
-        rect = self._box_rect_local()
+        rect = self._painted_box_local()
         s = self.scale() or 1.0
         pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
         base = rect.adjusted(-pad, -pad, pad, pad)
@@ -869,7 +919,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         narrowing shape() breaks Qt's paint culling.
         """
         path = QPainterPath()
-        path.addRect(self._box_rect_local())
+        path.addRect(self._painted_box_local())
         lp = self._leader_path_local()
         if not lp.isEmpty():
             from PyQt6.QtGui import QPainterPathStroker
@@ -1011,6 +1061,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         painter.save()
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
+        pp = self._print_pass
+        if pp is not None:
+            painter.save()
+            painter.setWorldTransform(self._print_transform(pp[0]), True)   # N15
         if self._data.fill_color:
             c = resolve_colour(self._data.fill_color, item=self)   # token-aware
             c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
@@ -1045,6 +1099,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             # Canvas (cosmetic) frame edges draw crisp on the axis (MW-7).
             _cs.stroke_cached(self._frame_split_cache, painter,
                               self._frame_path(), self._frame_pen())
+        if pp is not None:
+            painter.restore()             # the leader paints in the box frame (N16)
         if self._editing and self.is_device_independent():
             # Paper keeps its dashed EDITING frame; the model surface shows the
             # normal selection frame only (spec § Inline edit — no edit frame).
@@ -1089,7 +1145,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         rescaled by the item scale (the painter is scaled by 1/scale here)."""
         pen = self._frame_pen(self._data.leader.get("weight") or None, "solid")
         if not pen.isCosmetic():
-            pen.setWidthF(pen.widthF() * s)
+            k = self._print_pass[0] if self._print_pass is not None else 1.0
+            pen.setWidthF(pen.widthF() * s * k)   # the leader's painter has no k
         return pen
 
     def _paint_document_shifted(self, painter: QPainter, option, widget) -> None:

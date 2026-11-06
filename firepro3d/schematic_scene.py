@@ -165,7 +165,13 @@ class SchematicSceneManager:
             clear_materialized(sc)
             materialize_primitives(sc, d.primitives)
             self._keys[block_id] = (d, d.version)
+        sc.text_print_scale = d.text_print_scale   # N15: read by the paper pass
         return sc
+
+    def text_scale(self, block_id) -> float:
+        """The schematic's drawing scale N when Printed, else 1 (N17)."""
+        d = self._schematic(block_id)
+        return (d.text_print_scale or 1.0) if d is not None else 1.0
 
     def extent(self, block_id) -> "QRectF | None":
         """Padded pen-free bounds of the built scene (None if not built).
