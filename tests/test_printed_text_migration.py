@@ -141,7 +141,19 @@ def test_a_schematic_with_no_text_takes_its_viewport_scale_too(qapp, tmp_path):
     assert (d2.text_sizing, d2.text_scale) == ("printed", pytest.approx(10.0))
 
 
-def test_an_empty_schematic_on_no_sheet_takes_the_project_scale(qapp, tmp_path):
+def test_a_schematic_with_no_text_takes_its_nts_fit(qapp, tmp_path):
+    """Standpipe's own case. The 900 x 400 line pads 2% of 900 per side: 936 x 436 fits
+    180 x 120 by width, so S = 180 / 936 and N = 5.2."""
+    proj = _old_project()
+    defn = _line_schematic(proj)
+    _sheet(proj, defn, 0.0, BOX)
+    path = tmp_path / "old.fpd"
+    _save_as_version(proj, path)
+    d2 = _reopened(path).get_block_definition(defn.id)
+    assert (d2.text_sizing, d2.text_scale) == ("printed", pytest.approx(5.2, abs=0.01))
+
+
+def test_a_textless_schematic_on_no_sheet_takes_the_project_scale(qapp, tmp_path):
     proj = _old_project()
     defn = _line_schematic(proj)
     path = tmp_path / "old.fpd"
