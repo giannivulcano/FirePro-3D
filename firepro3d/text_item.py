@@ -1451,10 +1451,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     _FIT_WIDTH_STEPS = 12     # bisection steps: the box width over 4096, ample for a grip
 
     def _is_tied(self) -> bool:
-        """True when a constraint references this box, so it cannot take more
-        height on its own (notes design N4)."""
+        """True when a live constraint references this box, so it cannot take
+        more height on its own (notes design N4). A suppressed or inert record
+        holds nothing."""
         ctl = getattr(self.scene(), "constraint_ctl", None)
-        return ctl is not None and bool(ctl.constraints_on(self))
+        return ctl is not None and any(
+            c.enabled and not c.inert for c in ctl.constraints_on(self))
 
     def _narrowest_fitting_width(self, width: float, box_h: float, limit: float) -> float:
         """The narrowest local width in ``[width, limit]`` whose wrapped text

@@ -416,11 +416,15 @@ class ReachGripHandle(GripHandle):
     @staticmethod
     def _box_axes(points: list) -> tuple:
         """Unit vectors of the box's width and height axes, in scene units,
-        from grip points 7 to 3 and 1 to 5, so rotation carries no sign rule."""
+        from grip points 7 to 3 and 1 to 5, so rotation carries no sign rule.
+        None when a side has no length, as an empty wrap-off box with no padding
+        has, so there is no axis to measure along."""
         out = []
         for a, b in ((points[7], points[3]), (points[1], points[5])):
             dx, dy = b.x() - a.x(), b.y() - a.y()
             n = math.hypot(dx, dy)
+            if n < ReachGripHandle._AXIS_EPS:
+                return None
             out.append((dx / n, dy / n))
         return tuple(out)
 
@@ -453,6 +457,11 @@ class ReachGripHandle(GripHandle):
             points = item.grip_points()
             start = QPointF(points[self.index])
             axes = self._box_axes(points)
+            if axes is None:                    # a degenerate box: the plain apply
+                self._apply(target, mods)
+                self._after_apply(m, item.grip_points()[self.index])
+                ctl.drag(item, self.index)
+                return
             to_target, to_got = target - start, got - start
             want = [to_target.x() * u + to_target.y() * v for u, v in axes]
             reached = [to_got.x() * u + to_got.y() * v for u, v in axes]

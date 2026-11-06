@@ -275,3 +275,31 @@ def test_an_untied_box_stops_at_the_minimum_width_with_its_left_edge_fixed(block
     assert r.left() == pytest.approx(left, abs=0.05)
     from firepro3d.constants import MIN_TEXT_WRAP_WIDTH_MM
     assert r.width() == pytest.approx(MIN_TEXT_WRAP_WIDTH_MM, abs=0.05)
+
+
+def test_a_disabled_tie_does_not_stop_the_box(block_view):
+    """Review of N4: only a tie that holds the box stops it. A suppressed one holds nothing."""
+    view, scene = block_view
+    item = _box(scene, text="WORD WORD", w=120.0, h=0.0)
+    ctl = scene.constraint_ctl
+    _pin(scene, item, "bl")
+    for c in ctl.constraints_on(item):
+        ctl.set_enabled(c.id, False)
+    one_line = _size(item)[1]
+    assert _drag(view, scene, item, GRIP_RM, (-90.0, 0.0)) == []
+    assert _size(item)[1] > one_line + 1.0
+
+
+def test_a_zero_height_box_axis_falls_back_to_the_plain_apply(block_view):
+    """Review of N2: a box side with no length has no axis to measure along, so the reach
+    keeps the plain apply instead of dividing by zero in a Qt event, which aborts."""
+    from firepro3d.manip_handle import ReachGripHandle
+    assert ReachGripHandle._box_axes([QPointF(5.0, 5.0)] * 8) is None
+    view, scene = block_view
+    item = _box(scene, text="", w=120.0, h=0.0, cell_padding_mm=0.0)
+    item.set_property("Wrap", False)
+    QApplication.processEvents()
+    _pin(scene, item, "center")
+    _drag(view, scene, item, GRIP_BM, (0.0, 20.0))
+    QApplication.processEvents()
+    assert item.scene() is scene
