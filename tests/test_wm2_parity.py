@@ -12,9 +12,12 @@ from tests.test_lt1_block_paper import _line_def, _nested
 # WM2_RECORD=1 (prints the repr): (canvas pixel sum, lit-pixel count,
 # sorted PDF strokes (width pt, x0, y0)). (0.51, 212.49, 198.32) is the
 # block line (75 mm, 70 mm on the A4 sheet); the rest are sheet chrome.
-_GOLDEN = (7751073330, 462, ((0.51, 212.49, 198.32), (0.7083, 186.99, 315.9),
-                             (0.8499, 0.0, 0.0), (0.8499, 184.15, 84.99),
-                             (0.8499, 203.99, 324.39), (1.4166, 28.33, 28.33)))
+# Strokes re-recorded at cf83b4fb (SB4f: the view title is a System block, not the
+# hand-painted strip); canvas pixel sum and lit count are unchanged from base.
+_GOLDEN = (7751073330, 462, ((0.24, 184.15, 313.06), (0.24, 184.15, 313.06),
+                             (0.51, 212.49, 198.32), (0.8499, 0.0, 0.0),
+                             (0.8499, 184.15, 84.99), (0.8499, 206.82, 324.39),
+                             (1.4166, 28.33, 28.33)))
 
 
 def _legacy_scene():
