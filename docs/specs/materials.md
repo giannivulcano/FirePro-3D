@@ -1,7 +1,7 @@
 ---
-status: approved design, build pending
-last-verified: 2026-11-06  # forged by the Materials run; code probed at 5a9e8c4c
-verified-commit: 5a9e8c4c
+status: current           # built 2026-11-06, v0.94.0
+last-verified: 2026-11-06  # Materials Account: as built, Build notes dropped
+verified-commit: b9ce2e00   # Materials merge on main (v0.94.0)
 applies-to:
   - firepro3d/materials.py        # new: the project table, cut resolver, starters, load conversion
   - firepro3d/materials_tab.py    # new: Display Manager Materials tab
@@ -39,8 +39,10 @@ concrete from brick.
   the element, so a table edit reaches the next paint with no refresh pass.
 - **`draw_section_type`:** `type_id=None` draws nothing (the built-in diagonal fallback retires).
   Empty layers also draw nothing, before any paper body.
-- **Placement default:** `apply_category_defaults` stamps the category default on a new wall or
-  slab. It is not on the load path, so a saved id is never overwritten.
+- **Placement default:** placement copies the template's material, then `apply_category_defaults`
+  stamps the category default when that is None or an id the table lacks. It is not on the load
+  path, and wall paste calls it with `stamp_material=False`, so a saved or pasted id is never
+  overwritten. `_clear_scene` resets the templates' material.
 - **Roofs and pipes:** out of scope. A pipe's `Material` (hydraulics text) is unrelated.
 
 ## Design Decisions
@@ -69,7 +71,9 @@ concrete from brick.
 Sits after Fill Types. Edits a working copy; OK installs it, Cancel restores it (the Fill Types
 tab's rule, including `dirty` and the snapshot). Reset All and Set as Default are disabled on it,
 because the table is per project. The Section selector lists the Fill Types tab's working table
-plus **No hatch**, so a type added in the same dialog session can be picked.
+plus **No hatch**, so a type added in the same dialog session can be picked. The list icons
+redraw when the tab is shown. OK re-queries the Properties panel's targets, templates included,
+because the Building Material row lists its options only when the form is built.
 
 ## Input / Output
 
@@ -88,33 +92,14 @@ Element key `material` (a material id), omitted when it is the None material.
 - **File with no `materials` key:** the starters load, adding their Fill Types by name
   (`ensure_named`, project wins on a name clash).
 - **Legacy override:** `from_dict` first converts old `section` keys
-  (`convert_item_section_override`), then turns `section_type` into a material named after the
-  Fill Type, created if absent, and drops the override. Re-running on a snapshot is a no-op.
+  (`convert_item_section_override`), then turns `section_type` into a material that draws that
+  Fill Type: any existing one is reused (a Diagonal override lands on Steel Framed), else one is
+  created with the Fill Type's name. It drops the override. Re-running on a snapshot is a no-op.
 - **Fill Type delete:** a material's reference counts in `type_users`, so it is refused.
 - **Fill Mode Section:** a wall with that mode shows its material's look in plan as it shows the
   category look today; on None it shows nothing.
-- **Unknown material id** (a paste from another project): reads as None; the id stays stored.
-
-## Build notes (probes for the plan; drop at Account)
-
-Confirmed at 5a9e8c4c: `paint_fill` takes `background=None` and `tile_ref=None`; rows key on their
-label (`property_manager.py`), and `Fill Mode` already has a `Section` option; `_cut_items` carries
-each cut's source element, so `section_scene` can resolve per element; `fill_type_bus` has only
-the Display Manager as a listener, so `notify_changed` alone repaints nothing.
-
-Still to probe in the plan:
-
-- `main.py` `new_file`: nothing calls `reset_project_table`, so find how a new project gets its
-  Fill Types, and reset Materials at the same point.
-- Which step of Display Manager OK repaints plan items and rebuilds open sections, so a Materials
-  tab OK reaches them (AC3). `_ElevCutRect` should hold the source element and resolve at paint.
-- `FloorSlab.set_property`: confirm it pushes undo the way `WallSegment` does (AC4).
-- `canonical_ref` spelling for the Concrete, Brick, Cross Hatch and Diagonal starters.
-- The `_category_has_section` consumers, including `hatch_patterns.py` warm-up, the Section column
-  build and the paper tab, before removing the column. `test_hf5_*` and `test_section_rendering.py`
-  pin the retired paths; rewrite them in the same task (VC5).
-- Base `paper_bg` in `draw_section_type` on `layers.background` (M15). The `_ElevCutRect`
-  `paper_body` path shares it.
+- **Unknown material id** (a paste from another project, or undo past a deleted material): reads
+  as None; the id stays stored.
 
 ## Acceptance Criteria
 
@@ -131,8 +116,8 @@ Still to probe in the plan:
 
 ## Verification Checklist
 
-- [ ] Each criterion has a guard driving the real path, shown RED with its rule reverted.
-- [ ] No `section_type` category read remains in `section_scene.py`.
-- [ ] Model tab has no Section column; the Paper Space tab keeps its Section colour.
-- [ ] `hatch-and-fill.md` D-A17, `section-view-subsystem.md` s5, `wall-room-floor-system.md` and
+- [x] Each criterion has a guard driving the real path, shown RED with its rule reverted.
+- [x] No `section_type` category read remains in `section_scene.py`.
+- [x] Model tab has no Section column; the Paper Space tab keeps its Section colour.
+- [x] `hatch-and-fill.md` D-A17, `section-view-subsystem.md` s5, `wall-room-floor-system.md` and
       `display-system.md` link here at Account.
