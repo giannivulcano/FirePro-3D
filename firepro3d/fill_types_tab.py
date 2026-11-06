@@ -33,7 +33,7 @@ def look_pixmap(layers: FillLayers, registry=None, w: int = 40, h: int = 20) -> 
     """A *w* x *h* swatch of a Fill Type's look: the body behind the pattern.
 
     By element (R8) previews in Automatic (the element's colour is only known
-    at paint). Shared by this tab and the Display Manager section selector.
+    at paint). Shared by this tab and the Materials tab's Fill Type selector.
     """
     from .hatch_render import pattern_preview
     bg = layers.background

@@ -1006,7 +1006,7 @@ class DisplayManager(HouseDialog):
         self._elev_settings_snapshot: dict[str, dict] = {}
         for key in ("Grid Line", "Level Datum", "Elevation Marker", "Section Marker", "Wall", "Roof", "Floor"):
             snap: dict = {}
-            for prop in ("color", "fill", "section", "section_pattern", "section_scale", "opacity", "visible"):
+            for prop in ("color", "fill", "opacity", "visible"):
                 v = self._settings.value(f"display/{key}/{prop}")
                 if v is not None:
                     snap[prop] = v
@@ -2776,9 +2776,7 @@ def apply_saved_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys so they win over current keys
         default_ov: dict = {}
-        for prop in ("color", "fill", "section",
-                      "section_pattern", "section_scale", "opacity",
-                      "visible"):
+        for prop in ("color", "fill", "opacity", "visible"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -2805,9 +2803,7 @@ def apply_default_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys (fall back to regular keys)
         default_ov: dict = {}
-        for prop in ("color", "fill", "section",
-                     "section_pattern", "section_scale", "opacity",
-                     "visible"):
+        for prop in ("color", "fill", "opacity", "visible"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -2885,9 +2881,7 @@ def apply_project_display_settings(scene, display_dict: dict):
 
         # User defaults win over project-embedded values
         merged = dict(proj)
-        for prop in ("color", "fill", "section",
-                      "section_pattern", "section_scale", "opacity",
-                      "visible"):
+        for prop in ("color", "fill", "opacity", "visible"):
             user_default = settings.value(f"display/{key}/default_{prop}")
             if user_default is not None:
                 merged[prop] = user_default

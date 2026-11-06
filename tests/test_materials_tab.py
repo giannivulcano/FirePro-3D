@@ -8,6 +8,7 @@ from firepro3d import materials as mt
 from firepro3d.constants import MATERIAL_NONE_ID
 from firepro3d.materials_tab import NO_HATCH_LABEL, MaterialsTab
 from firepro3d.wall import WallSegment
+from tests.test_hf5_guards import FIXTURE, mw  # noqa: F401  (old-file fixture + MainWindow)
 
 
 @pytest.fixture(autouse=True)
@@ -300,3 +301,48 @@ def test_old_category_looks_stop_drawing_and_their_types_stay(qapp, tmp_path):
 def test_no_category_section_symbol_remains():
     assert not hasattr(ft, "category_section_type")
     assert not hasattr(dm, "_category_has_section")
+
+
+def test_cancel_restores_a_walls_previewed_colour_opacity_and_overrides(qapp, model_space):
+    """T7 Cancel guard: a category colour and an instance opacity previewed through
+    the dialog's own handlers are undone by ``reject()`` (the cut-item snapshot)."""
+    w = _wall(model_space)
+    before = (w._display_color, w._display_fill_color, w.opacity(),
+              dict(w._display_overrides))
+    dlg = _dialog(model_space)
+    dlg._update_color_btn(dlg._cat_data["Wall"]["widgets"]["color_btn"], "#ff0000")
+    dlg._on_category_changed("Wall", "color", "#ff0000")
+    dlg._on_instance_changed(w, "opacity", 33)
+    assert w._display_color != before[0]                 # the preview really landed
+    assert w.opacity() != before[2] or w._display_overrides != before[3]
+    dlg.reject()
+    assert (w._display_color, w._display_fill_color, w.opacity(),
+            dict(w._display_overrides)) == before
+
+
+@pytest.mark.parametrize("shape", ["legacy-colour-pattern", "hf5-type-and-look"])
+def test_saving_a_project_opened_from_an_old_file_writes_no_section_keys(
+        mw, tmp_path, shape):
+    """T7: an old file's category section keys (legacy colour / pattern / scale, or
+    ``section_type`` + ``section_look``) open through ``_load_project`` and the next
+    real save (``save_to_file``) writes none of them under any category."""
+    import json
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    for key in ("Wall", "Floor"):
+        ds = payload["display_settings"][key]
+        if shape == "legacy-colour-pattern":
+            ds.update(section="#abcdef", section_pattern="diagonal", section_scale=2.0)
+        else:
+            ds.update(section_type=f"{key} Section",
+                      section_look={"background": {"color": "#123456", "opacity": 1.0}})
+    old = tmp_path / "old_keys.fpd"
+    old.write_text(json.dumps(payload), encoding="utf-8")
+    mw._load_project(str(old))
+    new = tmp_path / "resaved.fpd"
+    mw.scene.save_to_file(str(new), backup=False)
+    saved = json.loads(new.read_text(encoding="utf-8"))
+    banned = {"section", "section_pattern", "section_scale",
+              "section_type", "section_look"}
+    assert saved["display_settings"]
+    for cat, entry in saved["display_settings"].items():
+        assert not banned & set(entry), (cat, sorted(banned & set(entry)))

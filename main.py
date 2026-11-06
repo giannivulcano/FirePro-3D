@@ -764,7 +764,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # was built — seat the live one (I9).
         self.view_3d.reset_for_project(self.scene.scale_manager)
 
-        # Hatch D-A39: every referenced pattern (category section patterns,
+        # Hatch D-A39: every referenced pattern (Fill Type patterns,
         # the wall/floor/roof default) loads from the folder into the baseline.
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
